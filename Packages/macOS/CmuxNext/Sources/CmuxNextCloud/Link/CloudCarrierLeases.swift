@@ -37,34 +37,44 @@ final class CloudCarrierLeases: Sendable {
         }
     }
 
-    /// Takes `path` for `owner`'s launch when no other owner holds it, or anyway with `force`; true when
-    /// `owner` holds it now. A launch that then spawns nothing gives it back (``release(_:by:)``).
-    func claim(_ path: String, by owner: UInt64, force: Bool = false) -> Bool {
+    /// Takes `path` for `owner`'s launch when no other owner holds it, or anyway with `force` (which ends
+    /// whatever claim held it); the claim's token, nil when another owner holds it. The launch spawns only while
+    /// its claim still holds (``holds(_:token:)``), its child takes the claim over (``adopt(_:token:child:)``),
+    /// and a launch that spawns nothing gives it back (``release(_:token:)``).
+    func claim(_ path: String, by owner: UInt64, force: Bool = false) -> UInt64? {
         state.withLock { state in
-            if let holder = state.holders[path], holder.owner != owner, !force { return false }
+            if let holder = state.holders[path], holder.owner != owner, !force { return nil }
             state.last &+= 1
             state.holders[path] = Holder(owner: owner, token: state.last, child: false)
-            return true
+            return state.last
         }
     }
 
-    /// `child` of `owner` holds `path` until it exits.
-    func hold(_ path: String, by owner: UInt64, child: ChildProcess) {
-        let token = state.withLock { state in
-            state.last &+= 1
-            state.holders[path] = Holder(owner: owner, token: state.last, child: true)
-            return state.last
+    /// Whether claim `token` still holds `path` (no other claim took it since).
+    func holds(_ path: String, token: UInt64) -> Bool {
+        state.withLock { $0.holders[path]?.token == token }
+    }
+
+    /// `child` takes over claim `token` and holds `path` until it exits; false, with nothing changed, when
+    /// another claim took `path` since.
+    func adopt(_ path: String, token: UInt64, child: ChildProcess) -> Bool {
+        let adopted = state.withLock { state in
+            guard let holder = state.holders[path], holder.token == token else { return false }
+            state.holders[path] = Holder(owner: holder.owner, token: token, child: true)
+            return true
         }
+        guard adopted else { return false }
         // task-owner: ends when the child exits (every serve child exits once its stdin closes, or at SIGTERM)
         Task {
             _ = await child.waitForExit()
             self.remove(path) { $0.token == token }
         }
+        return true
     }
 
-    /// Gives back `owner`'s claim of `path` that no child took over.
-    func release(_ path: String, by owner: UInt64) {
-        remove(path) { $0.owner == owner && !$0.child }
+    /// Gives back claim `token` of `path` when no child took it over.
+    func release(_ path: String, token: UInt64) {
+        remove(path) { $0.token == token && !$0.child }
     }
 
     /// Returns once `path` changed hands (another owner gave it up), or at `deadline`; at once when no other

@@ -79,8 +79,10 @@ public actor CloudCarrierServe {
     /// Events queued while an earlier one's effects run: each event's effects all run before the next reduces.
     private var queue: [ServeMachine.Event] = []
     private var reducing = false
-    /// This serve holds a socket claim (``CloudCarrierLeases``) that no child has taken over yet.
-    private var claimed = false
+    /// This serve's socket claim (``CloudCarrierLeases``) that no child has taken over yet, by its token.
+    private var claim: UInt64?
+    /// Claims taken for an epoch whose `socketClaimed` has not been reduced yet.
+    private var claims: [ServeMachine.Epoch: UInt64] = [:]
     private var children: [ServeMachine.ChildID: ChildProcess] = [:]
     /// Each child's hold in its connector's ``CloudCarrierStreams``: an account end closes it at once.
     private var holds: [ServeMachine.ChildID: Int] = [:]
@@ -164,12 +166,15 @@ public actor CloudCarrierServe {
             if !machine.isTerminal, connector.isFenced {
                 for effect in machine.reduce(.accountEnded) { run(effect) }
             }
-            if case .socketClaimed = next { claimed = true }
+            if case .socketClaimed(let epoch) = next, let token = claims.removeValue(forKey: epoch) {
+                // Only the launch in flight owns a claim; a stale one goes straight back.
+                if machine.state == .claiming(epoch) { claim = token } else { leases.release(socket, token: token) }
+            }
             for effect in machine.reduce(next) { run(effect) }
             // A claim that no child took over (the launch failed or stopped before its spawn) goes back.
-            if claimed, !machine.launching {
-                claimed = false
-                leases.release(socket, by: leaseOwner)
+            if let token = claim, !machine.launching {
+                claim = nil
+                leases.release(socket, token: token)
             }
             if case .childExit(let child, _) = next {
                 children[child] = nil
@@ -181,7 +186,7 @@ public actor CloudCarrierServe {
 
     private func run(_ effect: ServeMachine.Effect) {
         switch effect {
-        case .claimSocket(let epoch): claim(epoch)
+        case .claimSocket(let epoch): claimSocket(epoch)
         case .readToken(let epoch, let read): readToken(epoch, read: read)
         case .spawn(let child, let environment): spawn(child, environment: environment)
         case .hold(let child): hold(child)
@@ -222,8 +227,9 @@ public actor CloudCarrierServe {
     /// The socket lease: at once when no other instance holds the path, else once it gave it up (bounded by
     /// ``leaseWait``, then taken anyway). The claim is atomic, so two instances waiting on one exit never both
     /// launch.
-    private func claim(_ epoch: ServeMachine.Epoch) {
-        if leases.claim(socket, by: leaseOwner) {
+    private func claimSocket(_ epoch: ServeMachine.Epoch) {
+        if let token = leases.claim(socket, by: leaseOwner) {
+            claims[epoch] = token
             queue.append(.socketClaimed(epoch))
             return
         }
@@ -232,8 +238,8 @@ public actor CloudCarrierServe {
         // task-owner: ends once this epoch holds the socket, at leaseWait, or when the serve left this claim
         Task { [weak self] in
             while let serve = self, await serve.isClaiming(epoch) {
-                if leases.claim(socket, by: owner, force: ContinuousClock.now >= deadline) {
-                    await serve.send(.socketClaimed(epoch))
+                if let token = leases.claim(socket, by: owner, force: ContinuousClock.now >= deadline) {
+                    await serve.claimed(epoch, token: token)
                     return
                 }
                 await leases.released(socket, besides: owner, until: deadline)
@@ -242,6 +248,11 @@ public actor CloudCarrierServe {
     }
 
     private func isClaiming(_ epoch: ServeMachine.Epoch) -> Bool { machine.state == .claiming(epoch) }
+
+    private func claimed(_ epoch: ServeMachine.Epoch, token: UInt64) {
+        claims[epoch] = token
+        send(.socketClaimed(epoch))
+    }
 
     private func readToken(_ epoch: ServeMachine.Epoch, read: ServeMachine.ReadID) {
         let connector = connector
@@ -264,6 +275,11 @@ public actor CloudCarrierServe {
     }
 
     private func spawn(_ child: ServeMachine.ChildID, environment fresh: [String: String]) {
+        // Another serve took the socket over while this launch read its token: it spawns nothing.
+        guard let token = claim, leases.holds(socket, token: token) else {
+            queue.append(.spawned(child: child, failure: CloudCarrierDial.socketTaken))
+            return
+        }
         let environment = ProcessInfo.processInfo.environment.merging(fresh) { $1 }
         let process = ChildProcess(executable: connector.cli, arguments: connector.dial.serveArguments(socket: socket), environment: environment)
         do {
@@ -273,9 +289,15 @@ public actor CloudCarrierServe {
             queue.append(.spawned(child: child, failure: .disconnected(reason: "cmux carrier serve did not start: \(error.localizedDescription)")))
             return
         }
+        // A takeover between the check above and the start: the child goes before it serves.
+        guard leases.adopt(socket, token: token, child: process) else {
+            process.closeInput()
+            process.terminate()
+            queue.append(.spawned(child: child, failure: CloudCarrierDial.socketTaken))
+            return
+        }
+        claim = nil
         children[child] = process
-        leases.hold(socket, by: leaseOwner, child: process)
-        claimed = false
         let check = check
         // One reader per child, in order: every stderr line, then the end of stderr, then the exit.
         // task-owner: ends with the child's stderr and its exit
