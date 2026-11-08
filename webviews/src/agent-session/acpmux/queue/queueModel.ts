@@ -225,10 +225,7 @@ export function queueReasons(item: QueueItem): QueueReason[] {
 /// The review verdict a pull request item sends (`_acpmux/review_verdict`): acpmux records it
 /// on this Mac for the chat that made the PR, so it needs that chat, and another machine's PR has
 /// none here (its row opens its chat instead). The wire says `accepted` or `changes`.
-export function verdictParams(
-  item: QueueItem,
-  verdict: "accept" | "changes",
-): Record<string, unknown> | undefined {
+export function verdictParams(item: QueueItem, verdict: "accept" | "changes"): Record<string, unknown> | undefined {
   if (item.kind !== "pr" || !item.prUrl || !item.sessionId || item.host) return undefined;
   return {
     prUrl: item.prUrl,
