@@ -52,20 +52,31 @@ pub(super) fn action(command_args: &[String]) -> Option<Result<(String, Vec<Stri
     Some(Ok((format!("share {verb}"), args)))
 }
 
-/// `share chat --view-only [flags]`: a link whose guests watch only, as `--role=view` (the
-/// daemon's `agent-session-share-create {role: "view"}`). `--view-only` with a `--role` is refused;
-/// without `--view-only` the words go on as typed (`--role view` already reaches the action).
+/// `share chat --view-only [flags]`: a link where nobody sends, as `--role=view
+/// --signed-in-role=view` (the daemon's `agent-session-share-create {role: "view",
+/// signed_in_role: "view"}`: anonymous link guests always watch, and signed-in ones watch too).
+/// `--view-only` with a `--role` or `--signed-in-role` is refused; without `--view-only` the words
+/// go on as typed (`--role view` and `--signed-in-role view` reach the action as they are).
 fn chat_action(rest: &[String]) -> Option<Result<(String, Vec<String>), String>> {
     let view_only = rest.iter().filter(|word| *word == "--view-only").count();
     if view_only == 0 {
         return None;
     }
-    if view_only > 1 || argument_keys(rest).iter().any(|key| key == "role") {
-        return Some(Err("share chat: give --view-only or --role, once".to_owned()));
+    if view_only > 1 || argument_keys(rest).iter().any(|key| key == "role" || key == "signedInRole")
+    {
+        return Some(Err(
+            "share chat: give --view-only, or --role and --signed-in-role, once".to_owned()
+        ));
     }
     let args = rest
         .iter()
-        .map(|word| if word == "--view-only" { "--role=view".to_owned() } else { word.clone() })
+        .flat_map(|word| {
+            if word == "--view-only" {
+                vec!["--role=view".to_owned(), "--signed-in-role=view".to_owned()]
+            } else {
+                vec![word.clone()]
+            }
+        })
         .collect();
     Some(Ok(("share chat".to_owned(), args)))
 }
@@ -393,13 +404,16 @@ mod tests {
         );
     }
 
-    /// `share chat --view-only` asks for a link whose guests watch only; the action parser reads it
-    /// as `role: "view"`.
+    /// `share chat --view-only` asks for a link where nobody sends; the action parser reads it as
+    /// `role: "view"` and `signedInRole: "view"`.
     #[test]
     fn share_chat_view_only_names_the_view_role() {
         assert_eq!(
             action(&words("share chat --surface 3 --view-only --json")),
-            Some(Ok(("share chat".to_owned(), words("--surface 3 --role=view --json"))))
+            Some(Ok((
+                "share chat".to_owned(),
+                words("--surface 3 --role=view --signed-in-role=view --json")
+            )))
         );
         let Some(Ok((name, args))) = action(&words("share chat --view-only --ttl 1h")) else {
             panic!("share chat --view-only is rewritten")
@@ -411,9 +425,12 @@ mod tests {
             panic!("share chat is an action call")
         };
         assert_eq!(params["args"]["role"], "view", "{params}");
+        assert_eq!(params["args"]["signedInRole"], "view", "{params}");
         for text in [
             "share chat --view-only --role talk",
             "share chat --view-only --role=view",
+            "share chat --view-only --signed-in-role talk",
+            "share chat --view-only --arg signedInRole=view",
             "share chat --view-only --view-only",
         ] {
             assert!(matches!(action(&words(text)), Some(Err(_))), "{text}");
