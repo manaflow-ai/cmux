@@ -39,9 +39,11 @@ export function TestTampering({ rows, sessionId, turnId, onRestore }: TestTamper
   const readOnly = useTranscriptReadOnly();
   const t = useT();
   const bodyId = useId();
+  const restorableEvidence = evidence.filter((finding) => finding.new.length > 0);
   const allRestored =
-    evidence.length > 0 && evidence.every((finding) => state.restored.has(tamperingEvidenceKey(finding)));
-  const canRestore = evidence.every((finding) => finding.new.length > 0);
+    restorableEvidence.length > 0 &&
+    restorableEvidence.every((finding) => state.restored.has(tamperingEvidenceKey(finding)));
+  const canRestore = restorableEvidence.length > 0;
   if (evidence.length === 0) return null;
 
   const restoreAll = async () => {
@@ -168,6 +170,7 @@ async function restoreFindings(
   restored: ReadonlySet<string>,
 ): Promise<void> {
   for (const [index, finding] of evidence.entries()) {
+    if (finding.new.length === 0) continue;
     const evidenceKey = tamperingEvidenceKey(finding);
     if (restored.has(evidenceKey)) continue;
     await restore(finding, index, evidence);

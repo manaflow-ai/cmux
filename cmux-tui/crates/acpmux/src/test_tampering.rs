@@ -249,8 +249,8 @@ fn detect_edits(edits: Vec<Edit>) -> Vec<FileReport> {
                     fewer_assertions,
                     more_skips,
                     new_assertions,
-                    move_signature(old),
-                    move_signature(new),
+                    move_signature(language, old),
+                    move_signature(language, new),
                 ),
             )
         })
@@ -271,15 +271,33 @@ fn detect_edits(edits: Vec<Edit>) -> Vec<FileReport> {
         for hunk in &edit.hunks {
             let old_assertions = assertions(edit.language, &hunk.old_code);
             let new_assertions = assertions(edit.language, &hunk.new_code);
-            let reason = if test_markers(edit.language, &hunk.old_code)
-                > test_markers(edit.language, &hunk.new_code)
-                && !new_moves.contains(&move_signature(&hunk.old_code))
+            let old_test_markers = test_markers(edit.language, &hunk.old);
+            let new_test_markers = test_markers(edit.language, &hunk.new);
+            let old_move = move_signature(edit.language, &hunk.old_code);
+            let new_move = move_signature(edit.language, &hunk.new_code);
+            let old_block_move = move_signature(edit.language, &hunk.old);
+            let new_block_move = move_signature(edit.language, &hunk.new);
+            let test_name_changed = test_names(&hunk.old) != test_names(&hunk.new);
+            let shared_assertion_subject = old_assertions.iter().any(|old| {
+                !old.subject.is_empty()
+                    && new_assertions.iter().any(|new| new.subject == old.subject)
+            });
+            let replaced_test = old_test_markers > 0
+                && old_test_markers == new_test_markers
+                && test_name_changed
+                && old_block_move != new_block_move
+                && !new_moves.contains(&old_move)
+                && !old_moves.contains(&new_move)
+                && skips(edit.language, &hunk.new_code) <= skips(edit.language, &hunk.old_code)
+                && !shared_assertion_subject;
+            let reason = if (old_test_markers > new_test_markers || replaced_test)
+                && !new_moves.contains(&old_move)
             {
                 Some(("removed-test", "A test was removed from this edit."))
             } else if *more_skips
                 && skips(edit.language, &hunk.new_code) > skips(edit.language, &hunk.old_code)
                 && !(test_markers(edit.language, &hunk.new_code) > 0
-                    && old_moves.contains(&move_signature(&hunk.new_code)))
+                    && old_moves.contains(&move_signature(edit.language, &hunk.new_code)))
             {
                 Some(("introduced-skip", "This edit introduces a test skip or ignore."))
             } else if allowlist_totals[&edit.language].1 > allowlist_totals[&edit.language].0
@@ -427,10 +445,25 @@ struct Assertion {
 fn compact(text: &str) -> String {
     text.chars().filter(|ch| !ch.is_whitespace()).collect()
 }
-fn move_signature(code: &str) -> String {
+fn move_signature(language: Language, code: &str) -> String {
     static NAME: OnceLock<Regex> = OnceLock::new();
     // Renaming a function doesn't change the behavior of a moved test.
-    compact(&pattern(&NAME, r"\b(fn|def|func)\s+\w+").replace_all(code, "$1 _"))
+    let mut normalized = compact(&pattern(&NAME, r"\b(fn|def|func)\s+\w+").replace_all(code, "$1 _"));
+    // Assertion syntax can change while the test itself moves (for example,
+    // Rust's assert_eq!(value, expected) to assert!(value == expected)).
+    // Preserve the subject and strength so those equivalent moves remain quiet.
+    for assertion in assertions(language, code) {
+        let token = format!("assertion:{}:{}", assertion.subject, assertion.strength);
+        normalized = normalized.replacen(&assertion.signature, &token, 1);
+    }
+    normalized
+}
+fn test_names(code: &str) -> Vec<String> {
+    static NAME: OnceLock<Regex> = OnceLock::new();
+    pattern(&NAME, r"\b(?:fn|def|func)\s+([A-Za-z_]\w*)")
+        .captures_iter(code)
+        .filter_map(|capture| capture.get(1).map(|name| name.as_str().to_owned()))
+        .collect()
 }
 fn assertions(language: Language, code: &str) -> Vec<Assertion> {
     if language == Language::Python {
@@ -948,6 +981,17 @@ mod tests {
         let report = detect_diffs(&value).expect("real removal");
         assert_eq!(report["files"][0]["path"], "tests/removed.rs");
         assert_eq!(report["files"][0]["findings"][0]["kind"], "removed-test");
+    }
+
+    #[test]
+    fn reports_an_unrelated_test_replacement_in_one_hunk() {
+        let old = "#[test]\nfn validates_auth() { assert_eq!(token, 1); }";
+        let new = "#[test]\nfn smoke() { assert_eq!(ready, 1); }";
+        let findings = detect_text("tests/auth.rs", old, new, 1);
+        assert_eq!(findings.first().map(|finding| finding.kind), Some("removed-test"));
+
+        let stronger = "#[test]\nfn validates_auth() { assert!(token == 1); }";
+        assert!(detect_text("tests/auth.rs", old, stronger, 1).is_empty());
     }
 
     #[test]
