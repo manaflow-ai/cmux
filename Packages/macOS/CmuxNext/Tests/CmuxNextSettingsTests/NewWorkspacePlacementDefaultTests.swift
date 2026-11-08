@@ -8,7 +8,7 @@ import Testing
 /// after the daemon's create shows no jump. `top` and `bottom` stay choices.
 struct NewWorkspacePlacementDefaultTests {
     @Test func anEmptyConfigPlacesNewWorkspacesAfterTheCurrentOne() {
-        #expect(CmuxConfigSnapshot.newWorkspacePlacementFallback == .afterCurrent)
+        #expect(CmuxConfigSnapshot.newWorkspacePlacementDefault == .afterCurrent)
         let snapshot = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
         #expect(snapshot.newWorkspacePlacement == .afterCurrent, "an empty cmux-next.json reads with the afterCurrent rule")
         #expect(SettingsSchema.descriptor(for: ["workspaces", "newPlacement"])?.defaultValue == .string("afterCurrent"))

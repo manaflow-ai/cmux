@@ -73,7 +73,7 @@ public nonisolated struct KeyBindingDefaults {
     ]
 
     /// The Chief chat's zoom: every key of theirs (a default, a cmux.json or a Settings rebind) runs only
-    /// where ``onHome`` holds, so a rebind never zooms the Chief chat from a terminal or a browser.
+    /// where ``onChiefZoom`` holds, so a rebind never zooms the Chief chat from a terminal or a browser.
     public static let homeScoped: Set<ActionID> = ["home.zoomIn", "home.zoomOut", "home.zoomReset"]
 
     /// The tab keys on Home: the keys that cycle a pane's tabs move through Home's chat list in
@@ -133,11 +133,12 @@ public nonisolated struct KeyBindingDefaults {
                    when: .and([notTerminal, .not(.has(KeyContext.codeEditorFocusedKey))])),
         // Cmd-Shift-R on Home: Reply to Selection (free in the defaults; Cmd-R is Rename Tab and Reload).
         KeyBinding(keys: [Shortcut("r", modifiers: [.command, .shift])], command: "home.replyToSelection", when: onHome),
-        // Cmd-= / Cmd-+ / Cmd-- / Cmd-0 on Home zoom the Chief chat, as they zoom an agent chat or a page.
-        KeyBinding(keys: [Shortcut("=", modifiers: [.command])], command: "home.zoomIn", when: onHome),
-        KeyBinding(keys: [Shortcut("=", modifiers: [.command, .shift])], command: "home.zoomIn", when: onHome),
-        KeyBinding(keys: [Shortcut("-", modifiers: [.command])], command: "home.zoomOut", when: onHome),
-        KeyBinding(keys: [Shortcut("0", modifiers: [.command])], command: "home.zoomReset", when: onHome),
+        // Cmd-= / Cmd-+ / Cmd-- / Cmd-0 on Home and on Bring your history zoom the Chief chat, as they
+        // zoom an agent chat or a page.
+        KeyBinding(keys: [Shortcut("=", modifiers: [.command])], command: "home.zoomIn", when: onChiefZoom),
+        KeyBinding(keys: [Shortcut("=", modifiers: [.command, .shift])], command: "home.zoomIn", when: onChiefZoom),
+        KeyBinding(keys: [Shortcut("-", modifiers: [.command])], command: "home.zoomOut", when: onChiefZoom),
+        KeyBinding(keys: [Shortcut("0", modifiers: [.command])], command: "home.zoomReset", when: onChiefZoom),
         // Cmd-W in the sidebar with several rows selected closes them, as Chrome's Cmd-W closes its
         // selected tabs (Leo 2026-10-20); with one row selected it still closes the shown tab.
         KeyBinding(keys: [Shortcut("w", modifiers: [.command])], command: "closeWorkspace", when: sidebarMultiSelection),
@@ -152,6 +153,21 @@ public nonisolated struct KeyBindingDefaults {
         .equals(KeyContext.surfaceKind, .string("home")),
         .equals(KeyContext.surfaceKind, .string("home-dock")),
     ])
+
+    /// The `topPage` of a window that shows Bring your history on top (the first-run import over Home).
+    public static let historyImportTopPage = "import-history"
+
+    /// Bring your history (`cmux.import-history`) is the window's top page, or has the keyboard in a
+    /// pane. It follows Agent Chat Zoom (`PageWebView.followsChatZoom`). As on Home, the top page takes
+    /// the zoom keys wherever the window's keyboard is (a sidebar click leaves it shown).
+    public static let onHistoryImport = WhenClause.or([
+        .equals(KeyContext.topPage, .string(historyImportTopPage)),
+        .equals(KeyContext.pageID, .string("cmux.import-history")),
+    ])
+
+    /// Where the Chief chat's zoom keys run: Home, and Bring your history, whose page zooms with the
+    /// Chief chat (issue 38049: Cmd-= / Cmd-- did nothing on the first-run import).
+    public static let onChiefZoom = WhenClause.or([onHome, onHistoryImport])
 
     /// The arrow aliases for pane resize. These are defaults in addition to
     /// each action's catalog Ctrl-Shift H/J/K/L key, and disappear when a user

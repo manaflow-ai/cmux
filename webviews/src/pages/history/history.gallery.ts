@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample history), not shipped UI.
 import { minutesAgo } from "../../gallery/clock";
 import { historyPageEntry } from "../../gallery/format";
-import type { HistoryEntry } from "./types";
+import type { CookieBackup, HistoryEntry } from "./types";
 
 const ago = (hours: number) => minutesAgo(hours * 60);
 
@@ -97,6 +97,12 @@ const many = Array.from({ length: 48 }, (_, index): HistoryEntry => ({
   available: index % 4 !== 0,
 }));
 
+const backups: CookieBackup[] = [
+  { id: "app:0001", site: "accounts.example.test", created_at_ms: ago(0.5) },
+  { id: "app:0002", site: "shop.example.test", created_at_ms: ago(30) },
+  { id: "app:0003", created_at_ms: ago(80) },
+];
+
 export default historyPageEntry({
   id: "pages.history",
   title: "History",
@@ -113,7 +119,12 @@ export default historyPageEntry({
       reason: "A history mutation refusal should announce its result within a quarter second.",
     },
   },
-  covers: ["page:cmux.history", "pages/history/HistoryPage.tsx#HistoryPage", "pages/history/KindIcon.tsx#KindIcon"],
+  covers: [
+    "page:cmux.history",
+    "pages/history/HistoryPage.tsx#HistoryPage",
+    "pages/history/KindIcon.tsx#KindIcon",
+    "pages/history/CookieBackups.tsx#CookieBackupsPanel",
+  ],
   variants: {
     empty: { note: "No history entries have been recorded.", entries: [] },
     loading: {
@@ -180,6 +191,68 @@ export default historyPageEntry({
         await ctx.waitFor(() => ctx.document.querySelectorAll(".page-menu-item").length === 5);
         await ctx.click({ role: "menuitem", name: "All Time" });
         await ctx.waitFor(() => rows() === 0);
+      },
+    },
+    "cookie-backups": {
+      note: "Cookie Backups over the timeline: two sites an agent cleared and one backup this Mac can no longer open.",
+      entries,
+      cookieBackups: backups,
+      query: { cookieBackups: true },
+    },
+    "cookie-backups-empty": {
+      note: "Cookie Backups with nothing kept: Delete All is off.",
+      entries,
+      cookieBackups: [],
+      query: { cookieBackups: true },
+    },
+    "cookie-backups-row-menu": {
+      note: "A backup row has no Delete button of its own: its right-click menu holds Delete.",
+      entries,
+      cookieBackups: backups,
+      query: { cookieBackups: true },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".history-sheet-row").length === 3);
+        if (ctx.document.querySelector(".history-sheet-row button")) throw new Error("a backup row has a button");
+        await ctx.contextMenu({ selector: ".history-sheet-row" });
+        await ctx.waitFor(() => ctx.document.querySelector(".page-menu-item.destructive"));
+      },
+    },
+    "cookie-backups-delete": {
+      note: "Shift-F10 on the focused bottom row opens its menu; Delete asks in the app's dialog (the gallery answers Delete) and the row goes.",
+      entries,
+      cookieBackups: backups,
+      query: { cookieBackups: true },
+      play: async (ctx) => {
+        const rows = () => ctx.document.querySelectorAll(".history-sheet-row").length;
+        await ctx.waitFor(() => rows() === 3);
+        // The bottom row, so no row moves when it goes.
+        await ctx.focus({ selector: ".history-sheet-row:last-child" });
+        await ctx.press("Shift+F10");
+        await ctx.waitFor(() => ctx.document.querySelector(".page-menu-item.destructive"));
+        await ctx.click({ selector: ".page-menu-item.destructive" });
+        await ctx.waitFor(() => rows() === 2);
+        await ctx.waitFor(() => !ctx.document.querySelector(".page-menu"));
+      },
+    },
+    "cookie-backups-focus-trap": {
+      note: "The panel is modal: Tab past Done goes to the first row and Shift-Tab back to Done; focus never reaches the timeline.",
+      entries,
+      cookieBackups: backups,
+      query: { cookieBackups: true },
+      play: async (ctx) => {
+        const dialog = () => ctx.document.querySelector<HTMLDialogElement>("dialog.history-sheet");
+        const inside = () => !!dialog()?.contains(ctx.document.activeElement);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".history-sheet-row").length === 3);
+        if (!dialog()?.matches(":modal")) throw new Error("Cookie Backups is not a modal dialog");
+        await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("history-sheet-done"));
+        await ctx.press("Tab");
+        await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("history-sheet-row"));
+        for (let step = 0; step < 6; step += 1) {
+          await ctx.press(step < 3 ? "Shift+Tab" : "Tab");
+          if (!inside()) throw new Error(`focus left the dialog after step ${step + 1}`);
+        }
+        await ctx.press("Shift+Tab");
+        await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("history-sheet-done"));
       },
     },
     "not-found-error": {
