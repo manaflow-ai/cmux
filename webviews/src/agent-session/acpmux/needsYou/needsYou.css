@@ -423,8 +423,7 @@
 }
 
 /* The Needs your input pill: Jump to latest's glass (tint, rim, hover wash), widened to a capsule.
-   It reads as the question card's pill (QuestionCard.tsx .acpmux-question-status) and Claude
-   desktop's: the Needs you dot, the words in the mark's colour at regular weight, a muted chevron
+   It reads as the question card's pill (QuestionCard.tsx .acpmux-question-status): the Needs you dot, the words in the mark's colour at regular weight, a muted chevron
    (Leo 2026-11-05, of the bold block it was: "kind of ugly"). */
 .acpmux-jump-latest.acpmux-needs-you-pill {
   display: inline-flex;
