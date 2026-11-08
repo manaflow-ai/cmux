@@ -48,6 +48,9 @@ fi
 
 A tagged dev build whose bundle id holds characters outside `A-Za-z0-9._-` uses
 `<bundle>--<hash>` instead of the bundle id in these folder names; `ls ~/.acpmux/builds` shows it.
+A Chief signed in to another account has its own home beside `$CHIEF_DIR`: `$CHIEF_DIR@<account>`
+(for NIGHTLY, `~/.cmux/chief/<account>`). `ls ~/.cmux/chief` shows them; treat each like
+`$CHIEF_DIR` below.
 
 A dev build tagged `nightly`, `rc`, `staging` or `cmux-next`, and the untagged
 `com.cmuxterm.app.debug`, don't use their tag: their session is `cmux-app--<hash>` and their daemon
@@ -81,9 +84,11 @@ programs running in them:
 
 Stopping a daemon that isn't running succeeds. Each session's socket is named after it, so
 `ls "${TMPDIR%/}/cmux-tui-$(id -u)"` lists the running sessions (`cmux-app-<tag>.sock`, or
-`cmux-app--<hash>.sock` for the builds in step 1's note); set `SESSION` to that name without `.sock`. Quitting also leaves the Chief running (its brain,
-`optchat-chief`, holds a lock in its home so only one writer uses it). Stop it before you delete
-that home in step 7:
+`cmux-app--<hash>.sock` for the builds in step 1's note); set `SESSION` to that name without
+`.sock`.
+
+Quitting also leaves the Chief running (its brain, `optchat-chief`, holds a lock in its home so
+only one writer uses it). Stop it before you delete that home in step 7:
 
 ```sh
 "$APP/Contents/Resources/bin/cmux" chief shutdown --chief-home "$CHIEF_DIR"
@@ -110,11 +115,15 @@ ps -axo pid,ppid,command | grep -E '[c]mux-tui|[c]mux-holder|[a]cpmux|[o]ptchat-
 
 Every cmux-next build's processes match. Stop only the ones you recognize as this build's (the
 `--session cmux-app-<tag>` or socket in the command line, or a path under `$ACPMUX_DIR`), one pid
-at a time:
+at a time, and wait for it to exit before you go on. A process can still be writing its files
+for a moment after it gets the signal:
 
 ```sh
 kill <pid>
+ps -p <pid>        # until it prints only the header; after 10 seconds: kill -9 <pid>
 ```
+
+Run the `ps -axo` check again before step 7. Delete nothing while this build's processes run.
 
 Don't use `pkill` or `killall` here: they'd also end the daemons of every other build, and classic.
 
@@ -198,8 +207,8 @@ This build's own folders:
 | `$SUPPORT/managed-status.$BUNDLE.json` | Managed settings status |
 | `$SUPPORT/$TAG/debug-tunables.json` | Debug Settings overrides (DEV, NIGHTLY, cmux NEXT and tagged builds; other builds keep it in `$BUILD_DIR`) |
 | `~/Library/Application Support/cmux-next/$BUNDLE` | **Loses your data.** Kept previous versions for rollback (`versions`) and the copy of classic's files read on migration (`classic-migration`) |
-| `~/Library/Application Support/$BUNDLE` | Backdrop images, table widths, and the `instance.lock` and `instance.owner` that keep one copy running |
-| `~/Library/WebKit/$BUNDLE` | **Loses your data.** Browser tabs' cookies, logins and site data |
+| `~/Library/Application Support/$BUNDLE` | Browser profiles (`BrowserProfiles`), backdrop images, table widths, and the `instance.lock` and `instance.owner` that keep one copy running |
+| `~/Library/WebKit/$BUNDLE` | **Loses your data.** Browser tabs' cookies, logins and site data. Each cmux browser profile has its own WebKit store, named by the profile's id (listed in `~/Library/Application Support/$BUNDLE/BrowserProfiles/profiles.json`), under `WebsiteDataStore/` here |
 | `~/Library/Caches/$BUNDLE` | Caches (update downloads, release notes) |
 | `~/Library/HTTPStorages/$BUNDLE` | macOS's network cache for the app |
 | `~/Library/Saved Application State/$BUNDLE.savedState` | macOS's window state |
@@ -228,11 +237,16 @@ Shared by every cmux-next build. Delete these only when you remove the last one:
 | `~/.config/cmux/` (other files: `machine-secrets.env`, `cloud-secrets.json`, `git-hosts/`, `themes/`, `skills/`, `server.json`, `web-dev.json`, `host-budget.json`) | **Loses your data.** Secrets, Git host tokens, themes and skills. `cmux.json` here is classic's |
 | `~/Library/Application Support/cmux-tui` | The default session state root (`sessions`) and the copied daemon binaries (`host-exe`) |
 | `$SUPPORT/Chat Uploads` | **Loses your data.** Files attached to chats |
+| `$SUPPORT/agent-home` | **Loses your data.** The folder chats with no project run in, and what agents wrote there |
+| `$SUPPORT/voice-room` | Voice Room keyframes (Labs) |
+| `$SUPPORT/login-environment.json` | Your login shell's environment, captured for agents |
+| `$SUPPORT/server-fix-ledger` | Which power settings the server helper changed (step 2) |
 | `$SUPPORT/last-app-cli` | Which app's CLI ran last |
 | `~/Library/Logs/cmux-next` | Crash reports and updater logs of every build |
-| `~/Applications/.cmux NEXT DEV.app.installed` | What the DEV update script installed last |
+| `"$(dirname "$APP")/.$(basename "$APP").installed"` | What the DEV update script installed last, beside the app (DEV only) |
 
-Sockets and locks are rebuilt on launch, and safe to delete when no cmux-next build runs:
+Sockets and locks are rebuilt on launch. These folders hold every running build's sockets, so
+delete them only when no cmux build runs at all, classic included:
 
 ```sh
 rm -rf "${TMPDIR%/}/cmux-tui-$(id -u)" /tmp/cmux-tui-$(id -u) /tmp/cmux-th-$(id -u) \
