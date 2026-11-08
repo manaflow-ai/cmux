@@ -356,9 +356,9 @@ impl Hub {
                     None => unique_name_among(&sessions, agent),
                 },
             };
+            meta.wait_start = wait_start;
             let session = self.make_session(meta);
             session.person.store(person, Ordering::SeqCst);
-            session.wait_start.store(wait_start, Ordering::SeqCst);
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
                 fork_from.clone();
             // Read before the session is published: a stop from then on ends its first start.
@@ -926,8 +926,8 @@ impl Hub {
             // (`cpu_class.rs`, item 3). Each try has the whole budget: a caller waits up to twice
             // that (Chief's `SESSION_NEW_DEADLINE`).
             // A start that waits on its harness ends with None only when its harness did no work
-            // for `START_HUNG` (`StartWatch`): a fault, said apart from a missed deadline, which
-            // the Chief retries as a slow machine.
+            // for `START_HUNG` (`StartWatch`): said apart from a missed deadline, so its caller
+            // does not wait on it again; Chief starts a fresh harness (`turn::is_hung_start`).
             let hung =
                 !session.person.load(Ordering::SeqCst) && session.wait_start.load(Ordering::SeqCst);
             if let Some(state) = harness.background().filter(|_| !retried) {
@@ -2070,7 +2070,10 @@ mod fixed_id_tests {
 /// wait bounds that.
 #[derive(Default)]
 struct StartWatch {
-    last: Option<crate::cpu_class::HarnessState>,
+    /// The read the next is judged against, and when it was taken. Kept until a later read
+    /// shows work or a [`WORK_WINDOW`](crate::cpu_class::WORK_WINDOW) has passed, so a short tick
+    /// sums a launcher's runtime ticks over a whole window instead of judging each alone.
+    last: Option<(crate::cpu_class::HarnessState, std::time::Duration)>,
     idle_since: Option<std::time::Duration>,
 }
 
@@ -2082,8 +2085,16 @@ impl StartWatch {
             self.idle_since = None;
             return false;
         };
-        let worked = self.last.as_ref().is_none_or(|last| state.worked_since(last));
-        self.last = Some(state.clone());
+        let (worked, window_passed) = match &self.last {
+            None => (true, true),
+            Some((last, at)) => {
+                let between = waited.saturating_sub(*at);
+                (state.worked_since(last, between), between >= crate::cpu_class::WORK_WINDOW)
+            }
+        };
+        if worked || window_passed {
+            self.last = Some((state.clone(), waited));
+        }
         if worked {
             self.idle_since = None;
             return false;
@@ -2134,8 +2145,9 @@ impl<'a> ReplayHold<'a> {
 }
 
 /// The error of a start whose harness did no work for `START_HUNG` (`StartWatch`): it waits on
-/// something no wait cures (input, a lock, a sign-in prompt). Not retryable, and worded apart from
-/// a deadline so its creator shows it rather than waiting again.
+/// something no wait cures (input, a lock, a sign-in prompt). Not retryable on this harness (it
+/// is ended), and worded apart from a deadline so its creator does not wait on it again: Chief
+/// tries a fresh harness through its reply ledger and, if none starts, says so (#36028).
 fn start_hung(harness: &crate::cpu_class::HarnessSeen) -> RpcError {
     let mut e = RpcError::new(
         -32000,

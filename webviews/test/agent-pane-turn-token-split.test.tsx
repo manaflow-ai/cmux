@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { WorkedFor } from "../src/agent-session/acpmux/conversation/TurnRows";
-import { tokenDetail } from "../src/agent-session/acpmux/conversation/TurnTokens";
+import { tokenDetail } from "../src/agent-session/acpmux/conversation/turnTokensModel";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";

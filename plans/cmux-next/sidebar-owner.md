@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-08: the Updated card's remembered height keeps its scale, review F1 and F2 of #38150. The heights
+  `SidebarUpdatedCardHost` remembers across launches are CSS pixels (points over `app.uiScale`) under new `.v3`
+  keys, read back at the scale now, so a 60 pt card remembered at 125% holds 48 at 100%; the `.v2` points at an
+  unrecorded scale are dropped, not guessed. The host also observes `app.uiScale` while a card shows and lays the
+  card out again, so a remembered card follows a scale change before its page's first report.
+  Regression: `UpdatedCardScaleDownTests`.
 - 2026-11-08: the Updated card follows a live interface scale change, review of #38107. The first-frame hold
   (`SidebarUpdatedCardHost.heldHeight`) keeps the scale it was taken at and is read at the scale now, so a scale
   decrease shrinks the card with its page instead of holding its old, larger height; #38107 made the page's
@@ -1661,6 +1667,17 @@ An empty group now keeps only its header at rest. The header's existing + appear
   into opens none: the document's Pinned takes no item from outside it (`keepingPinned`, Pin is the way in).
 - A zone moves with its anchor row (its title's block, or the row it opens above): a drop's gap that moves that row
   moves the zone's reach by as much.
+
+## The +, the band and the tabs share the line the tabs reach (2026-11-07, #38054)
+
+- https://github.com/manaflow-ai/cmux/issues/38054: "Expected: tabs are vertically centered in the tab row, with equal
+  top and bottom inset relative to the row's top edge and the divider below."
+- The top row's pills keep equal gaps above and below them; the main pane's card moves down to bring them onto the
+  traffic lights' line (`WindowTitlebar.topRowCardTop`). Where it cannot (Comfortable, Spacious, flat chrome),
+  `WindowTitlebar.topRowLine` is the pills' center, and the sidebar's + follows it: Comfortable 2x, 18.5 pt down
+  (it was the lights' 16). Compact keeps 16.
+- The +'s top snaps to the device pixel grid, not whole points (the line can sit on a half point).
+- The sidebar re-lays out its top row when the card's reach changes: gutter, pane padding, floating panes, strip tokens.
 
 ## Reviewed behavior-only commits
 
