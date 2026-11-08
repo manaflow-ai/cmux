@@ -623,6 +623,7 @@ import {
 import { canContinueIn, reviewingHandoff } from "./handoff/continueIn";
 import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
+import { askPermissionFocus } from "./permissions/focusRequest";
 import { PermissionPanel } from "./permissions/Panel";
 import { groupAskedCalls, withoutAskedCalls } from "./permissions/askRows";
 import { withoutQuietThoughts } from "./conversation/thoughts";
@@ -6615,6 +6616,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         if (name === "archiveChat") archiveChatRef.current?.();
         // Commit and Push live in the diff tab beside the chat (its Commit form and Push button).
         if (name === "gitCommit" || name === "gitPush") openChangesTab.current();
+        // A card that mounts just after the click still takes it (`permissions/focusRequest.ts`).
+        if (name === "permissionFocus") askPermissionFocus();
         if (
           [
             "permissionAllowOnce",
@@ -6624,6 +6627,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             "permissionRetry",
             "permissionRevoke",
             "permissionRefresh",
+            // A click on an ask's notification: the waiting card takes the keyboard.
+            "permissionFocus",
             // Previous Turn and Next Turn (Ctrl-Opt-Up, Ctrl-Opt-Down), and Previous and Next Bookmarked
             // Prompt (the palette's): the thread minimap steps the transcript.
             "previousTurn",
