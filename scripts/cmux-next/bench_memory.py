@@ -669,6 +669,8 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
            # builds only; a Release app ignores it (DownloadsFolder.swift).
            "CMUX_NEXT_DOWNLOADS_DIR": downloads_dir(scratch)}
     env.update(extra_env or {})
+    # A None in `extra_env` drops that default (CMUX_NEXT_NO_ACTIVATE for a bench that needs the keyboard).
+    env = {name: value for name, value in env.items() if value is not None}
     os.makedirs(env["TMPDIR"], exist_ok=True)
     os.makedirs(env["CMUX_NEXT_DOWNLOADS_DIR"], exist_ok=True)
     # Sparkle would otherwise download a newer nightly into the bundle under
