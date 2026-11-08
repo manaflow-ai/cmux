@@ -1592,18 +1592,23 @@ async fn wait_unless_resumed(
     let mut interval = tokio::time::interval(CHECK_INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
-        tokio::select! {
-            _ = &mut sleep => return Waited::Elapsed,
+        // After a pause longer than `wait`, the sleep and the tick are both
+        // ready and `select!` picks either: every wakeup looks at the clocks.
+        let elapsed = tokio::select! {
+            _ = &mut sleep => true,
             changed = shutdown.changed() => {
                 if changed.is_err() || *shutdown.borrow() {
                     return Waited::Shutdown;
                 }
+                false
             }
-            _ = interval.tick() => {
-                if clocks.jump(Instant::now(), wall()) > CLOCK_JUMP {
-                    return Waited::Resumed;
-                }
-            }
+            _ = interval.tick() => false,
+        };
+        if clocks.jump(Instant::now(), wall()) > CLOCK_JUMP {
+            return Waited::Resumed;
+        }
+        if elapsed {
+            return Waited::Elapsed;
         }
     }
 }
