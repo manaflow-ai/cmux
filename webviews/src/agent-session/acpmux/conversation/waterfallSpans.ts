@@ -104,10 +104,14 @@ export function turnWork(rows: readonly AcpmuxRow[]): AcpmuxActivity[] | undefin
   return work.length ? work : undefined;
 }
 
-/// The footer's spans on one axis. The axis starts at the turn's start (its summary's time less its
+/// The footer's spans on one axis. The axis starts at the turn's start (where its work ended less its
 /// duration), or at the first span when that came earlier, and ends at the turn's end or the last
-/// span's end.
-export function waterfall(row: Pick<AcpmuxRow, "at" | "durationMs">, work: readonly AcpmuxActivity[]): Waterfall {
+/// span's end. Its work ended at its own time, or later for a stretch the person came in on, which
+/// worked until his steer (model.ts `workEndedAt`).
+export function waterfall(
+  row: Pick<AcpmuxRow, "at" | "durationMs" | "workEndedAt">,
+  work: readonly AcpmuxActivity[],
+): Waterfall {
   let first = Infinity;
   let last = -Infinity;
   for (const item of work) {
@@ -115,8 +119,9 @@ export function waterfall(row: Pick<AcpmuxRow, "at" | "durationMs">, work: reado
     first = Math.min(first, from!);
     last = Math.max(last, to!);
   }
-  const start = row.durationMs !== undefined ? Math.min(first, row.at - row.durationMs) : first;
-  const end = row.durationMs !== undefined ? Math.max(last, row.at) : last;
+  const ended = row.workEndedAt ?? row.at;
+  const start = row.durationMs !== undefined ? Math.min(first, ended - row.durationMs) : first;
+  const end = row.durationMs !== undefined ? Math.max(last, ended) : last;
   const spans = work.map((item): WaterfallSpan => {
     const [began, ended] = spanTimes(item);
     const from = began! - start;
