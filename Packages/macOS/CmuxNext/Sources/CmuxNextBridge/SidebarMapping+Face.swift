@@ -27,6 +27,8 @@ extension SidebarMapping {
         var machine: MachineID
         var showsUnread = true
         var selectedTab: (PaneModel) -> String? = { _ in nil }
+        /// The pane id the window last focused in a workspace (`TabSelectionMemory.focusedPane`); nil: the daemon's.
+        var focusedPane: (WorkspaceModel) -> String? = { _ in nil }
         var newTabTitle = ""
         var pageFace: (WorkspaceModel, TabModel, TabModel?) -> PageFace? = { _, _, _ in nil }
         var tabTitle: ((WorkspaceModel, TabModel) -> String)?
@@ -73,6 +75,7 @@ extension SidebarMapping {
             let icons = options.harnessIcons(), workspace = request.workspace, newTabPages = request.newTabPages
             let newTabTitle = options.newTabTitle, tabTitle = options.tabTitle
             faces?.append(workspace, local: options.machine == .local, status: request.status, selectedTab: options.selectedTab,
+                          focusedPane: options.focusedPane(workspace),
                           newTabPages: newTabPages,
                           listTitle: { SidebarMapping.listTitle($0, of: workspace, newTabPages: newTabPages, newTabTitle: newTabTitle, tabTitle: tabTitle) },
                           branded: { $0.agentBrand != nil || icons.custom(for: $0.agentSession?.harness) != nil })
@@ -148,12 +151,18 @@ extension SidebarMapping {
         // label, or the work a page beside it was opened from) whose name, icon and kind the row shows.
         let focused = at(facts.front), front = at(facts.label), folder = at(facts.folderTab), face = at(facts.face)
         let page = face.flatMap { options.pageFace(workspace, $0, nil) }
-        // Each browser tab's face once: its favicon in the tab list, its sound on the row. The page's favicon
-        // stays on the page's own tab (Leo, 2026-10-21: a chat row showed GitHub's mark).
+        // Each browser tab's face once: its favicon in the tab list, its sound on the row.
         var browserFaces: [String: PageFace] = [:]
         for tab in tabs where tab.kind == .browser {
             browserFaces[tab.id] = tab.id == face?.id ? page : options.pageFace(workspace, tab, nil)
         }
+        // The row's icon is the favicon of the tab last focused in the workspace (user 23802: "workspace favicon
+        // needs to reflect the latest focused/interacted entity"): a page's once it is focused, none once focus
+        // goes back to a chat or terminal beside it. `focused` is the window's own focus (`focusedPane`), so a
+        // page opened in a split no longer keeps the mark after a click back into the work (Leo, 2026-10-21:
+        // "why did this turn into the githb favicon?" came from the daemon's stale focus stamp).
+        let iconTab = focused ?? face
+        let iconPage = iconTab?.id == face?.id ? page : iconTab.flatMap { browserFaces[$0.id] ?? options.pageFace(workspace, $0, nil) }
         let entries = workspace.status?.entries ?? []
         func entry(_ index: Int?) -> String? { index.flatMap { entries.indices.contains($0) ? entries[$0].text : nil } }
         // An unnamed Cloud workspace whose shell idles at its home reads "Terminal" (`homeShellTitle`), its header
@@ -178,11 +187,10 @@ extension SidebarMapping {
             lastActivity: facts.lastActivityMs == 0 ? nil : Self.date(ms: facts.lastActivityMs),
             rowKind: facts.rowKind,
             agentWorking: statuses.working,
-            // A page in a split beside a chat or terminal leaves the row's icon to that work (#22250). A site with
-            // no favicon (none, or not loaded yet) keeps the slot with a globe the favicon replaces.
+            // A site with no favicon (none, or not loaded yet) keeps the slot with a globe the favicon replaces.
             icon: Self.icon(color: workspace.color, icon: workspace.icon, asset: options.iconAsset)
-                ?? page?.favicon.map(WorkspaceIcon.favicon)
-                ?? (Self.isSite(face, newTabPages: newTabPages) ? .pagePlaceholder : nil),
+                ?? iconPage?.favicon.map(WorkspaceIcon.favicon)
+                ?? (Self.isSite(iconTab, newTabPages: newTabPages) ? .pagePlaceholder : nil),
             color: color(workspace.color), kind: facts.kind,
             kindBrand: face?.agentBrand,
             unread: facts.unread == 2 ? .count(workspace.unreadCount) : facts.unread == 1 ? .dot : .none,
