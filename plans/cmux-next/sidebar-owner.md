@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-07: pinning never renames a workspace. Lawrence, verbatim: "i pinned a workspace and it's name disappeared
+  and went back to workspace-936". A workspace nobody named keeps the daemon's `workspace-N`; its list row shows the
+  auto name the page face gives (`AppServices.sidebarPageFace`). Pinned (layout tiles), it leaves the list for a band
+  item (`SidebarWorkspaceItems`), which mapped the row with that face's favicon only, so its title fell back to
+  `workspace-N`. Band items now read the list rows' whole page face (`SidebarMapping.tileInfos(pageFace:)`), so a
+  pinned row shows the title its list row showed: the user's name, a stored auto name, or the shown auto name. Not a
+  data loss: display-only auto names were never stored, and stored names were never changed, so nothing to restore.
+  Regression: `PinnedWorkspaceKeepsTitleTests`.
 - 2026-11-08: the Updated card's remembered height keeps its scale, review F1 and F2 of #38150. The heights
   `SidebarUpdatedCardHost` remembers across launches are CSS pixels (points over `app.uiScale`) under new `.v3`
   keys, read back at the scale now, so a 60 pt card remembered at 125% holds 48 at 100%; the `.v2` points at an
