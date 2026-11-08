@@ -121,6 +121,9 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if cloud != "cloud" || verb != "start-chat" {
         return None;
     }
+    if let Some(code) = fault::run_if_requested(&global, rest) {
+        return Some(code);
+    }
     // `--wait --json`: the global scan takes `--json` as `--wait`'s value.
     let words = lift_output(rest, &mut global.output);
     let parsed = parse(&words, || {
@@ -1532,10 +1535,6 @@ fn unused_name(runner: &mut dyn Runner, listed: &Value) -> Result<String, Outcom
     Ok(name)
 }
 
-fn words(list: &[&str]) -> Vec<String> {
-    list.iter().map(|word| (*word).to_owned()).collect()
-}
-
 /// The commands that go on with this chat.
 fn follow_ups(machine: &str, session: &str) -> Value {
     let on = |command: String| {
@@ -1840,13 +1839,10 @@ fn report(outcome: &Outcome, output: OutputMode) -> i32 {
     }
 }
 
-/// `value[key]` without indexing: `Null` when absent.
-fn at<'a>(value: &'a Value, key: &str) -> &'a Value {
-    const NULL: &Value = &Value::Null;
-    value.get(key).unwrap_or(NULL)
-}
-
 mod cap;
+mod fault;
+mod support;
+use support::{at, words};
 
 #[cfg(test)]
 pub(in crate::cli) mod tests;

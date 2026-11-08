@@ -91,10 +91,10 @@ fn run_terminal_resource_wait(
 ) -> Result<Option<Value>, ResourceError> {
     let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
     let pattern = crate::resource_router::required_string(&request.fields, "pattern")?;
-    let regex = crate::wait_pattern::compile(pattern).map_err(|_| {
+    let regex = crate::wait_pattern::compile(pattern).map_err(|error| {
         ResourceError::validation_invalid(
-            None,
-            "terminal wait pattern is not a valid regular expression",
+            Some("pattern"),
+            crate::wait_pattern::invalid_message(pattern, &error),
         )
     })?;
     let timeout = resource_wait_timeout(request)?;

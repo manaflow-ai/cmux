@@ -149,7 +149,9 @@ test("the reply time's tooltip: its time, then one count per row", () => {
     tokens: resultTokenSplit(CLAUDE_58),
   };
   const markup = renderToStaticMarkup(<TurnFooter row={row} />);
-  const title = /<time class="cv-turn-time"[^>]*title="([^"]*)"/.exec(markup)?.[1];
+  // The title is the exact time (as a prompt's is); Worked for and the token rows are its detail line.
+  expect(markup).toMatch(/<time class="cv-turn-time"[^>]*title="[A-Z][a-z]{2} \d{1,2}, \d{4}, /);
+  const title = /<time class="cv-turn-time"[^>]*data-tooltip-detail="([^"]*)"/.exec(markup)?.[1];
   expect(title).toBe(
     "Worked for 1m 16s\nOutput 23.7K\nInput across calls 124.7K\u00a0uncached · 4.5M\u00a0cached\nContext at end 125.3K\nModel calls 58",
   );

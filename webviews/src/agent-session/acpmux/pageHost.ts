@@ -17,6 +17,7 @@ import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
 import { setReadAloudState } from "./conversation/readAloud";
 import { setAttentionTabs } from "./needsYou/attentionTabs";
+import { setLinkPlaces } from "./chips/cmuxLinkPlaces";
 import { setHeaderState } from "./header/headerState";
 import { setTabRow } from "./header/tabRow";
 import { receiveNativeRowToolInvocation } from "./header/nativeRowTools";
@@ -157,6 +158,10 @@ export function applyHostEvent(event: HostEvent): void {
     case "attentionTabs":
       // Keep a push that arrives before the Needs you header mounts.
       return setAttentionTabs(event.value);
+    case "linkPlaces":
+      // The workspaces and tabs a pasted cmux link can name (chips/cmuxLinkPlaces.ts), kept before
+      // the transcript mounts.
+      return setLinkPlaces(event.value);
     case "toolCards":
       // Direct, like deviceChats: a push before the chat mounts is kept.
       return setToolCards(event.value);
