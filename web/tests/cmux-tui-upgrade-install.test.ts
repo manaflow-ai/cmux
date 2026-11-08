@@ -50,7 +50,7 @@ describe("in-place cmux-tui upgrade", () => {
   });
 
   test("the fleet runner uploads the adapter and runs that install script", () => {
-    const runner = readFileSync(join(import.meta.dir, "../scripts/upgrade-fleet-cmux-tui.ts"), "utf8");
+    const runner = readFileSync(new URL("../scripts/upgrade-fleet-cmux-tui.ts", import.meta.url), "utf8");
     expect(runner).toContain("fs.writeTextFile(adapterFile, GUEST_CMUX_SHIM");
     expect(runner).toContain("cmuxTuiUpgradeInstallScript(source, adapterFile)");
   });
