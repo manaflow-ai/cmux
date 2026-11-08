@@ -768,6 +768,10 @@ fn run_argv_types_each_word_quoted_so_it_runs_as_given() {
     assert_eq!(typed(&["printf", "[%s]", ""]), "printf '[%s]' ''");
     // zsh expands a bare `=name`; it is quoted.
     assert_eq!(typed(&["echo", "=ls"]), "echo '=ls'");
+    // A command word the shell reads as syntax is quoted: a reserved word or an assignment.
+    assert_eq!(typed(&["if", "true"]), "'if' true");
+    assert_eq!(typed(&["FOO=bar", "x"]), "'FOO=bar' x");
+    assert_eq!(typed(&["env", "FOO=bar", "x"]), "env FOO=bar x");
     // Plain words stay readable.
     assert_eq!(
         typed(&["npm", "test", "--", "--grep=api", "./src/a.rs", "user@host:1"]),

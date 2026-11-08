@@ -191,17 +191,29 @@ pub(in crate::cli) fn parse_run(target: &str, flags: &[String]) -> Result<SendRe
 /// exec and ssh take one: each word is quoted as the shell needs, so
 /// `run -- sh -c 'echo a; exit 7'` runs `sh` with exactly those three
 /// arguments and the `exit 7` never reaches the person's shell. Plain words
-/// (`npm`, `--flag=x`, paths) stay unquoted so the typed line reads well.
+/// (`npm`, `--flag=x`, paths) stay unquoted so the typed line reads well. The
+/// command word is also quoted when the shell would read it as syntax: a
+/// reserved word (`if`, `{`, `!`) or an assignment (`FOO=bar`).
 pub(in crate::cli) fn run_line(words: &[String]) -> String {
-    match words {
-        [line] => line.clone(),
-        words => words
-            .iter()
-            .map(|word| super::cloud_start_chat::shell_quote(word))
-            .collect::<Vec<_>>()
-            .join(" "),
+    let [first, rest @ ..] = words else { return String::new() };
+    if rest.is_empty() {
+        return first.clone();
     }
+    let command =
+        if first.contains('=') || SHELL_RESERVED.split_whitespace().any(|word| word == first) {
+            format!("'{}'", first.replace('\'', "'\\''"))
+        } else {
+            super::cloud_start_chat::shell_quote(first)
+        };
+    std::iter::once(command)
+        .chain(rest.iter().map(|word| super::cloud_start_chat::shell_quote(word)))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
+
+/// The words sh, bash and zsh read as syntax in command position.
+const SHELL_RESERVED: &str = "! { } [[ ]] case coproc do done elif else esac fi for foreach \
+                              function if in nocorrect repeat select then time until while";
 
 fn print_json(value: &Value) {
     println!("{}", serde_json::to_string(value).unwrap_or_default());
