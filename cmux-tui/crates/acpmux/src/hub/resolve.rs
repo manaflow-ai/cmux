@@ -381,6 +381,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         worktree: None,
         subsession: None,
         subsession_limits: Default::default(),
+        races: Default::default(),
         lineage: None,
         created_by: None,
         subagent_retry_open: false,

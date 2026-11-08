@@ -328,6 +328,15 @@ pub(crate) fn shutting_down_error() -> RpcError {
     RpcError::internal(SHUTTING_DOWN)
 }
 
+/// The key a refusal sets to false when nothing was made: a create refused before its session
+/// was inserted, so the caller may send it again to the next daemon without making a second one.
+pub const CREATED: &str = "created";
+
+/// [`shutting_down_error`] for a create refused before anything was made (`created: false`).
+pub(crate) fn shutting_down_before_create() -> RpcError {
+    shutting_down_error().with_data(serde_json::json!({ CREATED: false }))
+}
+
 /// How long an explicit shutdown spends stopping provider retries before it ends agents
 /// (`shutdown_sessions`): a part of the daemon's own shutdown budget.
 const RETRY_STOP_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
