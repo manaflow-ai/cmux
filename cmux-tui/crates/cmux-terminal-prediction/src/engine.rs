@@ -228,10 +228,10 @@ pub struct TerminalPredictionEngine {
     /// barrier, or the one a withdrawal was for). A key sent right after it can
     /// reach the remote in the same read and come back merged with it.
     newest_untracked_keystroke: Option<Duration>,
-    /// Printable bytes whose untracked echo may still be on its way, one bit
-    /// each. Output matching the next tracked key is ambiguous while its byte
-    /// is here.
-    untracked_bytes: u128,
+    /// Printable keys sent untracked, with when: each one's echo may still be
+    /// on its way for a settle period. Output matching the next tracked key
+    /// is ambiguous while a key with its byte is here.
+    untracked_bytes: Vec<(u8, Duration)>,
     /// Until when output may come from a key whose effect is not modelled
     /// (Return, an editing key, a lost read): it can print anything.
     opaque_echo_until: Option<Duration>,
@@ -266,7 +266,7 @@ impl TerminalPredictionEngine {
             suspended_until: None,
             untracked_echo_deadline: None,
             newest_untracked_keystroke: None,
-            untracked_bytes: 0,
+            untracked_bytes: Vec::new(),
             opaque_echo_until: None,
         }
     }
@@ -425,7 +425,7 @@ impl TerminalPredictionEngine {
         if self.has_barrier() {
             self.newest_untracked_keystroke = Some(now);
             match byte.filter(|byte| (0x20..=0x7E).contains(byte)) {
-                Some(byte) => self.note_untracked_byte(byte),
+                Some(byte) => self.note_untracked_byte(byte, now),
                 None => self.mark_opaque_echo(now),
             }
             return expired;
@@ -438,6 +438,7 @@ impl TerminalPredictionEngine {
             return self.withdraw_all(false, now, true) || expired;
         };
         if self.entries.len() >= self.configuration.maximum_speculative_glyphs {
+            self.note_untracked_byte(byte, now);
             return self.withdraw_all(false, now, true) || expired;
         }
         let in_untracked_window =
@@ -451,7 +452,7 @@ impl TerminalPredictionEngine {
             // sent right behind an untracked one may come back merged with it,
             // or not at all when it undoes it; it is untracked too.
             self.newest_untracked_keystroke = Some(now);
-            self.note_untracked_byte(byte);
+            self.note_untracked_byte(byte, now);
             self.untracked_echo_deadline = self
                 .untracked_echo_deadline
                 .map(|deadline| deadline.max(now + self.untracked_echo_settle()));
@@ -486,6 +487,7 @@ impl TerminalPredictionEngine {
         let expired = self.expire(now);
         if self.has_barrier() {
             self.newest_untracked_keystroke = Some(now);
+            self.mark_opaque_echo(now);
             return expired;
         }
         // Everything after the newest unretracted glyph is retracted glyphs and
@@ -501,6 +503,8 @@ impl TerminalPredictionEngine {
             if self.raise_barrier_if_in_flight(now) {
                 return expired;
             }
+            // Its echo may redraw the rest of the line.
+            self.mark_opaque_echo(now);
             return self.withdraw_all(false, now, true) || expired;
         };
         // A glyph whose echo arrived but is still held for its frame is
@@ -525,6 +529,7 @@ impl TerminalPredictionEngine {
         let expired = self.expire(now);
         if self.has_barrier() {
             self.newest_untracked_keystroke = Some(now);
+            self.mark_opaque_echo(now);
             return expired;
         }
         let mut changed = false;
@@ -541,6 +546,7 @@ impl TerminalPredictionEngine {
         if self.raise_barrier_if_in_flight(now) {
             return changed || expired;
         }
+        self.mark_opaque_echo(now);
         self.withdraw_all(false, now, true) || expired
     }
 
@@ -909,13 +915,16 @@ impl TerminalPredictionEngine {
                 continue;
             }
             match entry.keystroke {
-                Keystroke::Glyph(byte) => self.untracked_bytes |= 1u128 << (byte & 0x7F),
-                Keystroke::Barrier => {
+                Keystroke::Glyph(byte) => {
+                    self.untracked_bytes.push((byte, entry.typed_at));
+                }
+                // An erase may redraw the rest of the line, and an unmodelled
+                // key may print anything.
+                Keystroke::Barrier | Keystroke::Erase(_) => {
                     let until = now + self.untracked_echo_settle();
                     self.opaque_echo_until =
                         Some(self.opaque_echo_until.map_or(until, |known| known.max(until)));
                 }
-                Keystroke::Erase(_) => {}
             }
         }
         if let Some(newest) = newest_untracked {
@@ -1040,14 +1049,26 @@ impl TerminalPredictionEngine {
             return UntrackedOutput::Older;
         }
         let opaque = self.opaque_echo_until.is_some_and(|until| now < until);
-        if opaque || self.untracked_bytes & (1u128 << (byte & 0x7F)) != 0 {
+        let settle = self.untracked_echo_settle();
+        let same_byte_in_flight = self
+            .untracked_bytes
+            .iter()
+            .any(|&(untracked, sent_at)| untracked == byte && now < sent_at + settle);
+        if opaque || same_byte_in_flight {
             return UntrackedOutput::Ambiguous;
         }
         UntrackedOutput::Tracked
     }
 
-    fn note_untracked_byte(&mut self, byte: u8) {
-        self.untracked_bytes |= 1u128 << (byte & 0x7F);
+    /// Keeps at most the last 64 untracked keys: each is dropped once its echo
+    /// can no longer be on its way.
+    fn note_untracked_byte(&mut self, byte: u8, now: Duration) {
+        let settle = self.untracked_echo_settle();
+        self.untracked_bytes.retain(|&(_, sent_at)| now < sent_at + settle);
+        if self.untracked_bytes.len() >= 64 {
+            self.untracked_bytes.remove(0);
+        }
+        self.untracked_bytes.push((byte, now));
     }
 
     /// A key whose effect is not modelled was sent or answered now.
@@ -1059,7 +1080,7 @@ impl TerminalPredictionEngine {
 
     fn close_untracked_window(&mut self) {
         self.untracked_echo_deadline = None;
-        self.untracked_bytes = 0;
+        self.untracked_bytes.clear();
         self.opaque_echo_until = None;
     }
 
