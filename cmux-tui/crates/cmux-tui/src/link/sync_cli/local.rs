@@ -212,7 +212,8 @@ pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
 /// A dropped folder's own files for a one-off upload: git's ignore rules
 /// apply when it is in a working copy, its top or any folder inside one, and
 /// no git state goes, not even a bare repository's (a folder holding `HEAD`
-/// with `objects/` or `commondir`, whatever its name).
+/// with `objects/`, `refs/` or `commondir`, whatever its name). Another
+/// repository inside it stays whole.
 pub(super) fn collect_files(folder: &Path) -> anyhow::Result<LocalSet> {
     if git_state(folder) {
         bail!("{} is a git repository's own folder", folder.display());
@@ -223,7 +224,7 @@ pub(super) fn collect_files(folder: &Path) -> anyhow::Result<LocalSet> {
     set.files.retain(|relative, _| {
         !relative.match_indices('/').any(|(end, _)| {
             let dir = &relative[..end];
-            *fenced.entry(dir.to_string()).or_insert_with(|| git_state(&folder.join(dir)))
+            *fenced.entry(dir.to_string()).or_insert_with(|| fenced_dir(&folder.join(dir)))
         })
     });
     set.skipped += (before - set.files.len()) as u64;
@@ -238,26 +239,35 @@ fn git_state(dir: &Path) -> bool {
     has("HEAD") && (has("objects") || has("refs") || has("commondir"))
 }
 
+/// A folder inside the dropped one that is git's state or another
+/// repository's working copy (any `.git` in it): its files stay, since
+/// their own ignore rules are not the dropped folder's.
+fn fenced_dir(dir: &Path) -> bool {
+    git_state(dir) || std::fs::symlink_metadata(dir.join(".git")).is_ok()
+}
+
 /// The top of the working copy `folder` is in, or None when it is in none.
-/// Any other answer (a repository git will not read, for its owner or an
-/// extension it does not know, or `folder` inside git's own folder) is an
-/// error: walking the folder plainly would send what git ignores.
+/// A failed answer while `folder` or a folder above it holds a `.git` (a
+/// repository git will not read, for its owner, an extension it does not
+/// know or a `.git` pointing nowhere) is an error, as is `folder` inside
+/// git's own folder: walking the folder plainly would send what git ignores.
 fn work_tree_top(folder: &Path) -> anyhow::Result<Option<PathBuf>> {
     let output = Command::new("git")
         .args(["-c", "core.fsmonitor=false", "-c", "safe.bareRepository=explicit"])
         .args(["-c", "core.hooksPath=/dev/null", "-C"])
         .arg(folder)
         .args(["rev-parse", "--show-toplevel"])
-        .env("LC_ALL", "C")
-        .env("LANGUAGE", "C")
         .output()
         .context("cannot run git")?;
-    let stderr = String::from_utf8_lossy(&output.stderr);
     if !output.status.success() {
-        if stderr.contains("not a git repository") {
+        if !folder.ancestors().any(|dir| std::fs::symlink_metadata(dir.join(".git")).is_ok()) {
             return Ok(None);
         }
-        bail!("git cannot read the repository {} is in: {}", folder.display(), stderr.trim());
+        bail!(
+            "git cannot read the repository {} is in: {}",
+            folder.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
     }
     let top = String::from_utf8(output.stdout).context("git printed text that is not UTF-8")?;
     let top = top.trim();

@@ -605,6 +605,27 @@ fn an_upload_of_a_folder_in_git_keeps_its_ignore_rules_and_runs_none_of_its_conf
     assert!(ok, "{sent}");
     assert_eq!(sent["uploads"][0]["files"], 1, "{sent}");
 
+    // Another repository inside a dropped folder stays whole, its ignored
+    // files with it.
+    let bundle = home.join("projects/bundle");
+    std::fs::create_dir_all(bundle.join("inner")).unwrap();
+    git(&bundle.join("inner"), &["init", "-q"]);
+    std::fs::write(bundle.join("inner/.gitignore"), "private.json\n").unwrap();
+    std::fs::write(bundle.join("inner/private.json"), "fake-git-nested\n").unwrap();
+    std::fs::write(bundle.join("readme.md"), "bundle\n").unwrap();
+    let (ok, sent) = upload(&world, &tmp, &[&bundle]);
+    assert!(ok, "{sent}");
+    assert_eq!(sent["uploads"][0]["files"], 1, "{sent}");
+
+    // A `.git` pointing nowhere is refused, never walked plainly.
+    let broken = home.join("projects/broken");
+    std::fs::create_dir_all(&broken).unwrap();
+    std::fs::write(broken.join(".git"), "gitdir: /nowhere/at/all\n").unwrap();
+    std::fs::write(broken.join(".gitignore"), "private.json\n").unwrap();
+    std::fs::write(broken.join("private.json"), "fake-git-broken\n").unwrap();
+    let (ok, answer) = upload(&world, &tmp, &[&broken]);
+    assert!(!ok, "a broken working copy was walked: {answer}");
+
     // A working copy git will not read (an extension it does not know) is
     // refused, never walked plainly past its ignore rules.
     let odd = home.join("projects/odd");
