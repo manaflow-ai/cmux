@@ -127,7 +127,7 @@ enum WorkspaceVerbHandlers {
     /// caller workspace, and a workspace the person started from another window went there (cmux#37366). It goes to
     /// the window the person acts in; a control caller's (a Chief turn's) goes to its own window, the one it was
     /// prompted from (#32989).
-    static func window(for anchor: WorkspaceModel?, _ invocation: ActionInvocation = ActionInvocation(), _ context: AppActionContext) -> String? {
+    static func window(for anchor: WorkspaceModel?, _ context: AppActionContext, _ invocation: ActionInvocation = ActionInvocation()) -> String? {
         anchor.flatMap { $0.isAnyHome ? nil : context.services.windows.registry.value.owner(of: $0.id) } ?? context.createWindow(invocation)?.state.id
     }
 
@@ -135,7 +135,7 @@ enum WorkspaceVerbHandlers {
                               newTabPage: Bool, firstChat: AgentPaneSeed? = nil, fromCurrent: Bool = true,
                               then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil) throws {
         let windows = context.services.windows
-        let target = windows.targetWindow(preferring: window(for: anchor, invocation, context))
+        let target = windows.targetWindow(preferring: window(for: anchor, context, invocation))
         var spawn = WorkspaceSpawn(cwd: cwd)
         spawn.slot = slot
         spawn.onListed = then
