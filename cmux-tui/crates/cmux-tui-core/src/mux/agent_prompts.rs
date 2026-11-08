@@ -17,6 +17,16 @@
 //! it, so another hook's append for the same terminal (a question, an approval) running at the
 //! same time neither shows it nor drops it.
 //!
+//! The last reply also stays with its terminal after the banner took it (`last_replies`,
+//! W3-H): `agent.list` and `session.snapshot` show it folded and cut to 200 characters as the
+//! agent value's `extra.last_reply`, so `cmux terminal list --agents` names each agent's last
+//! answer. Memory only like the rest: a daemon restart or a closed terminal forgets it.
+//!
+//! The last harness session id stays with its terminal too (`last_sessions`, W3-H): an ended
+//! session leaves the roster, so `session.snapshot` shows it on the terminal value's
+//! `extra.agent_session_id` (and the harness on `extra.agent`), and `cmux agent resume` can
+//! bring back an agent that quit. Memory only: a daemon restart or a closed terminal forgets it.
+//!
 //! A question hook's question rides the same way (`live_question`, `agent_hook_question.rs`):
 //! its notification takes it, and the terminal keeps it while the agent waits on it, so
 //! `list-notifications` and the notification event can show the question and its options
@@ -29,6 +39,10 @@ use super::*;
 pub(crate) struct AgentTexts {
     pub(crate) prompts: HashMap<TerminalPublicId, Arc<str>>,
     replies: HashMap<TerminalPublicId, (std::thread::ThreadId, Arc<str>)>,
+    /// Each terminal's last finished turn's message, kept after its banner took it.
+    last_replies: HashMap<TerminalPublicId, Arc<str>>,
+    /// Each terminal's last harness session id and harness, kept after the session ended.
+    last_sessions: HashMap<TerminalPublicId, (Arc<str>, Option<Arc<str>>)>,
     /// A question hook's question (`live_question`), kept by the append's thread until its
     /// notification takes it, as a reply is.
     noted_questions: HashMap<TerminalPublicId, (std::thread::ThreadId, Arc<Value>)>,
@@ -41,6 +55,8 @@ impl AgentTexts {
     pub(crate) fn forget(&mut self, terminal: &TerminalPublicId) {
         self.prompts.remove(terminal);
         self.replies.remove(terminal);
+        self.last_replies.remove(terminal);
+        self.last_sessions.remove(terminal);
         self.noted_questions.remove(terminal);
         self.questions.remove(terminal);
     }
@@ -105,8 +121,51 @@ impl Mux {
         }
         let mut texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
         let owner = std::thread::current().id();
-        texts.replies.insert(terminal.clone(), (owner, Arc::from(reply)));
+        let reply: Arc<str> = Arc::from(reply);
+        texts.last_replies.insert(terminal.clone(), Arc::clone(&reply));
+        texts.replies.insert(terminal.clone(), (owner, reply));
         true
+    }
+
+    /// Every terminal's last reply, folded and cut to `LIVE_PROMPT_CHARS`, keyed by terminal
+    /// id, for `extra.last_reply`. Read before a registry projection lock is taken: this lock
+    /// is never held across another `Mux` lock.
+    pub(crate) fn agent_last_replies(&self) -> HashMap<String, String> {
+        let texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
+        texts
+            .last_replies
+            .iter()
+            .filter_map(|(terminal, reply)| {
+                Some((terminal.to_string(), crate::agent_hooks::live_prompt_text(reply)?))
+            })
+            .collect()
+    }
+
+    /// Keeps `session_id` (and its `harness`) as the last harness session of `terminal`.
+    pub(super) fn note_agent_session(
+        &self,
+        terminal: &TerminalPublicId,
+        session_id: &str,
+        harness: Option<&str>,
+    ) {
+        let mut texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
+        texts
+            .last_sessions
+            .insert(terminal.clone(), (Arc::from(session_id), harness.map(Arc::from)));
+    }
+
+    /// Every terminal's last harness session id and harness, keyed by terminal id, for the
+    /// terminal value's `extra`. Read before a registry projection lock is taken, as
+    /// [`Mux::agent_last_replies`] is.
+    pub(crate) fn agent_last_sessions(&self) -> HashMap<String, (String, Option<String>)> {
+        let texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
+        texts
+            .last_sessions
+            .iter()
+            .map(|(terminal, (session, harness))| {
+                (terminal.to_string(), (session.to_string(), harness.as_deref().map(str::to_owned)))
+            })
+            .collect()
     }
 
     /// The reply this thread's append kept for `terminal`, taken: one banner shows it.
@@ -196,5 +255,86 @@ impl Mux {
             .get(terminal)
             .filter(|(asked_by, _)| asked_by == ledger_id)
             .map(|(_, question)| Arc::clone(question))
+    }
+}
+
+/// Adds `extra.last_reply` to a public agent value (`agent.list`, `session.snapshot`) whose
+/// terminal has a kept reply in `replies` ([`Mux::agent_last_replies`]). Values without one
+/// stay as they are, so older readers see no change.
+pub(crate) fn with_last_reply(mut agent: Value, replies: &HashMap<String, String>) -> Value {
+    let reply = agent.get("terminal_id").and_then(Value::as_str).and_then(|id| replies.get(id));
+    if let (Some(reply), Some(extra)) =
+        (reply, agent.get_mut("extra").and_then(Value::as_object_mut))
+    {
+        extra.insert("last_reply".into(), Value::String(reply.clone()));
+    }
+    agent
+}
+
+/// Adds `extra.agent_session_id` (and `extra.agent`, the harness) to a public terminal value
+/// whose terminal has a kept harness session in `sessions` ([`Mux::agent_last_sessions`]).
+pub(crate) fn with_agent_session(
+    mut terminal: Value,
+    sessions: &HashMap<String, (String, Option<String>)>,
+) -> Value {
+    let Some((session, harness)) =
+        terminal.get("id").and_then(Value::as_str).and_then(|id| sessions.get(id))
+    else {
+        return terminal;
+    };
+    let Some(object) = terminal.as_object_mut() else { return terminal };
+    let extra = object.entry("extra").or_insert_with(|| Value::Object(Map::new()));
+    if let Some(extra) = extra.as_object_mut() {
+        extra.insert("agent_session_id".into(), Value::String(session.clone()));
+        if let Some(harness) = harness {
+            extra.insert("agent".into(), Value::String(harness.clone()));
+        }
+    }
+    terminal
+}
+
+#[cfg(test)]
+mod w3h_last_reply_tests {
+    use super::*;
+    use crate::workspace_registry::WorkspaceRegistry;
+    use crate::{Mux, SurfaceOptions};
+
+    /// W3-H: the last reply stays after its banner dropped it, folded and cut for
+    /// `extra.last_reply`, and only the agent value of its terminal carries it.
+    #[test]
+    fn w3h_last_reply_outlives_the_banner_and_rides_on_the_agent_value() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-last-reply-{}", crate::workspace_registry::new_uuid_v4()));
+        let registry = WorkspaceRegistry::open(&root, "last-reply").unwrap();
+        let mux = Mux::from_workspace_registry(
+            "last-reply".to_owned(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal = surface.terminal_public_id().cloned().unwrap();
+        assert!(mux.agent_last_replies().is_empty());
+
+        assert!(mux.note_agent_reply(&terminal, "Done.\n\n  ALPHA_OK"));
+        // The append ends: whatever the banner did not take is dropped.
+        mux.forget_agent_reply(&terminal);
+        let replies = mux.agent_last_replies();
+        assert_eq!(replies.get(terminal.as_str()).map(String::as_str), Some("Done. ALPHA_OK"));
+
+        let long = "word ".repeat(200);
+        assert!(mux.note_agent_reply(&terminal, &long));
+        let kept = mux.agent_last_replies().remove(terminal.as_str()).unwrap();
+        assert!(kept.chars().count() <= crate::agent_hooks::LIVE_PROMPT_CHARS, "{kept}");
+
+        let agent =
+            serde_json::json!({"terminal_id": terminal.as_str(), "extra": {"agent": "claude"}});
+        let shown = with_last_reply(agent, &mux.agent_last_replies());
+        assert_eq!(shown["extra"]["last_reply"], kept);
+        let other = serde_json::json!({"terminal_id": "term_other", "extra": {}});
+        assert!(with_last_reply(other, &replies)["extra"].get("last_reply").is_none());
+        let _ = std::fs::remove_dir_all(root);
     }
 }
