@@ -144,6 +144,7 @@ pub(crate) use replace::{
     ReplaceError, is_wedged, replace_if_backend_changed, replace_if_unresponsive, replace_if_wedged,
 };
 use restore_bound::RestoreBound;
+pub(crate) use restore_bound::debug_slow_restore;
 
 /// Takes an inherited descriptor (`option` names it) from argv and keeps it
 /// out of every process the owner starts (terminal hosts): only this owner

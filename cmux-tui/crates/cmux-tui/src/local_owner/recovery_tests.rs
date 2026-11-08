@@ -65,6 +65,8 @@ fn connection_limit_after_starting_has_its_own_busy_deadline() {
         &super::RestoreBound::with(
             now + ENSURE_DEADLINE + Duration::from_secs(5),
             Duration::ZERO,
+            Duration::from_secs(10),
+            Duration::from_secs(1),
             super::restore_bound::process_work,
         ),
         &RestoreProgress::silent(),

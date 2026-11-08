@@ -7,28 +7,36 @@
 //! registry, every owner killed at 120 s and a new one spawned, so none ever
 //! finished and the app never connected). The wait now ends only once the
 //! owner has done no work for [`RESTORE_DEADLINE`]: its CPU time and disk
-//! bytes, read from the kernel by pid, are its progress. A restoring owner
+//! bytes, read from the kernel by pid and measured over a sliding window
+//! ([`WINDOW`]), are its progress. A restoring owner
 //! (scanning the registry, copying tables) advances them; a deadlocked or
 //! blocked one does not. Where the kernel's counters cannot be read (Linux,
 //! whose `/proc` stays out of product code, and Windows) the bound is the
 //! old fixed one.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use super::RESTORE_DEADLINE;
 
-/// The least CPU time between two readings that counts as work. An owner's
-/// idle threads (log writer, memory guard) use far less than this in a
-/// reading interval; a restoring owner uses a core.
-const MIN_CPU: Duration = Duration::from_millis(100);
-
-/// The least disk traffic (read plus written) between two readings that
-/// counts as work.
-const MIN_DISK_BYTES: u64 = 1024 * 1024;
+/// The span the owner's work is measured over. Progress is the work done
+/// within the last window only: nothing carries over from earlier windows,
+/// so idle threads' trickle never adds up to progress.
+const WINDOW: Duration = Duration::from_secs(10);
 
 /// How often the owner's counters are read.
 const READ_INTERVAL: Duration = Duration::from_secs(1);
+
+/// The least share of one core, over a window, that counts as work: 5%, or
+/// 500 ms per 10 s. An owner's idle threads (log writer, memory guard) use
+/// well under 1%; a restoring owner's main thread runs flat out, and still
+/// gets several times this on a box at load 100 (15 cores).
+const MIN_CPU_PER_MILLE: u128 = 50;
+
+/// The least disk traffic (read plus written) per second of window that
+/// counts as work: 4 MiB per 10 s.
+const MIN_DISK_BYTES_PER_SEC: u64 = 400 * 1024;
 
 /// An owner's cumulative work, as the kernel counts it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,10 +46,13 @@ pub(crate) struct Work {
 }
 
 impl Work {
-    /// Whether `self` is enough more work than `earlier` to count as progress.
-    pub(crate) fn advanced_from(self, earlier: Work) -> bool {
-        self.cpu.saturating_sub(earlier.cpu) >= MIN_CPU
-            || self.disk_bytes.saturating_sub(earlier.disk_bytes) >= MIN_DISK_BYTES
+    /// Whether `self` is enough more work than `earlier`, taken `span`
+    /// before it, to count as progress.
+    pub(crate) fn advanced_from(self, earlier: Work, span: Duration) -> bool {
+        let cpu = self.cpu.saturating_sub(earlier.cpu).as_micros();
+        let disk = self.disk_bytes.saturating_sub(earlier.disk_bytes);
+        cpu * 1000 >= span.as_micros() * MIN_CPU_PER_MILLE
+            || u128::from(disk) * 1_000_000 >= span.as_micros() * u128::from(MIN_DISK_BYTES_PER_SEC)
     }
 }
 
@@ -127,27 +138,36 @@ pub(crate) struct RestoreBound {
     /// or the caller's later deadline.
     floor: Instant,
     stall: Duration,
-    /// The last time the owner was seen working.
+    window: Duration,
+    read_interval: Duration,
+    /// The last time a window ended with enough work in it.
     last_progress: Cell<Option<Instant>>,
     owner: Cell<Option<u32>>,
-    mark: Cell<Option<Work>>,
-    last_read: Cell<Option<Instant>>,
+    /// Readings of the owner's counters, oldest first, kept for one window.
+    samples: RefCell<VecDeque<(Instant, Work)>>,
     read: fn(u32) -> Option<Work>,
 }
 
 impl RestoreBound {
     pub(crate) fn new(deadline: Instant) -> Self {
-        Self::with(deadline, restore_stall(), process_work)
+        Self::with(deadline, restore_stall(), WINDOW, READ_INTERVAL, process_work)
     }
 
-    pub(crate) fn with(deadline: Instant, stall: Duration, read: fn(u32) -> Option<Work>) -> Self {
+    pub(crate) fn with(
+        deadline: Instant,
+        stall: Duration,
+        window: Duration,
+        read_interval: Duration,
+        read: fn(u32) -> Option<Work>,
+    ) -> Self {
         Self {
             floor: deadline.max(Instant::now() + stall),
             stall,
+            window,
+            read_interval,
             last_progress: Cell::new(None),
             owner: Cell::new(None),
-            mark: Cell::new(None),
-            last_read: Cell::new(None),
+            samples: RefCell::new(VecDeque::new()),
             read,
         }
     }
@@ -158,29 +178,33 @@ impl RestoreBound {
         let Some(pid) = pid.and_then(|pid| u32::try_from(pid).ok()) else { return };
         if self.owner.get() != Some(pid) {
             self.owner.set(Some(pid));
-            self.mark.set(None);
-            self.last_read.set(None);
+            self.samples.borrow_mut().clear();
         }
     }
 
-    /// Reads the owner's work (at most once per [`READ_INTERVAL`]); more work
-    /// than at the last mark moves the deadline to a full stall bound from now.
+    /// Reads the owner's work (at most once per read interval). When the
+    /// work done since the reading one window ago is enough, the deadline
+    /// moves to a full stall bound from now.
     fn sample(&self) {
         let Some(pid) = self.owner.get() else { return };
         let now = Instant::now();
-        if self.last_read.get().is_some_and(|read| now.duration_since(read) < READ_INTERVAL) {
+        let mut samples = self.samples.borrow_mut();
+        if samples.back().is_some_and(|(read, _)| now.duration_since(*read) < self.read_interval) {
             return;
         }
-        self.last_read.set(Some(now));
         let Some(work) = (self.read)(pid) else { return };
-        match self.mark.get() {
-            None => self.mark.set(Some(work)),
-            Some(mark) if work.advanced_from(mark) => {
-                self.mark.set(Some(work));
+        // The newest reading at least one window old is the window's start;
+        // older ones are dropped.
+        while samples.get(1).is_some_and(|(read, _)| now.duration_since(*read) >= self.window) {
+            samples.pop_front();
+        }
+        if let Some(&(read, start)) = samples.front() {
+            let span = now.duration_since(read);
+            if span >= self.window && work.advanced_from(start, span) {
                 self.last_progress.set(Some(now));
             }
-            Some(_) => {}
         }
+        samples.push_back((now, work));
     }
 
     /// The deadline now.
@@ -205,51 +229,93 @@ mod tests {
 
     use super::*;
 
-    static CPU_MS: AtomicU64 = AtomicU64::new(0);
+    const STALL: Duration = Duration::from_millis(3_000);
+    const TEST_WINDOW: Duration = Duration::from_millis(1_000);
+    const TEST_READ: Duration = Duration::from_millis(100);
+    const TICK: Duration = Duration::from_millis(50);
 
-    fn fake_work(_pid: u32) -> Option<Work> {
-        Some(Work { cpu: Duration::from_millis(CPU_MS.load(Ordering::SeqCst)), disk_bytes: 0 })
+    static WORKING_CPU_US: AtomicU64 = AtomicU64::new(0);
+    static TRICKLE_CPU_US: AtomicU64 = AtomicU64::new(0);
+
+    fn working(_pid: u32) -> Option<Work> {
+        let cpu = Duration::from_micros(WORKING_CPU_US.load(Ordering::SeqCst));
+        Some(Work { cpu, disk_bytes: 0 })
+    }
+
+    fn trickle(_pid: u32) -> Option<Work> {
+        let cpu = Duration::from_micros(TRICKLE_CPU_US.load(Ordering::SeqCst));
+        Some(Work { cpu, disk_bytes: 0 })
     }
 
     fn no_counters(_pid: u32) -> Option<Work> {
         None
     }
 
+    /// Advances `counter` by `per_mille` of each tick of wall time until
+    /// `until`, asserting `check` at every tick.
+    fn run(counter: &AtomicU64, per_mille: u64, until: Duration, check: impl Fn(Duration)) {
+        let started = Instant::now();
+        while started.elapsed() < until {
+            std::thread::sleep(TICK);
+            let tick = u64::try_from(TICK.as_micros()).unwrap();
+            counter.fetch_add(tick * per_mille / 1000, Ordering::SeqCst);
+            check(started.elapsed());
+        }
+    }
+
     #[test]
     fn a_working_owner_keeps_the_wait_past_the_stall_bound_and_a_stalled_one_ends_it() {
-        let stall = Duration::from_millis(2_500);
         let started = Instant::now();
-        let bound = RestoreBound::with(started, stall, fake_work);
+        let bound = RestoreBound::with(started, STALL, TEST_WINDOW, TEST_READ, working);
         bound.note_owner(Some(42));
-        // Work for twice the stall bound: one reading per interval, each a
-        // core-second more.
-        while started.elapsed() < stall * 2 {
-            CPU_MS.fetch_add(1_000, Ordering::SeqCst);
-            assert!(!bound.expired(), "a working owner timed out at {:?}", started.elapsed());
-            std::thread::sleep(READ_INTERVAL);
-        }
-        // Then no work: the wait ends one stall bound after the last progress.
+        // A full core for twice the stall bound.
+        run(&WORKING_CPU_US, 1000, STALL * 2, |at| {
+            assert!(!bound.expired(), "a working owner timed out at {at:?}");
+        });
+        // Then no work: the wait ends about one stall bound after the last
+        // window that held work.
         let stalled = Instant::now();
         while !bound.expired() {
-            assert!(stalled.elapsed() < stall + READ_INTERVAL * 3, "a stalled owner kept the wait");
-            std::thread::sleep(Duration::from_millis(100));
+            assert!(stalled.elapsed() < STALL + TEST_WINDOW * 2, "a stalled owner kept the wait");
+            std::thread::sleep(TICK);
         }
-        assert!(stalled.elapsed() + READ_INTERVAL * 2 >= stall);
+        assert!(stalled.elapsed() + TEST_WINDOW >= STALL, "ended early: {:?}", stalled.elapsed());
+    }
+
+    #[test]
+    fn a_steady_trickle_of_idle_cpu_never_counts_as_progress() {
+        let started = Instant::now();
+        let bound = RestoreBound::with(started, STALL, TEST_WINDOW, TEST_READ, trickle);
+        bound.note_owner(Some(42));
+        // 2% of a core, all along (20 ms/s): idle threads, not a restore. It
+        // adds up to well over a window's threshold over the run, but no
+        // single window holds enough.
+        let expired_at = Cell::new(None);
+        run(&TRICKLE_CPU_US, 20, STALL + TEST_WINDOW * 2, |at| {
+            if expired_at.get().is_none() && bound.expired() {
+                expired_at.set(Some(at));
+            }
+        });
+        let at = expired_at.get().expect("a trickling owner kept the wait");
+        assert!(at < STALL + TEST_READ * 3, "the trickle moved the deadline: {at:?}");
     }
 
     #[test]
     fn idle_threads_are_not_progress() {
+        let window = Duration::from_secs(10);
         let earlier = Work { cpu: Duration::from_millis(500), disk_bytes: 10 };
-        let idle = Work { cpu: Duration::from_millis(520), disk_bytes: 4_000 };
-        assert!(!idle.advanced_from(earlier));
-        let scanning = Work { cpu: Duration::from_millis(500), disk_bytes: 10 + MIN_DISK_BYTES };
-        assert!(scanning.advanced_from(earlier));
+        let idle = Work { cpu: Duration::from_millis(700), disk_bytes: 4_000_000 };
+        assert!(!idle.advanced_from(earlier, window));
+        let scanning = Work { cpu: Duration::from_millis(1_500), disk_bytes: 10 };
+        assert!(scanning.advanced_from(earlier, window));
+        let reading = Work { cpu: Duration::from_millis(500), disk_bytes: 10 + 8 * 1024 * 1024 };
+        assert!(reading.advanced_from(earlier, window));
     }
 
     #[test]
     fn without_counters_the_bound_is_fixed() {
         let stall = Duration::from_millis(300);
-        let bound = RestoreBound::with(Instant::now(), stall, no_counters);
+        let bound = RestoreBound::with(Instant::now(), stall, TEST_WINDOW, TEST_READ, no_counters);
         bound.note_owner(Some(42));
         assert!(!bound.expired());
         std::thread::sleep(stall + Duration::from_millis(50));
@@ -259,13 +325,14 @@ mod tests {
     #[cfg(target_vendor = "apple")]
     #[test]
     fn this_process_reports_its_own_work() {
+        let span = Duration::from_millis(300);
         let work = process_work(std::process::id()).expect("own counters");
         let spin = Instant::now();
         let mut x = 0_u64;
-        while spin.elapsed() < Duration::from_millis(300) {
+        while spin.elapsed() < span {
             x = std::hint::black_box(x.wrapping_add(1));
         }
         let later = process_work(std::process::id()).expect("own counters");
-        assert!(later.advanced_from(work), "{work:?} -> {later:?}");
+        assert!(later.advanced_from(work, span), "{work:?} -> {later:?}");
     }
 }

@@ -141,6 +141,7 @@ pub(crate) fn replace_if_unresponsive(spec: &OwnerSpec) -> Result<Option<Replace
     let key = probe.peer_process_key();
     let pid = listener_pid(key.as_deref()).and_then(|pid| u32::try_from(pid).ok());
     let before = pid.and_then(super::restore_bound::process_work);
+    let probe_started = Instant::now();
     if !unresponsive(spec, probe) {
         return replace_if_wedged(spec);
     }
@@ -149,7 +150,8 @@ pub(crate) fn replace_if_unresponsive(spec: &OwnerSpec) -> Result<Option<Replace
     // replace would throw its restore away and the next owner would start it
     // over (2026-11-08), so it is kept and the normal ensure awaits it.
     if let (Some(pid), Some(before)) = (pid, before)
-        && super::restore_bound::process_work(pid).is_some_and(|after| after.advanced_from(before))
+        && super::restore_bound::process_work(pid)
+            .is_some_and(|after| after.advanced_from(before, probe_started.elapsed()))
     {
         return Ok(None);
     }
