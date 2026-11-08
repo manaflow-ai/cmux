@@ -93,10 +93,18 @@ fn forwarding_overrides(extra_args: &[String]) -> &'static [&'static str] {
     }
 }
 
+/// Whether the caller's options set up connection sharing themselves
+/// (`-M`, `-S`, `ControlMaster` or `ControlPath`). cmux's own shared
+/// connection then stays out of the way.
+pub(crate) fn caller_manages_connection_sharing(extra_args: &[String]) -> bool {
+    CallerOptions::parse(extra_args).manages_sharing
+}
+
 /// What the caller's options say about connection sharing and forwarding.
 struct CallerOptions {
     can_become_master: bool,
     forwards_ports: bool,
+    manages_sharing: bool,
 }
 
 impl CallerOptions {
@@ -107,6 +115,7 @@ impl CallerOptions {
         let mut master_flag = false;
         let mut control_master = None;
         let mut control_path_disabled = false;
+        let mut control_path_set = false;
         let mut forwards_ports = false;
         let mut arguments = extra_args.iter();
         while let Some(argument) = arguments.next() {
@@ -128,6 +137,7 @@ impl CallerOptions {
                 match flag {
                     'L' | 'R' | 'D' => forwards_ports = true,
                     'S' => {
+                        control_path_set = true;
                         control_path_disabled |=
                             value.is_some_and(|value| value.eq_ignore_ascii_case("none"));
                     }
@@ -136,6 +146,7 @@ impl CallerOptions {
                             if keyword.eq_ignore_ascii_case("ControlMaster") {
                                 control_master.get_or_insert(value);
                             } else if keyword.eq_ignore_ascii_case("ControlPath") {
+                                control_path_set = true;
                                 control_path_disabled |= value.eq_ignore_ascii_case("none");
                             } else if ["LocalForward", "RemoteForward", "DynamicForward"]
                                 .iter()
@@ -156,6 +167,7 @@ impl CallerOptions {
         Self {
             can_become_master: master_flag || (!pinned_off && !control_path_disabled),
             forwards_ports,
+            manages_sharing: master_flag || control_master.is_some() || control_path_set,
         }
     }
 }

@@ -17,6 +17,7 @@ use crate::provider::{
     sanitized_route,
 };
 use crate::ssh_args::background_ssh_arguments;
+use crate::ssh_control::{SshConnectionShare, SshTarget};
 
 const SSH_GRACEFUL_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -44,6 +45,9 @@ pub struct SshProviderConfig {
     /// Coding-agent providers whose hooks `remote-link` installs on the host
     /// before it attaches (`cmux-tui agent hook install <provider>...`).
     pub agent_hooks: Vec<String>,
+    /// One authenticated connection per host, shared by the bootstrap and
+    /// every carrier link of this connect (issue 38157). Off by default.
+    pub connection_share: SshConnectionShare,
 }
 
 impl Default for SshProviderConfig {
@@ -57,6 +61,7 @@ impl Default for SshProviderConfig {
             extra_args: Vec::new(),
             maximum_frame_bytes: 65_535,
             agent_hooks: Vec::new(),
+            connection_share: SshConnectionShare::disabled(),
         }
     }
 }
@@ -210,12 +215,25 @@ impl LinkGroup for SshLinkGroup {
         if self.closed.load(Ordering::Acquire) {
             return Err(ProviderError::Transport("SSH connection group is closed".into()));
         }
+        // With a shared connection the link is a client of its master (no
+        // second authentication). Otherwise forwarding stays as configured
+        // unless `extra_args` pin `ControlMaster=no`: this run can become the
+        // shared master that interactive sessions reuse.
+        let mut extra_args = self
+            .config
+            .connection_share
+            .client_arguments(&SshTarget {
+                ssh_binary: self.config.ssh_binary.clone(),
+                destination: self.destination.clone(),
+                port: self.port,
+                extra_args: self.config.extra_args.clone(),
+            })
+            .await
+            .map_err(|error| ProviderError::Transport(error.to_string()))?;
+        extra_args.extend(self.config.extra_args.iter().cloned());
         let mut command = Command::new(&self.config.ssh_binary);
-        // Forwarding stays as configured unless `extra_args` pin
-        // `ControlMaster=no`: otherwise this run can become the shared master
-        // that interactive sessions reuse.
         command
-            .args(background_ssh_arguments(self.port, &self.config.extra_args, &self.destination))
+            .args(background_ssh_arguments(self.port, &extra_args, &self.destination))
             .args(remote_link_command(&self.config));
         command
             .stdin(Stdio::piped())
