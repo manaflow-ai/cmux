@@ -37,7 +37,7 @@ pub(super) fn applies(
 ) -> bool {
     source == "codex"
         && native_event == "SessionStart"
-        && getenv(super::HOOK_ROUTE_ENV).is_some_and(|value| value == "launch")
+        && getenv(HOOK_ROUTE_ENV).is_some_and(|value| value == "launch")
 }
 
 /// Reads the place of `terminal` from the session at `socket`. Only the
@@ -45,7 +45,7 @@ pub(super) fn applies(
 pub(crate) fn read(socket: &Path, terminal: &str) -> Place {
     let deadline = Instant::now() + DEADLINE;
     let get = |operation: &str, key: &str, id: &str| {
-        super::inbox::request(socket, operation, json!({ key: id }), false, deadline).ok()
+        inbox::request(socket, operation, json!({ key: id }), false, deadline).ok()
     };
     let text = |record: &Option<Value>, key: &str| {
         record
@@ -55,7 +55,7 @@ pub(crate) fn read(socket: &Path, terminal: &str) -> Place {
             .map(str::to_owned)
     };
     let mut place = Place { terminal: terminal.to_owned(), ..Place::default() };
-    let session = super::inbox::request(socket, "session.get", json!({}), false, deadline).ok();
+    let session = inbox::request(socket, "session.get", json!({}), false, deadline).ok();
     place.session_name = text(&session, "name");
     place.session_id = text(&session, "id");
     let terminal_record = get("terminal.get", "terminal", terminal);
@@ -173,7 +173,7 @@ mod tests {
 
     #[test]
     fn only_the_codex_launch_session_start_carries_it() {
-        let launch = |name: &str| (name == super::super::HOOK_ROUTE_ENV).then(|| "launch".into());
+        let launch = |name: &str| (name == HOOK_ROUTE_ENV).then(|| "launch".into());
         let inherited = |_: &str| None;
         assert!(applies("codex", "SessionStart", launch));
         assert!(!applies("codex", "SessionStart", inherited));

@@ -66,7 +66,7 @@ impl Delivery {
             }),
             (Self::ContinueTurn, Some(text)) => json!({"decision": "block", "reason": text}),
             (Self::SessionBanner, Some(text)) => json!({"systemMessage": text}),
-            (Self::SessionContext, text) => super::session_context::output(text),
+            (Self::SessionContext, text) => session_context::output(text),
         }
     }
 }

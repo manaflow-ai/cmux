@@ -158,9 +158,9 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let usage = |code| {
         let text = messages.skill_usage;
         if code == 0 {
-            print!("{text}")
+            print!("{text}");
         } else {
-            eprint!("{text}")
+            eprint!("{text}");
         }
         code
     };
