@@ -6,7 +6,8 @@ import Testing
 /// Ctrl-Cmd-1…9. Both clash in cmux (Ghostty's reserved pane resize, Focus Pane by Number), so the
 /// nearest free combo adds Option: Ctrl-Opt-Cmd-Left / Right step spaces, Ctrl-Opt-Cmd-1…9 pick one
 /// (plans/cmux-next/spaces-overhaul-DESIGN.md "Keys"). The old keys (Opt-Cmd-[ / ], Ctrl-Opt-1…9)
-/// stay as aliases; every key follows its action's rebind.
+/// stay as aliases; every key follows its action's rebind. Ctrl-Opt-Cmd-H / L became the shown keys on
+/// Nov 7, with the arrows kept as aliases.
 @MainActor @Suite struct SpaceKeysTests {
     nonisolated static let terminal: [String: KeyContextValue] = [KeyContext.surfaceKind: .string("terminal")]
     nonisolated static let page: [String: KeyContextValue] = [KeyContext.surfaceKind: .string("page")]
