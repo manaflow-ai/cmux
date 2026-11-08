@@ -1,4 +1,4 @@
-// The one-time Cloud hint over a new chat's composer (CloudChatHint.tsx, cloudChatHint.ts). Leo,
+// The one-time Cloud hint over a new chat's composer (CloudChatHint.tsx, cloudChatHintModel.ts). Leo,
 // 2026-11-08, on teammates starting a Cloud chat: "how would they know?". It shows only while its
 // record in the app is open, tips are on and Cloud is offered to a new chat that has not picked it;
 // Use Cloud is the Where menu's own pick, and the X or any Cloud pick closes it for the install.
@@ -15,7 +15,7 @@ import {
   cloudChatHintShown,
   useCloudChatHint,
   type CloudChatHintState,
-} from "./cloudChatHint";
+} from "./cloudChatHintModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

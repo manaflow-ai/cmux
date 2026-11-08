@@ -656,7 +656,7 @@ import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
 import { paneTipHost } from "./featureTipsModel";
 import { CloudChatHint } from "./CloudChatHint";
-import { cloudChatHintShown, useCloudChatHint } from "./cloudChatHint";
+import { cloudChatHintShown, useCloudChatHint } from "./cloudChatHintModel";
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
 import { flushHeldModePick, holdModePick } from "./heldModePick";
@@ -4209,7 +4209,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const runHereSend = useRef(false);
   /// Counts the Cloud starts that ended, so the folder default looks again once one has.
   const [cloudStartsEnded, setCloudStartsEnded] = useState(0);
-  /// The one-time Cloud hint over a new chat's composer (cloudChatHint.ts): its record is the app's.
+  /// The one-time Cloud hint over a new chat's composer (cloudChatHintModel.ts): its record is the app's.
   /// A pick of Cloud by any path (the hint, the Where menu, New Cloud Chat) is its use.
   const cloudHint = useCloudChatHint(paneTipHost);
   const featureTipsOn = useFeatureTipsOn();
@@ -9149,7 +9149,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (handshaken || hostError === undefined);
   if (newTab !== undefined && !handshaken && hostError !== undefined) composerStoodIn.current = true;
   /// The one-time Cloud hint shows on a new chat this Mac starts while Cloud is offered and is not
-  /// its mode (cloudChatHint.ts); never in a quick chat or a chat on another machine.
+  /// its mode (cloudChatHintModel.ts); never in a quick chat or a chat on another machine.
   const cloudHintShown =
     !quick &&
     !onOtherMachine &&

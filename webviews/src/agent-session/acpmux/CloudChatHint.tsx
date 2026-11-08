@@ -9,7 +9,7 @@ import "./cloudChatHint.css";
 /// the actions beside them; `chip`, one tonal pill, Try Cloud and an X, and nothing else.
 export type CloudChatHintLook = "line" | "card" | "chip";
 
-/// The one-time Cloud hint over a new chat's composer (cloudChatHint.ts says when it shows and
+/// The one-time Cloud hint over a new chat's composer (cloudChatHintModel.ts says when it shows and
 /// where its record lives). It never covers the composer: it is a row in the column above it, and
 /// it opens and closes by its own height on the house settle (--cmux-ease-settle over
 /// --cmux-motion-settle), so the composer moves with it in one transition and nothing pops in

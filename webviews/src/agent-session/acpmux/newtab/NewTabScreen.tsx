@@ -236,7 +236,7 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// New Cloud Chat (the palette) is pending: once Run as is offered, the page takes it (this call)
   /// and picks Cloud.
   cloudPick?(): void;
-  /// The one-time Cloud hint (cloudChatHint.ts) is due: it shows over the strip while Cloud is not
+  /// The one-time Cloud hint (cloudChatHintModel.ts) is due: it shows over the strip while Cloud is not
   /// the mode, and its Use Cloud is this page's own Cloud pick.
   cloudHint?: { onClose(): void };
 };
