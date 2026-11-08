@@ -27,7 +27,7 @@ export type CmuxLinkInfo = {
   host?: string;
   /// A tab's or pane's workspace, by its title.
   workspace?: string;
-  /// The chat it opens (a chat link the list has).
+  /// The chat it opens: a chat link the list has, or one acpmux resolved.
   sessionId?: string;
 };
 
@@ -67,8 +67,15 @@ export function cmuxLinkInfo(
     const host = store.host(listed);
     return { kind: "chat", title: info.title, sessionId: listed, ...(host && { host }) };
   }
-  // A chat acpmux found but this page does not list (a peer's): its name, never its id.
-  if (resolved?.name) return { kind: "chat", title: resolved.name, ...(resolved.host && { host: resolved.host }) };
+  // A chat acpmux found but this page does not list (a peer's): its name for the title, never its
+  // id; the id is kept for the click, which opens it as the agent link did (CmuxLinkChip.tsx).
+  if (resolved?.name)
+    return {
+      kind: "chat",
+      title: resolved.name,
+      sessionId: resolved.sessionId,
+      ...(resolved.host && { host: resolved.host }),
+    };
   return undefined;
 }
 

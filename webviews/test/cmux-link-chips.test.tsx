@@ -21,6 +21,9 @@ import { setPageChats } from "../src/agent-session/acpmux/chips/cmuxLinkResolve"
 import { SessionHoverStore } from "../src/agent-session/acpmux/started/sessionHover";
 import { SessionHoverContext } from "../src/agent-session/acpmux/started/sessionHoverCardModel";
 import { linkedText } from "../src/agent-session/acpmux/chips/linkedText";
+import { resetSessionRefs, setSessionRefResolver } from "../src/agent-session/acpmux/conversation/sessionRefs";
+import { SubsessionContext, SubsessionStore } from "../src/agent-session/acpmux/subagents/subsessions";
+import { openOfferChat, openSenderChat } from "../src/agent-session/acpmux/rows/rowActions";
 
 const HEX = "16c92e4354fcaf05540386720d78e251";
 const WORKSPACE = `cmux-nightly://workspace/ws_${HEX}`;
@@ -306,6 +309,144 @@ test("a chat link names its chat from the session list, and a click opens that c
   });
   expect(opened).toEqual(["acp-reviewer"]);
   expect(prevented).toBe(true);
+});
+
+// ---------------------------------------------------------------------------------------------
+// A chat chip's click is its link's from before the chips (review of #38166, F1): an agent link
+// opens the chat acpmux resolves as a bare agent link's chip does (`useAgentLinkClick`,
+// `chat.offer.open` as a sender), a peer's the page does not list included.
+
+const PEER = "4e8a2d6c-1b3f-4a5e-9c7d-0f1e2d3c4b5a";
+const PEER_AGENT = `cmux://agent/codex/${PEER}?host=studio&name=peer`;
+const PEER_WEB = `https://cmux.com/deeplink/agent?harness=codex&session=${PEER}`;
+
+/// Mounts `node` as the app does: the session list's cards and the transcript's chat openers, with
+/// the app's `chat.offer.open` recorded and acpmux answering `answers` (a query it has no answer
+/// for names no chat of the reader's).
+async function mountApp(node: React.ReactNode, answers: Record<string, Record<string, unknown>>) {
+  const offers: Record<string, unknown>[] = [];
+  const actions = window as unknown as { cmuxAcpmuxActions?: Record<string, (params: unknown) => Promise<unknown>> };
+  actions.cmuxAcpmuxActions = {
+    "chat.offer.open": async (params) => void offers.push(params as Record<string, unknown>),
+  };
+  const asked: string[] = [];
+  const answered: Promise<unknown>[] = [];
+  setSessionRefResolver((query) => {
+    asked.push(query);
+    const session = answers[query];
+    const answer = session ? Promise.resolve({ session }) : Promise.reject(new Error("not found"));
+    answered.push(answer.catch(() => undefined));
+    return answer;
+  });
+  // The page is idle at once: acpmux is asked as soon as a chip mounts (sessionRefs.ts whenIdle).
+  Object.assign(scope, {
+    requestIdleCallback: (run: () => void) => {
+      queueMicrotask(run);
+      return 0;
+    },
+    cancelIdleCallback: () => undefined,
+  });
+  await mount(
+    <SessionHoverContext.Provider value={{ store: chats(), open: openOfferChat }}>
+      <SubsessionContext.Provider
+        value={{ store: new SubsessionStore(), open: openOfferChat, openSender: openSenderChat }}
+      >
+        {node}
+      </SubsessionContext.Provider>
+    </SessionHoverContext.Provider>,
+  );
+  // Every answer acpmux gave is drawn.
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.all(answered);
+  });
+  return { offers, asked };
+}
+
+async function click(anchor: HTMLAnchorElement): Promise<boolean> {
+  const event = new window.MouseEvent("click", { bubbles: true, cancelable: true });
+  await act(async () => {
+    anchor.dispatchEvent(event);
+    await Promise.resolve();
+  });
+  return event.defaultPrevented;
+}
+
+afterEach(() => {
+  setSessionRefResolver(undefined);
+  resetSessionRefs();
+  delete (window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+  delete scope.requestIdleCallback;
+  delete scope.cancelIdleCallback;
+});
+
+test("a peer's agent link acpmux resolves opens its chat through chat.offer.open", async () => {
+  const { offers } = await mountApp(<PromptTyped text={`Ask ${PEER_AGENT}`} show={(text) => text} />, {
+    [PEER_AGENT]: { sessionId: "acp-peer", name: "Peer review", host: "studio" },
+  });
+  const chip = host.querySelector<HTMLAnchorElement>("[data-cmux-link=chat]")!;
+  expect(chip.querySelector(".cv-cmux-link__title")?.textContent).toBe("Peer review");
+  expect(chip.getAttribute("data-open-session")).toBe("acp-peer");
+  expect(await click(chip)).toBe(true);
+  expect(offers).toEqual([{ sessionId: "acp-peer", sender: true }]);
+});
+
+test("a peer's cmux.com agent link acpmux resolves opens its chat the same way", async () => {
+  const { offers } = await mountApp(<PromptTyped text={`Ask ${PEER_WEB}`} show={(text) => text} />, {
+    [PEER_WEB]: { sessionId: "acp-peer", name: "Peer review", host: "studio" },
+  });
+  const chip = host.querySelector<HTMLAnchorElement>("[data-cmux-link=chat]")!;
+  expect(chip.getAttribute("href")).toBe(PEER_WEB);
+  expect(await click(chip)).toBe(true);
+  expect(offers).toEqual([{ sessionId: "acp-peer", sender: true }]);
+});
+
+test("a reply's peer agent link opens its chat the same way", async () => {
+  const { offers } = await mountApp(<p>{linkedText(`Ask ${PEER_AGENT}`, "r")}</p>, {
+    [PEER_AGENT]: { sessionId: "acp-peer", name: "Peer review" },
+  });
+  const chip = host.querySelector<HTMLAnchorElement>("[data-cmux-link=chat]")!;
+  expect(await click(chip)).toBe(true);
+  expect(offers).toEqual([{ sessionId: "acp-peer", sender: true }]);
+});
+
+test("a listed chat's agent link opens as the agent link did: the chat acpmux names, as a sender", async () => {
+  const { offers } = await mountApp(<PromptTyped text={`Ask ${WEB_AGENT}`} show={(text) => text} />, {
+    [WEB_AGENT]: { sessionId: "acp-reviewer" },
+  });
+  const chip = host.querySelector<HTMLAnchorElement>("[data-cmux-link=chat]")!;
+  expect(chip.querySelector(".cv-cmux-link__title")?.textContent).toBe("Review the retry fix");
+  expect(await click(chip)).toBe(true);
+  expect(offers).toEqual([{ sessionId: "acp-reviewer", sender: true }]);
+});
+
+test("an agent link that names no chat of the reader's stays the link and is followed", async () => {
+  const { offers, asked } = await mountApp(<PromptTyped text={`Ask ${PEER_WEB}`} show={(text) => text} />, {});
+  expect(asked).toEqual([PEER_WEB]);
+  expect(host.querySelector("[data-cmux-link]")).toBeNull();
+  const link = host.querySelector<HTMLAnchorElement>("a.cv-chip.is-web")!;
+  expect(link.getAttribute("href")).toBe(PEER_WEB);
+  expect(await click(link)).toBe(false);
+  expect(offers).toEqual([]);
+});
+
+test("a listed session link opens its chat; one to a turn takes the host's link path", async () => {
+  const link = "cmux://session/acp-reviewer";
+  const turn = `${link}#turn-t1`;
+  const { offers } = await mountApp(<PromptTyped text={`See ${link} and ${turn}`} show={(text) => text} />, {});
+  const [chip, turnChip] = [...host.querySelectorAll<HTMLAnchorElement>("[data-cmux-link=chat]")];
+  expect(await click(chip!)).toBe(true);
+  expect(offers).toEqual([{ sessionId: "acp-reviewer" }]);
+  expect(await click(turnChip!)).toBe(false);
+  expect(offers).toEqual([{ sessionId: "acp-reviewer" }]);
+});
+
+test("a workspace chip in the app's page still takes the host's link path", async () => {
+  setLinkPlaces([place("Retry fix")]);
+  const { offers } = await mountApp(<PromptTyped text={`See ${WORKSPACE}`} show={(text) => text} />, {});
+  const chip = host.querySelector<HTMLAnchorElement>("[data-cmux-link=workspace]")!;
+  expect(await click(chip)).toBe(false);
+  expect(offers).toEqual([]);
 });
 
 test("a workspace chip's click is the anchor's own, the host's link path", async () => {
