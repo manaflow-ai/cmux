@@ -386,6 +386,12 @@ public final class LayoutRootView: NSView {
                 screenFrames[screen.id] = AnimatedFrame(bounds, alpha: isActive ? 1 : 0)
             }
             let old = before[screen.id]
+            #if DEBUG || CMUX_BENCH_HOOKS
+            // ZOOM VARIANTS 3 pop probe (never merged): every change of a screen's zoom in the model, with its time.
+            if MotionTrace.isEnabled, let old, old.zoomed != screen.zoomed {
+                MotionTrace.interval("zk.model.zoomed\(screen.zoomed ? 1 : 0)") {}
+            }
+            #endif
             // A zoomed pane shows full size over its canvas (canvas-layout.md).
             let canvas = screen.zoomed ? nil : snapshot.canvases[screen.id]
             let layoutChanged = isNew || old?.layout != screen.layout || old?.zoomed != screen.zoomed || sharedChanged

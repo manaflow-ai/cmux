@@ -268,6 +268,15 @@ extension ScreenContentView {
             }
         }
         CATransaction.commit()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // ZOOM VARIANTS 3 pop probe (never merged): which covered panes this end retires now and which it leaves shown
+        // at full opacity (still in `paneFrames`), as one span name.
+        if MotionTrace.isEnabled {
+            let kept = panes.filter { paneFrames[$0] != nil }.count
+            let hidden = panes.filter { context.hosts[$0]?.isHidden == true }.count
+            MotionTrace.interval("zk.fade.stop.ret\(retiring ? 1 : 0).n\(panes.count).inframes\(kept).hidden\(hidden)") {}
+        }
+        #endif
         guard retiring else { return }
         for pane in panes where paneFrames[pane] == nil { context.retire(pane, from: screenID, until: .zoom) }
     }
