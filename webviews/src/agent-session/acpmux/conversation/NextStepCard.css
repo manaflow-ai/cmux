@@ -37,6 +37,15 @@
 .acpmux-next-step__question {
   font-weight: var(--weight-emphasis);
 }
+/* A link is a short label (nextStepText.tsx): it moves to the next line whole, never breaks inside.
+   The renderer's soft breaks (<wbr> after `-`, `.`, `/`) still broke `host/…/vms` across two lines
+   under nowrap in WebKit (tagged build 38134-agent-ask-card-polish), so they are dropped here. */
+.acpmux-next-step :is(.acpmux-next-step__recap, .acpmux-next-step__question, .acpmux-next-step__detail) a {
+  white-space: nowrap;
+}
+.acpmux-next-step :is(.acpmux-next-step__recap, .acpmux-next-step__question, .acpmux-next-step__detail) a wbr {
+  display: none;
+}
 .acpmux-next-step__recap,
 .acpmux-next-step__detail {
   color: var(--agent-muted);
