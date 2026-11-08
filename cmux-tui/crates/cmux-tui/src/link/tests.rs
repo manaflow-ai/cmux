@@ -417,8 +417,9 @@ async fn a_revoked_pairing_closes_an_open_owner_session_and_refuses_a_redial() {
                 [2; 32],
                 peer_addr("inst_b"),
                 &pairings(),
-                &session_socket,
+                Some(session_socket.as_path()),
                 Some(&config),
+                &super::acpmux::AcpmuxTarget::Off,
                 Some(super::inbound::Revocations {
                     view: receiver,
                     open: std::sync::Arc::default(),

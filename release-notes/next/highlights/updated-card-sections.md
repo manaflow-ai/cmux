@@ -1,5 +1,5 @@
-title: The Updated card's list reads by area
+title: The Updated card's changes read by area
 category: improved
 docs: https://cmux.com/docs/next
 
-The Updated card's list groups changes under area headers, holds steady while you hover, and expands a row you rest on. Clicking a row opens What's New at that change.
+Hovering the Updated card lists its changes under What's New's area headers, with a count of how many more are below. Clicking a change opens What's New at it.
