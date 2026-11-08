@@ -53,9 +53,10 @@ type LinkSnapshot = {
 /// The link of the peer the open chat runs on (the session this Mac's acpmux mirrors,
 /// `summary.peer`), as acpmux last said it (`peerLinks`, else an older daemon's `peerStates` word,
 /// both kept current by `_acpmux/peer_state_changed`; `peerConnected` before the first state
-/// arrives), or null for a chat on this Mac. A Cloud peer says something here only while connected:
-/// one that is not, in any state, is left to the peer copy banner, which says whether it is paused or
-/// starting and offers Resume (PeerCopyBanner.tsx). A Cloud machine that was connected keeps its
+/// arrives), or null for a chat on this Mac. A Cloud peer says something here only while connected,
+/// or when a person must act (a refused sign-in, an update: `stuck`): a link that comes back on its own
+/// is left to the peer copy banner, which says whether it is paused or starting and offers Resume
+/// (PeerCopyBanner.tsx). A Cloud machine that was connected keeps its
 /// `last_seen`, so acpmux may report a pause as `reconnecting`, and the row would spin
 /// "Reconnecting…" beside the banner's Resume. O(1).
 export function peerLink(snapshot: LinkSnapshot): PeerLink | null {
@@ -71,7 +72,7 @@ export function peerLink(snapshot: LinkSnapshot): PeerLink | null {
         ? undefined
         : { link: connected ? "connected" : "offline" };
   if (!known) return null;
-  if (known.link !== "connected" && snapshot.peerKinds?.[peer] === "cloud") return null;
+  if (known.link !== "connected" && !known.stuck && snapshot.peerKinds?.[peer] === "cloud") return null;
   const why: LinkWhy | undefined =
     known.why ?? (known.link !== "connected" && detail?.cause === LOCAL ? LOCAL : undefined);
   return {
