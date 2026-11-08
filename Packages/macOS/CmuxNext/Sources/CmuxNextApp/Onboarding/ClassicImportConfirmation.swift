@@ -2,16 +2,6 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextOnboarding
 
-/// How the person answered the classic import preview.
-enum ClassicImportAnswer: Equatable {
-    /// Import pressed.
-    case accepted
-    /// Cancel pressed (or Escape): the launch's run records it and stops asking.
-    case declined
-    /// Nobody answered: the window closed under the dialog or the app quit. The next launch asks again.
-    case unanswered
-}
-
 /// The preview and mandatory answer before a classic snapshot is restored.
 @MainActor
 struct ClassicImportConfirmation {

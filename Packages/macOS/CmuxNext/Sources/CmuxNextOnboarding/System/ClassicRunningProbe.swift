@@ -1,3 +1,4 @@
+import Darwin
 public import Foundation
 
 /// Whether classic cmux is running now, so it may still save its session.

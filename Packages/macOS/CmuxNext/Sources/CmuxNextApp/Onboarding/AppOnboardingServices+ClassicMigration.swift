@@ -393,7 +393,8 @@ extension AppOnboardingServices {
                 guard let snapshot else { continue }
                 let opened = Self.openingMissingFolders(snapshot)
                 guard let source = finder.source(candidate.url, bundleID: candidate.bundleID, createdAt: snapshot.createdAt) else { continue }
-                let siblings = candidates.map(\.url).filter { $0 != candidate.url }
+                // Only the read channel's files are backed up: another channel's stale save may be huge.
+                let siblings = candidates.filter { $0.bundleID == candidate.bundleID && $0.url != candidate.url }.map(\.url)
                 return ClassicSnapshotRead(snapshot: opened, source: source, backups: [candidate.url] + siblings)
             } catch {
                 // A damaged or oversized file: the next copy may still read.
