@@ -506,3 +506,20 @@ fn a_slow_bearer_mint_at_the_bind_answers_the_ask_within_its_wait_and_keeps_the_
     assert!(started.elapsed() < Duration::from_secs(1));
     drop(server);
 }
+
+/// #38329's review (P2): a ticket asked for an ask is good while it may be
+/// handed out (HAND_OUT_MARGIN, 30 s), not only past the kept ticket's
+/// refresh point (REFRESH_BEFORE, 60 s). A 45 s ticket goes to the asker on
+/// the first fetch, with one request and no `carrier.slow`.
+#[test]
+fn a_45_s_ticket_asked_for_an_ask_is_handed_out_on_the_first_fetch() {
+    let dir = tempfile::tempdir().unwrap();
+    let ask_wait = Duration::from_secs(3);
+    let (server, path, live, _resumes) = live_server(&dir, 45, ask_wait);
+    server.bound(client_with(LiveHttp(Arc::clone(&live))), false);
+    let reply = ask(&path, r#"{"carrier_ticket": {}}"#);
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_eq!(reply["ticket"], "t-1", "{reply}");
+    assert_eq!(live.tickets(), 1, "the ticket asked for the ask was thrown away and asked again");
+    drop(server);
+}
