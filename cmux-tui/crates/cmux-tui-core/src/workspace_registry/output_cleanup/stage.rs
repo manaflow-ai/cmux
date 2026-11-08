@@ -2,7 +2,9 @@
 //! staging file while the owner serves. Sealed segments never change, so a
 //! read-only connection can read them beside the owner. Each segment is one
 //! staging transaction together with the cursor that names it, so a quit or
-//! a kill resumes at the next segment and never stages a record twice.
+//! a kill resumes at the next segment and never stages a record twice. Then
+//! the background build ([`super::build`]) turns the staged records into the
+//! new registry's journal, and keeps it current while the owner serves.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -15,6 +17,7 @@ use super::super::{
     open_registry_database, open_registry_database_read_only, open_registry_database_with_flags,
     required_meta,
 };
+use super::build::{Build, BuildControl, build, catch_up, ensure_build_state};
 use super::codec::{inflate_segment, split_records};
 use super::{OUTPUT_KIND, copied_bytes, free_space_refusal, remove_staging, staging_path};
 use crate::platform;
@@ -24,7 +27,7 @@ const STAGING_FORMAT: &str = "2";
 const SEGMENTS_PER_SPACE_CHECK: u64 = 256;
 const PROGRESS_LOG_INTERVAL: Duration = Duration::from_secs(10);
 
-fn progress_log_interval() -> Duration {
+pub(super) fn progress_log_interval() -> Duration {
     #[cfg(debug_assertions)]
     if let Some(ms) = std::env::var("CMUX_TUI_TEST_OUTPUT_CLEANUP_PROGRESS_MS")
         .ok()
@@ -39,8 +42,9 @@ fn progress_log_interval() -> Duration {
 pub(crate) enum StageOutcome {
     /// No stored terminal output: nothing to clean up.
     NotNeeded,
-    /// Every sealed segment is staged; the next owner start swaps.
-    Complete { segments: u64, kept: u64 },
+    /// The new registry is built (and was kept current until the owner
+    /// stopped); the next owner start swaps.
+    Built,
     /// Not enough free space; the staged work so far stays.
     Refused(String),
     /// The owner is stopping; the staged work so far stays.
@@ -50,8 +54,11 @@ pub(crate) enum StageOutcome {
 pub(crate) struct StageControl<'a> {
     /// Called once the registry is known to need a cleanup, before staging.
     pub(crate) on_pending: &'a dyn Fn(),
-    /// Called before each segment; `false` stops staging.
+    /// Called before each segment and build step; `false` stops staging.
     pub(crate) next_segment: &'a dyn Fn() -> bool,
+    /// After the build: waits until the next catch-up with the records the
+    /// owner appended; `false` once the owner is stopping.
+    pub(crate) catch_up: &'a dyn Fn() -> bool,
     /// Whether the owner is stopping. Also read while a read of the registry
     /// runs, so a stop cuts a long scan (the live row counts) short instead
     /// of holding the owner's shutdown until it ends.
@@ -101,32 +108,63 @@ fn stage_registry_until_stopped(
     }
     let registry_id = required_meta(&source, "registry_id")?;
     let staging = open_staging(db_path, &registry_id)?;
-    if state(&staging, "complete")? == "1" {
-        return Ok(StageOutcome::Complete {
-            segments: state_u64(&staging, "staged_segments")?,
-            kept: kept_records(&staging)?,
-        });
+    let control_build = BuildControl { next_step: control.next_segment, space: (db_path, copied) };
+    loop {
+        if state(&staging, "complete")? != "1" {
+            match stage_sealed(db_path, &source, &staging, control, copied)? {
+                Staged::Finished => {}
+                Staged::Stopped => return Ok(StageOutcome::Stopped),
+                Staged::Refused(reason) => return Ok(StageOutcome::Refused(reason)),
+            }
+        }
+        match build(&source, &staging, &control_build)? {
+            Build::Built => break,
+            Build::Restart => continue,
+            Build::Stopped => return Ok(StageOutcome::Stopped),
+            Build::Refused(reason) => return Ok(StageOutcome::Refused(reason)),
+        }
     }
-    let staged_through = state_u64(&staging, "staged_through")?;
+    while (control.catch_up)() {
+        if !catch_up(&source, &staging, &control_build)? {
+            break;
+        }
+    }
+    Ok(StageOutcome::Built)
+}
+
+/// Stages the sealed segments after the cursor and counts the live rows.
+fn stage_sealed(
+    db_path: &Path,
+    source: &Connection,
+    staging: &Connection,
+    control: &StageControl<'_>,
+    copied: u64,
+) -> anyhow::Result<Staged> {
+    let started = Instant::now();
+    let staged_through = state_u64(staging, "staged_through")?;
     if staged_through > 0 {
         eprintln!(
             "cmux-tui: output cleanup: resuming after sequence {staged_through} ({} segments staged)",
-            state_u64(&staging, "staged_segments")?
+            state_u64(staging, "staged_segments")?
         );
     } else {
         eprintln!("cmux-tui: output cleanup: staging {}", staging_path(db_path).display());
     }
-    match stage_segments(&source, &staging, control.next_segment, Some((db_path, copied)))? {
-        Staged::Stopped => return Ok(StageOutcome::Stopped),
-        Staged::Refused(reason) => return Ok(StageOutcome::Refused(reason)),
+    match stage_segments(source, staging, control.next_segment, Some((db_path, copied)))? {
         Staged::Finished => {}
+        stopped => return Ok(stopped),
     }
-    count_live_rows(&source, &staging)?;
+    count_live_rows(source, staging)?;
     staging.execute("UPDATE output_cleanup_state SET value = '1' WHERE key = 'complete'", [])?;
-    Ok(StageOutcome::Complete {
-        segments: state_u64(&staging, "staged_segments")?,
-        kept: kept_records(&staging)?,
-    })
+    eprintln!(
+        "cmux-tui: output cleanup: phase A complete in {:.2} s: {} segments staged, {} records \
+         kept; building the new registry next ({})",
+        started.elapsed().as_secs_f64(),
+        state_u64(staging, "staged_segments")?,
+        kept_records(staging)?,
+        staging_path(db_path).display()
+    );
+    Ok(Staged::Finished)
 }
 
 /// Live `terminal.output` rows (one index seek) or a sealed segment that
@@ -159,7 +197,13 @@ pub(super) fn open_staging(db_path: &Path, registry_id: &str) -> anyhow::Result<
     let path = staging_path(db_path);
     if path.is_file() {
         match open_existing_staging(&path, registry_id) {
-            Ok(Some(connection)) => return Ok(connection),
+            Ok(Some(connection)) => {
+                // A swap attempt of an earlier start left it in rollback
+                // journal mode; the background build writes beside readers.
+                connection.query_row("PRAGMA journal_mode=WAL", [], |_| Ok(()))?;
+                ensure_build_state(&connection)?;
+                return Ok(connection);
+            }
             Ok(None) => eprintln!("cmux-tui: output cleanup: discarding a stale staging file"),
             Err(error) => {
                 eprintln!(
@@ -211,6 +255,7 @@ pub(super) fn open_staging(db_path: &Path, registry_id: &str) -> anyhow::Result<
         tx.execute("INSERT INTO output_cleanup_state(key, value) VALUES(?1, ?2)", [key, value])?;
     }
     tx.commit()?;
+    ensure_build_state(&connection)?;
     Ok(connection)
 }
 
@@ -408,13 +453,28 @@ fn count_live_rows(source: &Connection, staging: &Connection) -> anyhow::Result<
     Ok(())
 }
 
-type KeptRecord = (u64, String, Vec<u8>, Option<String>);
+/// A journal record in its archived form: sequence, kind, JSON, actor.
+pub(super) type KeptRecord = (u64, String, Vec<u8>, Option<String>);
 
 /// The non-output records of one sealed segment with their stored actors.
 /// Every segment is inflated: its kind map is not proof that it holds only
 /// output, since a legacy kind backfill killed partway leaves a mixed
 /// segment with only some of its kinds, and records dropped here are gone.
 fn kept_segment_records(
+    source: &Connection,
+    segment_id: &str,
+    start: u64,
+    end: u64,
+    record_count: i64,
+) -> anyhow::Result<Vec<KeptRecord>> {
+    Ok(segment_records(source, segment_id, start, end, record_count)?
+        .into_iter()
+        .filter(|record| record.1 != OUTPUT_KIND)
+        .collect())
+}
+
+/// Every record of one sealed segment, output included, with its actor.
+pub(super) fn segment_records(
     source: &Connection,
     segment_id: &str,
     start: u64,
@@ -461,7 +521,6 @@ fn kept_segment_records(
     };
     records
         .into_iter()
-        .filter(|record| record.kind != OUTPUT_KIND)
         .map(|record| {
             let actor = actors.remove(&record.sequence.to_string());
             let bytes = json.get(record.bytes).with_context(|| {

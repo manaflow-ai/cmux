@@ -10,21 +10,27 @@
 //!   with a read-only connection. It copies the non-output records of every
 //!   sealed segment (segments are immutable) into the staging file
 //!   `workspace-registry.sqlite3.output-cleanup`, one segment per staging
-//!   transaction, so a quit resumes at the next segment.
+//!   transaction, so a quit resumes at the next segment. The same thread
+//!   then builds the new registry's journal in that file (`build`): the
+//!   non-output live rows (through the `(kind, sequence)` index, never a
+//!   full scan), all kept records packed into new sealed segments over the
+//!   same sequence range with their index rows, each removed run recorded in
+//!   `journal_pruned_ranges`, and a check. Every step records its progress,
+//!   so a quit or a kill resumes it. While the owner serves on, the thread
+//!   packs the records appended since.
 //! - Phase B ([`swap_at_open`]) runs at the next owner start, inside
 //!   `WorkspaceRegistry::open` while the session locks are held and before
-//!   any connection writes the registry. It copies every other table, the
-//!   non-output live rows (through the `(kind, sequence)` index, never a full
-//!   scan) and their index rows, packs all kept records into new sealed
-//!   segments over the same sequence range, records each removed run in
-//!   `journal_pruned_ranges`, checks the result, and renames it over the
-//!   registry. The old file stays as `workspace-registry.sqlite3.pre-output-
-//!   cleanup` until the next start that opens the new registry.
+//!   any connection writes the registry. It only finishes the built file:
+//!   the journal tail since the last catch-up (a start with a long tail
+//!   defers the swap), every other table copied, a check, and the rename
+//!   over the registry. The old file stays as `workspace-registry.sqlite3.
+//!   pre-output-cleanup` until the next start that opens the new registry.
 //!
 //! Sequences never change: cursors, checkpoints and hook deliveries keep
 //! pointing at the same records. The journal readers accept a missing run of
 //! sequences exactly when one pruned range covers it ([`pruned_gap`]).
 
+mod build;
 mod codec;
 mod pruned;
 mod stage;
