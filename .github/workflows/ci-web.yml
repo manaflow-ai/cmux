@@ -693,7 +693,7 @@ jobs:
             reds=unknown
           fi
           echo "head shard reds: $reds"
-          echo "reds=$reds" >> "$GITHUB_OUTPUT"
+          echo "reds=$reds" >> "${GITHUB_OUTPUT:-/dev/null}"
 
       - name: Setup Bun
         if: ${{ steps.head.outputs.reds != '0' }}
