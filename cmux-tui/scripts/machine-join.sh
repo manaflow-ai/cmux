@@ -238,12 +238,23 @@ has_capability() {
   [ -x "$1" ] && "$1" capabilities 2>/dev/null | grep -qx "$join_capability"
 }
 
+# Whether the installed acpmux is kept current by something other than this
+# line: a Mac (its app), or a Linux box with acpmux-update.timer or the owner's
+# ~/.acpmux/no-auto-update marker (updates turned off on purpose).
+updated_elsewhere() {
+  [ "$os" != "Linux" ] ||
+    [ -f "$HOME/.config/systemd/user/acpmux-update.timer" ] ||
+    [ -e "$HOME/.acpmux/no-auto-update" ]
+}
+
 # 3. acpmux from the channel, checked against its sha256 before it touches
 # ~/.local/bin. The join token only ever goes to a binary with the channel's
 # sha256: on a mismatch the channel's build replaces it (the old one stays as
 # acpmux.prev). A repair run with no token keeps a different binary that can
-# join (the update timer owns updates), and keeps the installed one when the
-# channel cannot be read.
+# join when something else updates it: on Linux, its acpmux-update.timer
+# (step 4 installs it) or the owner's no-auto-update marker; a Mac's app. A
+# Linux box with neither gets the channel's build, whose step 4 adds the
+# timer. The installed one stays when the channel cannot be read.
 channel="${CMUX_JOIN_CHANNEL:-feat-cmux-next}"
 case "$channel" in
   '' | *[!a-z0-9-]*) die 1 "refusing the channel $channel: lowercase letters, digits and - only" ;;
@@ -264,8 +275,8 @@ if [ -z "$want" ]; then
   say "cannot read the $channel channel; keeping the installed acpmux"
 elif [ -x "$acpmux" ] && [ "$(sha256 "$acpmux")" = "$want" ]; then
   :
-elif [ -z "$t" ] && has_capability "$acpmux"; then
-  say "keeping the installed acpmux (its update timer brings it to $channel)"
+elif [ -z "$t" ] && has_capability "$acpmux" && updated_elsewhere; then
+  say "keeping the installed acpmux (its updates bring it to $channel)"
 else
   fetch "$files/tree/$key/cmux-tui-acpmux-$target" "$tmp/acpmux" ||
     die 1 "cannot download acpmux for $target"
@@ -322,7 +333,9 @@ fi
 # systemd user unit or LaunchAgent `host setup` writes and says where it
 # stands (on a Mac no one is logged in to at the screen, it loads at the next
 # login there); an acpmux without it gets a daemon that runs until the next
-# reboot.
+# reboot. On Linux it also installs and starts acpmux-update.timer with the
+# script `host setup` runs (`acpmux machine self-update` every 15 minutes),
+# unless ~/.acpmux/no-auto-update says not to; a re-run keeps both as they are.
 if "$acpmux" daemon service --help >/dev/null 2>&1; then
   if [ "$os" = "Linux" ] && command -v loginctl >/dev/null 2>&1; then
     loginctl enable-linger "$(id -un)" >/dev/null 2>&1 ||

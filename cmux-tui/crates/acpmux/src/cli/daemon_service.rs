@@ -14,6 +14,12 @@
 //! login there, which is not a failure. On Linux a unit someone else wrote or edited is left as
 //! it is (only one an earlier acpmux wrote is replaced, as `host update` does); the unit is
 //! enabled and started, after a daemon that runs outside it is shut down keeping its agents.
+//!
+//! On Linux, once acpmux's own unit runs, `install` also installs `acpmux-update.timer` with the
+//! script `host setup` and `host update` run on a machine ([`hosts::install_script`]), so a
+//! machine joined by the one-line join or a pair code keeps its daemon on the newest build by
+//! itself, as one added with `host setup` does ([`ensure_update_timer`]). The marker
+//! `~/.acpmux/no-auto-update` keeps it off, and a unit someone else wrote is left alone.
 
 use crate::cli::hosts;
 use anyhow::{Result, anyhow};
@@ -201,7 +207,51 @@ fn uid() -> u32 {
 }
 
 pub(crate) fn install(m: &dyn Machine) -> Result<Report> {
-    if m.linux() { install_systemd(m) } else { install_launchd(m, uid()) }
+    if !m.linux() {
+        return install_launchd(m, uid());
+    }
+    let mut report = install_systemd(m)?;
+    if report.state == State::Running
+        && let Some(off) = update_timer(m)
+    {
+        report.note = Some(match report.note.take() {
+            Some(note) => format!("{note}; {off}"),
+            None => off,
+        });
+    }
+    Ok(report)
+}
+
+/// The script that installs and starts `acpmux-update.timer` ([`hosts::install_script`]), run
+/// once `acpmux.service` runs; how long it may take.
+const TIMER_WAIT: Duration = Duration::from_secs(30);
+
+/// Installs `acpmux-update.timer` when `acpmux.service` is acpmux's own unit (one someone else
+/// wrote is theirs, and so is how it updates). Idempotent: units with this build's text are kept
+/// and the timer's `enable --now` is a no-op once it runs. Some(why) when it leaves this machine
+/// without its self-update.
+fn update_timer(m: &dyn Machine) -> Option<String> {
+    let existing = std::fs::read_to_string(unit_path(&m.home())).ok();
+    if existing.is_none() || unit_plan(existing.as_deref()) == UnitFile::Foreign {
+        return None;
+    }
+    match m.run("sh", &["-c", &hosts::install_script()], TIMER_WAIT) {
+        Some((_, out, _)) => hosts::take_auto_update_off(&out).1,
+        None => Some("installing acpmux-update.timer did not finish in time".to_owned()),
+    }
+}
+
+/// After a join with no `daemon service install` of its own (a pair code's `host join`): the
+/// update timer, when this Linux machine's daemon runs under acpmux's own `acpmux.service`.
+/// Nothing on a Mac, and nothing when that service is not running. Some(why) as
+/// [`update_timer`] says.
+pub(crate) fn ensure_update_timer(m: &dyn Machine) -> Option<String> {
+    if !m.linux()
+        || !ok(m.run("systemctl", &["--user", "is-active", "--quiet", SYSTEMD_SERVICE], CALL_WAIT))
+    {
+        return None;
+    }
+    update_timer(m)
 }
 
 fn install_launchd(m: &dyn Machine, uid: u32) -> Result<Report> {

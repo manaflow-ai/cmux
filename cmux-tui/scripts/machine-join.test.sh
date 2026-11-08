@@ -446,15 +446,38 @@ suite() {
   check "the replaced daemon restarted" grep -q "^acpmux daemon restart" "$d/log/argv"
   check "token on stdin of the verified binary" token_on_stdin_once
 
-  # Without a token (repair), a capable different build is kept.
-  new_case capable-mismatch-repair
+  # Without a token (repair), a capable different build is kept when something
+  # else updates it: a Linux box's acpmux-update.timer, the owner's
+  # no-auto-update marker, or a Mac.
+  for keeper in timer marker mac; do
+    new_case "capable-mismatch-repair-$keeper"
+    mkdir -p "$d/home/.local/bin"
+    { cat "$root/acpmux.src"; echo "# a different build"; } >"$d/home/.local/bin/acpmux"
+    chmod 755 "$d/home/.local/bin/acpmux"
+    case "$keeper" in
+      timer) mkdir -p "$d/home/.config/systemd/user" && : >"$d/home/.config/systemd/user/acpmux-update.timer" ;;
+      marker) mkdir -p "$d/home/.acpmux" && : >"$d/home/.acpmux/no-auto-update" ;;
+      mac) JT_OS=Darwin JT_ARCH=arm64 ;;
+    esac
+    run_join none
+    check "repair ($keeper) exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+    check "repair ($keeper) keeps the capable build" grep -q "a different build" "$d/home/.local/bin/acpmux"
+    check "repair ($keeper) downloads no binary" eval '! fetched_binary'
+  done
+
+  # A Linux box joined before the line installed the update timer: a repair
+  # run takes the channel's build, whose service install adds the timer, and
+  # restarts the daemon onto it.
+  new_case capable-mismatch-repair-no-timer
   mkdir -p "$d/home/.local/bin"
   { cat "$root/acpmux.src"; echo "# a different build"; } >"$d/home/.local/bin/acpmux"
   chmod 755 "$d/home/.local/bin/acpmux"
   run_join none
-  check "repair exit 0 (got $rc)" rc_is 0
-  check "repair keeps the capable build" grep -q "a different build" "$d/home/.local/bin/acpmux"
-  check "repair downloads no binary" eval '! fetched_binary'
+  check "repair (no timer) exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "repair (no timer) takes the channel build" test "$(sha "$d/home/.local/bin/acpmux")" = "$(sha "$d/serve/acpmux")"
+  check "repair (no timer) installs the service (and with it the timer)" grep -q "^acpmux daemon service install" "$d/log/argv"
+  check "repair (no timer) restarts the daemon onto it" grep -q "^acpmux daemon restart" "$d/log/argv"
+  check "repair (no timer) redeems nothing" no_redeem
 
   # The channel cannot be read: a token run refuses, a repair run keeps going.
   new_case no-channel

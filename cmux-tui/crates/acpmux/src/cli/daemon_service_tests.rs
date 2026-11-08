@@ -9,6 +9,8 @@ struct Fake {
     running: bool,
     answers: Vec<(&'static str, Option<(i32, &'static str, &'static str)>)>,
     calls: RefCell<Vec<String>>,
+    /// The text of every `sh -c` script, in order.
+    scripts: RefCell<Vec<String>>,
 }
 
 impl Fake {
@@ -19,6 +21,7 @@ impl Fake {
             running: false,
             answers: Vec::new(),
             calls: RefCell::default(),
+            scripts: RefCell::default(),
         }
     }
 
@@ -52,6 +55,7 @@ impl Machine for Fake {
     fn run(&self, program: &str, args: &[&str], _wait: Duration) -> Option<(i32, String, String)> {
         // A script is recorded by its program and flag only.
         let argv = if program == "sh" {
+            self.scripts.borrow_mut().push(args.last().copied().unwrap_or_default().to_owned());
             "sh -c SCRIPT".to_owned()
         } else {
             let program = if program.ends_with("acpmux") || program.contains("acpmux-") {
@@ -242,4 +246,152 @@ fn unit_plan_replaces_only_acpmux_written_units() {
         assert_eq!(unit_plan(Some(old)), UnitFile::Write);
     }
     assert_eq!(unit_plan(Some("[Unit]\n")), UnitFile::Foreign);
+}
+
+/// The update timer `host setup` installs (`hosts::install_script`), as a join's service install
+/// runs it.
+const TIMER: &str = "sh -c SCRIPT";
+
+#[test]
+fn linux_install_ends_with_the_update_timer_and_a_rerun_is_the_same() {
+    let m = Fake::new(true)
+        .answer("systemctl --user is-active --quiet acpmux.service", Some((3, "", "")));
+    let first = install(&m).unwrap();
+    assert_eq!(first.state, State::Running);
+    assert_eq!(first.note, None);
+    let calls = m.calls();
+    assert_eq!(calls.last().map(String::as_str), Some(TIMER), "{calls:?}");
+    let start = calls.iter().position(|c| c == "systemctl --user start acpmux.service").unwrap();
+    assert!(start < calls.len() - 1, "the timer comes once the service runs: {calls:?}");
+    assert_eq!(*m.scripts.borrow(), [hosts::install_script()], "setup's own install script");
+    // A re-run of the join line: the unit is kept, the service left running, the same script
+    // (which keeps units with this build's text) run again.
+    let again = Fake::new(true);
+    std::fs::create_dir_all(unit_path(again.home.path()).parent().unwrap()).unwrap();
+    std::fs::write(unit_path(again.home.path()), hosts::SYSTEMD_UNIT).unwrap();
+    let rerun = install(&again).unwrap();
+    assert_eq!((rerun.state, rerun.changed, rerun.note), (State::Running, false, None));
+    assert!(!again.called("systemctl --user restart") && !again.called("systemctl --user start"));
+    assert_eq!(*again.scripts.borrow(), [hosts::install_script()]);
+}
+
+#[test]
+fn the_timer_is_left_to_whoever_wrote_the_unit_and_waits_for_a_manager() {
+    // A unit someone else wrote: theirs, and so is how it updates.
+    let m = Fake::new(true);
+    std::fs::create_dir_all(unit_path(m.home.path()).parent().unwrap()).unwrap();
+    std::fs::write(unit_path(m.home.path()), "[Service]\nExecStart=/opt/theirs\n").unwrap();
+    install(&m).unwrap();
+    assert!(!m.called(TIMER), "{:?}", m.calls());
+    // No user manager: nothing runs, so no timer either.
+    let m = Fake::new(true).answer("systemctl --user daemon-reload", Some((1, "", "no bus")));
+    assert_eq!(install(&m).unwrap().state, State::NoManager);
+    assert!(!m.called(TIMER));
+    // A Mac has no timer.
+    let m = Fake::new(false).answer("launchctl print gui/501", NO_GUI);
+    let _ = install_launchd(&m, 501);
+    assert!(!m.called(TIMER));
+}
+
+#[test]
+fn a_timer_the_script_could_not_install_is_said_in_the_report() {
+    let m = Fake::new(true).answer(
+        TIMER,
+        Some((0, "ACPMUX_AUTO_UPDATE_OFF=a unit acpmux did not write is there\n", "")),
+    );
+    let report = install(&m).unwrap();
+    assert_eq!(report.state, State::Running);
+    assert_eq!(report.note.as_deref(), Some("a unit acpmux did not write is there"));
+    assert!(report.line().contains("a unit acpmux did not write is there"));
+}
+
+#[test]
+fn a_pair_codes_join_adds_the_timer_only_beside_acpmuxs_own_running_service() {
+    // Own unit, running: the timer.
+    let m = Fake::new(true);
+    std::fs::create_dir_all(unit_path(m.home.path()).parent().unwrap()).unwrap();
+    std::fs::write(unit_path(m.home.path()), hosts::SYSTEMD_UNIT).unwrap();
+    assert_eq!(ensure_update_timer(&m), None);
+    assert!(m.called(TIMER));
+    // Not running, or no unit of acpmux's: nothing.
+    let stopped = Fake::new(true)
+        .answer("systemctl --user is-active --quiet acpmux.service", Some((3, "", "")));
+    std::fs::create_dir_all(unit_path(stopped.home.path()).parent().unwrap()).unwrap();
+    std::fs::write(unit_path(stopped.home.path()), hosts::SYSTEMD_UNIT).unwrap();
+    assert_eq!(ensure_update_timer(&stopped), None);
+    assert!(!stopped.called(TIMER));
+    let none = Fake::new(true);
+    assert_eq!(ensure_update_timer(&none), None);
+    assert!(!none.called(TIMER));
+    let mac = Fake::new(false);
+    assert_eq!(ensure_update_timer(&mac), None);
+    assert!(mac.calls().is_empty());
+}
+
+/// `hosts::install_script` run for real in a scratch home, with a `systemctl` that answers from
+/// the unit files there and records what it was asked.
+#[cfg(unix)]
+fn run_timer_script(home: &Path, bin: &Path) -> String {
+    use std::os::unix::fs::PermissionsExt;
+    let fake = bin.join("systemctl");
+    std::fs::write(
+        &fake,
+        r#"#!/bin/sh
+echo "$*" >> "$HOME/systemctl.log"
+d=$HOME/.config/systemd/user
+case "$*" in
+  "--user show "*" -p LoadState --value") [ -e "$d/$3" ] && echo loaded || echo not-found ;;
+  "--user show "*" -p FragmentPath --value") [ -e "$d/$3" ] && echo "$d/$3" || echo ;;
+esac
+exit 0
+"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let out = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(hosts::install_script())
+        .env_clear()
+        .env("HOME", home)
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    String::from_utf8(out.stdout).unwrap()
+}
+
+#[test]
+#[cfg(unix)]
+fn the_timer_script_ends_with_the_timer_enabled_and_a_rerun_changes_nothing() {
+    let root = tempfile::tempdir().unwrap();
+    let (home, bin) = (root.path().join("home"), root.path().join("bin"));
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&bin).unwrap();
+    let units = home.join(".config/systemd/user");
+    let log = home.join("systemctl.log");
+    let out = run_timer_script(&home, &bin);
+    assert_eq!(out, "", "no reason it is off");
+    let service = std::fs::read_to_string(units.join("acpmux-update.service")).unwrap();
+    let timer = std::fs::read_to_string(units.join("acpmux-update.timer")).unwrap();
+    assert_eq!((service.as_str(), timer.as_str()), (hosts::UPDATE_SERVICE, hosts::UPDATE_TIMER));
+    let first = std::fs::read_to_string(&log).unwrap();
+    assert!(first.contains("--user daemon-reload"), "{first}");
+    assert!(first.contains("--user enable --now acpmux-update.timer"), "{first}");
+    // The re-run: the same files, kept; no reload; the timer enabled again (a no-op).
+    std::fs::remove_file(&log).unwrap();
+    let written = std::fs::metadata(units.join("acpmux-update.timer")).unwrap().modified().unwrap();
+    assert_eq!(run_timer_script(&home, &bin), "");
+    let modified =
+        std::fs::metadata(units.join("acpmux-update.timer")).unwrap().modified().unwrap();
+    assert_eq!(modified, written, "kept, not rewritten");
+    let second = std::fs::read_to_string(&log).unwrap();
+    assert!(!second.contains("daemon-reload"), "{second}");
+    assert!(second.contains("--user enable --now acpmux-update.timer"), "{second}");
+    // The owner's marker turns it off.
+    std::fs::create_dir_all(home.join(".acpmux")).unwrap();
+    std::fs::write(home.join(".acpmux").join(hosts::NO_AUTO_UPDATE), "").unwrap();
+    std::fs::remove_file(&log).unwrap();
+    assert_eq!(run_timer_script(&home, &bin), "");
+    let off = std::fs::read_to_string(&log).unwrap();
+    assert!(off.contains("--user disable --now acpmux-update.timer"), "{off}");
 }
