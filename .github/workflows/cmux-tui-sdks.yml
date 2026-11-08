@@ -128,15 +128,45 @@ jobs:
           echo "SDK package inputs changed: $changed"
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
 
+      # Its download can fail (GitHub answered 504 on 2026-11-08). Then the job takes a 3.12 from uv,
+      # or else the runner's python3, in a venv (the runner's own Python refuses a pip install).
       - name: Set up Python
+        id: python
+        continue-on-error: true
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.12.8"
 
       - name: Install workflow guard dependencies
+        env:
+          SETUP_PYTHON: ${{ steps.python.outcome }}
         run: |
+          set -euo pipefail
+          pip_flags=()
+          if [ "$SETUP_PYTHON" != "success" ]; then
+            venv="$RUNNER_TEMP/python"
+            if command -v uv >/dev/null 2>&1 && uv venv --seed --python 3.12 "$venv" >/dev/null 2>&1; then
+              echo "::warning::setup-python failed; using uv's Python 3.12"
+            elif python3 -m venv "$venv" >/dev/null 2>&1; then
+              echo "::warning::setup-python failed; using the runner's $(python3 --version) in a venv"
+            else
+              # No venv module (no ensurepip): the runner's own Python, for this user.
+              echo "::warning::setup-python failed; using the runner's $(python3 --version)"
+              venv=""
+              pip_flags=(--user --break-system-packages)
+              if python3 -c 'import yaml' 2>/dev/null; then
+                echo "the runner's Python already has PyYAML $(python3 -c 'import yaml; print(yaml.__version__)')"
+                exit 0
+              fi
+            fi
+            if [ -n "$venv" ]; then
+              echo "$venv/bin" >> "$GITHUB_PATH"
+              PATH="$venv/bin:$PATH"
+            fi
+          fi
           python3 -m pip install \
             --disable-pip-version-check \
+            "${pip_flags[@]}" \
             "PyYAML==6.0.3"
 
       - name: Test published artifact manifest verifier

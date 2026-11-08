@@ -324,9 +324,12 @@ jobs:
 
       # setup-python installs 3.9 on Linux; a runner without it takes the one uv installs, if any.
       # The head and the base run on the same machine, so either way they compare like for like.
+      # Its download can fail (GitHub answered 504 on 2026-11-08); the next step's fallback covers that
+      # too, so a failed setup leaves no path rather than failing the group.
       - name: Set up Python 3.9 for nightly prune compatibility
         id: python39
         if: runner.os == 'Linux'
+        continue-on-error: true
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.9"
