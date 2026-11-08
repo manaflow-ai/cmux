@@ -554,6 +554,10 @@ pub enum Command {
         #[arg(long, short)]
         name: Option<String>,
     },
+    /// A checkout's uncommitted work as `session move --carry-changes` carries it, for a move
+    /// that another machine drives (`--from`): `session_move_carry::Carry::to_wire`.
+    #[command(hide = true)]
+    CarryOut { top: PathBuf },
     #[command(hide = true)]
     MoveSessions {
         sessions: Vec<String>,
@@ -561,6 +565,7 @@ pub enum Command {
         all_idle: bool,
         interrupt: bool,
         leave_dirty: bool,
+        carry_changes: bool,
         cwd: Option<String>,
         dry_run: bool,
         from: Option<String>,
@@ -987,6 +992,11 @@ pub enum SessionCmd {
         /// Move a chat whose checkout has uncommitted changes; they stay on this machine.
         #[arg(long)]
         leave_dirty: bool,
+        /// Carry a chat's uncommitted changes with it: tracked edits, deletions and untracked files
+        /// that are not ignored arrive uncommitted in its worktree there. Likely secrets (`.env`,
+        /// keys) stay on this machine. Needs acpmux with it on the machine the chat leaves.
+        #[arg(long, conflicts_with = "leave_dirty")]
+        carry_changes: bool,
         /// Run the moved chats in this folder on the machine, as it is there: no worktree is made
         /// and no branch pushed. For a folder outside this machine's home.
         #[arg(long, value_name = "PATH")]
@@ -1404,6 +1414,7 @@ pub fn flatten(c: Command) -> Command {
                 all_idle,
                 interrupt,
                 leave_dirty,
+                carry_changes,
                 cwd,
                 dry_run,
                 from,
@@ -1413,6 +1424,7 @@ pub fn flatten(c: Command) -> Command {
                 all_idle,
                 interrupt,
                 leave_dirty,
+                carry_changes,
                 cwd,
                 dry_run,
                 from,
