@@ -317,6 +317,19 @@ async fn a_queued_send_keeps_what_kept_it_off_the_owner_through_delivery() {
             c.call("_acpmux/send_status", json!({"deliveryId": delivery, "waitMs": 20000})).await;
         assert_eq!(status["status"], "delivered", "{status}");
     }
+    // Delivered means the receiver took the prompt; its turn (and so its user_message) may start a
+    // moment later, behind the one before it.
+    async fn recorded(c: &mut Client, session: &str, id: &str) -> Value {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let found = c.records(session, "user_message").await;
+            if let Some(message) = found.into_iter().find(|m| m["promptId"] == id) {
+                return message;
+            }
+            assert!(std::time::Instant::now() < deadline, "{id}: no user_message within 10 s");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
     let mut stale = Client::open(&hub);
     let caller = json!({"callerSession": {"sessionId": sender, "token": "not-its-token"}});
     stale.call("initialize", json!({"protocolVersion": 1, "_meta": {"acpmux": caller}})).await;
@@ -325,7 +338,7 @@ async fn a_queued_send_keeps_what_kept_it_off_the_owner_through_delivery() {
     delivered(&mut owner, queued("p-queued-owner", json!({"cliHost": "my-mac"}))).await;
 
     for id in ["p-queued-stale", "p-queued-harness"] {
-        let message = owner.user_message(&receiver, id).await;
+        let message = recorded(&mut owner, &receiver, id).await;
         assert_eq!(
             message.pointer("/_meta/provenance/kind"),
             Some(&json!("unverified")),
@@ -333,7 +346,7 @@ async fn a_queued_send_keeps_what_kept_it_off_the_owner_through_delivery() {
         );
         assert_eq!(message.pointer("/_meta/origin"), None, "{id}: {message}");
     }
-    let mine = owner.user_message(&receiver, "p-queued-owner").await;
+    let mine = recorded(&mut owner, &receiver, "p-queued-owner").await;
     assert_eq!(mine.pointer("/_meta/provenance"), None, "{mine}");
     assert_eq!(mine.pointer("/_meta/origin/actor"), Some(&json!("person")), "{mine}");
 }
