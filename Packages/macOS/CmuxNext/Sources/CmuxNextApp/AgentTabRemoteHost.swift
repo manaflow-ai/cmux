@@ -22,8 +22,8 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     var reconnect: AgentSessionAttachClient.Reconnect?
     /// `.observe` opens the remote session as a read-only viewer with no mutation fallback.
     var mode: AgentSessionAttachClient.Mode = .attach
-    /// Present only for a Cloud VM resolved by the native machine registry.
-    var cloudMachineID: String?
+    /// Present only for a Cloud VM resolved by the native machine registry, with the signed-in person's name a teammate's machine shows.
+    var cloudMachineID: String?, personName: String?
     var cloudAccount: [String?]?
     var cloudCredentialRecoveryAvailable = false, cloudTeamMachine = false // the start passed no personal login (team machine)
     /// The App opens this Cloud chat's hand-off turns (``CloudHandoffTurnOpener``).
@@ -89,8 +89,8 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
             return try answer.get()
         }
         if let session {
-            route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [surface, session, endpoint, reconnect] in
-                let client = AgentSessionAttachClient(surface: surface, mode: mode, reconnect: reconnect, endpoint: endpoint)
+            route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [surface, session, endpoint, reconnect, personName] in
+                let client = AgentSessionAttachClient(surface: surface, mode: mode, reconnect: reconnect, personName: personName, endpoint: endpoint)
                 let cloudRepository = AgentSessionAttachClient.forwardingCloudRepository(surface: surface, reconnect: reconnect, endpoint: endpoint)
                 return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil, cloudRepository: cloudRepository)
             }

@@ -9,7 +9,15 @@ enum AgentShareStrings {
     }
 
     static var notThisMac: String {
-        String(localized: "agentShare.notThisMac", defaultValue: "Only a chat on this Mac can be shared.", table: "AgentShare", bundle: .module)
+        String(localized: "agentShare.notThisMac", defaultValue: "Only a chat on this Mac or on your own Cloud machine can be shared.", table: "AgentShare", bundle: .module)
+    }
+
+    static var notCloudOwner: String {
+        String(localized: "agentShare.notCloudOwner", defaultValue: "This chat is on a teammate’s Cloud machine, so its owner shares it.", table: "AgentShare", bundle: .module)
+    }
+
+    static var cloudRoomMissing: String {
+        String(localized: "agentShare.cloudRoomMissing", defaultValue: "This Cloud machine can’t make share links yet. Update the machine, then try again.", table: "AgentShare", bundle: .module)
     }
 
     static var badSurface: String {
@@ -175,6 +183,8 @@ enum AgentShareStrings {
             return ActionWorkFailure(code: "share.declined", reason: refusal.invite ? inviteDeclined : declined)
         }
         if error is AgentShareBadAccount { return ActionWorkFailure(code: "share.bad_request", reason: badAccount) }
+        if error is AgentShareNotCloudOwner { return ActionWorkFailure(code: "share.not_owner", reason: notCloudOwner) }
+        if error is AgentShareCloudRoomMissing { return ActionWorkFailure(code: "share.room_unconfigured", reason: cloudRoomMissing) }
         if let missing = error as? AgentShareNotInvited { return ActionWorkFailure(code: "share.not_invited", reason: notInvited(missing.account)) }
         // No answer in time: the daemon may still make (or provision) the share, so the caller is
         // told the run may have applied and must not simply retry.

@@ -415,7 +415,7 @@ extension AgentTabStore {
             host.linksHost = AgentTabStore.registryHost(of: daemon)
             host.servesLogin = daemon.supports(DaemonCapability.agentSessionLogin.rawValue)
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
-            host.cloudAccount = host.cloudMachineID == nil ? nil : services.cloud.account
+            (host.cloudAccount, host.personName) = host.cloudMachineID == nil ? (nil, nil) : (services.cloud.account, services.cloud.auth.user?.displayName)
             host.cloudCredentialRecoveryAvailable = host.cloudMachineID != nil && AgentTabStore.cloudCredentialTransferIsAvailable(isSignedIn: services.cloud.auth.isSignedIn)
             host.cloudTeamMachine = services.machines.session(daemon.machineID)?.harnessLogin?.skippedTeamMachine == true
             // A chat on one of the account's Cloud machines names each turn's hand-off, behind Labs,

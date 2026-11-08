@@ -220,18 +220,35 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             guard names(params["sessionId"]), let blocks = params["prompt"] as? [[String: Any]], !blocks.isEmpty,
                   let content = try? JSONSerialization.data(withJSONObject: blocks) else { return refuse(id, method) }
             let text = Self.text(blocks)
-            let prompt = ((params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["promptId"] as? String
-                ?? UUID().uuidString.lowercased()
+            let meta = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+            let prompt = meta?["promptId"] as? String ?? UUID().uuidString.lowercased()
+            // The page's steer into the running turn: the owner's or a Cloud team member's (the
+            // machine's daemon holds a link guest's for the owner whatever this says).
+            let steer = meta?["steer"] as? Bool == true
             let session = state.withLock { $0.session } ?? ""
             run(id) { [weak self] client in
-                let accepted = if let text { try await client.prompt(id: prompt, text: text) }
-                    else { try await client.prompt(id: prompt, content: content) }
+                let accepted = if let text { try await client.prompt(id: prompt, text: text, steer: steer) }
+                    else { try await client.prompt(id: prompt, content: content, steer: steer) }
                 let object = (try? JSONSerialization.jsonObject(with: accepted)) as? [String: Any] ?? [:]
                 let turn = object["turn_id"] ?? NSNull()
-                self?.notify("_acpmux/prompt_accepted", ["sessionId": session, "promptId": prompt, "turnId": turn,
-                                                         "queued": object["queued"] ?? false])
+                var notice: [String: Any] = ["sessionId": session, "promptId": prompt, "turnId": turn, "queued": object["queued"] ?? false]
+                if let state = object["state"] as? String { notice["state"] = state }
+                if object["awaiting_owner"] as? Bool == true { notice["awaitingOwner"] = true }
+                self?.notify("_acpmux/prompt_accepted", notice)
                 return Self.json(["_meta": ["acpmux": ["promptId": prompt, "turnId": turn]]])
             }
+        case "_acpmux/queue_approve", "_acpmux/queue_decline":
+            // The owner's decision on a prompt held for them (a link guest's) in a chat on that
+            // machine; the machine's daemon refuses it from anyone but the owner.
+            guard !isReadOnly else { return refuseReadOnly(id, method) }
+            guard names(params["sessionId"]), let promptID = params["promptId"] as? String, !promptID.isEmpty else { return refuse(id, method) }
+            if method == "_acpmux/queue_decline" {
+                return run(id) { client in try await client.queueDecline(promptID: promptID) }
+            }
+            guard let turnID = params["turnId"] as? String, let revision = (params["revision"] as? NSNumber)?.uint64Value else {
+                return refuse(id, method)
+            }
+            run(id) { client in try await client.queueApprove(promptID: promptID, turnID: turnID, revision: revision) }
         case "image.load":
             guard let src = params["src"] as? String, let path = Self.remoteImagePath(src) else {
                 return refuse(id, method)

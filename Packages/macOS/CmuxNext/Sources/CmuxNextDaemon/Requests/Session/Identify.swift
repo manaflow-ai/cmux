@@ -158,8 +158,12 @@ public struct SetClientInfoRequest: DaemonRequest {
     /// Shared-sizing identity (`shared-sizing-v1`): the device this connection's views are on.
     public var deviceKind: String?
     public var deviceName: String?
+    /// The person's display name, sent only to a daemon that names a Cloud team member by it
+    /// (`agent-session-member-v1`): it labels the member's signed id, never grants anything.
+    public var personName: String?
     public init(name: String? = nil, kind: String? = "frontend", capabilities: [String]? = nil,
-                deviceKind: String? = nil, deviceName: String? = nil) {
+                deviceKind: String? = nil, deviceName: String? = nil, personName: String? = nil) {
+        self.personName = personName
         self.name = name
         self.kind = kind
         self.capabilities = capabilities
