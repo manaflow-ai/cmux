@@ -190,5 +190,6 @@ export function nextReads(
 export function changesPrompt(row: ReviewRow, comment: string): string {
   const where = row.owner.branch ? ` on ${row.owner.branch}` : "";
   const files = row.stat.totalFiles === 1 ? "1 file" : `${row.stat.totalFiles} files`;
+  // l10n-allow: a prompt the agent reads, not text the person sees.
   return `Review of your changes${where} (${files}, +${row.stat.additions} −${row.stat.deletions}): changes requested.\n\n${comment.trim()}`;
 }
