@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import hashlib
+import os
 import stat
 import tarfile
 from pathlib import Path, PurePosixPath
@@ -85,7 +86,14 @@ def create_archive(packages_dir: Path, archive: Path) -> None:
                     arcname = PurePosixPath(
                         PACKAGE_ROOT, path.relative_to(packages_dir).as_posix()
                     ).as_posix()
-                    info = _normalize_member(output.gettarinfo(path, arcname=arcname))
+                    info = output.gettarinfo(path, arcname=arcname)
+                    if info.islnk():
+                        # A source file that is already a hard link goes through the same
+                        # content dedupe as any other file, with a normalized mode.
+                        info.type = tarfile.REGTYPE
+                        info.linkname = ""
+                        info.size = path.stat().st_size
+                    info = _normalize_member(info)
                     if not info.isfile():
                         output.addfile(info)
                         continue
@@ -147,16 +155,17 @@ def validated_members(archive: tarfile.TarFile) -> list[tarfile.TarInfo]:
             raise SystemExit(f"duplicate npm package archive entry: {member.name}")
         seen.add(normalized_name)
         if member.islnk():
-            # Only a hard link to a regular file earlier in this archive: the
-            # second copy of an identical binary (create_archive).
-            if PurePosixPath(member.linkname).as_posix() not in files or member.size:
+            # Only a hard link to a regular file earlier in this archive, by that
+            # file's exact name: the second copy of an identical binary
+            # (create_archive). A name that only cleans to it ("file/") is refused.
+            if member.linkname not in files or member.size:
                 raise SystemExit(
                     f"npm package archive link must name an earlier file: {member.name}"
                 )
         elif not (member.isfile() or member.isdir()):
             raise SystemExit(f"unsupported npm package archive entry: {member.name}")
-        if member.isfile():
-            files.add(normalized_name)
+        if member.isfile() and member.name == normalized_name:
+            files.add(member.name)
         member.mode &= 0o777
         # A hard link adds no bytes on disk; the guard counts each file's bytes once.
         expanded_bytes += member.size
@@ -178,7 +187,14 @@ def extract_archive(archive_path: Path, out_dir: Path) -> None:
 
     with tarfile.open(archive_path, "r:gz") as archive:
         members = validated_members(archive)
-        archive.extractall(out_dir, members=members, filter="tar")
+        links = [member for member in members if member.islnk()]
+        archive.extractall(
+            out_dir, members=[m for m in members if not m.islnk()], filter="tar"
+        )
+    # tarfile writes a full copy of a link's file when it cannot link; the size
+    # guard counted each link as no bytes, so a link that cannot be made fails.
+    for link in links:
+        os.link(out_dir / link.linkname, out_dir / link.name)
     verify_executables(packages_dir)
 
 
