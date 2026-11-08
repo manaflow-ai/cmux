@@ -364,6 +364,67 @@ pub(super) fn detail_code(detail: &str) -> Option<String> {
     Some(word.into())
 }
 
+/// How long each step of one attempt took. A step the attempt never
+/// started is zero; the step it was in when it failed (or the deadline cut
+/// it) runs to the moment the line is written.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct PhaseTimes {
+    /// The carrier answer: asked of cmux-platform, or taken from a handed-over one.
+    pub ticket: Duration,
+    /// The relay provider's control socket.
+    pub relay: Duration,
+    /// The first lane's Connect until the relay allocates it (it parks
+    /// until the machine's daemon registers) and the circuit joins.
+    pub parked: Duration,
+    /// From the first allocated lane to the session up: the Noise handshake,
+    /// the grant's admission and the other lanes.
+    pub handshake: Duration,
+    /// The mux control stream's open on the session.
+    pub mux: Duration,
+    /// Physical lane links opened.
+    pub lanes: u32,
+}
+
+/// What a phases line counts: a dial's attempt, or (in `serve`) a socket
+/// connection carried on the session an earlier connection dialed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PhasesOf {
+    Attempt(Phase),
+    /// A stream on the held session: no ticket, relay or handshake.
+    Stream,
+}
+
+/// The per-step line, appended only to the connect log beside each route
+/// line (never on stderr, whose lines `dial` and `serve` pin):
+/// `carrier.phases machine=<vm_id> phase=<connect|reconnect|stream> carrier=relay:<i> outcome=<ok|error_code> ticket_ms=<n> relay_ms=<n> parked_ms=<n> handshake_ms=<n> mux_ms=<n> lanes=<n> ms=<n>`.
+/// `carrier` is the relay's index in the answer's relay list (one relay
+/// today, so `relay:0`). It holds no `cloud.connect`, so readers of the
+/// route line (cmuxterm-hq's start matrix fails any `cloud.connect` line of
+/// another shape) never see it.
+pub(super) fn phases_line(
+    machine: &str,
+    of: PhasesOf,
+    outcome: Option<Step>,
+    times: PhaseTimes,
+    elapsed: Duration,
+) -> String {
+    let phase = match of {
+        PhasesOf::Attempt(phase) => phase.name(),
+        PhasesOf::Stream => "stream",
+    };
+    format!(
+        "carrier.phases machine={machine} phase={phase} carrier=relay:0 outcome={} ticket_ms={} relay_ms={} parked_ms={} handshake_ms={} mux_ms={} lanes={} ms={}\n",
+        outcome.map_or("ok", Step::error_code),
+        times.ticket.as_millis(),
+        times.relay.as_millis(),
+        times.parked.as_millis(),
+        times.handshake.as_millis(),
+        times.mux.as_millis(),
+        times.lanes,
+        elapsed.as_millis()
+    )
+}
+
 /// The full-jitter backoff between attempts of one dial: each delay is
 /// uniform in `[0, ceiling]`, the ceiling doubles up to [`MAX_BACKOFF`], and
 /// no delay outlives the deadline.

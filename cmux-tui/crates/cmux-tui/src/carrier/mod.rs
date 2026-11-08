@@ -28,6 +28,10 @@
 //!   `CMUX_TUI_STATE_DIR` overrides the state dir), a file only the dial
 //!   writes and nothing empties ([`route_log`]). A resume happens inside the
 //!   same process, so its lines follow the connect's.
+//! - Each connect attempt also appends one `carrier.phases` line to that
+//!   file (never to stderr): how long the attempt spent on the ticket, the
+//!   relay, the park, the handshake and the mux open
+//!   ([`contract::phases_line`]).
 //! - `--service desktop` carries the machine's desktop instead: raw
 //!   `cmux.rd/1` bytes on stdin and stdout, through cmux-remote's
 //!   `local-socket` to `/run/cmux-rd/desktop.sock`. The daemon opens it only
@@ -76,12 +80,14 @@
 //! Keychain refuses. Any other arguments are `bad_request`, exit 64.
 //!
 //! `cmux carrier serve --machine <vm_id> --socket <path>` takes the same
-//! flags and environment and serves the same stream on a Unix socket, one
-//! dial per accepted connection ([`serve`]).
+//! flags and environment and serves the same stream on a Unix socket: one
+//! session per machine, dialed by the first accepted connection, and a mux
+//! control stream on it for each connection ([`serve`]).
 
 mod answer;
 mod client;
 mod contract;
+mod held;
 mod noise_key;
 mod route_log;
 mod secrets;
@@ -401,6 +407,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
         // Route lines wait until the reply line is out, so it stays first.
         let (lines, mut queued) = tokio::sync::mpsc::unbounded_channel::<String>();
         let connect_log = route_log::default_path();
+        let phases_log = connect_log.clone();
         let plan = client::DialPlan {
             machine: args.machine.clone(),
             source,
@@ -412,6 +419,11 @@ pub(crate) fn run(args: &[String]) -> i32 {
                     route_log::append(path, &line);
                 }
                 let _ = lines.send(line);
+            }),
+            phases: Arc::new(move |line| {
+                if let Some(path) = &phases_log {
+                    route_log::append(path, &line);
+                }
             }),
         };
         let dialed = client::dial(&plan, jitter).await;

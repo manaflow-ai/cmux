@@ -6,12 +6,14 @@ use cmux_remote::link::LinkError;
 use cmux_remote::provider::ProviderError;
 use serde_json::{Value, json};
 
-use super::answer::{Prefetched, TicketCache, grant_vmk, key_text, parse_answer, read_reply};
-use super::client::{classify, pinned_daemon, resume_outcome};
+use super::answer::{
+    Prefetched, TicketCache, grant_vmk, key_text, parse_answer, read_reply, token_subject,
+};
+use super::client::{Marks, classify, pinned_daemon, resume_outcome};
 use super::contract::{
-    Backoff, Failure, INITIAL_BACKOFF, MAX_BACKOFF, Phase, StdinLine, Step, Vmk, answer_line,
-    connected_line, detail_code, failure_line, parse_deadline, route_line, served_line,
-    serving_line, stdin_line,
+    Backoff, Failure, INITIAL_BACKOFF, MAX_BACKOFF, Phase, PhaseTimes, PhasesOf, StdinLine, Step,
+    Vmk, answer_line, connected_line, detail_code, failure_line, parse_deadline, phases_line,
+    route_line, served_line, serving_line, stdin_line,
 };
 use super::{
     DialArgs, DialService, ServeArgs, parse, parse_key, parse_serve, public_key_line, with_team_env,
@@ -154,6 +156,95 @@ fn detail_codes_are_short_tokens_and_never_the_text() {
     }
     assert_eq!(detail_code(""), None);
     assert_eq!(detail_code(" \n"), None);
+}
+
+#[test]
+fn the_phases_line_is_pinned_and_never_a_route_line() {
+    let ms = Duration::from_millis;
+    let times = PhaseTimes {
+        ticket: ms(310),
+        relay: ms(42),
+        parked: ms(120),
+        handshake: ms(250),
+        mux: ms(30),
+        lanes: 3,
+    };
+    let line = phases_line(VM, PhasesOf::Attempt(Phase::Connect), None, times, ms(760));
+    assert_eq!(
+        line,
+        format!(
+            "carrier.phases machine={VM} phase=connect carrier=relay:0 outcome=ok ticket_ms=310 relay_ms=42 parked_ms=120 handshake_ms=250 mux_ms=30 lanes=3 ms=760\n"
+        )
+    );
+    let stream = phases_line(
+        VM,
+        PhasesOf::Stream,
+        None,
+        PhaseTimes { mux: ms(4), ..PhaseTimes::default() },
+        ms(4),
+    );
+    assert!(stream.contains(" phase=stream "), "{stream}");
+    let failed = phases_line(
+        VM,
+        PhasesOf::Attempt(Phase::of_attempt(2)),
+        Some(Step::Parked),
+        PhaseTimes::default(),
+        ms(9),
+    );
+    assert!(failed.contains(" phase=reconnect ") && failed.contains(" outcome=parked_timeout "));
+    // cmuxterm-hq's start matrix fails a row on any cloud.connect line that
+    // is not exactly a route line.
+    for line in [line, stream, failed] {
+        assert!(!line.contains("cloud.connect"), "{line}");
+    }
+}
+
+#[test]
+fn phase_times_run_mark_to_mark_and_the_open_step_to_now() {
+    let t0 = tokio::time::Instant::now();
+    let at = |ms| Some(t0 + Duration::from_millis(ms));
+    let done = Marks {
+        started: at(0),
+        answered: at(300),
+        relay_up: at(340),
+        first_open: at(341),
+        first_allocated: at(460),
+        connected: at(700),
+        mux_open: at(730),
+        lanes: 3,
+    };
+    let now = t0 + Duration::from_millis(5000);
+    let ms = Duration::from_millis;
+    assert_eq!(
+        done.times(now),
+        PhaseTimes {
+            ticket: ms(300),
+            relay: ms(40),
+            parked: ms(119),
+            handshake: ms(240),
+            mux: ms(30),
+            lanes: 3
+        }
+    );
+    // Cut while parked: the park runs to now, later steps are zero.
+    let parked = Marks { first_allocated: None, connected: None, mux_open: None, lanes: 1, ..done };
+    let times = parked.times(now);
+    assert_eq!((times.parked, times.handshake, times.mux), (ms(4659), ms(0), ms(0)));
+    assert_eq!(Marks::default().times(now), PhaseTimes::default());
+}
+
+#[test]
+fn a_credential_s_subject_is_its_jwt_sub_claim_or_none() {
+    use base64::Engine as _;
+    let encode =
+        |value: Value| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(value.to_string());
+    let jwt = |claims: Value| format!("{}.{}.sig", encode(json!({"alg": "ES256"})), encode(claims));
+    assert_eq!(token_subject(&jwt(json!({"sub": "user-1", "exp": 1}))), Some("user-1".into()));
+    assert_eq!(token_subject(&jwt(json!({"exp": 1}))), None);
+    assert_eq!(token_subject(&jwt(json!({"sub": ""}))), None);
+    assert_eq!(token_subject(&jwt(json!({"sub": 7}))), None);
+    assert_eq!(token_subject("opaque-token"), None);
+    assert_eq!(token_subject("a.!!!.c"), None);
 }
 
 #[test]

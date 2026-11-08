@@ -806,7 +806,8 @@ def web_job(*files, summary=True):
 def replay(charged=(), shared=()):
     """react-apps-base-check's log: guards_new_reds.py's verdicts on the head's reds replayed on the merge parent."""
     return log(*[f"##[error]{name}" for name in charged], *[f"##[warning]{name}" for name in shared],
-               f"{len(charged)} webview test steps red on this change, {len(shared)} red on the base too, 0 fixed")
+               f"{len(charged)} webview test steps red on this change, {len(shared)} red on the base too, 0 flaky on the base, "
+               "0 fixed")
 
 
 CAPSULES = "test/agent-pane-no-capsules.test.ts"
@@ -950,6 +951,20 @@ class WebviewTestsAcrossJobs(unittest.TestCase):
         # A replay with no head re-run needs its one verdict line too.
         self.assertIn("no final charged-test verdict", " ".join(reds.web_failures(log(f"##[error]{named}")).truncated))
         self.assertEqual(reds.web_failures(replay(charged=[named])).truncated, [])
+
+    def test_a_cut_off_final_verdict_line_is_no_verdict(self):
+        # Review F1 on #38434: a log cut off right after "red on the base too" printed no whole closing line.
+        named = f"{CAPSULES} > {CAPSULE_TEST}"
+        whole = "1 webview test steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"
+        for line, cut in ((whole, False),
+                          ("1 webview test steps red on this change, 0 red on the base too, 0 fixed", False),
+                          ("1 webview test steps red on this change, 0 red on the base too", True),
+                          ("1 webview test steps red on this change, 0 red on the base too, 0 flaky on the base", True),
+                          ("1 webview test steps red on this change, 0 red on the base too, 0 flaky on the base, 0", True),
+                          (whole + ", 2 more", True)):
+            with self.subTest(line=line):
+                found = reds.web_failures(log(f"##[error]{named}", line))
+                self.assertEqual("no final charged-test verdict" in " ".join(found.truncated), cut)
 
     def test_a_window_matches_each_test_on_any_one_run_and_reads_no_further(self):
         other = "test/composer-footer-plain.test.ts"
