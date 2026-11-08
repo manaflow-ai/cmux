@@ -253,6 +253,61 @@ class GalleryPictureTests(HighlightRepo):
         self.assertNotEqual(self.url("after", self.AFTER), self.url("after", self.BEFORE))
 
 
+class LatePictureTests(HighlightRepo):
+    """A highlight whose pictures were published after its nightly cut rides along with the next build that
+    finds them, once (release-notes.py late_pictures)."""
+
+    def setUp(self):
+        super().setUp()
+        self.shipped = self.head
+        git(self.repo, "commit", "-q", "--allow-empty", "-m", "later work (#124)")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        auto = lambda role: release_notes.gallery_auto_url("group-colors", role)
+        self.pictures = {auto("after"): PNG, auto("before"): PNG + b"before"}
+
+    def notes(self, shipped_media, pictures=True, feed=True):
+        """This span's highlights, with the feed's one earlier build showing group-colors with `shipped_media`."""
+        feed_base = release_notes.NOTES_FEED
+        published = {"highlights": [{"id": "group-colors", "category": "improved", "media": shipped_media}]}
+        files = dict(self.pictures) if pictures else {}
+        if feed:
+            files[feed_base + "index.json"] = json.dumps({"builds": [{"build": "1"}]}).encode()
+            files[feed_base + "1.json"] = json.dumps(published).encode()
+        fixture = os.path.join(self.repo, "fixture.json")
+        stored = {}
+        for url, data in files.items():
+            path = os.path.join(self.repo, hashlib.sha256(url.encode()).hexdigest())
+            with open(path, "wb") as f:
+                f.write(data)
+            stored[url] = path
+        with open(fixture, "w") as f:
+            json.dump({"bodies": {}, "files": stored}, f)
+        out = os.path.join(self.repo, "out")
+        subprocess.run([sys.executable, SCRIPT, "build", "--build", "2", "--short", "1.0.0-nightly.2", "--date",
+                        "2026-10-21", "--head", self.head, "--since", self.shipped, "--out", out, "--pr-media"],
+                       cwd=self.repo, capture_output=True, text=True, check=True,
+                       env={**os.environ, "CMUX_RELEASE_NOTES_PR_FIXTURE": fixture})
+        with open(os.path.join(out, "2.json")) as f:
+            return json.load(f)["highlights"]
+
+    def test_a_highlight_that_shipped_without_its_pictures_rides_along_with_them(self):
+        highlights = self.notes([])
+        self.assertEqual([h["id"] for h in highlights], ["group-colors"])
+        self.assertEqual([m["role"] for m in highlights[0]["media"]], ["after", "before"])
+
+    def test_an_improvement_that_shipped_without_its_before_rides_along(self):
+        shipped = [{"url": release_notes.gallery_auto_url("group-colors", "after"), "sha256": "0" * 64}]
+        self.assertEqual([h["id"] for h in self.notes(shipped)], ["group-colors"])
+
+    def test_once_it_shipped_with_its_pictures_it_rides_no_more(self):
+        roles = [{"url": f"https://x/{r}.png", "role": r} for r in ("after", "before")]
+        self.assertEqual(self.notes(roles), [])
+
+    def test_no_pictures_yet_or_no_feed_means_no_ride_along(self):
+        self.assertEqual(self.notes([], pictures=False), [])
+        self.assertEqual(self.notes([], feed=False), [])
+
+
 class GalleryRenderPlanTests(unittest.TestCase):
     """media/whats-new-gallery.py: each planned state renders as the dark default theme's case of its entry."""
 
