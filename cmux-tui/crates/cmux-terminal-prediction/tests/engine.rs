@@ -410,7 +410,11 @@ fn a_seed_after_missed_output_replaces_a_mode_seen_before_it() {
     session.remote("\x1b[?1049h");
     assert_eq!(session.status(), Status::AlternateScreen);
     session.engine.seed_alternate_screen(false);
-    assert_eq!(session.status(), Status::AlternateScreen, "a seed older than seen output is ignored");
+    assert_eq!(
+        session.status(),
+        Status::AlternateScreen,
+        "a seed older than seen output is ignored"
+    );
 
     session.engine.missed_output(session.clock);
     session.engine.seed_alternate_screen(false);
@@ -1113,4 +1117,18 @@ fn steady_typing_after_backspace_predicts_again_without_a_pause() {
         session.drawn(),
         session.status()
     );
+}
+
+#[test]
+fn a_frame_after_a_glyph_aged_out_asks_for_a_redraw() {
+    // The host redraws only when an engine call says something changed. A
+    // glyph whose echo never came is withdrawn at the first call after its
+    // lifetime; when that call is a presented frame, it must say so, or the
+    // stale glyph stays on screen until the next keystroke or output.
+    let mut session = armed_session();
+    session.type_key("x");
+    assert_eq!(session.drawn(), "x");
+    session.advance(Duration::from_secs(5));
+    assert!(session.engine.presented_frame(session.clock));
+    assert_eq!(session.drawn(), "");
 }

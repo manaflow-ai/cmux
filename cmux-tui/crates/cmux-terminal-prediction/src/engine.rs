@@ -611,11 +611,12 @@ impl TerminalPredictionEngine {
     /// engine sees output before the parser, so retiring at confirmation would
     /// blank the cell for the frames between the echo and its paint.
     pub fn presented_frame(&mut self, now: Duration) -> bool {
-        self.expire(now);
+        // A glyph that aged out since the last event is a change to draw too.
+        let expired = self.expire(now);
         let before = self.entries.len();
         self.entries.retain(|entry| !entry.is_held_confirmation());
         let released = self.layout_held_since.take().is_some();
-        self.entries.len() != before || released
+        expired || self.entries.len() != before || released
     }
 
     /// Advances time with no other event, withdrawing what aged out.
