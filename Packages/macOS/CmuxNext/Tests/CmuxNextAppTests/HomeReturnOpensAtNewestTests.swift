@@ -113,10 +113,13 @@ import Testing
         let before = try place(view, "before the Chief panel takes it").back
         home.isHidden = true
         await settle()
+        _ = try place(view, "parked hidden")
         let panel = NSView(frame: container.bounds)
         container.addSubview(panel)
         view.removeFromSuperview()
+        _ = try place(view, "out of the parked Home")
         panel.addSubview(view)
+        _ = try place(view, "into the Chief panel, same turn")
         await settle()
         pass(window, view)
         let held = try place(view, "in the Chief panel")
