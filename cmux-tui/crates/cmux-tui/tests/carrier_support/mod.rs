@@ -95,6 +95,8 @@ pub const SLOW: u16 = 598;
 /// ticket for the open relay, a grant for the asked key, and the daemon key.
 /// `status` other than 200 (read at each request) refuses it; [`HANG`]
 /// answers nothing for a minute.
+// A stand-in's wiring: one argument per thing a test reads back.
+#[allow(clippy::too_many_arguments)]
 pub async fn platform(
     signer: Arc<Signer>,
     relay: SocketAddr,
