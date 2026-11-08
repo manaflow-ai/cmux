@@ -29,8 +29,9 @@ import Testing
             if case .known(let button) = buttons.answer(b, in: self) { return button }
             let button = super.standardWindowButton(b)
             armed = b == .documentIconButton
-            buttons.store(button, for: b, in: self)
+            let found = StandardWindowButtons.Found(button, for: b, in: self)
             armed = false
+            buttons.store(found)
             return button
         }
     }
