@@ -58,7 +58,7 @@ public struct DaemonHistoryClient: Sendable {
     }
 
     /// The daemon takes `until_ms` on `history.clear` (the end of a clear that waited in the queue).
-    public static let clearUntilCapability = "history-clear-until-v1"
+    public static let clearUntilCapability = DaemonCapability.historyClearUntil.rawValue
 
     /// Clears `kinds` (empty: all) from `since` (nil: all time) until `until`; a profile narrows the clear to
     /// its page visits. Both are taken when the person clicked, so a clear the queue delivers later still
