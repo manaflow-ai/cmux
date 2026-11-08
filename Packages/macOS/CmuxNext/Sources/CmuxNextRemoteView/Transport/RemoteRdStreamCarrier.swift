@@ -1,5 +1,6 @@
 public import Foundation
 import CmuxNextCompat
+import os
 
 /// An ordered byte stream an rd carrier rides, given as closures by whoever opened it (the app's
 /// Cloud tunnel to a machine's `cmux-rd` host), so this module needs no transport of its own.
@@ -52,6 +53,9 @@ public nonisolated final class RemoteRdStreamCarrier: RemoteRdByteCarrier {
             do {
                 stream = try await open()
             } catch {
+                // The open's own error (no link, a refused lookup or dial) is the only record of why the pane
+                // says the connection was lost: the closed event carries no reason.
+                Self.logger.error("rd stream did not open: \(String(describing: error), privacy: .public)")
                 self.emit(.closed)
                 return
             }
@@ -62,9 +66,12 @@ public nonisolated final class RemoteRdStreamCarrier: RemoteRdByteCarrier {
             self.emit(.ready)
             await withTaskGroup(of: Void.self) { group in
                 group.addTask {
+                    var received = 0
                     while let bytes = await stream.read() {
+                        received += bytes.count
                         self.emit(.data(bytes))
                     }
+                    Self.logger.notice("rd stream ended by the host after \(received, privacy: .public) bytes")
                     self.emit(.closed)
                 }
                 group.addTask {
@@ -72,6 +79,7 @@ public nonisolated final class RemoteRdStreamCarrier: RemoteRdByteCarrier {
                         do {
                             try await stream.write(bytes)
                         } catch {
+                            Self.logger.error("rd stream write failed: \(String(describing: error), privacy: .public)")
                             self.emit(.closed)
                             return
                         }
@@ -107,6 +115,8 @@ public nonisolated final class RemoteRdStreamCarrier: RemoteRdByteCarrier {
             return true
         }
     }
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "remote-view-rd")
 
     private func emit(_ event: RemoteRdCarrierEvent) {
         let (events, queue) = state.withLock { ($0.events, $0.queue) }
