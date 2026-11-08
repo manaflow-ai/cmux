@@ -21,6 +21,8 @@ pub(super) const WARM_GAP_MS: u64 = 120_000;
 
 /// The answer's code when the team cannot be read from the install token: no warm, no copy.
 pub(super) const TEAM_UNRESOLVED: &str = "team_unresolved";
+/// The answer's code when the throttle's lock cannot be taken: no warm, no copy.
+pub(super) const THROTTLE_UNAVAILABLE: &str = "throttle_unavailable";
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -69,8 +71,8 @@ fn install_team(install_token: &str) -> Option<String> {
 
 /// The throttle's lock (`spare-warm.lock`, an exclusive `flock`), held from the record's read to
 /// its write, the platform call included: a second warm at the same moment waits, then finds the
-/// first one's record and copies nothing. None when the folder cannot hold it: the warm still
-/// runs, a lost record only costs a second warm (the platform extends, never doubles).
+/// first one's record and copies nothing. None when it cannot be taken: the warm is refused
+/// before the platform call, so two warms can never both copy.
 fn lock(state: &Path) -> Option<std::fs::File> {
     std::fs::create_dir_all(state).ok()?;
     let file = std::fs::OpenOptions::new()
@@ -107,7 +109,12 @@ pub(super) fn run(
     let Some(team) = stdin.read_line(&mut install).ok().and_then(|_| install_team(&install)) else {
         return Some(refused(TEAM_UNRESOLVED, "the install token names no team"));
     };
-    let _held = lock(state);
+    let Some(_held) = lock(state) else {
+        return Some(refused(
+            THROTTLE_UNAVAILABLE,
+            "the spare warm's throttle lock cannot be taken",
+        ));
+    };
     let path = state.join("spare-warm.json");
     let mut records: Vec<Record> = std::fs::read(&path)
         .ok()
@@ -319,6 +326,30 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert_eq!(answers.iter().filter(|answer| answer["fresh"] == json!(true)).count(), 1);
         assert_eq!(answers.iter().filter(|answer| answer.get("copy").is_some()).count(), 1);
+    }
+
+    #[test]
+    fn a_lock_that_cannot_be_taken_refuses_before_the_platform_call() {
+        let dir = tempfile::tempdir().unwrap();
+        // The state folder is a file: no lock file can be made there.
+        let state = dir.path().join("state");
+        std::fs::write(&state, b"").unwrap();
+        let calls = Cell::new(0_usize);
+        let transport = |request: &Request, credential: &str, team: &str| {
+            calls.set(calls.get().saturating_add(1));
+            owner(request, credential, team)
+        };
+        let answer = run(
+            &flags(r#"{"account":"user_a"}"#),
+            &state,
+            1,
+            &mut stdin(Some(TEAM)).as_bytes(),
+            &transport,
+        )
+        .unwrap();
+        assert_eq!(answer["error_code"], json!(THROTTLE_UNAVAILABLE));
+        assert!(answer.get("copy").is_none());
+        assert_eq!(calls.get(), 0);
     }
 
     #[test]

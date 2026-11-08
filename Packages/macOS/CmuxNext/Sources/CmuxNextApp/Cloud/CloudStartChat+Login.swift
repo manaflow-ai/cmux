@@ -40,7 +40,7 @@ extension CloudStartChat {
     /// The machine a login goes to: a start's session, or a warm spare that has none yet (CloudStartChat+WarmSpare).
     struct LoginTarget {
         let machineID: String, title: String, step: String
-        /// A copy nobody asked for (the warm's): only onto a machine the person owns, never as a team guest.
+        /// A copy nobody asked for (the warm's): never as a team guest; Rust's copy target alone says the person owns it.
         let ownerOnly: Bool
         let callerOwns: @MainActor @Sendable () async throws -> Bool
         let record: @MainActor (CloudHarnessLoginDecision) -> Void
@@ -51,7 +51,7 @@ extension CloudStartChat {
         let teamID = cloud.auth.teamID, machineID = target.machineID, api = cloud.machineAPI.pinningTeam(teamID)
         // A Claude start waits for a warm copy in flight (CloudStartChat+WarmSpare) instead of racing it on the same
         // machine; the start stays bound to the account and team it began in.
-        if !target.ownerOnly, harness?.hasPrefix("claude") ?? true, let warm = cloud.spareWarm {
+        if !target.ownerOnly, harness?.hasPrefix("claude") ?? true, let warm = cloud.spareWarms[cloud.auth.accountKey ?? ""] {
             await warm.value
             guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return false }
         }
@@ -85,8 +85,6 @@ extension CloudStartChat {
                 decision.outcome = outcome
                 return false
             }
-            // A copy nobody asked for goes only to a machine the person owns (the guest probe's "owner"), never to a team guest.
-            if target.ownerOnly, verdict.guestKind != "owner" { decision.outcome = Self.notOwnerSkipped; return false }
             switch verdict.step {
             case .skip, .refuse: return false // a refusal is the start-session's error (CloudStartSession)
             case .install: break
@@ -118,8 +116,6 @@ extension CloudStartChat {
 
     /// The start record's outcome when the copy failed, before its fixed text.
     nonisolated static let loginFailed = "failed: "
-    /// The warm's outcome on a machine the person does not own: no pre-copy.
-    static let notOwnerSkipped = "skipped: not the owner's machine"
     /// The start record's outcome when the person said no to the copy.
     static let loginDeclined = "declined"
     /// The outcomes when this Mac held no login to give: the machine signs in with its chat's Sign in to Claude card.

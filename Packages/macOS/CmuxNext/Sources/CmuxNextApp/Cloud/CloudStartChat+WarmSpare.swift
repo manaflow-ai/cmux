@@ -10,15 +10,16 @@ extension CloudStartChat {
     /// The warm's harness login line: the probe ties a later "machine login cached" to it (cmuxterm-hq#7725).
     static let warmSpareStep = "cloud warm spare"
 
-    /// Warms the spare and copies the login onto it; returns when both ended. One warm at a time. Rust picks the team (the
-    /// install token's, as the reserve sends) and the target; the copy goes only there, while account and teams are the warm's.
+    /// Warms the spare and copies the login onto it; returns when both ended. One warm per identity. Rust picks the team (the install
+    /// token's) and the owned target, the only ownership check; the copy goes only there, while account and teams are the warm's.
     @MainActor static func warmSpare(_ services: AppServices) async {
         let cloud = services.cloud
-        if let running = cloud.spareWarm { return await running.value }
+        let key = cloud.auth.accountKey ?? ""
+        if let running = cloud.spareWarms[key] { return await running.value }
         guard !services.registry.disabledFeatures.contains(.cloud), cloud.mayCallCloud, let userID = cloud.auth.user?.id,
               let binary = cloud.move.cli, let platform = cloud.configuration.artifactsAPIBaseURL() else { return }
         let teamID = cloud.auth.teamID
-        // task-owner: CloudService.spareWarm, one warm at a time; it ends with the CLI's answer and the copy (each has its own timeout).
+        // task-owner: CloudService.spareWarms, one warm per identity; it ends with the CLI's answer and the copy (each has its own timeout).
         let warm = Task { @MainActor in
             guard let token = try? await cloud.auth.tokens().access, let install = try? await cloud.installIdentity.installToken(),
                   cloud.auth.user?.id == userID, cloud.auth.teamID == teamID, let copy = await CloudMoveCLI(binary: binary)
@@ -29,8 +30,8 @@ extension CloudStartChat {
                 title: copy.machineID, step: warmSpareStep, ownerOnly: true, callerOwns: still, record: { _ in }),
                 codexPrompt: false, ask: .init(headless: true))
         }
-        cloud.spareWarm = warm
+        cloud.spareWarms[key] = warm
         await warm.value
-        cloud.spareWarm = nil
+        cloud.spareWarms[key] = nil
     }
 }
