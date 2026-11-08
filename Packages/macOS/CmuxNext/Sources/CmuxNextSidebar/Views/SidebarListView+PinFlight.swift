@@ -7,6 +7,22 @@ nonisolated let pinDiag = Logger(subsystem: "com.cmuxterm.app.next", category: "
 
 /// diag (not for merge): logs every animation add/remove on a pinned item's layer, with the caller's stack, for 150 ms
 /// after its flight starts (`armedAt`).
+/// Logs when a flying item's move ends and whether it ran to its end (diagnostic build only, not for merge).
+nonisolated final class PinDiagStop: NSObject, CAAnimationDelegate {
+    let key: String
+    let armedAt: Double
+    init(key: String, armedAt: Double) {
+        self.key = key
+        self.armedAt = armedAt
+    }
+    func animationDidStart(_ anim: CAAnimation) {
+        pinDiag.notice("didStart key=\(self.key, privacy: .public) t+\(CACurrentMediaTime() - self.armedAt)")
+    }
+    func animationDidStop(_ anim: CAAnimation, finished flag: Bool) {
+        pinDiag.notice("didStop key=\(self.key, privacy: .public) finished=\(flag) t+\(CACurrentMediaTime() - self.armedAt)")
+    }
+}
+
 nonisolated final class PinDiagLayer: CALayer {
     /// When the flight armed the log (a layer KVC value, so the layer keeps no extra stored state).
     static let armedKey = "pinDiagArmedAt"
@@ -15,18 +31,35 @@ nonisolated final class PinDiagLayer: CALayer {
         guard key != Self.armedKey, let armedAt = value(forKey: Self.armedKey) as? Double else { return }
         let dt = CACurrentMediaTime() - armedAt
         guard dt < 0.15 else { return }
-        let stack = Thread.callStackSymbols.dropFirst(2).prefix(18).map { line in
-            let parts = line.split(separator: " ", omittingEmptySubsequences: true)
-            return parts.count > 5 ? "\(parts[1]):\(parts[3])+\(parts[5])" : line
-        }.joined(separator: " | ")
         let keys = (animationKeys() ?? []).joined(separator: "+")
         let line = "\(op) key=\(key ?? "nil") t+\(String(format: "%.4f", dt)) main=\(Thread.isMainThread) keys=\(keys)"
-        pinDiag.notice("layerop \(line, privacy: .public) stack=\(stack, privacy: .public)")
+        pinDiag.notice("layerop \(line, privacy: .public)")
     }
 
     override func add(_ anim: CAAnimation, forKey key: String?) {
         trace("add", key)
-        super.add(anim, forKey: key)
+        guard let armedAt = value(forKey: Self.armedKey) as? Double, CACurrentMediaTime() - armedAt < 0.15,
+              let key, key.hasPrefix("move."), let copy = anim.copy() as? CAAnimation else {
+            return super.add(anim, forKey: key)
+        }
+        var chain: [String] = []
+        var node: CALayer? = self
+        while let n = node, chain.count < 12 {
+            chain.append("\(type(of: n))(sp\(n.speed) to\(n.timeOffset) bt\(n.beginTime))")
+            node = n.superlayer
+        }
+        let local = convertTime(CACurrentMediaTime(), from: nil)
+        let spring = anim as? CASpringAnimation
+        pinDiag.notice("""
+        timing key=\(key, privacy: .public) begin=\(anim.beginTime) localNow=\(local) media=\(CACurrentMediaTime()) \
+        dur=\(anim.duration) settle=\(spring?.settlingDuration ?? -1) stiff=\(spring?.stiffness ?? -1) damp=\(spring?.damping ?? -1) \
+        speed=\(anim.speed) fill=\(anim.fillMode.rawValue, privacy: .public) removed=\(anim.isRemovedOnCompletion) \
+        from=\(String(describing: (anim as? CABasicAnimation)?.fromValue), privacy: .public) \
+        txDisable=\(CATransaction.disableActions()) txDur=\(CATransaction.animationDuration()) \
+        chain=\(chain.joined(separator: " < "), privacy: .public)
+        """)
+        copy.delegate = PinDiagStop(key: key, armedAt: armedAt)
+        super.add(copy, forKey: key)
     }
 
     override func removeAnimation(forKey key: String) {
