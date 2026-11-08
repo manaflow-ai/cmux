@@ -205,8 +205,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::TRIGGER_CHAT_SEND, Request),
         untyped(method::TRIGGER_CHAT_STATUS, Request),
         // Start a local issue fix from a GitHub URL in a new worktree.
-        untyped(method::CHAT_FIX_FROM_LINK, Request),
         untyped(method::CHAT_FIX_FROM_LINK_PREPARE, Request),
+        untyped(method::CHAT_FIX_FROM_LINK, Request),
         request::<SessionsParams, SessionsResult>(method::MUX_SESSIONS),
         request::<events::AttachParams, events::AttachResult>(method::MUX_ATTACH),
         request::<events::SessionRef, events::Done>(method::MUX_DETACH),
