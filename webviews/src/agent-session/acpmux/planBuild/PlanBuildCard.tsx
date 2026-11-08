@@ -148,10 +148,21 @@ export function PlanBuildCard({
   );
 }
 
-/// A prompt run's column name: its agent and model ("Claude · claude-opus-5-5").
+/// A prompt run's column name: its model, read from the id ("claude-opus-5-5" is "Opus 5.5",
+/// "gpt-6.1-sol" is "GPT 6.1 Sol"), else its agent ("Codex"). The icon beside it names the agent.
 function runLabel(child: PlanBuildChild): string | undefined {
-  if (!child.harness) return undefined;
-  return [harnessName(child.harness), child.model].filter(Boolean).join(" · ");
+  if (!child.model) return child.harness ? harnessName(child.harness) : undefined;
+  const family = child.harness?.split(/[-/]/)[0];
+  const words: string[] = [];
+  for (const part of child.model.split(/[-_/\s]+/).filter(Boolean)) {
+    const last = words.at(-1);
+    if (/^\d+$/.test(part) && last && /^\d+(\.\d+)*$/.test(last)) words[words.length - 1] = `${last}.${part}`;
+    else words.push(part);
+  }
+  if (words.length > 1 && words[0] === family) words.shift();
+  return words
+    .map((word) => (word === "gpt" ? "GPT" : /^[a-z]/.test(word) ? word[0]!.toUpperCase() + word.slice(1) : word))
+    .join(" ");
 }
 
 /// A build's state: its sub-session records, or, while they still say running, acpmux's own read of

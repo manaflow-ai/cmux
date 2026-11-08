@@ -112,7 +112,7 @@ export function RunOnAgentsPanel({ catalog, prompt, onRun, onClose, initial, run
                 onChange={(value) => set(index, withModel(catalog, variant, value || undefined))}
               />
               <Select
-                className="acpmux-run-on-select"
+                className="acpmux-run-on-select acpmux-run-on-effort"
                 label={t("runOn.effort")}
                 value={variant.effort ?? DEFAULT}
                 options={effortOptions}

@@ -103,6 +103,9 @@
   padding: 8px var(--ds-space-3);
   border-top: 1px solid var(--run-on-line);
 }
+.acpmux-run-on-foot button {
+  white-space: nowrap;
+}
 .acpmux-run-on-add {
   height: 24px;
   padding: 0 var(--ds-space-2);
@@ -113,12 +116,16 @@
 .acpmux-run-on-spacer {
   flex: 1;
 }
-/* Narrow: effort drops to its own track, the row keeps its height. */
+/* Narrow: the effort pick goes (the agent's default runs), the row keeps its height. */
 @container (max-width: 380px) {
   .acpmux-run-on-row {
     grid-template-columns: 20px minmax(0, 1fr) minmax(0, 1fr) 24px;
   }
-  .acpmux-run-on-row > .acpmux-run-on-select:nth-of-type(3) {
+  .acpmux-run-on-row > .acpmux-run-on-effort {
     display: none;
+  }
+  .acpmux-run-on-foot {
+    gap: var(--ds-space-1);
+    padding-inline: var(--ds-space-2);
   }
 }

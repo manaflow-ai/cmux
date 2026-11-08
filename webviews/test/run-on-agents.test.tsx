@@ -210,7 +210,8 @@ test("the runs card: Keep this one removes the others' worktrees", async () => {
     />,
   );
   expect(host.textContent).toContain("Same prompt on 3 agents");
-  expect(host.textContent).toContain("Claude · claude-opus-5-5");
+  expect(host.textContent).toContain("Opus 5.5");
+  expect(host.textContent).toContain("Sonnet 5.5");
   const keeps = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-plan-builds-keep")];
   expect(keeps.length).toBe(3);
   await click(keeps[1]!);
