@@ -63,7 +63,7 @@ extension TabStripView {
         let duration = move.duration(closing: false)
         let count = MotionPath.sampleCount(seconds: duration)
         let times = MotionPath.times(from: move.begin, to: move.begin + duration, count: count)
-        func frames(of layers: [CALayer]) -> [[CGRect]] {
+        func sampled(_ layers: [CALayer]) -> [[CGRect]] {
             let paths = layers.map { ($0, MotionPath($0, "position", now: move.begin), MotionPath($0, "bounds.size", now: move.begin)) }
             return times.map { time in
                 paths.map { layer, position, size in
@@ -72,10 +72,10 @@ extension TabStripView {
                 }
             }
         }
-        let frames = frames(of: crossing)
+        let frames = sampled(crossing)
         // The sliding tabs whose resting frame leaves the divider's new place free (a resting neighbour may reach into
         // the gap; it never moves through the divider).
-        let slid = frames(of: neighbours)
+        let slid = sampled(neighbours)
         let slidEnds = slid.last ?? []
         func covers(_ x: CGFloat, _ frame: CGRect) -> Bool { x > frame.minX - 0.5 && x < frame.maxX + 0.5 }
         let last = times.count - 1
