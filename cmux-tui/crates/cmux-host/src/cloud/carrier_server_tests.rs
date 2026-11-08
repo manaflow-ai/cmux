@@ -744,3 +744,56 @@ fn a_rebind_before_a_wanted_request_starts_drops_that_requests_late_reply() {
     assert_eq!(reply["ticket"], "t-2", "{reply}");
     drop(server);
 }
+
+/// #38700's review (F1): a Register between `bound()` and the fetch thread
+/// taking the bind sets the want; the bind's prefetched ticket satisfies it.
+/// No second ticket request follows, and no extra reply waits for the next
+/// Register.
+#[test]
+fn a_want_satisfied_by_the_binds_prefetched_ticket_asks_for_no_more() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, path, live, _resumes) = live_server(&dir, 300, Duration::from_secs(5));
+    server.bound(client_with(LiveHttp(Arc::clone(&live))), true);
+    wait_for("the kept ticket", || live.tickets() == 1 && server.shared.lock().warm.is_some());
+    let (release, gate) = std::sync::mpsc::channel();
+    *server.shared.test_points.hold_fetcher.lock().unwrap() = Some(gate);
+    server.bound(client_with(LiveHttp(Arc::clone(&live))), true);
+    wait_for("the fetch thread held", || {
+        server.shared.test_points.hold_fetcher.lock().unwrap().is_none()
+    });
+    let asking = std::thread::spawn(move || ask(&path, r#"{"carrier_ticket": {}}"#));
+    std::thread::sleep(Duration::from_millis(200));
+    release.send(()).unwrap();
+    let reply = asking.join().unwrap();
+    assert_eq!(reply["ticket"], "t-2", "the rebind's prefetched ticket: {reply}");
+    assert!(
+        !holds_within(Duration::from_millis(500), || live.tickets() > 2),
+        "the Register's want asked for {} tickets in all (2 expected)",
+        live.tickets()
+    );
+    drop(server);
+}
+
+/// #38700's review (F2): a Register right after a resume is noted, before
+/// the fetch thread sees it, does not get the kept ticket from before the
+/// resume.
+#[test]
+fn a_register_right_after_a_resume_is_noted_does_not_get_the_old_ticket() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, path, live, resumes) = live_server(&dir, 300, Duration::from_secs(5));
+    server.bound(client_with(LiveHttp(Arc::clone(&live))), true);
+    wait_for("the kept ticket", || server.shared.lock().warm.is_some());
+    let (release, gate) = std::sync::mpsc::channel();
+    *server.shared.test_points.hold_fetcher.lock().unwrap() = Some(gate);
+    resumes.note();
+    wait_for("the fetch thread held", || {
+        server.shared.test_points.hold_fetcher.lock().unwrap().is_none()
+    });
+    let asking = std::thread::spawn(move || ask(&path, r#"{"carrier_ticket": {}}"#));
+    std::thread::sleep(Duration::from_millis(200));
+    release.send(()).unwrap();
+    let reply = asking.join().unwrap();
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_ne!(reply["ticket"], "t-1", "the ticket from before the resume was handed out");
+    drop(server);
+}
