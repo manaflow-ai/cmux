@@ -51,7 +51,7 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 
 ## Counts (1432 actions)
 
-Palette 1374, CLI verbs 858, right-click 633, MCP tools 772.
+Palette 1377, CLI verbs 858, right-click 633, MCP tools 772.
 
 ## Menus
 
@@ -101,8 +101,6 @@ Palette 1374, CLI verbs 858, right-click 633, MCP tools 772.
 **guiOnly** (3): `machine.joined.check`, `machine.joined.rotate`, `machine.joined.revoke`
 
 **noObject** (5): `agent.openSessionWorkspace`, `agent.openSessionTab`, `import.list`, `import.card`, `import.suggest`
-
-**noTargetSurface** (3): `home.archiveChief`, `home.setPrimaryChief`, `home.deleteChief`
 
 **familyMember** (11): `toggleTabAudioMute`, `home.messageChiefFromAnyApp`, `home.messageAbout`, `browser.findPrevious`, `palette.startAgentFromAnyApp`, `agent.share.list`, `agent.share.revoke`, `agent.share.kick`, `agent.share.uninvite`, `sidebar.density.compact`, `sidebar.density.comfortable`
 

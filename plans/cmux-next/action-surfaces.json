@@ -14048,7 +14048,7 @@
       "id" : "home.archiveChief",
       "main_menu" : null,
       "mcp" : "offered",
-      "palette" : "noTargetSurface",
+      "palette" : "offered",
       "palette_section" : {
         "id" : "category.window",
         "order" : 100,
@@ -14083,7 +14083,7 @@
       "id" : "home.setPrimaryChief",
       "main_menu" : null,
       "mcp" : "offered",
-      "palette" : "noTargetSurface",
+      "palette" : "offered",
       "palette_section" : {
         "id" : "category.window",
         "order" : 100,
@@ -14123,7 +14123,7 @@
       "id" : "home.deleteChief",
       "main_menu" : null,
       "mcp" : "offered",
-      "palette" : "noTargetSurface",
+      "palette" : "offered",
       "palette_section" : {
         "id" : "category.window",
         "order" : 100,
