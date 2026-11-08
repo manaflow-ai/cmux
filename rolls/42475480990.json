@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42475480990",
+  "recorded_at": "2026-11-08T11:41:52Z",
+  "reason": "cmux-tui ef1b22048369 changes the image's cmux-tui (pinned d35bf3a7deca)",
+  "dry_run": false,
+  "cmux_tui": "ef1b22048369ce195a7f6f027d0af453bc3faaac",
+  "fixes": [
+    {
+      "sha": "ef1b22048369ce195a7f6f027d0af453bc3faaac",
+      "mergedAt": "2026-11-08T11:06:56Z",
+      "subject": "machine list: online follows the platform's mesh TTL (30 s); acpmux heartbeat pinned to a third of it (#38352)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T11:41:52Z",
+    "snapshot_id": "sh-ada0690d884e4de1a1f6f4d6d29241e9",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42475480990): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5826cf0df5c5651027190e9eec0b71f1cabd1899",
+    "image": "cloud-native-auto-ef1b2204-42475480990-1",
+    "revision": "ci-42475480990-1",
+    "at": "2026-11-08T11:41:52Z"
+  },
+  "rolled_back": false
+}
