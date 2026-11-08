@@ -504,7 +504,7 @@ fn output_heavy_sealed_registry(
              BEGIN SELECT RAISE(ABORT, 'session journal is append-only'); END;",
         )
         .unwrap();
-    let per_segment = u64::try_from(JOURNAL_SEGMENT_RECORD_LIMIT).unwrap();
+    let per_segment = u64::try_from(journal_extensions::JOURNAL_SEGMENT_RECORD_LIMIT).unwrap();
     let mut state = 0x2545_f491_u64;
     let mut expected = Vec::new();
     for segment in 0..segments {
@@ -607,7 +607,10 @@ fn roster_replay_over_output_heavy_segments_decodes_each_segment_once() {
     let segments = 48;
     let (registry, expected) = output_heavy_sealed_registry(segments, 4096);
     let head = registry.session_journal_head().unwrap();
-    assert_eq!(head, segments * u64::try_from(JOURNAL_SEGMENT_RECORD_LIMIT).unwrap());
+    assert_eq!(
+        head,
+        segments * u64::try_from(journal_extensions::JOURNAL_SEGMENT_RECORD_LIMIT).unwrap()
+    );
     SEGMENT_DECODE_COUNTS.with(|counts| counts.set((0, 0)));
     let started = std::time::Instant::now();
     let (mut cursor, mut seen, mut pages) = (0, Vec::new(), 0);
