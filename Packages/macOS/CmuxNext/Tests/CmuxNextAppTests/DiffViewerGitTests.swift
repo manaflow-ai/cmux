@@ -13,6 +13,7 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct DiffViewerGitTests {
+    @MainActor
     final class RecordingGit: DiffGitPullRequestRunning {
         var writes: [(AgentPaneGitWrite, String)] = []
         var stages: [(AgentPaneGitStage, String)] = []
