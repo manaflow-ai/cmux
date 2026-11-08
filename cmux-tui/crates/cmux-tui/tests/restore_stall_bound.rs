@@ -90,7 +90,7 @@ fn alive(pid: i32) -> bool {
 }
 
 #[test]
-fn ensure_awaits_an_owner_that_works_past_the_restore_bound() {
+fn restore_stall_ensure_awaits_an_owner_that_works_past_the_restore_bound() {
     let fixture = Fixture::new("restore-works");
     let (ok, value, took) = fixture.ensure(&[], &[("CMUX_TUI_DEBUG_SLOW_RESTORE_MS", "9000")]);
     assert!(ok, "a working owner was given up on after {took:?}: {value}");
@@ -100,7 +100,7 @@ fn ensure_awaits_an_owner_that_works_past_the_restore_bound() {
 }
 
 #[test]
-fn ensure_gives_up_on_an_owner_that_does_no_work_for_the_bound() {
+fn restore_stall_ensure_gives_up_on_an_owner_that_does_no_work_for_the_bound() {
     let fixture = Fixture::new("restore-idle");
     let (ok, value, took) = fixture.ensure(&[], &[("CMUX_TUI_DEBUG_IDLE_RESTORE_MS", "30000")]);
     assert!(!ok, "an idle owner was awaited: {value}");
@@ -110,7 +110,7 @@ fn ensure_gives_up_on_an_owner_that_does_no_work_for_the_bound() {
 }
 
 #[test]
-fn replace_keeps_an_owner_that_works_through_its_probe() {
+fn restore_stall_replace_keeps_an_owner_that_works_through_its_probe() {
     let fixture = Fixture::new("restore-replace");
     // The first ensure spawns an owner that restores (works) for 20 s.
     let mut first = fixture
