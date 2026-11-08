@@ -208,10 +208,11 @@ mod start_retry;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
 pub(super) use session::{newest_first, prompt_text, short_text};
-mod shell_readonly;
+pub(crate) mod shell_readonly;
 mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
 pub(crate) use shutdown::{CREATED as REFUSED_CREATED, shutting_down_before_create};
+mod caller_registry;
 pub(crate) mod inbox;
 mod spawn;
 mod start_defaults;
@@ -274,6 +275,7 @@ pub use vm_boundary::vm_boundary_peer_approves;
 mod start_gate;
 pub mod vm_host;
 pub(crate) use start_gate::host_label;
+pub mod races;
 mod subsession_answer;
 mod subsession_guard;
 mod subsession_results;
@@ -457,6 +459,11 @@ pub struct TurnInfo {
 /// Options for `Hub::prompt_with`.
 #[derive(Default)]
 pub struct PromptOptions {
+    /// Internal guard checked after asynchronous prompt setup and immediately before acceptance.
+    /// Public only so callers outside the crate can build options with `..Default::default()`;
+    /// it can only refuse a prompt, never admit one.
+    #[doc(hidden)]
+    pub race_guard: Option<Arc<dyn Fn() -> Result<(), RpcError> + Send + Sync>>,
     /// Native-prepared Cloud turn capability; held in memory until claim/finish only.
     pub cloud_turn: Option<crate::cloud_rewind::CloudTurnEnvelope>,
     /// Client-chosen id (`_meta.acpmux.promptId`); generated when absent.
@@ -786,6 +793,8 @@ pub struct Hub {
     pub(super) recap_wake: Arc<Notify>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
+    /// The caller tokens earlier daemon runs gave out, by session (`caller_registry.rs`).
+    pub(super) caller_registry: caller_registry::CallerRegistry,
     /// Held by each `sessions.allowFullAccess` push through its teardown (`apply_full_access_push`).
     pub(super) full_access_pushes: tokio::sync::Mutex<()>,
     /// Held (read) by a family message or an ancestor's answer from its last check until it is
@@ -872,6 +881,7 @@ pub struct Hub {
     lane_report_reads: lane_report_reads::LaneReportReads,
     /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
     pub(super) subsessions: subsessions::Index,
+    pub(super) races_running: StdMutex<std::collections::HashSet<String>>,
     /// Creates admitted and still starting (`admission.rs`).
     pub(super) admitting: admission::Admitting,
     /// Run slots of each session's sub-sessions (`subsession_runs.rs`).
@@ -976,6 +986,10 @@ impl Hub {
         // after a restart, before the app pushes again (`start_mode_state.rs`).
         let start_mode_state =
             start_mode_state::StartModeCell::load(start_mode_state::state_file(&config).as_deref());
+        // Loaded before the socket serves, so an agent that outlived the previous daemon is
+        // known by its caller token from the first request (`caller_registry.rs`).
+        let caller_registry =
+            caller_registry::CallerRegistry::load(caller_registry::state_file(&config));
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
@@ -1087,6 +1101,7 @@ impl Hub {
             recap_due: StdMutex::new(HashMap::new()),
             recap_wake: Arc::new(Notify::new()),
             start_mode_state,
+            caller_registry,
             full_access_pushes: tokio::sync::Mutex::new(()),
             family_gate: Arc::new(tokio::sync::RwLock::new(())),
             family_cut: tokio::sync::watch::channel(0).0,
@@ -1136,6 +1151,7 @@ impl Hub {
             lane_reports: Default::default(),
             lane_report_reads: Default::default(),
             subsessions: Default::default(),
+            races_running: Default::default(),
             admitting: Default::default(),
             subsession_runs: Default::default(),
             open_waits: Default::default(),
@@ -1286,6 +1302,7 @@ impl Hub {
         if deferred {
             self.logs_ready.send_replace(false);
         }
+        self.resume_races();
     }
 
     pub(super) fn install_stored_session(&self, meta: SessionMeta, deferred: bool, hosted: bool) {
