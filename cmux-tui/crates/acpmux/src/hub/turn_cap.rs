@@ -21,6 +21,7 @@
 //! holds the session weakly, so a closed session's timer does nothing.
 
 use super::*;
+use crate::prompt_class::PromptClass;
 use std::sync::Weak;
 
 /// The cap a coordinator session gets when it set none itself (the `coordinator` setting, which
@@ -156,14 +157,14 @@ impl Hub {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .iter()
-                .any(|q| q.run.agent.is_some());
+                .any(|q| q.run.agent.is_some() && q.run.class != Some(PromptClass::Fyi));
             let held = session
                 .inbox
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .items
                 .iter()
-                .any(|i| !i.noticed && i.class != crate::prompt_class::PromptClass::Fyi);
+                .any(|i| !i.noticed && i.class != PromptClass::Fyi);
             if running == turn_id && (queued || held) {
                 hub.turn_cap_notice(&session, &running, cap);
             }

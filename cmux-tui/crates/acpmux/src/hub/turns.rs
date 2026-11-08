@@ -418,6 +418,8 @@ impl Hub {
         let replaced = std::sync::OnceLock::<Vec<String>>::new();
         // Another agent's message queued as the running turn crosses its cap still gets the
         // turn its notice (`turn_cap.rs`): the timer may have looked at the queue just before.
+        // An FYI asks for none.
+        let fyi = opts.class == Some(crate::prompt_class::PromptClass::Fyi);
         let from_agent =
             super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref()).is_some()
                 && !opts.send_now;
@@ -428,7 +430,7 @@ impl Hub {
                 }
                 let queued = v.get("queued") == Some(&Value::Bool(true));
                 f(v);
-                if queued && from_agent {
+                if queued && from_agent && !fyi {
                     self.turn_cap_recheck(session);
                 }
             }
@@ -442,7 +444,6 @@ impl Hub {
         let text = prompt_text(&blocks);
         let running = session.turn();
         // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
-        let fyi = opts.class == Some(crate::prompt_class::PromptClass::Fyi);
         let capped = running.is_some()
             && !opts.send_now
             && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref(), fyi);
