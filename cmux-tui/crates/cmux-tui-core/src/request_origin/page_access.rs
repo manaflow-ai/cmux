@@ -405,12 +405,6 @@ const fn access(operation: Op) -> Access {
         | Op::ConversationDraft
         | Op::ConversationEvents
         // The person's Cloud API calls, with credentials a page never holds (server/cloud_api.rs).
-        | Op::CloudVmResize
-        | Op::CloudVmSnapshot
-        | Op::CloudVmSnapshots
-        | Op::CloudVmDeleteSnapshot
-        | Op::CloudVmRestore
-        | Op::CloudVmFork
         | Op::CloudVmScpEndpoint
         | Op::CloudVmTunnelEnroll
         | Op::CloudVmTunnelRevoke
