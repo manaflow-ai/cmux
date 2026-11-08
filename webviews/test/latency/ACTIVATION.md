@@ -32,8 +32,13 @@ The validator continues to reject a pending baseline. This stage does not satisf
    Commit only the measured `baseline.json` as `test/latency/baseline.json`; do not commit raw artifacts.
 
 4. Land trusted policy plus that reviewed numeric baseline on `feat-cmux-next`, then activate this
-   workflow in a separate PR by adding `pull_request: { branches: [feat-cmux-next] }` without a paths
-   filter. That activation PR must retain the complete 16-case capture and obtain independent review.
+   gate in a separate PR with a trigger whose workflow file comes from the base, not the PR:
+   `workflow_run` after the PR's CI (or `pull_request_target`), never plain `pull_request`. Under
+   `pull_request` GitHub runs the PR's own copy of this workflow, so a PR could change what is measured
+   and validated. The activated measurement job checks out the base, takes only the candidate's app
+   source (`webviews/src`) and builds it with the base's lockfile, tooling and harness, so candidate code
+   runs only inside the browser. Until then, the base-harness pin below guards against a harness that
+   drifted in the PR, not against a hostile PR. That activation PR must retain the complete 16-case capture and obtain independent review.
    The measurement job measures the candidate's app with the target base's harness
    (`webviews/scripts/latency` and `webviews/test/latency` checked out from the base, recorded as
    `source.harness`), and validation requires that (`--require-base-harness`), so a candidate can't report

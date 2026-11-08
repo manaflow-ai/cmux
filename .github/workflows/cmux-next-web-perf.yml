@@ -1,7 +1,8 @@
 name: cmux-next web performance
 
-# Staged policy: enable the pull_request trigger only after trusted validator,
-# budget, and an actual ready baseline have landed on feat-cmux-next. Pending
+# Staged policy: manual runs only. Activation needs the trusted validator, budget and a
+# measured baseline on feat-cmux-next, and a trigger whose workflow comes from the base
+# (workflow_run), not pull_request, whose workflow file the PR itself supplies. Pending
 # baselines still fail validation. See webviews/test/latency/ACTIVATION.md.
 on:
   workflow_dispatch:
@@ -51,19 +52,6 @@ jobs:
           test "$(git rev-parse HEAD)" = "$HEAD_SHA"
           git fetch --no-tags --depth=1 origin "$BASE_SHA"
 
-      - name: Measure with the target base's harness
-        run: |
-          set -euo pipefail
-          # The candidate's app is what gets measured; the harness that drives it, times it and writes the
-          # results is the target base's, so a PR can't report numbers its own code made up. A base with no
-          # harness yet has nothing trusted to measure with: fail closed.
-          git cat-file -e "$BASE_SHA:webviews/scripts/latency/run.ts" || {
-            echo "target base $BASE_SHA has no latency harness to measure with" >&2
-            exit 1
-          }
-          rm -rf webviews/scripts/latency webviews/test/latency
-          git checkout "$BASE_SHA" -- webviews/scripts/latency webviews/test/latency
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -93,6 +81,21 @@ jobs:
         working-directory: webviews
         run: |
           "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+
+      - name: Measure with the target base's harness
+        run: |
+          set -euo pipefail
+          # The candidate's app is what gets measured; the harness that drives it, times it and writes the
+          # results is the target base's, checked out last, after every candidate setup step, so a harness
+          # edit in the PR can't be what reports its numbers. This guards against drift, not a hostile PR:
+          # under pull_request the PR supplies this workflow file itself (see ACTIVATION.md). A base with
+          # no harness yet has nothing to measure with: fail closed.
+          git cat-file -e "$BASE_SHA:webviews/scripts/latency/run.ts" || {
+            echo "target base $BASE_SHA has no latency harness to measure with" >&2
+            exit 1
+          }
+          rm -rf webviews/scripts/latency webviews/test/latency
+          git checkout "$BASE_SHA" -- webviews/scripts/latency webviews/test/latency
 
       - name: Measure exact head
         id: measure
