@@ -352,7 +352,9 @@ impl Hub {
                 }
             }
             "tool_call" | "tool_call_update" => {
-                super::pull_requests::absorb(session, update, &mut m);
+                if let Some(url) = super::pull_requests::absorb(session, update, &mut m) {
+                    self.ledger.note_pull_request(&session.id, &url);
+                }
                 super::touched::absorb(session, update, &mut m, replayed);
                 super::lineage::note_tool_call(session, update);
             }
