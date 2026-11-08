@@ -4120,7 +4120,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // red stretch opens its chat at the turn the wait began in, once that turn's row is drawn.
   const readWaitingDay = useCallback(
     (params: { since: number; until: number }) =>
-      directClient.current?.waitingDay(params) ?? Promise.reject(new Error("not connected")),
+      directClient.current?.waitingDay(params) ?? Promise.resolve(undefined),
     [],
   );
   const jumpToWait = useCallback(
