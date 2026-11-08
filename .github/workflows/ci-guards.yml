@@ -109,6 +109,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_no_shallow_dev_fetch.py
 
+      - name: Validate each shared-HOME runner gets its own CARGO_HOME
+        if: ${{ matrix.group == 'ci' }}
+        run: ./tests/test_setup_cmux_tui_rust_cargo_home.sh
+
       # Fleet rules as a shrink-only ratchet: no fleet sudo keychain reads, no
       # new kill by process name or pattern, nothing depends on the personal
       # Linux workstation (tests/fleet-rule-allowlist.json).
