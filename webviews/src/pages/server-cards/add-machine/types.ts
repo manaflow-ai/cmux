@@ -51,6 +51,9 @@ export interface AddMachineRun {
   id: number;
   host: string;
   name: string;
+  /** What Add sent: the field's text and a picked agent peer's name. Try Again sends them again. */
+  destination?: string;
+  peer?: string;
   events: RunEvent[];
   outcome: "running" | "ready" | "failed";
   /** The machine's app id once it is connected in the app (Open Workspace). */

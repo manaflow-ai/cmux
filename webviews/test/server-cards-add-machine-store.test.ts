@@ -176,6 +176,51 @@ describe("Add Machine store", () => {
     expect(store.getSnapshot().name).toBe("lab");
   });
 
+  test("a changed field cannot add until its own parse answers", async () => {
+    const host = new FakeHost();
+    host.status = { request: { seq: 1, mode: { kind: "add" }, destination: "hb" } };
+    const { store } = await opened(host);
+    expect(viewOf(store.getSnapshot()).buttons.at(-1)?.enabled).toBe(true);
+    store.setDestination("leo@other");
+    expect(viewOf(store.getSnapshot()).buttons.at(-1)?.enabled).toBe(false);
+    await settle();
+    expect(store.getSnapshot().parsed?.shortName).toBe("other");
+  });
+
+  test("a card remounted over its run retries that run, not the opener's fields", async () => {
+    // Opened on host A, edited to B and added; the person switched cards and came back while B ran.
+    const host = new FakeHost();
+    host.status = {
+      request: { seq: 3, mode: { kind: "add" }, destination: "leo@host-a", name: "a" },
+      run: { id: 1, host: "leo@host-b", name: "b", destination: "leo@host-b", outcome: "running", events: [] },
+    };
+    const { store } = await opened(host);
+    expect(store.getSnapshot().destination).toBe("leo@host-b");
+    expect(store.getSnapshot().name).toBe("b");
+    host.change({ ...host.status, run: { ...host.status.run!, outcome: "failed" } });
+    await settle();
+    await store.perform("tryAgain");
+    expect(host.ops("add")).toEqual([{ destination: "leo@host-b", name: "b" }]);
+
+    // A picked agent peer's run retries as that peer.
+    const peer = new FakeHost();
+    peer.status = {
+      request: { seq: 1, mode: { kind: "add" } },
+      run: {
+        id: 2,
+        host: "huge-blue.tail1.ts.net",
+        name: "hb",
+        destination: "huge-blue.tail1.ts.net",
+        peer: "hb",
+        outcome: "failed",
+        events: [],
+      },
+    };
+    const second = await opened(peer);
+    await second.store.perform("tryAgain");
+    expect(peer.ops("add")).toEqual([{ destination: "huge-blue.tail1.ts.net", name: "hb", peer: "hb" }]);
+  });
+
   test("Escape cancels a run and closes; with no Escape button the card just closes", async () => {
     const host = new FakeHost();
     host.status = {
