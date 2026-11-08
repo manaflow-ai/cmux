@@ -623,7 +623,8 @@
               "sidebar.workspacesAsTabs",
               "sidebar.chromeGroups",
               "sidebar.sideBySide",
-              "sidebar.groupPalette"
+              "sidebar.groupPalette",
+              "sidebar.groupGradient"
             ],
             "title" : {
               "key" : "settings.pageGroup.sidebarLayout",
@@ -1201,6 +1202,9 @@
               "agentPane.display.pinnedPlan",
               "agentPane.display.trayTucked",
               "agentPane.display.trayHandle",
+              "agentPane.display.senderIcon.lead",
+              "agentPane.display.senderIcon.badge",
+              "agentPane.display.senderIcon.corner",
               "agentPane.display.rail.side",
               "agentPane.display.sessionInfo.placement",
               "agentPane.display.environment.placement"
@@ -46078,6 +46082,515 @@
     },
     {
       "accepts" : [
+        "family",
+        "session"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.senderIconFamily",
+            "text" : "Model Family Big"
+          },
+          "value" : "family"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.senderIconSession",
+            "text" : "Session Badge Big"
+          },
+          "value" : "session"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "family",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.senderIcon.lead.help",
+        "text" : "Which is big in a sender's icon: the model family's mark, or the session's own colored badge."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.senderIcon.lead",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "sender",
+        "icon",
+        "mark",
+        "badge",
+        "model",
+        "family",
+        "session",
+        "agent",
+        "big",
+        "small"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "senderIcon",
+        "lead"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.senderIcon.lead"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.senderIcon.lead",
+        "text" : "Sender Icon Emphasis"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "diamond",
+        "robot",
+        "none"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.diamond",
+            "text" : "Diamond Icon"
+          },
+          "value" : "diamond"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.robot",
+            "text" : "Robot Icon"
+          },
+          "value" : "robot"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.none",
+            "text" : "None"
+          },
+          "value" : "none"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "diamond",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.senderIcon.badge.help",
+        "text" : "The small colored glyph on a sender's icon that tells sessions of one model family apart."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.senderIcon.badge",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "sender",
+        "icon",
+        "badge",
+        "diamond",
+        "sparkle",
+        "robot",
+        "bot",
+        "color",
+        "session",
+        "agent"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "senderIcon",
+        "badge"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.senderIcon.badge"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.senderIcon.badge",
+        "text" : "Sender Badge"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "bottom-right",
+        "bottom-left",
+        "top-right",
+        "top-left"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.bottomRight",
+            "text" : "Bottom Right"
+          },
+          "value" : "bottom-right"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.bottomLeft",
+            "text" : "Bottom Left"
+          },
+          "value" : "bottom-left"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.topRight",
+            "text" : "Top Right"
+          },
+          "value" : "top-right"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.topLeft",
+            "text" : "Top Left"
+          },
+          "value" : "top-left"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "bottom-right",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.senderIcon.corner.help",
+        "text" : "Where the small glyph sits on a sender's icon."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.senderIcon.corner",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "sender",
+        "icon",
+        "badge",
+        "corner",
+        "left",
+        "right",
+        "top",
+        "bottom",
+        "position"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "senderIcon",
+        "corner"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.senderIcon.corner"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.senderIcon.corner",
+        "text" : "Sender Badge Corner"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "markdown",
         "system",
         "serif",
@@ -60622,7 +61135,8 @@
         "theme",
         "wallpaper",
         "grayscale",
-        "vibrant"
+        "vibrant",
+        "gradient"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -60661,6 +61175,13 @@
             "text" : "Vibrant"
           },
           "value" : "vibrant"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupPaletteGradient",
+            "text" : "Gradient"
+          },
+          "value" : "gradient"
         }
       ],
       "consumers" : [
@@ -60674,7 +61195,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.groupPalette.help",
-        "text" : "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked."
+        "text" : "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.groupPalette",
@@ -60691,7 +61212,8 @@
         "grayscale",
         "vibrant",
         "glass",
-        "automatic"
+        "automatic",
+        "gradient"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -60795,6 +61317,177 @@
       "title" : {
         "key" : "settings.sidebar.groupPalette",
         "text" : "Group Colors"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "sunset",
+        "aurora",
+        "lagoon",
+        "twoTone"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.groupGradientSunset",
+            "text" : "Sunset"
+          },
+          "value" : "sunset"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupGradientAurora",
+            "text" : "Aurora"
+          },
+          "value" : "aurora"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupGradientLagoon",
+            "text" : "Lagoon"
+          },
+          "value" : "lagoon"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupGradientTwoTone",
+            "text" : "Two-Tone"
+          },
+          "value" : "twoTone"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "sunset",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.groupGradient.help",
+        "text" : "The gradient that Group Colors set to Gradient steps through: each colored group takes the color at its place in the list, so neighbors step through it and a group you move recolors."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.groupGradient",
+      "keywords" : [
+        "sidebar",
+        "group",
+        "groups",
+        "color",
+        "colors",
+        "colour",
+        "gradient",
+        "sunset",
+        "aurora",
+        "lagoon"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "groupGradient"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.groupGradient"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.groupGradient",
+        "text" : "Group Gradient"
       },
       "validation" : "portable"
     },
