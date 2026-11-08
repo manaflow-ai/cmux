@@ -28,7 +28,7 @@ const ROWS: [AcpmuxLink, string | null, string, boolean][] = [
 ];
 
 test("the renderer draws every acpmux link state, one dot each", () => {
-  expect(new Set(ROWS.map(([state]) => state))).toEqual(ACPMUX_LINKS as Set<string>);
+  expect(ROWS.map(([state]) => state as string).sort()).toEqual([...ACPMUX_LINKS].sort());
   expect(Object.keys(PEER_LINKS).sort()).toEqual([...ACPMUX_LINKS].sort());
   for (const [state, dot, words, reconnects] of ROWS) {
     const link = peerLink({ summary: { peer: "walk-remote" }, peerLinks: { "walk-remote": { link: state } } });

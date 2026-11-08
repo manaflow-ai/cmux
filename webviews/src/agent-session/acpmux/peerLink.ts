@@ -40,7 +40,7 @@ export const PEER_LINKS: Record<AcpmuxLink, Shown> = {
   paused: null,
 };
 
-const LOCAL: LinkCause = "localNetwork";
+const LOCAL = "localNetwork" satisfies LinkCause;
 
 type LinkSnapshot = {
   summary?: { peer?: string } | undefined;
@@ -70,7 +70,8 @@ export function peerLink(snapshot: LinkSnapshot): PeerLink | null {
         : { link: connected ? "connected" : "offline" };
   if (!known) return null;
   if (known.link === "offline" && snapshot.peerKinds?.[peer] === "cloud") return null;
-  const why = known.why ?? (known.link !== "connected" && detail?.cause === LOCAL ? LOCAL : undefined);
+  const why: LinkWhy | undefined =
+    known.why ?? (known.link !== "connected" && detail?.cause === LOCAL ? LOCAL : undefined);
   return {
     machine: peer,
     link: known.link,

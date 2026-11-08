@@ -51,8 +51,9 @@ const time = (value: unknown) => (typeof value === "number" && Number.isFinite(v
 export function readPeerLinkDetail(value: unknown): PeerLinkDetail | undefined {
   if (!value || typeof value !== "object") return undefined;
   const raw = value as Record<string, unknown>;
-  const word = ACPMUX_LINKS.has(raw.link) ? raw.link : ACPMUX_LINKS.has(raw.state) ? raw.state : undefined;
-  if (typeof word !== "string") return undefined;
+  const sent = (word: unknown) => (typeof word === "string" && ACPMUX_LINKS.has(word) ? word : undefined);
+  const word = sent(raw.link) ?? sent(raw.state);
+  if (word === undefined) return undefined;
   const detail: PeerLinkDetail = { link: word as AcpmuxLink };
   if (typeof raw.carrier === "string" && CARRIERS.has(raw.carrier)) detail.carrier = raw.carrier as LinkCarrier;
   if (typeof raw.cause === "string" && CAUSES.has(raw.cause)) detail.cause = raw.cause as LinkCause;
