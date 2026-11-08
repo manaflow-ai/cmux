@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42504374096",
+  "recorded_at": "2026-11-08T17:33:15Z",
+  "reason": "cmux-tui 94cbacb43005 changes the image's cmux-tui (pinned 87e106b429d0)",
+  "dry_run": false,
+  "cmux_tui": "94cbacb43005c419445d66f13a8751f130c16d42",
+  "fixes": [
+    {
+      "sha": "94cbacb43005c419445d66f13a8751f130c16d42",
+      "mergedAt": "2026-11-08T08:59:44-08:00",
+      "subject": "acpmux, cmux-tui-core: no new string slice or index on feat (panic ratchet red) (#38726)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T17:33:15Z",
+    "snapshot_id": "sh-aeafafd9384f4fc3bec16f824e61c191",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42504374096): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "39872af493d6d812111907991f5497776ddd0744",
+    "image": "cloud-native-auto-94cbacb4-42504374096-1",
+    "revision": "ci-42504374096-1",
+    "at": "2026-11-08T17:33:15Z"
+  },
+  "rolled_back": false
+}
