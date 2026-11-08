@@ -9,7 +9,7 @@ use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -93,6 +93,24 @@ pub(crate) fn cached(
     Ok(Some(selection))
 }
 
+/// The launch answer that needs no fetch: a valid cache, else a known deployment's built-in
+/// configuration. None (fetch) for a custom origin with no cache or any unreadable cache.
+pub(crate) fn without_fetch(resolver: &Resolver, mut selection: Selection) -> Option<Selection> {
+    match cached(resolver, selection.clone()) {
+        Ok(Some(cached)) => Some(cached),
+        Ok(None)
+            if !matches!(
+                Environment::parse(&selection.api_origin),
+                Ok(Environment::LocalOrigin(_)) | Err(_)
+            ) =>
+        {
+            selection.config_source = ConfigSource::KnownOriginFallback;
+            Some(selection)
+        }
+        Ok(None) | Err(_) => None,
+    }
+}
+
 fn cache_path(resolver: &Resolver, origin: &str) -> Result<std::path::PathBuf, String> {
     Ok(resolver
         .state_path()
@@ -119,6 +137,8 @@ pub(crate) async fn resolve(
         .timeout(Duration::from_secs(5))
         .build()
         .map_err(|error| format!("create client-config HTTP client: {error}"))?;
+    // The fence for this fetch's cache write: a fetch that started earlier never replaces it.
+    let started = fetch_stamp();
     let response = client.get(format!("{origin}/v1/client-config")).send().await;
     let path = cache_path(resolver, &origin)?;
     match response {
@@ -132,7 +152,7 @@ pub(crate) async fn resolve(
             let config: ClientConfig = serde_json::from_slice(&body)
                 .map_err(|error| format!("invalid client-config from {origin}: {error}"))?;
             validate(&config, &origin)?;
-            atomic_cache(&path, &body)?;
+            fenced_cache(&path, &body, started)?;
             apply(&mut selection, config, ConfigSource::Backend);
             Ok(selection)
         }
@@ -279,6 +299,42 @@ fn validate(config: &ClientConfig, selected: &str) -> Result<(), String> {
         return Err("invalid client-config capabilities or image channel".into());
     }
     Ok(())
+}
+
+/// When a fetch started, in ms since the epoch: what its cache write is fenced by.
+fn fetch_stamp() -> u128 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_millis())
+}
+
+/// Writes a fetched client-config unless a fetch that started later already wrote one, and answers
+/// whether it wrote. Two processes can fetch at once (a launch's refresh still running when the next
+/// launch's starts, a `cloud env get` beside them), and their answers land in any order: without
+/// this an older answer could replace a newer one. Each write keeps its fetch's start beside the
+/// cache (`.started`), checked and written under an exclusive lock on `.lock`.
+fn fenced_cache(path: &Path, body: &[u8], started: u128) -> Result<bool, String> {
+    let stamp = path.with_extension("json.started");
+    let lock_path = path.with_extension("json.lock");
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("create client-config cache: {error}"))?;
+    }
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let lock =
+        options.open(&lock_path).map_err(|error| format!("open client-config lock: {error}"))?;
+    lock.lock().map_err(|error| format!("lock client-config cache: {error}"))?;
+    let newer = fs::read_to_string(&stamp)
+        .ok()
+        .and_then(|text| text.trim().parse::<u128>().ok())
+        .is_some_and(|written| written > started);
+    if newer {
+        return Ok(false);
+    }
+    atomic_cache(path, body)?;
+    atomic_cache(&stamp, started.to_string().as_bytes())?;
+    Ok(true)
 }
 
 fn atomic_cache(path: &Path, body: &[u8]) -> Result<(), String> {
@@ -475,6 +531,53 @@ mod tests {
         assert_eq!(served.configuration, cached.configuration);
         let other = resolver.resolve(Some("http://127.0.0.1:1")).unwrap();
         assert!(resolver.client_config(other).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn cache_first_reads_the_cache_or_a_known_deployment_without_the_network() {
+        // A backend that takes the connection and never answers: any fetch waits out its timeout.
+        let silent = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", silent.local_addr().unwrap());
+        let home = Home::new();
+        let resolver = Resolver::new(crate::DEV_BUNDLE, &home.0).unwrap();
+        let selected = resolver.resolve(Some(&origin)).unwrap();
+        let body = serde_json::to_vec(&config(&origin)).unwrap();
+        atomic_cache(&cache_path(&resolver, &origin).unwrap(), &body).unwrap();
+        let started = std::time::Instant::now();
+        let cached = resolver.client_config_cache_first(selected).await.unwrap();
+        assert_eq!(cached.config_source, ConfigSource::Cache);
+        assert!(started.elapsed() < Duration::from_secs(1), "{:?}", started.elapsed());
+        drop(silent);
+
+        // A known deployment with no cache takes its built-in configuration, still without a fetch.
+        let known = resolver
+            .client_config_cache_first(resolver.resolve(Some("staging")).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(known.config_source, ConfigSource::KnownOriginFallback);
+
+        // A custom origin with no cache is fetched.
+        let (origin, server) =
+            serve(|origin| http_json(&serde_json::to_string(&config(origin)).unwrap()));
+        let fetched = resolver
+            .client_config_cache_first(resolver.resolve(Some(&origin)).unwrap())
+            .await
+            .unwrap();
+        server.join().unwrap();
+        assert_eq!(fetched.config_source, ConfigSource::Backend);
+    }
+
+    #[test]
+    fn an_older_fetch_never_replaces_a_newer_fetchs_cache() {
+        let home = Home::new();
+        let path = home.0.join("client-config").join("origin.json");
+        assert!(fenced_cache(&path, b"second", 20).unwrap());
+        // The first fetch's answer lands after the second's: it is not written.
+        assert!(!fenced_cache(&path, b"first", 10).unwrap());
+        assert_eq!(fs::read(&path).unwrap(), b"second");
+        // A fetch that started later still replaces it.
+        assert!(fenced_cache(&path, b"third", 30).unwrap());
+        assert_eq!(fs::read(&path).unwrap(), b"third");
     }
 
     #[tokio::test]

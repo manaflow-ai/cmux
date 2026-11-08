@@ -21,7 +21,7 @@ import Testing
 /// before that pass, from the stale host. The surface takes its start size again and sends the start grid; the next
 /// pass sends the final grid again: final, start, final for one press. No surface may take its start size again after
 /// the press, and each terminal's PTY ends at the final grid with nothing after it. Since FRAME OWNER S4 m18 (#36478)
-/// a key spring's grids go to the PTY coalesced, at most one per 25 ms window and the newest, ending at the landing's
+/// a key spring's grids go to the PTY coalesced, at most one per refresh and the newest, ending at the landing's
 /// (`TerminalGridReportCoalescer`): the final grid is no longer due by the press's first frame tick
 /// (``coalescingIssues(_:final:start:since:)``).
 ///
@@ -78,13 +78,13 @@ struct KeyboardResizeOneGridReportTests {
     }
 
     /// What is wrong with the grids one terminal's PTY got across a key press, `sent` in order, under m18's coalescing
-    /// (#36478): more grids than 25 ms windows since `pressed` (plus the landing's flush), the start grid again, not
+    /// (#36478): more grids than refreshes since `pressed` (plus the landing's flush), the start grid again, not
     /// ending at `final`, or any grid after `final`. Empty when the PTY got the press's grids as m18 sends them.
     static func coalescingIssues(_ sent: [TerminalGridSize], final: TerminalGridSize, start: TerminalGridSize?,
                                  since pressed: ContinuousClock.Instant) -> [String] {
         var issues: [String] = []
         let windows = TerminalKeyResizeFrameTests.coalescingWindows(since: pressed)
-        if sent.count > windows { issues.append("\(sent.count) grids, more than one per 25 ms window (\(windows))") }
+        if sent.count > windows { issues.append("\(sent.count) grids, more than one per refresh (\(windows))") }
         if let start, sent.contains(start) { issues.append("the start grid \(start) again") }
         if sent.last != final { issues.append("not ending at the final grid \(final)") }
         let afterFinal = sent.drop(while: { $0 != final }).dropFirst()
