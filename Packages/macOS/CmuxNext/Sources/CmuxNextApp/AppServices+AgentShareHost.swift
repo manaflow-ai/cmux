@@ -15,17 +15,8 @@ extension AppServices: AgentShareHost {
     func shareConnection(holding tab: TabModel) -> DaemonConnection? { locateTab(tab.id).map(\.1).map(daemon(for:))?.connection }
     func shareIsOnThisMac(_ tab: TabModel) -> Bool { machines.local.store.tab(idOrResource: tab.id) === tab }
     var shareLocalConnection: DaemonConnection? { machines.local.connection }
-    func shareLocalConnected() async -> DaemonConnection? {
-        // Startup that already gave up resumes no waiter: the link then opens as itself.
-        if machines.local.connection == nil, !machines.local.startup.isUnavailable { await machines.local.firstConnection() }
-        return machines.local.connection
-    }
     func shareOwnerToken(api: URL?) async -> String? { await cloud.shareOwnerToken(api: api) }
-    /// Waits for the stored session to restore first: a cold launch from a link asks before it has.
-    func shareSignInToken() async -> String? {
-        await cloud.auth.awaitRestored()
-        return cloud.auth.isSignedIn ? (try? await cloud.auth.tokens().access) : nil
-    }
+    func shareLinkOpener() async -> (connection: DaemonConnection?, token: String?) { (await machines.local.connectionOnceStarted(), await cloud.auth.restoredAccessToken()) }
     func shareCopy(_ text: String) { AppActionContext(services: self).copy(text) }
     func shareNotice(_ message: String) { BrowserFileImport.toast(self, id: "agent-share", message) }
     func shareAskOwner(_ ask: AgentShareConsentAsk) async -> Bool { await AgentShareConsentSheet.ask(ask, feed: feed) }

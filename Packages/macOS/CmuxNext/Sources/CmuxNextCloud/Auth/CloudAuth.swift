@@ -319,6 +319,13 @@ public final class CloudAuth {
 
     public func awaitRestored() async { await coordinator.awaitBootstrapped() }
 
+    /// The signed-in person's access token once the stored session has restored (a cold launch asks before it
+    /// has); nil signed out.
+    public func restoredAccessToken() async -> String? {
+        await awaitRestored()
+        return isSignedIn ? (try? await tokens().access) : nil
+    }
+
     /// A coherent access/refresh pair for one API call.
     public func tokens() async throws -> (access: String, refresh: String) {
         let pair = try await coordinator.currentTokens()

@@ -27,8 +27,9 @@ public struct AgentShareLinks {
     /// `link`'s page as the daemon answers it, once this Mac's daemon is connected (a cold launch from a link waits
     /// for it); nil when the daemon refuses or startup gave up.
     public func page(_ link: URL) async -> URL? {
-        guard let connection = await host.shareLocalConnected() else { return nil }
-        let request = AgentSessionShareOpenLinkRequest(link: link.absoluteString, token: await host.shareSignInToken())
+        let opener = await host.shareLinkOpener()
+        guard let connection = opener.connection else { return nil }
+        let request = AgentSessionShareOpenLinkRequest(link: link.absoluteString, token: opener.token)
         // timeout: a room that never answers the hand-off (the daemon gives it 10 s); past this the link
         // still opens as itself, signed out (the fallback in `open`).
         guard let opened = try? await connection.request(request, timeout: .seconds(20)) else { return nil }

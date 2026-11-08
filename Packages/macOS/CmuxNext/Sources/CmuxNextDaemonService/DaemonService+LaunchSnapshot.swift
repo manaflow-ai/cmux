@@ -157,6 +157,13 @@ extension DaemonService {
         await withCheckedContinuation { connectionWaiters.append($0) }
     }
 
+    /// The connection, waiting for the first one while startup still tries (a cold launch); nil once startup
+    /// gave up. Startup that already gave up resumes no waiter, so this never waits on it.
+    public func connectionOnceStarted() async -> DaemonConnection? {
+        if connection == nil, !startup.isUnavailable { await firstConnection() }
+        return connection
+    }
+
     func resumeConnectionWaiters() {
         let waiters = connectionWaiters
         connectionWaiters.removeAll()

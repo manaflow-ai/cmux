@@ -20,15 +20,13 @@ public protocol AgentShareHost: AnyObject {
     func shareIsOnThisMac(_ tab: TabModel) -> Bool
     /// This Mac's daemon connection (list, revoke and kick act on this Mac's shares).
     var shareLocalConnection: DaemonConnection? { get }
-    /// This Mac's daemon connection once it has one: waits for the first connection on a cold launch (or for
-    /// startup to give up, then nil), so a link the app is launched with is not lost.
-    func shareLocalConnected() async -> DaemonConnection?
     /// A fresh cmux install token of the signed-in owner (`/v1/auth/token`, ES256) from `api`, the API the
     /// daemon's share room takes tokens from (nil: the daemon did not say, the build's default); nil signed out.
     func shareOwnerToken(api: URL?) async -> String?
-    /// The signed-in person's cmux (Stack) access token, for a share room's one-time hand-off when the app opens
-    /// a share link (``AgentShareLinks``); nil signed out.
-    func shareSignInToken() async -> String?
+    /// What opening a share link (``AgentShareLinks``) needs, once a cold launch has them: this Mac's daemon
+    /// connection (nil once startup gave up) and the signed-in person's cmux (Stack) access token for the room's
+    /// one-time hand-off, after the stored session restored (nil signed out).
+    func shareLinkOpener() async -> (connection: DaemonConnection?, token: String?)
     /// Puts `text` on the general pasteboard.
     func shareCopy(_ text: String)
     /// Shows a person's run `message` as a notice in the active window.
@@ -111,6 +109,5 @@ public struct AgentShareConsentAsk: Sendable, Hashable {
 
 public extension AgentShareHost {
     /// No sign-in to hand a share page: a link opens signed out.
-    func shareSignInToken() async -> String? { nil }
-    func shareLocalConnected() async -> DaemonConnection? { shareLocalConnection }
+    func shareLinkOpener() async -> (connection: DaemonConnection?, token: String?) { (shareLocalConnection, nil) }
 }
