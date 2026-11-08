@@ -195,8 +195,8 @@ export const PERMISSION_LETTERS: Readonly<Record<string, Exclude<PermissionKeyAc
 /// a and 2 always allow, n, 3 and Esc deny (Esc closes the feedback field while it is open). They
 /// act with nothing focused, with focus in the card itself, or with focus in an empty composer,
 /// where the keyboard sits after every answer (there the letters, Return, ⌘↩ and Esc; a digit
-/// still types). Never while the composer holds a draft (with nothing focused, a letter goes on
-/// into that draft), nor while another field, a menu or a dialog has the keyboard, and a focused
+/// still types). Never while the composer holds a draft (focused or not: with nothing focused, no
+/// key answers while a draft waits), nor while another field, a menu or a dialog has the keyboard, and a focused
 /// button keeps its own Return (never ⌘↩, which no button takes). `card` is the card's element.
 export function permissionKeyAction(
   event: KeyLike,
@@ -224,6 +224,10 @@ export function permissionKeyAction(
     return letter;
   }
   if (!inCard && !nowhere) return undefined;
+  // With nothing focused, a draft in the composer keeps every key: a printed one goes on into it
+  // (composerFocus.ts), and Return, ⌘↩, Esc and the digits answer nothing while it waits.
+  const page = doc ?? globalThis.document;
+  if (nowhere && !feedbackOpen && page && composerHasDraft(page)) return undefined;
   if (commandReturn) return feedbackOpen || element?.closest(OWNS_KEYS) ? undefined : "allow_once";
   if (event.key === "Escape") {
     if (feedbackOpen) return "closeFeedback";
@@ -234,8 +238,5 @@ export function permissionKeyAction(
   if (event.key === "2") return "allow_always";
   if (event.key === "3") return "deny";
   if (event.key === "Enter") return element?.closest(PRESSABLE) ? undefined : "allow_once";
-  if (!letter) return undefined;
-  // With nothing focused a printed key goes on into the composer's draft (composerFocus.ts).
-  const page = doc ?? globalThis.document;
-  return nowhere && page && composerHasDraft(page) ? undefined : letter;
+  return letter;
 }

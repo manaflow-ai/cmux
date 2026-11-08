@@ -106,8 +106,11 @@ test("a half-written prompt keeps every key: typing yes into a draft never answe
     Array(7).fill(undefined),
   );
   expect(key("Enter", editor, { metaKey: true })).toBeUndefined();
-  // Nothing focused, a draft kept: a printed letter goes on into the draft, not to the card.
-  expect(["y", "a", "n"].map((name) => key(name, doc.body))).toEqual([undefined, undefined, undefined]);
+  // Nothing focused, a draft kept: no key answers, letters, digits, Return, ⌘↩ and Esc alike.
+  expect(["y", "a", "n", "1", "2", "3", "Enter", "Escape"].map((name) => key(name, doc.body))).toEqual(
+    Array(8).fill(undefined),
+  );
+  expect(key("Enter", doc.body, { metaKey: true })).toBeUndefined();
 });
 
 test("a composer holding only attached files keeps every key too", () => {
