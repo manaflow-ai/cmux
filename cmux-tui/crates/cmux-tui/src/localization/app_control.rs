@@ -61,6 +61,8 @@ pub(crate) struct AppControlMessages {
     pub cloud_machines_malformed: &'static str,
     /// Help for storing Cloud secrets on this Mac (cli/cloud_secret.rs).
     pub cloud_secret_help: &'static str,
+    /// Help for a team's shared agent keys (cli/cloud_team_keys.rs).
+    pub cloud_team_keys_help: &'static str,
     /// `cmux version` (cli/app/version.rs): the text report's labels.
     pub version: VersionLabels,
     /// `cmux nightly list|install` (cli/app/nightly.rs).
@@ -164,6 +166,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     cloud_machines_unlisted: "note: Cloud machines are not listed: {reason}",
     cloud_machines_malformed: "the cmux app's cloud.machines reply has no machines list",
     cloud_secret_help: "Store secrets in this Mac's Keychain. set reads a value from a hidden prompt\nor stdin, never a command argument. ls lists names and scopes, never values.\nUse --repo OWNER/NAME with set or rm for a repository-scoped secret.",
+    cloud_team_keys_help: "A team's shared key for an agent (claude or codex). Owners and admins set,\nreplace or remove it; it overrides each member's own key on the team's Cloud\nmachines. set reads the key from a hidden prompt, stdin or --secret-file, never a\ncommand argument. status shows whether a key is set, never the key.",
     version: VersionLabels {
         cli: "CLI",
         app: "App",
@@ -257,6 +260,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     cloud_machines_unlisted: "注意: Cloud マシンは一覧にありません: {reason}",
     cloud_machines_malformed: "cmux アプリの cloud.machines の応答にマシンの一覧がありません",
     cloud_secret_help: "シークレットをこの Mac のキーチェーンに保存します。set は非表示の入力プロンプト\nまたは標準入力から値を読み取ります。値をコマンドの引数には指定しません。\nls は名前とスコープを一覧表示し、値は表示しません。\nリポジトリ専用のシークレットには set または rm に --repo OWNER/NAME を指定します。",
+    cloud_team_keys_help: "エージェント（claude または codex）用のチーム共有キーです。オーナーと管理者が\n設定、置き換え、削除できます。チームの Cloud マシンでは各メンバー自身のキーより優先されます。\nset はキーを非表示の入力プロンプト、標準入力または --secret-file から読み取ります。コマンドの引数には指定しません。\nstatus はキーが設定されているかどうかを表示し、キーそのものは表示しません。",
     version: VersionLabels {
         cli: "CLI",
         app: "アプリ",

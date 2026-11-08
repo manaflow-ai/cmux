@@ -48,6 +48,7 @@
 //! is `{"ok":false,"error","error_code","install_url"?}`, exit 1; bad usage
 //! exits 64.
 
+mod fetch;
 mod pull;
 mod record;
 
@@ -68,7 +69,8 @@ const USAGE: &str = "usage: cmux link seed push --socket PATH LOCAL_FOLDER REMOT
 [--since-last]
        cmux link seed clone --socket PATH --repo OWNER/NAME [--ref REF] REMOTE_FOLDER
        cmux link seed pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER \
-[--or-copy | --base-head SHA --base-index SHA --base-work SHA]";
+[--or-copy | --base-head SHA --base-index SHA --base-work SHA]
+       cmux link seed fetch --socket PATH NEW_LOCAL_FOLDER REMOTE_FOLDER [--adopt]";
 
 /// Time between two `git.seed.status` requests.
 const STATUS_EVERY: Duration = Duration::from_millis(500);
@@ -188,6 +190,11 @@ pub(super) fn run(args: &[String]) -> i32 {
             println!("{line}");
             return code;
         }
+        Command::Fetch { socket, local, remote, adopt } => {
+            let (line, code) = fetch::run(&socket, &local, &remote, adopt);
+            println!("{line}");
+            return code;
+        }
         Command::Push { socket, local, remote, since_last } => {
             let pushed = if since_last {
                 push_since_last(&socket, &local, &remote)
@@ -216,12 +223,15 @@ enum Command {
     Pull { socket: PathBuf, local: PathBuf, remote: String, base: pull::Base },
     Push { socket: PathBuf, local: PathBuf, remote: String, since_last: bool },
     Clone { socket: PathBuf, repo: String, git_ref: Option<String>, remote: String },
+    /// Transfer to This Mac of a folder this Mac never had (`fetch.rs`).
+    Fetch { socket: PathBuf, local: PathBuf, remote: String, adopt: bool },
 }
 
 fn parse(args: &[String]) -> Option<Command> {
     let (action, rest) = args.split_first()?;
     let (mut socket, mut repo, mut git_ref, mut since_last) = (None, None, None, false);
     let mut or_copy = false;
+    let mut adopt = false;
     let (mut head, mut index, mut work) = (None, None, None);
     let mut positional = Vec::new();
     let mut rest = rest.iter();
@@ -232,6 +242,7 @@ fn parse(args: &[String]) -> Option<Command> {
             "--ref" => git_ref = Some(rest.next()?.clone()),
             "--since-last" => since_last = true,
             "--or-copy" => or_copy = true,
+            "--adopt" => adopt = true,
             "--base-head" => head = Some(rest.next()?.clone()),
             "--base-index" => index = Some(rest.next()?.clone()),
             "--base-work" => work = Some(rest.next()?.clone()),
@@ -254,7 +265,7 @@ fn parse(args: &[String]) -> Option<Command> {
     };
     let plain = repo.is_none() && git_ref.is_none();
     match (action.as_str(), positional.as_slice()) {
-        ("pull", [local, remote]) if plain && !since_last => Some(Command::Pull {
+        ("pull", [local, remote]) if plain && !since_last && !adopt => Some(Command::Pull {
             socket: socket?,
             local: PathBuf::from(local),
             remote: absolute(remote)?,
@@ -266,6 +277,13 @@ fn parse(args: &[String]) -> Option<Command> {
             },
         }),
         _ if base.is_some() || or_copy => None,
+        ("fetch", [local, remote]) if plain && !since_last => Some(Command::Fetch {
+            socket: socket?,
+            local: PathBuf::from(local),
+            remote: absolute(remote)?,
+            adopt,
+        }),
+        _ if adopt => None,
         ("push", [local, remote]) if plain => Some(Command::Push {
             socket: socket?,
             local: PathBuf::from(local),
@@ -693,6 +711,22 @@ mod tests {
     }
 
     const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    #[test]
+    fn parses_a_transfer_fetch_and_its_adopt_flag_only_there() {
+        let Some(Command::Fetch { local, remote, adopt, .. }) =
+            parse(&args(&["fetch", "--socket", "/s", "/new", "/home/w/a/", "--adopt"]))
+        else {
+            panic!("fetch");
+        };
+        assert_eq!((local.to_str(), remote.as_str(), adopt), (Some("/new"), "/home/w/a", true));
+        assert!(matches!(parse(&args(&["fetch", "--socket", "/s", "/n", "/r"])), Some(Command::Fetch { adopt: false, .. })));
+        assert!(parse(&args(&["fetch", "--socket", "/s", "/n", "relative"])).is_none());
+        assert!(parse(&args(&["fetch", "/n", "/r"])).is_none(), "no socket");
+        assert!(parse(&args(&["pull", "--socket", "/s", "/a", "/b", "--adopt"])).is_none());
+        assert!(parse(&args(&["push", "--socket", "/s", "/a", "/b", "--adopt"])).is_none());
+        assert!(parse(&args(&["fetch", "--socket", "/s", "/n", "/r", "--or-copy"])).is_none());
+    }
 
     #[test]
     fn parses_pull_with_its_base_from_the_record_or_all_three_flags() {

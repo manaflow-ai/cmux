@@ -107,7 +107,7 @@ const SECRET_FOLDERS: &[&str] =
     &[".ssh", ".aws", ".gnupg", ".kube", ".docker", ".azure", "gcloud", ".gem", ".cargo"];
 
 /// Whether the file at `relative` (in a shared folder) is a secret file.
-fn is_secret(relative: &str) -> bool {
+pub(super) fn is_secret(relative: &str) -> bool {
     let mut names = relative.split('/').peekable();
     while let Some(name) = names.next() {
         let lower = name.to_ascii_lowercase();

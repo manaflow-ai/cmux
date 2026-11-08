@@ -5,6 +5,29 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesSsoIdleTimeoutHours {
+    pub value: i64,
+    pub mode: PolicyMode,
+}
+
+wire_enum! {
+    TeamPolicyValuesAgentsAllowedClassesValueItem {
+        Mux = "mux",
+        Agent = "agent",
+        Run = "run",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesAgentsAllowedClasses {
+    pub value: Vec<TeamPolicyValuesAgentsAllowedClassesValueItem>,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesDeviceSettingsValue {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamPolicyValuesDeviceSettings {
     pub value: TeamPolicyValuesDeviceSettingsValue,
     pub mode: PolicyMode,
