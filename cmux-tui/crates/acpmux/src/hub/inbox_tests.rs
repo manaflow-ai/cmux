@@ -561,6 +561,14 @@ async fn a_waiting_fyi_strands_in_a_running_turn_unless_a_notice_comes() {
     let other = item("r1", "t", "lane-b", PromptClass::Result, now_ms(), "done");
     session.inbox.lock().unwrap().items.push(other);
     assert!(!strands(PromptClass::Fyi), "it goes with the result's notice");
+
+    // A first work's hold brings no notice sooner for FYIs alone (router review of #38603, F1).
+    let (_hub, session) = hub_with_chat("fyi-first");
+    session.inbox.lock().unwrap().first = Some("p-first".to_owned());
+    let meta = session.meta();
+    let strands = |class| would_strand(&session, &session.inbox.lock().unwrap(), &meta, class);
+    assert!(strands(PromptClass::Fyi), "an FYI waits past the first work too");
+    assert!(!strands(PromptClass::Result), "the first work's turn brings a result");
 }
 
 /// Whether a notice's reader can open a thread comes from what its agent was given and what its

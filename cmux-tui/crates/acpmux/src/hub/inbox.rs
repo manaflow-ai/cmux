@@ -881,15 +881,16 @@ fn controls(meta: &SessionMeta, from: Option<&str>) -> bool {
 /// (or runs a turn that takes no notice and is not the person's, whose end would bring it), or
 /// it is an FYI and only FYIs are new, which wait for the flush in any chat (`inbox_review`).
 fn would_strand(session: &Session, inbox: &Inbox, meta: &SessionMeta, class: PromptClass) -> bool {
-    if inbox.due_now || inbox.first.is_some() {
+    if inbox.due_now {
         return false;
     }
+    // Before the first work's hold: FYIs alone wait for the flush after its turn too.
     let new_fyis_only =
         inbox.items.iter().filter(|i| !i.noticed).all(|i| i.class == PromptClass::Fyi);
     if class == PromptClass::Fyi && new_fyis_only {
         return true;
     }
-    if inbox.held_by_person {
+    if inbox.held_by_person || inbox.first.is_some() {
         return false;
     }
     if inbox.items.iter().any(|i| !i.noticed && wakes(meta, i)) {
