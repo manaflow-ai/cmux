@@ -82,6 +82,9 @@ describe("runbook steps", () => {
       "helm --namespace web uninstall app",
       "terraform -chdir=infra destroy",
       "npm --workspace web publish",
+      "bash -c 'rm -rf /'",
+      'sh -c "sudo make install"',
+      "echo $(rm -rf build)",
     ])
       expect(runAsks(command)).toBe(true);
     for (const command of [
@@ -119,6 +122,12 @@ describe("Run all prompt", () => {
     expect(prompt).toContain('"Step N of 5: <what it does>"');
     expect(prompt).toContain("Stop and ask me with your question tool");
     expect(prompt).toContain("When a step fails, stop.");
+  });
+
+  test("a command with backtick and tilde fences in it stays inside its own fence", () => {
+    const command = "cat <<'EOF'\n```\n~~~~\nEOF";
+    const prompt = runbookPrompt("/doc.md", parseRunbook(`~~~~~bash\n${command}\n~~~~~\n`));
+    expect(prompt).toContain("````bash\n" + command + "\n````\n");
   });
 
   test("stays bounded for a long runbook, of long steps or of many short ones", () => {

@@ -97,6 +97,15 @@ describe("Run buttons", () => {
     expect(blocks[1]!.querySelector(".md-run-button")!.textContent).toBe("run");
   });
 
+  test("a pointer that left before the host answered never sees a stuck Sent", async () => {
+    const { root } = await setup();
+    const block = root.querySelector(".md-code")!;
+    click(block.querySelector(".md-run-button"));
+    block.querySelector(".md-run")!.dispatchEvent(new dom.window.Event("pointerleave"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(block.querySelector(".md-run")!.hasAttribute("data-state")).toBe(false);
+  });
+
   test("a destructive command asks first; Cancel sends nothing, Run sends it", async () => {
     const { root, sent } = await setup();
     const block = root.querySelectorAll(".md-code")[2]!;

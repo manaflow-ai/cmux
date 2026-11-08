@@ -86,12 +86,15 @@ export function runControls(host: RunButtonHost, command: () => string): HTMLEle
     return element;
   };
   // "Sent" only once the host took the command: a refused one (too long, the page closed) leaves Run.
+  // Pointer gone before the answer: nothing would clear it, so it is not shown.
+  let left = false;
   const send = () => {
     const text = command();
     if (!text) return;
+    left = false;
     host.runBlock(text).then(
       () => {
-        if (!row.isConnected || row.dataset.state === "ask") return;
+        if (left || !row.isConnected || row.dataset.state === "ask") return;
         row.dataset.state = "sent";
         run.textContent = host.label("runSent");
       },
@@ -127,6 +130,7 @@ export function runControls(host: RunButtonHost, command: () => string): HTMLEle
   });
   // "Sent" reads as the button's state until the pointer leaves it: no timer to stop.
   row.addEventListener("pointerleave", () => {
+    left = true;
     if (row.dataset.state === "sent") idle();
   });
   row.append(run);

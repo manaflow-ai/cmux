@@ -51,10 +51,11 @@ export type StepRisk = "destructive" | "credentials" | "decision";
 
 /** Commands that delete, overwrite, force, deploy or run code fetched from the network. A tool's
  * global flags may stand before its subcommand (`kubectl --context prod delete`): `[^\n;&|]*\s`
- * spans them, never past the command's end. */
+ * spans them, never past the command's end. A command may start inside quotes or a subshell, as
+ * the body of a wrapper does (`bash -c 'rm -rf build'`, `$(sudo …)`). */
 const DESTRUCTIVE: RegExp[] = [
-  /(^|[\s;&|(])rm\s+(-[a-z]*[rf][a-z]*\b|--recursive|--force)/i,
-  /(^|[\s;&|(])sudo\s/,
+  /(^|[\s;&|(){}'"`])rm\s+(-[a-z]*[rf][a-z]*\b|--recursive|--force)/i,
+  /(^|[\s;&|(){}'"`])sudo\s/,
   /\bgit\b[^\n;&|]*\s(reset\s+--hard|clean\s+-[a-z]*f|push\b[^\n;&|]*\s(--force(-with-lease)?|-f)\b|branch\s+-D\b|checkout\s+--\s+\.|restore\s+\.|stash\s+(drop|clear))/,
   /\b(drop|truncate)\s+(table|database|schema)\b/i,
   /\bdelete\s+from\b/i,
@@ -63,13 +64,13 @@ const DESTRUCTIVE: RegExp[] = [
   /\bterraform\b[^\n;&|]*\s(destroy\b|apply\b[^\n;&|]*-auto-approve)/,
   /\bdocker\b[^\n;&|]*\s(system\s+prune|volume\s+(rm|prune)|rm\s+-f|rmi\b)/,
   /\baws\b[^\n;&|]*\ss3\s+(rm|rb)\b|\bgsutil\b[^\n;&|]*\srm\b|\bgcloud\b[^\n;&|]*\sdelete\b/,
-  /(^|[\s;&|(])(dd\s+.*\bof=|mkfs(\.\w+)?\s|fdisk\s|diskutil\s+erase)/,
-  /(^|[\s;&|(])(shutdown|reboot|halt)(\s|$)/,
-  /(^|[\s;&|(])(kill\s+-9|pkill|killall)\s/,
-  /(^|[\s;&|(])chmod\s+-R\s|(^|[\s;&|(])chown\s+-R\s/,
+  /(^|[\s;&|(){}'"`])(dd\s+.*\bof=|mkfs(\.\w+)?\s|fdisk\s|diskutil\s+erase)/,
+  /(^|[\s;&|(){}'"`])(shutdown|reboot|halt)(\s|$)/,
+  /(^|[\s;&|(){}'"`])(kill\s+-9|pkill|killall)\s/,
+  /(^|[\s;&|(){}'"`])chmod\s+-R\s|(^|[\s;&|(){}'"`])chown\s+-R\s/,
   /\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba|z|fi)?sh\b/,
   /\b(npm|pnpm|yarn|cargo)\b[^\n;&|]*\spublish\b|\bgh\b[^\n;&|]*\srelease\s+create\b/,
-  /(^|[\s;&|(])deploy\b|\b(wrangler|fly|flyctl|vercel)\b[^\n;&|]*\s(deploy|destroy|--prod)\b/,
+  /(^|[\s;&|(){}'"`])deploy\b|\b(wrangler|fly|flyctl|vercel)\b[^\n;&|]*\s(deploy|destroy|--prod)\b/,
 ];
 
 /** Commands that log in, take a secret, or carry a placeholder the reader fills in. */
@@ -216,7 +217,8 @@ export function runbookPrompt(path: string, steps: readonly RunbookStep[]): stri
   for (const step of steps) {
     const where = [step.section, `line ${step.line}`].filter(Boolean).join(", ");
     const asks = step.risks.length ? ` ASK FIRST (${step.risks.map((risk) => RISK_NOTE[risk]).join(", ")})` : "";
-    const fence = step.command.includes("```") ? "~~~~" : "```";
+    // A backtick fence longer than any backtick run in the command, so no line of it closes the fence.
+    const fence = "`".repeat(Math.max(3, ...[...step.command.matchAll(/`+/g)].map((run) => run[0].length + 1)));
     const entry = [
       `${step.index}. Step ${step.index} of ${total} (${where})${asks}`,
       step.lead ? `   The doc says: ${step.lead}` : "",
