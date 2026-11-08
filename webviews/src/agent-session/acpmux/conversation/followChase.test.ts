@@ -206,11 +206,42 @@ test("the turn ending lands the chase within BURST_S, no frame more than a line"
   }
   expect(drawn()).toBe(0);
   expect(frames).toBeLessThanOrEqual(Math.ceil(BURST_S * 120) + 1);
-  // Within a line of home it lands at once.
+  // Within a line of home it lands within BURST_S too, never at once.
   chase.shift(node, -0.5 * line);
   chase.land();
+  expect(drawn()).toBeCloseTo(0.5 * line);
+  frames = 0;
+  while (pending() > 0 && frames < 240) {
+    frame();
+    frames += 1;
+  }
   expect(drawn()).toBe(0);
-  expect(pending()).toBe(0);
+  expect(frames).toBeLessThanOrEqual(Math.ceil(BURST_S * 120) + 1);
+});
+
+test("a turn that ends in a frame that already moved adds no snap: that frame moves at most a line", () => {
+  // send-stream-motion: the reply's last line lands (part of it at once, as a landing frame does),
+  // the turn ends in the same frame, and a snap of what was left moved the rows 26-40 px in it.
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn, pending } = fixture();
+  const line = currentChatMetrics().lineHeight;
+  chase.shift(node, -0.5 * line, 2 * line);
+  frame();
+  const before = drawn();
+  // The rows' layout rises a line; the thread is drawn `drawn()` from it.
+  chase.shift(node, -line, 2 * line);
+  chase.land();
+  expect(Math.abs(-line + drawn() - before)).toBeLessThanOrEqual(line + 1e-6);
+  let previous = drawn();
+  let frames = 0;
+  while (pending() > 0 && frames < 240) {
+    const at = frame();
+    frames += 1;
+    expect(previous - at).toBeLessThanOrEqual(line + 1e-6);
+    previous = at;
+  }
+  expect(drawn()).toBe(0);
+  expect(frames).toBeLessThanOrEqual(Math.ceil(BURST_S * 120) + 1);
 });
 
 test("blocks: a reply's growth holds back a line; its landing frame moves the rest, up to CHASE_LAND_LINES", () => {
