@@ -20,6 +20,7 @@
 // its transform) measures once on the next frame, not the loop: the new place is final when written.
 // Closing the surface removes all of it. A window without those observers (a test DOM) gets nothing.
 import { type RefObject, useLayoutEffect } from "react";
+import { REFRACTIONS, type Refraction, refractionNamed, rimMap } from "./rimRefraction";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 /** Unchanged frames before the follow loop stops. */
@@ -28,8 +29,14 @@ const STABLE_FRAMES = 3;
 export const UNDER_ATTRIBUTE = "data-glass-under";
 /** The custom property holding the element's own filter, `url(#…)`. */
 export const UNDER_FILTER_PROPERTY = "--glass-under-filter";
+/** One owner's filters alone on a covered element (`--glass-under-filter-hover-card`), for a rule
+ * that blurs under one surface while another's holes stay kept (glass.css's hover card rule). */
+export const ownerFilterProperty = (owner: string) => `${UNDER_FILTER_PROPERTY}-${owner}`;
 /** On the surface while it blurs what is under it: glass.css drops its underlay. */
 export const OVER_ATTRIBUTE = "data-glass-over";
+/** On the surface while it lies over an element it may not blur (keepUnderlayOver: the composer):
+ * its underlay hides what is under it there, so the App's glass under the page must not clear it. */
+export const KEEPS_UNDERLAY_ATTRIBUTE = "data-glass-keeps-underlay";
 /** The blur when the surface's own backdrop names none, CSS px (the plain glass blur). */
 const FALLBACK_BLUR = 24;
 
@@ -42,6 +49,8 @@ export type BlurHole = {
   radius: number;
   /** The Gaussian's standard deviation, CSS px: CSS `blur(r)` is a deviation of r. */
   blur: number;
+  /** How the surface's rim bends what is under it (rimRefraction.ts, `--glass-refract`). */
+  refraction: Refraction;
 };
 
 /** The blur radius in a `backdrop-filter` value ("blur(24px) saturate(1.8)" is 24), else `fallback`. */
@@ -60,7 +69,7 @@ export function overlaps(a: DOMRectReadOnly, b: DOMRectReadOnly): boolean {
 export function holeIn(
   surface: DOMRectReadOnly,
   target: DOMRectReadOnly,
-  style: { radius: number; blur: number },
+  style: { radius: number; blur: number; refraction?: Refraction },
 ): BlurHole {
   return {
     x: surface.left - target.left,
@@ -69,6 +78,7 @@ export function holeIn(
     height: surface.height,
     radius: Math.min(style.radius, surface.width / 2, surface.height / 2),
     blur: style.blur,
+    refraction: style.refraction ?? REFRACTIONS.none,
   };
 }
 
@@ -89,7 +99,10 @@ function primitive(doc: Document, name: string, attributes: Record<string, strin
 }
 
 /** Builds a covered element's filter: the element as it is outside the hole, and inside it its own
- * pixels blurred, cut to the rounded hole. The blur is all or nothing: a surface fading in or out
+ * pixels blurred, cut to the rounded hole. Across the rim's band (rimRefraction.ts) the blur
+ * cross-fades into a copy pulled in from further inside and only lightly blurred: the map's blue is
+ * the rim's weight, so the band is `rim * w + blurred * (1 - w)`; with no rim the map is empty, its
+ * weight 0, and the hole is the plain blur. The blur is all or nothing: a surface fading in or out
  * never draws its pixels part sharp, part blurred (Leo, 2026-10-26: "If we're doing blur, we're
  * doing blur. If we're not doing blur, we're not doing blur. We shouldn't have in-between states
  * ever. That cause flicker"). */
@@ -103,7 +116,34 @@ export function createHoleFilter(doc: Document, id: string): SVGFilterElement {
   filter.append(
     primitive(doc, "feGaussianBlur", { in: "SourceGraphic", result: "blurred" }),
     primitive(doc, "feImage", { preserveAspectRatio: "none", result: "hole" }),
-    primitive(doc, "feComposite", { in: "blurred", in2: "hole", operator: "in", result: "inside" }),
+    primitive(doc, "feImage", { preserveAspectRatio: "none", result: "map" }),
+    primitive(doc, "feDisplacementMap", {
+      in: "SourceGraphic",
+      in2: "map",
+      scale: "0",
+      xChannelSelector: "R",
+      yChannelSelector: "G",
+      result: "bent",
+    }),
+    primitive(doc, "feGaussianBlur", { in: "bent", stdDeviation: "0", result: "bentSoft" }),
+    // The rim's weight as alpha: the map's blue.
+    primitive(doc, "feColorMatrix", {
+      in: "map",
+      type: "matrix",
+      values: "0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 1 0 0",
+      result: "weight",
+    }),
+    primitive(doc, "feComposite", { in: "bentSoft", in2: "weight", operator: "in", result: "rim" }),
+    primitive(doc, "feComposite", { in: "blurred", in2: "weight", operator: "out", result: "middle" }),
+    primitive(doc, "feComposite", {
+      in: "rim",
+      in2: "middle",
+      operator: "arithmetic",
+      k2: "1",
+      k3: "1",
+      result: "glass",
+    }),
+    primitive(doc, "feComposite", { in: "glass", in2: "hole", operator: "in", result: "inside" }),
     primitive(doc, "feComposite", { in: "SourceGraphic", in2: "hole", operator: "out", result: "outside" }),
   );
   const merge = primitive(doc, "feMerge", {});
@@ -123,10 +163,19 @@ export function writeHoleFilter(
     for (const [key, value] of Object.entries(attributes)) element?.setAttribute(key, String(value));
   };
   const region = { x: hole.x, y: hole.y, width: hole.width, height: hole.height };
-  const [blur, image] = [...filter.children];
+  const [blur, image, map, bend, bentBlur] = [...filter.children];
+  const { refraction } = hole;
+  const href = rimMap(filter.ownerDocument, hole.width, hole.height, hole.radius, refraction);
   set(filter, { x: 0, y: 0, width: Math.max(1, box.width), height: Math.max(1, box.height) });
   set(blur, { ...region, stdDeviation: hole.blur });
   set(image, { ...region, href: holeMask(hole.width, hole.height, hole.radius) });
+  // feDisplacementMap moves a pixel by scale (C - 0.5): the most, at the edge, is scale / 2.
+  // An empty href would load the page itself as the map: no map is no href (an empty image).
+  set(map, region);
+  if (href) map?.setAttribute("href", href);
+  else map?.removeAttribute("href");
+  set(bend, { ...region, scale: href ? refraction.shift * 2 : 0 });
+  set(bentBlur, { ...region, stdDeviation: href ? refraction.blur : 0 });
 }
 
 /** Whether this engine draws a backdrop over the page's pixels (Chromium) rather than in their
@@ -157,6 +206,8 @@ const holesOn = new WeakMap<HTMLElement, Map<number, { owner: string; filter: st
 /** Writes `target`'s filter list and owners from its holes, or clears both when it has none. */
 function writeHoles(target: HTMLElement): void {
   const holes = [...(holesOn.get(target)?.values() ?? [])];
+  for (const owner of target.getAttribute(UNDER_ATTRIBUTE)?.split(" ") ?? [])
+    if (owner) target.style.removeProperty(ownerFilterProperty(owner));
   if (holes.length === 0) {
     holesOn.delete(target);
     target.removeAttribute(UNDER_ATTRIBUTE);
@@ -165,6 +216,9 @@ function writeHoles(target: HTMLElement): void {
   }
   target.setAttribute(UNDER_ATTRIBUTE, [...new Set(holes.map((hole) => hole.owner))].join(" ").trim());
   target.style.setProperty(UNDER_FILTER_PROPERTY, holes.map((hole) => `url(#${hole.filter})`).join(" "));
+  const owned = new Map<string, string[]>();
+  for (const { owner, filter } of holes) if (owner) owned.set(owner, [...(owned.get(owner) ?? []), `url(#${filter})`]);
+  for (const [owner, filters] of owned) target.style.setProperty(ownerFilterProperty(owner), filters.join(" "));
 }
 
 /** The elements a surface may cover: by default its siblings. */
@@ -239,6 +293,7 @@ export function attachSeeThroughBlur(
     const look = {
       radius: Number.parseFloat(style.borderTopLeftRadius) || 0,
       blur: backdropBlurRadius(style.backdropFilter),
+      refraction: refractionNamed(style.getPropertyValue("--glass-refract")),
       opacity: Number.parseFloat(style.opacity),
     };
     if (!Number.isFinite(look.opacity)) look.opacity = 1;
@@ -247,8 +302,11 @@ export function attachSeeThroughBlur(
     // it; the same CSS switches its blocks' filters off meanwhile (owner, summary.css).
     const shown = look.opacity > 0 && rect.width > 0 && rect.height > 0;
     const under: { target: HTMLElement; box: DOMRect; hole: BlurHole; key: string }[] = [];
+    // A page with nothing this surface can blur (a hover card outside the chat) keeps its underlay.
+    let blurrable = false;
     for (const child of candidates(surface)) {
       if (child === surface || child.contains(surface) || !(child instanceof view.HTMLElement)) continue;
+      blurrable = true;
       watch(child, false);
       if (child.parentElement) watch(child.parentElement, true);
       if (!shown) continue;
@@ -263,7 +321,8 @@ export function attachSeeThroughBlur(
         watch(element, false);
         if (overlaps(rect, element.getBoundingClientRect())) unblurrable = true;
       }
-    surface.toggleAttribute(OVER_ATTRIBUTE, !unblurrable);
+    surface.toggleAttribute(OVER_ATTRIBUTE, blurrable && !unblurrable);
+    surface.toggleAttribute(KEEPS_UNDERLAY_ATTRIBUTE, unblurrable);
     const keep = new Set(under.map((entry) => entry.target));
     for (const target of covered.keys()) if (!keep.has(target)) release(target);
     for (const { target, box, hole, key } of under) {
@@ -283,7 +342,7 @@ export function attachSeeThroughBlur(
         entry.key = key;
       }
     }
-    return `${shown}|${unblurrable}|${under.map((entry) => entry.key).join("|")}`;
+    return `${shown}|${blurrable}|${unblurrable}|${under.map((entry) => entry.key).join("|")}`;
   };
 
   const tick = () => {
@@ -315,6 +374,8 @@ export function attachSeeThroughBlur(
   // A surface placed by its own inline style (the rail's preview card follows the pointer from row
   // to row by its transform) moves with no resize or child change: its style measures again.
   restyled.observe(surface, { attributes: true, attributeFilter: ["style"] });
+  // A popup is placed by its parent's inline style instead (Base UI's positioner, rewritten on scroll).
+  restyled.observe(parent, { attributes: true, attributeFilter: ["style"] });
   measure();
   kick();
   surface.addEventListener("transitionrun", kick);
@@ -334,6 +395,7 @@ export function attachSeeThroughBlur(
     view.removeEventListener("resize", kick);
     for (const target of covered.keys()) release(target);
     surface.removeAttribute(OVER_ATTRIBUTE);
+    surface.removeAttribute(KEEPS_UNDERLAY_ATTRIBUTE);
     svg.remove();
   };
 }

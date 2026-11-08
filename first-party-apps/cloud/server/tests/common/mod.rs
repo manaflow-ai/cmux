@@ -44,6 +44,8 @@ pub struct FakeControlPlane {
     vm_kind: Option<&'static str>,
     /// `connect_info` answers this error code instead (access ended).
     connect_info_error: Option<&'static str>,
+    /// `connect_info` never gets an answer: the host's relay to Cloud failed.
+    connect_info_unreachable: bool,
     connect_info_action: Option<Box<dyn FnOnce() + Send>>,
     /// The current host-reported team identity for auth status tests.
     session_team: Option<String>,
@@ -51,6 +53,17 @@ pub struct FakeControlPlane {
     session_action: Option<Box<dyn FnOnce() + Send>>,
     /// Machines `vm-resume` started.
     started: Vec<String>,
+    /// The machines whose carrier socket was asked for, in order.
+    pub carrier_asks: Vec<String>,
+    /// The app refuses the carrier ask with this `(code, message)`.
+    carrier_refusal: Option<(&'static str, &'static str)>,
+    /// The app's answer has this socket instead of [`carrier_socket_of`].
+    carrier_socket: Option<std::path::PathBuf>,
+}
+
+/// The Mac app's carrier socket of `machine` as the fake answers it.
+pub fn carrier_socket_of(machine: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(format!("/tmp/cmux-test/carrier-{machine}.sock"))
 }
 
 /// A link-test machine record (contract 1.2 shape).
@@ -86,11 +99,15 @@ impl FakeControlPlane {
             connect_info: None,
             vm_kind: None,
             connect_info_error: None,
+            connect_info_unreachable: false,
             connect_info_action: None,
             session_team: None,
             session_unavailable: false,
             session_action: None,
             started: Vec::new(),
+            carrier_asks: Vec::new(),
+            carrier_refusal: None,
+            carrier_socket: None,
         };
         for name in names {
             match *name {
@@ -139,11 +156,29 @@ impl FakeControlPlane {
         self.connect_info_error = Some(code);
     }
 
+    /// While `down`, `connect_info` calls get no answer: the host's relay to
+    /// Cloud is down (`RelayError::Unavailable`, `cmux.cloud.relay_unavailable`),
+    /// the way a transient owner read fails.
+    pub fn set_connect_info_relay_down(&mut self, down: bool) {
+        self.connect_info_unreachable = down;
+    }
+
     /// `vm-get-unbound` ends: the machine is bound and runs from now on
     /// (every get and `connect_info` answers it running).
     pub fn bind_now(&mut self) {
         self.get_unbound = false;
         self.get_any = true;
+    }
+
+    /// Later carrier asks are refused by the app with `code` (a `cmux
+    /// carrier` step, `cloud.machine.not_found` or `unavailable`).
+    pub fn refuse_carrier(&mut self, code: &'static str, message: &'static str) {
+        self.carrier_refusal = Some((code, message));
+    }
+
+    /// Later carrier asks answer `socket` (a real listener in a test).
+    pub fn set_carrier_socket(&mut self, socket: std::path::PathBuf) {
+        self.carrier_socket = Some(socket);
     }
 
     /// True when nothing reached the backend.
@@ -229,6 +264,10 @@ impl ControlPlane for FakeControlPlane {
         {
             action();
         }
+        if call.op == "cloud.machine.connect_info" && self.connect_info_unreachable {
+            self.wire.calls.push(call.clone());
+            return Err(RelayError::Unavailable("the relay to cmux Cloud did not answer".into()));
+        }
         // The link-test names answer first: `vm-list` replaces the vectors'
         // `list {}` for the tests that name it.
         if self.wire.signed_in
@@ -252,5 +291,28 @@ impl ControlPlane for FakeControlPlane {
             status.team = self.session_team.clone();
         }
         Ok(status)
+    }
+
+    /// The Mac app's `credential.carrier_socket`: `{"socket"}` for a
+    /// signed-in host, never a credential.
+    fn carrier_socket(&mut self, machine: &str) -> Result<WireReply, RelayError> {
+        self.carrier_asks.push(machine.to_owned());
+        if !self.wire.signed_in {
+            return Err(RelayError::NotSignedIn);
+        }
+        if let Some((code, message)) = self.carrier_refusal {
+            return Ok(WireReply::Error(WireError {
+                code: code.into(),
+                message: message.into(),
+                details: None,
+                retryable: false,
+            }));
+        }
+        let socket = self.carrier_socket.clone().unwrap_or_else(|| carrier_socket_of(machine));
+        Ok(WireReply::Result(WireResult {
+            value: json!({ "socket": socket }),
+            revision: None,
+            replayed: false,
+        }))
     }
 }

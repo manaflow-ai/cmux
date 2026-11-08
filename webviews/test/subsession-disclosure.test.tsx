@@ -15,10 +15,8 @@ import { SubsessionCallCard } from "../src/agent-session/acpmux/conversation/Sub
 import { AgentRunTranscriptCard } from "../src/agent-session/acpmux/subagents/AgentRunCard";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { SubsessionContext, SubsessionStore } from "../src/agent-session/acpmux/subagents/subsessions";
-import {
-  resetTranscriptDisclosure,
-  TranscriptDisclosureProvider,
-} from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
+import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { SubsessionCall } from "../src/agent-session/acpmux/conversation/subsessionCalls";
@@ -439,7 +437,8 @@ test("Find highlights a prompt's link URL in Raw, including a query shared with 
     title: "mcp__cmux-subsessions__start_session",
     status: "completed",
     inputSummary: JSON.stringify({ name: "first", prompt }),
-    output: "Started",
+    // The output a started sub-session has, so the transcript draws this call as its card.
+    output: "Started sub-session first (sessionId first-id, depth 1).",
   };
   const row: AcpmuxRow = {
     id: "row",
@@ -478,7 +477,7 @@ test("Find uses Raw for fenced code in a shadow root and Markdown while plain co
     title: "mcp__cmux-subsessions__start_session",
     status: "completed",
     inputSummary: JSON.stringify({ prompt }),
-    output: "Started",
+    output: "Started sub-session first (sessionId first-id, depth 1).",
   };
   const row: AcpmuxRow = {
     id: "row",

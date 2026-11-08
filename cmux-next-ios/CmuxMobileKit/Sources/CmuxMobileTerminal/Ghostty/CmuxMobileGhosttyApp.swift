@@ -28,27 +28,21 @@ final class CmuxMobileGhosttyApp {
         return made
     }
 
-    private init() throws {
-        let status = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
-        guard status == GHOSTTY_SUCCESS else { throw Failure.initFailed(status) }
-        guard let config = ghostty_config_new() else { throw Failure.appCreationFailed }
-        Self.loadProductConfig(config)
-        ghostty_config_finalize(config)
-        var runtime = ghostty_runtime_config_s()
-        runtime.userdata = nil
-        runtime.supports_selection_clipboard = false
+    /// Ghostty's runtime callbacks, nonisolated: Ghostty calls them from its
+    /// renderer and IO threads.
+    nonisolated private static func runtimeConfig() -> ghostty_runtime_config_s {
         // One hop to the main queue: actions (the scrollbar) must reach the
         // screen before the frames that follow them (see TerminalViewController).
         // Wakeups arrive from Ghostty's threads, as often as output is
         // parsed; one tick is queued at a time.
-        runtime.wakeup_cb = { _ in
+        let wakeup: ghostty_runtime_wakeup_cb = { _ in
             guard CmuxMobileGhosttyApp.wakeupGate.claim() else { return }
             DispatchQueue.main.async {
                 CmuxMobileGhosttyApp.wakeupGate.release()
                 MainActor.assumeIsolated { CmuxMobileGhosttyApp.current?.tick() }
             }
         }
-        runtime.action_cb = { _, target, action in
+        let actionCallback: ghostty_runtime_action_cb = { _, target, action in
             guard target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface else { return false }
             let event: TerminalSurfaceEvent?
             switch action.tag {
@@ -75,14 +69,34 @@ final class CmuxMobileGhosttyApp {
             }
             return true
         }
-        runtime.read_clipboard_cb = { _, _, _, _, _, _ in GHOSTTY_CLIPBOARD_READ_UNAVAILABLE }
-        runtime.confirm_read_clipboard_cb = { _, _, _, _ in }
-        runtime.write_clipboard_cb = { _, _, content, count, _ in
-            guard let content, count > 0, let data = content.pointee.data else { return }
-            let text = String(decoding: UnsafeRawBufferPointer(start: data, count: content.pointee.len), as: UTF8.self)
+        let writeClipboard: ghostty_runtime_write_clipboard_cb = { _, _, content, count, _ in
+            guard count > 0 else { return }
+            let item = content.pointee
+            let text = String(decoding: UnsafeRawBufferPointer(start: item.data, count: item.len), as: UTF8.self)
             DispatchQueue.main.async { UIPasteboard.general.string = text }
         }
-        runtime.close_surface_cb = { _, _ in }
+        return ghostty_runtime_config_s(
+            userdata: nil,
+            supports_selection_clipboard: false,
+            wakeup_cb: wakeup,
+            action_cb: actionCallback,
+            read_clipboard_cb: { _, _, _, _, _, _ in GHOSTTY_CLIPBOARD_READ_UNAVAILABLE },
+            confirm_read_clipboard_cb: { _, _, _, _ in },
+            write_clipboard_cb: writeClipboard,
+            close_surface_cb: { _, _ in }
+        )
+    }
+
+    private init() throws {
+        let status = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
+        guard status == GHOSTTY_SUCCESS else { throw Failure.initFailed(status) }
+        guard let config = ghostty_config_new() else { throw Failure.appCreationFailed }
+        Self.loadProductConfig(config)
+        ghostty_config_finalize(config)
+        // Built outside the main actor: Ghostty calls these from its own
+        // threads, and a closure formed in this @MainActor init would carry
+        // main-actor isolation (Swift traps when the renderer thread calls it).
+        var runtime = Self.runtimeConfig()
         guard let app = ghostty_app_new(&runtime, config) else {
             ghostty_config_free(config)
             throw Failure.appCreationFailed

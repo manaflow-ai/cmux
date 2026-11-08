@@ -5,7 +5,7 @@ import React, { act, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { ChatAccounts, NewChatAccount } from "./chatAccounts";
-import type { QuickFamily, QuickModel } from "./QuickModelMenu";
+import type { QuickFamily, QuickModel } from "./quickModelMenuModel";
 import { authText, type SessionAuth } from "./sessionAuth";
 import { translate } from "./i18n";
 

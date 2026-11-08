@@ -8,6 +8,9 @@ const DIFF_COMMENT_LABEL_FALLBACKS = {
   editComment: "Edit",
   outdatedComment: "Outdated",
   noComments: "No comments yet",
+  sendComments: "Send to agent",
+  sendingComments: "Sending…",
+  sendCommentsFailed: "Not sent. Your comments are kept.",
 } as const;
 
 export type DiffCommentLabelKey = keyof typeof DIFF_COMMENT_LABEL_FALLBACKS;

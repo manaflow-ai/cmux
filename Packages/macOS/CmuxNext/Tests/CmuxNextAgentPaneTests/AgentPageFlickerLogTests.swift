@@ -1,4 +1,6 @@
 #if DEBUG
+import AppKit
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -6,7 +8,7 @@ import Testing
 /// The always-on flicker detector's ring file (Leo, 2026-11-04: "a flicker across nearly the full
 /// screen"): each line carries its time in UTC, a page's events keep only known kinds and short
 /// scalar fields, and the file rolls over to `.1` past its size, so it never grows without bound.
-@Suite
+@Suite(.closesItsWindows)
 struct AgentPageFlickerLogTests {
     private func directory() -> URL {
         FileManager.default.temporaryDirectory.appending(path: "flicker-log-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -35,16 +37,18 @@ struct AgentPageFlickerLogTests {
             ["kind": "visibility", "at": 1_793_836_521_000.0, "state": "hidden", "text": String(repeating: "x", count: 200)],
             ["kind": "anything-else", "at": 0],
             ["kind": "transcript-mount", "n": 2, "nested": ["a": 1]],
+            ["kind": "frames", "at": 1_793_836_522_000.0, "n": 120, "p50": 8.33, "p95": 16.7, "miss120": 4, "miss60": 0],
         ]]
         let decoded = try AgentPageFlickerLog.pageLines(params, page: "chat:s1", pid: 42).map {
             try #require(JSONSerialization.jsonObject(with: $0) as? [String: Any])
         }
-        #expect(decoded.map { $0["kind"] as? String } == ["long-frame", "visibility", "transcript-mount"])
+        #expect(decoded.map { $0["kind"] as? String } == ["long-frame", "visibility", "transcript-mount", "frames"])
         #expect(decoded[0]["ms"] as? Double == 167)
         #expect(decoded[0]["at"] as? String == "2026-11-04T23:55:20.250Z")
         #expect(decoded[0]["pid"] as? Int == 42 && decoded[0]["page"] as? String == "chat:s1")
         #expect(decoded[1]["state"] as? String == "hidden" && decoded[1]["text"] == nil)
         #expect(decoded[2]["n"] as? Double == 2 && decoded[2]["nested"] == nil)
+        #expect(decoded[3]["p50"] as? Double == 8.3 && decoded[3]["miss120"] as? Double == 4)
     }
 
     @Test func theFileRollsOverPastItsSize() throws {
@@ -62,6 +66,26 @@ struct AgentPageFlickerLogTests {
         #expect(size < AgentPageFlickerLog.maximumBytes)
         let olderSize = try #require(try FileManager.default.attributesOfItem(atPath: older.path)[.size] as? Int)
         #expect(olderSize <= AgentPageFlickerLog.maximumBytes)
+    }
+
+    /// The log observes no notification itself (the app's one window occlusion observer hands it each
+    /// flip): nothing is written before a pane asks for window lines, and a flip is one line however
+    /// many panes asked.
+    @MainActor @Test func aFlipIsOneLineOnceAPaneAsks() throws {
+        let log = AgentPageFlickerLog(directory: directory())
+        defer { try? FileManager.default.removeItem(at: log.directory) }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10), styleMask: [.borderless], backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
+        log.recordOcclusion(of: window)
+        log.flush()
+        #expect(!FileManager.default.fileExists(atPath: log.url.path))
+        log.watchWindows()
+        log.watchWindows()
+        log.recordOcclusion(of: window)
+        log.flush()
+        let flips = try lines(log.url)
+        #expect(flips.map { $0["kind"] as? String } == ["window-occlusion"])
+        #expect(flips.first?["window"] as? Int == window.windowNumber)
     }
 }
 #endif

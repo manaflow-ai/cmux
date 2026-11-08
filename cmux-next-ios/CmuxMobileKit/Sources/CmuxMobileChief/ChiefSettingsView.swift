@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxConversationCore
 import CmuxMobileDesign
+import CmuxSpinner
 import OSLog
 import SwiftUI
 import UIKit
@@ -190,7 +191,8 @@ public struct ChiefSettingsView: View {
                     .accessibilityIdentifier("chief.settings.message")
             }
             ChiefQuickAction(symbol: "phone.fill", title: String(localized: "Call"), enabled: true) {
-                ChiefCallLauncher.shared.call()
+                // This Chief's page: the call is to this Chief only.
+                ChiefCallLauncher.shared.call(session)
             }
             .accessibilityIdentifier("chief.settings.call")
             if !session.runsInCloud {
@@ -258,7 +260,7 @@ public struct ChiefSettingsView: View {
                 }
             } else if session.engineProblem == nil {
                 // The spinner trails, as on Try Again: the text keeps the rows' x (no icons here).
-                HStack { Text("Asking Chief on the Mac…").foregroundStyle(.secondary); Spacer(); ProgressView() }
+                HStack { Text("Asking Chief on the Mac…").foregroundStyle(.secondary); Spacer(); CmuxSpinner() }
             }
             // A failed read never replaces the model: it is said under it,
             // with Try Again (the page also retries on its own).
@@ -272,7 +274,7 @@ public struct ChiefSettingsView: View {
                 } label: {
                     HStack {
                         Text("Try Again")
-                        if retrying { Spacer(); ProgressView() }
+                        if retrying { Spacer(); CmuxSpinner() }
                     }
                 }
                 .disabled(retrying)
@@ -579,7 +581,7 @@ struct ChiefQuickAction: View {
             ZStack {
                 Circle().fill(Color(uiColor: .tertiarySystemFill))
                 if busy {
-                    ProgressView()
+                    CmuxSpinner()
                 } else {
                     Image(systemName: symbol)
                         .font(.body)
@@ -762,7 +764,7 @@ struct ChiefFieldEditor: View {
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 if saving {
-                    ProgressView()
+                    CmuxSpinner()
                 } else {
                     Button("Save") { Task { await commit() } }
                         .disabled(!canSave)

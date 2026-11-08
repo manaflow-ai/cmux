@@ -165,9 +165,14 @@ class SectionTests(unittest.TestCase):
         self.assertEqual(self.check("", paths=["scripts/bench.py", "docs/bench.md"])[0], 1)
 
     def test_workflow_lists_both_sides_of_a_rename(self):
-        workflow = (ROOT / ".github/workflows/pr-perf-section-check.yml").read_text()
-        self.assertIn("--no-renames", workflow)
-        self.assertIn("previous_filename", workflow)
+        import yaml
+
+        steps = yaml.safe_load((ROOT / ".github/workflows/pr-body-checks.yml").read_text())["jobs"]["body"]["steps"]
+        listing = next(s for s in steps if s.get("id") == "paths")["run"]
+        paths_line = next(line for line in listing.splitlines() if '"$RUNNER_TEMP/paths.txt"' in line)
+        self.assertIn("--no-renames", paths_line)
+        perf = next(s for s in steps if s.get("name") == "Check the description for a Performance table")["run"]
+        self.assertIn("previous_filename", perf)
 
 
 class LightPathTests(unittest.TestCase):

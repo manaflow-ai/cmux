@@ -110,6 +110,7 @@ public nonisolated enum ActionCatalog {
         ProfileActionCatalog.self,
         ThemeActionCatalog.self,
         PaneActionCatalog.self,
+        NewPlacementActionCatalog.self,
         TabActionCatalog.self,
         VerticalTabsActionCatalog.self,
         AgentChatRailActionCatalog.self,
@@ -160,6 +161,7 @@ public nonisolated enum ActionCatalog {
         PaneBackgroundActionCatalog.self,
         HibernationActionCatalog.self,
         AutoArchiveActionCatalog.self,
+        WorkspaceBulkArchiveActionCatalog.self,
         LayoutActionCatalog.self,
         HistoryActionCatalog.self,
         StashActionCatalog.self,
@@ -184,6 +186,7 @@ public nonisolated enum ActionCatalog {
         PaletteKeyActionCatalog.self,
         ImportActionCatalog.self,
         HangReportsActionCatalog.self,
+        PaletteHistoryActionCatalog.self,
     ]
 
     private static func makeAll() -> [ActionDescriptor] {

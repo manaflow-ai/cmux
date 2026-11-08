@@ -9,7 +9,8 @@ import { PAIRING_TTL_MS } from "./domains/pairing.ts"
  *   `arrived` (bound to the box's key thumbprint and its 8-symbol pairing code), then `paired`
  *   or `voided`. One-shot alarm at the end of its life; the inviter's watcher socket hears every
  *   change pushed, never polled.
- * - `invite-user:<user>`: the user's one live invite, so minting a new one voids the old one.
+ * - `invite-user:<user>`: the person's invites: idempotency keys and the one live invite
+ *   (pair-invite-owner.ts).
  *
  * The functions take the object's storage and sockets; PairingDO's methods call them.
  */
@@ -69,7 +70,6 @@ export const inviteSchema = (sql: SqlStorage): void => {
     `CREATE TABLE IF NOT EXISTS pair_invite (id INTEGER PRIMARY KEY CHECK (id = 1), invite TEXT NOT NULL, approver TEXT NOT NULL, team TEXT NOT NULL, inviter TEXT,
       watch_hash TEXT NOT NULL, expires_at INTEGER NOT NULL, live_until INTEGER NOT NULL, state TEXT NOT NULL, code TEXT, thumbprint TEXT, arrival TEXT, host TEXT, void_reason TEXT)`
   )
-  sql.exec(`CREATE TABLE IF NOT EXISTS pair_invite_owner (id INTEGER PRIMARY KEY CHECK (id = 1), invite TEXT NOT NULL, live_until INTEGER NOT NULL)`)
 }
 
 export class InviteStore {
@@ -100,9 +100,13 @@ export class InviteStore {
     return r.arrival ? { t: "arrived", ...(JSON.parse(r.arrival) as Record<string, unknown>) } : null
   }
 
-  /** A fresh invite. Refuses a code that is in use (the Worker picks another). */
+  /**
+   * A fresh invite. A repeat by the same person with the same watch secret (a replayed request
+   * key) answers the minted one; any other use of a live code is refused (the Worker picks another).
+   */
   async mint(input: { invite: string; approver: string; team: string; inviter: string | null; watch_hash: string; now: number }): Promise<{ ok: true; expires_at: number } | { ok: false; reason: "in_use" }> {
-    if (this.row(input.now)) return { ok: false, reason: "in_use" }
+    const live = this.row(input.now)
+    if (live) return live.invite === input.invite && live.approver === input.approver && equal(live.watch_hash, input.watch_hash) ? { ok: true, expires_at: live.expires_at } : { ok: false, reason: "in_use" }
     const expires = input.now + PAIRING_TTL_MS
     this.sql.exec(`DELETE FROM pair_invite`)
     this.sql.exec(
@@ -119,13 +123,10 @@ export class InviteStore {
     return { ok: true, expires_at: expires }
   }
 
-  /** On `invite-user:<user>`: record the user's live invite and return the one it replaces. */
-  async replaceOwned(invite: string, liveUntil: number, now: number): Promise<{ previous: string | null }> {
-    const r = this.sql.exec<{ invite: string; live_until: number }>(`SELECT invite, live_until FROM pair_invite_owner WHERE id = 1`).toArray()[0]
-    const previous = r && r.live_until > now && r.invite !== invite ? r.invite : null
-    this.sql.exec(`INSERT OR REPLACE INTO pair_invite_owner (id, invite, live_until) VALUES (1, ?, ?)`, invite, liveUntil)
-    await this.ctx.storage.setAlarm(Math.max(liveUntil, r?.live_until ?? 0))
-    return { previous }
+  /** Whether this invite was minted (in any state, until its object forgets it), for the owner's alarm. */
+  async minted(invite: string, now: number): Promise<{ expires_at: number } | null> {
+    const r = this.row(now)
+    return r && r.invite === invite ? { expires_at: r.expires_at } : null
   }
 
   /** Read only: what a begin with this invite would meet. An open invite past its expiry is unknown. */
@@ -166,10 +167,15 @@ export class InviteStore {
     return r.code
   }
 
-  /** Void a live invite that is not paired yet (a newer invite replaced it). Returns the bound pairing code, if any. */
+  /**
+   * Void a live invite that is not paired yet (a newer invite replaced it). Returns the bound pairing
+   * code, if any; for an invite already voided it returns that code again (without a second push), so
+   * a caller whose abort of that code failed can retry it.
+   */
   async void(invite: string, reason: InviteVoidReason, now: number): Promise<{ ok: boolean; code: string | null }> {
     const r = this.row(now)
-    if (!r || r.invite !== invite || r.state === "paired" || r.state === "voided") return { ok: false, code: null }
+    if (!r || r.invite !== invite || r.state === "paired") return { ok: false, code: null }
+    if (r.state === "voided") return { ok: true, code: r.code }
     return { ok: true, code: this.voidRow(r, reason) }
   }
 
@@ -207,9 +213,8 @@ export class InviteStore {
     return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": "cmux.pair-invite.v1" } })
   }
 
-  /** The object's one-shot alarm: forget the invite and the owner index. */
+  /** The object's one-shot alarm: forget the invite. */
   expire(): void {
     this.sql.exec(`DELETE FROM pair_invite`)
-    this.sql.exec(`DELETE FROM pair_invite_owner`)
   }
 }

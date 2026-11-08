@@ -67,6 +67,14 @@ error (exit 2); the app's own error passes through with its code (exit 1).
 Inside a tagged app's terminal, or through `CMUX_TAG=<tag>
 scripts/cmux-debug-cli.sh`, the socket is found without `--app-socket`.
 
+`app remote-views [--tab <tab>]` works with every build: it reads the app's
+`remote_view.state`, one row per Cloud desktop tab (or the one `--tab`
+names) with `tab`, `url`, `confirm` (the tab still asks for Connect),
+`viewer` (`rd`, `vnc` or `mock`), `connected` (streaming), `control`
+(`person` after the person's Take over, else `agent`) and `session` (the
+stream's state, mode and frame counts). It carries no credential and no
+screen content. Connect and Take over stay the person's clicks in the pane.
+
 Every command acts on one session. Without `--socket`, `--session` or
 `--all-sessions`, lists and bulk commands act only on the session the CLI
 finds (see [Discovery](#discovery)), so a script that lists and then closes
@@ -455,7 +463,9 @@ cmux agent plugin use|update|remove <name-or-id>
 cmux agent plugin use --builtin
 ```
 
-`agent list` puts blocked agents first, then working, then idle and done
+`agent list` lists the caller's session: its terminal agents and the acpmux
+chats created in its workspaces (`--all-sessions` for every session and every
+chat on the machine). It puts blocked agents first, then working, then idle and done
 (`--sort recent|none` for recency or the daemon's order). `--json` stays a bare
 array of agents; `--json --counts` adds the counts by state
 (`{"agents": [...], "counts": {...}}`).
