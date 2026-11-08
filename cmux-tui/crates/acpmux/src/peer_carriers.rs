@@ -208,6 +208,28 @@ pub(crate) async fn dial_link(_socket: &Path, _host: &str) -> Result<BoxDuplex, 
     Err("the cmux link runs on Unix only".to_owned())
 }
 
+/// The next copy queued for the shadow; never, without one.
+async fn next_copy(shadow: &mut Option<super::dual::ShadowRun>) -> Option<String> {
+    match shadow.as_mut() {
+        Some(run) => run.rx.recv().await,
+        None => std::future::pending().await,
+    }
+}
+
+/// Send `texts` on a probe's WebSocket, each within [`PROBE_EVERY`]; false when one did not go.
+async fn send_texts<S>(ws: &mut tokio_tungstenite::WebSocketStream<S>, texts: Vec<String>) -> bool
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    for text in texts {
+        let sent = tokio::time::timeout(PROBE_EVERY, ws.send(Frame::Text(text.into()))).await;
+        if !matches!(sent, Ok(Ok(()))) {
+            return false;
+        }
+    }
+    true
+}
+
 /// A ping's payload: when it went out, in microseconds since a process-wide origin, so its
 /// pong measures the path's round trip.
 pub(super) fn ping_stamp() -> Vec<u8> {
@@ -637,8 +659,11 @@ impl Peer {
         }
     }
 
-    /// Ping `ws` on `via` until it fails, the link moves onto `via`, or the peer stops.
-    async fn probe_link<S>(
+    /// Ping `ws` on `via` until it fails, the link moves onto `via`, or the peer stops. While
+    /// the link's path is in doubt and `via` is the best other path, `ws` is also the link's
+    /// shadow (`peer_dual.rs`): it carries a copy of each frame, and its chat events and
+    /// replies are taken once.
+    pub(super) async fn probe_link<S>(
         &self,
         via: Via,
         mut ws: tokio_tungstenite::WebSocketStream<S>,
@@ -649,17 +674,44 @@ impl Peer {
         let mut stopped = self.stop_changed.subscribe();
         let mut ping = tokio::time::interval(PROBE_EVERY);
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut check = tokio::time::interval(super::dual::DOUBT_CHECK);
+        check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut shadow: Option<super::dual::ShadowRun> = None;
         loop {
             tokio::select! {
                 _ = stopped.changed() => break,
                 _ = ping.tick() => {
                     // The link took this path: its own pings measure it now.
-                    if self.serving() == Some(via) {
+                    if self.serving() == Some(via) && shadow.is_none() {
                         break;
                     }
                     self.paths_tick();
                     let sent = tokio::time::timeout(PROBE_EVERY, ws.send(Frame::Ping(ping_stamp().into()))).await;
                     if !matches!(sent, Ok(Ok(()))) {
+                        self.path_failed(via);
+                        break;
+                    }
+                }
+                _ = check.tick() => {
+                    let frames = match shadow.as_mut() {
+                        None if self.dual_wanted(via) => {
+                            let (run, frames) = self.shadow_start(via);
+                            shadow = Some(run);
+                            frames
+                        }
+                        Some(run) if self.shadow_done(run) => match shadow.take() {
+                            Some(run) => self.shadow_end(run).await,
+                            None => Vec::new(),
+                        },
+                        _ => Vec::new(),
+                    };
+                    if !send_texts(&mut ws, frames).await {
+                        self.path_failed(via);
+                        break;
+                    }
+                }
+                Some(copy) = next_copy(&mut shadow) => {
+                    if !send_texts(&mut ws, vec![copy]).await {
                         self.path_failed(via);
                         break;
                     }
@@ -670,6 +722,11 @@ impl Peer {
                             self.path_pong(via, rtt);
                         }
                     }
+                    Some(Ok(Frame::Text(text))) => {
+                        if let Some(run) = shadow.as_mut() {
+                            self.shadow_frame(run, text.as_str()).await;
+                        }
+                    }
                     Some(Ok(Frame::Close(_)) | Err(_)) | None => {
                         self.path_failed(via);
                         break;
@@ -677,6 +734,9 @@ impl Peer {
                     Some(Ok(_)) => {}
                 },
             }
+        }
+        if let Some(run) = shadow.take() {
+            let _ = self.shadow_end(run).await;
         }
         let _ = tokio::time::timeout(Duration::from_secs(1), ws.close(None)).await;
         // `_tunnel` (an ssh probe's own process) ends here.

@@ -21,7 +21,13 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 #[path = "peer_carriers.rs"]
 mod carriers;
+#[path = "peer_dual.rs"]
+mod dual;
+#[cfg(test)]
+#[path = "peer_dual_tests.rs"]
+mod dual_tests;
 pub(crate) use carriers::paired_install;
+pub use dual::DualStats;
 #[path = "peer_features.rs"]
 mod features;
 #[path = "peer_health.rs"]
@@ -155,6 +161,17 @@ pub struct Peer {
     probing: AtomicBool,
     /// The hub's last-known-good book (`peer_last_good.rs`).
     last_good: std::sync::OnceLock<Arc<crate::peer_last_good::LastGood>>,
+    /// While the link's path is in doubt, the probe of another path that gets a copy of each
+    /// frame (`peer_dual.rs`).
+    shadow: StdMutex<Option<dual::Shadow>>,
+    /// The chats whose events either path may deliver, each once by its seq (`Peer::dual_claim`).
+    dual_sessions: StdMutex<HashSet<String>>,
+    /// The pending keys of requests sent on both paths.
+    dual_keys: StdMutex<HashSet<String>>,
+    /// This peer's own part of each dual id, and the frames copied so far.
+    dual_nonce: String,
+    dual_frames: AtomicU64,
+    dual_stats: dual::DualStats,
     /// Outbound frames, each tagged with the link epoch it was admitted on:
     /// `serve` drops one whose link is gone, so it never goes out on the next,
     /// and `fail_link_requests` fails the request it carries as not sent.
@@ -382,6 +399,12 @@ impl Peer {
             switch_wanted: AtomicBool::new(false),
             probing: AtomicBool::new(false),
             last_good: std::sync::OnceLock::new(),
+            shadow: StdMutex::new(None),
+            dual_sessions: StdMutex::new(HashSet::new()),
+            dual_keys: StdMutex::new(HashSet::new()),
+            dual_nonce: uuid::Uuid::now_v7().simple().to_string(),
+            dual_frames: AtomicU64::new(0),
+            dual_stats: dual::DualStats::default(),
             out,
             out_rx: Mutex::new(Some(out_rx)),
             next_id: AtomicI64::new(1),
@@ -1198,6 +1221,7 @@ impl Peer {
         self.pending.lock().await.insert(key.clone(), tx);
         if let Some(session) = params.get("sessionId").and_then(Value::as_str) {
             self.replay_tail.lock_or_recover().remove(session);
+            self.dual_forget(session);
         }
         if m == method::SESSION_PROMPT
             && let (Some(session), Some(prompt)) = (
@@ -1422,9 +1446,12 @@ impl Peer {
         let on_wire = std::mem::take(&mut *self.on_wire.lock_or_recover());
         let mut survivors = HashMap::new();
         for (key, tx) in pending.drain() {
+            // An accepted prompt is recovered on the next link; a request sent on both paths
+            // waits for the other path's answer (`peer_dual.rs`).
             if !self.stop.load(Ordering::SeqCst)
                 && !tx.is_closed()
-                && self.prompts.lock_or_recover().get(&key).is_some_and(|p| p.accepted)
+                && (self.prompts.lock_or_recover().get(&key).is_some_and(|p| p.accepted)
+                    || self.dual_carried(&key))
             {
                 survivors.insert(key, tx);
                 continue;
@@ -1519,6 +1546,7 @@ impl Peer {
             carriers::OpenedWs::Url(ws) => self.serve_heard(ws, out_rx, heard).await,
         };
         self.set_serving(None);
+        self.dual_link_ended();
         let end = match (end, opened.ssh_errors) {
             (Err(error), Some(errors)) => {
                 // End the owned SSH process now, including when its next attempt is an hour away.
@@ -2070,6 +2098,7 @@ impl Peer {
                             // Not held while a notice waits for room: a caller registers under it.
                             let tx = self.pending.lock().await.remove(&key);
                             self.on_wire.lock_or_recover().remove(&key);
+                            self.dual_keys.lock_or_recover().remove(&key);
                             let Some(tx) = tx else { continue };
                             let reply = match error { Some(e) => Err(e), None => Ok(result.unwrap_or(Value::Null)) };
                             let watch = self.watch_key.lock_or_recover().take_if(|k| *k == key).is_some();
@@ -2159,6 +2188,12 @@ impl Peer {
                                     Some(_) => { tails.remove(id); }
                                     None => {}
                                 }
+                                drop(tails);
+                                // Sent on two paths while this one was in doubt: the other path
+                                // may have delivered it already (`peer_dual.rs`).
+                                if !self.dual_claim(id, *seq, false) {
+                                    continue;
+                                }
                             }
                             let notice = if m == method::MUX_SESSION_CHANGED {
                                 let session = p.get("session").cloned().unwrap_or(Value::Null);
@@ -2236,6 +2271,8 @@ impl Peer {
                         self.on_wire.lock_or_recover().insert(key.clone());
                     }
                     let text = line.trim_end_matches('\n').to_owned();
+                    // While this path is in doubt the frame goes on another path too.
+                    let text = self.dual_copy(text, prompt_key.map(String::as_str), link);
                     let until = write_deadline(tokio::time::Instant::now(), budget, wake_probe);
                     match tokio::time::timeout_at(until, sink.send(Frame::Text(text.into()))).await {
                         Ok(Ok(())) => {
