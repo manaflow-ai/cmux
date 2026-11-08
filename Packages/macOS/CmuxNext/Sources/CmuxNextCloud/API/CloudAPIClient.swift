@@ -73,13 +73,16 @@ public struct CloudAPIClient: Sendable {
 
     // MARK: Files and SCP
 
-    /// Mints a short-lived private SCP route. The public key is the only key
-    /// material sent to the backend; the caller owns the corresponding secret.
+    /// Mints a short-lived private SCP route: cmux-platform's `POST /v1/cloud/machines/{id}/ssh-endpoint` on a
+    /// Worker machines client (``workerMachines(baseURL:accessToken:teamID:caller:appVersion:machineIO:)``). The
+    /// public key is the only key material sent; the caller owns the secret.
     public func prepareSCP(_ id: String, publicKey: String) async throws -> CloudSCPEndpoint {
-        // cmux-cloud-api refuses an unsafe route (port 22, user cmux, an ed25519 host key, not
-        // expired), and cmux-cloud-machine reads it again; any other answer throws ``CloudAPIError/decoding(_:)``.
-        try await call("vm.scp_endpoint", ["id": .string(id), "publicKey": .string(publicKey)], timeout: .seconds(100),
-                       as: CloudSCPEndpoint.self)
+        // cmux-cloud-machine reads only a safe route (port 22, user cmux, an ed25519 host key, not
+        // expired); any other answer throws ``CloudAPIError/decoding(_:)``. The daemon's
+        // `vm.scp_endpoint` is classic's route, so this goes to the Worker's route itself.
+        let body = try JSONSerialization.data(withJSONObject: ["publicKey": publicKey])
+        let data = try await machineRouteRequest("POST", id, "ssh-endpoint", query: [], body: body, timeout: .seconds(100))
+        return try CloudMachineRules().answer(data, as: CloudSCPEndpoint.self, context: "ssh-endpoint")
     }
 
     // MARK: Tunnel

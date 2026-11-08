@@ -1060,3 +1060,38 @@ test("a relayed or session-stamped sender with no sender record is verified, as 
   const forgedPrompt = incomingPrompt(text, { _meta: { provenance: forged } });
   expect(forgedPrompt?.kind === "message" && forgedPrompt.message.unverified).toBe(true);
 });
+
+// cmux#38642 review: acpmux names a relayed sender by its `MACHINE/SESSION` cut to `fromAgent`'s 64
+// characters (prompt_provenance.rs `relayed_label`), so two sessions whose names share their first
+// 64 characters read as one label. The relay record (`fromRelay`, or the sender record's `relay`)
+// keeps the whole name, and the sender's chat is asked for by that: each opens its own.
+test("a relayed sender's chat is asked for by its whole relay address, not the cut label", () => {
+  const stem = "a-lane-session-whose-name-runs-past-the-sender-label-limit";
+  const relayed = (session: string, where: "provenance" | "record") => {
+    const address = `vm-1/${session}`;
+    const relay = { by: "lane-gh", machine: "vm-1", session };
+    const named = { kind: "agent_message", from: "fromAgent", fromName: address.slice(0, 64), to: "s-1" };
+    const provenance =
+      where === "provenance"
+        ? { ...named, fromRelay: relay }
+        : { ...named, sender: { verification: "verified", label: "coord", relay } };
+    const prompt = incomingPrompt("Merged the fix.", { _meta: { provenance } });
+    return prompt?.kind === "message" ? prompt.message : undefined;
+  };
+  for (const where of ["provenance", "record"] as const) {
+    const a = relayed(`${stem}-alpha`, where);
+    const b = relayed(`${stem}-bravo`, where);
+    expect(a?.name).toBe(b?.name ?? "");
+    expect(a?.lookup).toBe(`vm-1/${stem}-alpha`);
+    expect(b?.lookup).toBe(`vm-1/${stem}-bravo`);
+  }
+  // A relay record that is no relay's (no machine) names no address: the name is asked for.
+  const forged = {
+    kind: "agent_message",
+    from: "fromAgent",
+    fromName: "vm-1/x",
+    fromRelay: { by: "lane-gh", session: "x" },
+  };
+  const prompt = incomingPrompt("Merged the fix.", { _meta: { provenance: forged } });
+  expect(prompt?.kind === "message" && prompt.message.lookup).toBeFalsy();
+});

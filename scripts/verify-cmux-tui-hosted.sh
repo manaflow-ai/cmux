@@ -301,24 +301,38 @@ exec 3<> "$watch_result_fifo"
   trap stop_children EXIT
   # Runs one child, at most `limit` seconds; sets child_status (143 when the
   # limit stopped it). gh run watch has no timeout of its own.
+  #
+  # The limiter learns that the child ended from a line on its own fifo, not
+  # from a signal: a TERM sent to a subshell that has not yet set its trap is
+  # lost, and the watcher then waited out the whole limit (main tip CI, PR
+  # #38729, 2026-11-08: a 60 s run read held the watcher to its deadline, so a
+  # cancelled run read as "still running"). A line in a pipe cannot be lost,
+  # and a fresh fifo per child means a line left by an earlier child is never
+  # read as this one's.
+  child_seq=0
   run_child() {
     local limit="$1"
     shift
-    "$@" &
+    child_seq=$((child_seq + 1))
+    local done_fifo="$temp_dir/child-done.$child_seq"
+    mkfifo "$done_fifo"
+    # Read-write, so neither end blocks on open; the limiter reads it as fd 5.
+    exec 5<> "$done_fifo"
+    "$@" 5>&- &
     local child=$!
-    # The limiter keeps no stdio of the script, and TERM stops its sleep too.
+    # The limiter keeps no stdio of the script.
     (
-      sleep "$limit" &
-      sleeper=$!
-      trap 'kill "$sleeper" 2>/dev/null; exit 0' TERM
-      wait "$sleeper"
-      kill -TERM "$child" 2>/dev/null
+      if ! read -r -t "$limit" -u 5 _; then
+        kill -TERM "$child" 2>/dev/null
+      fi
     ) </dev/null >/dev/null 2>&1 &
     local limiter=$!
     wait "$child"
     child_status=$?
-    kill -TERM "$limiter" 2>/dev/null || true
+    echo ended >&5
     wait "$limiter" 2>/dev/null || true
+    exec 5>&-
+    rm -f "$done_fifo"
   }
   read_run_state() {
     : > "$run_state_file"

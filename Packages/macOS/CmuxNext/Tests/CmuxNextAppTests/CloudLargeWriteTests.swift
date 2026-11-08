@@ -77,6 +77,21 @@ import Testing
         #expect(WriteRouteProtocol.requests.isEmpty)
     }
 
+    @Test func scpGoesToTheWorkersSSHEndpointRoute() async throws {
+        WriteRouteProtocol.reset()
+        let fake = FakeCloudAPI()
+        var api = fake.worker()
+        api.fileRoute = Self.session()
+        // The stand-in answers no endpoint, so the read refuses it; what matters is where it went.
+        _ = try? await api.prepareSCP("vm_abcdefghij0123456789", publicKey: "ssh-ed25519 AAAA")
+        #expect(fake.seen.isEmpty, "the daemon's vm.scp_endpoint is classic's route")
+        let sent = try #require(WriteRouteProtocol.requests.first)
+        #expect(sent.httpMethod == "POST")
+        #expect(sent.url?.path == "/v1/cloud/machines/vm_abcdefghij0123456789/ssh-endpoint")
+        let body = try #require(try JSONSerialization.jsonObject(with: WriteRouteProtocol.bodies.first ?? Data()) as? [String: Any])
+        #expect(body["publicKey"] as? String == "ssh-ed25519 AAAA")
+    }
+
     @Test func aWriteThatFitsGoesThroughTheDaemon() async throws {
         WriteRouteProtocol.reset()
         let fake = FakeCloudAPI()

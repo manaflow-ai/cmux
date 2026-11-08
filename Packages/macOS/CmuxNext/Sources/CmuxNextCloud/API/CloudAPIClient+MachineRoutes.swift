@@ -57,7 +57,7 @@ extension CloudAPIClient {
             // A file whose base64 answer is past one daemon answer (cmux-cloud-api `MAX_ANSWER_BYTES`,
             // cmux-tui `server/cloud_api.rs` `MAX_REPLY_BYTES`): a read changes nothing, so it goes
             // again to the route itself, which takes every file it took before.
-            let data = try await fileRouteRequest("GET", id, op: "read", query: [URLQueryItem(name: "path", value: path)], body: nil)
+            let data = try await machineRouteRequest("GET", id, "fs/read", query: [URLQueryItem(name: "path", value: path)], body: nil)
             return try CloudMachineRules().answer(data, as: CloudFileContents.self, context: "fs/read")
         }
     }
@@ -79,7 +79,7 @@ extension CloudAPIClient {
             if let mode { body["mode"] = mode }
             let json = try JSONSerialization.data(withJSONObject: body)
             route = { [self] in
-                _ = try await fileRouteRequest("POST", id, op: "write", query: [], body: json)
+                _ = try await machineRouteRequest("POST", id, "fs/write", query: [], body: json)
                 return Ignored()
             }
         }
@@ -100,12 +100,13 @@ extension CloudAPIClient {
         }.joined(separator: "&")
     }
 
-    /// One file call straight to the route (`.../fs/<op>`), with the headers the daemon's call would
-    /// send: only a file too large for one daemon request or answer goes this way.
-    private func fileRouteRequest(_ method: String, _ id: String, op: String, query: [URLQueryItem],
-                                  body: Data?) async throws -> Data {
+    /// One call straight to a machine's route (`.../{id}/<tail>`), with the headers the daemon's call
+    /// would send: a file too large for one daemon request or answer, and the Worker's SCP route
+    /// (the daemon's is classic's), go this way.
+    func machineRouteRequest(_ method: String, _ id: String, _ tail: String, query: [URLQueryItem],
+                             body: Data?, timeout: Duration = .seconds(120)) async throws -> Data {
         let credentials = try await credentials()
-        let route = "\(sendsStackSession ? "/api/vm" : "/v1/cloud/machines")/\(id)/fs/\(op)"
+        let route = "\(sendsStackSession ? "/api/vm" : "/v1/cloud/machines")/\(id)/\(tail)"
         guard id.range(of: #"^[A-Za-z0-9_-]+$"#, options: .regularExpression) != nil,
               var components = URLComponents(string: baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + route) else {
             throw CloudAPIError.transport("not a Cloud machine id")
@@ -113,7 +114,7 @@ extension CloudAPIClient {
         // Percent-encoded here: `queryItems` leaves `+`, which the route reads as a space.
         if !query.isEmpty { components.percentEncodedQuery = Self.formQuery(query) }
         guard let url = components.url else { throw CloudAPIError.transport("bad path \(route)") }
-        var request = URLRequest(url: url, timeoutInterval: 120)
+        var request = URLRequest(url: url, timeoutInterval: TimeInterval(timeout.components.seconds))
         request.httpMethod = method
         request.setValue("Bearer \(credentials.access)", forHTTPHeaderField: "Authorization")
         request.setValue("cmux-mac", forHTTPHeaderField: "X-Cmux-Client")
@@ -129,7 +130,7 @@ extension CloudAPIClient {
         do {
             // An absolute bound: the request's own timeout restarts while bytes still flow.
             let session = fileRoute, prepared = request
-            (data, response) = try await withDeadline(.seconds(120), label: "\(method) \(route)") { try await session.data(for: prepared) }
+            (data, response) = try await withDeadline(timeout, label: "\(method) \(route)") { try await session.data(for: prepared) }
         } catch is DeadlineExceeded {
             throw CloudAPIError.timedOut(route)
         } catch let error as URLError where error.code == .timedOut {
