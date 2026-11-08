@@ -50,6 +50,22 @@
 [data-borders="none"] .guest-live__dock{border-top:0}
 .guest-mine{display:flex;flex-direction:column;gap:8px;max-height:40vh;overflow-y:auto}
 .guest-mine__held{gap:4px}
+/* A held message's bubble on the first frame (#38197 F1): the pane's prompt bubble (conversation.css
+   .cv-user and .cv-user__bubble, with its :root type and colour) loads beside the transcript, after a
+   reload has already drawn the guest's held messages. These are the same values, scoped to the dock,
+   so the bubble is its final size and look before that sheet arrives and the dock never resizes.
+   test/guest-page-first-frame-browser.test.ts holds the bubble's box across the sheet's arrival. */
+.guest-mine{--cv-text:var(--agent-text);--cv-fg:var(--agent-text);--cv-font:var(--font-ui);--cv-font-size:14px;--cv-line-height:22.75px}
+.guest-mine .cv-user{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-end}
+.guest-mine .cv-user__bubble{--cv-bubble-pad-block:max(var(--grid-base), (11 * var(--grid-base) - var(--cv-line-height)) / 2);--cv-bubble-pad-inline:calc(4 * var(--grid-base));position:relative;box-sizing:border-box;max-width:70%;padding:var(--cv-bubble-pad-block) var(--cv-bubble-pad-inline);border-radius:var(--grid-cards-radius);font-family:var(--cv-font);font-size:var(--cv-font-size);line-height:var(--cv-line-height);letter-spacing:var(--cv-tracking, 0.045px);color:var(--cv-text);white-space:pre-wrap;overflow-wrap:break-word;-webkit-font-smoothing:antialiased}
+.guest-mine .cv-user__bubble{
+  --glass-tint:color-mix(in srgb, var(--cv-fg) 10%, transparent);
+  /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
+  --glass-opaque:color-mix(in srgb, var(--cv-fg) 10%, var(--glass-surface));
+  --glass-edge:transparent;
+  --glass-rim:0;
+  --glass-backdrop:none;
+}
 .guest-mine__label,.guest-mine__decided,.guest-composer__note{margin:0;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 .guest-mine__decided{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .guest-composer{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
