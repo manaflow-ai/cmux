@@ -1,9 +1,11 @@
 import { Fragment, memo, useContext, type ReactNode } from "react";
 import type { PromptContentPart, PromptImage } from "../model";
 import { FindReveal } from "./chatFind";
-import { attachmentPath, FileAttachment } from "../FileAttachment";
+import { FileAttachment } from "../FileAttachment";
+import { attachmentPath } from "../fileAttachmentModel";
 import { PasteChip, PromptText, PromptTyped } from "./PromptText";
 import { HUGE_PROMPT_HEAD_CHARS, hasHugeTypedPart, headParts } from "./promptCollapse";
+import { blockText } from "./inlinePromptContentModel";
 
 /** Sent prompt content in ACP order. Text and attachment runs stay in one bubble, like Messages.
  * A pasted block is the same chip a legacy prompt draws (PromptText.tsx), opening to its text. */
@@ -95,26 +97,5 @@ export function PromptFile({ part }: { part: Exclude<PromptContentPart, { kind: 
   );
 }
 
-/** Whether a part the strip view keeps in the bubble gives it something to read: typed text with
- * more than space, a pasted block, a text file's body. */
-export function readsAsText(part: PromptContentPart): boolean {
-  return part.kind === "text" ? part.text.trim() !== "" : part.kind === "pasted" || Boolean(blockText(part));
-}
-
-/** The text block a part went to the agent as (typed text, a pasted block, a text file's body), or
- * none for an attachment. */
-function blockText(part: PromptContentPart): string | undefined {
-  if (part.kind === "text") return part.text;
-  if (part.kind === "pasted" || (part.kind === "file" && !part.uri)) return part.text;
-  return undefined;
-}
-
 /** A typed text block's text: what a collapsed huge prompt's head counts (pastes are chips). */
 const typedText = (part: PromptContentPart) => (part.kind === "text" ? part.text : undefined);
-
-/** The parts the strip setting moves to the band above the bubble: attachments, not what reads as
- * the prompt's text (typed text, pasted blocks and a text file's body stay in the bubble, as a
- * legacy prompt's do), so the bubble keeps the recorded text whole. */
-export function isStripMedia(part: PromptContentPart): part is Exclude<PromptContentPart, { kind: "text" }> {
-  return blockText(part) === undefined;
-}

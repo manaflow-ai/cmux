@@ -113,6 +113,13 @@ pub struct SessionSummary {
     #[serde(default)]
     #[schemars(default)]
     pub spawn_tool_call_id: Option<String>,
+    /// Who created it (`hub/created_by.rs`): `{kind: "person"|"agent"|"script", workspace?,
+    /// session?}`, decided by the daemon from the connection, never from a request value.
+    /// Null for a fork, a moved-in session and one saved before it existed; absent from a
+    /// peer on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub created_by: Option<crate::store::CreatedBy>,
     /// The pull request URLs its `gh pr create` calls printed, oldest first;
     /// absent from a peer on an older acpmux.
     #[serde(default)]
@@ -533,6 +540,21 @@ pub struct QueuedPromptSummary {
     #[serde(default)]
     #[schemars(default)]
     pub subagent_retry: Option<QueuedSubagentRetry>,
+    /// Its `_meta.provenance` when it names a sender that is no agent's to act on: another agent's
+    /// message the person edited (`editedBy`, still that agent's words to read) or a prompt no
+    /// proof attributes (`unverified`). An app draws its card from it while `fromAgent` is null.
+    /// Null otherwise. Display only, never authority.
+    #[serde(default)]
+    #[schemars(default)]
+    pub provenance: Option<serde_json::Value>,
+    /// acpmux's inbox notice of other agents' messages (`_meta.provenance` `inbox_notice`,
+    /// `hub/inbox.rs`): that provenance, `{kind, noticeId, threads}`, so an app draws it as the
+    /// messages it carries and never as the person's queued prompt, also when it has not read
+    /// its `queued` record (a chat reopened on a recent page). Null for any other prompt, and
+    /// once edited (an edit drops the provenance).
+    #[serde(default)]
+    #[schemars(default)]
+    pub inbox_notice: Option<Value>,
 }
 
 /// The subagent a queued resume asks the agent to resume (`QueuedPromptSummary.subagentRetry`).

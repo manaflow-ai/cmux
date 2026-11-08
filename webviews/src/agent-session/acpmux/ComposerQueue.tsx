@@ -44,7 +44,8 @@
 import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
-import { QueuedImages, type QueuedVideo } from "./QueuedImages";
+import { QueuedImages } from "./QueuedImages";
+import type { QueuedVideo } from "./queuedImagesModel";
 import { framesNoteVideo } from "./composer/videoPrompt";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { ComposerAttachment } from "./attachments";
@@ -63,7 +64,7 @@ import {
   type SlashCommand,
 } from "./slashCommands";
 import { useSkillWords } from "./conversation/skillWords";
-import { withSkillWords } from "./conversation/SkillWord";
+import { withSkillWords } from "./conversation/withSkillWords";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
 
@@ -628,7 +629,6 @@ export function ComposerQueue({
   };
   // The person's prompts only: another agent's message draws in the transcript.
   const shown = ownQueue(queue).filter((entry) => !leaving.has(entry.id));
-  // A paused queue of agent messages alone still says so, with Resume.
   // Who each row belongs to, as last drawn. A native menu keeps the actions it opened with: one
   // picked after a row turned out to be a teammate's (its authored record came in while the menu
   // was open) does nothing, as the row now offers nothing.
@@ -647,6 +647,10 @@ export function ComposerQueue({
     shown.some((entry) => entry.waking),
     wakeNoteDelayMs,
   );
+  // Other agents' messages and inbox notices a failed turn held go in again by themselves (acpmux
+  // `goes_in_by_itself`), and acpmux reads that hold as not paused, so no note stands over nothing of
+  // the person's (Leo, 2026-11-05: "don't show these kinds of things"). A Stop's hold of them waits
+  // for Resume (`cancel.rs`): `paused`, so the note and its Resume stay (review of #36821, F1).
   if (shown.length === 0 && !(paused && queue.length > 0)) return null;
   // Prompts sent now come first: queued prompts count from after them.
   const steering = shown.filter((entry) => entry.next).length;

@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 EXPORT = ROOT / "schemas/settings/settings-schema.json"
 # Fields of a source row the export does not carry (Swift names, developer notes, legacy aliases).
-SOURCE_ONLY = {"name", "note", "swift_enum", "swift_owner", "aliases"}
+SOURCE_ONLY = {"name", "note", "swift_enum", "swift_owner", "aliases", "choices_from"}
 
 
 def load(name, path):
@@ -34,13 +34,18 @@ class SettingsSourceFromExportTests(unittest.TestCase):
     def test_every_export_row_drafts_into_rows_the_generator_accepts(self):
         drafted = DRAFT.draft(self.rows)
         section = {"source": "draft.json", "swift": "Draft.generated.swift", "type": "DraftSettingsSchema",
-                   "lists": {entry["name"]: ("descriptors%d" % index, "DraftOwner") for index, entry in enumerate(drafted["lists"])}}
+                   "lists": {entry["name"]: ("descriptors%d" % index, "DraftOwner") for index, entry in enumerate(drafted["lists"])},
+                   "joined": "all"}
         GEN.check_section(section, drafted, set(), {row["section"] for row in self.rows}, "draft.json")
         files = GEN.section_swift(section, drafted)
         self.assertGreater(len(files), 1, "the whole export is too big for one file, so this also covers the split")
         for path, text in files.items():
             self.assertLessEqual(text.count("\n"), 400, path)
         swift = "".join(files.values())
+        # The joined var concatenates every list, in order, even when the section splits into files.
+        self.assertIn("        [%s].flatMap { $0 }" % ", ".join(
+            "descriptors%d" % index for index in range(len(drafted["lists"]))), swift)
+        self.assertIn("    static var all: [SettingDescriptor] {", swift)
         self.assertEqual(swift.count("            SettingDescriptor("), len(self.rows))
         for kind in ("choiceOrNumber", "choiceOrURL", "numberList", "orderedChoices", "choiceSet", "timeRange", "soundRules"):
             self.assertIn("." + kind, swift)
@@ -57,7 +62,14 @@ class SettingsSourceFromExportTests(unittest.TestCase):
                     source = {key: value for key, value in row.items() if key not in SOURCE_ONLY}
                     if "choices" in source:
                         source["choices"] = [{"value": c["value"], "title": c["title"]} for c in source["choices"]]
-                    self.assertEqual(source, DRAFT.draft_row(exported), "%s: %s" % (path, row["key"]))
+                    drafted = DRAFT.draft_row(exported)
+                    if drafted.get("palette_shown") and source.get("page_hidden"):
+                        # The export does not carry the reason of a row the palette still offers.
+                        drafted["page_hidden"] = source["page_hidden"]
+                    if "choices_from" in row:
+                        # The source lists the leading choices; the Swift member lists the rest.
+                        drafted["choices"] = drafted["choices"][:len(source["choices"])]
+                    self.assertEqual(source, drafted, "%s: %s" % (path, row["key"]))
                     self.assertEqual((entry["section"], entry["group"]), (exported["section"], exported["group"]), row["key"])
                     order.append(self.rows.index(exported))
                 self.assertEqual(order, list(range(order[0], order[0] + len(order))),

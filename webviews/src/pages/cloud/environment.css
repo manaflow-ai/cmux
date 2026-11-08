@@ -6,9 +6,8 @@
   padding: 0;
   overflow: auto;
   border: 1px solid transparent;
-  border-radius: var(--radius-lg, 12px);
+  /* The sheet role's veil, radius and depth (ui/popupSurface.css .ui-dialog.ui-glass). */
   color: var(--cmux-text, CanvasText);
-  box-shadow: var(--elevation-2);
   font-family: var(--font-ui, system-ui);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);

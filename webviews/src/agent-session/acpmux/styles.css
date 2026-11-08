@@ -5,7 +5,7 @@
 .acpmux-shell{--acpmux-header-height:28px;--acpmux-glyph-slot:16px;--acpmux-glyph-line:20px;--acpmux-disclosure-slot:16px;--acpmux-row-compact:28px;--acpmux-row-expanded:40px}
 .acpmux-row-glyph{display:inline-flex;flex:none;align-items:center;justify-content:center;width:var(--acpmux-glyph-slot,16px);height:var(--acpmux-glyph-slot)}
 .acpmux-stage{position:relative;flex:1;display:flex;flex-direction:column;min-height:0}
-.acpmux-transcript-after-latest{flex:none;min-width:0}
+.acpmux-transcript-after-latest{flex:none;min-width:0}.acpmux-open-app-cards{display:flex;flex:none;flex-direction:column;gap:var(--ds-space-2);box-sizing:border-box;padding:var(--ds-space-2) var(--cv-inset,var(--ds-space-4))}.acpmux-open-app-card{display:flex;flex:none;align-items:center;justify-content:space-between;gap:var(--ds-space-3);box-sizing:border-box;padding:var(--ds-space-2) var(--ds-space-3);border:1px solid var(--agent-border);border-radius:var(--ds-radius-xl);background:var(--acpmux-composer-tray);color:var(--agent-text)}.acpmux-open-app-card__copy{display:flex;min-width:0;flex-direction:column;gap:var(--ds-space-1);overflow:hidden}.acpmux-open-app-card__copy strong,.acpmux-open-app-card__copy span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.acpmux-open-app-card__copy strong{font-size:var(--text-control);font-weight:var(--weight-emphasis)}.acpmux-open-app-card__copy span{color:var(--agent-muted);font-size:var(--text-detail)}.acpmux-open-app-card__error{color:var(--agent-danger,#d35c5c)!important}.acpmux-open-app-card__button{flex:none;display:grid;border:0;border-radius:var(--ds-radius-control);padding:var(--ds-space-1) var(--ds-space-3);background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit}.acpmux-open-app-card__button:disabled{opacity:.7}.acpmux-open-app-card__button-label{grid-area:1/1}.acpmux-open-app-card__button-label[aria-hidden="true"]{visibility:hidden}.acpmux-open-app-card__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 
 .acpmux-diff-add{color:var(--acpmux-add)}.acpmux-diff-del{color:var(--acpmux-del)}.acpmux-diff-main{flex:1;display:flex;min-height:0}.acpmux-diff-body{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden}.acpmux-diff-file{border-bottom:1px solid var(--agent-border)}.acpmux-fh-spacer{flex:1}
 .acpmux-diff-empty-edit{padding:8px 16px;color:var(--agent-muted);font-size:12px}.acpmux-main{position:relative;flex:1;min-width:0;display:flex;flex-direction:column}.acpmux-header>div{display:flex;align-items:center;min-width:0}.acpmux-session-mark{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;color:var(--agent-muted)}.acpmux-session-mark-input{color:var(--acpmux-needs-you-mark)}.acpmux-session-mark-unread::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--agent-accent)}.acpmux-session-mark-running{color:var(--agent-accent)}
@@ -257,7 +257,7 @@
 /* New tab page (NewTabPage.tsx, #16620): one field with a Terminal | Browser | Agent switch
    that Tab cycles, each option with its shortcut, over the recent sessions. Same surfaces
    as the composer, so it takes every theme the same way. */
-.acpmux-newtab{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;--acpmux-newtab-top:clamp(48px,16vh,168px);--acpmux-newtab-inset:var(--cv-inset,max(var(--cv-edge,16px),round(down,(100% - var(--cv-column,720px))/2,4px)));padding:var(--acpmux-newtab-top) var(--acpmux-newtab-inset) 32px;box-sizing:border-box;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;container-type:inline-size}
+.acpmux-newtab{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;--acpmux-newtab-top:clamp(48px,16vh,168px);--acpmux-newtab-inset:var(--cv-inset,max(var(--cv-edge,16px),round(nearest,(100% - var(--cv-column,720px))/2,1px)));padding:var(--acpmux-newtab-top) var(--acpmux-newtab-inset) 32px;box-sizing:border-box;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;container-type:inline-size}
 .acpmux-newtab>*{width:100%}
 /* The page's one left line (leo-workspace design/grid.md rules 2 and 6): the field row's leading glyph
    box sits 18 in and a 16 px stroke glyph's ink starts about 2 px inside it, so ink starts 20 in from
@@ -362,8 +362,10 @@
 /* One line, cut with an ellipsis, until the row is opened; the cut sits on the button's text, as WebKit lays a button out as its own box. */
 .acpmux-queued-clamp{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.acpmux-queued-text[data-open] .acpmux-queued-clamp{white-space:pre-wrap;overflow-wrap:anywhere}
 /* The actions show on the row's hover and while focus is in it (a key on the row, Tab to a button), and stay while the ⋯ menu is open. A pointer that cannot hover sees them always. The 22px actions center on the text's first line (its height follows the chat font size, #26523) and the row takes no more height from them than that line. */
-.acpmux-queued-actions{grid-column:2;display:flex;align-items:center;gap:2px;height:var(--text-content--line-height);opacity:0}
-.acpmux-queued:is(:hover,:focus-within) .acpmux-queued-actions,.acpmux-queued:is(:has([data-popup-open]),:focus-within) .acpmux-queued-actions,.acpmux-queued:has([aria-expanded=true]) .acpmux-queued-actions{opacity:1}
+.acpmux-queued-actions{grid-column:2;display:flex;align-items:center;gap:2px;height:var(--text-content--line-height);opacity:0;transition:var(--cmux-hover-reveal-out-transition)}
+.acpmux-queued:is(:hover,:focus-within) .acpmux-queued-actions,.acpmux-queued:is(:has([data-popup-open]),:focus-within) .acpmux-queued-actions,.acpmux-queued:has([aria-expanded=true]) .acpmux-queued-actions{opacity:1;transition:var(--cmux-hover-reveal-in-transition)}
+/* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
+.acpmux-queued:is(:focus-visible,:has(:focus-visible)) .acpmux-queued-actions{transition:none}
 @media (hover:none){.acpmux-queued-actions{opacity:1}}
 .acpmux-queued-action{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:none;color:var(--acpmux-composer-dim)}
 .acpmux-queued-action:hover{background:var(--agent-control-hover);color:var(--agent-text)}
@@ -650,18 +652,6 @@
 .acpmux-edited-file{display:flex;align-items:center;gap:12px;width:100%;height:26px;box-sizing:border-box;padding:0 12px;border:0;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-detail);line-height:16px;text-align:left;letter-spacing:var(--text-detail--letter-spacing)}
 button.acpmux-edited-file{cursor:default}
 button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4%,transparent)}
-.acpmux-turn-preview{position:relative;margin-bottom:6px;border-radius:9px;overflow:hidden;background:color-mix(in srgb,var(--agent-text) 3%,var(--cmux-surface-solid,var(--acpmux-base,Canvas)))}
-.acpmux-turn-preview::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--agent-border-strong,var(--agent-border));pointer-events:none}
-.acpmux-turn-preview-head{display:flex;align-items:center;gap:11px;min-height:58px;box-sizing:border-box;padding:9px 12px;background:color-mix(in srgb,var(--agent-text) 5%,var(--cmux-surface-solid,var(--acpmux-base,Canvas)));box-shadow:inset 0 -1px 0 var(--agent-border)}
-.acpmux-turn-preview-icon{flex:none;display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;background:var(--agent-page-bg);color:var(--agent-muted)}
-.acpmux-turn-preview-address{flex:1;min-width:0;font-family:var(--font-mono);font-size:12.5px;color:var(--agent-text);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.acpmux-turn-preview-address:hover{text-decoration:underline}
-.acpmux-turn-preview-address:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px;border-radius:3px}
-.acpmux-turn-preview-frame{position:relative;height:180px;overflow:hidden;cursor:default;background:var(--cmux-surface-solid,var(--acpmux-base,Canvas))}
-.acpmux-turn-preview-frame iframe{position:absolute;top:0;left:0;width:400%;height:400%;border:0;transform:scale(.25);transform-origin:0 0;pointer-events:none;background:var(--cmux-surface-solid,var(--acpmux-base,Canvas))}
-/* A gallery stage (previewUrl.ts isGalleryFrame): one component at its own size, usable in place. */
-.acpmux-turn-preview-frame--live{height:360px;cursor:auto;resize:vertical}
-.acpmux-turn-preview-frame--live iframe{width:100%;height:100%;transform:none;pointer-events:auto}
 .acpmux-edited-path{flex:1;min-width:0;display:flex;white-space:nowrap;overflow:hidden;font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace))}
 .acpmux-edited-dir{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--agent-muted)}
 .acpmux-edited-base{flex:none}
@@ -714,7 +704,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
    the page flow when attached and lifts visually when detached, so the same control works in the
    compact Quick Composer and in a future window-level host. */
 .acpmux-chief-dock{--chief-fade-height:32px;--chief-selection:var(--agent-accent-soft,var(--cmux-selection,var(--agent-accent,var(--agent-text))));--chief-glass-fill:color-mix(in srgb,var(--acpmux-base,var(--agent-page-bg)) 64%,transparent);position:absolute;left:50%;bottom:16px;z-index:var(--layer-sticky);display:flex;flex-direction:column;align-items:center;gap:12px;width:min(760px,calc(100vw - 64px));color:var(--agent-text);font:var(--text-detail)/var(--text-detail--line-height) var(--font-ui);pointer-events:none;transform:translateX(-50%);transition:bottom var(--agent-motion-out,80ms) var(--agent-ease-out,ease-out),filter var(--agent-motion-out,80ms) var(--agent-ease-out,ease-out);letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-chief-dock ::selection{background:var(--cmux-text-selection,color-mix(in srgb,var(--chief-selection) 34%,transparent));color:var(--agent-text)}
+.acpmux-chief-dock ::selection{background:var(--cmux-selection-fill,var(--cmux-text-selection,color-mix(in srgb,var(--chief-selection) 34%,transparent)));color:var(--agent-text)}
 .acpmux-chief-dock[data-attached=false]{top:50%;right:16px;bottom:auto;left:auto;width:min(420px,calc(100vw - 32px));flex-direction:column;transform:translateY(-50%);gap:10px;isolation:isolate}.acpmux-chief-dock[data-attached=false] .acpmux-chief-dock-cards{transform-origin:center right;max-height:calc(100vh - 220px)}
 .acpmux-chief-dock-rail,.acpmux-chief-dock-cards{pointer-events:auto;background:color-mix(in srgb,var(--agent-text) 7%,var(--chief-glass-fill));box-shadow:var(--elevation-1);-webkit-backdrop-filter:var(--surface-blur);backdrop-filter:var(--surface-blur)}
 .acpmux-chief-dock-cards{position:relative;order:1;display:flex;flex-direction:column;width:100%;min-width:0;max-height:min(540px,calc(100vh - 48px));overflow:visible;padding:0;border-radius:0;background:transparent;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;transform-origin:bottom center;transition:max-height var(--agent-motion-in,120ms) var(--agent-ease-out,ease-out),opacity var(--agent-motion-out,80ms) var(--agent-ease-out,ease-out),transform var(--agent-motion-in,120ms) var(--agent-ease-out,ease-out),padding var(--agent-motion-in,120ms) var(--agent-ease-out,ease-out),border-color var(--agent-motion-in,120ms) var(--agent-ease-out,ease-out),box-shadow var(--agent-motion-in,120ms) var(--agent-ease-out,ease-out)}
@@ -934,6 +924,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-secret-card-action:disabled{color:var(--acpmux-composer-dim);cursor:default}
 .acpmux-secret-card-action:not(:disabled):hover{background:var(--acpmux-composer-hover)}
 .acpmux-secret-card-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+.acpmux-elevation-card-command{display:block;padding:4px 8px;border-radius:6px;background:var(--agent-page-bg,var(--acpmux-base));color:var(--agent-text);font-family:var(--font-mono,ui-monospace,monospace);white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
 
 /* A permission ask (PermissionCard.tsx), after Claude desktop's "Allow Claude to use …?" card (Leo,
    2026-11-05): a glass card (.ui-glass, src/ui/glass/glass.css) in three bands on the 4 grid. The

@@ -216,6 +216,7 @@ class PrePushGateTests(unittest.TestCase):
             "scripts/merge-pbxproj.py",
             "scripts/merge-baseline.py",
             "scripts/merge-daemon-capabilities.py",
+            "scripts/merge-insertions.py",
             "scripts/ci/merge_main_resolver.py",
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
@@ -984,6 +985,10 @@ let package = Package(
 )
 """
 
+    # A list of two entries, one per line under the checker's marker (check-package-dependency-lists.py).
+    TWO_DEPS = ('dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py\n'
+                '                "CmuxNextApp",\n                "CmuxNextKit",\n            ]')
+
     def test_push_that_adds_an_undeclared_local_import_is_refused_with_the_fix(self):
         # 2026-10-29: a63986a4 and e875485c each pushed a test import their target did not declare, and the CI step
         # "Package dependency lists sorted" was red on every pull request after them.
@@ -1005,7 +1010,7 @@ let package = Package(
         self.assertIn('Fix: add "CmuxNextApp" to the dependencies of CmuxNextKitTests', output)
 
         self.write(f"{PKG}/Package.swift",
-                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', 'dependencies: ["CmuxNextKit", "CmuxNextApp"]'))
+                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', self.TWO_DEPS))
         self.commit("declare it")
         declared = self.push()
         self.assertEqual(declared.returncode, 0, declared.stdout + declared.stderr)
@@ -1033,7 +1038,7 @@ let package = Package(
         # Review of 6d8b96f: the gate's trees held only the changed files, so a manifest edit that dropped a
         # dependency an untouched source imports passed. A manifest change now brings the package's Swift sources.
         self.write(f"{PKG}/Package.swift",
-                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', 'dependencies: ["CmuxNextKit", "CmuxNextApp"]'))
+                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', self.TWO_DEPS))
         self.write(f"{PKG}/Tests/CmuxNextKitTests/AppTests.swift", "import CmuxNextKit\n@testable import CmuxNextApp\n")
         self.commit("a test target that declares what it imports")
         self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
@@ -1316,7 +1321,7 @@ let package = Package(
         self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
         self.git("fetch", "--quiet", "origin")
         self.write(f"{PKG}/Package.swift",
-                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', 'dependencies: ["CmuxNextApp", "CmuxNextKit"]'))
+                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', self.TWO_DEPS))
         self.write(f"{PKG}/Tests/CmuxNextKitTests/TryTests.swift", self.with_try("TryTests"))
         self.commit("a manifest edit and a test with try!")
 
@@ -1719,6 +1724,23 @@ let package = Package(
         self.assertNotEqual(result.returncode, 0, output)
         self.assertIn("has 2 process-scan line(s), baseline 1", output)
         self.assertEqual(self.remote_head(), before)
+
+    def test_a_direct_run_takes_a_row_added_for_sites_already_on_the_base(self):
+        # #37531: a base red's fix adds the row for process-scan sites already on the base and touches no source. The
+        # trees held only changed files, so the head read 0 sites against the new row and refused the fix.
+        self.write(self.SCAN, self.scan_source(1))
+        self.commit("base: a process-scan line with no row")
+        self.set_scan_row(1)
+        self.write("cmux-tui/crates/fixture/src/other.rs", "pub fn other() {}\n")  # the crate is in the trees
+        self.commit("adds its row")
+
+        result = subprocess.run(["python3", "-I", str(self.repo / GATE), "--repo", str(self.repo), "--base", "HEAD~1",
+                                 "--head", "HEAD", "--only", "scanners"],
+                                cwd=self.repo, env=self.env, text=True, capture_output=True)
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("now has 0 process-scan line(s)", output)
 
     def test_each_ratchet_baseline_shape_takes_only_lower_rows(self):
         spec = importlib.util.spec_from_file_location("prepush_gate_ratchet_rows", SOURCE / GATE)

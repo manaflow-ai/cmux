@@ -1,7 +1,7 @@
 // The chat menu's New side chat row: forks the chat through its last turn into a new session
 // that the app opens in a split beside the chat (`chat.side`), leaving the chat where it is.
 import { type Translate, translate } from "../i18n";
-import type { ChatMenuItem } from "./ChatHeaderTools";
+import type { ChatMenuItem } from "./chatHeaderToolsModel";
 
 export function sideChatRow(
   chat: { canFork: boolean; throughSeq: number | undefined; local: boolean },

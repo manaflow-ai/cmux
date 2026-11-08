@@ -156,6 +156,20 @@ impl Hub {
         // behind adoption's recovered turn below.
         self.session_log(session).await;
         self.wait_adopted(session).await;
+        // A prompt the daemon sends for a session (a workflow's step, its nudge) names that
+        // session: with no provenance its record would read as the person's own.
+        if opts.provenance.is_none()
+            && let Some(agent) = opts.agent.as_deref()
+        {
+            opts.provenance = Some(match self.resolve(agent).ok().filter(|s| s.id == agent) {
+                Some(from) => crate::prompt_provenance::session_message(
+                    &from.id,
+                    &self.session_name(&from.id),
+                    &session.id,
+                ),
+                None => crate::prompt_provenance::named_sender(agent, &session.id),
+            });
+        }
         self.pair_logs(opts.provenance.as_ref()).await;
         // A person's own prompt is the person asking for the chat: what a daemon start held in
         // its protected folder goes on, ahead of this prompt (`protected_hold.rs`).
@@ -933,11 +947,13 @@ impl Hub {
             // A refusal once the shutdown began (its trust read found no answer: chaos fault
             // `daemon-restart-session-new`) writes no end of its own, as a start the shutdown
             // ended does: the next daemon queues the prompt again (`unstarted_prompt.rs`).
-            if !self.shutting_down() {
-                self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
-            } else if !self.fail_unless_shutdown_settles(session, &prompt_id, &turn_id, &e, joined)
-                && self.hands_off(session)
-            {
+            // Decided and written under the shutdown's lock (`fail_unless_shutdown_settles`), not
+            // after a read of its flag a shutdown could begin behind.
+            if self.fail_unless_shutdown_settles(session, &prompt_id, &turn_id, &e, joined) {
+                if session.status() == SessionStatus::Disconnected {
+                    self.set_status(session, SessionStatus::Ready);
+                }
+            } else if self.hands_off(session) {
                 super::digest::forget_joined(Some(joined));
             }
             Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;

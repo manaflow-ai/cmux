@@ -1,5 +1,5 @@
 import React, { useRef, useState } from "react";
-import { projectName } from "./EmptyState";
+import { projectName } from "./emptyStateModel";
 import { type Translate, useT } from "./i18n";
 import { isAgentHome } from "./sessionList";
 import type { FolderTrustAsk } from "./useFolderTrustAsk";

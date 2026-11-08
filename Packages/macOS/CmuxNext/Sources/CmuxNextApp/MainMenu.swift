@@ -12,10 +12,10 @@ enum MainMenu {
         let mainMenu = NSMenu()
         // About (`about`: the standard panel with the build's credits) comes first, as in every Mac app.
         var app: [NSMenuItem] = registry.makeMenuItem(for: "about").map { [$0, .separator()] } ?? []
-        // Keep the app menu to the primary settings/update controls. Session-specific
-        // quit choices remain palette-searchable and are presented by the quit action.
-        let quitID: ActionID = "quit"
-        let placedElsewhere = Set([quitID, ActionID("about")].compactMap { registry.title(for: $0) })
+        // Keep the app menu to the primary settings/update controls. Quit (Cmd-Q) keeps the
+        // sessions running and never asks (Leo 2026-11-05); the two quits that end them sit under it.
+        let quitIDs: [ActionID] = ["quit", "quitEndSessions", "quitEndEverything"]
+        let placedElsewhere = Set((quitIDs + [ActionID("about")]).compactMap { registry.title(for: $0) })
         app += compactMainMenuItems(for: .app, registry: registry).filter { !placedElsewhere.contains($0.title) }
         app += [
             .separator(),
@@ -24,7 +24,7 @@ enum MainMenu {
             NSMenuItem(title: Strings.menuShowAll, action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: ""),
             .separator(),
         ]
-        app += [quitID].compactMap { registry.makeMenuItem(for: $0) }
+        app += quitIDs.compactMap { registry.makeMenuItem(for: $0) }
         mainMenu.addItem(submenu(Strings.appName, items: app))
         mainMenu.addItem(submenu(Strings.menuFile, items: compactMainMenuItems(for: .file, registry: registry)))
         mainMenu.addItem(submenu(Strings.menuEdit, items: [
@@ -80,7 +80,10 @@ enum MainMenu {
     /// remains available through the command palette. The allowlist is intentionally explicit so
     /// a new catalog placement cannot silently reintroduce menu overload.
     static let compactActionIDs: [ActionMainMenu: [ActionID]] = [
-        .app: ["about", "openSettings", "palette.checkForUpdates", "updates.installEarlierBuild", "keepMacAwake", "quit"],
+        .app: [
+            "about", "openSettings", "palette.checkForUpdates", "updates.installEarlierBuild", "keepMacAwake", "quit",
+            "quitEndSessions", "quitEndEverything",
+        ],
         .file: [
             "newTab", "newBrowserWorkspace", "newTab.default", "palette.newAgentChat", "palette.quickAgentChat",
             "openFolder", "file.open", "remote.connect", "device.add", "closeTab", "closeWorkspace", "closeWindow",
