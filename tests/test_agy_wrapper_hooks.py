@@ -30,6 +30,10 @@ def run_case(
     custom_real_path: bool = False,
     custom_dir: str = "custom",
 ) -> dict[str, object]:
+    """Run the wrapper directly with a fake real agy and a fake cmux CLI behind a listening socket.
+
+    Returns what the real agy received, the cmux calls the wrapper made, and the socket path.
+    """
     bin_dir = root / "bin"
     bin_dir.mkdir()
     real_agy = (root / custom_dir / "agy") if custom_real_path else (bin_dir / "agy")
@@ -136,6 +140,7 @@ def run_shim_case(root: Path, *, custom_points_at_shim: bool = False) -> dict[st
 
 
 def main() -> int:
+    """Run every agy wrapper scenario; a regression raises AssertionError."""
     with tempfile.TemporaryDirectory(prefix="cmux-agy-wrapper-") as directory:
         root = Path(directory)
         result = run_case(root, ("--prompt-interactive", "hello"))
