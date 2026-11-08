@@ -35,13 +35,13 @@ final class BookmarkService {
     /// Chromium's bookmark models follow the daemon's trees (chrome.bookmarks bridge).
     @ObservationIgnored var chromium: BookmarkChromiumSync?
     @ObservationIgnored var showsBar = false
-    /// Each profile's status for the pages its tabs show (``BookmarkService+Status``).
-    @ObservationIgnored var statuses: [String: ProfileStatus] = [:]
+    /// Each profile's status for the pages its tabs show.
+    @ObservationIgnored var statuses = BookmarkStatusCache()
     /// The one status read in flight per profile, and the profiles to read again after it.
     @ObservationIgnored var statusReads: [String: Task<Void, Never>] = [:]
     @ObservationIgnored var statusStale: Set<String> = []
     /// The omnibar suggestion engines, by profile, that index the profile's bookmarks.
-    @ObservationIgnored var feeds: [String: [WeakEngine]] = [:]
+    @ObservationIgnored var feeds: [String: [() -> OmniboxSuggestionEngine?]] = [:]
     /// The row a bar's context menu opened for: its menu's rows follow it (a folder's icon rows).
     @ObservationIgnored var menuTarget: MenuTarget?
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "bookmarks")
@@ -149,7 +149,7 @@ final class BookmarkService {
 
     /// A browser profile was deleted: its bookmarks go too (the daemon deletes its rows itself).
     func dropProfile(_ profile: String) {
-        statuses[profile] = nil
+        statuses.drop(profile)
         statusReads[profile]?.cancel()
         statusReads[profile] = nil
         lastFolder[profile] = nil

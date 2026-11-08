@@ -7,21 +7,6 @@ import Foundation
 /// The home daemon side: the read-only status the stars and bars read in the same frame, the
 /// omnibar's bookmark index, and the one-time copy of an older build's file.
 extension BookmarkService {
-    /// What the omnibar stars and the bookmarks bar of one profile show: `bookmarks.status` for
-    /// the pages that profile's tabs show, nothing more. Read again on every `bookmarks-changed`,
-    /// so it holds one entry per page on screen, never the tree.
-    struct ProfileStatus: Equatable {
-        var revision = -1
-        var barFilled = false
-        /// The ids of the links to each page shown (by its URL's text); a missing page is unknown.
-        var matches: [String: [String]] = [:]
-    }
-
-    final class WeakEngine {
-        weak var engine: OmniboxSuggestionEngine?
-        init(_ engine: OmniboxSuggestionEngine) { self.engine = engine }
-    }
-
     /// Follows the home daemon's capability: when it appears, copy an older build's file over,
     /// read the status of the pages on screen and run the legacy import pass. When it goes, the
     /// stars and bars keep what they show and edits are refused until it is back.
@@ -50,7 +35,7 @@ extension BookmarkService {
 
     /// The ids of the links to the page `url`, nil while its status is unknown.
     func bookmarkIDs(for url: URL, profile: String) -> [String]? {
-        statuses[profile]?.matches[url.absoluteString]
+        statuses.ids(for: url, profile: profile)
     }
 
     /// The pages `profile`'s live tabs show that can be bookmarked (one per page).
@@ -82,26 +67,14 @@ extension BookmarkService {
         }
     }
 
-    /// A status the daemon answered: an older revision than the one shown is dropped.
+    /// A status the daemon answered (``BookmarkStatusCache/apply(_:profile:shown:)``).
     func applyStatus(_ status: BookmarkRoutedClient.Status, profile: String) {
-        var current = statuses[profile] ?? ProfileStatus()
-        guard status.revision >= current.revision else { return }
-        current.revision = status.revision
-        current.barFilled = status.barFilled
-        // Pages no tab shows any more leave the cache; pages read now replace theirs.
-        let shown = Set(shownURLs(profile))
-        current.matches = current.matches.filter { shown.contains($0.key) }.merging(status.matches) { $1 }
-        guard current != statuses[profile] else { return }
-        statuses[profile] = current
-        refreshChromes(profiles: [profile])
+        if statuses.apply(status, profile: profile, shown: Set(shownURLs(profile))) { refreshChromes(profiles: [profile]) }
     }
 
     /// The star's own edit shows in the same frame; the daemon's change event then confirms it.
     func noteBookmarks(_ ids: [String], url: URL, profile: String, barFilled: Bool? = nil) {
-        var current = statuses[profile] ?? ProfileStatus()
-        current.matches[url.absoluteString] = ids
-        if let barFilled { current.barFilled = barFilled }
-        statuses[profile] = current
+        statuses.note(ids, url: url, profile: profile, barFilled: barFilled)
         refreshChromes(profiles: [profile])
     }
 
@@ -110,13 +83,13 @@ extension BookmarkService {
     /// Bookmark rows in a browser profile's omnibar (star icon): the profile's links go to its
     /// suggestion engine, read again on every change (plans/cmux-next/omnibar-suggestions.md).
     func feed(_ engine: OmniboxSuggestionEngine, profile: String) {
-        feeds[profile, default: []].append(WeakEngine(engine))
+        feeds[profile, default: []].append { [weak engine] in engine }
         refreshFeeds(profile)
     }
 
     /// Reads `profile`'s links for its engines; an engine that is gone leaves the list.
     func refreshFeeds(_ profile: String) {
-        feeds[profile]?.removeAll { $0.engine == nil }
+        feeds[profile]?.removeAll { $0() == nil }
         guard let engines = feeds[profile], !engines.isEmpty, usesDaemon else {
             if feeds[profile]?.isEmpty == true { feeds[profile] = nil }
             return
@@ -126,7 +99,7 @@ extension BookmarkService {
         Task { [weak self] in
             guard let nodes = try? await routed.list(profile: profile) else { return }
             let rows = Self.rows(nodes)
-            for engine in self?.feeds[profile] ?? [] { engine.engine?.setBookmarks(rows) }
+            for engine in self?.feeds[profile] ?? [] { engine()?.setBookmarks(rows) }
         }
     }
 
@@ -160,11 +133,11 @@ extension BookmarkService {
 
     /// The file's text, off the main actor; nil when there is none.
     @concurrent nonisolated private static func read(_ file: URL) async -> String? {
-        guard let data = try? Data(contentsOf: file) else { return nil }
+        guard let data = try? Data(blockingContentsOf: file) else { return nil }
         return String(data: data, encoding: .utf8)
     }
 
     @concurrent nonisolated private static func remove(_ file: URL) async {
-        try? FileManager.default.removeItem(at: file)
+        try? FileManager.checked.removeItem(at: file)
     }
 }

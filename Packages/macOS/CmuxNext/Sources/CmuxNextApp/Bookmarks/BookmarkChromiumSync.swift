@@ -10,8 +10,8 @@ import CmuxNextWakeups
 /// model loads; every change of a profile's tree syncs each store of that profile from a
 /// `bookmarks.list` read; an extension's change in Chromium goes to the daemon as an ordinary op,
 /// so the sync that follows finds nothing to change. cmux wins: a change the daemon refuses is
-/// undone in Chromium by syncing the store again. Ids: `bm_<32 hex>` in cmux is that UUID in
-/// Chromium; the roots are `bar` and `other` on both sides.
+/// undone in Chromium by syncing the store again. The mapping (ids, ops, the synced tree) is
+/// CmuxNextBookmarks' `BookmarkChromium.swift`.
 ///
 /// Syncs are debounced per store, and each event from a store pushes its sync back: Chromium's
 /// events are posted, so a sync sent while an extension's later change is still queued would undo
@@ -66,7 +66,7 @@ final class BookmarkChromiumSync {
             return
         }
         let ops: [BookmarkRoutedClient.Op]
-        do { ops = try Self.ops(for: event, profile: profile) } catch {
+        do { ops = try event.bookmarkOps(profile: profile) } catch {
             return logger.error("chrome.bookmarks change refused: \(String(describing: error), privacy: .public)")
         }
         guard !ops.isEmpty else { return }
@@ -78,39 +78,6 @@ final class BookmarkChromiumSync {
                 // The deferred sync puts the daemon's tree back in Chromium.
                 self?.logger.error("chrome.bookmarks change refused: \(String(describing: error), privacy: .public)")
             }
-        }
-    }
-
-    /// The daemon's ops for one Chromium event. A create of an id the daemon has changes
-    /// nothing; a delete or move of one it lacks is refused and the sync puts Chromium back.
-    static func ops(for event: CEFBookmarkEvent, profile: String) throws -> [BookmarkRoutedClient.Op] {
-        switch event {
-        case .loaded, .reset:
-            return []
-        case .added(let nodes):
-            return try nodes.map { node in
-                let created = node.addedMs.map { Date(timeIntervalSince1970: $0 / 1000) } ?? Date()
-                var url: URL?
-                if !node.isFolder {
-                    guard let parsed = node.url.flatMap(URL.init(string:)) else { throw BookmarkChromiumSyncError.badURL }
-                    url = parsed
-                }
-                return .create(id: cmuxID(node.id), profile: profile, parent: cmuxID(node.parent), index: node.index,
-                               folder: node.isFolder, title: node.title, url: url, created: created)
-            }
-        case .changed(let id, let title, let url):
-            var parsed: URL?
-            if let url {
-                guard let value = URL(string: url) else { throw BookmarkChromiumSyncError.badURL }
-                parsed = value
-            }
-            return [.update(id: cmuxID(id), title: title, url: parsed)]
-        case .moved(let id, let parent, let index):
-            return [.move(id: cmuxID(id), parent: cmuxID(parent), index: index)]
-        case .removed(let id):
-            return [.delete(id: cmuxID(id))]
-        case .reordered(let parent, let children):
-            return children.enumerated().map { index, child in .move(id: cmuxID(child), parent: cmuxID(parent), index: index) }
         }
     }
 
@@ -139,7 +106,7 @@ final class BookmarkChromiumSync {
             do {
                 let nodes = try await routed.list(profile: profile)
                 waiting[store] = nil
-                if bridge.sync(store: store, treeJSON: Self.json(nodes)) < 0 {
+                if bridge.sync(store: store, treeJSON: BookmarkID.chromiumTree(nodes)) < 0 {
                     logger.error("chrome.bookmarks sync refused for a store of \(profile, privacy: .public)")
                 }
             } catch {
@@ -147,36 +114,4 @@ final class BookmarkChromiumSync {
             }
         }
     }
-
-    /// {"nodes": [...]} in listing order (each folder before its children).
-    static func json(_ ordered: [BookmarkNode]) -> String {
-        let nodes: [[String: Any]] = ordered.map { node in
-            var object: [String: Any] = [
-                "id": chromiumID(node.id), "parent": chromiumID(node.parent),
-                "kind": node.isFolder ? "folder" : "url", "title": node.title,
-                "added_ms": BookmarkTime.ms(node.created),
-            ]
-            if let url = node.url { object["url"] = url.absoluteString }
-            return object
-        }
-        let data = (try? JSONSerialization.data(withJSONObject: ["nodes": nodes])) ?? Data("{\"nodes\":[]}".utf8)
-        return String(decoding: data, as: UTF8.self)
-    }
-
-    /// `bm_<32 hex>` as a lowercase UUID; roots unchanged.
-    static func chromiumID(_ id: String) -> String {
-        guard BookmarkID.isValid(id) else { return id }
-        let hex = Array(id.dropFirst(3))
-        return [0..<8, 8..<12, 12..<16, 16..<20, 20..<32].map { String(hex[$0]) }.joined(separator: "-")
-    }
-
-    /// A Chromium UUID as `bm_<32 hex>`; roots unchanged.
-    static func cmuxID(_ id: String) -> String {
-        guard !BookmarkRoot.isRoot(id) else { return id }
-        return "bm_" + id.replacingOccurrences(of: "-", with: "").lowercased()
-    }
-}
-
-enum BookmarkChromiumSyncError: Error {
-    case badURL
 }

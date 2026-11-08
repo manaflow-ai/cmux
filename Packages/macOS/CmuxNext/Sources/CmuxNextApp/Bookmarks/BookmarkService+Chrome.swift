@@ -24,7 +24,7 @@ extension BookmarkService {
         chromes = chromes.filter { $0.value.entry != nil }
         updateStar(entry, url: entry.tab.state.url)
         updateBar(bar, entry: entry)
-        if statuses[profile(of: entry.tab.profileID)] == nil { refreshStatus(profile(of: entry.tab.profileID)) }
+        if !statuses.knows(profile(of: entry.tab.profileID)) { refreshStatus(profile(of: entry.tab.profileID)) }
     }
 
     func refreshChromes(profiles: Set<String>) {
@@ -48,7 +48,7 @@ extension BookmarkService {
     /// A tab's bar shows while the setting is on and its profile fills one (#38046). Its page reads
     /// the daemon's rows itself and follows their changes: the app only attaches or detaches it.
     private func updateBar(_ bar: BookmarksBarHostView, entry: BrowserEntry) {
-        let shown = showsBar && statuses[profile(of: entry.tab.profileID)]?.barFilled == true
+        let shown = showsBar && statuses.barFilled(profile(of: entry.tab.profileID))
         if (entry.state.accessory?.view === bar) != shown { entry.state.accessory = shown ? (bar, BookmarksBarHostView.height) : nil }
     }
 

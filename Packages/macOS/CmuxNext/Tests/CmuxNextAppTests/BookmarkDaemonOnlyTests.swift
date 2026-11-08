@@ -24,7 +24,7 @@ struct BookmarkDaemonOnlyTests {
             try await bookmarks.apply([.create(id: BookmarkID.make(), profile: "default", parent: BookmarkRoot.bar.rawValue,
                                                folder: false, title: "Example", url: url)])
         }
-        #expect(bookmarks.statuses["default"] == nil, "a refused edit shows nowhere")
+        #expect(!bookmarks.statuses.knows("default"), "a refused edit shows nowhere")
         #expect(bookmarks.bookmarkIDs(for: url, profile: "default") == nil, "the star's state stays unknown")
         #expect(!FileManager.default.fileExists(atPath: directory.appending(path: "bookmarks.json").path))
     }
