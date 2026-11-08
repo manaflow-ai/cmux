@@ -209,11 +209,9 @@
   },
   {
    "do": "rpc",
-   "method": "debug.close_variant",
+   "method": "debug.frames",
    "params": {
-    "variant": "V0",
-    "ms": 150,
-    "curve": "bezier"
+    "action": "close_variant V0 150 bezier"
    },
    "title": "film selector: V0 150 ms bezier"
   },
@@ -281,11 +279,9 @@
   },
   {
    "do": "rpc",
-   "method": "debug.close_variant",
+   "method": "debug.frames",
    "params": {
-    "variant": "V1",
-    "ms": 150,
-    "curve": "bezier"
+    "action": "close_variant V1 150 bezier"
    },
    "title": "film selector: V1 150 ms bezier"
   },
@@ -353,11 +349,9 @@
   },
   {
    "do": "rpc",
-   "method": "debug.close_variant",
+   "method": "debug.frames",
    "params": {
-    "variant": "V3",
-    "ms": 150,
-    "curve": "bezier"
+    "action": "close_variant V3 150 bezier"
    },
    "title": "film selector: V3 150 ms bezier"
   },
@@ -448,11 +442,9 @@
   },
   {
    "do": "rpc",
-   "method": "debug.close_variant",
+   "method": "debug.frames",
    "params": {
-    "variant": "V0",
-    "ms": 150,
-    "curve": "bezier"
+    "action": "close_variant V0 150 bezier"
    },
    "title": "film selector: V0 150 ms bezier"
   },
@@ -520,11 +512,9 @@
   },
   {
    "do": "rpc",
-   "method": "debug.close_variant",
+   "method": "debug.frames",
    "params": {
-    "variant": "V1",
-    "ms": 150,
-    "curve": "bezier"
+    "action": "close_variant V1 150 bezier"
    },
    "title": "film selector: V1 150 ms bezier"
   },
@@ -592,11 +582,9 @@
   },
   {
    "do": "rpc",
-   "method": "debug.close_variant",
+   "method": "debug.frames",
    "params": {
-    "variant": "V3",
-    "ms": 150,
-    "curve": "bezier"
+    "action": "close_variant V3 150 bezier"
    },
    "title": "film selector: V3 150 ms bezier"
   },
@@ -698,11 +686,9 @@
   },
   {
    "do": "rpc",
-   "method": "debug.close_variant",
+   "method": "debug.frames",
    "params": {
-    "variant": "V0",
-    "ms": 150,
-    "curve": "bezier"
+    "action": "close_variant V0 150 bezier"
    },
    "title": "film selector: V0 150 ms bezier"
   },
@@ -770,11 +756,9 @@
   },
   {
    "do": "rpc",
-   "method": "debug.close_variant",
+   "method": "debug.frames",
    "params": {
-    "variant": "V1",
-    "ms": 150,
-    "curve": "bezier"
+    "action": "close_variant V1 150 bezier"
    },
    "title": "film selector: V1 150 ms bezier"
   },
@@ -842,11 +826,9 @@
   },
   {
    "do": "rpc",
-   "method": "debug.close_variant",
+   "method": "debug.frames",
    "params": {
-    "variant": "V3",
-    "ms": 150,
-    "curve": "bezier"
+    "action": "close_variant V3 150 bezier"
    },
    "title": "film selector: V3 150 ms bezier"
   },
@@ -937,11 +919,9 @@
   },
   {
    "do": "rpc",
-   "method": "debug.close_variant",
+   "method": "debug.frames",
    "params": {
-    "variant": "V0",
-    "ms": 150,
-    "curve": "bezier"
+    "action": "close_variant V0 150 bezier"
    },
    "title": "film selector: V0 150 ms bezier"
   },
@@ -1009,11 +989,9 @@
   },
   {
    "do": "rpc",
-   "method": "debug.close_variant",
+   "method": "debug.frames",
    "params": {
-    "variant": "V1",
-    "ms": 150,
-    "curve": "bezier"
+    "action": "close_variant V1 150 bezier"
    },
    "title": "film selector: V1 150 ms bezier"
   },
@@ -1081,11 +1059,9 @@
   },
   {
    "do": "rpc",
-   "method": "debug.close_variant",
+   "method": "debug.frames",
    "params": {
-    "variant": "V3",
-    "ms": 150,
-    "curve": "bezier"
+    "action": "close_variant V3 150 bezier"
    },
    "title": "film selector: V3 150 ms bezier"
   },

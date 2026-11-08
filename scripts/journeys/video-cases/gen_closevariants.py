@@ -45,7 +45,7 @@ PROGRAMS = {
 
 
 def film(name, variant, ms, curve, closed):
-    return [X.focus(closed), {"do": "rpc", "method": "debug.close_variant", "params": {"variant": variant, "ms": ms, "curve": curve},
+    return [X.focus(closed), {"do": "rpc", "method": "debug.frames", "params": {"action": f"close_variant {variant} {ms} {curve}"},
                               "title": f"film selector: {variant} {ms} ms {curve}"},
             G.settle(0.8),
             {"do": "video_start", "name": name, "seconds": 5.0, "mbps": 24, "rows": [], "columns": [], "require_hz": 120,
