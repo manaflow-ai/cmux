@@ -278,6 +278,9 @@ final class WindowOverlayLayer {
         requestPageUpdate(geometryOnly: !shapesChanged) // no clip shape changed: only moved pages work geometry out
     }
 
+    /// The window a press belongs to now (`DividerMouseCatchers.pressTarget`, ZOOM VARIANTS 8).
+    func pressTarget(for event: NSEvent) -> NSWindow? { catchers.pressTarget(for: event, roots: planes.compactMap { $0.home as? LayoutRootView }) }
+
     // MARK: Placement and order
 
     /// Visible child windows that draw content above the parent: every child

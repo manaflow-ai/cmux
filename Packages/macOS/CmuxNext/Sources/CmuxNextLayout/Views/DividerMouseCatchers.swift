@@ -48,6 +48,15 @@ public final class DividerMouseCatchers {
     /// Window numbers of the panels shown: they pass divider hover through.
     public var windowNumbers: Set<Int> { Set(panels.values.filter { $0.isVisible && !$0.ignoresMouseEvents }.map(\.windowNumber)) }
 
+    /// The window a press belongs to when the window server gave it to another (ZOOM VARIANTS 8, `DividerPressRetarget`).
+    /// A press while a film zoom plays on `roots` (the window's layouts) ends the film's wait first, so the catchers follow
+    /// the dividers' current places (`LayoutRootView.endFilmMotionWait`), then goes to the catcher panel over the point,
+    /// else the page window under it, else the window. Nil: the press's own window is right, or no film plays (a spring
+    /// keeps its catchers until it lands, as before).
+    public func pressTarget(for event: NSEvent, roots: [LayoutRootView]) -> NSWindow? {
+        nil
+    }
+
     /// Frames of the panels shown, in window coordinates (`debug.layers`).
     public var framesInWindow: [String: CGRect] {
         panels.compactMapValues { $0.parent === window ? window.convertFromScreen($0.frame) : nil }
