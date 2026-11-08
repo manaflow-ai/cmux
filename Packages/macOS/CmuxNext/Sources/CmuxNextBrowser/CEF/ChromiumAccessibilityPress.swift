@@ -39,9 +39,8 @@ nonisolated enum ChromiumAccessibilityPress {
         let note: (AnyObject) -> Void = { element in
             // AppKit sends accessibility actions on the main thread; anywhere else only presses.
             guard Thread.isMainThread else { return }
-            // crash-allow: read only inside this call, on the main thread AppKit sent the action on; it never leaves it.
-            nonisolated(unsafe) let element = element
-            MainActor.assumeIsolated { pressed(Self.window(of: element), Self.frame(of: element)) } // main-proof: guarded by Thread.isMainThread
+            let window = Self.window(of: element), frame = Self.frame(of: element)
+            MainActor.assumeIsolated { pressed(window, frame) } // main-proof: guarded by Thread.isMainThread
         }
         if let existing = class_getInstanceMethod(elementClass, performPress) {
             let earlier = unsafeBitCast(method_getImplementation(existing), to: Press.self)
@@ -75,12 +74,16 @@ nonisolated enum ChromiumAccessibilityPress {
         return install(on: elementClass, pressed: pressed)
     }
 
+    /// Read by key (the element's own properties), only when it answers them: an element that
+    /// does not is no window and no frame.
     private static func window(of element: AnyObject) -> NSWindow? {
-        (element as? NSAccessibilityProtocol)?.accessibilityWindow() as? NSWindow
+        guard let element = element as? NSObject, element.responds(to: NSSelectorFromString("accessibilityWindow")) else { return nil }
+        return element.value(forKey: "accessibilityWindow") as? NSWindow
     }
 
     private static func frame(of element: AnyObject) -> CGRect? {
-        guard let frame = (element as? NSAccessibilityProtocol)?.accessibilityFrame(), !frame.isEmpty else { return nil }
+        guard let element = element as? NSObject, element.responds(to: NSSelectorFromString("accessibilityFrame")),
+              let frame = (element.value(forKey: "accessibilityFrame") as? NSValue)?.rectValue, !frame.isEmpty else { return nil }
         return frame
     }
 }
