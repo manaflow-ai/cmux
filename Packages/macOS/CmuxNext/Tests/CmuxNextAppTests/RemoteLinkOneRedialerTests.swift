@@ -58,6 +58,16 @@ import Testing
         daemon.shutdownConnection()
     }
 
+    /// A machine unreachable at launch has no link process yet, so nothing in Rust watches its network:
+    /// the network coming back still wakes its first attempt, with no app action.
+    @Test func aNeverConnectedLinkStillWakesOnTheNetwork() async throws {
+        let calls = Calls()
+        let daemon = Self.service(calls, followsLink: true)
+        #expect(daemon.watchesNetwork, "an SSH machine unreachable at launch would never come back by itself")
+        daemon.shutdownConnection()
+        #expect(!daemon.watchesNetwork)
+    }
+
     /// The link reporting connected again, or its process exiting, wakes the daemon connection; other
     /// changes (a failure, an install) do not.
     @Test func onlyTheLinksUpAndLossWakeTheDaemon() {

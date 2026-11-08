@@ -321,7 +321,9 @@ public final class DaemonService {
     /// per drop (``RetryPolicy/linkReconnect``), then it waits for the link's
     /// state (its owner fires ``retryWake`` when the link reports connected or
     /// its process exits), app activation or a person's Reconnect. The link
-    /// watches the network itself, so no path monitor runs. Otherwise the
+    /// watches the network itself once it runs, so the path monitor wakes only
+    /// the first connect (a machine unreachable at launch has no link process
+    /// yet) and stops at the first connection. Otherwise the
     /// first connect and each reconnect are retried with capped backoff
     /// (`DaemonStartup`), and past their budget wait for a network path
     /// change, app activation or the link socket changing.
@@ -347,14 +349,15 @@ public final class DaemonService {
         armStartupDeadline()
         observeRetryEvents()
         let wake = retryWake
-        if !followsLink {
-            let monitor = NWPathMonitor()
-            monitor.pathUpdateHandler = { path in
-                if path.status == .satisfied { wake.fire() }
-            }
-            monitor.start(queue: DispatchQueue(label: "com.cmuxterm.next.daemon.path.\(machineID)"))
-            pathMonitor = monitor
+        // A link that redials by itself watches the network once it runs; before its first
+        // connection there is no link process yet (the machine was unreachable at launch), so the
+        // network coming back wakes the first attempt here until the first connection.
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { path in
+            if path.status == .satisfied { wake.fire() }
         }
+        monitor.start(queue: DispatchQueue(label: "com.cmuxterm.next.daemon.path.\(machineID)"))
+        pathMonitor = monitor
         let clock = startupClock
         let firstConnect: RetryPolicy = followsLink ? .linkFirstConnect : .firstConnect
         var configuration = DaemonConnection.Configuration(requiredCapabilities: requiredCapabilities,
@@ -404,6 +407,7 @@ public final class DaemonService {
                 }
                 await connection.observePaneNotReady(self.paneNotReadyReporter)
                 self.didConnect(connection, identity: identity)
+                if followsLink { self.stopWatchingNetwork() }
                 logger.info("\(machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
                 await store.run(connection: connection, scheduler: drainScheduler)
                 await connection.closeAndWait()
@@ -413,6 +417,14 @@ public final class DaemonService {
                 guard await wake.awaitWake(delay: nil, clock: clock) != .cancelled else { return }
             }
         }
+    }
+
+    /// Whether a network path change wakes this service's waiting attempt (``start(remote:followsLink:)``).
+    var watchesNetwork: Bool { pathMonitor != nil }
+
+    private func stopWatchingNetwork() {
+        pathMonitor?.cancel()
+        pathMonitor = nil
     }
 
     private func didConnect(_ connection: DaemonConnection, identity: DaemonIdentity) {
@@ -649,8 +661,7 @@ public final class DaemonService {
         recovery.detach()
         startupDeadlineTimer?.cancel()
         startupDeadlineTimer = nil
-        pathMonitor?.cancel()
-        pathMonitor = nil
+        stopWatchingNetwork()
         if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
         activationObserver = nil
         runTask?.cancel()
