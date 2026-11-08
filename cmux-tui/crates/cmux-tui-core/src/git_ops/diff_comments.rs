@@ -333,11 +333,19 @@ impl Store {
         write_json(&self.path(root), file)
     }
 
-    /// Records the pull request `root`'s comments go to, keeping its
-    /// comments (`git.review.start`).
+    /// Records the pull request `root`'s comments go to (`git.review.start`).
+    /// A review of the same pull request and head keeps its drafts; any
+    /// other comments under the root (a removed worktree's path made again,
+    /// another head) are dropped, so they never go to this review.
     pub(super) fn set_review(&self, root: &str, review: Value) -> io::Result<()> {
         self.exclusive(root, || {
             let mut file = self.read(root)?;
+            let same = |name: &str| {
+                file.review.as_ref().and_then(|prior| prior.get(name)) == review.get(name)
+            };
+            if !(same("url") && same("head")) {
+                file.comments.clear();
+            }
             file.review = Some(review);
             self.write(root, &file)
         })

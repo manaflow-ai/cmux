@@ -221,11 +221,19 @@ export function useDiffComments({
       return;
     }
     const targetRepoRoot = repoRoot;
-    const batch = nextBatch(pendingPosts.current.get(targetRepoRoot), comments, (ids, versions) => ({
-      ids,
-      versions,
-      opid: `diff-review-${crypto.randomUUID()}`,
-    }));
+    // A post that may have reached GitHub is retried under its own opid while any of its drafts is
+    // still listed, edited or not: the host finds the review that opid posted (its marker) instead of
+    // posting the same drafts again under a new one; a draft edited since stays for the next post.
+    const pending = pendingPosts.current.get(targetRepoRoot);
+    const listed = new Set(comments.map((comment) => comment.id));
+    const batch =
+      pending != null && pending.ids.some((id) => listed.has(id))
+        ? pending
+        : nextBatch(undefined, comments, (ids, versions) => ({
+            ids,
+            versions,
+            opid: `diff-review-${crypto.randomUUID()}`,
+          }));
     pendingPosts.current.set(targetRepoRoot, batch);
     setPostState("posting");
     setPostError(undefined);

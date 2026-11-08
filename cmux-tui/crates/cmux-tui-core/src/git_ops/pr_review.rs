@@ -301,7 +301,11 @@ fn comment(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Res
         );
         return Err(refused(COMMENT, "not_a_review", message, Value::Null));
     };
-    let hunks = hunks(&repository, base, COMMENT)?.remove(&file).unwrap_or_default();
+    // The reviewed head, not the worktree's HEAD now: drafts are on the
+    // commit the review is posted on.
+    let head = stored.review.as_ref().and_then(|review| review.get("head")?.as_str());
+    let head = head.unwrap_or("HEAD");
+    let hunks = hunks(&repository, base, head, COMMENT)?.remove(&file).unwrap_or_default();
     if !hunks.covers(side, start, end) {
         let lines = if start < end { format!("{start}-{end}") } else { end.to_string() };
         let shown = hunks.describe(side);
@@ -320,7 +324,7 @@ fn comment(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Res
     }
     // The base's text of a renamed file is under its old name.
     let (revision, path) = match side {
-        Side::Additions => ("HEAD", file.as_str()),
+        Side::Additions => (head, file.as_str()),
         Side::Deletions => (base, hunks.old_path.as_deref().unwrap_or(&file)),
     };
     let line_text = line_text(&repository, revision, path, end)?;
@@ -360,10 +364,12 @@ fn file_path(file: Option<&str>, root: &Path) -> Result<String, ResourceError> {
 }
 
 /// Each file's hunks in the pull request's diff, as GitHub shows it: from
-/// the merge-base to the head, renames found, three lines of context.
+/// the merge-base to the reviewed head, renames found, three lines of
+/// context.
 fn hunks(
     repository: &Repository,
     base: &str,
+    head: &str,
     operation: &str,
 ) -> Result<BTreeMap<String, Hunks>, ResourceError> {
     let arguments = [
@@ -378,11 +384,15 @@ fn hunks(
         "-M",
         github::CONTEXT_LINES,
         base,
-        "HEAD",
+        head,
     ];
     let output = repository
         .run(&arguments, MAX_DIFF_BYTES)
         .map_err(|failure| refused(operation, "git_failed", failure.reason(), Value::Null))?;
+    if output.truncated {
+        let message = format!("the pull request's diff is over {MAX_DIFF_BYTES} bytes");
+        return Err(refused(operation, "too_large", message, Value::Null));
+    }
     Ok(github::file_hunks(&String::from_utf8_lossy(&output.stdout)))
 }
 
@@ -398,6 +408,10 @@ fn line_text(
     let output = repository
         .run(&["cat-file", "blob", object.as_str()], MAX_FILE_BYTES)
         .map_err(|failure| refused(COMMENT, "git_failed", failure.reason(), Value::Null))?;
+    if output.truncated {
+        let message = format!("{file} is over {MAX_FILE_BYTES} bytes at {revision}");
+        return Err(refused(COMMENT, "too_large", message, Value::Null));
+    }
     let text = String::from_utf8_lossy(&output.stdout);
     let index = usize::try_from(line).unwrap_or(usize::MAX).saturating_sub(1);
     text.lines().nth(index).map(|line| line.trim_end_matches('\r').to_string()).ok_or_else(|| {
@@ -436,18 +450,20 @@ fn post(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resour
             .collect();
         let repository = open_repository(Path::new(root), POST).map_err(normalized)?;
         let marker = github::marker(key);
-        let drafted = github::review(&head, &chosen, &hunks(&repository, &base, POST)?, &marker);
-        if drafted.ids.is_empty() {
-            let message = "none of the named drafts is still listed unchanged";
-            return Err(refused(POST, "nothing_to_post", message, Value::Null));
-        }
+        let drafted =
+            github::review(&head, &chosen, &hunks(&repository, &base, &head, POST)?, &marker);
         let git = UserGit { root: &repository.root, deadline: deadline() };
         let path = format!("repos/{}/pulls/{}/reviews", pull.repository(), pull.number);
         // A post whose answer was lost may still have reached GitHub: its
         // retry (the same key) finds the review by the key's marker in its
-        // body before it posts, so the person never gets it twice.
+        // body before it posts, so the person never gets it twice, even when
+        // every draft it carried was edited since.
         let url = match posted_review(&git, &path, &marker)? {
             Some(url) => url,
+            None if drafted.ids.is_empty() => {
+                let message = "none of the named drafts is still listed unchanged";
+                return Err(refused(POST, "nothing_to_post", message, Value::Null));
+            }
             None => {
                 let input = serde_json::to_vec(&drafted.payload).unwrap_or_default();
                 let arguments = ["api", "--method", "POST", path.as_str(), "--input", "-"];

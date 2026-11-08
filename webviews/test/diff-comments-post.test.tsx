@@ -191,6 +191,29 @@ test("a refused post keeps the drafts, says why, and its retry reuses the opid",
   );
 });
 
+test("a draft edited after an uncertain post is retried under that post's opid and kept", async () => {
+  let refuse = true;
+  await withHost(
+    () => {
+      if (refuse) throw new Error("the session host did not answer");
+      // The host found the first post's review by its marker: nothing was posted again or cleared.
+      return { url: `${REVIEW.url}#pullrequestreview-2`, posted: 0, in_body: 0, cleared: [] };
+    },
+    async (calls) => {
+      const probe = await mountHook([comment("c1", "a.ts", 1)]);
+      await act(async () => probe.hook().post());
+      expect(probe.hook().postState).toBe("failed");
+      probe.state.current.comments = [{ ...comment("c1", "a.ts", 1), updatedAt: "2026-11-07T00:05:00.000Z" }];
+      refuse = false;
+      await act(async () => probe.hook().post());
+      expect(calls[1]!.opid).toBe(calls[0]!.opid!);
+      expect(calls[1]!.params.versions).toEqual(calls[0]!.params.versions);
+      expect(probe.dispatched).toEqual([]);
+      probe.unmount();
+    },
+  );
+});
+
 test("an ordinary worktree cannot post", async () => {
   await withHost(
     () => ({}),
