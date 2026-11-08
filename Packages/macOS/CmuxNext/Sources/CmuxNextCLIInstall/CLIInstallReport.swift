@@ -26,7 +26,7 @@ public nonisolated struct CLIInstallPlan: Equatable, Sendable {
 }
 
 /// The toast's buttons.
-public nonisolated enum CLIInstallButton: Sendable {
+public nonisolated enum CLIInstallButton: Equatable, Sendable {
     case install, repoint, replace
 
     public var title: String {
