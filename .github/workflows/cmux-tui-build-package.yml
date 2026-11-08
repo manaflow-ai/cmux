@@ -411,8 +411,10 @@ jobs:
           cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
+          # The script prints one `--features=...` argument or nothing.
+          acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }})"
           cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }} \
-            $(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }})
+            ${acpmux_features:+"$acpmux_features"}
 
       # Warm start for the Linux musl legs (.github/warm-sources.json: actions-cache):
       # dependency builds keyed by the toolchain and Cargo.lock, so a new commit
@@ -495,8 +497,10 @@ jobs:
           cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
+          # The script prints one `--features=...` argument or nothing.
+          acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }})"
           cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }} \
-            $(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }})
+            ${acpmux_features:+"$acpmux_features"}
 
       - name: Build cmux-cloud app server
         # The first-party Cloud app server (cmux/cloud) is its own Cargo
