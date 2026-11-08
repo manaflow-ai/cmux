@@ -238,6 +238,7 @@ fn resolve_local_open_preparation(
             ResourceEffectOutcome::Failure(error) => Err(error),
         },
         ResourceEffectPreparation::Indeterminate => {
+            mux.report_resource_effect_indeterminate(key, "session.open", EARLIER_ATTEMPT_CAUSE);
             Err(local_indeterminate_error(key, "session.open"))
         }
         ResourceEffectPreparation::Execute { .. } => {
@@ -255,7 +256,12 @@ fn resolve_local_open_preparation(
                     &outcome,
                     Some(&json!([])),
                 )
-                .map_err(|_| {
+                .map_err(|error| {
+                    mux.report_resource_effect_indeterminate(
+                        key,
+                        "session.open",
+                        &format!("the outcome commit failed: {error:#}"),
+                    );
                     let _ = mux.mark_resource_effect_indeterminate(key);
                     local_indeterminate_error(key, "session.open")
                 })?;
@@ -278,6 +284,11 @@ fn local_mutation_result(
         "replayed":replayed,
     }))
 }
+
+/// Cause logged when a request replays a key whose earlier attempt left an
+/// indeterminate outcome.
+pub(crate) const EARLIER_ATTEMPT_CAUSE: &str =
+    "an earlier attempt with this key has an indeterminate outcome";
 
 fn local_indeterminate_error(key: &str, operation: &str) -> ResourceError {
     ResourceError::new(
