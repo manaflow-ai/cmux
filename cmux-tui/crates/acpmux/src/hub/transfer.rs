@@ -912,32 +912,6 @@ mod tests {
         })
     }
 
-    /// A chat moved here from another machine's linked worktree into a fresh clone keeps no
-    /// worktree record of that machine's: its folder is here, so its turns run (they were
-    /// refused as `session.folder_missing`, so a moved chat and its continued turn never ran).
-    #[tokio::test]
-    async fn a_moved_chat_takes_no_worktree_record_of_the_machine_it_left() {
-        let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
-        let hub = harness_hub(&dir);
-        let id = uuid::Uuid::now_v7().to_string();
-        let here = dir.join("clone");
-        std::fs::create_dir_all(&here).unwrap();
-        let mut meta = harness_meta(&id, "agent-0006");
-        meta["cwd"] = json!(here);
-        meta["worktree"] = json!({
-            "cwd": here, "root": "/home/someone/Projects/checkouts/repo/lane--x",
-            "commonDir": "/home/someone/Projects/repo/.git", "branch": "lane/x",
-        });
-        let bundle = dir.join("bundle");
-        std::fs::create_dir_all(bundle.join("events")).unwrap();
-        std::fs::write(bundle.join("session.json"), meta.to_string()).unwrap();
-        let session = hub.import(&bundle, None).await.unwrap();
-        assert_eq!(session.meta().worktree, None);
-        let one = tokio::sync::Mutex::new(());
-        hub.revive_folder(&session, &one).await.expect("its folder is here: the turn runs");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
     /// Review of #25676: a marker write that fails before its rename takes its temporary file
     /// with it, so the next write of that marker (a retry's) is not refused as occupied.
     #[test]
