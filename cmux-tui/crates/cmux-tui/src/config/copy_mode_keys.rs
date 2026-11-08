@@ -101,16 +101,6 @@ static COPY_MODE_BINDINGS: [CopyModeBinding; 36] = [
     binding(CopyModeAction::Exit, "exit", &["q", "ctrl+c"]),
 ];
 
-impl CopyModeAction {
-    /// The `keys.copy_mode` name of this command.
-    pub fn config_key(self) -> &'static str {
-        COPY_MODE_BINDINGS
-            .iter()
-            .find(|binding| binding.action == self)
-            .map_or("", |binding| binding.config_key)
-    }
-}
-
 /// Resolved copy-mode chords: the defaults with `keys.copy_mode` applied.
 #[derive(Debug, Clone)]
 pub struct CopyModeKeys {

@@ -222,7 +222,7 @@ impl App {
         let cursor = (state.cursor.row >= offset && state.cursor.row <= bottom)
             .then(|| (state.cursor.col, (state.cursor.row - offset) as u16));
         let matches = state.search.as_ref().map_or_else(Vec::new, |search| {
-            let current = search.current.map(|index| search.matches[index].0);
+            let current = search.current.and_then(|index| search.matches.get(index)).map(|m| m.0);
             search
                 .matches_in_rows(offset, bottom)
                 .iter()

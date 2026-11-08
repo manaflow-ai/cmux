@@ -72,7 +72,7 @@ impl SearchState {
                 .unwrap_or(self.matches.len() - 1)
         };
         self.current = Some(index);
-        Some(self.matches[index].0)
+        self.matches.get(index).map(|(start, _)| *start)
     }
 
     /// The `k/n` count for the mode line; `n+` when the search was truncated.
@@ -89,6 +89,6 @@ impl SearchState {
     pub(crate) fn matches_in_rows(&self, top: u64, bottom: u64) -> &[(CopyPoint, CopyPoint)] {
         let first = self.matches.partition_point(|(_, end)| end.row < top);
         let last = self.matches.partition_point(|(start, _)| start.row <= bottom);
-        &self.matches[first..last.max(first)]
+        self.matches.get(first..last.max(first)).unwrap_or_default()
     }
 }

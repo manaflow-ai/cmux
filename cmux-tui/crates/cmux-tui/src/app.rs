@@ -452,7 +452,7 @@ pub struct App {
     pending_size_releases: HashSet<SurfaceId>,
     geometry_authority_surface: Option<SurfaceId>,
     pub prefix_armed: bool,
-    pub(crate) copy_mode: Option<self::copy_mode::CopyModeSession>,
+    pub(crate) copy_mode: Option<copy_mode::CopyModeSession>,
     pub session_label: String,
     /// Machine-level model spend readout from the session's daemon; `None`
     /// hides the sidebar readout.
