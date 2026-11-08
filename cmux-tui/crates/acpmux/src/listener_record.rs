@@ -7,30 +7,39 @@
 //! it later. A DEV build listens on `127.0.0.1:0` and never saves its port, and a daemon whose
 //! saved port was taken moves to a free one, so config.json is also often wrong.
 //!
-//! The daemon writes the record once its listener is bound and removes it on a clean exit. It
-//! records the address to dial: a wildcard bind (`0.0.0.0:P`, `[::]:P`) is recorded as loopback
-//! (`127.0.0.1:P`, `[::1]:P`). The record is written once per run: the daemon binds its web
+//! The record holds the address to dial: a wildcard bind (`0.0.0.0:P`, `[::]:P`) is recorded as
+//! loopback (`127.0.0.1:P`, `[::1]:P`). It is written once per run: the daemon binds its web
 //! listener once, before it serves (`daemon.rs`: the configured address, or a free loopback port
 //! when that one is taken), and moves that listener into its one `serve_ws_until` task; nothing
-//! rebinds it while the daemon runs. If that task ends early, the port is closed while the
-//! record stays; a service that binds the port later cannot answer the nonce, so the link refuses
-//! it.
+//! rebinds it while the daemon runs.
 //!
-//! A
-//! reader ([`connect_live`]) trusts it only when all of these hold, and otherwise sends nothing:
+//! [`write`] returns a [`Written`] guard: dropping it removes the record, so a startup that fails
+//! after the write leaves none, and the daemon drops it first thing in its shutdown, while its
+//! listener is still bound (the record is gone before the port is freed). A crash leaves the
+//! record; a reader refuses it, as below. The write goes through the lost-home fence
+//! (`config::refuse_lost_home`): a home replaced under the daemon never gets its record.
+//!
+//! A reader ([`connect_live`]) trusts the record only when all of these hold, and otherwise sends
+//! nothing:
+//! - the file is this user's;
 //! - the record's process still runs, with the start time the record names (a reused pid has
 //!   another) and this reader's uid;
-//! - the listener at the recorded address answers [`PROBE`] with the record's nonce, a random
-//!   value this daemon drew at start (`serve_ws_until` answers it before any request head).
+//! - the listener at the recorded address answers a fresh random challenge with its HMAC-SHA256
+//!   under the record's key. The key is in the record only (mode 0600), so a process of another
+//!   user cannot answer, and an answer it saw once is useless for the next challenge: a service
+//!   that binds the port after the daemon cannot pass, whatever it watched before.
 //!
 //! Format (mode 0600, replaced through a temp file and a rename):
-//! `{"version":1,"listen":"127.0.0.1:52341","pid":1234,"start":[1794120000,123456],"nonce":"<32 hex>"}`.
+//! `{"version":2,"listen":"127.0.0.1:52341","pid":1234,"start":[1794120000,123456],"key":"<64 hex>"}`.
 //! `start` is the OS start time of `pid`: on macOS `proc_bsdinfo` seconds and microseconds, on
 //! Linux `/proc/<pid>/stat` field 22 (clock ticks since boot) and 0.
+//!
+//! The probe is one request head, so the listener's reader (`server/ws_peek.rs`) reads it whole:
+//! `ACPMUX-LINK/2 <challenge: 64 hex>\r\n\r\n`, answered with `ACPMUX-LINK/2 <hmac: 64 hex>\n`.
 
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -40,14 +49,13 @@ use tokio::net::TcpStream;
 
 /// The file name in the acpmux home.
 pub const FILE_NAME: &str = "listener.json";
-/// The first bytes the link sends: a whole request head to the listener's reader
-/// (`server/ws_peek.rs`), answered with [`answer`] instead of HTTP.
-pub const PROBE: &[u8] = b"ACPMUX-LINK/1\r\n\r\n";
-const ANSWER_PREFIX: &str = "ACPMUX-LINK/1 ";
-const VERSION: u32 = 1;
+const PROBE_PREFIX: &str = "ACPMUX-LINK/2 ";
+const VERSION: u32 = 2;
 const MAX_BYTES: u64 = 4096;
-/// The answer line's bound: the prefix, 32 hex digits and a newline, with room to spare.
-const MAX_ANSWER_BYTES: usize = 128;
+/// Random bytes in a key and in a challenge.
+const SECRET_BYTES: usize = 32;
+/// The answer line: the prefix, 64 hex digits and a newline.
+const ANSWER_BYTES: usize = PROBE_PREFIX.len() + 2 * SECRET_BYTES + 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -56,26 +64,47 @@ struct Record {
     listen: SocketAddr,
     pid: u32,
     start: (u64, u64),
-    nonce: String,
+    key: String,
 }
 
-/// This process's nonce: 16 random bytes as hex, drawn once.
-fn nonce() -> &'static str {
-    static NONCE: OnceLock<String> = OnceLock::new();
-    NONCE.get_or_init(|| {
-        let mut bytes = [0u8; 16];
-        // Without randomness the record cannot be bound to this listener: an empty nonce is
-        // refused by every reader.
-        if getrandom::fill(&mut bytes).is_err() {
-            return String::new();
-        }
-        bytes.iter().map(|b| format!("{b:02x}")).collect()
-    })
+fn random() -> Option<[u8; SECRET_BYTES]> {
+    let mut bytes = [0u8; SECRET_BYTES];
+    getrandom::fill(&mut bytes).ok()?;
+    Some(bytes)
 }
 
-/// The line the listener answers [`PROBE`] with.
-pub fn answer() -> String {
-    format!("{ANSWER_PREFIX}{}\n", nonce())
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn unhex(text: &str) -> Option<Vec<u8>> {
+    if text.len() % 2 != 0 {
+        return None;
+    }
+    (0..text.len())
+        .step_by(2)
+        .map(|at| u8::from_str_radix(text.get(at..at + 2)?, 16).ok())
+        .collect()
+}
+
+/// This process's key, drawn once; none without randomness (then no record is written and no
+/// probe is answered).
+fn key() -> Option<&'static [u8; SECRET_BYTES]> {
+    static KEY: OnceLock<Option<[u8; SECRET_BYTES]>> = OnceLock::new();
+    KEY.get_or_init(random).as_ref()
+}
+
+fn tag(key: &[u8], challenge: &[u8]) -> ring::hmac::Tag {
+    ring::hmac::sign(&ring::hmac::Key::new(ring::hmac::HMAC_SHA256, key), challenge)
+}
+
+/// The listener's answer to `read`, when `read` is exactly one probe head; none for anything
+/// else (it goes on as a request).
+pub fn probe_answer(read: &[u8]) -> Option<String> {
+    let text = std::str::from_utf8(read).ok()?;
+    let challenge = text.strip_prefix(PROBE_PREFIX)?.strip_suffix("\r\n\r\n")?;
+    let challenge = unhex(challenge).filter(|bytes| bytes.len() == SECRET_BYTES)?;
+    Some(format!("{PROBE_PREFIX}{}\n", hex(tag(key()?, &challenge).as_ref())))
 }
 
 /// The address to dial for a listener bound at `listen`: a wildcard is reached on loopback.
@@ -88,17 +117,40 @@ fn dialable(mut listen: SocketAddr) -> SocketAddr {
     listen
 }
 
+/// This process's record in a home: removed when dropped (if it is still this process's).
+#[must_use = "dropping it removes the record"]
+#[derive(Debug)]
+pub struct Written {
+    home: PathBuf,
+}
+
+impl Drop for Written {
+    fn drop(&mut self) {
+        remove_if_owned(&self.home);
+    }
+}
+
 /// Record `listen` (the bound address; a wildcard is recorded as loopback) as this process's
-/// listener in `home`.
-pub fn write(home: &Path, listen: SocketAddr) -> io::Result<()> {
+/// listener in `home`, unless the home is lost (`config::refuse_lost_home`).
+pub fn write(home: &Path, listen: SocketAddr) -> io::Result<Written> {
+    write_fenced(home, listen, |path| {
+        crate::config::refuse_lost_home(path).map_err(io::Error::other)
+    })
+}
+
+fn write_fenced(
+    home: &Path,
+    listen: SocketAddr,
+    fence: impl Fn(&Path) -> io::Result<()>,
+) -> io::Result<Written> {
     use std::io::Write as _;
+    let path = home.join(FILE_NAME);
+    fence(&path)?;
     let listen = dialable(listen);
     let pid = std::process::id();
     let (start, _) = process_identity(pid)?;
-    if nonce().is_empty() {
-        return Err(io::Error::other("no randomness for the listener nonce"));
-    }
-    let record = Record { version: VERSION, listen, pid, start, nonce: nonce().to_owned() };
+    let key = key().ok_or_else(|| io::Error::other("no randomness for the listener key"))?;
+    let record = Record { version: VERSION, listen, pid, start, key: hex(key) };
     let text = serde_json::to_vec(&record).map_err(io::Error::other)?;
     let temp = home.join(format!(".{FILE_NAME}.{pid}.tmp"));
     let written = (|| {
@@ -109,18 +161,20 @@ pub fn write(home: &Path, listen: SocketAddr) -> io::Result<()> {
         let mut file = options.open(&temp)?;
         file.write_all(&text)?;
         file.sync_all()?;
-        std::fs::rename(&temp, home.join(FILE_NAME))
+        std::fs::rename(&temp, &path)
     })();
     if written.is_err() {
         let _ = std::fs::remove_file(&temp);
     }
-    written
+    written.map(|()| Written { home: home.to_path_buf() })
 }
 
-/// Remove the record when it is this process's (a clean exit).
-pub fn remove_if_owned(home: &Path) {
-    if read(home).is_some_and(|record| record.pid == std::process::id() && record.nonce == nonce())
-    {
+/// Remove the record when it is this process's.
+fn remove_if_owned(home: &Path) {
+    let ours = key().map(|key| hex(key));
+    if read(home).is_some_and(|record| {
+        record.pid == std::process::id() && Some(&record.key) == ours.as_ref()
+    }) {
         let _ = std::fs::remove_file(home.join(FILE_NAME));
     }
 }
@@ -140,7 +194,8 @@ fn read(home: &Path) -> Option<Record> {
         }
     }
     let record: Record = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
-    (record.version == VERSION && !record.nonce.is_empty()).then_some(record)
+    let key_ok = unhex(&record.key).is_some_and(|key| key.len() == SECRET_BYTES);
+    (record.version == VERSION && key_ok).then_some(record)
 }
 
 /// Why [`connect_live`] sent nothing on.
@@ -154,13 +209,13 @@ pub enum NotLive {
     Stale,
     /// Nothing listens at the recorded address.
     Unreachable,
-    /// The listener there did not answer the probe with the record's nonce.
+    /// The listener there did not answer the challenge under the record's key.
     WrongListener,
 }
 
-/// The listener of the acpmux daemon that runs from `home` now, connected and proven by its nonce:
-/// the stream is past the probe, and the caller's bytes go to the listener's request reader.
-/// `bound` limits the connect and the probe together.
+/// The listener of the acpmux daemon that runs from `home` now, connected and proven by the
+/// record's key: the stream is past the probe, and the caller's bytes go to the listener's
+/// request reader. `bound` limits the connect and the probe together.
 pub async fn connect_live(home: &Path, bound: Duration) -> Result<TcpStream, NotLive> {
     let record = read(home).ok_or(NotLive::NoRecord)?;
     if !record.listen.ip().is_loopback() || record.listen.port() == 0 {
@@ -170,24 +225,30 @@ pub async fn connect_live(home: &Path, bound: Duration) -> Result<TcpStream, Not
         Ok((start, uid)) if start == record.start && uid == effective_uid() => {}
         _ => return Err(NotLive::Stale),
     }
+    let key = unhex(&record.key).ok_or(NotLive::NoRecord)?;
+    let challenge = random().ok_or(NotLive::WrongListener)?;
     tokio::time::timeout(bound, async {
         let mut stream =
             TcpStream::connect(record.listen).await.map_err(|_| NotLive::Unreachable)?;
         let _ = stream.set_nodelay(true);
-        stream.write_all(PROBE).await.map_err(|_| NotLive::WrongListener)?;
-        let expected = format!("{ANSWER_PREFIX}{}\n", record.nonce);
-        let mut line = Vec::with_capacity(expected.len());
+        let probe = format!("{PROBE_PREFIX}{}\r\n\r\n", hex(&challenge));
+        stream.write_all(probe.as_bytes()).await.map_err(|_| NotLive::WrongListener)?;
+        let mut line = Vec::with_capacity(ANSWER_BYTES);
         // Byte by byte: what follows the answer belongs to the caller's stream.
         while line.last() != Some(&b'\n') {
-            if line.len() >= MAX_ANSWER_BYTES {
+            if line.len() >= ANSWER_BYTES {
                 return Err(NotLive::WrongListener);
             }
             let byte = stream.read_u8().await.map_err(|_| NotLive::WrongListener)?;
             line.push(byte);
         }
-        if line != expected.as_bytes() {
-            return Err(NotLive::WrongListener);
-        }
+        let answer = std::str::from_utf8(&line)
+            .ok()
+            .and_then(|line| line.strip_prefix(PROBE_PREFIX)?.strip_suffix('\n'))
+            .and_then(unhex)
+            .ok_or(NotLive::WrongListener)?;
+        let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &key);
+        ring::hmac::verify(&key, &challenge, &answer).map_err(|_| NotLive::WrongListener)?;
         Ok(stream)
     })
     .await
@@ -256,17 +317,43 @@ mod tests {
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
-    fn the_record_is_this_users_and_a_clean_exit_removes_it() {
+    fn the_record_is_this_users_and_dropping_its_guard_removes_it() {
         let home = tempfile::tempdir().unwrap();
-        write(home.path(), "127.0.0.1:52341".parse().unwrap()).unwrap();
+        let written = write(home.path(), "127.0.0.1:52341".parse().unwrap()).unwrap();
         let record = read(home.path()).unwrap();
         assert_eq!(record.pid, std::process::id());
-        assert_eq!(record.nonce.len(), 32);
-        assert_eq!(answer(), format!("ACPMUX-LINK/1 {}\n", record.nonce));
+        assert_eq!(unhex(&record.key).unwrap().len(), SECRET_BYTES);
         use std::os::unix::fs::PermissionsExt as _;
         let mode = std::fs::metadata(home.path().join(FILE_NAME)).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
-        remove_if_owned(home.path());
+        drop(written);
+        assert!(!home.path().join(FILE_NAME).exists());
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn a_lost_home_refuses_the_write() {
+        let home = tempfile::tempdir().unwrap();
+        let refused = write_fenced(home.path(), "127.0.0.1:52341".parse().unwrap(), |_| {
+            Err(io::Error::other("the acpmux home is gone"))
+        });
+        assert!(refused.is_err());
+        assert!(!home.path().join(FILE_NAME).exists());
+        assert_eq!(std::fs::read_dir(home.path()).unwrap().count(), 0, "nothing written");
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn a_startup_error_after_the_write_leaves_no_record() {
+        fn start(home: &Path) -> io::Result<()> {
+            let _record = write(home, "127.0.0.1:52341".parse().unwrap())?;
+            assert!(home.join(FILE_NAME).exists());
+            // A later startup step fails (`Mailbox::open`, the WireGuard transport): `?` returns.
+            Err(io::Error::other("mailbox"))?;
+            Ok(())
+        }
+        let home = tempfile::tempdir().unwrap();
+        assert!(start(home.path()).is_err());
         assert!(!home.path().join(FILE_NAME).exists());
     }
 
@@ -280,35 +367,112 @@ mod tests {
             ("[::1]:52341", "[::1]:52341"),
         ] {
             let home = tempfile::tempdir().unwrap();
-            write(home.path(), bound.parse().unwrap()).unwrap();
+            let _written = write(home.path(), bound.parse().unwrap()).unwrap();
             assert_eq!(read(home.path()).unwrap().listen, recorded.parse().unwrap(), "{bound}");
         }
     }
 
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    #[tokio::test]
-    async fn a_wildcard_listener_is_reached_through_its_record() {
-        // A listener bound to the wildcard, answering the probe as the daemon's does.
-        let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await.unwrap();
-        let bound = listener.local_addr().unwrap();
+    /// A listener on `bound` that answers one probe with `answer` (what it computes or replays).
+    async fn answering(
+        listener: tokio::net::TcpListener,
+        answer: impl FnOnce(&[u8]) -> String + Send + 'static,
+    ) {
         tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
-            let mut probe = vec![0u8; PROBE.len()];
-            stream.read_exact(&mut probe).await.unwrap();
-            assert_eq!(probe, PROBE);
-            stream.write_all(answer().as_bytes()).await.unwrap();
+            let mut head = Vec::new();
+            while !head.ends_with(b"\r\n\r\n") {
+                head.push(stream.read_u8().await.unwrap());
+            }
+            stream.write_all(answer(&head).as_bytes()).await.unwrap();
             let _ = stream.read_u8().await;
         });
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[tokio::test]
+    async fn a_wildcard_listener_is_reached_and_proven_through_its_record() {
+        let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await.unwrap();
+        let bound = listener.local_addr().unwrap();
+        answering(listener, |head| probe_answer(head).unwrap()).await;
         let home = tempfile::tempdir().unwrap();
-        write(home.path(), bound).unwrap();
+        let _written = write(home.path(), bound).unwrap();
         assert!(connect_live(home.path(), Duration::from_secs(5)).await.is_ok());
+    }
+
+    /// The shutdown order: the record goes while the port is still held, so the link stops
+    /// sending peers here before any other process could bind the port.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[tokio::test]
+    async fn the_record_is_gone_before_the_port_closes() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let bound = listener.local_addr().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let written = write(home.path(), bound).unwrap();
+        drop(written);
+        assert!(!home.path().join(FILE_NAME).exists());
+        // The port is still this daemon's and still accepts, yet the link no longer dials it.
+        let raw = TcpStream::connect(bound).await.unwrap();
+        let (_held, _) = listener.accept().await.unwrap();
+        assert!(matches!(
+            connect_live(home.path(), Duration::from_secs(5)).await,
+            Err(NotLive::NoRecord)
+        ));
+        drop(raw);
+        drop(listener);
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[tokio::test]
+    async fn an_answer_seen_before_does_not_pass_a_new_challenge() {
+        // A process that watched one probe and its answer, then binds the port itself.
+        let first = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let bound = first.local_addr().unwrap();
+        let (seen_tx, seen_rx) = tokio::sync::oneshot::channel();
+        answering(first, move |head| {
+            let answer = probe_answer(head).unwrap();
+            let _ = seen_tx.send(answer.clone());
+            answer
+        })
+        .await;
+        let home = tempfile::tempdir().unwrap();
+        let _written = write(home.path(), bound).unwrap();
+        assert!(connect_live(home.path(), Duration::from_secs(5)).await.is_ok());
+        let seen = seen_rx.await.unwrap();
+        // The first listener closes once its connection ends; then the port is free to take.
+        let mut replayer = None;
+        for _ in 0..100 {
+            if let Ok(listener) = tokio::net::TcpListener::bind(bound).await {
+                replayer = Some(listener);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let replayer = replayer.expect("the port frees");
+        answering(replayer, move |_| seen).await;
+        assert_eq!(
+            connect_live(home.path(), Duration::from_secs(5)).await.err(),
+            Some(NotLive::WrongListener)
+        );
+    }
+
+    #[test]
+    fn only_a_whole_probe_head_is_answered() {
+        let challenge = hex(&[7u8; SECRET_BYTES]);
+        let probe = format!("ACPMUX-LINK/2 {challenge}\r\n\r\n");
+        assert!(probe_answer(probe.as_bytes()).is_some());
+        assert!(probe_answer(format!("{probe}GET").as_bytes()).is_none());
+        assert!(probe_answer(b"ACPMUX-LINK/2 00\r\n\r\n").is_none());
+        assert!(probe_answer(b"GET / HTTP/1.1\r\n\r\n").is_none());
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn another_daemons_record_is_left_alone() {
         let home = tempfile::tempdir().unwrap();
-        let other = r#"{"version":1,"listen":"127.0.0.1:1","pid":1,"start":[1,0],"nonce":"ab"}"#;
+        let other = format!(
+            r#"{{"version":2,"listen":"127.0.0.1:1","pid":1,"start":[1,0],"key":"{}"}}"#,
+            hex(&[1u8; SECRET_BYTES])
+        );
         std::fs::write(home.path().join(FILE_NAME), other).unwrap();
         remove_if_owned(home.path());
         assert!(home.path().join(FILE_NAME).exists());

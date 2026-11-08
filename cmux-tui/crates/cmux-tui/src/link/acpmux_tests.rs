@@ -66,16 +66,28 @@ async fn acpmux_listener() -> (SocketAddr, String, JoinHandle<()>, tempfile::Tem
     (address, peer_token, task, dir)
 }
 
-/// An acpmux home whose `listener.json` names `listen` as this process's
-/// listener: this test process plays the daemon (its pid, start time and nonce).
-fn live_home(listen: SocketAddr) -> tempfile::TempDir {
-    let home = tempfile::tempdir().unwrap();
-    acpmux::listener_record::write(home.path(), listen).unwrap();
-    home
+/// An acpmux home whose `listener.json` names a listener as this process's:
+/// this test process plays the daemon (its pid, start time and key). The
+/// record goes when this is dropped, before the folder.
+struct LiveHome {
+    _written: acpmux::listener_record::Written,
+    dir: tempfile::TempDir,
 }
 
-fn live(home: &tempfile::TempDir) -> AcpmuxTarget {
-    AcpmuxTarget::Live(home.path().to_path_buf())
+impl AsRef<std::path::Path> for LiveHome {
+    fn as_ref(&self) -> &std::path::Path {
+        self.dir.path()
+    }
+}
+
+fn live_home(listen: SocketAddr) -> LiveHome {
+    let dir = tempfile::tempdir().unwrap();
+    let written = acpmux::listener_record::write(dir.path(), listen).unwrap();
+    LiveHome { _written: written, dir }
+}
+
+fn live(home: &impl AsRef<std::path::Path>) -> AcpmuxTarget {
+    AcpmuxTarget::Live(home.as_ref().to_path_buf())
 }
 
 fn record(install: &str, public: [u8; 32], endpoint: SocketAddr) -> PairingRecord {
@@ -379,9 +391,9 @@ fn an_unrelated_listener_on_a_stale_saved_port_gets_no_peer_bytes() {
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert!(received(&seen).is_empty(), "config.json's port was dialed: {:?}", received(&seen));
 
-        // Even a record of a live process naming that port: the listener cannot echo the nonce,
-        // so it gets the probe and nothing of the peer's.
-        acpmux::listener_record::write(home.path(), stale).unwrap();
+        // Even a record of a live process naming that port: the listener cannot answer the
+        // challenge under the record's key, so it gets the probe and nothing of the peer's.
+        let _written = acpmux::listener_record::write(home.path(), stale).unwrap();
         assert_eq!(
             peer_stream(&live(&home)).await,
             Err(InboundRefused::AcpmuxNotLive(NotLive::WrongListener))
@@ -389,17 +401,21 @@ fn an_unrelated_listener_on_a_stale_saved_port_gets_no_peer_bytes() {
         tokio::time::sleep(Duration::from_millis(400)).await;
         let got = received(&seen);
         assert_eq!(got.len(), 1, "{got:?}");
-        assert_eq!(got[0].as_bytes(), acpmux::listener_record::PROBE, "{got:?}");
+        assert!(got[0].starts_with("ACPMUX-LINK/2 ") && got[0].ends_with("\r\n\r\n"), "{got:?}");
+        assert!(!got[0].contains("peer-secret"), "{got:?}");
     });
 }
 
 /// `listener.json` as this process would write it for `listen`, with `pid` in place of its own.
 fn record_with_pid(home: &std::path::Path, listen: SocketAddr, pid: u32) {
-    acpmux::listener_record::write(home, listen).unwrap();
+    // Once its pid is another's, the guard leaves the record in place.
+    let written = acpmux::listener_record::write(home, listen).unwrap();
     let path = home.join(acpmux::listener_record::FILE_NAME);
     let mut record: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     record["pid"] = json!(pid);
     std::fs::write(&path, record.to_string()).unwrap();
+    drop(written);
+    assert!(path.exists());
 }
 
 #[test]

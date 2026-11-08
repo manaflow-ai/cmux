@@ -1056,20 +1056,18 @@ pub async fn serve_ws_until(
                     ws_peek::Request::Gone => return,
                 };
                 // The cmux link proves this is the listener `listener.json` names before it
-                // sends a paired peer's bytes (`listener_record.rs`): the probe, alone, once.
-                if read.as_slice() != crate::listener_record::PROBE {
+                // sends a paired peer's bytes (`listener_record.rs`): it answers the link's
+                // challenge under the record's key, for the probe alone, once.
+                let Some(answer) = crate::listener_record::probe_answer(&read) else {
                     break (head, read);
-                }
+                };
                 if probed {
                     return;
                 }
                 probed = true;
-                if tokio::io::AsyncWriteExt::write_all(
-                    &mut stream,
-                    crate::listener_record::answer().as_bytes(),
-                )
-                .await
-                .is_err()
+                if tokio::io::AsyncWriteExt::write_all(&mut stream, answer.as_bytes())
+                    .await
+                    .is_err()
                 {
                     return;
                 }
