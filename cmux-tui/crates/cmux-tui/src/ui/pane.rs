@@ -487,7 +487,7 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
                 buf[(origin_x + x, origin_y)].set_symbol("▎").set_style(style.fg(theme.tab_rail));
             }
         }
-        if let Some((offset, agent)) = agent_glyphs[i] {
+        if let Some(&Some((offset, agent))) = agent_glyphs.get(i) {
             let glyph_x = x + u16::from(chip_caps.is_some()) + offset;
             if glyph_x < x + w.saturating_sub(u16::from(chip_caps.is_some())) {
                 let color =
