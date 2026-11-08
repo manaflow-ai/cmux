@@ -168,6 +168,8 @@ pub struct Peer {
     wireguard: std::sync::OnceLock<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)>,
     /// The paired install the cmux link dials for this peer (`peer_carriers.rs`).
     link_host: std::sync::OnceLock<String>,
+    /// The cmux link's socket when known ahead of its registration (tests); else read per dial.
+    link_socket: std::sync::OnceLock<std::path::PathBuf>,
     /// The peer's paths and which one carries the link (`peer_paths.rs`), made on first use.
     paths: StdMutex<Option<crate::peer_paths::Paths>>,
     /// The path the live link runs on, while it is open.
@@ -415,6 +417,7 @@ impl Peer {
             tunnel: Mutex::new(None),
             wireguard: std::sync::OnceLock::new(),
             link_host: std::sync::OnceLock::new(),
+            link_socket: std::sync::OnceLock::new(),
             paths: StdMutex::new(None),
             serving: StdMutex::new(None),
             switch_wanted: AtomicBool::new(false),
@@ -1654,38 +1657,8 @@ impl Peer {
         out_rx: &mut mpsc::Receiver<Outbound>,
     ) -> Result<LinkEnd, String> {
         use crate::peer_paths::Via;
-        let order = self.dial_order();
         self.facts.lock_or_recover().refused = false;
-        // An SSH peer may source this launch's application credentials over
-        // SSH. Resolve them before a direct path too, or a remote-origin handshake can
-        // reread a newer peer token and reconnect forever with the old one.
-        let direct = order.iter().any(|via| matches!(via, Via::Wireguard | Via::Link));
-        let ssh_tokens = if direct && self.ssh_parts().is_some() {
-            Some(self.connect_tokens().await?)
-        } else {
-            None
-        };
-        let dials: Vec<_> =
-            order.iter().map(|via| (*via, self.open_via(*via, ssh_tokens.clone()))).collect();
-        let mut stopped = self.stop_changed.subscribe();
-        let raced = tokio::select! {
-            biased;
-            _ = stopped.wait_for(|stopped| *stopped) => return Err("peer stopped".to_owned()),
-            raced = carriers::race(dials, carriers::STAGGER) => raced,
-        };
-        let (via, opened, failed) = match raced {
-            Ok(won) => won,
-            Err(failed) => {
-                for (via, _) in &failed {
-                    self.path_failed(*via);
-                }
-                return Err(carriers::failures_line(&failed));
-            }
-        };
-        for (via, error) in &failed {
-            tracing::debug!(peer = %self.name, via = via.as_str(), "path unavailable: {error}");
-            self.path_failed(*via);
-        }
+        let (via, opened) = self.open_first().await?;
         // A losing ssh attempt's process ends now.
         if via != Via::Ssh {
             self.end_tunnel().await;

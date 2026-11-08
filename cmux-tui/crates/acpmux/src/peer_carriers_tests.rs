@@ -215,3 +215,54 @@ async fn an_incoming_action_past_its_budget_no_longer_holds_the_link() {
     drop(running);
     assert!(peer.switch_due());
 }
+
+/// A link socket that answers one `link.dial` for `inst_b`, then serves a WebSocket on the
+/// stream (the peer's listener, through the link).
+#[cfg(target_os = "linux")]
+async fn fake_link_to_a_listener() -> (tempfile::TempDir, PathBuf) {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("link.sock");
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut stream = BufReader::new(stream);
+        let mut request = String::new();
+        stream.read_line(&mut request).await.unwrap();
+        assert_eq!(request.trim_end(), r#"{"op":"link.dial","host":"inst_b","service":"acpmux"}"#);
+        let reply = "{\"ok\":true,\"path_state\":\"direct\",\"relay_available\":false}\n";
+        stream.get_mut().write_all(reply.as_bytes()).await.unwrap();
+        let ws = tokio_tungstenite::accept_async(stream.into_inner()).await.unwrap();
+        // Held open until the test ends.
+        std::future::pending::<()>().await;
+        drop(ws);
+    });
+    (dir, path)
+}
+
+/// Review of #38357 at 7e076d8e (F1): with the peer's tokens configured, a reachable link path
+/// is dialed without any ssh read first, so an ssh that is down never stops it.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn configured_tokens_reach_the_peer_over_the_link_while_ssh_is_down() {
+    let (_dir, socket) = fake_link_to_a_listener().await;
+    let (tx, _rx) = mpsc::channel(8);
+    // Nothing answers ssh on port 1.
+    let peer = Peer::new(
+        "link-while-ssh-is-down",
+        "ssh://nobody@127.0.0.1:1",
+        Some("token".into()),
+        Some("peer-token".into()),
+        tx,
+    );
+    peer.set_link_host("inst_b".into());
+    peer.set_link_socket(socket);
+    assert_eq!(peer.dial_order(), [Via::Link, Via::Ssh]);
+    let (via, opened) = tokio::time::timeout(Duration::from_secs(5), peer.open_first())
+        .await
+        .expect("the link path waited on ssh")
+        .unwrap();
+    assert_eq!(via, Via::Link);
+    assert_eq!(opened.presented.as_deref(), Some("peer-token"));
+    peer.stop();
+}

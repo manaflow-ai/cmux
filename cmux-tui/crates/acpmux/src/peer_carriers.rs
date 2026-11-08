@@ -363,6 +363,61 @@ impl Peer {
         })
     }
 
+    /// Dial this peer's paths (`dial_order`), each `STAGGER` after the one before it or at once
+    /// when it failed, and keep the first that opens; the others are marked failed.
+    pub(super) async fn open_first(self: &Arc<Self>) -> Result<(Via, Opened), String> {
+        let order = self.dial_order();
+        let ssh_tokens = self.direct_tokens(&order).await;
+        let dials: Vec<_> =
+            order.iter().map(|via| (*via, self.open_via(*via, ssh_tokens.clone()))).collect();
+        let mut stopped = self.stop_changed.subscribe();
+        let raced = tokio::select! {
+            biased;
+            _ = stopped.wait_for(|stopped| *stopped) => return Err("peer stopped".to_owned()),
+            raced = race(dials, STAGGER) => raced,
+        };
+        let (via, opened, failed) = match raced {
+            Ok(won) => won,
+            Err(failed) => {
+                for (via, _) in &failed {
+                    self.path_failed(*via);
+                }
+                return Err(failures_line(&failed));
+            }
+        };
+        for (via, error) in &failed {
+            tracing::debug!(peer = %self.name, via = via.as_str(), "path unavailable: {error}");
+            self.path_failed(*via);
+        }
+        Ok((via, opened))
+    }
+
+    /// The tokens a direct path presents, read over ssh first only when this peer has no
+    /// configured pair: an ssh:// peer may source this launch's credentials there, and a
+    /// direct path must not present older ones than its ssh path would. Configured tokens
+    /// need no read, so a direct path never waits on ssh for them; and a read that fails
+    /// (ssh down) leaves the direct path its kept tokens, never stops it.
+    async fn direct_tokens(&self, order: &[Via]) -> Option<(tokens::Tokens, bool)> {
+        let direct = order.iter().any(|via| matches!(via, Via::Wireguard | Via::Link));
+        let configured = self.token.is_some() && self.peer_token.is_some();
+        if !direct || configured || self.ssh_parts().is_none() {
+            return None;
+        }
+        match self.connect_tokens().await {
+            Ok(tokens) => Some(tokens),
+            Err(error) => {
+                tracing::debug!(peer = %self.name, "no tokens over ssh before the direct path: {error}");
+                None
+            }
+        }
+    }
+
+    /// The cmux link socket to dial, ahead of the link's registration (tests).
+    #[cfg(test)]
+    pub(super) fn set_link_socket(&self, socket: PathBuf) {
+        let _ = self.link_socket.set(socket);
+    }
+
     /// A raw stream to the peer's listener on a direct path, and the URL its upgrade names.
     async fn direct_stream(&self, via: Via) -> Result<(BoxDuplex, String), String> {
         match via {
@@ -374,11 +429,11 @@ impl Peer {
             }
             Via::Link => {
                 let host = self.link_host.get().ok_or_else(|| "not a paired install".to_owned())?;
-                let socket = tokio::task::spawn_blocking(link_socket)
-                    .await
-                    .ok()
-                    .flatten()
-                    .ok_or_else(|| "cmux link is not running".to_owned())?;
+                let socket = match self.link_socket.get() {
+                    Some(socket) => Some(socket.clone()),
+                    None => tokio::task::spawn_blocking(link_socket).await.ok().flatten(),
+                }
+                .ok_or_else(|| "cmux link is not running".to_owned())?;
                 let stream = dial_link(&socket, host).await?;
                 Ok((Box::new(stream), "ws://localhost/".to_owned()))
             }
