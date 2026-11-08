@@ -161,8 +161,8 @@ def encode(runs, out_dir, images, only=None):
     for path in images:
         image = ctx.Image.open(path).convert("RGB")
         array = ctx.numpy.ascontiguousarray(ctx.numpy.asarray(image))
-        stem = Path(path).stem
-        folder = Path(out_dir) / stem
+        # OUT_DIR/<size folder>/<image>: the native and 1366 copies of an image share its name.
+        folder = Path(out_dir) / Path(path).parent.name / Path(path).stem
         folder.mkdir(parents=True, exist_ok=True)
         for sid, codec, lib, fn, ext, note in chosen:
             record = {"image": path, "setting": sid, "codec": codec, "lib": lib, "note": note, "width": image.width, "height": image.height}

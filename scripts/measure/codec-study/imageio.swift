@@ -113,20 +113,22 @@ case "encode" where args.count >= 5:
     let outDir = args[3]
     for path in args[4...] {
         let image = load(path)
-        let stem = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
-        let dir = "\(outDir)/\(stem)"
+        // OUT_DIR/<size folder>/<image>: the native and 1366 copies of an image share its name.
+        let url = URL(fileURLWithPath: path)
+        let dir = "\(outDir)/\(url.deletingLastPathComponent().lastPathComponent)/\(url.deletingPathExtension().lastPathComponent)"
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         for setting in settings() {
             var record: [String: Any] = ["image": path, "setting": setting.id, "codec": setting.codec, "lib": "imageio", "note": setting.note,
                                          "width": image.width, "height": image.height]
-            var bytes: Data?
-            guard let encodeTime = timed(runs, { bytes = encode(image, setting.type, setting.options); return bytes != nil }), let bytes else {
+            var encodedBytes: Data?
+            guard let encodeTime = timed(runs, { encodedBytes = encode(image, setting.type, setting.options); return encodedBytes != nil }),
+                  let bytes = encodedBytes else {
                 record["error"] = "encode failed"
                 emit(record)
                 continue
             }
-            var decoded: CGImage?
-            guard let decodeTime = timed(runs, { decoded = decode(bytes); return decoded != nil }), let decoded else {
+            var decodedImage: CGImage?
+            guard let decodeTime = timed(runs, { decodedImage = decode(bytes); return decodedImage != nil }), let decoded = decodedImage else {
                 record["error"] = "decode failed"
                 emit(record)
                 continue

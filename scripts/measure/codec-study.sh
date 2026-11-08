@@ -76,7 +76,7 @@ if not mac:
 print(json.dumps({
     "cpu": cpu, "cores": os.cpu_count(), "macos": run("sw_vers", "-productVersion") if mac else None,
     "os": platform.platform(), "rev": run("git", "-C", root, "rev-parse", "HEAD"), "runs": runs,
-    "host_kind": "Apple silicon Mac" if mac else "Linux check (times are not the study's)",
+    "host_kind": "Apple silicon Mac" if mac else "Linux check (times are not for the study)",
     "memory_gb": round(int(run("sysctl", "-n", "hw.memsize") or 0) / 2**30) if mac else None,
     "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
 }))
