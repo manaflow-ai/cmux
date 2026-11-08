@@ -463,6 +463,9 @@ struct SidebarPinFlightTests {
         // Where the person sees the workspace when the item takes over: the closing row's path at the move's begin.
         let now = Self.moveBegin(of: arrived) ?? turnEnd
         print("pin-closing-row timing: the item begins \(ms(turnEnd, now)) ms after the blocks' turn, \(ms(rowsStart, now)) ms after the rows' apply")
+        // A client's two updates come a frame or two apart. A host that stalls the run loop past the row's close (the
+        // fleet's display workers spent about 150 ms on a new window's first display pass) tests nothing: say so.
+        try #require(now - rowsStart < 0.1, "SETUP: the item begins \(ms(rowsStart, now)) ms after the rows' update (\(timing)), past the close")
         let drawnStart: CGRect
         switch Self.one(closing, at: now) {
         case let .success(frame): drawnStart = frame
