@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42427398654",
+  "recorded_at": "2026-11-08T00:02:15Z",
+  "reason": "cmux-tui 1f1004c11c7a changes the image's cmux-tui (pinned d11e957f5a88)",
+  "dry_run": false,
+  "cmux_tui": "1f1004c11c7a9d290c4e1d0008970c1f1b78f31d",
+  "fixes": [
+    {
+      "sha": "1f1004c11c7a9d290c4e1d0008970c1f1b78f31d",
+      "mergedAt": "2026-11-07T15:41:14-08:00",
+      "subject": "cmux NEXT: the importer saves each repository's worktree recipe (#37778)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T00:02:15Z",
+    "snapshot_id": "sh-bb7198554bc64cdc8f9ec84f5a9c2542",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42427398654): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4080c336bbc2575257a070d11e633cdcaed966c6",
+    "image": "cloud-native-auto-1f1004c1-42427398654-1",
+    "revision": "ci-42427398654-1",
+    "at": "2026-11-08T00:02:15Z"
+  },
+  "rolled_back": false
+}
