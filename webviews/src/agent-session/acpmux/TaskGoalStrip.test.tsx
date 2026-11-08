@@ -3,7 +3,8 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { loopNextText, TaskGoalStrip } from "./TaskGoalStrip";
+import { TaskGoalStrip } from "./TaskGoalStrip";
+import { loopNextText } from "./taskGoalStripModel";
 
 const never = async () => {
   throw new Error("a loop has no command");

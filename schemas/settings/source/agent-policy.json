@@ -1121,6 +1121,13 @@
     },
     {
       "agent": "privacy",
+      "why": "On, cmux keeps reading the source browser's cookies after an import: only the person turns that on.",
+      "keys": [
+        "browser.import.cookieSync"
+      ]
+    },
+    {
+      "agent": "privacy",
       "why": "Only the person's Connect click opts in to reading Messages.",
       "keys": [
         "imessage.enabled"
@@ -1403,6 +1410,14 @@
         "agents.autoRetry.enabled",
         "agents.autoRetry.intervalSeconds",
         "agents.autoRetry.attempts"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Compacting on a timer spends the person's usage (one model call each): their call.",
+      "keys": [
+        "agents.cacheCompact.enabled",
+        "agents.cacheCompact.minContextPercent"
       ]
     },
     {

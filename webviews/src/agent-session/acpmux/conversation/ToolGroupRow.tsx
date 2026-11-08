@@ -21,7 +21,7 @@ import { ChevronRight, Magnifier, OpenBook, Pencil, TerminalSquare } from "./ico
 import { isQuietThought, isThought } from "./thoughts";
 import { countsFailed, groupCalls, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
 import { useT } from "../i18n";
-import { useTranscriptDisclosure, useTranscriptViewContext } from "./transcriptDisclosure";
+import { useTranscriptDisclosure, useTranscriptViewContext } from "./transcriptDisclosureModel";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { WriteLabel } from "./WriteLabel";
 import { writeCall } from "./writeLabelModel";

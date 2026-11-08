@@ -62,7 +62,7 @@ extension SidebarViewComponents {
         /// `SidebarModel.titlebarControlsWidth`, so the minimum width never keeps an old density's.
         var titlebarRow: [CGFloat]
         /// What places the window top's line with no view moving or resizing: its variant (Debug Settings
-        /// `chrome.topRowLine`), the titlebar style and the tab bars' edge. Every window has a sidebar, so it lays
+        /// `chrome.topRowLine`), the titlebar style, the tab bars' edge and what the card's reach reads (#38054). Every window has a sidebar, so it lays
         /// its window out again on a change, with or without a top-row tab strip; moves reach the strips through
         /// `TabStripView.updateWindowControlsAvoidance`.
         var topRow: [String]
@@ -99,7 +99,10 @@ extension SidebarViewComponents {
             leadingColumn = SidebarLeadingColumnLook.tunable.value
             titlebarRow = [SidebarStyle.toolbarButtonSize, SidebarStyle.titlebarPlusTrailingInset, TitlebarBandButton.side,
                            Metrics.trafficLightInset, Metrics.space1, Metrics.space2, Metrics.space3]
-            topRow = [TopRowLineLook.tunable.value.rawValue, "\(DesignSettings.shared.titlebar)", "\(DesignSettings.shared.tabBarPosition)"]
+            // The line also follows the card's reach (#38054): the gutter, the pane padding, floating panes and the strip's tokens.
+            topRow = [TopRowLineLook.tunable.value.rawValue, "\(DesignSettings.shared.titlebar)", "\(DesignSettings.shared.tabBarPosition)",
+                      "\(Metrics.mainPaneGutter)", "\(Metrics.panePadding)", "\(Metrics.floatingPanes)", "\(Metrics.tabStripHeight)",
+                      "\(Metrics.tabHeight)"]
         }
     }
     func observe() {

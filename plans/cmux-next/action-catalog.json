@@ -19754,6 +19754,3206 @@
     },
     {
       "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "action new-terminal",
+      "computed" : {
+        "canonical_action_id" : "new.terminal",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.terminal",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "terminal",
+        "shell"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : "new",
+            "group" : "create",
+            "label" : null,
+            "parent" : null,
+            "rank" : -190,
+            "style" : "submenu"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "contextMenu"
+      ],
+      "symbol" : "terminal",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Terminal",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-terminal-to-right",
+      "computed" : {
+        "canonical_action_id" : "new.terminal.right",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.terminal.right",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "terminal",
+        "shell",
+        "split",
+        "right"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : true,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to the Right",
+            "parent" : "new.terminal",
+            "rank" : 200,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.righthalf.inset.filled",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Terminal to the Right",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-terminal-to-left",
+      "computed" : {
+        "canonical_action_id" : "new.terminal.left",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.terminal.left",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "terminal",
+        "shell",
+        "split",
+        "left"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : true,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to the Left",
+            "parent" : "new.terminal",
+            "rank" : 201,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.lefthalf.inset.filled",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Terminal to the Left",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-terminal-above",
+      "computed" : {
+        "canonical_action_id" : "new.terminal.up",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.terminal.up",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "terminal",
+        "shell",
+        "split",
+        "above",
+        "up"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : true,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "Above",
+            "parent" : "new.terminal",
+            "rank" : 202,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.tophalf.inset.filled",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Terminal Above",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-terminal-below",
+      "computed" : {
+        "canonical_action_id" : "new.terminal.down",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.terminal.down",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "terminal",
+        "shell",
+        "split",
+        "below",
+        "down"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : true,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "Below",
+            "parent" : "new.terminal",
+            "rank" : 203,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.bottomhalf.inset.filled",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Terminal Below",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-terminal-to-new-column-right",
+      "computed" : {
+        "canonical_action_id" : "new.terminal.columnRight",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.terminal.columnRight",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "terminal",
+        "shell",
+        "column",
+        "right"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : true,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Column Right",
+            "parent" : "new.terminal",
+            "rank" : 300,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.split.3x1",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Terminal to New Column Right",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-terminal-to-new-column-left",
+      "computed" : {
+        "canonical_action_id" : "new.terminal.columnLeft",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.terminal.columnLeft",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "terminal",
+        "shell",
+        "column",
+        "left"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : true,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Column Left",
+            "parent" : "new.terminal",
+            "rank" : 301,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.leftthird.inset.filled",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Terminal to New Column Left",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-terminal-to-new-row",
+      "computed" : {
+        "canonical_action_id" : "new.terminal.row",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.terminal.row",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "terminal",
+        "shell",
+        "row",
+        "below"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : true,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Row",
+            "parent" : "new.terminal",
+            "rank" : 302,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.grid.1x2",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Terminal to New Row",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-terminal-to-new-tab",
+      "computed" : {
+        "canonical_action_id" : "new.terminal.tab",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.terminal.tab",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "terminal",
+        "shell",
+        "tab"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : true,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Tab",
+            "parent" : "new.terminal",
+            "rank" : 400,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "plus.square",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Terminal to New Tab",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-terminal-to-new-workspace",
+      "computed" : {
+        "canonical_action_id" : "new.terminal.workspace",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.terminal.workspace",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "terminal",
+        "shell",
+        "workspace"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : true,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Workspace",
+            "parent" : "new.terminal",
+            "rank" : 401,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.stack.badge.plus",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Terminal to New Workspace",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-terminal-to-new-window",
+      "computed" : {
+        "canonical_action_id" : "new.terminal.window",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.terminal.window",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "terminal",
+        "shell",
+        "window"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : true,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Window",
+            "parent" : "new.terminal",
+            "rank" : 402,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "macwindow.badge.plus",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Terminal to New Window",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "action new-browser",
+      "computed" : {
+        "canonical_action_id" : "new.browser",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.browser",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "browser",
+        "web"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : "new",
+            "group" : "create",
+            "label" : null,
+            "parent" : null,
+            "rank" : -180,
+            "style" : "submenu"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "contextMenu"
+      ],
+      "symbol" : "globe",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Browser",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-browser-to-right",
+      "computed" : {
+        "canonical_action_id" : "new.browser.right",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.browser.right",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "browser",
+        "web",
+        "split",
+        "right"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to the Right",
+            "parent" : "new.browser",
+            "rank" : 200,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.righthalf.inset.filled",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Browser to the Right",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-browser-to-left",
+      "computed" : {
+        "canonical_action_id" : "new.browser.left",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.browser.left",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "browser",
+        "web",
+        "split",
+        "left"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to the Left",
+            "parent" : "new.browser",
+            "rank" : 201,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.lefthalf.inset.filled",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Browser to the Left",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-browser-above",
+      "computed" : {
+        "canonical_action_id" : "new.browser.up",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.browser.up",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "browser",
+        "web",
+        "split",
+        "above",
+        "up"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "Above",
+            "parent" : "new.browser",
+            "rank" : 202,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.tophalf.inset.filled",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Browser Above",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-browser-below",
+      "computed" : {
+        "canonical_action_id" : "new.browser.down",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.browser.down",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "browser",
+        "web",
+        "split",
+        "below",
+        "down"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "Below",
+            "parent" : "new.browser",
+            "rank" : 203,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.bottomhalf.inset.filled",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Browser Below",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-browser-to-new-column-right",
+      "computed" : {
+        "canonical_action_id" : "new.browser.columnRight",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.browser.columnRight",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "browser",
+        "web",
+        "column",
+        "right"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Column Right",
+            "parent" : "new.browser",
+            "rank" : 300,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.split.3x1",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Browser to New Column Right",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-browser-to-new-column-left",
+      "computed" : {
+        "canonical_action_id" : "new.browser.columnLeft",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.browser.columnLeft",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "browser",
+        "web",
+        "column",
+        "left"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Column Left",
+            "parent" : "new.browser",
+            "rank" : 301,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.leftthird.inset.filled",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Browser to New Column Left",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-browser-to-new-row",
+      "computed" : {
+        "canonical_action_id" : "new.browser.row",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.browser.row",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "browser",
+        "web",
+        "row",
+        "below"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Row",
+            "parent" : "new.browser",
+            "rank" : 302,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.grid.1x2",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Browser to New Row",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-browser-to-new-tab",
+      "computed" : {
+        "canonical_action_id" : "new.browser.tab",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.browser.tab",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "browser",
+        "web",
+        "tab"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Tab",
+            "parent" : "new.browser",
+            "rank" : 400,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "plus.square",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Browser to New Tab",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-browser-to-new-workspace",
+      "computed" : {
+        "canonical_action_id" : "new.browser.workspace",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.browser.workspace",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "browser",
+        "web",
+        "workspace"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Workspace",
+            "parent" : "new.browser",
+            "rank" : 401,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.stack.badge.plus",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Browser to New Workspace",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-browser-to-new-window",
+      "computed" : {
+        "canonical_action_id" : "new.browser.window",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.browser.window",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "browser",
+        "web",
+        "window"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Window",
+            "parent" : "new.browser",
+            "rank" : 402,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "macwindow.badge.plus",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Browser to New Window",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "action new-agent-chat",
+      "computed" : {
+        "canonical_action_id" : "new.agentChat",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.agentChat",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "agent",
+        "chat"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : "new",
+            "group" : "create",
+            "label" : null,
+            "parent" : null,
+            "rank" : -170,
+            "style" : "submenu"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "contextMenu"
+      ],
+      "symbol" : "message",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Agent Chat",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-agent-chat-to-right",
+      "computed" : {
+        "canonical_action_id" : "new.agentChat.right",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.agentChat.right",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "agent",
+        "chat",
+        "split",
+        "right"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to the Right",
+            "parent" : "new.agentChat",
+            "rank" : 200,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.righthalf.inset.filled",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Agent Chat to the Right",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-agent-chat-to-left",
+      "computed" : {
+        "canonical_action_id" : "new.agentChat.left",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.agentChat.left",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "agent",
+        "chat",
+        "split",
+        "left"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to the Left",
+            "parent" : "new.agentChat",
+            "rank" : 201,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.lefthalf.inset.filled",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Agent Chat to the Left",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-agent-chat-above",
+      "computed" : {
+        "canonical_action_id" : "new.agentChat.up",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.agentChat.up",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "agent",
+        "chat",
+        "split",
+        "above",
+        "up"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "Above",
+            "parent" : "new.agentChat",
+            "rank" : 202,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.tophalf.inset.filled",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Agent Chat Above",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-agent-chat-below",
+      "computed" : {
+        "canonical_action_id" : "new.agentChat.down",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.agentChat.down",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "agent",
+        "chat",
+        "split",
+        "below",
+        "down"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "Below",
+            "parent" : "new.agentChat",
+            "rank" : 203,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.bottomhalf.inset.filled",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Agent Chat Below",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-agent-chat-to-new-column-right",
+      "computed" : {
+        "canonical_action_id" : "new.agentChat.columnRight",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.agentChat.columnRight",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "agent",
+        "chat",
+        "column",
+        "right"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Column Right",
+            "parent" : "new.agentChat",
+            "rank" : 300,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.split.3x1",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Agent Chat to New Column Right",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-agent-chat-to-new-column-left",
+      "computed" : {
+        "canonical_action_id" : "new.agentChat.columnLeft",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.agentChat.columnLeft",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "agent",
+        "chat",
+        "column",
+        "left"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Column Left",
+            "parent" : "new.agentChat",
+            "rank" : 301,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.leftthird.inset.filled",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Agent Chat to New Column Left",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-agent-chat-to-new-row",
+      "computed" : {
+        "canonical_action_id" : "new.agentChat.row",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.agentChat.row",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "agent",
+        "chat",
+        "row",
+        "below"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Row",
+            "parent" : "new.agentChat",
+            "rank" : 302,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.grid.1x2",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Agent Chat to New Row",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-agent-chat-to-new-tab",
+      "computed" : {
+        "canonical_action_id" : "new.agentChat.tab",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.agentChat.tab",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "agent",
+        "chat",
+        "tab"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Tab",
+            "parent" : "new.agentChat",
+            "rank" : 400,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "plus.square",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Agent Chat to New Tab",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-agent-chat-to-new-workspace",
+      "computed" : {
+        "canonical_action_id" : "new.agentChat.workspace",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.agentChat.workspace",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "agent",
+        "chat",
+        "workspace"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Workspace",
+            "parent" : "new.agentChat",
+            "rank" : 401,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.stack.badge.plus",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Agent Chat to New Workspace",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-agent-chat-to-new-window",
+      "computed" : {
+        "canonical_action_id" : "new.agentChat.window",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.agentChat.window",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "agent",
+        "chat",
+        "window"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Window",
+            "parent" : "new.agentChat",
+            "rank" : 402,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "macwindow.badge.plus",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Agent Chat to New Window",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "action new-new-tab-page",
+      "computed" : {
+        "canonical_action_id" : "new.newTabPage",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.newTabPage",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "new tab page",
+        "page"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : "new",
+            "group" : "create",
+            "label" : null,
+            "parent" : null,
+            "rank" : -160,
+            "style" : "submenu"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "contextMenu"
+      ],
+      "symbol" : "square.grid.2x2",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Tab Page",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-tab-page-to-right",
+      "computed" : {
+        "canonical_action_id" : "new.newTabPage.right",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.newTabPage.right",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "new tab page",
+        "page",
+        "split",
+        "right"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to the Right",
+            "parent" : "new.newTabPage",
+            "rank" : 200,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.righthalf.inset.filled",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Tab Page to the Right",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-tab-page-to-left",
+      "computed" : {
+        "canonical_action_id" : "new.newTabPage.left",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.newTabPage.left",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "new tab page",
+        "page",
+        "split",
+        "left"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to the Left",
+            "parent" : "new.newTabPage",
+            "rank" : 201,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.lefthalf.inset.filled",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Tab Page to the Left",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-tab-page-above",
+      "computed" : {
+        "canonical_action_id" : "new.newTabPage.up",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.newTabPage.up",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "new tab page",
+        "page",
+        "split",
+        "above",
+        "up"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "Above",
+            "parent" : "new.newTabPage",
+            "rank" : 202,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.tophalf.inset.filled",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Tab Page Above",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-tab-page-below",
+      "computed" : {
+        "canonical_action_id" : "new.newTabPage.down",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.newTabPage.down",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "new tab page",
+        "page",
+        "split",
+        "below",
+        "down"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "Below",
+            "parent" : "new.newTabPage",
+            "rank" : 203,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.bottomhalf.inset.filled",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Tab Page Below",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-tab-page-to-new-column-right",
+      "computed" : {
+        "canonical_action_id" : "new.newTabPage.columnRight",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.newTabPage.columnRight",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "new tab page",
+        "page",
+        "column",
+        "right"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Column Right",
+            "parent" : "new.newTabPage",
+            "rank" : 300,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.split.3x1",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Tab Page to New Column Right",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-tab-page-to-new-column-left",
+      "computed" : {
+        "canonical_action_id" : "new.newTabPage.columnLeft",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.newTabPage.columnLeft",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "new tab page",
+        "page",
+        "column",
+        "left"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Column Left",
+            "parent" : "new.newTabPage",
+            "rank" : 301,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.leftthird.inset.filled",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Tab Page to New Column Left",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-tab-page-to-new-row",
+      "computed" : {
+        "canonical_action_id" : "new.newTabPage.row",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.newTabPage.row",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "new tab page",
+        "page",
+        "row",
+        "below"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Row",
+            "parent" : "new.newTabPage",
+            "rank" : 302,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.grid.1x2",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Tab Page to New Row",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-tab-page-to-new-tab",
+      "computed" : {
+        "canonical_action_id" : "new.newTabPage.tab",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.newTabPage.tab",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "new tab page",
+        "page",
+        "tab"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Tab",
+            "parent" : "new.newTabPage",
+            "rank" : 400,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "plus.square",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Tab Page to New Tab",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-tab-page-to-new-workspace",
+      "computed" : {
+        "canonical_action_id" : "new.newTabPage.workspace",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.newTabPage.workspace",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "new tab page",
+        "page",
+        "workspace"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Workspace",
+            "parent" : "new.newTabPage",
+            "rank" : 401,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.stack.badge.plus",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Tab Page to New Workspace",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "pane",
+      "cliName" : "pane new-tab-page-to-new-window",
+      "computed" : {
+        "canonical_action_id" : "new.newTabPage.window",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NewPlacementActionCatalog",
+      "id" : "new.newTabPage.window",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "new",
+        "open",
+        "new tab page",
+        "page",
+        "window"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "pane",
+            "folder" : null,
+            "group" : "create",
+            "label" : "to New Window",
+            "parent" : "new.newTabPage",
+            "rank" : 402,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "macwindow.badge.plus",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "New Tab Page to New Window",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
         {
           "isRequired" : false,
           "isSuppliedByTarget" : false,
@@ -66535,6 +69735,48 @@
           "name" : "uses",
           "suggestions" : null,
           "title" : "Uses"
+        },
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "title" : "Can talk",
+                "value" : "talk"
+              },
+              {
+                "title" : "Can view",
+                "value" : "view"
+              }
+            ]
+          },
+          "name" : "role",
+          "suggestions" : null,
+          "title" : "Access"
+        },
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "title" : "Can talk",
+                "value" : "talk"
+              },
+              {
+                "title" : "Can view",
+                "value" : "view"
+              }
+            ]
+          },
+          "name" : "signedInRole",
+          "suggestions" : null,
+          "title" : "Signed-in Guests"
         }
       ],
       "category" : "agents",
@@ -66552,7 +69794,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Makes a guest link to an agent chat (--target tab:<id>, --surface N, else the chat that runs the command, else the focused chat): the guest sees the chat as you do, including command output and the agent's reasoning, and each message they send waits for you. --ttl (seconds, or 30m, 24h, 7d; default 24h) and --uses (1 to 8; default 1). Returns share_id, url (null when no share service is configured), expires_at (ms), uses_left, session and surface. Errors: share.needs_sign_in, share.room_unreachable (try again), share.room_refused, share.not_a_chat, share.limit.",
+      "description" : "Makes a guest link to an agent chat (--target tab:<id>, --surface N, else the chat that runs the command, else the focused chat): the guest sees the chat as you do, including command output and the agent's reasoning, and each message they send waits for you. --ttl (seconds, or 30m, 24h, 7d; default 24h) and --uses (1 to 8; default 1). --role (view or talk) gives the link a role; a guest who opens it without signing in only watches either way. --signed-in-role (talk, the default, or view) says whether a guest signed in to cmux may also send. `cmux share chat --view-only` sends both as view: a link where nobody sends. Returns share_id, url (null when no share service is configured), expires_at (ms), uses_left, session and surface. Errors: share.needs_sign_in, share.room_unreachable (try again), share.room_refused, share.not_a_chat, share.limit.",
       "focuses" : false,
       "group" : "AgentShareActionCatalog",
       "id" : "agent.share",
@@ -89798,6 +93040,75 @@
       "arguments" : [
 
       ],
+      "category" : "window",
+      "cliName" : "home undock-chief",
+      "computed" : {
+        "canonical_action_id" : "home.undockChief",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "LayoutActionCatalog",
+      "id" : "home.undockChief",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "chief",
+        "dock",
+        "undock",
+        "unpin",
+        "float",
+        "panel",
+        "window",
+        "home",
+        "chat",
+        "side",
+        "left"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "sidebar.left",
+      "targets" : [
+        "window"
+      ],
+      "title" : "Undock Chief",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
       "category" : "pane",
       "cliName" : "pane move-to-dock",
       "computed" : {
@@ -107725,10 +111036,26 @@
                   "string" : "home-dock"
                 }
               ]
+            },
+            {
+              "equals" : [
+                "topPage",
+                {
+                  "string" : "import-history"
+                }
+              ]
+            },
+            {
+              "equals" : [
+                "pageId",
+                {
+                  "string" : "cmux.import-history"
+                }
+              ]
             }
           ]
         },
-        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
       },
       {
         "argument" : null,
@@ -107771,10 +111098,26 @@
                   "string" : "home-dock"
                 }
               ]
+            },
+            {
+              "equals" : [
+                "topPage",
+                {
+                  "string" : "import-history"
+                }
+              ]
+            },
+            {
+              "equals" : [
+                "pageId",
+                {
+                  "string" : "cmux.import-history"
+                }
+              ]
             }
           ]
         },
-        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
       },
       {
         "argument" : null,
@@ -107816,10 +111159,26 @@
                   "string" : "home-dock"
                 }
               ]
+            },
+            {
+              "equals" : [
+                "topPage",
+                {
+                  "string" : "import-history"
+                }
+              ]
+            },
+            {
+              "equals" : [
+                "pageId",
+                {
+                  "string" : "cmux.import-history"
+                }
+              ]
             }
           ]
         },
-        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
       },
       {
         "argument" : null,
@@ -107861,10 +111220,26 @@
                   "string" : "home-dock"
                 }
               ]
+            },
+            {
+              "equals" : [
+                "topPage",
+                {
+                  "string" : "import-history"
+                }
+              ]
+            },
+            {
+              "equals" : [
+                "pageId",
+                {
+                  "string" : "cmux.import-history"
+                }
+              ]
             }
           ]
         },
-        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
       },
       {
         "argument" : null,

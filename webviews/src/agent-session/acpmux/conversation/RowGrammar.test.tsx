@@ -21,7 +21,7 @@ import { agentMessage } from "./agentMessages";
 import { MessageCard } from "./MessageCard";
 import { AcpmuxSendLine } from "./SentMessageLine";
 import { ToolGroupRow } from "./ToolGroupRow";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

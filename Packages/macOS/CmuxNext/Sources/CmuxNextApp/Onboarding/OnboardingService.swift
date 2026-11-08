@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
+import CmuxNextCookieImport
 import CmuxNextDesign
 import CmuxNextImportCards
 import CmuxNextOnboarding
@@ -63,8 +64,10 @@ final class OnboardingService {
     /// The migration run in flight or last finished: a new run waits for it.
     var classicMigrationRun: Task<ClassicMigrationOutcome, any Error>?
 
-    /// Keep in Sync's watches; `start` also seeds each profile's omnibar with its imported pages.
-    private(set) lazy var historySync = BrowserFolderAccess().historySync(store: importStore, deliver: SavingImportDestination.omnibar(services.cache))
+    /// Keep in Sync's watches (imported cookies' too); `start` also seeds each profile's omnibar with its imported pages.
+    private(set) lazy var historySync = BrowserFolderAccess().historySync(store: importStore, cookies: ChromiumCookieDestination { [cef = services.cache.cef] in try await cef.importCookies($0, into: $1) },
+        stopped: { [weak services] name in if let services { BrowserFileImport.toast(services, id: "cookie-sync-stopped", BrowserImportOfferStrings.syncStopped(name)) } },
+        deliver: SavingImportDestination.omnibar(services.cache))
 
     /// Computer Use Setup: the helper's grants for the palette action, Settings and the tool window.
     private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)
