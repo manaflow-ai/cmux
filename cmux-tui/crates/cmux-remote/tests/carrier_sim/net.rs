@@ -231,8 +231,7 @@ impl FrameLink for SimLink {
                 match s.queue.front() {
                     _ if frozen => None,
                     Some((at, _)) if *at <= Instant::now() => {
-                        let (_, frame) = s.queue.pop_front().unwrap_or_default();
-                        return Ok(Some(frame));
+                        return Ok(s.queue.pop_front().map(|(_, frame)| frame));
                     }
                     Some((at, _)) => Some(*at),
                     None if s.finished => return Ok(None),

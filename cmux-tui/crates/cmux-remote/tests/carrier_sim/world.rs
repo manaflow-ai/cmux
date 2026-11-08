@@ -22,7 +22,6 @@ use cmux_remote::daemon::{
     DEFAULT_RESUME_LEASE, DaemonSessionPolicy, RemoteDaemon, ServerConnection,
 };
 use cmux_remote::identity::AuthDatabase;
-use cmux_remote::observability::ConnectionState;
 use cmux_remote::session::SessionLimits;
 use cmux_remote_protocol::{FrameFlags, Lane, LanePolicy, SessionId};
 use tempfile::TempDir;
@@ -570,11 +569,8 @@ async fn run_world(seed: u64, faults: bool) -> Outcome {
     let result = loop {
         let now = Instant::now();
         // Apply what is due.
-        while let Some(step) = steps.peek() {
-            if start + step.at > now {
-                break;
-            }
-            let step = *steps.next().unwrap_or(step);
+        while let Some(step) = steps.next_if(|step| start + step.at <= now) {
+            let step = *step;
             lock(&trace).push(format!("{:?} fault {:?}", step.at, step.fault));
             let kind = step.fault.kind();
             let lasts = step.fault.lasts();

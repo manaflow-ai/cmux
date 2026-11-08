@@ -28,6 +28,8 @@
  *   + link_token + link dial) -> carrier dial (an identify answered over the machine's relay slot) -> handoff record
  *   -> sync push/pull (a folder round trip) -> pause -> resume -> carrier dial after resume -> turn after resume
  *   -> delete. `--skip lifecycle` leaves out the later turns and the daemon restart.
+ *   --chaos adds the chaos leg after the carrier dial: a relay cut, 5 s and 60 s network drops, a session host and an
+ *   agent daemon restart, each mid-turn and timed to recovery (cloud-chaos.ts).
  *
  * Each step prints PASS/FAIL/SKIP with its latency; --out DIR also gets journey.json (the steps) and
  * summary.md (a table for a PR comment or job summary). The machine this run made is deleted at the
@@ -78,6 +80,7 @@ import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writ
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { chaosProbeRow, runChaos } from "./cloud-chaos.ts";
 
 export const STACK_API = "https://api.stack-auth.com";
 export const STACK = {
@@ -893,6 +896,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const reuse = argValue("--machine", argv);
   const keyedStart = argv.includes("--keyed-start");
   const keep = argv.includes("--keep") || Boolean(reuse);
+  // --chaos: after the carrier dial, the chaos leg (cloud-chaos.ts) on this machine; --chaos-probe-out FILE writes it
+  // as one synthetic-probe row (--chaos-probe NAME, default cloud-carrier-chaos-<backend>).
+  const chaos = argv.includes("--chaos");
   const only = new Set((argValue("--skip", argv) ?? "").split(",").filter(Boolean));
   if (reuse) only.add("pause");
   // --model stub: the model endpoint is the only stand-in (the shared model stub on the machine). The login the
@@ -1570,6 +1576,25 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     } else {
       J.skip("connect (carrier dial)", "--cmux is required for a carrier dial");
+    }
+
+    // --chaos: faults injected into this machine's carrier mid-turn, each a step (cloud-chaos.ts).
+    if (chaos) {
+      if (!cmux || !lifecycle) J.skip("chaos", !cmux ? "--cmux is required for the chaos leg" : "the chaos leg needs a chat session");
+      else {
+        const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
+        const results = await runChaos({
+          cmux, machine: created.id, team: api.team, exec, guest: GUEST, session, tag,
+          env: { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer },
+          log: (line) => console.log(scrub(line, J.secrets)),
+        }).catch((e: Error) => [{ fault: "chaos leg", outcome: "fail" as const, recover_ms: null, carrier: "", turn: "", detail: e.message }]);
+        for (const r of results) {
+          J.record({ step: `chaos: ${r.fault}`, status: r.outcome === "ok" ? "pass" : r.outcome === "fail" ? "fail" : "skip", ms: r.recover_ms ?? 0, detail: r.detail });
+        }
+        if (outDir) writeFileSync(path.join(outDir, "chaos.json"), `${JSON.stringify({ backend: backend.name, machine: created.id, results }, null, 2)}\n`);
+        const chaosOut = argValue("--chaos-probe-out", argv);
+        if (chaosOut) writeFileSync(chaosOut, `${JSON.stringify(chaosProbeRow(argValue("--chaos-probe", argv) ?? `cloud-carrier-chaos-${backend.name}`, results, process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined))}\n`);
+      }
     }
 
     // POST /v1/handoffs {sessionId, machine} (backend/apps/api/src/handoffs/routes.ts). Production leaves the
