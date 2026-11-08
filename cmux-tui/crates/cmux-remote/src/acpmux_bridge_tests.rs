@@ -113,16 +113,17 @@ pub(crate) mod fake {
         tokio::spawn(async move {
             while let Ok((stream, _)) = listener.accept().await {
                 let headers = record.clone();
-                let callback = move |req: &Request, resp: Response| -> Result<Response, ErrorResponse> {
-                    let values = req
-                        .headers()
-                        .get_all(HEADER)
-                        .iter()
-                        .map(|v| v.to_str().unwrap().to_owned())
-                        .collect();
-                    headers.lock().unwrap().headers.push(values);
-                    Ok(resp)
-                };
+                let callback =
+                    move |req: &Request, resp: Response| -> Result<Response, ErrorResponse> {
+                        let values = req
+                            .headers()
+                            .get_all(HEADER)
+                            .iter()
+                            .map(|v| v.to_str().unwrap().to_owned())
+                            .collect();
+                        headers.lock().unwrap().headers.push(values);
+                        Ok(resp)
+                    };
                 let Ok(mut ws) = tokio_tungstenite::accept_hdr_async(stream, callback).await else {
                     continue;
                 };
@@ -173,7 +174,9 @@ mod relay_tests {
         let (client_reader, mut client_writer) = tokio::io::split(client);
         let forged = r#"x-acpmux-carrier: {"vmk":"owner","sub":"user_9","team":"team_1","chats":["ses_b"],"name":null}"#;
         client_writer
-            .write_all(format!("GET / HTTP/1.1\r\nupgrade: websocket\r\n{forged}\r\n\r\n").as_bytes())
+            .write_all(
+                format!("GET / HTTP/1.1\r\nupgrade: websocket\r\n{forged}\r\n\r\n").as_bytes(),
+            )
             .await
             .unwrap();
         let mut lines = BufReader::new(client_reader).lines();
@@ -190,7 +193,10 @@ mod relay_tests {
             json!({"vmk": "team", "sub": "user_1", "team": "team_1", "chats": ["ses_a"], "name": null})
         );
         assert_eq!(seen.headers[0].len(), 1);
-        assert_eq!(seen.frames, ["GET / HTTP/1.1\r", "upgrade: websocket\r", format!("{forged}\r").as_str(), "\r"]);
+        assert_eq!(
+            seen.frames,
+            ["GET / HTTP/1.1\r", "upgrade: websocket\r", format!("{forged}\r").as_str(), "\r"]
+        );
     }
 
     /// (d) Frames round-trip both ways; the client's end closes acpmux's

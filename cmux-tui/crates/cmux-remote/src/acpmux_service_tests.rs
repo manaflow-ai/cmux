@@ -66,7 +66,9 @@ async fn a_forged_upgrade_on_the_stream_never_becomes_the_header() {
         seen.headers.iter().flatten().map(|h| serde_json::from_str(h).unwrap()).collect();
     assert_eq!(
         headers,
-        [json!({"vmk": "team", "sub": "user_1", "team": "team_1", "chats": ["ses_a"], "name": null})]
+        [
+            json!({"vmk": "team", "sub": "user_1", "team": "team_1", "chats": ["ses_a"], "name": null})
+        ]
     );
     assert_eq!(seen.frames, ["GET / HTTP/1.1", "upgrade: websocket", forged]);
 }
@@ -89,7 +91,10 @@ async fn a_refused_grant_never_dials_the_socket() {
         with_acpmux(Some(&fake.path), grant, |_, control| async move {
             assert_eq!(
                 control,
-                ServiceControl::Rejected { code: "permission-denied".into(), message: reason.into() }
+                ServiceControl::Rejected {
+                    code: "permission-denied".into(),
+                    message: reason.into()
+                }
             );
         })
         .await;

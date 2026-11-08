@@ -518,12 +518,8 @@ impl DaemonServices {
                     .await
             }
             Service::Acpmux => {
-                Self::serve_acpmux(
-                    self.acpmux_socket.as_deref(),
-                    grant.as_deref(),
-                    incoming.stream,
-                )
-                .await
+                Self::serve_acpmux(self.acpmux_socket.as_deref(), grant.as_deref(), incoming.stream)
+                    .await
             }
             Service::MuxControl => {
                 Self::serve_mux_control_with_budget(mux_socket, incoming.stream, mux_upload_budget)
@@ -794,9 +790,7 @@ impl DaemonServices {
             }
         };
         let Some(socket) = socket else {
-            stream
-                .reject("unavailable".into(), "this daemon bridges to no acpmux".into())
-                .await?;
+            stream.reject("unavailable".into(), "this daemon bridges to no acpmux".into()).await?;
             return Ok(());
         };
         #[cfg(unix)]
@@ -2495,7 +2489,9 @@ mod tests {
                             let scope = scope.clone();
                             let request_slots = request_slots.clone();
                             tokio::task::spawn_local(async move {
-                                let _ = services.serve_stream(scope, request_slots, incoming).await;
+                                let _ = services
+                                    .serve_stream(scope, request_slots, None, incoming)
+                                    .await;
                             });
                         }
                     }
@@ -2641,7 +2637,9 @@ mod tests {
                             let scope = scope.clone();
                             let request_slots = request_slots.clone();
                             tokio::task::spawn_local(async move {
-                                let _ = services.serve_stream(scope, request_slots, incoming).await;
+                                let _ = services
+                                    .serve_stream(scope, request_slots, None, incoming)
+                                    .await;
                             });
                         }
                     }
@@ -2771,7 +2769,9 @@ mod tests {
                             let scope = scope.clone();
                             let request_slots = request_slots.clone();
                             tokio::task::spawn_local(async move {
-                                let _ = services.serve_stream(scope, request_slots, incoming).await;
+                                let _ = services
+                                    .serve_stream(scope, request_slots, None, incoming)
+                                    .await;
                             });
                         }
                     }
@@ -2881,7 +2881,9 @@ mod tests {
                             let scope = scope.clone();
                             let request_slots = request_slots.clone();
                             tokio::task::spawn_local(async move {
-                                let _ = services.serve_stream(scope, request_slots, incoming).await;
+                                let _ = services
+                                    .serve_stream(scope, request_slots, None, incoming)
+                                    .await;
                             });
                         }
                     }

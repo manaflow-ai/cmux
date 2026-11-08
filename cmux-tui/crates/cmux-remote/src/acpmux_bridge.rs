@@ -27,7 +27,9 @@ use std::time::Duration;
 use cmux_link::carrier_grant::CarrierGrant;
 use cmux_link::token::VmKind;
 use futures_util::{SinkExt as _, StreamExt as _};
-use tokio::io::{AsyncBufReadExt as _, AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
+use tokio::io::{
+    AsyncBufReadExt as _, AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,
+};
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
@@ -55,8 +57,9 @@ pub fn socket_path(home: &Path) -> PathBuf {
 pub fn default_socket_path() -> Option<PathBuf> {
     let home = match std::env::var_os("ACPMUX_HOME") {
         Some(home) if !home.is_empty() => PathBuf::from(home),
-        _ => PathBuf::from(std::env::var_os("HOME").filter(|home| !home.is_empty())?)
-            .join(".acpmux"),
+        _ => {
+            PathBuf::from(std::env::var_os("HOME").filter(|home| !home.is_empty())?).join(".acpmux")
+        }
     };
     Some(socket_path(&home))
 }
@@ -115,13 +118,11 @@ pub async fn connect(
     let value = HeaderValue::from_str(header)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
     request.headers_mut().insert(HEADER, value);
-    let (ws, _) = tokio::time::timeout(
-        HANDSHAKE_TIMEOUT,
-        tokio_tungstenite::client_async(request, stream),
-    )
-    .await
-    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "acpmux upgrade timed out"))?
-    .map_err(io::Error::other)?;
+    let (ws, _) =
+        tokio::time::timeout(HANDSHAKE_TIMEOUT, tokio_tungstenite::client_async(request, stream))
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "acpmux upgrade timed out"))?
+            .map_err(io::Error::other)?;
     Ok(ws)
 }
 
@@ -141,10 +142,8 @@ where
         let mut line = Vec::new();
         loop {
             line.clear();
-            let read = (&mut reader)
-                .take(MAX_LINE_BYTES as u64 + 1)
-                .read_until(b'\n', &mut line)
-                .await?;
+            let read =
+                (&mut reader).take(MAX_LINE_BYTES as u64 + 1).read_until(b'\n', &mut line).await?;
             if read == 0 {
                 break;
             }
