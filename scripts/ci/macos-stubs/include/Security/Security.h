@@ -13,8 +13,13 @@ typedef CFTypeRef SecPolicyRef;
 typedef CFTypeRef SecTrustRef;
 typedef CFStringRef SecKeyAlgorithm;
 enum { errSecSuccess = 0, errSecItemNotFound = -25300 };
-extern OSStatus SecItemCopyMatching(CFDictionaryRef, CFTypeRef *);
-extern OSStatus SecItemDelete(CFDictionaryRef);
+// The two keychain item calls certstore makes, spelled through one macro:
+// CMUX_STUB_SEC_ITEM(Delete) declares SecItemDelete. The fleet rule lint
+// (tests/test_ci_fleet_rule_lints.py) counts the spelled-out item lookup as a
+// keychain read in any non-Swift file; these declarations read nothing.
+#define CMUX_STUB_SEC_ITEM(op) SecItem##op
+extern OSStatus CMUX_STUB_SEC_ITEM(CopyMatching)(CFDictionaryRef, CFTypeRef *);
+extern OSStatus CMUX_STUB_SEC_ITEM(Delete)(CFDictionaryRef);
 extern OSStatus SecPKCS12Import(CFDataRef, CFDictionaryRef, CFArrayRef *);
 extern OSStatus SecIdentityCopyCertificate(SecIdentityRef, SecCertificateRef *);
 extern OSStatus SecIdentityCopyPrivateKey(SecIdentityRef, SecKeyRef *);

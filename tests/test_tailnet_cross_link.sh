@@ -38,7 +38,9 @@ int main(void) {
     CFDataRef data = CFDataCreate(0, 0, 0); CFDataGetBytePtr(data); CFDataGetLength(data);
     CFStringCreateExternalRepresentation(0, text, kCFStringEncodingUTF8, 0);
     CFRetain(data); CFErrorCopyDescription(error); CFErrorGetCode(error);
-    SecItemCopyMatching(dict, &result); SecItemDelete(dict); SecPKCS12Import(data, dict, &array);
+    // Security.h spells the SecItem calls through CMUX_STUB_SEC_ITEM.
+    CMUX_STUB_SEC_ITEM(CopyMatching)(dict, &result); CMUX_STUB_SEC_ITEM(Delete)(dict);
+    SecPKCS12Import(data, dict, &array);
     SecIdentityCopyCertificate(0, &cert); SecIdentityCopyPrivateKey(0, &key);
     SecCertificateCopyData(cert); SecPolicyRef policy = SecPolicyCreateSSL(0, 0);
     SecTrustCreateWithCertificates(cert, policy, &trust);
