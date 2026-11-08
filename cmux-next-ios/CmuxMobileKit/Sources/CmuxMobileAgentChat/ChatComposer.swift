@@ -76,8 +76,8 @@ struct ChatComposer: View {
             }
             card
         }
-        .animation(.cmuxMobileSmooth, value: collapsed)
-        .animation(.cmuxMobileSnappy, value: attachments)
+        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: collapsed)
+        .animation(.cmuxMobileSnappy.unlessReduceMotion, value: attachments)
         .filePreview($preview)
         // Photos and videos, as the Mac's composer takes both (a video goes with its frames).
         .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 10, matching: .any(of: [.images, .videos]))
@@ -148,7 +148,7 @@ struct ChatComposer: View {
                 transaction.disablesAnimations = true
                 withTransaction(transaction) { shownCollapsed = target }
             } else {
-                withAnimation(.cmuxMobileSmooth) { shownCollapsed = target }
+                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { shownCollapsed = target }
             }
         }
     }
@@ -269,7 +269,7 @@ struct ChatComposer: View {
 
     /// Expands the capsule, then focuses the field once it exists.
     private func expand() {
-        withAnimation(.cmuxMobileSmooth) { expandRequested = true }
+        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { expandRequested = true }
         Task { @MainActor in
             await Task.yield()
             focus.wrappedValue = true
@@ -491,7 +491,7 @@ struct ChatComposer: View {
         }
         .buttonStyle(.plain)
         .disabled(state == .empty)
-        .animation(.cmuxMobileSnap, value: state)
+        .animation(.cmuxMobileSnap.unlessReduceMotion, value: state)
         .contextMenu {
             if state == .queue {
                 Button("Queue (send after this turn)", systemImage: "text.line.last.and.arrowtriangle.forward") { send(steer: false) }
