@@ -97,6 +97,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     private var appliedTheme: String?
     /// How many times ``applyTheme(force:)`` built the theme (tests: a move that changes nothing builds none).
     private(set) var themeBuilds = 0
+    /// The scope (and its color generation) and appearance the last theme was built in: a move
+    /// between windows that keeps all three builds none (``applyThemeAfterMove()``).
+    private weak var themeBuiltScope: ThemeScope?
+    private var themeBuiltGeneration: Int?
+    private var themeBuiltAppearance: NSAppearance.Name?
     /// Pushes every color change of this view's scope to the page, shown or hidden, so a page
     /// shown after a change paints its first frame in the new colors (cx-8w027.12).
     private lazy var themeFollower = ThemeFollower(self) { [weak self] in self?.applyTheme() }
@@ -651,7 +656,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         let visible = window != nil && !isHiddenOrHasHiddenAncestor
         if !visible { chromiumSession?.questionKeys?.invalidate() }
         onVisibilityChanged?(visible)
-        applyTheme()
+        applyThemeAfterMove()
         windowDidChangeChrome()
         if shouldFocusOnAttach, window != nil {
             shouldFocusOnAttach = false
@@ -693,12 +698,32 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         guard loaded else { return }
         let theme = currentTheme()
         themeBuilds += 1
+        themeBuiltScope = themeScope
+        themeBuiltGeneration = themeScope.generation
+        themeBuiltAppearance = effectiveAppearance.name
         if force || theme.payloadJSON != appliedTheme {
             appliedTheme = theme.payloadJSON
             evaluateInPage(theme.applyScript)
         }
         // After the theme, which sets `data-glass`; a forced push is a new document, which has no still yet.
         glassFeed.refresh(newDocument: force)
+    }
+
+    /// A move between windows builds the theme only when it changed what the theme is built in: the
+    /// scope, a color change of that scope (its `generation`: the follower may have followed another
+    /// scope while the page was out) or the appearance. Out of every window nothing shows the page,
+    /// so it builds nothing; the move back decides. Every other input sends its own change: the
+    /// follower, the settings and Motion observers, and `updateLayer` for a repaint missed while
+    /// hidden. A pane zoom takes a page's floating card out of its overlay host and back: that
+    /// build cost 1.6 ms of the zoom's frame and sent nothing.
+    private func applyThemeAfterMove() {
+        themeFollower.rebind()
+        guard loaded else { return }
+        let scope = themeScope
+        let unchanged = appliedTheme != nil && themeBuiltScope === scope && themeBuiltGeneration == scope.generation
+            && themeBuiltAppearance == effectiveAppearance.name
+        guard window != nil, !unchanged else { return glassFeed.refresh() }
+        applyTheme()
     }
 
     /// The page theme from this view's scope and ``themeSurface``: the surface's override (from
