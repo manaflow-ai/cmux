@@ -117,6 +117,31 @@ fn text_of(value: &Value) -> String {
     }
 }
 
+fn attachment_bytes(id: &str) -> Option<Vec<u8>> {
+    if id.len() != 64 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+    let path = crate::config::home().join("attachments").join(id);
+    #[cfg(unix)]
+    {
+        use std::io::Read;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path)
+            .ok()?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).ok()?;
+        Some(bytes)
+    }
+    #[cfg(not(unix))]
+    {
+        let metadata = std::fs::symlink_metadata(&path).ok()?;
+        metadata.file_type().is_file().then(|| std::fs::read(path).ok()).flatten()
+    }
+}
+
 fn turns_from_events(events: &[EventRecord]) -> (Vec<PortableTurn>, Vec<Value>) {
     let mut transcript = Transcript::default();
     for event in events {
@@ -185,7 +210,7 @@ fn turns_from_events(events: &[EventRecord]) -> (Vec<PortableTurn>, Vec<Value>) 
             continue;
         };
         let mut value = attachment;
-        if let Ok(bytes) = std::fs::read(crate::config::home().join("attachments").join(&id)) {
+        if let Some(bytes) = attachment_bytes(&id) {
             use base64::Engine;
             value["data"] = Value::String(base64::engine::general_purpose::STANDARD.encode(bytes));
         }
@@ -225,6 +250,10 @@ pub fn from_session(session: &Arc<Session>, store: &dyn Store) -> Result<Portabl
         true
     })?;
     let (turns, attachments) = turns_from_events(&events);
+    let mut exported_meta = meta.clone();
+    // Session env may contain one-time seals and other credentials. It is runtime state, not
+    // chat history, and must never leave this machine in a portable bundle.
+    exported_meta.session_env.clear();
     Ok(PortableChat {
         key: format!("acpmux:{}", meta.id),
         harness: meta.harness.clone(),
@@ -236,19 +265,20 @@ pub fn from_session(session: &Arc<Session>, store: &dyn Store) -> Result<Portabl
         model: meta.model_request.clone(),
         turns,
         events,
-        session: Some(meta),
+        session: Some(exported_meta),
         attachments,
     })
 }
 
-pub fn from_indexed(chat: &IndexedChat) -> Result<PortableChat> {
+fn indexed_turns(
+    chat: &IndexedChat,
+) -> std::result::Result<Vec<PortableTurn>, cmux_chat_index::transcript::TranscriptError> {
     let entry = &chat.entry;
-    let turns: Vec<PortableTurn> = cmux_chat_index::transcript::read_turns(
+    Ok(cmux_chat_index::transcript::read_turns(
         entry.harness,
         &entry.source_path,
         &entry.session_id,
-    )
-    .map_err(|e| anyhow::anyhow!("transcript.{}: {e}", e.code()))?
+    )?
     .into_iter()
     .map(|Turn { prompt, answer, prompt_at, answer_at }| PortableTurn {
         prompt,
@@ -257,8 +287,12 @@ pub fn from_indexed(chat: &IndexedChat) -> Result<PortableChat> {
         answer_at,
         tool_calls: Vec::new(),
     })
-    .collect();
-    Ok(PortableChat {
+        .collect())
+}
+
+fn portable_indexed(chat: &IndexedChat, turns: Vec<PortableTurn>) -> PortableChat {
+    let entry = &chat.entry;
+    PortableChat {
         key: format!("{}:{}", entry.harness.id(), entry.session_id),
         harness: entry.harness.id().to_owned(),
         session_id: entry.session_id.clone(),
@@ -271,7 +305,12 @@ pub fn from_indexed(chat: &IndexedChat) -> Result<PortableChat> {
         events: Vec::new(),
         session: None,
         attachments: Vec::new(),
-    })
+    }
+}
+
+pub fn from_indexed(chat: &IndexedChat) -> Result<PortableChat> {
+    let turns = indexed_turns(chat).map_err(|e| anyhow::anyhow!("transcript.{}: {e}", e.code()))?;
+    Ok(portable_indexed(chat, turns))
 }
 
 pub fn bundle(chats: Vec<PortableChat>) -> PortableBundle {
@@ -382,6 +421,9 @@ pub fn import_session_dir(root: &Path, chat: &PortableChat, harness: &str) -> Re
             }))?
         }
     };
+    // Runtime environment is local credential and workspace state, never part of a portable
+    // chat bundle. Ignore it even when an externally supplied bundle includes the field.
+    meta.session_env.clear();
     anyhow::ensure!(super::transfer::is_plain_id(&meta.id), "invalid session id in chat bundle");
     meta.harness = harness.to_owned();
     if !meta.cwd.is_dir() {
@@ -474,10 +516,16 @@ pub fn export_value(
                 for chat in indexed {
                     let key = format!("{}:{}", chat.entry.harness.id(), chat.entry.session_id);
                     if seen.insert(key) {
-                        chats.push(
-                            from_indexed(&chat)
-                                .map_err(|e| RpcError::invalid_params(e.to_string()))?,
-                        );
+                        match indexed_turns(&chat) {
+                            Ok(turns) => chats.push(portable_indexed(&chat, turns)),
+                            Err(cmux_chat_index::transcript::TranscriptError::Unsupported) => {}
+                            Err(error) => {
+                                return Err(RpcError::invalid_params(format!(
+                                    "transcript.{}: {error}",
+                                    error.code()
+                                )));
+                            }
+                        }
                     }
                 }
             }
