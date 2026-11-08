@@ -8,17 +8,15 @@
 //
 // Hover: a chat the list has shows its session card (started/SessionHoverCard.tsx), as a sent
 // message's recipient does; a workspace, pane or tab shows the link card (LinkHoverCard.tsx's
-// look: its icon, its title, its kind and place, then the link). Click: a chat opens as its link did
-// before the chips (ChatLinkChip below: `chat.offer.open`), anything else through the host's link
-// path (`link.open`), which the anchor's own click takes.
-import { useContext, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+// look: its icon, its title, its kind and place, then the link). Click: what the plain link's was
+// before the chips, for every kind: an app link takes the host's link path (`link.open`), which the
+// anchor's own click takes; cmux.com's agent link opens as its URL chip did (ChatLinkChip below).
+// Copy: a selection copies each chip as its link (conversation/selectionCopy.ts).
+import { useContext, useState, type ReactNode } from "react";
 import { AnchoredCard } from "../../../ui/Tooltip";
 import { experimentArm } from "../../../experiments/experiment";
 import { Icon } from "../icons/Icon";
 import { useT } from "../i18n";
-import { useTranscriptReadOnly } from "../conversation/readOnly";
-import { openSessionAttributes } from "../conversation/menuParts";
-import { SessionHoverContext } from "../started/sessionHoverCardModel";
 import { useSessionHover } from "../started/useSessionHover";
 import { chatUnderHoverCard, hoverCardGlass } from "../chatUnderGlass";
 import { useHoverCard } from "./useHoverCard";
@@ -26,6 +24,7 @@ import { useCmuxLink, type CmuxLinkInfo, type CmuxLinkKind } from "./cmuxLinkRes
 import { namesChat, type CmuxLinkTarget } from "../conversation/cmuxLinks";
 import { useAgentLinkClick } from "../conversation/SessionRef";
 import { SubsessionContext } from "../subagents/subsessions";
+import { installSelectionCopy } from "../conversation/selectionCopy";
 import { cmuxLinkLook, type CmuxLinkLook } from "./cmuxLinkLook.experiment";
 import "./linkCard.css";
 import "./cmuxLinkChip.css";
@@ -83,6 +82,8 @@ export function CmuxLinkChip({ href, fallback, look }: { href: string; fallback:
   const { target, info } = useCmuxLink(href);
   const shown = look ?? experimentArm(cmuxLinkLook);
   if (!target || !info || shown === "link") return <>{fallback}</>;
+  // A selection copies the chip as its link, in a prompt's text too (conversation/selectionCopy.ts).
+  installSelectionCopy();
   return namesChat(target) ? (
     <ChatLinkChip href={href} target={target} info={info} look={shown} />
   ) : (
@@ -90,11 +91,13 @@ export function CmuxLinkChip({ href, fallback, look }: { href: string; fallback:
   );
 }
 
-/// A chat's chip. Its click is the link's own from before the chips (review of #38166, F1): an agent
-/// link (`cmux://agent/…`, cmux.com's) opens as a bare agent link's chip does (`useAgentLinkClick`,
-/// `chat.offer.open` as a sender, the chat acpmux resolves, a peer's included; its web page or the
-/// host's link path when it is not the reader's); a session or Chief link opens its listed chat
-/// (`chat.offer.open`), and one to a turn takes the host's link path, which shows the turn.
+/// A chat's chip. Its click is exactly the plain link's from before the chips (review of #38166, F1,
+/// F2): an app link (`cmux://session/…`, a turn, a Chief chat, a native agent link with its
+/// `?message=`) is not touched, so the anchor takes the host's link path (`link.open`), which opens
+/// any chat it names and reveals the turn or message; cmux.com's agent link opens as its URL chip did
+/// (`useAgentLinkClick`: the reader's own chat as a sender, else its web page). The card's click does
+/// what the chip's does: it follows the link for an app link, and opens as the URL chip's card did for
+/// a web one.
 function ChatLinkChip({
   href,
   target,
@@ -106,40 +109,27 @@ function ChatLinkChip({
   info: CmuxLinkInfo;
   look: CmuxLinkLook;
 }) {
-  const hover = useContext(SessionHoverContext);
   const subsessions = useContext(SubsessionContext);
-  const readOnly = useTranscriptReadOnly();
-  const open = readOnly ? undefined : hover?.open;
-  const agent = useAgentLinkClick(target.kind === "agent" ? href : "");
-  const agentOpens = agent.onClick !== undefined;
-  const sessionId = info.sessionId;
-  const cardOpen = agentOpens ? (subsessions?.openSender ?? subsessions?.open) : open;
-  const { trigger, card } = useSessionHover(sessionId ?? "", cardOpen);
-  const turn = target.kind === "session" && target.turn !== undefined;
-  const onClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
-    if (agentOpens) return agent.onClick!(event);
-    if (!open || !sessionId || turn || event.defaultPrevented) return;
-    event.preventDefault();
-    open(sessionId);
-  };
-  const menu = agentOpens
-    ? {
-        "data-open-session": agent["data-open-session"],
-        "data-open-session-sender": agent["data-open-session-sender"],
-      }
-    : open && sessionId
-      ? openSessionAttributes(sessionId)
-      : {};
+  const web = target.kind === "agent" && target.web;
+  const agent = useAgentLinkClick(web ? href : "");
+  const [anchor, setAnchor] = useState<HTMLAnchorElement | null>(null);
+  const follow = () => anchor?.click();
+  const cardOpen = web ? (subsessions?.openSender ?? subsessions?.open) : anchor ? follow : undefined;
+  const { trigger, card } = useSessionHover(info.sessionId ?? "", cardOpen);
   return (
     <>
       <a
+        ref={setAnchor}
         {...trigger}
         className="cv-cmux-link acpmux-started-chip"
         href={href}
         rel="noreferrer"
         data-cmux-link="chat"
         data-look={look}
-        {...menu}
+        data-session-ref={agent["data-session-ref"]}
+        // A web link to one of the reader's chats right-clicks as that chat, as its URL chip did.
+        data-open-session={agent["data-open-session"]}
+        data-open-session-sender={agent["data-open-session-sender"]}
         onPointerEnter={(event) => {
           agent.onPointerEnter?.();
           trigger.onPointerEnter?.(event);
@@ -148,7 +138,7 @@ function ChatLinkChip({
           agent.onFocus?.();
           trigger.onFocus?.(event);
         }}
-        onClick={onClick}
+        onClick={agent.onClick}
       >
         <CmuxLinkLabel info={info} look={look} />
       </a>

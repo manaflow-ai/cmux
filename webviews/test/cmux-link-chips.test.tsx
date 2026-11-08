@@ -24,6 +24,8 @@ import { linkedText } from "../src/agent-session/acpmux/chips/linkedText";
 import { resetSessionRefs, setSessionRefResolver } from "../src/agent-session/acpmux/conversation/sessionRefs";
 import { SubsessionContext, SubsessionStore } from "../src/agent-session/acpmux/subagents/subsessions";
 import { openOfferChat, openSenderChat } from "../src/agent-session/acpmux/rows/rowActions";
+import { chipSelectionText, selectionHtml } from "../src/agent-session/acpmux/conversation/selectionCopy";
+import { htmlMarkdown } from "../src/agent-session/acpmux/richClipboard";
 
 const HEX = "16c92e4354fcaf05540386720d78e251";
 const WORKSPACE = `cmux-nightly://workspace/ws_${HEX}`;
@@ -289,7 +291,7 @@ test("the app's linkPlaces push resolves a Copy Link to Workspace link to its ch
   );
 });
 
-test("a chat link names its chat from the session list, and a click opens that chat", async () => {
+test("a chat link names its chat from the session list; its click is the plain link's, the host's", async () => {
   const store = chats();
   const opened: string[] = [];
   await mount(
@@ -301,20 +303,22 @@ test("a chat link names its chat from the session list, and a click opens that c
   expect(chips.map((chip) => chip.getAttribute("href"))).toEqual([AGENT, WEB_AGENT]);
   expect(chips[0]!.querySelector(".cv-cmux-link__title")?.textContent).toBe("Review the retry fix");
   expect(chips[0]!.querySelector(".cv-cmux-link__host")?.textContent).toBe("build-box");
-  let prevented = false;
+  let prevented = true;
   await act(async () => {
     const click = new window.MouseEvent("click", { bubbles: true, cancelable: true });
     chips[0]!.dispatchEvent(click);
     prevented = click.defaultPrevented;
   });
-  expect(opened).toEqual(["acp-reviewer"]);
-  expect(prevented).toBe(true);
+  expect(opened).toEqual([]);
+  expect(prevented).toBe(false);
 });
 
 // ---------------------------------------------------------------------------------------------
-// A chat chip's click is its link's from before the chips (review of #38166, F1): an agent link
-// opens the chat acpmux resolves as a bare agent link's chip does (`useAgentLinkClick`,
-// `chat.offer.open` as a sender), a peer's the page does not list included.
+// A chat chip's click is exactly its plain link's from before the chips (review of #38166, F1, F2):
+// an app link (a session, a turn, a Chief chat, a native agent link with or without its message) is
+// left to the host's link path, which opens any chat and reveals the turn or message; cmux.com's
+// agent link opens as its URL chip did (`useAgentLinkClick`, `chat.offer.open` as a sender), a
+// peer's the page does not list included.
 
 const PEER = "4e8a2d6c-1b3f-4a5e-9c7d-0f1e2d3c4b5a";
 const PEER_AGENT = `cmux://agent/codex/${PEER}?host=studio&name=peer`;
@@ -380,15 +384,16 @@ afterEach(() => {
   delete scope.cancelIdleCallback;
 });
 
-test("a peer's agent link acpmux resolves opens its chat through chat.offer.open", async () => {
+test("a peer's native agent link acpmux resolves names its chat and is left to the host's link path", async () => {
   const { offers } = await mountApp(<PromptTyped text={`Ask ${PEER_AGENT}`} show={(text) => text} />, {
     [PEER_AGENT]: { sessionId: "acp-peer", name: "Peer review", host: "studio" },
   });
   const chip = host.querySelector<HTMLAnchorElement>("[data-cmux-link=chat]")!;
   expect(chip.querySelector(".cv-cmux-link__title")?.textContent).toBe("Peer review");
-  expect(chip.getAttribute("data-open-session")).toBe("acp-peer");
-  expect(await click(chip)).toBe(true);
-  expect(offers).toEqual([{ sessionId: "acp-peer", sender: true }]);
+  expect(chip.getAttribute("href")).toBe(PEER_AGENT);
+  expect(chip.getAttribute("data-open-session")).toBeNull();
+  expect(await click(chip)).toBe(false);
+  expect(offers).toEqual([]);
 });
 
 test("a peer's cmux.com agent link acpmux resolves opens its chat the same way", async () => {
@@ -401,13 +406,32 @@ test("a peer's cmux.com agent link acpmux resolves opens its chat the same way",
   expect(offers).toEqual([{ sessionId: "acp-peer", sender: true }]);
 });
 
-test("a reply's peer agent link opens its chat the same way", async () => {
+test("a reply's peer agent link is left to the host's link path the same way", async () => {
   const { offers } = await mountApp(<p>{linkedText(`Ask ${PEER_AGENT}`, "r")}</p>, {
     [PEER_AGENT]: { sessionId: "acp-peer", name: "Peer review" },
   });
   const chip = host.querySelector<HTMLAnchorElement>("[data-cmux-link=chat]")!;
-  expect(await click(chip)).toBe(true);
-  expect(offers).toEqual([{ sessionId: "acp-peer", sender: true }]);
+  expect(await click(chip)).toBe(false);
+  expect(offers).toEqual([]);
+});
+
+test("a native agent link to one message keeps it: the click is the host's, which reveals the message", async () => {
+  const link = `${PEER_AGENT}&message=m-0042`;
+  const { offers } = await mountApp(<PromptTyped text={`Read ${link}`} show={(text) => text} />, {
+    [link]: { sessionId: "acp-peer", name: "Peer review" },
+  });
+  const chip = host.querySelector<HTMLAnchorElement>("[data-cmux-link=chat]")!;
+  expect(chip.getAttribute("href")).toBe(link);
+  expect(await click(chip)).toBe(false);
+  expect(offers).toEqual([]);
+});
+
+test("a listed chat's native agent link is the host's too, never a chat.offer.open", async () => {
+  const { offers } = await mountApp(<PromptTyped text={`Ask ${AGENT}`} show={(text) => text} />, {});
+  const chip = host.querySelector<HTMLAnchorElement>("[data-cmux-link=chat]")!;
+  expect(chip.querySelector(".cv-cmux-link__title")?.textContent).toBe("Review the retry fix");
+  expect(await click(chip)).toBe(false);
+  expect(offers).toEqual([]);
 });
 
 test("a listed chat's agent link opens as the agent link did: the chat acpmux names, as a sender", async () => {
@@ -430,15 +454,22 @@ test("an agent link that names no chat of the reader's stays the link and is fol
   expect(offers).toEqual([]);
 });
 
-test("a listed session link opens its chat; one to a turn takes the host's link path", async () => {
+test("a listed session link, one to a turn and a Chief chat's all take the host's link path", async () => {
+  // The listed chat is no chat this one started or sent: `chat.offer.open` would refuse it.
   const link = "cmux://session/acp-reviewer";
   const turn = `${link}#turn-t1`;
-  const { offers } = await mountApp(<PromptTyped text={`See ${link} and ${turn}`} show={(text) => text} />, {});
-  const [chip, turnChip] = [...host.querySelectorAll<HTMLAnchorElement>("[data-cmux-link=chat]")];
-  expect(await click(chip!)).toBe(true);
-  expect(offers).toEqual([{ sessionId: "acp-reviewer" }]);
-  expect(await click(turnChip!)).toBe(false);
-  expect(offers).toEqual([{ sessionId: "acp-reviewer" }]);
+  const chief = "cmux://chief/0a1b2c3d/session/acp-reviewer";
+  const { offers } = await mountApp(
+    <PromptTyped text={`See ${link} and ${turn} and ${chief}`} show={(text) => text} />,
+    {},
+  );
+  const chips = [...host.querySelectorAll<HTMLAnchorElement>("[data-cmux-link=chat]")];
+  expect(chips.map((chip) => chip.getAttribute("href"))).toEqual([link, turn, chief]);
+  for (const chip of chips) {
+    expect(chip.getAttribute("data-open-session")).toBeNull();
+    expect(await click(chip)).toBe(false);
+  }
+  expect(offers).toEqual([]);
 });
 
 test("a workspace chip in the app's page still takes the host's link path", async () => {
@@ -480,6 +511,72 @@ test("hovering a workspace chip shows its card: the title, the kind and the link
   expect(card!.querySelector(".cv-link-preview__site")?.textContent).toBe("Retry fix");
   expect(card!.querySelector(".cv-link-preview__target")?.textContent).toBe("Workspace on studio");
   expect(card!.querySelector(".cv-cmux-link-card__link")?.textContent).toBe(WORKSPACE);
+});
+
+test("a listed session chip's card opens as the chip does: it follows the link", async () => {
+  const link = "cmux://session/acp-reviewer";
+  const { offers } = await mountApp(<PromptTyped text={`See ${link}`} show={(text) => text} />, {});
+  const chip = host.querySelector<HTMLAnchorElement>("[data-cmux-link=chat]")!;
+  const followed: string[] = [];
+  host.addEventListener("click", (event) => {
+    const anchor = (event.target as Element).closest("a");
+    if (anchor) followed.push(anchor.getAttribute("href")!);
+    event.preventDefault();
+  });
+  await act(async () => {
+    chip.focus();
+    chip.dispatchEvent(new window.FocusEvent("focus", { bubbles: false }));
+    chip.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
+    await new Promise((done) => setTimeout(done, 800));
+  });
+  const card = document.querySelector<HTMLElement>(".acpmux-session-hover");
+  expect(card).not.toBeNull();
+  await act(async () => card!.click());
+  expect(followed).toEqual([link]);
+  expect(offers).toEqual([]);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Copy: a chip copies as its link, as the plain link did (review of #38166, F3).
+
+function selectAll(node: Node): Range {
+  const range = document.createRange();
+  range.selectNodeContents(node);
+  return range;
+}
+
+test("a reply's selection copies a chip as its link, in its plain text and its HTML", async () => {
+  setLinkPlaces([place("Retry fix")]);
+  await mount(
+    <div className="cv-md">
+      <p>{linkedText(`See ${WORKSPACE} now`, "r")}</p>
+    </div>,
+  );
+  expect(host.querySelector("[data-cmux-link=workspace]")).not.toBeNull();
+  const html = selectionHtml(selectAll(host.querySelector("p")!))!;
+  expect(html).toContain(WORKSPACE);
+  expect(html).not.toContain("Retry fix");
+  expect(htmlMarkdown(html)).toBe(`See ${WORKSPACE} now`);
+});
+
+test("a prompt's selection copies its chips as their links", async () => {
+  setLinkPlaces([place("Retry fix")]);
+  await mount(
+    <SessionHoverContext.Provider value={{ store: chats(), open: () => undefined }}>
+      <PromptTyped text={`See ${WORKSPACE} and ${AGENT}`} show={(text) => text} />
+    </SessionHoverContext.Provider>,
+  );
+  expect(host.querySelectorAll("[data-cmux-link]").length).toBe(2);
+  const range = selectAll(host);
+  expect(selectionHtml(range)).toBeNull();
+  expect(chipSelectionText(range)).toBe(`See ${WORKSPACE} and ${AGENT}`);
+  // Nothing is left behind in the page.
+  expect(document.body.lastElementChild?.getAttribute("aria-hidden")).not.toBe("true");
+});
+
+test("a selection with no chip is the page's own copy", async () => {
+  await mount(<PromptTyped text="Just words" show={(text) => text} />);
+  expect(chipSelectionText(selectAll(host))).toBeNull();
 });
 
 // ---------------------------------------------------------------------------------------------

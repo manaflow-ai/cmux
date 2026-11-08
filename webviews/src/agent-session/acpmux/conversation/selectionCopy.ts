@@ -7,6 +7,11 @@
 // It takes over only a selection inside one message's Markdown (`.cv-md`). A selection with math is
 // mathCopy.ts's (the TeX as written), one that holds highlighted code (drawn in a shadow root the
 // copy cannot read) or reaches across messages copies as the page would copy it.
+//
+// A cmux link drawn as its chip (chips/CmuxLinkChip.tsx: a workspace's or chat's title) copies as
+// the link, as the plain link did before the chips (review of #38166, F3): in a reply's copy, and in
+// any other selection that holds one (a sent prompt's text), whose plain text is then the page's
+// with each chip's words swapped for its link.
 import { copyHref, htmlMarkdown } from "../richClipboard";
 import { safeHref } from "../replyHref";
 
@@ -17,6 +22,13 @@ const KEEP = new Set(["href", "start", "colspan", "rowspan", "src", "alt"]);
 /// image that opens) is unwrapped, its words and picture kept.
 /// A list's drawn number and bullet are the list's own markers in the copy (`<ol>`, `<ul>`).
 const CHROME = "svg, [aria-hidden='true'], [hidden], .sr-only, .cv-li__num, .cv-li__bullet";
+/// A cmux link's chip, whose words are a title: it copies as its link.
+const LINK_CHIP = "a[data-cmux-link]";
+
+/// Each cmux link chip in `root` as its link's text, a chip the selection cut into included.
+function chipsAsLinks(root: ParentNode) {
+  for (const chip of root.querySelectorAll(LINK_CHIP)) chip.replaceWith(chip.getAttribute("href") ?? "");
+}
 
 /// The document the listener is on: once per page, and again for a new one (a test's next DOM).
 let installedOn: Document | undefined;
@@ -66,6 +78,7 @@ export function selectionHtml(range: Range): string | null {
     wrapper.append(...holder.childNodes);
     holder.append(wrapper);
   }
+  chipsAsLinks(holder);
   for (const element of holder.querySelectorAll(CHROME)) element.remove();
   for (const button of holder.querySelectorAll("button")) button.replaceWith(...button.childNodes);
   for (const element of holder.querySelectorAll("*"))
@@ -84,12 +97,43 @@ export function selectionHtml(range: Range): string | null {
   return holder.innerHTML;
 }
 
+/** The plain text of a selection outside a reply's copy that holds a cmux link chip, each chip as
+ * its link; null when it holds none (the page's own copy), or math or code (theirs). */
+export function chipSelectionText(range: Range): string | null {
+  const chips = [...document.querySelectorAll(LINK_CHIP)].filter((chip) => range.intersectsNode(chip));
+  if (!chips.length) return null;
+  for (const element of document.querySelectorAll(`${MATH}, pre`)) if (range.intersectsNode(element)) return null;
+  // Laid out as the selection's own box is (a prompt's kept line ends), off screen, for its text.
+  const around = elementOf(range.commonAncestorContainer);
+  const holder = (around?.cloneNode(false) as HTMLElement | undefined) ?? document.createElement("div");
+  holder.removeAttribute("id");
+  holder.setAttribute("aria-hidden", "true");
+  holder.style.cssText = "position:fixed;left:-100000px;top:0;";
+  holder.append(range.cloneContents());
+  chipsAsLinks(holder);
+  for (const element of holder.querySelectorAll(CHROME)) element.remove();
+  document.body.append(holder);
+  try {
+    // innerText reads the layout's line ends; a DOM with no layout has textContent only.
+    return (typeof holder.innerText === "string" ? holder.innerText : holder.textContent) ?? "";
+  } finally {
+    holder.remove();
+  }
+}
+
 function onCopy(event: ClipboardEvent) {
   if (event.defaultPrevented || !event.clipboardData) return;
   const selection = document.getSelection();
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
-  const html = selectionHtml(selection.getRangeAt(0));
-  if (!html) return;
+  const range = selection.getRangeAt(0);
+  const html = selectionHtml(range);
+  if (!html) {
+    const text = chipSelectionText(range);
+    if (!text) return;
+    event.clipboardData.setData("text/plain", text);
+    event.preventDefault();
+    return;
+  }
   const markdown = htmlMarkdown(html);
   if (!markdown) return;
   event.clipboardData.setData("text/plain", markdown);

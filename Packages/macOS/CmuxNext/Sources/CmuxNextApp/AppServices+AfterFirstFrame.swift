@@ -48,7 +48,7 @@ extension AppServices {
         }, onChange: { [weak self] items, eligibleRequests in
             self?.notifications.attention.marksChanged(items, eligibleRequests: eligibleRequests)
         })
-        attentionTabs.places.follow { [weak self] in self?.linkPlaceWorkspaces() }
+        attentionTabs.places.follow({ [weak self] in self?.linkPlaceWorkspaces() }, titles: .init(workspace: { [weak self] in self?.shownWorkspaceName($0) ?? $0.displayName }, tab: SidebarBridge.tabTitle(self)))
         DebugTimings.markLaunch("launch.non_paint_services")
     }
 

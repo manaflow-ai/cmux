@@ -62,41 +62,65 @@ public final class AgentPaneLinkPlaces {
         }
     }
 
+    /// The names the person sees (review of #38166, F4): a workspace as its sidebar row and title bar
+    /// name it (an unnamed one by its front tab), a tab as its strip names it (an agent chat by its
+    /// chat's title, a page by its page's, never the `about:blank` its record carries). The App passes
+    /// the sidebar's sources (`shownWorkspaceName`, `SidebarBridge.tabTitle`); ``records`` reads the
+    /// records alone.
+    public struct Titles {
+        public var workspace: @MainActor (WorkspaceModel) -> String
+        /// A tab's name in its workspace.
+        public var tab: @MainActor (WorkspaceModel, TabModel) -> String
+
+        public init(workspace: @escaping @MainActor (WorkspaceModel) -> String,
+                    tab: @escaping @MainActor (WorkspaceModel, TabModel) -> String) {
+            self.workspace = workspace
+            self.tab = tab
+        }
+
+        /// The records' own names (tests): an unnamed workspace by its front tab's record.
+        public static var records: Titles {
+            Titles(workspace: { workspace in
+                let front = workspace.screens.flatMap(\.panes).first.flatMap { AgentPaneLinkPlaces.frontTab(of: $0) }?.displayTitle
+                return workspace.isUnnamed ? (front.flatMap { $0.isEmpty ? nil : $0 } ?? workspace.displayName) : workspace.displayName
+            }, tab: { _, tab in tab.displayTitle })
+        }
+    }
+
     /// Keeps ``places`` on `workspaces` (every machine's workspaces, each with its machine's name when it
-    /// is not this Mac), observed: nothing polls, and a change made in one main-actor turn is one list.
-    /// Stops when `workspaces` answers nil (the App is gone) or the next call replaces it.
-    public func follow(_ workspaces: @escaping @MainActor () -> [(WorkspaceModel, host: String?)]?) {
+    /// is not this Mac), named by `titles`, observed: nothing polls, and a change made in one main-actor
+    /// turn is one list. Stops when `workspaces` answers nil (the App is gone) or the next call replaces it.
+    public func follow(_ workspaces: @escaping @MainActor () -> [(WorkspaceModel, host: String?)]?, titles: Titles) {
         watch?.cancel()
         // task-owner: the App's AgentPaneAttentionTabs (one per app); ends when `workspaces` answers nil or on the next follow
         watch = Task { [weak self] in
-            for await next in ObservationStream({ workspaces().map(Self.places(in:)) }) {
+            for await next in ObservationStream({ workspaces().map { Self.places(in: $0, titles: titles) } }) {
                 guard let next, let self else { return }
                 places = next
             }
         }
     }
 
-    /// The places of `workspaces`, named as the person knows them, at most ``maximumPlaces``: a
-    /// workspace by its name (an unnamed one by its first tab, as its sidebar row reads), a pane by
-    /// its name or the tab it opens on, a tab by its title. An item with no resource id (an older
-    /// daemon) or no title names no link and is left out.
-    static func places(in workspaces: [(WorkspaceModel, host: String?)]) -> [Place] {
+    /// The places of `workspaces`, named by `titles`, at most ``maximumPlaces``: a workspace by its
+    /// shown name, a pane by its name or the tab it opens on, a tab by its shown title. An item with
+    /// no resource id (an older daemon) or no name names no link and is left out.
+    static func places(in workspaces: [(WorkspaceModel, host: String?)], titles: Titles = .records) -> [Place] {
         var places: [Place] = []
         for (workspace, host) in workspaces {
             let panes = workspace.screens.flatMap(\.panes)
-            let front = panes.first.flatMap { Self.frontTab(of: $0) }?.displayTitle
-            let name = workspace.isUnnamed ? (front.flatMap { $0.isEmpty ? nil : $0 } ?? workspace.displayName) : workspace.displayName
-            if let id = workspace.resourceID?.rawValue {
+            let name = titles.workspace(workspace)
+            if let id = workspace.resourceID?.rawValue, !name.isEmpty {
                 places.append(Place(id: id, kind: .workspace, title: name, host: host))
             }
             for pane in panes {
-                let title = pane.name.flatMap { $0.isEmpty ? nil : $0 } ?? Self.frontTab(of: pane)?.displayTitle ?? ""
+                let title = pane.name.flatMap { $0.isEmpty ? nil : $0 } ?? Self.frontTab(of: pane).map { titles.tab(workspace, $0) } ?? ""
                 if let id = pane.resourceID?.rawValue, !title.isEmpty {
                     places.append(Place(id: id, kind: .pane, title: title, host: host, workspace: name))
                 }
                 for tab in pane.tabs {
-                    guard let id = tab.resourceID?.rawValue, !tab.displayTitle.isEmpty else { continue }
-                    places.append(Place(id: id, kind: .tab, title: tab.displayTitle, host: host, workspace: name))
+                    guard let id = tab.resourceID?.rawValue else { continue }
+                    let title = titles.tab(workspace, tab)
+                    if !title.isEmpty { places.append(Place(id: id, kind: .tab, title: title, host: host, workspace: name)) }
                 }
             }
             if places.count >= maximumPlaces { break }
@@ -105,7 +129,7 @@ public final class AgentPaneLinkPlaces {
     }
 
     /// The tab `pane` opens on (the daemon's default), else its first.
-    private static func frontTab(of pane: PaneModel) -> TabModel? {
+    fileprivate static func frontTab(of pane: PaneModel) -> TabModel? {
         pane.tabs.enumerated().first { $0.offset == pane.defaultTabIndex }?.element ?? pane.tabs.first
     }
 
