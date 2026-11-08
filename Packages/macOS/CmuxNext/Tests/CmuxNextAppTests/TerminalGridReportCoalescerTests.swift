@@ -459,4 +459,26 @@ struct TerminalGridReportCoalescerTests {
         await rig.drain()
         #expect(rig.sent.grids == [ahead, retargeted, next], "a late timer sent again: \(rig.sent.grids)")
     }
+
+    /// Review of #38125, finding 2: a burst of retargets in one refresh (scripted resizes) sends at most one grid at once
+    /// in place of an unshown one; the next waits for the refresh, which sends the newest, and the refresh frees the rule.
+    @Test func onlyOneGridPerRefreshGoesAtOnceInPlaceOfAnUnshownGrid() async throws {
+        let rig = Rig(ticking: true)
+        let ticks = try #require(rig.ticks)
+        let ahead = Self.grid(100), first = Self.grid(98), second = Self.grid(96), third = Self.grid(94)
+        rig.coalescer.viewSized(ahead)
+        rig.coalescer.viewSized(first, replacesUnshown: true)
+        rig.coalescer.viewSized(second, replacesUnshown: true)
+        rig.coalescer.viewSized(third, replacesUnshown: true)
+        #expect(rig.sent.grids == [ahead, first], "more than one grid went at once in one refresh: \(rig.sent.grids)")
+        #expect(rig.coalescer.isWaiting)
+        rig.clock.advance(by: Self.frame)
+        ticks.refresh()
+        #expect(rig.sent.grids == [ahead, first, third], "the refresh did not send the newest waiting grid: \(rig.sent.grids)")
+        rig.clock.advance(by: Self.frame)
+        ticks.refresh()
+        let next = Self.grid(92)
+        rig.coalescer.viewSized(next, replacesUnshown: true)
+        #expect(rig.sent.grids == [ahead, first, third, next], "a later refresh's replacing grid waited: \(rig.sent.grids)")
+    }
 }
