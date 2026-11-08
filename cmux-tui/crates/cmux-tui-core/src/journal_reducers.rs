@@ -718,6 +718,10 @@ fn valid_decimal_generation(value: &str) -> bool {
 }
 
 #[cfg(test)]
+#[path = "journal_reducers_blocker_tests.rs"]
+mod blocker_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
