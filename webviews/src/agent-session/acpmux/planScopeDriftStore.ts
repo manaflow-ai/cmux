@@ -21,8 +21,7 @@ function inScope(path: string, scope: string): boolean {
   const normalizedScope = scope.replace(/\/+$/, "");
   if (path === normalizedScope || path.startsWith(`${normalizedScope}/`)) return true;
   return (
-    !normalizedScope.startsWith("/") &&
-    (path.endsWith(`/${normalizedScope}`) || path.includes(`/${normalizedScope}/`))
+    !normalizedScope.startsWith("/") && (path.endsWith(`/${normalizedScope}`) || path.includes(`/${normalizedScope}/`))
   );
 }
 
@@ -65,18 +64,14 @@ export function clearPlanScope(sessionId: string | undefined): void {
 }
 
 /** Notes an edit and returns the first new out-of-scope area. */
-export function observePlanEdit(
-  sessionId: string,
-  paths: readonly string[],
-): PlanScopeDrift | undefined {
+export function observePlanEdit(sessionId: string, paths: readonly string[]): PlanScopeDrift | undefined {
   const state = states.get(sessionId);
   if (!state) return undefined;
   for (const raw of paths) {
     const path = pathOf(raw);
     if (!path) continue;
     const area = areaOf(path);
-    if ([...state.scope].some((scope) => inScope(path, scope)) || state.reported.has(area))
-      continue;
+    if ([...state.scope].some((scope) => inScope(path, scope)) || state.reported.has(area)) continue;
     state.reported.add(area);
     state.drift = { sessionId, path, area };
     notify();
@@ -108,8 +103,7 @@ export function editPaths(update: unknown): string[] {
     }
   }
   const rawInput = value.rawInput;
-  if (rawInput && typeof rawInput === "object")
-    add((rawInput as Record<string, unknown>).file_path);
+  if (rawInput && typeof rawInput === "object") add((rawInput as Record<string, unknown>).file_path);
   return paths;
 }
 

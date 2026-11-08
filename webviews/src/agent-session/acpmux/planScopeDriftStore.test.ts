@@ -13,15 +13,14 @@ const session = "scope-test";
 
 describe("plan scope drift", () => {
   test("extracts file and directory paths from a plan", () => {
-    expect(
-      planScopeFromMarkdown("Update `ui/settings/*` and auth/session.rs; leave docs alone."),
-    ).toEqual(["ui/settings/", "auth/session.rs"]);
+    expect(planScopeFromMarkdown("Update `ui/settings/*` and auth/session.rs; leave docs alone.")).toEqual([
+      "ui/settings/",
+      "auth/session.rs",
+    ]);
   });
 
   test("extracts absolute paths from a plan", () => {
-    expect(planScopeFromMarkdown("Edit /Users/leo/repo/auth/session.rs")).toEqual([
-      "/Users/leo/repo/auth/session.rs",
-    ]);
+    expect(planScopeFromMarkdown("Edit /Users/leo/repo/auth/session.rs")).toEqual(["/Users/leo/repo/auth/session.rs"]);
   });
 
   test("alerts once per area, then Keep going adds that area", () => {
@@ -38,9 +37,7 @@ describe("plan scope drift", () => {
   test("reads edit locations before canonical metadata", () => {
     expect(
       editPaths({
-        locations: [
-          { path: "auth/session.rs", _meta: { acpmux: { canonicalPath: "/tmp/auth/session.rs" } } },
-        ],
+        locations: [{ path: "auth/session.rs", _meta: { acpmux: { canonicalPath: "/tmp/auth/session.rs" } } }],
         rawInput: { file_path: "/tmp/auth/session.rs" },
       }),
     ).toEqual(["auth/session.rs", "/tmp/auth/session.rs"]);
@@ -48,12 +45,8 @@ describe("plan scope drift", () => {
 
   test("keeps absolute edit areas distinct", () => {
     approvePlan(session, "Edit ui/settings/*");
-    expect(observePlanEdit(session, ["/Users/leo/project/auth/session.rs"])?.area).toBe(
-      "/Users/leo/project/auth/",
-    );
-    expect(observePlanEdit(session, ["/Users/leo/project/web/session.ts"])?.area).toBe(
-      "/Users/leo/project/web/",
-    );
+    expect(observePlanEdit(session, ["/Users/leo/project/auth/session.rs"])?.area).toBe("/Users/leo/project/auth/");
+    expect(observePlanEdit(session, ["/Users/leo/project/web/session.ts"])?.area).toBe("/Users/leo/project/web/");
     clearPlanScope(session);
   });
 });
