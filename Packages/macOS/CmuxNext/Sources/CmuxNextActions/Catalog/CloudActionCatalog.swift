@@ -90,6 +90,16 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 symbol: "icloud.and.arrow.down", surfaces: [.palette, .contextMenu], targets: [.tab],
                 cliName: "cloud bring-back"
             ),
+            // Transfer to This Mac (Cloud multiplayer): any other Cloud chat, one started on the
+            // machine or a teammate's; a teammate's gives the person their own copy of the folder.
+            ActionDescriptor(
+                id: "cloudTransferLocal",
+                title: String(localized: "action.cloudTransferLocal", defaultValue: "Transfer to This Mac", bundle: .module),
+                keywords: ["vm", "cloud", "transfer", "local", "copy", "chat", "agent", "sync", "mac"], category: .cloud,
+                symbol: "laptopcomputer.and.arrow.down", surfaces: [.palette, .contextMenu],
+                arguments: [CatalogArgument.optionalPathString], targets: [.tab],
+                cliName: "cloud transfer-local"
+            ),
             ActionDescriptor(
                 id: "cloudSSH",
                 title: String(localized: "action.cloudSSH", defaultValue: "Open Cloud SSH Terminal", bundle: .module),

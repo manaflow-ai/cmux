@@ -47,6 +47,7 @@
 use cmux_json::JsonSet as _;
 
 mod base;
+pub(super) mod fetch;
 mod git_back;
 mod history;
 mod links;

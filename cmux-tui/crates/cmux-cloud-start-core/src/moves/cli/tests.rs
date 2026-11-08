@@ -257,6 +257,21 @@ fn each_verb_carries_its_arguments() {
             .unwrap(),
         "--or-copy"
     );
+    assert_eq!(
+        call(json!({"verb": "transfer-fetch", "socket": "/s", "local": "/l", "remote": "/r/sub", "adopt": true})).args,
+        ["link", "seed", "fetch", "--socket", "/s", "/l", "/r/sub", "--find-root", "--adopt"]
+    );
+    assert_eq!(
+        call(json!({"verb": "transfer-fetch", "socket": "/s", "local": "/l", "remote": "/r"})).args.last().unwrap(),
+        "--find-root",
+        "a copy keeps the machine's records"
+    );
+}
+
+#[test]
+fn a_fetch_answer_names_the_folder_it_copied() {
+    let output = Output { stdout: r#"{"ok":true,"mode":"git","folder":"/l","remote_root":"/r"}"#.into(), stderr: String::new(), status: 0 };
+    assert_eq!(parse(&output).0.remote_root.as_deref(), Some("/r"));
 }
 
 #[test]

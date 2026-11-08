@@ -66,6 +66,7 @@ mod cloud_machines;
 mod cloud_repo;
 #[cfg(unix)]
 mod cloud_secret;
+mod cloud_team_keys;
 #[cfg(unix)]
 mod cloud_start_chat;
 #[cfg(unix)]
@@ -631,6 +632,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| cloud_team_keys::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))

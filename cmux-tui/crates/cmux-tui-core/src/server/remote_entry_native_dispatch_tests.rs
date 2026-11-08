@@ -186,9 +186,10 @@ fn native_owner_identify_lists_the_no_folder_start() {
 /// (plans/cmux-next/daemon-capabilities.json, exported from its `DaemonCapability`) is on that link.
 #[test]
 fn native_owner_identify_lists_every_capability_the_app_requires() {
-    let export: Value =
-        serde_json::from_str(include_str!("../../../../../plans/cmux-next/daemon-capabilities.json"))
-            .unwrap();
+    let export: Value = serde_json::from_str(include_str!(
+        "../../../../../plans/cmux-next/daemon-capabilities.json"
+    ))
+    .unwrap();
     let required: Vec<&str> =
         export["required"].as_array().unwrap().iter().map(|c| c.as_str().unwrap()).collect();
     assert!(!required.is_empty());

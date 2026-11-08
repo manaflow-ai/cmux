@@ -449,6 +449,31 @@ pub struct TargetPolicyHost {
     pub fallback: TargetPolicyHostFallback,
 }
 
+wire_enum! {
+    TeamAgentKeyAgent {
+        Claude = "claude",
+        Codex = "codex",
+    }
+}
+
+wire_enum! {
+    TeamAgentKeyKind {
+        ApiKey = "api_key",
+        Oauth = "oauth",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAgentKeyState {
+    pub agent: TeamAgentKeyAgent,
+    pub set: bool,
+    pub kind: Option<TeamAgentKeyKind>,
+    pub generation: i64,
+    pub updated_at: Option<i64>,
+    pub updated_by: Option<UserId>,
+    pub hint: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamAiLimitMember {
     pub user: UserId,
@@ -876,26 +901,3 @@ pub struct TeamPolicyValuesSsoSessionMaxAgeHours {
     pub value: i64,
     pub mode: PolicyMode,
 }
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesSsoIdleTimeoutHours {
-    pub value: i64,
-    pub mode: PolicyMode,
-}
-
-wire_enum! {
-    TeamPolicyValuesAgentsAllowedClassesValueItem {
-        Mux = "mux",
-        Agent = "agent",
-        Run = "run",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesAgentsAllowedClasses {
-    pub value: Vec<TeamPolicyValuesAgentsAllowedClassesValueItem>,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesDeviceSettingsValue {}

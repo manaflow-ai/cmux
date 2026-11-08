@@ -69354,7 +69354,7 @@
         "contextMenus" : [
           {
             "context" : "agentChat",
-            "folder" : null,
+            "folder" : "move",
             "group" : "move",
             "label" : null,
             "parent" : null,
@@ -69429,7 +69429,7 @@
         "contextMenus" : [
           {
             "context" : "agentChat",
-            "folder" : null,
+            "folder" : "move",
             "group" : "move",
             "label" : null,
             "parent" : null,
@@ -69449,6 +69449,91 @@
         "tab"
       ],
       "title" : "Bring Back Local",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "path",
+          "suggestions" : null,
+          "title" : "Path"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud transfer-local",
+      "computed" : {
+        "canonical_action_id" : "cloudTransferLocal",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Transfers a chat on a Cloud machine that no move from this Mac put there to this Mac: copies its folder (the branch, commits, staged and working changes; never secrets or ignored files) into a new folder (--path, else ~/Cloud Transfers/<folder>). On your own machine the chat then moves here as Bring Back Local moves it; on a teammate's, you get your own copy of the folder and the chat stays with its owner. Only a person runs it: an agent's run is refused.",
+      "focuses" : false,
+      "group" : "CloudActionCatalog",
+      "id" : "cloudTransferLocal",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "vm",
+        "cloud",
+        "transfer",
+        "local",
+        "copy",
+        "chat",
+        "agent",
+        "sync",
+        "mac"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "agentChat",
+            "folder" : "move",
+            "group" : "move",
+            "label" : null,
+            "parent" : null,
+            "rank" : 2,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "laptopcomputer.and.arrow.down",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Transfer to This Mac",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false

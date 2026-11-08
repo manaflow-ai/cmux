@@ -46,5 +46,9 @@ extension CloudHandlers {
             guard !CloudMoveAsks.isAgent(invocation) else { throw ActionFailure(message: CloudMoveAskStrings.bringBackIsPersons) }
             try CloudBringBack(services: services).start(invocation, context: context)
         }
+        bind(CloudTransferLocal.action, registry, reason: reason) { invocation in
+            guard !CloudMoveAsks.isAgent(invocation) else { throw ActionFailure(message: CloudMoveAskStrings.bringBackIsPersons) }
+            try CloudTransferLocal(services: services).start(invocation, context: context)
+        }
     }
 }

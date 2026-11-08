@@ -46,6 +46,7 @@ struct CloudMove {
 
     static func hiddenMenuItems(_ record: AgentSessionRef?) -> Set<ActionID> {
         let back = CloudBringBack.hiddenMenuItems(record, movedChats: CloudMovedChats.app)
+            .union(CloudTransferLocal.hiddenMenuItems(record, movedChats: CloudMovedChats.app))
         guard let record, !record.host.hasPrefix(MachineRegistry.registryHostPrefix) else { return back.union([action]) }
         return back
     }

@@ -393,6 +393,12 @@ const GROUPS: &[Group] = &[
                 "Bring a moved chat back to this Mac",
                 "移したチャットをこの Mac に戻す",
             ),
+            verb(
+                "transfer-local",
+                "[--path DIR]",
+                "Transfer any other Cloud chat (or a teammate's copy) to this Mac",
+                "ほかの Cloud チャット（チームメイトのものはコピー）をこの Mac に転送",
+            ),
         ],
     },
     Group {
@@ -488,6 +494,12 @@ SECRETS (stored in this Mac's Keychain)
   cmux cloud secret rm NAME [--repo OWNER/NAME]
 set reads the value from a hidden prompt or stdin, never a command argument.
 
+TEAM KEYS (one shared key per agent for the team; owners and admins)
+  cmux cloud team-keys status --team TEAM_ID --json
+  cmux cloud team-keys set claude|codex --team TEAM_ID [--kind api_key|oauth] [--secret-file PATH]
+  cmux cloud team-keys remove claude|codex --team TEAM_ID
+A team key overrides each member's own key on the team's Cloud machines.
+
 CLIENT SESSIONS (a scoped token for one of your machines, no app needed)
   cmux cloud client-session create --target machine:VM_ID [--ttl SECONDS] [--token-file PATH]
   cmux cloud client-session exec --target machine:VM_ID -- COMMAND...
@@ -508,6 +520,12 @@ DEV と nightly は切り替え可能です。Release と RC は既定で prod �
   cmux cloud secret ls
   cmux cloud secret rm NAME [--repo OWNER/NAME]
 set は値を非表示の入力プロンプトまたは標準入力から読み取ります。コマンドの引数には指定しません。
+
+チームキー（チームでエージェントごとに 1 つの共有キー、オーナーと管理者）
+  cmux cloud team-keys status --team TEAM_ID --json
+  cmux cloud team-keys set claude|codex --team TEAM_ID [--kind api_key|oauth] [--secret-file PATH]
+  cmux cloud team-keys remove claude|codex --team TEAM_ID
+チームキーは、チームの Cloud マシンで各メンバー自身のキーより優先されます。
 
 クライアントセッション（自分のマシン 1 台だけに使える短期トークン、アプリ不要）
   cmux cloud client-session create --target machine:VM_ID [--ttl SECONDS] [--token-file PATH]
