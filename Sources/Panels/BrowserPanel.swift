@@ -10538,31 +10538,25 @@ enum BrowserDataImporter {
             do {
                 try querySQLiteRows(
                     sourceDatabaseURL: databaseURL,
-                    sql: "SELECT host, name, value, path, expiry, isSecure FROM moz_cookies"
+                    sql: """
+                    SELECT host, name, value, path, expiry, isSecure, isHttpOnly, sameSite, originAttributes
+                    FROM moz_cookies
+                    """
                 ) { statement in
                     let host = sqliteColumnText(statement, index: 0) ?? ""
-                    let name = sqliteColumnText(statement, index: 1) ?? ""
-                    let value = sqliteColumnText(statement, index: 2) ?? ""
-                    let path = sqliteColumnText(statement, index: 3) ?? "/"
-                    let expiry = sqliteColumnInt64(statement, index: 4)
-                    let isSecure = sqliteColumnInt64(statement, index: 5) != 0
-
-                    guard !name.isEmpty else { return }
                     guard domainMatches(host: host, filters: domainFilters) else { return }
-
-                    var properties: [HTTPCookiePropertyKey: Any] = [
-                        .domain: host,
-                        .path: path.isEmpty ? "/" : path,
-                        .name: name,
-                        .value: value,
-                    ]
-                    if isSecure {
-                        properties[.secure] = "TRUE"
-                    }
-                    if expiry > 0 {
-                        properties[.expires] = Date(timeIntervalSince1970: TimeInterval(expiry))
-                    }
-                    if let cookie = HTTPCookie(properties: properties) {
+                    guard let imported = BrowserImportedCookie.firefox(
+                        host: host,
+                        name: sqliteColumnText(statement, index: 1) ?? "",
+                        value: sqliteColumnText(statement, index: 2) ?? "",
+                        path: sqliteColumnText(statement, index: 3) ?? "/",
+                        expiry: sqliteColumnInt64(statement, index: 4),
+                        isSecure: sqliteColumnInt64(statement, index: 5) != 0,
+                        isHTTPOnly: sqliteColumnInt64(statement, index: 6) != 0,
+                        sameSite: sqliteColumnInt64(statement, index: 7),
+                        originAttributes: sqliteColumnText(statement, index: 8) ?? ""
+                    ) else { return }
+                    if let cookie = imported.makeHTTPCookie() {
                         cookies.append(cookie)
                     }
                 }
@@ -10603,7 +10597,11 @@ enum BrowserDataImporter {
             do {
                 try querySQLiteRows(
                     sourceDatabaseURL: databaseURL,
-                    sql: "SELECT host_key, name, value, path, expires_utc, is_secure, encrypted_value FROM cookies"
+                    sql: """
+                    SELECT host_key, name, value, path, expires_utc, is_secure, encrypted_value,
+                           is_httponly, samesite, top_frame_site_key
+                    FROM cookies
+                    """
                 ) { statement in
                     let host = sqliteColumnText(statement, index: 0) ?? ""
                     let name = sqliteColumnText(statement, index: 1) ?? ""
@@ -10612,6 +10610,9 @@ enum BrowserDataImporter {
                     let expiresUTC = sqliteColumnInt64(statement, index: 4)
                     let isSecure = sqliteColumnInt64(statement, index: 5) != 0
                     let encryptedValue = sqliteColumnData(statement, index: 6)
+                    let isHTTPOnly = sqliteColumnInt64(statement, index: 7) != 0
+                    let sameSite = sqliteColumnInt64(statement, index: 8)
+                    let topFrameSiteKey = sqliteColumnText(statement, index: 9) ?? ""
 
                     guard !name.isEmpty else { return }
                     guard domainMatches(host: host, filters: domainFilters) else { return }
@@ -10629,19 +10630,18 @@ enum BrowserDataImporter {
                         }
                     }
 
-                    var properties: [HTTPCookiePropertyKey: Any] = [
-                        .domain: host,
-                        .path: path.isEmpty ? "/" : path,
-                        .name: name,
-                        .value: usableValue,
-                    ]
-                    if isSecure {
-                        properties[.secure] = "TRUE"
-                    }
-                    if let expiresDate = chromiumDate(fromWebKitMicroseconds: expiresUTC) {
-                        properties[.expires] = expiresDate
-                    }
-                    if let cookie = HTTPCookie(properties: properties) {
+                    guard let imported = BrowserImportedCookie.chromium(
+                        host: host,
+                        name: name,
+                        value: usableValue,
+                        path: path,
+                        expiresUTC: expiresUTC,
+                        isSecure: isSecure,
+                        isHTTPOnly: isHTTPOnly,
+                        sameSite: sameSite,
+                        topFrameSiteKey: topFrameSiteKey
+                    ) else { return }
+                    if let cookie = imported.makeHTTPCookie() {
                         cookies.append(cookie)
                     }
                 }
