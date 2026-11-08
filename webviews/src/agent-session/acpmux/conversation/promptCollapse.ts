@@ -230,11 +230,27 @@ export function bodyText(body: readonly { kind: string; text?: string }[]): stri
   return body.flatMap((part) => (part.kind === "text" || part.kind === "pasted" ? (part.text ?? []) : [])).join("\n");
 }
 
-/// A placed prompt's text as its bubble draws it (`bodyText` of its `drawnBody`), so typed words
-/// and a paste joined as the draft had them search as they read. What Find searches and the fold
-/// measures, so a match never points at undrawn words, nor misses one across a paste's edge.
+/// What Find reads of a body `drawnBody` gave: its `bodyText`, and each text file's body where its
+/// chip draws it, opened (InlinePromptContent.tsx PromptTextFile, which Find opens to a match, as
+/// it opened the paste card that drew it before). The fold measures `bodyText` alone: closed, a
+/// file's body takes no room.
+export function findBodyText(body: readonly PromptContentPart[]): string {
+  return body
+    .flatMap((part) =>
+      part.kind === "text" || part.kind === "pasted"
+        ? (part.text ?? [])
+        : part.kind === "file"
+          ? (blockText(part) ?? [])
+          : [],
+    )
+    .join("\n");
+}
+
+/// A placed prompt's text as Find reads it (`findBodyText` of its `drawnBody`), so typed words and
+/// a paste joined as the draft had them search as they read, and a text file's body is found behind
+/// its chip. A match never points at undrawn words, nor misses one across a paste's edge.
 export const drawnPromptText = (parts: readonly PromptContentPart[], join: PasteJoin) =>
-  bodyText(drawnBody(parts, join));
+  findBodyText(drawnBody(parts, join));
 
 /** The text block a part went to the agent as (typed text, a pasted block, a text file's body), or
  * none for an attachment. */

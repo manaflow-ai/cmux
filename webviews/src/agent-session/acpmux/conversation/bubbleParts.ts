@@ -19,16 +19,18 @@ export function isImageOriginal(part: PromptContentPart, originals: ReadonlySet<
   return part.kind === "file" && (part.companionOf !== undefined || originals.has(attachmentPath(part.uri) ?? ""));
 }
 
-/// The parts a recorded prompt's bubble draws in their order in the pane's default (inline) view, or
-/// undefined when it keeps the legacy bands above a bubble of its recorded text: its parts without
-/// its videos' frames and notes (which went to the agent only) and its images' retained originals,
-/// less the attachments a placed prompt left in the strip, which draw in the band
-/// (promptCollapse.ts `inlineBubbleParts`). UserBubble.tsx draws these; Find searches their text and
-/// the row's estimate measures them, so neither reads a part the bubble does not draw.
+/// The parts a recorded prompt's bubble draws in their order in the pane's attachment view
+/// (`bubbleLayout`), or undefined when it keeps the legacy bands above a bubble of its recorded text:
+/// its parts without its videos' frames and notes (which went to the agent only) and its images'
+/// retained originals, less the attachments that draw in the band above it (every one in the strip
+/// view; a placed prompt's unmarked ones in the others, promptCollapse.ts `inlineBubbleParts`).
+/// UserBubble.tsx draws these; Find searches their text, so it never reads a part the bubble does
+/// not draw, nor misses words the band's leaving joined.
 export function bubbleParts(
   row: Pick<AcpmuxRow, "text" | "images" | "inlineParts" | "pasted" | "retryAttachments">,
+  view: AttachmentView,
 ): PromptContentPart[] | undefined {
-  return bubbleLayout(row, "inline")?.parts;
+  return bubbleLayout(row, view)?.parts;
 }
 
 /// A prompt drawn in its parts' order as UserBubble.tsx lays it out in the pane's attachment view

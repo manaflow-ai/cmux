@@ -116,10 +116,14 @@ test("a sent message whose three pastes the composer placed reads as the draft d
   expect(bubble.querySelectorAll(".cv-user__more").length).toBe(1);
 });
 
-test("Find does not count a text file's body, which draws only as its chip", async () => {
-  // A placed text file's body went as a text block, so it is in the recorded text; the bubble draws
-  // only its chip. Counted, a match there opened the fold to nothing Find could show or highlight.
-  const { findMatches } = await import("../src/agent-session/acpmux/conversation/chatFind");
+// A placed text file's body went as a text block with no file behind it, so its chip is the only
+// way to read it. Find searches it, as it searched the paste card that drew it before, and the
+// current match there opens the chip's disclosure (`prompt:<row>:paste:<index>`) and the fold. At
+// 38fb9cad Find left the body out and found nothing.
+test("Find matches a sent text file's body behind its chip, and the match opens the chip", async () => {
+  const { findMatches, FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
+  const { foldFind } = await import("../src/find/fold");
+  const { useTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
   const body = "notes.txt\n```\nzanzibar rollout plan\n```";
   const inlineParts = [
     { kind: "text", text: "See the notes" },
@@ -133,11 +137,115 @@ test("Find does not count a text file's body, which draws only as its chip", asy
     text: `See the notes\n${body}`,
     inlineParts,
   } as Row;
-  expect(findMatches([row], "zanzibar").length).toBe(0);
-  expect(findMatches([row], "notes").length).toBeGreaterThan(0);
+  for (const view of ["inline", "strip", "both"] as const)
+    expect(findMatches([row], "zanzibar rollout plan", view)).toEqual([
+      { rowIndex: 0, rowId: "file-row", occurrence: 0 },
+    ]);
+  // The typed words, then the body, in the order the bubble draws them.
+  expect(findMatches([row], "notes").length).toBe(2);
   const bubble = render(row);
-  expect(bubble.querySelector(".acpmux-file-chip")).not.toBeNull();
-  expect(bubble.querySelector(".cv-user__more")).toBeNull();
+  const opener = bubble.querySelector<HTMLButtonElement>("button.cv-user__file-open")!;
+  expect(opener.getAttribute("aria-expanded")).toBe("false");
+  expect(bubble.textContent).not.toContain("zanzibar rollout plan");
+  let repainted = 0;
+  let keyed: boolean | undefined;
+  const Keyed = () => {
+    keyed = useTranscriptDisclosure(`prompt:${row.id}:paste:1`)[0];
+    return null;
+  };
+  act(() =>
+    root.render(
+      <FindReveal.Provider
+        value={{
+          rowId: row.id,
+          card: false,
+          needle: foldFind("zanzibar rollout plan"),
+          repaint: () => repainted++,
+        }}
+      >
+        <UserBubble row={row} text={row.text ?? ""} />
+        <Keyed />
+      </FindReveal.Provider>,
+    ),
+  );
+  expect(host.querySelector("button.cv-user__file-open")!.getAttribute("aria-expanded")).toBe("true");
+  expect(host.querySelector(".cv-user__pasted")?.textContent).toContain("zanzibar rollout plan");
+  expect(repainted).toBeGreaterThan(0);
+  // The chip's own disclosure, kept by the row's id, as the paste card's was.
+  act(() => root.render(<Keyed />));
+  expect(keyed).toBe(true);
+  // Its label is outside Find, as the paste card's was: Find counts the body, not the chip's name.
+  expect(render(row).querySelector("button.cv-user__file-open")!.hasAttribute("data-find-skip")).toBe(true);
+  // The strip view keeps the text file in the bubble, and its match opens the chip there too.
+  const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
+  try {
+    act(() => setComposerSettings({ attachmentView: "strip" }));
+    render(row);
+    expect(host.querySelector(".cv-user__bubble button.cv-user__file-open")!.getAttribute("aria-expanded")).toBe(
+      "false",
+    );
+    act(() =>
+      root.render(
+        <FindReveal.Provider
+          value={{ rowId: row.id, card: false, needle: foldFind("zanzibar rollout plan"), repaint: () => {} }}
+        >
+          <UserBubble row={row} text={row.text ?? ""} />
+        </FindReveal.Provider>,
+      ),
+    );
+    expect(host.querySelector(".cv-user__bubble button.cv-user__file-open")!.getAttribute("aria-expanded")).toBe(
+      "true",
+    );
+  } finally {
+    act(() => setComposerSettings({ attachmentView: "inline" }));
+  }
+  // A match elsewhere in the prompt leaves a closed chip closed.
+  resetTranscriptDisclosure();
+  act(() =>
+    root.render(
+      <FindReveal.Provider value={{ rowId: row.id, card: false, needle: foldFind("see the"), repaint: () => {} }}>
+        <UserBubble row={row} text={row.text ?? ""} />
+      </FindReveal.Provider>,
+    ),
+  );
+  expect(host.querySelector("button.cv-user__file-open")!.getAttribute("aria-expanded")).toBe("false");
+});
+
+// A huge prompt collapsed draws only its head, so a text file past it has no chip mounted to open:
+// the prompt's own fold opens to the match in its body first.
+test("Find's match in a text file past a huge prompt's head opens the fold, then the chip", async () => {
+  const { FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
+  const { foldFind } = await import("../src/find/fold");
+  const { HUGE_PROMPT_CHARS } = await import("../src/agent-session/acpmux/conversation/promptCollapse");
+  const typed = "word ".repeat(Math.ceil(HUGE_PROMPT_CHARS / 5) + 10);
+  const body = "plan.txt\nzanzibar rollout plan";
+  const row = {
+    id: "huge-file",
+    version: 1,
+    at: Date.now(),
+    kind: "user",
+    text: `${typed}\n${body}`,
+    inlineParts: [
+      { kind: "text", text: typed },
+      { kind: "file", placed: true, name: "plan.txt", mimeType: "text/plain", size: body.length, text: body },
+    ],
+  } as Row;
+  resetTranscriptDisclosure();
+  act(() => root.render(<UserBubble row={row} text={row.text ?? ""} />));
+  expect(host.querySelector(".cv-user__text")!.classList.contains("is-clamped")).toBe(true);
+  expect(host.querySelector("button.cv-user__file-open")).toBeNull();
+  act(() =>
+    root.render(
+      <FindReveal.Provider
+        value={{ rowId: row.id, card: false, needle: foldFind("zanzibar rollout plan"), repaint: () => {} }}
+      >
+        <UserBubble row={row} text={row.text ?? ""} />
+      </FindReveal.Provider>,
+    ),
+  );
+  expect(host.querySelector(".cv-user__text")!.classList.contains("is-clamped")).toBe(false);
+  expect(host.querySelector("button.cv-user__file-open")?.getAttribute("aria-expanded")).toBe("true");
+  expect(host.querySelector(".cv-user__pasted")?.textContent).toContain("zanzibar rollout plan");
 });
 
 // A prompt whose recorded parts are only its files (direct.ts keeps them for the band) draws its
@@ -184,6 +292,66 @@ test("Find reads a placed prompt's words as joined where a strip image left the 
   const drawn = bubble.querySelector("[data-inline-content]")!.textContent!;
   expect(drawn).toContain("the quick brown fox");
   expect(findMatches([row], "quick brown")).toEqual([{ rowIndex: 0, rowId: "strip-join", occurrence: 0 }]);
+});
+
+// In the strip view every attachment draws in the band, a placed image too, so the bubble joins the
+// words on either side of it as one run, and Find reads that run; in the inline view the image
+// stands between them, and Find reads them apart. At 38fb9cad Find always read the inline layout,
+// and "quick brown" found nothing in the strip view.
+test("Find reads a prompt as the active attachment view draws it", async () => {
+  const { findMatches, useChatFind } = await import("../src/agent-session/acpmux/conversation/chatFind");
+  const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
+  const inlineParts = [
+    { kind: "text", text: "the quick " },
+    { kind: "image", id: "placed", mimeType: "image/png", name: "placed.png", placed: true },
+    { kind: "text", text: "brown fox" },
+  ];
+  const row = {
+    id: "view-join",
+    version: 1,
+    at: Date.now(),
+    kind: "user",
+    text: "the quick \nbrown fox",
+    inlineParts,
+  } as Row;
+  const drawn = () => host.querySelector("[data-inline-content]")!.textContent!;
+  const found = (view?: "inline" | "strip" | "both") => findMatches([row], "quick brown", view).length;
+  try {
+    act(() => setComposerSettings({ attachmentView: "strip" }));
+    render(row);
+    expect(host.querySelector(".cv-user__inline-strip .cv-user__inline-image")).not.toBeNull();
+    expect(drawn()).toContain("the quick brown fox");
+    expect(found()).toBe(1);
+    expect(found("strip")).toBe(1);
+
+    act(() => setComposerSettings({ attachmentView: "inline" }));
+    render(row);
+    expect(host.querySelector(".cv-user__inline-strip")).toBeNull();
+    // The image draws between the two runs, each its own text.
+    expect(host.querySelector("[data-inline-content] .cv-user__inline-image")).not.toBeNull();
+    expect([...host.querySelectorAll("[data-inline-content] .cv-user__typed")].map((node) => node.textContent)).toEqual(
+      ["the quick ", "brown fox"],
+    );
+    expect(found()).toBe(0);
+    expect(found("inline")).toBe(0);
+    expect(found("both")).toBe(0);
+    // The same row object read in another view is read again, not taken from the cache.
+    expect(found("strip")).toBe(1);
+
+    // An open bar finds again when the view changes under it.
+    let find: ReturnType<typeof useChatFind> | undefined;
+    const Probe = () => {
+      find = useChatFind([row]);
+      return null;
+    };
+    act(() => root.render(<Probe />));
+    act(() => find!.show("quick brown"));
+    expect(find!.matches.length).toBe(0);
+    act(() => setComposerSettings({ attachmentView: "strip" }));
+    expect(find!.matches.length).toBe(1);
+  } finally {
+    act(() => setComposerSettings({ attachmentView: "inline" }));
+  }
 });
 
 test("a sent text file's chip opens to the body it stored, and closes again", () => {

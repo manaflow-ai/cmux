@@ -47,10 +47,14 @@ export function PromptText({
   show,
   children,
   huge: hugeTyped,
+  findText,
 }: {
   rowId: string;
   /// The prompt as recorded: what Find searches and the paste ranges point into.
   text: string;
+  /// What Find searches when it is more than `text` (an inline prompt's text files' bodies), so a
+  /// match there opens the fold.
+  findText?: string;
   pasted?: readonly PasteRange[];
   /// How a typed part reads in the bubble (a `data:` image as its name, UserBubble.tsx).
   show: (text: string) => string;
@@ -187,7 +191,7 @@ export function PromptText({
   // needs it open to draw.
   const reveal = useContext(FindReveal);
   const needle = reveal && reveal.rowId === rowId ? reveal.needle : "";
-  const hit = Boolean(needle && foldFind(text).includes(needle));
+  const hit = Boolean(needle && foldFind(findText ?? text).includes(needle));
   useLayoutEffect(() => {
     if (!hit || !collapsed) return;
     setOpen(true);

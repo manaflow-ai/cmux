@@ -1,11 +1,13 @@
-import { Fragment, memo, useMemo, type ReactNode } from "react";
+import { Fragment, memo, useContext, useLayoutEffect, useMemo, type ReactNode } from "react";
 import type { PromptContentPart, PromptImage } from "../model";
 import { attachmentPath, FileAttachment } from "../FileAttachment";
 import { PastedText, PromptText, PromptTyped } from "./PromptText";
+import { FindReveal, foldFind } from "./chatFind";
 import {
   blockText,
   bodyText,
   drawnBody,
+  findBodyText,
   HUGE_PROMPT_HEAD_CHARS,
   hasHugeTypedPart,
   headParts,
@@ -40,9 +42,11 @@ export const InlinePromptContent = memo(function InlinePromptContent({
   return (
     <PromptText
       rowId={rowId}
-      // What Find searches and the fold measures: the words the bubble draws, from the same join
-      // (chatFind.ts reads `drawnPromptText`, the same text).
+      // What the fold measures: the words the bubble draws, from the same join.
       text={bodyText(body)}
+      // What Find searches (chatFind.ts `drawnPromptText`, the same text): those words and each text
+      // file's body behind its chip, so a match there opens the fold even past a huge prompt's head.
+      findText={findBodyText(body)}
       show={show}
       huge={hasHugeTypedPart(body)}
     >
@@ -121,8 +125,9 @@ export function PromptFile({ part }: { part: Exclude<PromptContentPart, { kind: 
 /** A text file sent with no file behind it (its body went as a text block, attachments.ts
  * `promptText`): its file chip, which opens in place to the body it stored, as its paste card did
  * (the same disclosure, `prompt:<row>:paste:<index>`, kept by the row's id), restored messages
- * included. Opening it opens the prompt's fold, so the body shows whole. Find does not search the
- * body (promptCollapse.ts `bodyText`): closed, it draws only the chip. */
+ * included. Opening it opens the prompt's fold, so the body shows whole. Find searches the body
+ * (promptCollapse.ts `findBodyText`), and its current match there opens the chip and the fold, as it
+ * opened the paste card (FindReveal). */
 function PromptTextFile({
   rowId,
   index,
@@ -139,11 +144,24 @@ function PromptTextFile({
   onOpen: () => void;
 }) {
   const [open, setOpen] = useTranscriptDisclosure(`prompt:${rowId}:paste:${index}`);
+  const reveal = useContext(FindReveal);
+  const needle = reveal && reveal.rowId === rowId ? reveal.needle : "";
+  const hit = Boolean(needle && foldFind(text).includes(needle));
+  useLayoutEffect(() => {
+    if (!hit || (open && !collapsed)) return;
+    if (collapsed) onOpen();
+    setOpen(true);
+    reveal?.repaint();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
+  }, [hit, reveal]);
   return (
     <>
       <button
         type="button"
         className="cv-user__inline-file cv-user__file-open"
+        // Its name and size are a label, not the prompt's text: Find counts its body and paints
+        // none here, as on the paste card's label, so the drawn matches keep Find's order.
+        data-find-skip=""
         aria-expanded={open}
         onClick={() => {
           if (!open) onOpen();

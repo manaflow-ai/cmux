@@ -164,7 +164,7 @@ export function UserBubble({
   const banded = (part: PromptContentPart) =>
     isStripMedia(part) && (strip || (hasInterleaved && placed && part.placed !== true));
   const stripMedia = orderedParts?.filter(isStripMedia).filter(banded) ?? [];
-  // In the inline view these are bubbleParts.ts `bubbleParts`, which Find and the row's estimate read.
+  // These are bubbleParts.ts `bubbleParts` in the pane's view, which Find and the row's estimate read.
   const shownParts = orderedParts?.filter((part) => !banded(part));
   const renderImage = useCallback((image: PromptImage) => <SentImage image={image} />, []);
   const renderFile = useCallback(

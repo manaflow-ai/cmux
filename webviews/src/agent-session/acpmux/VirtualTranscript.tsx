@@ -136,6 +136,7 @@ import { transcriptRangeText } from "./conversation/transcriptCopy";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { chatColumnOf, useChatSizing } from "./chatWidth";
 import { useChatDisplay } from "./chatDisplay";
+import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
 import { SUBAGENT_DONE, SUBAGENT_OF } from "./subagents/subagentRows";
 import { SubagentOfRow } from "./subagents/SubagentGroup";
@@ -1536,6 +1537,10 @@ function TranscriptView({
   // The user's chat look (font, sizes, width; chatDisplay.ts): a new one measures every row again.
   const chatLook = useChatDisplay();
   const measuredLook = useRef(chatLook);
+  // The pane's attachment view moves a prompt's attachments between its bubble and the band above
+  // it (UserBubble.tsx), so a new one estimates every prompt again (model.ts reads it).
+  const { attachmentView } = useComposerSettings();
+  const measuredView = useRef(attachmentView);
   // Rows place by their drawn height once drawn, and by the estimate until then.
   // One entry per row drawn, kept as a layered map: a measured row changes its layer, not a copy of
   // every row's entry (conversation/layeredMap.ts).
@@ -2265,8 +2270,9 @@ function TranscriptView({
     // Keep the session in this memo's inputs: its cache is cleared synchronously above even
     // when a host reuses the same rows array for a newly selected chat.
     const cache = measurementSession.current === sessionId ? measurementCache.current : new Map();
-    const lookChanged = measuredLook.current !== chatLook;
+    const lookChanged = measuredLook.current !== chatLook || measuredView.current !== attachmentView;
     measuredLook.current = chatLook;
+    measuredView.current = attachmentView;
     const fresh = rowHeights.current.registry !== registry || measurementSession.current !== sessionId || lookChanged;
     if (rowHeights.current.registry !== registry || lookChanged)
       rowHeights.current = { registry, heights: new WeakMap() };
@@ -2283,7 +2289,7 @@ function TranscriptView({
     );
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [rows, registry, sessionId, chatLook, scaledRowWidth]);
+  }, [rows, registry, sessionId, chatLook, attachmentView, scaledRowWidth]);
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
