@@ -8,7 +8,7 @@ import Testing
 /// whose proof acpmux did not take never sees the token.
 @MainActor
 struct AcpmuxCloudTunnelTests {
-    final class Line: AgentDialogLine {
+    @MainActor final class Line: AgentDialogLine {
         let isPerson: Bool
         var reply: [String: Any]?
         var lastError: String?

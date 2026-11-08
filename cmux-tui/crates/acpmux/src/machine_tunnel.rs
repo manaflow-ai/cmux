@@ -109,7 +109,9 @@ pub(crate) enum Holder {
 
 impl Holder {
     /// This daemon's transport while it holds the key, else the key lock in `state_dir` taken
-    /// now. A lock another process holds is refused `key_held`, with its pid when it wrote one.
+    /// now. A lock another process holds (the cmux link) is refused `key_held`, with its pid
+    /// when it wrote one, and the key file is never touched. Forwarding the rekey to the link
+    /// comes when the link is this machine's key holder.
     pub(crate) fn take(transport: Option<&Arc<Transport>>, state_dir: &Path) -> Result<Self, RpcError> {
         if let Some(transport) = transport
             && transport.with_key(|_| ()).is_some()
@@ -120,7 +122,7 @@ impl Holder {
             Ok(lock) => Ok(Self::Lock(lock)),
             Err(KeyHolderError::KeyHeld { pid }) => Err(refusal(
                 "key_held",
-                "another process holds this Mac's WireGuard key; rekey from it",
+                "the link holds the key; it rekeys in a later version",
             )
             .with_data(json!({"reason": "key_held", "holderPid": pid}))),
             Err(KeyHolderError::Io(_)) => {

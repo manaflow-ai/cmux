@@ -134,7 +134,7 @@ async fn a_rekey_sends_the_new_key_before_it_replaces_the_key_file() {
     assert_eq!(answer, json!({"machineId": "machine_1", "wgPublicKey": new, "restarted": false}));
     assert_eq!(recorded.lock().unwrap().as_deref(), Some(new.as_str()));
     assert!(!answer.to_string().contains(TOKEN));
-    assert!(KeyHolder::acquire(dir.path()).is_ok(), "the rekey kept the key lock");
+    assert!(KeyHolder::acquire(dir.path()).is_ok(), "the rekey let the key lock go");
 }
 
 #[tokio::test]
@@ -206,6 +206,7 @@ async fn a_second_rekey_while_one_runs_is_busy() {
 async fn a_key_lock_another_holder_has_is_refused_key_held() {
     let dir = tempfile::tempdir().unwrap();
     let old = public_of(dir.path());
+    let old_bytes = std::fs::read(KeyFile::Node.path_in(dir.path())).unwrap();
     let platform = platform(dir.path().into(), None, takes_the_key).await;
     // Another holder (the link, say): this process's pid is the record.
     let other = KeyHolder::acquire(dir.path()).unwrap();
@@ -214,9 +215,11 @@ async fn a_key_lock_another_holder_has_is_refused_key_held() {
         .await
         .unwrap_err();
     assert_eq!(reason(&error), "key_held");
+    assert_eq!(error.message, "the link holds the key; it rekeys in a later version");
     assert_eq!(error.data.unwrap()["holderPid"], std::process::id());
     assert!(platform.seen.lock().unwrap().is_empty(), "a non-holder sent the platform nothing");
     assert_eq!(public_of(dir.path()), old);
+    assert_eq!(std::fs::read(KeyFile::Node.path_in(dir.path())).unwrap(), old_bytes);
     drop(other);
 }
 
