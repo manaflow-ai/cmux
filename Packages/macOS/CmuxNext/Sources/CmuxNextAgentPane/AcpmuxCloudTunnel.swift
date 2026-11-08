@@ -35,11 +35,17 @@ public import Foundation
         self.fallback = fallback
     }
 
-    /// This app's acpmux at `environment` (nil: none runs).
-    public init(_ environment: AcpmuxEnvironment?, fallback: String) {
+    /// How long one tunnel call's connection lives: the whole daemon operation, not a person
+    /// line's usual few seconds. An attach may first finish a pending rekey (two platform calls
+    /// of up to 10 s each) and a rekey starts the mesh again, so a short line would show a failure
+    /// while acpmux still changes the tunnel. Classic's tunnel calls allowed the same 60 s.
+    public static let deadline: Duration = .seconds(60)
+
+    /// This app's acpmux at `environment` (nil: none runs), each call's line living `deadline`.
+    public init(_ environment: AcpmuxEnvironment?, deadline: Duration = Self.deadline, fallback: String) {
         self.init(open: {
             guard let environment else { return nil }
-            return await AcpmuxPersonLine.open(environment)
+            return await AcpmuxPersonLine.open(environment, deadline: deadline)
         }, fallback: fallback)
     }
 

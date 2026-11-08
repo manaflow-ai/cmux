@@ -5,12 +5,14 @@
 //!   and `/detach`. One Mac is one peer, keyed by its `machine_` id. A detach sticks: this
 //!   daemon's own registration is refused until the next attach.
 //! - `_acpmux/machine.tunnel.rekey`: a new WireGuard key, only in the process that holds this
-//!   machine's key lock (`cmux_link::key_holder`). The new key is made in memory, the platform
-//!   takes its public half first (`POST /v1/machines/credentials/{machineId}/wg-key`), then the
-//!   key file is replaced in one rename, and the holder starts its mesh again with it. A
-//!   refused or failed platform call leaves the key here as it was. A second rekey while one
-//!   runs is refused `busy`; a key lock another process holds (the cmux link) is refused
-//!   `key_held` with its pid.
+//!   machine's key lock (`cmux_link::key_holder`). The new key is written to a pending key file,
+//!   the platform takes its public half first (`POST
+//!   /v1/machines/credentials/{machineId}/wg-key`), then the pending key file is renamed over the
+//!   key file, and the holder starts its mesh again with it. A refused or failed platform call
+//!   leaves the key here as it was; one whose answer was lost keeps its candidate in the pending
+//!   key file and is refused `indeterminate`, and the next rekey or attach sends that candidate
+//!   again (never the old key). A second rekey while one runs is refused `busy`; a key lock
+//!   another process holds (the cmux link) is refused `key_held` with its pid.
 //!
 //! The person's cmux access token comes in the app's call (`server/machine_tunnel.rs`: the unix
 //! socket with the person proof only). It is the bearer of that one request, never stored,
@@ -20,7 +22,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use base64::Engine;
-use cmux_link::key_holder::{KeyHolder, KeyHolderError};
+use cmux_link::key_holder::{KeyFile, KeyHolder, KeyHolderError};
 use serde_json::{Value, json};
 use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::Zeroizing;
@@ -133,15 +135,13 @@ impl Holder {
         }
     }
 
-    fn replace(&self, state_dir: &Path, private: &[u8; 32]) -> anyhow::Result<()> {
-        let replace = |lock: &KeyHolder| {
-            crate::cli::mesh_node_key::replace_held(state_dir, lock, private).map(|_| ())
-        };
+    /// `act` with the key lock this holder has.
+    fn with_lock<T>(&self, act: impl FnOnce(&KeyHolder) -> anyhow::Result<T>) -> anyhow::Result<T> {
         match self {
             Self::Transport(transport) => transport
-                .with_key(replace)
+                .with_key(act)
                 .unwrap_or_else(|| Err(anyhow::anyhow!("the WireGuard transport stopped"))),
-            Self::Lock(lock) => replace(lock),
+            Self::Lock(lock) => act(lock),
         }
     }
 }
@@ -163,9 +163,17 @@ pub(crate) async fn rekey_once(
     rekey(machine, state_dir, holder, token, record).await
 }
 
-/// A new WireGuard key, in this order: made in memory, its public half to the platform, the
-/// key file replaced (`record` then notes the public half in the join record), the holder's
-/// mesh started again. Answers `{machineId, wgPublicKey, restarted}`.
+/// A new WireGuard key, in this order: a candidate in the pending key file (the one an earlier
+/// rekey left, else a new one made now), its public half to the platform, then the pending file
+/// renamed over the key file (`record` then notes the public half in the join record) and the
+/// holder's mesh started again. Answers `{machineId, wgPublicKey, restarted}`.
+///
+/// The pending file is what makes a lost answer safe: the platform may have taken the key even
+/// when its answer never came, and it never takes a key the team had before (this machine's
+/// old one included). So a transport failure or a 500, 502 or 504 keeps the candidate and is
+/// refused `indeterminate`, and the next rekey or attach sends that same candidate again (the
+/// platform answers its current key with the same record). Only a definite no to that key
+/// (`machine.wg_key_in_use`, `machine.wg_key_invalid`, or an answer naming another key) drops it.
 pub(crate) async fn rekey(
     machine: &Machine,
     state_dir: &Path,
@@ -173,23 +181,66 @@ pub(crate) async fn rekey(
     token: &str,
     record: impl FnOnce(&str) -> anyhow::Result<()>,
 ) -> Result<Value, RpcError> {
-    let mut private = Zeroizing::new([0u8; 32]);
-    getrandom::fill(&mut *private)
-        .map_err(|_| RpcError::internal("no randomness for a new WireGuard key"))?;
+    let unwritten = || {
+        refusal("key_write_failed", "this Mac could not write a new WireGuard key; its key is unchanged")
+    };
+    let private = match holder
+        .with_lock(|lock| crate::cli::mesh_node_key::read_pending_held(state_dir, lock))
+        .map_err(|_| unwritten())?
+    {
+        Some(pending) => pending,
+        None => {
+            let mut private = Zeroizing::new([0u8; 32]);
+            getrandom::fill(&mut *private)
+                .map_err(|_| RpcError::internal("no randomness for a new WireGuard key"))?;
+            holder
+                .with_lock(|lock| {
+                    crate::cli::mesh_node_key::write_pending_held(state_dir, lock, &private)
+                })
+                .map_err(|_| unwritten())?;
+            private
+        }
+    };
     let public = base64::engine::general_purpose::STANDARD
         .encode(PublicKey::from(&StaticSecret::from(*private)).to_bytes());
+    let drop_pending = || {
+        let _ = holder
+            .with_lock(|lock| crate::cli::mesh_node_key::drop_pending_held(state_dir, lock));
+    };
     let path = format!("/v1/machines/credentials/{}/wg-key", machine.id);
-    let answer = post(machine, &path, token, Some(json!({"wgPublicKey": public}))).await?;
+    let answer = match post(machine, &path, token, Some(json!({"wgPublicKey": public}))).await {
+        Ok(answer) => answer,
+        Err(error) if ambiguous(&error) => {
+            return Err(refusal(
+                "indeterminate",
+                "the platform may have taken the new WireGuard key but its answer was lost; rekey again to finish",
+            )
+            .with_data(json!({"reason": "indeterminate", "retryable": true})));
+        }
+        Err(error) => {
+            if matches!(
+                error.data.as_ref().and_then(|data| data["code"].as_str()),
+                Some("machine.wg_key_in_use" | "machine.wg_key_invalid")
+            ) {
+                drop_pending();
+            }
+            return Err(error);
+        }
+    };
     if answer.get("wgPublicKey").and_then(Value::as_str) != Some(public.as_str()) {
+        drop_pending();
         return Err(refusal(
             "platform",
             "the platform answered another WireGuard key; the key on this Mac is unchanged",
         ));
     }
-    if holder.replace(state_dir, &private).is_err() {
+    if holder
+        .with_lock(|lock| crate::cli::mesh_node_key::promote_pending_held(state_dir, lock))
+        .is_err()
+    {
         return Err(refusal(
             "key_write_failed",
-            "the platform took the new WireGuard key but this Mac could not write it; rekey again",
+            "the platform took the new WireGuard key but this Mac could not put it in place; rekey again",
         ));
     }
     if let Err(error) = record(&public) {
@@ -208,6 +259,46 @@ pub(crate) async fn rekey(
         Holder::Lock(_) => false,
     };
     Ok(json!({"machineId": machine.id, "wgPublicKey": public, "restarted": restarted}))
+}
+
+/// Whether a refused platform call may still have happened there: no answer at all, or a 500,
+/// 502 or 504 (a gateway or the platform failing after its write).
+fn ambiguous(error: &RpcError) -> bool {
+    let data = error.data.as_ref();
+    data.and_then(|data| data["reason"].as_str()) == Some("platform_unreachable")
+        || matches!(data.and_then(|data| data["status"].as_u64()), Some(500 | 502 | 504))
+}
+
+/// A rekey an earlier one left unsettled, finished before an attach: the pending key goes to
+/// the platform again and, when it takes it, into place. Nothing when there is no pending key,
+/// a rekey runs, or another process holds the key. Answers the rekey's answer, or its refusal.
+pub(crate) async fn finish_pending_rekey(
+    rekeys: &tokio::sync::Mutex<()>,
+    machine: &Machine,
+    state_dir: &Path,
+    transport: Option<&Arc<Transport>>,
+    token: &str,
+    record: impl FnOnce(&str) -> anyhow::Result<()>,
+) -> Option<Result<Value, RpcError>> {
+    if std::fs::symlink_metadata(KeyFile::NodePending.path_in(state_dir)).is_err() {
+        return None;
+    }
+    let _running = rekeys.try_lock().ok()?;
+    let holder = Holder::take(transport, state_dir).ok()?;
+    Some(rekey(machine, state_dir, holder, token, record).await)
+}
+
+/// What an attach says about the pending rekey it finished first: `{finished, wgPublicKey}`, or
+/// `{finished: false, reason, message}`.
+pub(crate) fn pending_outcome(outcome: Result<Value, RpcError>) -> Value {
+    match outcome {
+        Ok(answer) => json!({"finished": true, "wgPublicKey": answer["wgPublicKey"]}),
+        Err(error) => json!({
+            "finished": false,
+            "reason": error.data.as_ref().and_then(|data| data["reason"].as_str()),
+            "message": error.message,
+        }),
+    }
 }
 
 /// `POST {origin}{path}` as the person, in the machine's team. A refusal names the platform's

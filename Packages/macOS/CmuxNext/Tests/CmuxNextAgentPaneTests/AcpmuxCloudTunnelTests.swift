@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -76,5 +77,23 @@ struct AcpmuxCloudTunnelTests {
         } catch {
             #expect(error.localizedDescription == "no daemon")
         }
+    }
+
+    /// Over a real person line to a fake acpmux whose platform call takes 6 s, past a person
+    /// line's usual 5 s: the call still answers, since its line lives the whole operation.
+    @Test func aSlowTunnelCallStillAnswersOverTheRealLine() async throws {
+        let socket = "/tmp/act-\(UUID().uuidString.prefix(8))/acpmux.sock"
+        let daemon = try HiddenHomeApprovalTests.FakeAcpmux(socket: socket, key: AcpmuxPersonKey.spawnKey(for: socket))
+        defer { daemon.stop() }
+        daemon.tunnelDelay = 6
+        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        try #require(proc_pidpath(getpid(), &buffer, UInt32(buffer.count)) > 0)
+        let environment = AcpmuxEnvironment(executable: URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath(),
+            home: URL(fileURLWithPath: (socket as NSString).deletingLastPathComponent), socketPath: socket,
+            daemonArguments: [], childEnvironment: [:])
+        let reply = try await AcpmuxCloudTunnel(environment, fallback: "no daemon").run(.rekey, token: "person-token")
+        #expect(reply["machineId"] as? String == "machine_1")
+        #expect(daemon.methods == ["initialize", "_acpmux/person_prove", "_acpmux/machine.tunnel.rekey"])
+        #expect(AcpmuxCloudTunnel.deadline >= .seconds(60))
     }
 }

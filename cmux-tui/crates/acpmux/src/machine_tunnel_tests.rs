@@ -17,6 +17,8 @@ struct Seen {
     body: Value,
     /// The node key file's bytes when the request came in.
     key_then: Option<Vec<u8>>,
+    /// The pending key file's bytes when the request came in.
+    pending_then: Option<Vec<u8>>,
 }
 
 struct Platform {
@@ -27,6 +29,8 @@ struct Platform {
 }
 
 /// A platform that answers each request with `answer`, after `hold` (when given) is notified.
+/// A status of 0 closes the connection with no answer: a request the platform took whose
+/// answer was lost.
 async fn platform(
     key_dir: std::path::PathBuf,
     hold: Option<Arc<Notify>>,
@@ -72,6 +76,7 @@ async fn platform(
                 headers: headers.to_ascii_lowercase(),
                 body,
                 key_then: std::fs::read(KeyFile::Node.path_in(&key_dir)).ok(),
+                pending_then: std::fs::read(KeyFile::NodePending.path_in(&key_dir)).ok(),
             };
             seen_in.lock().unwrap().push(request.clone());
             arrived_in.notify_one();
@@ -79,6 +84,10 @@ async fn platform(
                 hold.notified().await;
             }
             let (status, reply) = answer(&request);
+            if status == 0 {
+                drop(stream);
+                continue;
+            }
             let text = reply.to_string();
             let response = format!(
                 "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{text}",
@@ -139,6 +148,9 @@ async fn a_rekey_sends_the_new_key_before_it_replaces_the_key_file() {
     assert_eq!(recorded.lock().unwrap().as_deref(), Some(new.as_str()));
     assert!(!answer.to_string().contains(TOKEN));
     assert!(KeyHolder::acquire(dir.path()).is_ok(), "the rekey let the key lock go");
+    // The candidate was on disk before the platform had it, and became the key file.
+    assert_eq!(seen[0].pending_then.as_deref(), std::fs::read(KeyFile::Node.path_in(dir.path())).ok().as_deref());
+    assert!(!KeyFile::NodePending.path_in(dir.path()).exists(), "no pending key is left");
 }
 
 #[tokio::test]
@@ -169,7 +181,146 @@ async fn a_refused_rekey_leaves_the_key_file_as_it_was() {
         assert_eq!(data["retryable"], status == 503);
         assert_eq!(std::fs::read(KeyFile::Node.path_in(dir.path())).unwrap(), old_bytes);
         assert!(!error.message.contains(TOKEN));
+        // A key the team had is never sent again; any other refusal keeps the unused candidate.
+        assert_eq!(
+            KeyFile::NodePending.path_in(dir.path()).exists(),
+            code != "machine.wg_key_in_use",
+            "{code}"
+        );
     }
+}
+
+fn pending_public(dir: &Path) -> Option<String> {
+    let bytes: [u8; 32] = std::fs::read(KeyFile::NodePending.path_in(dir)).ok()?.try_into().ok()?;
+    Some(
+        base64::engine::general_purpose::STANDARD
+            .encode(PublicKey::from(&StaticSecret::from(bytes)).to_bytes()),
+    )
+}
+
+fn sent_key(seen: &Seen) -> String {
+    seen.body["wgPublicKey"].as_str().unwrap().to_owned()
+}
+
+#[tokio::test]
+async fn a_lost_answer_keeps_the_candidate_and_the_next_rekey_sends_it_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let old = public_of(dir.path());
+    let old_bytes = std::fs::read(KeyFile::Node.path_in(dir.path())).unwrap();
+    let answered = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = answered.clone();
+    // The platform takes the key both times (idempotent), but the first answer is lost.
+    let platform = platform(dir.path().into(), None, move |seen| {
+        if count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+            (0, Value::Null)
+        } else {
+            takes_the_key(seen)
+        }
+    })
+    .await;
+    let target = machine(&platform.origin);
+    let rekeys = tokio::sync::Mutex::new(());
+    let error = rekey_once(&rekeys, &target, dir.path(), None, TOKEN, |_| {
+        panic!("an unsettled rekey records no key")
+    })
+    .await
+    .unwrap_err();
+    assert_eq!(reason(&error), "indeterminate");
+    assert_eq!(error.data.as_ref().unwrap()["retryable"], true);
+    assert_eq!(std::fs::read(KeyFile::Node.path_in(dir.path())).unwrap(), old_bytes);
+    let candidate = pending_public(dir.path()).expect("the candidate is kept");
+    assert_eq!(sent_key(&platform.seen.lock().unwrap()[0]), candidate);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(KeyFile::NodePending.path_in(dir.path())).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+    let answer = rekey_once(&rekeys, &target, dir.path(), None, TOKEN, |_| Ok(())).await.unwrap();
+    let seen = platform.seen.lock().unwrap().clone();
+    assert_eq!(seen.len(), 2);
+    assert_eq!(sent_key(&seen[1]), candidate, "the retry sends the same candidate, never a new or old key");
+    assert_ne!(sent_key(&seen[1]), old);
+    assert_eq!(answer["wgPublicKey"], candidate.as_str());
+    assert_eq!(public_of(dir.path()), candidate);
+    assert!(pending_public(dir.path()).is_none());
+}
+
+#[tokio::test]
+async fn a_gateway_failure_is_indeterminate_and_keeps_the_candidate() {
+    for status in [500, 502, 504] {
+        let dir = tempfile::tempdir().unwrap();
+        let old = public_of(dir.path());
+        let platform = platform(dir.path().into(), None, move |_| (status, json!({}))).await;
+        let rekeys = tokio::sync::Mutex::new(());
+        let error = rekey_once(&rekeys, &machine(&platform.origin), dir.path(), None, TOKEN, |_| Ok(()))
+            .await
+            .unwrap_err();
+        assert_eq!(reason(&error), "indeterminate", "{status}");
+        assert_eq!(public_of(dir.path()), old);
+        assert!(pending_public(dir.path()).is_some(), "{status}");
+    }
+}
+
+#[tokio::test]
+async fn a_pending_candidate_the_platform_refuses_is_dropped_for_a_new_one() {
+    let dir = tempfile::tempdir().unwrap();
+    public_of(dir.path());
+    let answered = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = answered.clone();
+    let platform = platform(dir.path().into(), None, move |seen| {
+        match count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) {
+            0 => (0, Value::Null),
+            1 => (409, json!({"code": "machine.wg_key_in_use", "message": "taken"})),
+            _ => takes_the_key(seen),
+        }
+    })
+    .await;
+    let target = machine(&platform.origin);
+    let rekeys = tokio::sync::Mutex::new(());
+    let rekey = || rekey_once(&rekeys, &target, dir.path(), None, TOKEN, |_| Ok(()));
+    assert_eq!(reason(&rekey().await.unwrap_err()), "indeterminate");
+    assert_eq!(rekey().await.unwrap_err().data.unwrap()["code"], "machine.wg_key_in_use");
+    assert!(pending_public(dir.path()).is_none(), "a refused candidate is gone");
+    let answer = rekey().await.unwrap();
+    let seen = platform.seen.lock().unwrap().clone();
+    assert_eq!(sent_key(&seen[0]), sent_key(&seen[1]));
+    assert_ne!(sent_key(&seen[2]), sent_key(&seen[1]), "a new candidate after the refusal");
+    assert_eq!(answer["wgPublicKey"], sent_key(&seen[2]).as_str());
+    assert_eq!(public_of(dir.path()), sent_key(&seen[2]));
+}
+
+#[tokio::test]
+async fn an_attach_first_finishes_a_rekey_whose_answer_was_lost() {
+    let dir = tempfile::tempdir().unwrap();
+    public_of(dir.path());
+    let answered = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = answered.clone();
+    let platform = platform(dir.path().into(), None, move |seen| {
+        if count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+            (0, Value::Null)
+        } else {
+            takes_the_key(seen)
+        }
+    })
+    .await;
+    let target = machine(&platform.origin);
+    let rekeys = tokio::sync::Mutex::new(());
+    let finish = || finish_pending_rekey(&rekeys, &target, dir.path(), None, TOKEN, |_| Ok(()));
+    assert!(finish().await.is_none(), "no pending key: nothing to finish");
+    assert!(platform.seen.lock().unwrap().is_empty());
+    let _ = rekey_once(&rekeys, &target, dir.path(), None, TOKEN, |_| Ok(())).await;
+    let candidate = pending_public(dir.path()).unwrap();
+    let outcome = pending_outcome(finish().await.expect("a pending key is finished"));
+    assert_eq!(outcome, json!({"finished": true, "wgPublicKey": candidate}));
+    assert_eq!(public_of(dir.path()), candidate);
+    assert!(pending_public(dir.path()).is_none());
+    // While another process holds the key, the attach goes on and the candidate waits.
+    let _ = std::fs::write(KeyFile::NodePending.path_in(dir.path()), [7u8; 32]);
+    let other = KeyHolder::acquire(dir.path()).unwrap();
+    assert!(finish().await.is_none());
+    drop(other);
+    assert_eq!(platform.seen.lock().unwrap().len(), 2);
 }
 
 #[tokio::test]

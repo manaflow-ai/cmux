@@ -35,9 +35,25 @@ pub(super) async fn dispatch(
 async fn run(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError> {
     let token = machine_tunnel::token(params)?;
     let machine = Machine::joined()?;
+    let home = crate::config::home();
+    let record = |key: &str| crate::cli::cloud_join::record_wg_public_key(&machine.id, key);
     match m {
         method::MUX_MACHINE_TUNNEL_ATTACH => {
-            machine_tunnel::attach(&machine, params, &token, false).await
+            // A rekey whose answer was lost goes first, so the peer map gets the key in use.
+            let pending = machine_tunnel::finish_pending_rekey(
+                &machine_tunnel::REKEYS,
+                &machine,
+                &home,
+                hub.wireguard.as_ref(),
+                &token,
+                record,
+            )
+            .await;
+            let mut attached = machine_tunnel::attach(&machine, params, &token, false).await?;
+            if let (Some(pending), Some(object)) = (pending, attached.as_object_mut()) {
+                object.insert("pendingRekey".into(), machine_tunnel::pending_outcome(pending));
+            }
+            Ok(attached)
         }
         method::MUX_MACHINE_TUNNEL_DETACH => {
             machine_tunnel::attach(&machine, params, &token, true).await
@@ -46,10 +62,10 @@ async fn run(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError>
             machine_tunnel::rekey_once(
                 &machine_tunnel::REKEYS,
                 &machine,
-                &crate::config::home(),
+                &home,
                 hub.wireguard.as_ref(),
                 &token,
-                |key| crate::cli::cloud_join::record_wg_public_key(&machine.id, key),
+                record,
             )
             .await
         }

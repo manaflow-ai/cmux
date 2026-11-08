@@ -123,6 +123,59 @@ pub(crate) fn replace_held(
     Ok(NodeKeypair::of(private))
 }
 
+/// `private` as the pending node key ([`KeyFile::NodePending`]): owner-only, fully synced and
+/// renamed into place, so a crash leaves the old pending key or this one, never part of one.
+pub(crate) fn write_pending_held(
+    state_dir: &Path,
+    holder: &KeyHolder,
+    private: &[u8; 32],
+) -> Result<()> {
+    crate::config::private_state_dir(state_dir)?;
+    holder.open(KeyFile::NodePending, state_dir, |path| -> Result<()> {
+        let temporary = write_temporary(path, private)?;
+        let renamed = std::fs::rename(&temporary, path);
+        if renamed.is_err() {
+            let _ = std::fs::remove_file(&temporary);
+        }
+        renamed.context("write the pending node key")?;
+        sync_parent(path)
+    })
+}
+
+/// The pending node key, or `None` when no rekey left one.
+pub(crate) fn read_pending_held(
+    state_dir: &Path,
+    holder: &KeyHolder,
+) -> Result<Option<Zeroizing<[u8; 32]>>> {
+    holder.open(KeyFile::NodePending, state_dir, |path| {
+        if std::fs::symlink_metadata(path).is_err() {
+            return Ok(None);
+        }
+        read_key(path).map(Some)
+    })
+}
+
+/// The pending node key becomes the node key in one rename.
+pub(crate) fn promote_pending_held(state_dir: &Path, holder: &KeyHolder) -> Result<()> {
+    let pending = KeyFile::NodePending.path_in(state_dir);
+    holder.open(KeyFile::Node, state_dir, |path| -> Result<()> {
+        std::fs::rename(&pending, path).context("put the pending node key in place")?;
+        sync_parent(path)
+    })
+}
+
+/// No pending node key any more (none is fine).
+pub(crate) fn drop_pending_held(state_dir: &Path, holder: &KeyHolder) -> Result<()> {
+    holder.open(KeyFile::NodePending, state_dir, |path| -> Result<()> {
+        match std::fs::remove_file(path) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                Err(error).context("remove the pending node key")
+            }
+            _ => sync_parent(path),
+        }
+    })
+}
+
 fn read_key(path: &Path) -> Result<Zeroizing<[u8; 32]>> {
     let mut file = crate::config::private_state_file(path)?;
     let mut key = Zeroizing::new([0u8; 32]);
