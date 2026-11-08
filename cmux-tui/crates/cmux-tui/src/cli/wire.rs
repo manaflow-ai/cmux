@@ -111,6 +111,76 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     run_response(&mut reader, &global, &plan, &request_id)
 }
 
+/// Send one non-stream request and return its result, or the error as JSON
+/// (`{code, message}`; a daemon error as the daemon wrote it), for a client
+/// command that reads or chains requests instead of printing one result
+/// (`cli/attention.rs`). Routing and session injection match [`run`].
+pub(super) fn fetch(global: &GlobalArgs, mut plan: RequestPlan) -> Result<Value, Value> {
+    let local = |code: &str, message: String| json!({"code": code, "message": message});
+    if let Some(params) = plan.params.as_object_mut() {
+        if let Some(machine) = &global.machine
+            && params.get("machine").is_none_or(|value| value.as_str() == Some("current"))
+        {
+            params.insert("machine".into(), Value::String(machine.clone()));
+        }
+        if let Some(session) = &global.session
+            && params.get("session").is_none_or(|value| value.as_str() == Some("current"))
+        {
+            params.insert("session".into(), Value::String(session.clone()));
+        }
+    }
+    let request = request_value(&plan).map_err(|error| local("usage.invalid", error.0))?;
+    let request_id = request
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| local("internal", "request has no id".into()))?;
+    let encoded = serde_json::to_vec(&request)
+        .map_err(|error| local("internal", format!("cannot encode request: {error}")))?;
+    let (socket, socket_is_derived) = resolve_socket_with_origin(global).map_err(|_| {
+        local(
+            "usage.invalid",
+            crate::localization::catalog().startup.invalid_session_name.to_string(),
+        )
+    })?;
+    let stream = cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived)
+        .map_err(|error| {
+            local(
+                "transport.unavailable",
+                format!("cannot connect to session socket {}: {error}", socket.display()),
+            )
+        })?;
+    let mut reader = BufReader::new(stream);
+    let _ = reader.get_mut().set_read_timeout(response_read_timeout(&plan, false));
+    reader
+        .get_mut()
+        .write_all(&encoded)
+        .and_then(|()| reader.get_mut().write_all(b"\n"))
+        .and_then(|()| reader.get_mut().flush())
+        .map_err(|error| local("transport.failed", format!("transport error: {error}")))?;
+    loop {
+        let value = read_envelope(&mut reader, false)
+            .map_err(|error| local("transport.failed", error))?
+            .ok_or_else(|| local("transport.failed", "transport closed before response".into()))?;
+        if value.get("type").and_then(Value::as_str) != Some("response") {
+            continue;
+        }
+        let response: ResponseEnvelope = serde_json::from_value(value).map_err(|error| {
+            local("protocol.invalid", format!("invalid response envelope: {error}"))
+        })?;
+        response.validate().map_err(|error| local("protocol.invalid", error.message))?;
+        if response.id.as_str() != request_id {
+            continue;
+        }
+        return match (response.ok, response.result, response.error) {
+            (true, Some(result), _) => Ok(result),
+            (_, _, Some(error)) => Err(serde_json::to_value(error)
+                .unwrap_or_else(|_| local("internal", "unreadable error".into()))),
+            _ => Err(local("protocol.invalid", "response has no result".into())),
+        };
+    }
+}
+
 #[cfg(unix)]
 pub(super) fn arm_signal_interrupt(stream: &dyn transport::Stream) -> bool {
     let Ok(stream) = stream.try_clone_box() else { return false };

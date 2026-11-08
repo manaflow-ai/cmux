@@ -10,6 +10,7 @@
 mod agent_browser_provider;
 mod agent_hook_install;
 mod app;
+mod attention;
 mod browser_input;
 #[cfg(unix)]
 mod claude_wrapper;
@@ -24,6 +25,7 @@ mod config;
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
 mod host_colors;
+mod host_notify;
 mod keys;
 mod layout_undo;
 mod local_owner;

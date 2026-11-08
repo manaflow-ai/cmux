@@ -7,6 +7,9 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::config::Action;
 
+mod attention;
+pub(crate) use attention::AttentionMessages;
+
 const FOREIGN_VIEWPORT_HINT_CAPACITY: usize = 64;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1277,6 +1280,7 @@ pub(crate) struct Catalog {
     pub attach: AttachMessages,
     pub sidebar: SidebarMessages,
     pub agent_wrapper: AgentWrapperMessages,
+    pub attention: AttentionMessages,
 }
 
 impl Catalog {
@@ -1288,6 +1292,7 @@ impl Catalog {
 
 static ENGLISH: Catalog = Catalog {
     japanese: false,
+    attention: attention::ENGLISH,
     agent_wrapper: AgentWrapperMessages {
         hooks_unavailable: "cmux: starting the agent without cmux status updates",
         agent_not_found: "cmux: the agent executable was not found",
@@ -2036,6 +2041,7 @@ socket.
 
 static JAPANESE: Catalog = Catalog {
     japanese: true,
+    attention: attention::JAPANESE,
     agent_wrapper: AgentWrapperMessages {
         hooks_unavailable: "cmux: cmux のステータス更新なしでエージェントを起動します",
         agent_not_found: "cmux: エージェントの実行ファイルが見つかりません",

@@ -85,6 +85,10 @@
 //!   "viewport": {
 //!     "animation": true
 //!   },
+//!   "notifications": {
+//!     "desktop": "auto",
+//!     "bell": false
+//!   },
 //!   "server": {
 //!     "ws": "127.0.0.1:7681",
 //!     "ws_token": "replace-with-a-secret"
@@ -124,7 +128,7 @@
 //! `swap-pane-prev`, `swap-pane-next`, `zoom-pane`, `resize-grow`,
 //! `resize-shrink`, `scroll-up`, `scroll-down`, `clear-history`, `browser-back`,
 //! `browser-forward`, `browser-reload`, `browser-edit-url`, `show-shortcuts`,
-//! and `detach`.
+//! `next-attention`, `attention-list`, and `detach`.
 //!
 //! The defaults intentionally match tmux where cmux has the same
 //! capability, except that `x` closes the more commonly managed tab and
@@ -214,6 +218,9 @@ struct RawConfig {
     viewport: RawViewport,
     #[serde(default)]
     server: RawServer,
+    /// Host terminal notifications (`host_notify.rs`).
+    #[serde(default)]
+    notifications: RawNotifications,
     /// Key bindings: `"prefix"` plus one entry per action. Values may be
     /// a chord string, an array of chord strings, `"none"`, or
     /// `"alt_shortcuts": false`, `"super_shortcuts": false`, or the host
@@ -228,6 +235,14 @@ struct RawServer {
     ws: Option<String>,
     ws_token: Option<String>,
     detached_owner: Option<bool>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawNotifications {
+    /// `off`, `auto` or `always`.
+    desktop: Option<crate::host_notify::DesktopNotifyMode>,
+    bell: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -1685,6 +1700,10 @@ pub enum Action {
     BrowserReload,
     BrowserEditUrl,
     ShowShortcuts,
+    /// Jump to the next tab that needs the person (src/attention.rs order).
+    NextAttention,
+    /// Open the searchable list of tabs that need the person.
+    AttentionList,
     Detach,
     /// A user-configured command from the top-level `commands` section,
     /// opened as a new PTY tab through the mux `run` command.
@@ -1742,6 +1761,8 @@ pub(crate) enum ActionExecution {
     BrowserReload,
     BrowserEditUrl,
     ShowShortcuts,
+    NextAttention,
+    AttentionList,
     Detach,
     UserCommand(UserCommandIndex),
 }
@@ -1967,6 +1988,8 @@ define_named_action_definitions! {
     BROWSER_RELOAD_DEFINITION => (Action::BrowserReload, "browser-reload", "Reload browser", "ブラウザを再読み込み");
     BROWSER_EDIT_URL_DEFINITION => (Action::BrowserEditUrl, "browser-edit-url", "Edit browser URL", "ブラウザ URL を編集");
     SHOW_SHORTCUTS_DEFINITION => (Action::ShowShortcuts, "show-shortcuts", "Keyboard shortcuts", "キーボードショートカット");
+    NEXT_ATTENTION_DEFINITION => (Action::NextAttention, "next-attention", "Go to next tab that needs you", "対応が必要な次のタブへ移動");
+    ATTENTION_LIST_DEFINITION => (Action::AttentionList, "attention-list", "Tabs that need you", "対応が必要なタブ");
     DETACH_DEFINITION => (Action::Detach, "detach", "Detach", "デタッチ");
 }
 
@@ -2099,7 +2122,7 @@ static SELECT_SCREEN_DEFINITIONS: [ActionDefinition; 10] = [
 /// The canonical action catalog. Presentation surfaces derive their labels
 /// and ordering from these named definitions instead of positional offsets.
 pub fn action_definitions() -> &'static [&'static ActionDefinition] {
-    static DEFINITIONS: [&ActionDefinition; 67] = [
+    static DEFINITIONS: [&ActionDefinition; 69] = [
         &SEND_PREFIX_DEFINITION,
         &NEW_TAB_DEFINITION,
         &NEW_BROWSER_TAB_DEFINITION,
@@ -2166,6 +2189,8 @@ pub fn action_definitions() -> &'static [&'static ActionDefinition] {
         &BROWSER_RELOAD_DEFINITION,
         &BROWSER_EDIT_URL_DEFINITION,
         &SHOW_SHORTCUTS_DEFINITION,
+        &NEXT_ATTENTION_DEFINITION,
+        &ATTENTION_LIST_DEFINITION,
         &DETACH_DEFINITION,
     ];
     &DEFINITIONS
@@ -2483,6 +2508,18 @@ impl Action {
                 "frontend shortcut overlay",
                 ActionExecution::ShowShortcuts,
             ),
+            Action::NextAttention => ActionMetadata::new(
+                "next-attention",
+                ActionClassification::PresentationOnly,
+                "frontend attention queue + client focus",
+                ActionExecution::NextAttention,
+            ),
+            Action::AttentionList => ActionMetadata::new(
+                "attention-list",
+                ActionClassification::PresentationOnly,
+                "frontend attention list overlay",
+                ActionExecution::AttentionList,
+            ),
             Action::Detach => ActionMetadata::new(
                 "detach",
                 ActionClassification::PresentationOnly,
@@ -2550,6 +2587,8 @@ impl Action {
             Action::BrowserReload => &BROWSER_RELOAD_DEFINITION,
             Action::BrowserEditUrl => &BROWSER_EDIT_URL_DEFINITION,
             Action::ShowShortcuts => &SHOW_SHORTCUTS_DEFINITION,
+            Action::NextAttention => &NEXT_ATTENTION_DEFINITION,
+            Action::AttentionList => &ATTENTION_LIST_DEFINITION,
             Action::Detach => &DETACH_DEFINITION,
             // One shared fallback: presentation surfaces resolve the
             // configured display name through the command list instead of
@@ -2788,6 +2827,8 @@ impl Default for Keys {
                 bind(KeyCode::Char('r'), Action::BrowserReload),
                 bind(KeyCode::Char('u'), Action::BrowserEditUrl),
                 bind(KeyCode::Char('?'), Action::ShowShortcuts),
+                bind(KeyCode::Char('a'), Action::NextAttention),
+                bind(KeyCode::Char('A'), Action::AttentionList),
                 bind(KeyCode::Char('d'), Action::Detach),
             ],
             action_by_chord: HashMap::new(),
@@ -3103,6 +3144,8 @@ pub struct Config {
     pub status_bar: StatusBarOptions,
     pub viewport: Viewport,
     pub server: Server,
+    /// Host terminal notifications (`notifications`).
+    pub notifications: crate::host_notify::NotifyConfig,
     pub keys: Keys,
     pub commands: Vec<UserCommandConfig>,
 }
@@ -3946,6 +3989,12 @@ pub fn load() -> Config {
     if let Some(detached_owner) = raw.server.detached_owner {
         config.server.detached_owner = detached_owner;
     }
+    if let Some(desktop) = raw.notifications.desktop {
+        config.notifications.desktop = desktop;
+    }
+    if let Some(bell) = raw.notifications.bell {
+        config.notifications.bell = bell;
+    }
     config.keys.apply(&raw.keys);
     bind_user_command_chords(&mut config.keys, &user_commands, &user_command_keys);
     config.commands = user_commands;
@@ -4140,6 +4189,7 @@ fn load_raw_config() -> RawConfig {
         "status_bar",
         "viewport",
         "server",
+        "notifications",
         "keys",
     ];
     if let Some(unknown) = object.keys().find(|key| !KNOWN.contains(&key.as_str())) {
@@ -4181,6 +4231,7 @@ fn load_raw_config() -> RawConfig {
     section!(status_bar, "status_bar");
     section!(viewport, "viewport");
     section!(server, "server");
+    section!(notifications, "notifications");
     section!(keys, "keys");
     raw
 }
@@ -9104,6 +9155,8 @@ mod tests {
             ("new-pane-right", Action::NewPaneRight),
             ("undo-layout", Action::UndoLayout),
             ("show-shortcuts", Action::ShowShortcuts),
+            ("next-attention", Action::NextAttention),
+            ("attention-list", Action::AttentionList),
             ("send-prefix", Action::SendPrefix),
             ("prev-workspace", Action::PrevWorkspace),
             ("close-workspace", Action::CloseWorkspace),

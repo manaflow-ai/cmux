@@ -180,6 +180,9 @@ pub struct TabView {
 pub struct TabNotificationView {
     pub unread: bool,
     pub level: &'static str,
+    /// The daemon's notification number (ascending in posting order), so
+    /// the attention queue puts the oldest unread tab first.
+    pub sequence: u64,
 }
 
 impl TreeView {
@@ -667,6 +670,7 @@ pub fn tree_from_state_with_notifications(
                     notification: notifications.get(sid).map(|notification| TabNotificationView {
                         unread: notification.unread,
                         level: notification.level.as_str(),
+                        sequence: notification.notification,
                     }),
                 })
                 .collect(),
@@ -842,6 +846,7 @@ fn parse_notification(value: &Value) -> Option<TabNotificationView> {
     Some(TabNotificationView {
         unread: value.get("unread").and_then(|v| v.as_bool()).unwrap_or(false),
         level,
+        sequence: value.get("notification").and_then(Value::as_u64).unwrap_or(0),
     })
 }
 
