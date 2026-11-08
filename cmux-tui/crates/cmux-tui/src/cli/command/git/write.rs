@@ -171,7 +171,9 @@ pub(in crate::cli) fn localize_commit_paths(
         return Ok(());
     }
     if params.get("machine").and_then(Value::as_str) != Some("current") {
-        return Err("git commit, git push, git worktree and git review run only on this machine".into());
+        return Err(
+            "git commit, git push, git worktree and git review run only on this machine".into()
+        );
     }
     if !matches!(operation, WireOperation::Typed(Op::GitCommit)) {
         return Ok(());

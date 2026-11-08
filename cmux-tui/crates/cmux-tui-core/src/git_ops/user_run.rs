@@ -151,7 +151,9 @@ impl UserGit<'_> {
         }
         let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
             terminate(&mut child);
-            return Err(GitFailure::Unavailable("the program started without its output pipes".into()));
+            return Err(GitFailure::Unavailable(
+                "the program started without its output pipes".into(),
+            ));
         };
         let stdout = Pipe::read(stdout, MAX_STDOUT_BYTES);
         let stderr = Pipe::read(stderr, MAX_STDERR_BYTES);

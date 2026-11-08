@@ -174,7 +174,11 @@ pub(super) fn save(
 /// `versions` names stays unless its `updatedAt` is still that version, so
 /// an edit saved after the caller read it is never removed. Returns
 /// `{deleted, ids}`: the count and the ids removed.
-pub(super) fn delete(file: &mut File, ids: &[String], versions: &Map<String, Value>) -> (Value, bool) {
+pub(super) fn delete(
+    file: &mut File,
+    ids: &[String],
+    versions: &Map<String, Value>,
+) -> (Value, bool) {
     let mut removed = Vec::new();
     file.comments.retain(|comment| {
         let Some(id) = comment.get("id").and_then(Value::as_str) else { return true };

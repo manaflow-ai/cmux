@@ -269,7 +269,8 @@ fn comment(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Res
         let text = format!("message must be 1 to {MAX_MESSAGE_BYTES} bytes");
         return Err(ResourceError::validation_invalid(Some("message"), text));
     }
-    let line = |name: &str| fields.get(name).and_then(Value::as_u64).and_then(|v| u32::try_from(v).ok());
+    let line =
+        |name: &str| fields.get(name).and_then(Value::as_u64).and_then(|v| u32::try_from(v).ok());
     let Some(end) = line("line").filter(|line| *line > 0) else {
         return Err(ResourceError::validation_invalid(Some("line"), "line must be at least 1"));
     };
@@ -281,7 +282,10 @@ fn comment(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Res
     let side = match fields.get("side").and_then(Value::as_str) {
         None => Side::Additions,
         Some(side) => Side::parse(side).ok_or_else(|| {
-            ResourceError::validation_invalid(Some("side"), "side is new (additions) or old (deletions)")
+            ResourceError::validation_invalid(
+                Some("side"),
+                "side is new (additions) or old (deletions)",
+            )
         })?,
     };
     let directory = super::target::directory(mux, request, COMMENT).map_err(normalized)?;
@@ -308,7 +312,9 @@ fn comment(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Res
         let message = if shown.is_empty() {
             format!("the pull request's diff shows no {version} lines of {file}")
         } else {
-            format!("{file}:{lines} is not in the pull request's diff; its {version} lines there are {shown}")
+            format!(
+                "{file}:{lines} is not in the pull request's diff; its {version} lines there are {shown}"
+            )
         };
         return Err(refused(COMMENT, "not_in_diff", message, extra));
     }
@@ -339,7 +345,8 @@ fn file_path(file: Option<&str>, root: &Path) -> Result<String, ResourceError> {
     };
     let file = file.filter(|file| !file.is_empty() && file.len() <= MAX_FILE_PATH_BYTES);
     let file = Path::new(file.ok_or_else(invalid)?);
-    let relative = if file.is_absolute() { file.strip_prefix(root).map_err(|_| invalid())? } else { file };
+    let relative =
+        if file.is_absolute() { file.strip_prefix(root).map_err(|_| invalid())? } else { file };
     let parts: Option<Vec<&str>> = relative
         .components()
         .filter(|part| *part != Component::CurDir)
@@ -417,7 +424,9 @@ fn post(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resour
             .filter(|comment| {
                 let id = comment.get("id").and_then(Value::as_str).unwrap_or_default();
                 ids.iter().any(|named| named == id)
-                    && versions.get(id).is_none_or(|version| comment.get("updatedAt") == Some(version))
+                    && versions
+                        .get(id)
+                        .is_none_or(|version| comment.get("updatedAt") == Some(version))
             })
             .collect();
         let repository = open_repository(Path::new(root), POST).map_err(normalized)?;
@@ -432,7 +441,10 @@ fn post(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resour
         let arguments = ["api", "--method", "POST", path.as_str(), "--input", "-"];
         let run = gh(&git, &arguments, Some(input), POST)?;
         let posted: Value = serde_json::from_slice(&run.stdout).unwrap_or(Value::Null);
-        let url = posted.get("html_url").and_then(Value::as_str).map_or_else(|| pull.url(), str::to_string);
+        let url = posted
+            .get("html_url")
+            .and_then(Value::as_str)
+            .map_or_else(|| pull.url(), str::to_string);
         // Posted: the drafts leave, except one edited while it was on its way.
         let (deleted, changed) = diff_comments::delete(file, &drafted.ids, &versions);
         let value = json!({
@@ -454,7 +466,8 @@ fn gh(
     operation: &str,
 ) -> Result<super::user_run::UserRun, ResourceError> {
     let Some(program) = gh_program() else {
-        let message = "gh (GitHub's command line tool) is not installed; install it and run gh auth login";
+        let message =
+            "gh (GitHub's command line tool) is not installed; install it and run gh auth login";
         return Err(refused(operation, "gh_unavailable", message, Value::Null));
     };
     let extra = [("GH_PROMPT_DISABLED", "1"), ("GH_NO_UPDATE_NOTIFIER", "1"), ("NO_COLOR", "1")];
@@ -462,7 +475,10 @@ fn gh(
         .run_program(program.as_os_str(), arguments, &extra, input)
         .map_err(|failure| run_failed(operation, &failure))?;
     if !run.success {
-        let message = format!("gh {} failed", arguments.iter().take(2).copied().collect::<Vec<_>>().join(" "));
+        let message = format!(
+            "gh {} failed",
+            arguments.iter().take(2).copied().collect::<Vec<_>>().join(" ")
+        );
         return Err(refused(operation, "gh_failed", message, output_extra(&run.output())));
     }
     Ok(run)

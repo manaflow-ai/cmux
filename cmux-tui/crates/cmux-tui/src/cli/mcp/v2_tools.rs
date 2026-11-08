@@ -43,6 +43,10 @@ const AGENT_REPORT_REASON: &str = "The agent_report MCP tool owns dispatched bri
 /// viewer.
 const REVIEW_POST_REASON: &str = "Posting a pull request review publishes under the person's GitHub account: agents leave drafts with git_review_comment, and the person posts them from the diff viewer.";
 
+/// The diff page's review comments are the person's, kept for the diff
+/// viewer; an agent drafts on a pull request review with git_review_comment.
+const DIFF_COMMENTS_REASON: &str = "The diff viewer's comments are the person's, kept by the session host for the diff page; agents leave review drafts with git_review_comment.";
+
 /// Read and mutation operations the curated `cmux` CLI does not offer
 /// (`cmux-tui`-only scopes), with the reason. The parity test checks that
 /// `cmux` refuses each one too.
@@ -79,6 +83,9 @@ const KEYBINDINGS_REASON: &str = "Keybindings are the user's, edited from the Ke
 pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("agent.report", AGENT_REPORT_REASON),
     ("git.review.post", REVIEW_POST_REASON),
+    ("diff.comments.list", DIFF_COMMENTS_REASON),
+    ("diff.comments.save", DIFF_COMMENTS_REASON),
+    ("diff.comments.delete", DIFF_COMMENTS_REASON),
     ("settings.schema", SETTINGS_REASON),
     ("settings.get", SETTINGS_REASON),
     ("settings.snapshot", SETTINGS_REASON),

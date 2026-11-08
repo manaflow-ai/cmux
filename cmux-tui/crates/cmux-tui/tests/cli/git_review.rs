@@ -39,7 +39,12 @@ fn git_cli(server: &HeadlessServer, cwd: &std::path::Path, args: &[&str]) -> Out
         .unwrap()
 }
 
-fn v2(server: &HeadlessServer, operation: &str, params: serde_json::Value, key: Option<&str>) -> serde_json::Value {
+fn v2(
+    server: &HeadlessServer,
+    operation: &str,
+    params: serde_json::Value,
+    key: Option<&str>,
+) -> serde_json::Value {
     let mut params = params;
     params["machine"] = serde_json::json!("current");
     params["session"] = serde_json::json!("current");
@@ -53,7 +58,7 @@ fn v2(server: &HeadlessServer, operation: &str, params: serde_json::Value, key: 
     if let Some(key) = key {
         request["idempotency_key"] = serde_json::json!(key);
     }
-    let stream = std::os::unix::net::UnixStream::connect(&server.socket).unwrap();
+    let stream = UnixStream::connect(&server.socket).unwrap();
     stream.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
     let mut reader = BufReader::new(stream);
     writeln!(reader.get_mut(), "{request}").unwrap();
@@ -93,7 +98,7 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     git(&upstream, &["commit", "-q", "-m", "first"]);
     let merge_base = git(&upstream, &["rev-parse", "HEAD"]);
     git(&upstream, &["checkout", "-q", "-b", "feature"]);
-    let mut changed = lines.clone();
+    let mut changed = lines;
     changed[9] = "line 10, fixed".to_string();
     fs::write(upstream.join("a.txt"), changed.join("\n") + "\n").unwrap();
     git(&upstream, &["commit", "-q", "-am", "fix line 10"]);
@@ -161,7 +166,8 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     assert_eq!(git(&checkout, &["rev-parse", "--abbrev-ref", "HEAD"]), "main");
 
     // The same head again: the same worktree, with its drafts.
-    let again = git_cli(&server, &checkout, &["review", "start", url, "--idempotency-key", "rv-two"]);
+    let again =
+        git_cli(&server, &checkout, &["review", "start", url, "--idempotency-key", "rv-two"]);
     assert_success(&again);
     assert_eq!(json_output(&again)["value"]["reused"], true);
     assert_eq!(json_output(&again)["value"]["root"], review_root.as_str());
@@ -173,9 +179,8 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     let reason = String::from_utf8_lossy(&refused.stderr).to_string();
     assert!(reason.contains("not_in_diff") && reason.contains("7-13"), "{reason}");
 
-    let draft = [
-        "review", "comment", "--file", "a.txt", "--line", "10", "--message", "Say what was fixed",
-    ];
+    let draft =
+        ["review", "comment", "--file", "a.txt", "--line", "10", "--message", "Say what was fixed"];
     let saved = git_cli(&server, &worktree, &draft);
     assert_success(&saved);
     let comment = json_output(&saved)["value"]["comment"].clone();
@@ -209,7 +214,11 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     );
     let result = &post["result"]["value"];
     assert_eq!(result["url"], "https://github.com/o/r/pull/7#pullrequestreview-1", "{post}");
-    assert_eq!((result["posted"].clone(), result["in_body"].clone()), (1.into(), 1.into()), "{post}");
+    assert_eq!(
+        (result["posted"].clone(), result["in_body"].clone()),
+        (1.into(), 1.into()),
+        "{post}"
+    );
     assert_eq!(result["cleared"].as_array().unwrap().len(), 2, "{post}");
     let sent: serde_json::Value = serde_json::from_slice(&fs::read(&posted).unwrap()).unwrap();
     assert_eq!(sent["commit_id"], head.as_str(), "{sent}");

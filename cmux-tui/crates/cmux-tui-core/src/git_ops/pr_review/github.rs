@@ -25,7 +25,8 @@ impl PullRef {
         let rest = url.trim().strip_prefix("https://github.com/")?;
         let rest = rest.split(['?', '#']).next().unwrap_or_default();
         let mut parts = rest.split('/');
-        let (owner, repo, pull, number) = (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
+        let (owner, repo, pull, number) =
+            (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
         let number: u64 = number.parse().ok().filter(|number| *number > 0)?;
         let name = |part: &str| {
             !part.is_empty()
@@ -53,9 +54,14 @@ impl PullRef {
     /// or scp form, with or without `.git`, case aside.
     pub(super) fn is_remote(&self, remote: &str) -> bool {
         let remote = remote.trim().to_ascii_lowercase();
-        let path = ["https://github.com/", "http://github.com/", "ssh://git@github.com/", "git@github.com:"]
-            .iter()
-            .find_map(|prefix| remote.strip_prefix(prefix));
+        let path = [
+            "https://github.com/",
+            "http://github.com/",
+            "ssh://git@github.com/",
+            "git@github.com:",
+        ]
+        .iter()
+        .find_map(|prefix| remote.strip_prefix(prefix));
         let Some(path) = path else { return false };
         let path = path.trim_end_matches('/');
         let path = path.strip_suffix(".git").unwrap_or(path);
@@ -203,7 +209,8 @@ pub(super) fn review(
         let Some(side) = Side::parse(text("side")) else { continue };
         ids.push(text("id").to_string());
         if hunks.get(path).is_some_and(|hunks| hunks.covers(side, start, end)) {
-            let mut entry = json!({"path": path, "body": message, "line": end, "side": side.github()});
+            let mut entry =
+                json!({"path": path, "body": message, "line": end, "side": side.github()});
             if start < end
                 && let Some(fields) = entry.as_object_mut()
             {
@@ -233,8 +240,12 @@ mod tests {
 
     #[test]
     fn parses_only_pull_request_links() {
-        let parsed = PullRef::parse("https://github.com/manaflow-ai/cmux/pull/38100/files?w=1#x").unwrap();
-        assert_eq!(parsed, PullRef { owner: "manaflow-ai".into(), repo: "cmux".into(), number: 38100 });
+        let parsed =
+            PullRef::parse("https://github.com/manaflow-ai/cmux/pull/38100/files?w=1#x").unwrap();
+        assert_eq!(
+            parsed,
+            PullRef { owner: "manaflow-ai".into(), repo: "cmux".into(), number: 38100 }
+        );
         assert_eq!(parsed.url(), "https://github.com/manaflow-ai/cmux/pull/38100");
         for refused in [
             "https://github.com/manaflow-ai/cmux/issues/1",
@@ -260,14 +271,17 @@ mod tests {
         ] {
             assert!(pull.is_remote(remote), "{remote}");
         }
-        for remote in ["git@github.com:manaflow-ai/cmux-platform.git", "https://example.com/manaflow-ai/cmux"] {
+        for remote in
+            ["git@github.com:manaflow-ai/cmux-platform.git", "https://example.com/manaflow-ai/cmux"]
+        {
             assert!(!pull.is_remote(remote), "{remote}");
         }
     }
 
     #[test]
     fn hunks_cover_their_lines_on_each_side() {
-        let hunks = Hunks::parse("diff --git a/f b/f\n@@ -10,7 +10,9 @@ fn\n x\n@@ -40 +42,0 @@\n-y\n");
+        let hunks =
+            Hunks::parse("diff --git a/f b/f\n@@ -10,7 +10,9 @@ fn\n x\n@@ -40 +42,0 @@\n-y\n");
         assert!(hunks.covers(Side::Additions, 10, 18));
         assert!(!hunks.covers(Side::Additions, 18, 19), "a range across a hunk's end");
         assert!(hunks.covers(Side::Deletions, 40, 40));
@@ -301,7 +315,10 @@ mod tests {
             comment("b", "src/x.rs", "deletions", 40, 40),
             comment("c", "src/y.rs", "additions", 5, 5),
         );
-        let hunks = BTreeMap::from([("src/x.rs".to_string(), Hunks::parse("@@ -10,7 +10,9 @@\n@@ -40 +42,0 @@\n"))]);
+        let hunks = BTreeMap::from([(
+            "src/x.rs".to_string(),
+            Hunks::parse("@@ -10,7 +10,9 @@\n@@ -40 +42,0 @@\n"),
+        )]);
         let review = review("abc", &[&a, &b, &c], &hunks);
         assert_eq!((review.inline, review.in_body), (2, 1));
         assert_eq!(review.ids, ["a", "b", "c"]);
@@ -311,7 +328,13 @@ mod tests {
             review.payload["comments"][0],
             json!({"path": "src/x.rs", "body": "m a", "line": 12, "side": "RIGHT", "start_line": 11, "start_side": "RIGHT"})
         );
-        assert_eq!(review.payload["comments"][1], json!({"path": "src/x.rs", "body": "m b", "line": 40, "side": "LEFT"}));
-        assert_eq!(review.payload["body"], "On lines outside this pull request's diff:\n\n- `src/y.rs:5`: m c");
+        assert_eq!(
+            review.payload["comments"][1],
+            json!({"path": "src/x.rs", "body": "m b", "line": 40, "side": "LEFT"})
+        );
+        assert_eq!(
+            review.payload["body"],
+            "On lines outside this pull request's diff:\n\n- `src/y.rs:5`: m c"
+        );
     }
 }
