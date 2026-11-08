@@ -4213,7 +4213,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [cloudStartsEnded, setCloudStartsEnded] = useState(0);
   /// The one-time Cloud hint over a new chat's composer (cloudChatHintModel.ts): its record is the app's.
   /// A pick of Cloud by any path (the hint, the Where menu, New Cloud Chat) is its use.
-  const cloudHint = useCloudChatHint(paneTipHost);
+  const cloudHint = useCloudChatHint(paneTipHost, newTabGeneration);
   const featureTipsOn = useFeatureTipsOn();
   /// New Cloud Chat (the handshake's `pickCloud`), counted: the New Tab page or this composer picks
   /// Cloud once Cloud is offered here.
@@ -9499,9 +9499,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     },
     [cloudChatIdentity, cloudTypingPrewarm, handshaken],
   );
-  const onCloudMachinePicked = useCallback((machine: CloudMachine | undefined) => {
-    cloudDraftMachineID.current = machine?.id ?? null;
-  }, []);
+  const cloudHintUsed = cloudHint.used;
+  const onCloudMachinePicked = useCallback(
+    (machine: CloudMachine | undefined) => {
+      cloudDraftMachineID.current = machine?.id ?? null;
+      // A Cloud machine picked is a pick of Cloud: the hint is done.
+      if (machine) cloudHintUsed();
+    },
+    [cloudHintUsed],
+  );
   const newTabSnapshot = useMemo(
     () =>
       newTabSessions === composerSnapshot.sessions

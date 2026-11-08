@@ -70,20 +70,28 @@ test("any record of the hint closes it for good, and an app that keeps no record
   expect(cloudChatHintRecord(undefined)).toBe("done");
 });
 
-async function mountHint(host: TipHost): Promise<{ current: () => CloudChatHintState }> {
+async function mountHint(
+  host: TipHost,
+): Promise<{ current: () => CloudChatHintState; newChat: (generation: number) => Promise<void> }> {
   const container = installDom();
   let latest: CloudChatHintState | undefined;
-  function Probe() {
-    const state = useCloudChatHint(host);
+  function Probe({ generation }: { generation: number }) {
+    const state = useCloudChatHint(host, generation);
     useEffect(() => {
       latest = state;
     });
     return null;
   }
   root = createRoot(container);
-  await act(async () => root!.render(<Probe />));
+  await act(async () => root!.render(<Probe generation={0} />));
   await act(async () => undefined);
-  return { current: () => latest! };
+  return {
+    current: () => latest!,
+    newChat: async (generation) => {
+      await act(async () => root!.render(<Probe generation={generation} />));
+      await act(async () => undefined);
+    },
+  };
 }
 
 test("the X keeps `closed` in the app's records once, and the hint is done at once", async () => {
@@ -111,15 +119,12 @@ test("a Cloud pick keeps `used`; an install that already answered never sees the
   expect(answered.current().record).toBe("done");
 });
 
-test("another pane's answer reaches this one when its window takes focus", async () => {
+test("another pane's answer reaches this one's next new chat", async () => {
   const shared = memoryTipHost();
   const hint = await mountHint(shared);
   expect(hint.current().record).toBe("open");
   await shared.write(CLOUD_CHAT_HINT_ID, "closed");
-  await act(async () => {
-    dom!.window.dispatchEvent(new dom!.window.Event("focus"));
-  });
-  await act(async () => undefined);
+  await hint.newChat(1);
   expect(hint.current().record).toBe("done");
 });
 

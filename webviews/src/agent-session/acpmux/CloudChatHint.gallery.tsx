@@ -1,3 +1,4 @@
+// l10n-allow-file: gallery fixtures, not shipped UI.
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { CloudChatHint } from "./CloudChatHint";

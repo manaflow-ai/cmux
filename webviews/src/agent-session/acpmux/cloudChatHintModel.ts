@@ -44,26 +44,23 @@ export type CloudChatHintState = {
   used(): void;
 };
 
-/// Reads the hint's record (the page's `tips.state {}`) when the page loads and again whenever its
-/// window takes focus, so a hint another pane closed or used is gone here too; writes `closed` or
-/// `used` once. A record never goes from done back to open.
-export function useCloudChatHint(host: TipHost): CloudChatHintState {
+/// Reads the hint's record (the page's `tips.state {}`) when the page loads and again for each new
+/// chat it shows (`newChat`, the New Tab page's generation), so a hint another pane closed or used
+/// is gone from the next new chat here too; writes `closed` or `used` once. A record never goes from
+/// done back to open.
+export function useCloudChatHint(host: TipHost, newChat: number = 0): CloudChatHintState {
   const [record, setRecord] = useState<CloudChatHintRecord>("unknown");
   const written = useRef(false);
   useEffect(() => {
     let live = true;
-    const read = () =>
-      host.read().then(
-        (state) => live && setRecord((current) => (current === "done" ? current : cloudChatHintRecord(state.records))),
-        () => live && setRecord("done"),
-      );
-    read();
-    window.addEventListener("focus", read);
+    void host.read().then(
+      (state) => live && setRecord((current) => (current === "done" ? current : cloudChatHintRecord(state.records))),
+      () => live && setRecord("done"),
+    );
     return () => {
       live = false;
-      window.removeEventListener("focus", read);
     };
-  }, [host]);
+  }, [host, newChat]);
   const keep = useCallback(
     (state: "closed" | "used") => {
       setRecord("done");
