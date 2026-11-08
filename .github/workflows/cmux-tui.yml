@@ -120,6 +120,15 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
+      # cmux-tui runs are dispatch-only: save-on-dispatch lets a run save what it
+      # fetched, so the next run on this branch needs no package host (502s at
+      # deps.files.ghostty.org failed every Linux job on 2026-11-08). An owned mini
+      # keeps ~/.cache/zig and never saves to the shared store.
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          save-on-dispatch: ${{ !contains(runner.name, '-glaeda') }}
+
       - name: Install Rust 1.91
         run: rustup toolchain install 1.91.0 --profile minimal
 
@@ -326,6 +335,11 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          save-on-dispatch: ${{ !contains(runner.name, '-glaeda') }}
+
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
@@ -497,6 +511,11 @@ jobs:
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
+
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          save-on-dispatch: ${{ !contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -703,8 +722,12 @@ jobs:
           EXACT_COMMIT: ${{ inputs.commit }}
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
+      # On an owned Mac the Cargo target is kept per runner between jobs
+      # (scripts/ci/cmux-tui-warm-target.sh); elsewhere it is cmux-tui/target.
       - name: Use short temporary directory for macOS socket tests
-        run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
+        run: |
+          echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_DIR=$(./scripts/ci/cmux-tui-warm-target.sh)" >> "$GITHUB_ENV"
 
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty-next
@@ -724,6 +747,8 @@ jobs:
 
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
+        with:
+          save-on-dispatch: ${{ !contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -952,6 +977,11 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          save-on-dispatch: ${{ !contains(runner.name, '-glaeda') }}
+
       - name: Build the cmux-tui daemon and CLI
         working-directory: cmux-tui
         run: cargo build --locked -p cmux-tui --bin cmux-tui
@@ -1024,6 +1054,11 @@ jobs:
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
+
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          save-on-dispatch: ${{ !contains(runner.name, '-glaeda') }}
 
       - name: Ghostty VT cursor replay checks
         if: inputs.mode == 'full'
@@ -1413,22 +1448,27 @@ jobs:
         with:
           engines: chromium
 
-      - name: Install pinned Playwright Chromium (Linux)
+      - name: Install system Chrome and chrome-headless-shell (Linux)
         if: runner.os == 'Linux'
         working-directory: web
         run: bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
 
-      - name: Resolve Playwright Chromium executable
+      # The step above installs no Playwright Chromium (a0c428bee: system Chrome only, CVE-2026-118306).
+      # Use the chrome-headless-shell it fetched (the engine Playwright's headless launches use), else
+      # the system Chrome it checked.
+      - name: Resolve Chromium executable
         id: chromium
-        working-directory: web
         shell: bash
         run: |
           set -euo pipefail
-          path="$(bun -e 'const { chromium } = require("@playwright/test"); process.stdout.write(chromium.executablePath())')"
+          path="${CMUX_CHROME_HEADLESS_SHELL:-}"
+          if [[ -z "$path" ]]; then
+            path="$(command -v google-chrome-stable || command -v google-chrome || true)"
+          fi
           test -n "$path"
           test -x "$path"
           printf 'path=%s\n' "$path" >> "$GITHUB_OUTPUT"
-          echo "Using Playwright Chromium at $path"
+          echo "Using Chromium at $path ($("$path" --version 2>/dev/null || echo 'version unknown'))"
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -1522,6 +1562,11 @@ jobs:
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
+
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          save-on-dispatch: ${{ !contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust

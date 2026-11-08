@@ -10,8 +10,10 @@ import "./machineLinkStatus.css";
 /// tooltip (`dot`).
 export type MachineLinkLook = "dot" | "words" | "named";
 
-/// acpmux's peer link state in the sidebar machine header's words ("Reconnecting…", "Offline").
+/// acpmux's peer link state in the sidebar machine header's words ("Reconnecting…", "Offline"), or what
+/// is wrong when acpmux knows (a refused sign-in, an update, this Mac's own network).
 export function linkWords(link: PeerLink, t: Translate): string {
+  if (link.why) return t(`machineLink.${link.why}`);
   switch (link.link) {
     case "connected":
       return t("machineLink.connected");
@@ -79,7 +81,7 @@ export function MachineLinkStatus({
               {look === "named" && <span className="acpmux-machine-link-name">{shown.name}</span>}
               <span className="acpmux-machine-link-state">{shown.words}</span>
             </span>
-            {down && onReconnect && (
+            {down && !link.stuck && onReconnect && (
               <button
                 type="button"
                 className="acpmux-machine-link-reconnect"

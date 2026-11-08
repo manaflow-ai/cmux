@@ -20,7 +20,8 @@ final class BrowserImportOfferService {
     private weak var services: AppServices?
     private let defaults: UserDefaults
     private(set) var state: BrowserImportOfferState
-    private let finder: InstalledImportBrowserFinder
+    /// Finds the installed browsers once, off the main thread (``InstalledImportBrowserFinder``).
+    let finder: InstalledImportBrowserFinder
     /// Browsers cmux can import from, most used first; nil until found.
     var browsers: [InstalledImportBrowser]? { finder.browsers }
     /// One card per launch: a second tab never shows it.
@@ -63,10 +64,10 @@ final class BrowserImportOfferService {
     }
 
     private func pageFinished(in entry: BrowserEntry) {
-        guard enabled, !shownThisLaunch, state.offers(page(entry)) else { return }
-        findBrowsers { [weak self, weak entry] found in
+        guard enabled, !shownThisLaunch, entry.state.hasKeyboard, state.offers(page(entry)) else { return }  // never over a terminal or chat
+        finder.find { [weak self, weak entry] found in
             // Asked again: the person may have answered elsewhere, or another tab showed it, while the browsers were found.
-            guard let self, let entry, enabled, !found.isEmpty, !shownThisLaunch, state.offers(page(entry)) else { return }
+            guard let self, let entry, enabled, !found.isEmpty, !shownThisLaunch, entry.state.hasKeyboard, state.offers(page(entry)) else { return }
             if let chrome = entry.chrome { show(on: chrome, browsers: found) }
         }
     }
@@ -123,9 +124,9 @@ final class BrowserImportOfferService {
         guard !state.imported else { return }
         banner?.set(true)
         shownThisLaunch = false
-        guard let entry = services?.cache.browsers.values.first(where: { $0.chrome.map { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor } == true }),
+        guard let entry = services?.cache.browsers.values.sorted(by: { $0.state.hasKeyboard && !$1.state.hasKeyboard }).first(where: { $0.chrome.map { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor } == true }),
               services?.browserImportEnabled == true, page(entry).isPersonal else { return }
-        findBrowsers { [weak self, weak entry] found in if let self, !state.imported, let chrome = entry?.chrome { show(on: chrome, browsers: found) } }
+        finder.find { [weak self, weak entry] found in if let self, !state.imported, let chrome = entry?.chrome { show(on: chrome, browsers: found) } }
     }
 
     /// Off, the card on screen goes; on again, the next finished page may offer it this launch.
@@ -162,8 +163,4 @@ final class BrowserImportOfferService {
         state = next
         next.save(to: defaults)
     }
-
-    /// Finds the installed browsers once, off the main thread, then calls
-    /// `done` (at once when they are already known).
-    func findBrowsers(then done: (@MainActor ([InstalledImportBrowser]) -> Void)? = nil) { finder.find(then: done) }
 }

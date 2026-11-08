@@ -20,10 +20,11 @@ class TailnetGoTests(unittest.TestCase):
         self.capture = self.root / "capture.json"
         for name in ["rm", "mkdir", "mv"]:
             (self.bin / name).symlink_to(Path("/bin") / name)
-        self.tool("uname", '#!/bin/sh\ncase "$1" in -s) echo Darwin;; -m) echo arm64;; esac\n')
+        self.tool("uname", '#!/bin/sh\ncase "$1" in -s) echo "${UNAME_S:-Darwin}";; -m) echo "${UNAME_M:-arm64}";; esac\n')
         self.tool("curl", '''#!/usr/bin/python3
-import pathlib, sys
+import os, pathlib, sys
 pathlib.Path(sys.argv[sys.argv.index("-o") + 1]).touch()
+pathlib.Path(os.environ["CHECKSUM"] + ".url").write_text(sys.argv[-1])
 ''')
         self.tool("shasum", '''#!/usr/bin/python3
 import os, pathlib, sys
@@ -71,6 +72,22 @@ CHECK
         self.assertTrue(env["PATH"].startswith(str(go.parent)))
         self.assertEqual(env["GOPATH"], str(self.root / ".build/go-path"))
         self.assertEqual(env["GOTOOLCHAIN"], "auto")
+
+    def test_linux_builder_without_go_downloads_pinned_linux_go(self):
+        # Linux fleet builders cross-build the macOS acpmux with no Go on PATH and no shasum.
+        (self.bin / "shasum").rename(self.bin / "sha256sum")
+        for machine, arch, digest in [
+                ("x86_64", "amd64", "63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445"),
+                ("aarch64", "arm64", "3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec")]:
+            with self.subTest(machine=machine):
+                subprocess.run(["/bin/rm", "-rf", str(self.root / ".build")], check=True)
+                result = self.run_helper(UNAME_S="Linux", UNAME_M=machine)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((self.root / "checksum.url").read_text(),
+                                 f"https://go.dev/dl/go1.27.1.linux-{arch}.tar.gz")
+                self.assertTrue((self.root / "checksum").read_text().startswith(f"{digest}  "))
+                go = self.root / ".build/go-1.27.1/go/bin/go"
+                self.assertTrue(json.loads(self.capture.read_text())["PATH"].startswith(str(go.parent)))
 
     def test_bad_checksum_never_extracts_archive(self):
         result = self.run_helper(CHECKSUM_RC="1")
