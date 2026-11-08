@@ -169,17 +169,26 @@ fn a_turn_that_ends_while_a_pane_shows_the_chat_posts_once() {
     let daemon = machine("notice-shown");
     let (surface, session) = chat(&daemon);
     let (other_surface, other_session) = chat(&daemon);
+    // A hidden chat's notice first: the daemon follows acpmux before the shown turn starts.
+    let mut other = Acpmux::connect(&daemon, &other_session);
+    other.prompt(&other_session, "hello there");
+    notice(&daemon, other_surface, |row| row["acknowledged"] == false);
+
     let mut acpmux = Acpmux::connect(&daemon, &session);
     acpmux.call("_acpmux/view", json!({"sessionId": session, "visible": true}));
     acpmux.prompt(&session, "hello while shown");
+    let done = notice(&daemon, surface, |row| {
+        row["title"].as_str().is_some_and(|t| t.ends_with("finished"))
+    });
+    assert!(done["body"].as_str().unwrap().contains("hello while shown"), "{done}");
 
-    // acpmux tells the daemon of every chat in order on one watch, so once
-    // the other chat's later turn notified, the shown chat's turn was told.
-    Acpmux::connect(&daemon, &other_session).prompt(&other_session, "hello there");
-    notice(&daemon, other_surface, |row| row["acknowledged"] == false);
+    // Another hidden turn after it: the shown chat posted nothing more meanwhile.
+    other.prompt(&other_session, "hello again");
+    notice(&daemon, other_surface, |row| {
+        row["body"].as_str().is_some_and(|b| b.contains("hello again"))
+    });
     let shown = notices(&daemon, surface);
     assert_eq!(shown.len(), 1, "one notice for the turn: {shown:?}");
-    assert!(shown[0]["title"].as_str().unwrap().ends_with("finished"), "{shown:?}");
 }
 
 #[test]
