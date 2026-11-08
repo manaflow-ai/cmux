@@ -1020,7 +1020,10 @@ impl Chat {
                     key: format!("failed-{turn}"),
                     title: format!("{name} failed"),
                     subtitle: None,
-                    body: short(self.last_error.as_ref().unwrap_or(&self.last_message), MAX_BODY_CHARS),
+                    body: short(
+                        self.last_error.as_ref().unwrap_or(&self.last_message),
+                        MAX_BODY_CHARS,
+                    ),
                     level: NotificationLevel::Error,
                     restated: false,
                 }),
@@ -1428,7 +1431,13 @@ mod tests {
 
     /// One acpmux summary of `chat-1`: `shown` is what acpmux reports for a pane that is on
     /// screen while cmux is not the active app (the page stays visible behind another app).
-    fn summary(indicator: &str, seq: u64, shown: bool, turn: Option<(&str, &str)>, below: bool) -> Value {
+    fn summary(
+        indicator: &str,
+        seq: u64,
+        shown: bool,
+        turn: Option<(&str, &str)>,
+        below: bool,
+    ) -> Value {
         json!({
             "sessionId": "chat-1",
             "title": "Review",
@@ -1452,17 +1461,41 @@ mod tests {
             .into_iter()
             .flat_map(|shown| {
                 [
-                    ("finished", vec![working(shown), summary("done", 10, shown, Some(("t1", "completed")), false)],
-                        vec!["done-t1"]),
-                    ("quota error", vec![working(shown), summary("done", 10, shown, Some(("t1", "failed")), false)],
-                        vec!["failed-t1"]),
-                    ("background work ended", vec![
-                        working(shown),
-                        summary("working", 10, shown, Some(("t1", "completed")), true),
-                        summary("done", 12, shown, Some(("t1", "completed")), false),
-                    ], vec!["done-t1"]),
-                    ("permission", vec![working(shown), summary("input", 10, shown, None, false)], vec!["input-10"]),
-                    ("question", vec![working(shown), summary("input", 11, shown, None, false)], vec!["input-11"]),
+                    (
+                        "finished",
+                        vec![
+                            working(shown),
+                            summary("done", 10, shown, Some(("t1", "completed")), false),
+                        ],
+                        vec!["done-t1"],
+                    ),
+                    (
+                        "quota error",
+                        vec![
+                            working(shown),
+                            summary("done", 10, shown, Some(("t1", "failed")), false),
+                        ],
+                        vec!["failed-t1"],
+                    ),
+                    (
+                        "background work ended",
+                        vec![
+                            working(shown),
+                            summary("working", 10, shown, Some(("t1", "completed")), true),
+                            summary("done", 12, shown, Some(("t1", "completed")), false),
+                        ],
+                        vec!["done-t1"],
+                    ),
+                    (
+                        "permission",
+                        vec![working(shown), summary("input", 10, shown, None, false)],
+                        vec!["input-10"],
+                    ),
+                    (
+                        "question",
+                        vec![working(shown), summary("input", 11, shown, None, false)],
+                        vec!["input-11"],
+                    ),
                 ]
             })
             .collect();
