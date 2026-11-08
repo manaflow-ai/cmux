@@ -30,11 +30,11 @@
 //! named with why ([`Skips`]), except the git path's untracked `.env*` and
 //! non-UTF-8 paths, which are counted.
 
+use cmux_process::Command;
 use std::collections::{BTreeMap, BTreeSet};
 use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use anyhow::{Context as _, bail};
 
@@ -783,8 +783,8 @@ fn without_user_info(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use cmux_process::Command;
     use std::path::Path;
-    use std::process::Command;
 
     use super::{Rules, below, borrowed_object, borrowed_skipped, collect, unquote};
 
