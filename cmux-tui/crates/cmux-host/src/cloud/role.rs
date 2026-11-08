@@ -28,7 +28,9 @@ use serde_json::{Value, json};
 
 use super::agent_socket::listen;
 use super::carrier_server::CarrierServer;
-use super::client::{BindResult, CloudClient, Http, Store, ensure_install_key, ensure_wg_key};
+use super::client::{
+    BindResult, CloudClient, Http, Store, bind_machine, ensure_install_key, ensure_wg_key,
+};
 use super::github;
 use super::github_minter::{Ask, Minter, Stop};
 use super::handoff::{self, HandoffReport};
@@ -908,13 +910,22 @@ impl Worker {
             return;
         }
         self.noise_key_wait = None;
+        // A person's machine from this bind on: its first link comes up next,
+        // so the updater's connect hold starts before the bind goes out (the
+        // supervisor's `Bound` is an instance id change, which a bind of the
+        // same machine is not). It takes the lock the flip holds through its
+        // restarts, so either the flip sees it or the restart was queued first,
+        // and then the restarted host binds: bind.json stays until a bind lands.
+        if !crate::updater::role::hold_connects() {
+            log("bind: this host's update restart is queued; the restarted host binds");
+            self.bind_retry_at = Some(self.now() + 30_000);
+            return;
+        }
         let changes = cmux_server::cloud_http::network_changes();
         // The bind writes carrier.json; the keyset refresher's write waits.
         let carrier_lock = self.keyset.carrier_lock();
         let carrier_held = carrier_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        // The updater's connect hold, then the request (`hold_then_bind`).
-        let result = super::client::hold_then_bind(
-            &self.paths,
+        let result = bind_machine(
             &mut self.store,
             &http,
             &key,
@@ -924,11 +935,6 @@ impl Worker {
             wall_ms(),
         );
         drop(carrier_held);
-        let Some(result) = result else {
-            log("bind: a restart of this service is pending; the restarted service binds");
-            self.bind_retry_at = Some(self.now() + 30_000);
-            return;
-        };
         log(&format!("bind: {}", result.describe()));
         match result {
             BindResult::Bound(bound) => {

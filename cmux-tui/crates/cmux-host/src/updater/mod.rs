@@ -41,8 +41,6 @@
 
 pub mod carrier;
 pub mod channel;
-#[cfg(unix)]
-pub mod gate;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod store;

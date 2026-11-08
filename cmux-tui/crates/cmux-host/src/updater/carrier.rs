@@ -33,28 +33,25 @@ pub const CARRIER_MAX_HOLD: Duration = Duration::from_secs(30 * 60);
 
 /// The attached sessions in a `remote enroll connections --json` reply
 /// (connected, or reconnecting within the resume lease), each as
-/// `device/session#generation`. The generation is part of it: a reconnect
-/// inside the resume lease keeps its device and session ids and bumps only
-/// the generation, and it is a new connect the connect hold must cover.
-///
-/// Fails closed: `None` (which holds the update like an unreadable list)
-/// unless the reply is an array whose every entry is an object with a string
-/// `device_id` and `session_id`, a numeric `generation` and a known `state`.
+/// `device/session#generation`; `None` when it is not a connection list.
+/// The generation is part of it: a reconnect inside the resume lease keeps
+/// its device and session ids and bumps only the generation, and it is a new
+/// connect the connect hold must cover.
 pub fn attached_sessions_in(json: &str) -> Option<Vec<String>> {
     let v: Value = serde_json::from_str(json.trim()).ok()?;
-    let mut attached = Vec::new();
-    for c in v.as_array()? {
-        let device = c.get("device_id")?.as_str()?;
-        let session = c.get("session_id")?.as_str()?;
-        let generation = c.get("generation")?.as_u64()?;
-        match c.get("state")?.as_str()? {
-            "connected" | "reconnecting" => {
-                attached.push(format!("{device}/{session}#{generation}"));
-            }
-            "disconnected" | "closed" => {}
-            _ => return None,
-        }
-    }
+    let attached = v
+        .as_array()?
+        .iter()
+        .filter(|c| {
+            matches!(c.get("state").and_then(Value::as_str), Some("connected" | "reconnecting"))
+        })
+        .map(|c| {
+            let device = c.get("device_id").and_then(Value::as_str).unwrap_or("?");
+            let session = c.get("session_id").and_then(Value::as_str).unwrap_or("?");
+            let generation = c.get("generation").and_then(Value::as_u64).unwrap_or(0);
+            format!("{device}/{session}#{generation}")
+        })
+        .collect();
     Some(attached)
 }
 

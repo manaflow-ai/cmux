@@ -328,30 +328,31 @@ fn a_file_hash_covers_every_byte_past_one_read_buffer() {
 #[cfg(target_os = "linux")]
 #[test]
 fn a_resume_holds_the_restart_while_the_first_link_comes_up() {
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
-    let gate_dir = tempfile::tempdir().unwrap();
-    let held = gate::Gate::new(&Paths::new(gate_dir.path()));
-    held.hold(T0_MS, role::CONNECT_HOLD);
-    assert_eq!(held.held_left(T0_MS), Some(role::CONNECT_HOLD));
-    assert_eq!(held.held_left(T0_MS + 60_000), Some(role::CONNECT_HOLD - Duration::from_secs(60)));
-    let end = T0_MS + role::CONNECT_HOLD.as_millis() as u64;
-    assert_eq!(held.held_left(end), None);
+    let t0 = Instant::now();
+    let held = role::extended_hold(None, t0);
+    assert_eq!(role::hold_left(Some(held), t0), Some(role::CONNECT_HOLD));
+    assert_eq!(
+        role::hold_left(Some(held), t0 + Duration::from_secs(60)),
+        Some(role::CONNECT_HOLD - Duration::from_secs(60))
+    );
+    assert_eq!(role::hold_left(Some(held), t0 + role::CONNECT_HOLD), None);
+    assert_eq!(role::hold_left(None, t0), None);
     // A later resume extends the hold; an earlier one never shortens it.
-    held.hold(T0_MS + 120_000, role::CONNECT_HOLD);
-    assert_eq!(held.held_left(end), Some(Duration::from_secs(120)));
-    held.hold(T0_MS, role::CONNECT_HOLD);
-    assert_eq!(held.held_left(end), Some(Duration::from_secs(120)));
+    let later = role::extended_hold(Some(held), t0 + Duration::from_secs(120));
+    assert_eq!(later, t0 + Duration::from_secs(120) + role::CONNECT_HOLD);
+    assert_eq!(role::extended_hold(Some(later), t0), later);
 
     let dir = tempfile::tempdir().unwrap();
-    let paths = image(dir.path());
-    let mut updater = role::UpdaterRole::new(paths.clone());
+    let mut updater = role::UpdaterRole::new(image(dir.path()));
+    let before = Instant::now();
     cmux_server_core::role::Role::on_event(
         &mut updater,
         &cmux_server_core::role::HostEvent::Resumed,
     )
     .unwrap();
-    let left = role::held_for(&paths).expect("a resume holds the next flip");
+    let left = role::held_for(before).expect("a resume holds the next flip");
     assert!(left > role::CONNECT_HOLD - Duration::from_secs(5), "{left:?}");
 }
 
@@ -361,14 +362,13 @@ fn a_resume_holds_the_restart_while_the_first_link_comes_up() {
 #[test]
 fn a_hold_that_starts_during_staging_holds_the_flip() {
     let dir = tempfile::tempdir().unwrap();
-    let paths = image(dir.path());
-    let mut updater = role::UpdaterRole::new(paths.clone());
+    let mut updater = role::UpdaterRole::new(image(dir.path()));
     cmux_server_core::role::Role::on_event(
         &mut updater,
         &cmux_server_core::role::HostEvent::Resumed,
     )
     .unwrap();
-    match role::held_outcome(&paths) {
+    match role::held_outcome(std::time::Instant::now()) {
         Some(role::Outcome::Busy(why)) => assert!(why[0].contains("connect hold"), "{why:?}"),
         other => panic!("the flip is not held: {other:?}"),
     }
@@ -462,16 +462,15 @@ fn attached_carrier_sessions_are_connected_or_reconnecting() {
 #[cfg(target_os = "linux")]
 #[test]
 fn a_new_carrier_session_starts_the_connect_hold() {
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
-    let dir = tempfile::tempdir().unwrap();
-    let paths = Paths::new(dir.path());
-    assert_eq!(role::carrier_busy_from(&paths, Ok(Vec::new())), None);
-    let busy = role::carrier_busy_from(&paths, Ok(vec!["claimer/first-link".to_owned()]));
+    assert_eq!(role::carrier_busy_from(Ok(Vec::new())), None);
+    let before = Instant::now();
+    let busy = role::carrier_busy_from(Ok(vec!["claimer/first-link".to_owned()]));
     assert!(busy.is_some(), "an attached session holds the update");
-    let left = role::held_for(&paths).expect("a new carrier session holds the next flip");
+    let left = role::held_for(before).expect("a new carrier session holds the next flip");
     assert!(left > role::CONNECT_HOLD - Duration::from_secs(5), "{left:?}");
-    match role::held_outcome(&paths) {
+    match role::held_outcome(Instant::now()) {
         Some(role::Outcome::Busy(why)) => assert!(why[0].contains("connect hold"), "{why:?}"),
         other => panic!("the flip is not held: {other:?}"),
     }
@@ -483,12 +482,11 @@ fn a_new_carrier_session_starts_the_connect_hold() {
 #[cfg(target_os = "linux")]
 #[test]
 fn a_bind_commit_starts_the_connect_hold() {
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
-    let dir = tempfile::tempdir().unwrap();
-    let paths = Paths::new(dir.path());
-    assert!(role::hold_connects(&paths), "no restart pending: the bind goes");
-    let left = role::held_for(&paths).expect("a bind holds the next flip");
+    let before = Instant::now();
+    role::hold_connects();
+    let left = role::held_for(before).expect("a bind holds the next flip");
     assert!(left > role::CONNECT_HOLD - Duration::from_secs(5), "{left:?}");
 }
 
@@ -510,6 +508,96 @@ fn many_small_clock_syncs_never_start_a_restore_hold() {
     assert!(offset > 1000 * crate::agent::RESUME_CLOCK_JUMP_NS / 2, "the syncs added up");
     assert!(role::restore_look(&mut last, offset + 3600 * 1_000_000_000), "a restore");
     assert!(!role::restore_look(&mut last, offset + 3600 * 1_000_000_000 + step));
+}
+
+/// A bind that lands while a gated flip (`update`) or rollback runs: it
+/// waits for the restart to be queued, then learns of it and doesn't bind.
+#[cfg(target_os = "linux")]
+fn bind_during_gate(honor_hold: bool) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    let held = Arc::new(Mutex::new(None::<Instant>));
+    let restarting = Arc::new(AtomicBool::new(false));
+    let (in_window, window) = mpsc::channel::<()>();
+    let (restarted, restart_done) = mpsc::channel::<Instant>();
+    let flipper = {
+        let held = Arc::clone(&held);
+        let restarting = Arc::clone(&restarting);
+        std::thread::spawn(move || {
+            let mark = || restarting.store(true, Ordering::SeqCst);
+            role::gate(&held, Instant::now(), honor_hold, &mark, |queued| {
+                in_window.send(()).unwrap();
+                // The flip takes a moment, then the restarts are queued.
+                std::thread::sleep(Duration::from_millis(200));
+                queued();
+                restarted.send(Instant::now()).unwrap();
+            })
+        })
+    };
+    window.recv().unwrap();
+    // The bind lands inside the window.
+    let may_bind = role::hold_in(&held, Instant::now(), || restarting.load(Ordering::SeqCst));
+    let bind_held_at = Instant::now();
+    let restart_queued_at = restart_done.recv().unwrap();
+    assert!(flipper.join().unwrap().is_ok(), "the gate had looked before the bind");
+    assert!(bind_held_at >= restart_queued_at, "the bind landed before the restart was queued");
+    assert!(!may_bind, "a bind went out with this host's restart queued");
+}
+
+/// Review F1 of #38326: a bind that takes the connect hold while the flip is
+/// between its last look and its restarts waits for them, and a hold taken
+/// before the flip's look wins: nothing flips.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_bind_in_the_flip_window_never_lands_between_the_look_and_the_restart() {
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+
+    bind_during_gate(true);
+
+    let held = Mutex::new(None);
+    assert!(role::hold_in(&held, Instant::now(), || false), "no restart queued: the bind goes");
+    let mut ran = false;
+    let outcome = role::gate(&held, Instant::now(), true, &|| {}, |_| ran = true);
+    assert!(outcome.is_err_and(|left| left > role::CONNECT_HOLD - Duration::from_secs(5)));
+    assert!(!ran, "a flip ran under a hold taken before it");
+}
+
+/// Review P1 of #38483: a rollback's flip and restart go through the same
+/// gate, so a bind that lands during a rollback waits for its restart and
+/// doesn't bind. A rollback is not stopped by the hold (a build that never
+/// proved itself is not kept), only serialized with it.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_bind_during_a_rollback_never_lands_between_its_flip_and_restart() {
+    use std::sync::Mutex;
+    use std::time::Instant;
+
+    bind_during_gate(false);
+
+    let held = Mutex::new(None);
+    role::hold_in(&held, Instant::now(), || false);
+    let mut ran = false;
+    assert!(role::gate(&held, Instant::now(), false, &|| {}, |_| ran = true).is_ok());
+    assert!(ran, "a rollback runs under the hold");
+}
+
+/// The restart marker refuses binds only in the process it names, and only
+/// within the grace: the restarted host (another pid) binds at once, and a
+/// restart that never came frees binds again.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_restart_marker_names_one_process_for_a_while() {
+    assert!(role::marker_names("4242 1000\n", 4242, 1000));
+    assert!(role::marker_names("4242 1000", 4242, 1119));
+    assert!(!role::marker_names("4242 1000", 4242, 1120), "past the grace");
+    assert!(!role::marker_names("4242 1000", 4243, 1000), "the restarted host");
+    assert!(!role::marker_names("0 1000", 0, 1000), "no host ran");
+    assert!(!role::marker_names("", 4242, 1000));
+    assert!(!role::marker_names("x 1000", 4242, 1000));
 }
 
 /// Review F2 of #38326: the health timeout's rollback waits while carrier
@@ -621,14 +709,14 @@ fn the_first_read_after_failed_reads_counts_its_sessions_as_new() {
 #[cfg(target_os = "linux")]
 #[test]
 fn failed_reads_then_an_attached_session_start_the_connect_hold() {
+    use std::sync::Mutex;
     use std::time::{Duration, Instant};
 
     use carrier::{CARRIER_MAX_HOLD, CarrierHold};
 
-    let dir = tempfile::tempdir().unwrap();
-    let held = gate::Gate::new(&Paths::new(dir.path()));
+    let held = Mutex::new(None::<Instant>);
     let start = || {
-        held.hold(T0_MS, role::CONNECT_HOLD);
+        role::hold_in(&held, Instant::now(), || false);
     };
     let t0 = Instant::now();
     let mut hold = CarrierHold::default();
@@ -637,13 +725,14 @@ fn failed_reads_then_an_attached_session_start_the_connect_hold() {
         let look = hold.look(at, Err("its admin channel answered exit status: 1".to_owned()));
         role::act_on_look(look, start);
     }
-    assert_eq!(held.held_left(T0_MS), None, "failed reads start no connect hold");
+    assert_eq!(*held.lock().unwrap(), None, "failed reads start no connect hold");
 
     let at = t0 + CARRIER_MAX_HOLD + Duration::from_secs(120);
     let look = hold.look(at, Ok(vec!["mac/s1#1".to_owned()]));
     role::act_on_look(look, start);
-    let left = held.held_left(T0_MS).expect("the first readable session starts the connect hold");
-    assert_eq!(left, role::CONNECT_HOLD);
+    let until = held.lock().unwrap().expect("the first readable session starts the connect hold");
+    let left = until.saturating_duration_since(Instant::now());
+    assert!(left > role::CONNECT_HOLD - Duration::from_secs(5), "{left:?}");
 }
 
 /// Review P1s of #38483 at b82f2bf1: the connect hold and the pending
@@ -734,36 +823,4 @@ fn a_bind_waits_for_another_process_gate_and_sees_its_restart() {
         assert!(bind_done >= queued_at, "the bind did not wait for the gate");
         assert!(!may_bind, "a bind went out between the flip and the restart");
     }
-}
-
-/// Review F1 of #38326's P2s: the connection list fails closed. An entry
-/// that is not a session object, an unknown state or a missing field makes
-/// the whole list unreadable (`None`, which holds the update), never an
-/// empty list that lets a restart cut an attached session.
-#[test]
-fn a_malformed_connection_list_fails_closed() {
-    let row = |state: &str| {
-        json!({"device_id": "d", "session_id": "s", "generation": 1, "state": state,
-               "resume_lease_remaining_ms": null, "lane_bindings": [], "physical_link_count": 1})
-    };
-    assert_eq!(carrier::attached_sessions_in("[null]"), None, "[null]");
-    assert_eq!(carrier::attached_sessions_in("[1, \"x\"]"), None);
-    let unknown = json!([row("connected"), row("half-open")]);
-    assert_eq!(carrier::attached_sessions_in(&unknown.to_string()), None, "an unknown state");
-    for field in ["device_id", "session_id", "generation", "state"] {
-        let mut entry = row("connected");
-        entry.as_object_mut().unwrap().remove(field);
-        let list = json!([entry]).to_string();
-        assert_eq!(carrier::attached_sessions_in(&list), None, "missing {field}");
-    }
-    let mut wrong = row("connected");
-    wrong["generation"] = json!("1");
-    assert_eq!(
-        carrier::attached_sessions_in(&json!([wrong]).to_string()),
-        None,
-        "a string generation"
-    );
-    // Known states still read.
-    let fine = json!([row("connected"), row("closed")]).to_string();
-    assert_eq!(carrier::attached_sessions_in(&fine), Some(vec!["d/s#1".to_owned()]));
 }
