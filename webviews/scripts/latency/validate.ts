@@ -294,7 +294,7 @@ function inspectResult(result: Record<string, unknown>, runs: number, errors: st
       valid = false;
       continue;
     }
-    if (result.metricType === "frame_time" || result.metricType === "scroll_frame_time") values.push(...run.frameGaps);
+    if (cadence && numbers(run.frameGaps)) values.push(...run.frameGaps);
     rawTasks.push(...run.longTasks);
     rawCommits += run.reactCommits;
     for (const entry of run.observations) {

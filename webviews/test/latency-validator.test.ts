@@ -323,7 +323,9 @@ test("the gate workflow's and bootstrap's --pages measure exactly the budget's e
   const cases = PAGES.filter((spec) => pages.includes(spec.name)).flatMap((spec) =>
     spec.actions.map((action) => `chromium/${spec.name}/${action.id ?? action.name}`),
   );
-  expect(cases.sort()).toEqual([...budgetFile.expectedCases].sort());
+  expect([...cases].sort((a, b) => a.localeCompare(b))).toEqual(
+    [...budgetFile.expectedCases].sort((a: string, b: string) => a.localeCompare(b)),
+  );
   const bootstrap = fs.readFileSync(path.join(import.meta.dir, "../../scripts/ci/web-perf-bootstrap.sh"), "utf8");
   expect(bootstrap.match(/--pages "([^"]+)"/)?.[1].split(",")).toEqual(pages);
 });
