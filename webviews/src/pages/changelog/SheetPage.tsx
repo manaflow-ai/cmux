@@ -29,15 +29,26 @@
 // 2026-11-08: "maybe just bring them to the section in what's new aka bringing that tab up"):
 // `focus` (the route's `entry=` and `area=`) scrolls to the row with that title, else to the area's
 // section, unfolds the area that hides it, and marks it for a moment (useFocusScroll).
+// A curated change whose highlight carries a before/after pair shows it under its line
+// (MediaCompare.tsx); the sheet shows no other pictures.
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import { Button } from "../../ui/Button";
 import type { Strings } from "../shared/i18n";
 import { areaOf, byArea, type AreaKey } from "./areas";
-import { dayLabel, groupByDay, isFiller, mergedView, rowKind, titleKey, type ReleaseView } from "./model";
+import {
+  dayLabel,
+  groupByDay,
+  isFiller,
+  mergedView,
+  rowKind,
+  titleKey,
+  type MediaRef,
+  type ReleaseView,
+} from "./model";
 import { withoutWorkCodes } from "./readableChange";
 import { journalKeys, loadNear } from "./JournalPage";
-import { Maintenance } from "./ReleaseParts";
+import { Maintenance, Media } from "./ReleaseParts";
 import { publicPullNumber, pullURL } from "./ChangePullRequest";
 import type { ChangelogFocus, ChangelogSnapshot, ChangelogStore } from "./store";
 import type { IndexEntry, ReleaseNotes, SheetLayout, SheetLinks, WhatsNewCategory } from "./types";
@@ -262,6 +273,7 @@ function SheetArea({
                 #{row.pr}
               </span>
             )}
+            {row.media && <Media media={row.media} className="cls-row-media" strings={strings} />}
           </li>
         ))}
       </ul>
@@ -360,6 +372,9 @@ export interface SheetRow {
   area?: AreaKey;
   /** Its public manaflow-ai/cmux pull request; none for a change from a private repository. */
   pr?: number;
+  /** A curated change's before/after pair, shown under its line; a lone picture stays off the
+      sheet, which is one tight line per change. */
+  media?: MediaRef;
 }
 
 /** A day's rows: its curated changes (hero first, then New, Improved, Fixed, Security), each with
@@ -383,6 +398,7 @@ export function sheetRows(view: ReleaseView, _strings?: Strings): SheetRow[] {
         line,
         area: curatedArea(item.title, item.summary),
         pr: publicPullNumber(item.pr) ?? pulls.get(words(item.title)),
+        ...(item.media?.before ? { media: item.media } : {}),
       };
     });
   }

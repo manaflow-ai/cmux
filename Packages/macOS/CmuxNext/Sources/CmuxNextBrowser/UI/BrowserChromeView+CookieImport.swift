@@ -2,33 +2,28 @@ public import AppKit
 import CmuxNextDesign
 
 /// What the cookie import card says (the host localizes it) and the icons
-/// of the browsers it can import from, most used first.
-public struct BrowserCookieImportOffer {
+/// of the browsers it can import from, most used first. One line and the
+/// answers (Leo 2026-11-08: "talks about too much irrelevant shit"); Keep in
+/// sync is Settings > Browser > Import (`browser.import.cookieSync`).
+public struct BrowserCookieImportOffer: Equatable {
     public var icons: [NSImage]
     public var title: String
-    public var detail: String
     public var importTitle: String
     public var notNowTitle: String
     /// A quiet third answer (Don't Show Again); nil shows only Not Now and Import.
     public var neverTitle: String?
-    /// "Keep in sync", a checkbox under the detail (a browser whose cookies can be kept in sync); nil shows none.
-    public var keepInSyncTitle: String?
-    /// The checkbox's first state.
-    public var keepInSync: Bool
-    /// The checkbox's state when the person clicked Import (before `onChoice`).
-    public var onKeepInSync: (@MainActor (Bool) -> Void)?
 
-    public init(icons: [NSImage], title: String, detail: String, importTitle: String, notNowTitle: String, neverTitle: String? = nil,
-                keepInSyncTitle: String? = nil, keepInSync: Bool = true, onKeepInSync: (@MainActor (Bool) -> Void)? = nil) {
+    public init(icons: [NSImage], title: String, importTitle: String, notNowTitle: String, neverTitle: String? = nil) {
         self.icons = icons
         self.title = title
-        self.detail = detail
         self.importTitle = importTitle
         self.notNowTitle = notNowTitle
         self.neverTitle = neverTitle
-        self.keepInSyncTitle = keepInSyncTitle
-        self.keepInSync = keepInSync
-        self.onKeepInSync = onKeepInSync
+    }
+
+    /// The same words: a card that shows them stays (its icons are the same browser's, found again).
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.title == rhs.title && lhs.importTitle == rhs.importTitle && lhs.notNowTitle == rhs.notNowTitle && lhs.neverTitle == rhs.neverTitle
     }
 }
 
@@ -47,8 +42,19 @@ extension BrowserChromeView {
     /// shown. It floats on the window's overlay host (`PageFloatingOverlays`),
     /// so it shows above Chromium pages too.
     /// `aboveToast` lifts it over the window's toast stack (a toast shows now).
+    /// The same offer while this tab's card is up keeps that card (and its fade, its page, its place):
+    /// only the answer goes to the new caller (Leo 2026-11-08: "the import cookies from google chrome
+    /// card flickers sometimes"; a second show faded the card out and a new one in). A card held,
+    /// hidden, for another tab of the pane is that tab's: it is never reused for this one.
     public func showCookieImportOffer(_ offer: BrowserCookieImportOffer, aboveToast: Bool = false,
                                       onChoice: @escaping (BrowserCookieImportChoice) -> Void) {
+        if let shown = currentCookieImportCard, shown.offer == offer, !shown.isHidden, shown.heldFor == nil {
+            shown.onChoice = { [weak self, weak shown] choice in
+                if let shown { self?.remove(shown) }
+                onChoice(choice)
+            }
+            return
+        }
         if let shown = currentCookieImportCard { remove(shown) }
         let card = BrowserCookieImportCard(offer: offer)
         card.onChoice = { [weak self, weak card] choice in
