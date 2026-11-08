@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import Testing
 @testable import CmuxBrowser
 
@@ -111,6 +112,41 @@ struct BrowserImportedCookieTests {
     @Test("does not import a partitioned Chromium cookie as a first-party cookie")
     func chromiumPartitionedSkipped() {
         #expect(chromiumRow(topFrameSiteKey: "https://embedder.test") == nil)
+    }
+
+    // Cookie schema 15 (2021) added `top_frame_site_key`.
+    @Test("reads a Chromium cookies table with or without top_frame_site_key", arguments: [
+        "top_frame_site_key TEXT NOT NULL DEFAULT '',",
+        "",
+    ])
+    func chromiumCookiesQuery(topFrameSiteKeyColumn: String) throws {
+        var database: OpaquePointer?
+        try #require(sqlite3_open(":memory:", &database) == SQLITE_OK)
+        defer { sqlite3_close(database) }
+        let schema = """
+        CREATE TABLE cookies (
+            host_key TEXT, \(topFrameSiteKeyColumn) name TEXT, value TEXT, encrypted_value BLOB,
+            path TEXT, expires_utc INTEGER, is_secure INTEGER, is_httponly INTEGER, samesite INTEGER
+        );
+        INSERT INTO cookies (host_key, name, value, encrypted_value, path, expires_utc, is_secure, is_httponly, samesite)
+        VALUES ('.example.test', 'session', 'abc', x'', '/', 0, 1, 1, 1);
+        """
+        try #require(sqlite3_exec(database, schema, nil, nil, nil) == SQLITE_OK)
+        var columns: Set<String> = []
+        var info: OpaquePointer?
+        try #require(sqlite3_prepare_v2(database, "SELECT name FROM pragma_table_info('cookies')", -1, &info, nil) == SQLITE_OK)
+        while sqlite3_step(info) == SQLITE_ROW {
+            columns.insert(String(cString: sqlite3_column_text(info, 0)))
+        }
+        sqlite3_finalize(info)
+
+        var statement: OpaquePointer?
+        let query = BrowserImportedCookie.chromiumCookiesQuery(columns: columns)
+        try #require(sqlite3_prepare_v2(database, query, -1, &statement, nil) == SQLITE_OK)
+        defer { sqlite3_finalize(statement) }
+        try #require(sqlite3_step(statement) == SQLITE_ROW)
+        #expect(sqlite3_column_count(statement) == 10)
+        #expect(String(cString: sqlite3_column_text(statement, 9)).isEmpty)
     }
 
     @Test("writes SameSite to the WebKit cookie", arguments: [

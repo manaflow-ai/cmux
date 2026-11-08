@@ -113,6 +113,17 @@ public struct BrowserImportedCookie: Sendable, Equatable {
         )
     }
 
+    /// The query that reads a Chromium-family `cookies` table with the given
+    /// columns, in the order ``chromium(host:name:value:path:expiresUTC:isSecure:isHTTPOnly:sameSite:topFrameSiteKey:)``
+    /// takes them after the encrypted value.
+    public static func chromiumCookiesQuery(columns: Set<String>) -> String {
+        """
+        SELECT host_key, name, value, path, expires_utc, is_secure, encrypted_value,
+               is_httponly, samesite, top_frame_site_key
+        FROM cookies
+        """
+    }
+
     /// Builds the cookie written to the destination profile's WebKit store.
     public func makeHTTPCookie(builder: BrowserCookieBuilder = BrowserCookieBuilder()) -> HTTPCookie? {
         builder.makeCookie(
