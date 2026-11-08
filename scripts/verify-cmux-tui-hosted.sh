@@ -11,6 +11,7 @@ Usage:
   ./scripts/verify-cmux-tui-hosted.sh --filter <rust-test-name>
   ./scripts/verify-cmux-tui-hosted.sh --filter chatmux_relay
   ./scripts/verify-cmux-tui-hosted.sh --full
+  ./scripts/verify-cmux-tui-hosted.sh [--cancel-on-timeout] --filter <name> | --full
 
 --filter runs matching Rust tests on hosted Linux and macOS.
 The reserved `chatmux_relay` filter runs the complete `chatmux-relay` package;
@@ -21,11 +22,26 @@ Both modes build and download the matching macOS arm64 cmux-tui artifact from th
 exact pushed HEAD. --full also downloads the separate userland agent-plugin artifact;
 --filter builds the macOS target on a Linux runner, which stages the plugin inside the
 cmux-tui artifact (when it built) instead.
+
+The wait ends after CMUX_TUI_HOSTED_TIMEOUT_SECONDS (default 7200). The hosted
+run is not cancelled then: the script prints the run URL and how to keep
+waiting, and exits with status 3. Ctrl-C cancels the hosted run.
+--cancel-on-timeout also cancels the hosted run when the wait ends (exit 1).
 EOF
 }
 
 mode=""
 test_filter=""
+cancel_on_timeout=false
+args=()
+for arg in "$@"; do
+  if [[ "$arg" == "--cancel-on-timeout" ]]; then
+    cancel_on_timeout=true
+  else
+    args+=("$arg")
+  fi
+done
+set -- ${args[@]+"${args[@]}"}
 case "${1:-}" in
   --filter)
     if [[ $# -ne 2 ]]; then
@@ -58,8 +74,20 @@ if [[ "$mode" == "focused" && ! "$test_filter" =~ ^[A-Za-z0-9_][A-Za-z0-9_:.-]{0
 fi
 
 timeout_seconds="${CMUX_TUI_HOSTED_TIMEOUT_SECONDS:-7200}"
+# How long a run cancelled by someone else may take to be re-run (CI rescue).
+rescue_window_seconds="${CMUX_TUI_HOSTED_RESCUE_WINDOW_SECONDS:-300}"
+# The shortest time between two waiter rounds.
+round_seconds="${CMUX_TUI_HOSTED_ROUND_SECONDS:-30}"
 if [[ ! "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
   echo "error: hosted verification timeout must be a positive integer" >&2
+  exit 2
+fi
+if [[ ! "$rescue_window_seconds" =~ ^[0-9]+$ ]]; then
+  echo "error: CMUX_TUI_HOSTED_RESCUE_WINDOW_SECONDS must be a whole number of seconds" >&2
+  exit 2
+fi
+if [[ ! "$round_seconds" =~ ^[1-9][0-9]*$ ]]; then
+  echo "error: CMUX_TUI_HOSTED_ROUND_SECONDS must be a positive whole number of seconds" >&2
   exit 2
 fi
 
@@ -184,80 +212,8 @@ exit_on_signal() {
   trap - HUP INT TERM
   exit "$1"
 }
-trap cleanup EXIT
-trap 'exit_on_signal 129' HUP
-trap 'exit_on_signal 130' INT
-trap 'exit_on_signal 143' TERM
-
-watch_result_fifo="$temp_dir/run-watch-result"
-mkfifo "$watch_result_fifo"
-
-# Keep both ends open so the timed read starts before the watcher publishes its
-# result. The watcher owns the GitHub CLI child and reaps it on every exit path.
-exec 3<> "$watch_result_fifo"
-(
-  gh_child_pid=""
-  stop_gh_child() {
-    if [[ -n "$gh_child_pid" ]]; then
-      kill -KILL "$gh_child_pid" 2>/dev/null || true
-      wait "$gh_child_pid" 2>/dev/null || true
-      gh_child_pid=""
-    fi
-  }
-  stop_watch_owner() {
-    stop_gh_child
-    exit 143
-  }
-  trap stop_watch_owner HUP TERM INT
-  trap stop_gh_child EXIT
-
-  # One waiter, no poll loop: glaeda-gh shares one cheap poller per machine;
-  # without it, gh run watch checks once per five minutes. The timed read
-  # below bounds both.
-  set +e
-  if command -v glaeda-gh >/dev/null 2>&1; then
-    glaeda-gh wait run "$REPO/$run_id" --until "done" --timeout "$timeout_seconds" >/dev/null 2>&1 &
-  else
-    gh run watch --repo "$REPO" "$run_id" --interval 300 >/dev/null 2>&1 &
-  fi
-  gh_child_pid=$!
-  wait "$gh_child_pid"
-  gh_child_pid=""
-
-  run_state_file="$temp_dir/run-state"
-  : > "$run_state_file"
-  gh run view \
-    --repo "$REPO" \
-    "$run_id" \
-    --json status,conclusion \
-    --jq '[.status, .conclusion] | @tsv' > "$run_state_file" &
-  gh_child_pid=$!
-  wait "$gh_child_pid"
-  view_status=$?
-  gh_child_pid=""
-  set -e
-  run_status="unknown"
-  run_conclusion="unknown"
-  if [[ "$view_status" -eq 0 ]]; then
-    IFS=$'\t' read -r run_status run_conclusion < "$run_state_file" || true
-  fi
-  trap - HUP TERM INT EXIT
-  printf '%s\t%s\n' "$run_status" "$run_conclusion" >&3
-  exit 0
-) &
-watch_owner_pid=$!
-
-run_finished=false
-if IFS=$'\t' read -r -t "$timeout_seconds" run_status run_conclusion <&3; then
-  wait "$watch_owner_pid" || true
-  watch_owner_pid=""
-  [[ "$run_status" == "completed" ]] && run_finished=true
-fi
-# A deadline, or a waiter that ended (timeout, error) with the run still
-# active, cancels the hosted run so it does not keep the runners.
-if [[ "$run_finished" != true ]]; then
-  stop_owned_process watch_owner_pid
-
+# Bounded: gh run cancel gets 10 seconds, then a warning names the run URL.
+cancel_hosted_run() {
   cancel_result_fifo="$temp_dir/run-cancel-result"
   mkfifo "$cancel_result_fifo"
   exec 4<> "$cancel_result_fifo"
@@ -293,13 +249,175 @@ if [[ "$run_finished" != true ]]; then
     fi
   fi
   exec 4>&-
-  echo "error: hosted verification did not complete (run ${run_status:-still running}) within the wait of ${timeout_seconds}s: $run_url" >&2
-  exit 1
+}
+# Ctrl-C is an explicit stop, so it also stops the hosted run. HUP and TERM
+# (a closed terminal, an agent harness that ends the command) do not: the run
+# is evidence that other callers wait for.
+interrupt_hosted_run() {
+  trap - HUP INT TERM
+  if [[ "$cancel_on_interrupt" == true ]]; then
+    cancel_on_interrupt=false
+    stop_owned_process watch_owner_pid
+    echo "Interrupted; cancelling the hosted run: $run_url" >&2
+    cancel_hosted_run
+  fi
+  exit 130
+}
+cancel_on_interrupt=true
+trap cleanup EXIT
+trap 'exit_on_signal 129' HUP
+trap interrupt_hosted_run INT
+trap 'exit_on_signal 143' TERM
+
+watch_result_fifo="$temp_dir/run-watch-result"
+mkfifo "$watch_result_fifo"
+
+# Keep both ends open so the timed read starts before the watcher publishes its
+# result. The watcher owns the GitHub CLI child and reaps it on every exit path.
+exec 3<> "$watch_result_fifo"
+(
+  gh_child_pid=""
+  stop_gh_child() {
+    if [[ -n "$gh_child_pid" ]]; then
+      kill -KILL "$gh_child_pid" 2>/dev/null || true
+      wait "$gh_child_pid" 2>/dev/null || true
+      gh_child_pid=""
+    fi
+  }
+  stop_watch_owner() {
+    stop_gh_child
+    exit 143
+  }
+  trap stop_watch_owner HUP TERM INT
+  trap stop_gh_child EXIT
+  # Runs one child as the owned process, so a signal reaps it; sets child_status.
+  run_child() {
+    "$@" &
+    gh_child_pid=$!
+    wait "$gh_child_pid"
+    child_status=$?
+    gh_child_pid=""
+  }
+
+  # One waiter per round, no tight loop: glaeda-gh shares one cheap poller per
+  # machine; without it, gh run watch checks once per five minutes. A waiter
+  # can return before the run is done: glaeda-gh rules on each attempt, and
+  # ci-owned-pool-rescue cancels a run whose macOS jobs wait for a busy owned
+  # pool and re-runs it on Blacksmith (run 42503576472, 2026-11-08: attempt 1
+  # cancelled at 17:14:26Z, attempt 2 queued at 17:14:34Z). So a round that
+  # ends with the run not done, or cancelled by someone else, waits again
+  # until the deadline. This script never cancels the run here.
+  set +e
+  deadline=$((SECONDS + timeout_seconds))
+  waiter_log="$temp_dir/waiter.log"
+  run_state_file="$temp_dir/run-state"
+  use_glaeda=false
+  command -v glaeda-gh >/dev/null 2>&1 && use_glaeda=true
+  cancelled_since=""
+  run_status="unknown"
+  run_conclusion="unknown"
+  while true; do
+    remaining=$((deadline - SECONDS))
+    [[ "$remaining" -gt 0 ]] || break
+    round_start=$SECONDS
+    if [[ "$use_glaeda" == true ]]; then
+      run_child glaeda-gh wait run "$REPO/$run_id" --until "done" --timeout "$remaining" > "$waiter_log" 2>&1
+      waiter="glaeda-gh wait run"
+    else
+      run_child gh run watch --repo "$REPO" "$run_id" --interval 300 > "$waiter_log" 2>&1
+      waiter="gh run watch"
+    fi
+    waiter_status=$child_status
+    waited=$((SECONDS - round_start))
+
+    : > "$run_state_file"
+    run_child gh run view --repo "$REPO" "$run_id" --json status,conclusion,attempt \
+      --jq '"\(.status)|\(.conclusion)|\(.attempt)"' > "$run_state_file"
+    run_status="unknown"
+    run_conclusion="unknown"
+    run_attempt="?"
+    if [[ "$child_status" -eq 0 ]]; then
+      # "|", not a tab: IFS whitespace would merge the empty conclusion of a
+      # queued run into one separator.
+      IFS='|' read -r run_status run_conclusion run_attempt < "$run_state_file" || true
+    fi
+
+    if [[ "$run_status" == "completed" && "$run_conclusion" != "cancelled" ]]; then
+      break
+    fi
+    if [[ "$run_status" == "completed" ]]; then
+      # Cancelled by someone else. ci-owned-pool-rescue re-runs within a minute
+      # or two; after this window the cancellation is the result.
+      if [[ -z "$cancelled_since" ]]; then
+        cancelled_since=$SECONDS
+        echo "note: attempt $run_attempt of the run was cancelled outside this script; waiting up to ${rescue_window_seconds}s for a re-run (CI rescue)" >&2
+      fi
+      if (( SECONDS - cancelled_since >= rescue_window_seconds )); then
+        break
+      fi
+    else
+      cancelled_since=""
+      if (( SECONDS < deadline )); then
+        echo "warning: $waiter exited $waiter_status after ${waited}s with the run ${run_status} (attempt $run_attempt); waiting again, the run is not cancelled" >&2
+        if [[ -s "$waiter_log" ]]; then
+          tail -n 5 "$waiter_log" | sed 's/^/  waiter: /' >&2
+        fi
+      fi
+    fi
+    # glaeda-gh exits 3 when its daemon is down and 64 on a usage error; it
+    # would fail the same way again, so the next rounds use gh run watch.
+    if [[ "$use_glaeda" == true && ( "$waiter_status" -eq 3 || "$waiter_status" -eq 64 ) ]]; then
+      echo "warning: glaeda-gh cannot wait here; using gh run watch (one check per 5 minutes) instead" >&2
+      use_glaeda=false
+    fi
+    # At most one round per round_seconds (30), so a waiter that keeps
+    # returning at once (a cancelled attempt, a failed read) does not spin on
+    # the API.
+    pause=$((round_seconds - (SECONDS - round_start)))
+    remaining=$((deadline - SECONDS))
+    (( pause > remaining )) && pause=$remaining
+    if (( pause > 0 )); then
+      run_child sleep "$pause"
+    fi
+  done
+  set -e
+  trap - HUP TERM INT EXIT
+  printf '%s\t%s\n' "$run_status" "$run_conclusion" >&3
+  exit 0
+) &
+watch_owner_pid=$!
+
+run_finished=false
+# The watcher publishes at its own deadline; this read is the backstop.
+if IFS=$'\t' read -r -t "$((timeout_seconds + 60))" run_status run_conclusion <&3; then
+  wait "$watch_owner_pid" || true
+  watch_owner_pid=""
+  [[ "$run_status" == "completed" ]] && run_finished=true
 fi
+# The deadline came with the run not done. The macOS queue can be longer than
+# the wait, so by default the run keeps going and the caller waits on it; it is
+# not cancelled.
+if [[ "$run_finished" != true ]]; then
+  cancel_on_interrupt=false
+  stop_owned_process watch_owner_pid
+  if [[ "$cancel_on_timeout" == true ]]; then
+    cancel_hosted_run
+    echo "error: hosted verification did not complete (run ${run_status:-still running}) within the wait of ${timeout_seconds}s; cancelled: $run_url" >&2
+    exit 1
+  fi
+  echo "Hosted verification is still running (run ${run_status:-still running}) after the wait of ${timeout_seconds}s: $run_url" >&2
+  echo "still running, wait with glaeda-gh wait run $REPO/$run_id" >&2
+  echo "Do not run this script again for this commit: that starts a second run. When it is done: gh run view --repo $REPO $run_id --log-failed, or gh run download --repo $REPO $run_id" >&2
+  exit 3
+fi
+cancel_on_interrupt=false
 exec 3>&-
 
 if [[ "$run_conclusion" != "success" ]]; then
   echo "Hosted verification failed: $run_url" >&2
+  if [[ "$run_conclusion" == "cancelled" ]]; then
+    echo "The run was cancelled outside this script and was not re-run within ${rescue_window_seconds}s." >&2
+  fi
   gh run view --repo "$REPO" "$run_id" --log-failed || true
   exit 1
 fi

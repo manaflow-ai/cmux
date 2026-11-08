@@ -40,8 +40,8 @@ case "$*" in
     IFS=';' read -ra states <<< "$FAKE_STATES"
     (( n >= ${#states[@]} )) && n=$((${#states[@]} - 1))
     state="${states[$n]}"
-    # Answer the way the --jq the script passed would: tab or "|" separated.
-    if [[ "$*" == *'|'* ]]; then printf '%s\n' "$state"; else printf '%s\n' "$state" | tr '|' '\t'; fi ;;
+    # Answer the way the --jq the script passed would: @tsv is tab separated.
+    if [[ "$*" == *'@tsv'* ]]; then printf '%s\n' "$state" | tr '|' '\t'; else printf '%s\n' "$state"; fi ;;
   "run cancel"*) exit 0 ;;
   "run watch"*) exit 0 ;;
   "run download"*) exit 9 ;;
