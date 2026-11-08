@@ -83,6 +83,10 @@ export function PromptText({
   // Its body, pastes and all; an inline prompt says (`huge`).
   const huge = hugeTyped ?? hasHugeTypedPart(parts);
   const long = huge || (measured?.parts === parts ? measured.long : guess);
+  const collapsed = long && !open;
+  // A huge prompt draws literally, and collapsed only its head: the clamp hides the rest anyway,
+  // and laying out megabytes of hidden text froze the chat (promptCollapse.ts HUGE_PROMPT_CHARS).
+  const head = huge && collapsed;
   const body = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const node = body.current;
@@ -100,6 +104,12 @@ export function PromptText({
       // No layout (a test DOM) keeps the guess.
       if (!height || !Number.isFinite(lineHeight)) return;
       const next = height > COLLAPSED_PROMPT_LINES * lineHeight + 1;
+      // Folded, a huge typed part or a long paste draws only its head, and a head can read short
+      // (a run of zero-width characters, a label) where the whole is long. So a measure of a head
+      // only confirms the fold, never lifts it: lifting it would draw the whole, measure long, fold
+      // to the head again, and loop until React's update limit. Only the whole text, drawn open or
+      // unfolded, can measure short. One rule for typed and pasted parts.
+      if (!next && (head || node.querySelector("[data-prompt-head]"))) return;
       // Confirming the guess changes no UI. Keep that mount to one commit; a width or content
       // change that disagrees still updates the fold synchronously before paint.
       setMeasured((last) => ((last?.parts === parts ? last.long : guess) === next ? last : { parts, long: next }));
@@ -110,11 +120,7 @@ export function PromptText({
     // The bubble: a text drawn whole has no box to observe.
     observer.observe(node.parentElement ?? node);
     return () => observer.disconnect();
-  }, [parts, guess, long, open, children]);
-  const collapsed = long && !open;
-  // A huge prompt draws literally, and collapsed only its head: the clamp hides the rest anyway,
-  // and laying out megabytes of hidden text froze the chat (promptCollapse.ts HUGE_PROMPT_CHARS).
-  const head = huge && collapsed;
+  }, [parts, guess, long, open, children, head]);
   const shownParts = useMemo(
     () =>
       head ? headParts(parts, HUGE_PROMPT_HEAD_CHARS, (part) => (part.kind === "text" ? part.text : undefined)) : parts,
@@ -340,7 +346,8 @@ export function PastedText({ text, collapsed, file }: { text: string; collapsed:
   }, [text, t, file]);
   const shown = collapsed ? promptHead(text, HUGE_PROMPT_HEAD_CHARS) : text;
   return (
-    <span className="cv-user__pasted" dir="auto">
+    // A cut head: the fold's measure of it may only confirm the fold (PromptText).
+    <span className="cv-user__pasted" dir="auto" data-prompt-head={shown === text ? undefined : ""}>
       {from && (
         <span className="cv-user__pasted-from" data-find-skip="">
           <Bot size={12} />

@@ -148,6 +148,69 @@ await requireBrowserLane("sent-bubble-final-size.test.ts", async () => {
     }
   });
 
+  // A paste whose folded head (its first HUGE_PROMPT_HEAD_CHARS) is one line but whose whole text
+  // is past the fold: the fold measured the head, unfolded, measured the whole, folded again, and so
+  // on until React's maximum update depth (cross-model review of #37675).
+  test("short-head-paste: a paste whose head is one line folds once and stays folded", async () => {
+    const page = await browser!.newPage({ viewport: { width: 760, height: 1200 } });
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(String(error)));
+    page.on("console", (message) => {
+      if (message.type() === "error") errors.push(message.text());
+    });
+    await page.addInitScript(() => {
+      // Every time the prompt's text box gains or loses its clamp.
+      const flips = { count: 0 };
+      (window as unknown as { clampFlips: typeof flips }).clampFlips = flips;
+      new MutationObserver((records) => {
+        for (const record of records) {
+          const node = record.target as HTMLElement;
+          if (!node.classList?.contains("cv-user__text")) continue;
+          if (node.classList.contains("is-clamped") !== /\bis-clamped\b/.test(record.oldValue ?? "")) flips.count += 1;
+        }
+      }).observe(document, { subtree: true, attributes: true, attributeFilter: ["class"], attributeOldValue: true });
+    });
+    try {
+      for (;;) {
+        await page.goto(stageURL("short-head-paste"));
+        try {
+          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+            timeout: 120_000,
+          });
+          break;
+        } catch (error) {
+          if (!/context was destroyed|navigat/i.test(String(error))) throw error;
+        }
+      }
+      // A fold that loops until React gives up unmounts the stage: say so before anything else.
+      const drawn = await page
+        .waitForSelector("[data-sent-settled] .cv-user__text", { timeout: 20_000 })
+        .then(() => true)
+        .catch(() => false);
+      expect(errors.filter((error) => /Maximum update depth/i.test(error))).toEqual([]);
+      expect(drawn).toBe(true);
+      const read = () =>
+        page.evaluate(() => {
+          const text = document.querySelector<HTMLElement>("[data-sent-prompt] .cv-user__text")!;
+          return {
+            clamped: text.classList.contains("is-clamped"),
+            more: document.querySelector<HTMLElement>("[data-sent-prompt] .cv-user__more")?.textContent ?? null,
+            flips: (window as unknown as { clampFlips: { count: number } }).clampFlips.count,
+          };
+        });
+      const first = await read();
+      // Twenty frames more: a fold that oscillates flips its clamp on each.
+      for (let frame = 0; frame < 20; frame++) await page.evaluate(() => new Promise(requestAnimationFrame));
+      const last = await read();
+      expect(errors.filter((error) => /Maximum update depth/i.test(error))).toEqual([]);
+      expect(last).toEqual({ clamped: true, more: "Show more", flips: first.flips });
+      // At most one clamp change from mount (a guess the measure corrects).
+      expect(last.flips).toBeLessThanOrEqual(1);
+    } finally {
+      await page.close();
+    }
+  });
+
   test("long-text: 15 lines draw whole; 40 open on their first 20 over Show more", async () => {
     const page = await open("long-text");
     try {

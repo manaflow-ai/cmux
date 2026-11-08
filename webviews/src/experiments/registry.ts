@@ -32,10 +32,13 @@ import { threadMinimapWave } from "../agent-session/acpmux/threadMinimap/wave.ex
 import { threadMinimapIncoming } from "../agent-session/acpmux/threadMinimap/incoming.experiment";
 import { threadMinimapCard } from "../agent-session/acpmux/threadMinimap/card.experiment";
 import { chatMinimapPlaceholder } from "../agent-session/acpmux/chatMinimap/placeholder.experiment";
+import { codeActionsLook } from "../agent-session/acpmux/conversation/codeActions.experiment";
 import { startedSessionCards } from "../agent-session/acpmux/started/startedSessions.experiment";
 import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.experiment";
 import { claudeTurnFold } from "../agent-session/acpmux/conversation/claudeTurnFold.experiment";
+import { commandLabelLook } from "../agent-session/acpmux/conversation/commandLabel.experiment";
 import { turnFoldReplies } from "../agent-session/acpmux/conversation/turnFoldReplies.experiment";
+import { turnFoldSteered } from "../agent-session/acpmux/conversation/turnFoldSteered.experiment";
 import { workedForMessages } from "../agent-session/acpmux/conversation/workedForMessages.experiment";
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
 import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
@@ -84,7 +87,9 @@ export const EXPERIMENTS: readonly Experiment[] = [
   fileKindIcon,
   finishedTaskLook,
   claudeTurnFold,
+  commandLabelLook,
   turnFoldReplies,
+  turnFoldSteered,
   workedForMessages,
   threadMinimapLayout,
   threadMinimapHeight,
@@ -98,6 +103,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   threadMinimapIncoming,
   threadMinimapCard,
   chatMinimapPlaceholder,
+  codeActionsLook,
   turnErrorCard,
   pausedMachineResume,
   codeRouterOffer,

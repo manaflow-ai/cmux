@@ -1,10 +1,10 @@
-import React, { type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { usePaneLanguage } from "./i18n";
 import { FileDoc, Folder } from "./conversation/icons";
 import type { AttachmentSource } from "./attachments";
 import { SourceBadge } from "./composer/SourceBadge";
 import { useSourceLabel, withSourceLabel } from "./composer/sourceBadgeModel";
-import { attachmentPath, fileSizeLabel } from "./fileAttachmentInfo";
+import { fileSizeLabel } from "./fileAttachmentModel";
 
 export type FileAttachmentInfo = {
   name: string;
@@ -14,8 +14,6 @@ export type FileAttachmentInfo = {
   /** The app it came from: its icon rides the file glyph's top-right corner (composer/SourceBadge.tsx). */
   source?: AttachmentSource;
 };
-
-export { attachmentPath, fileSizeLabel };
 
 /** The same quiet file body in a draft and a sent message. Images keep their own thumbnails. */
 export function FileAttachment({ file, remove }: { file: FileAttachmentInfo; remove?: ReactNode }) {

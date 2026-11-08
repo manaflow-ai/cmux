@@ -61,6 +61,11 @@ export const MARK_STATUS = 8;
 /// `.cv-worked.has-divider.is-toggle`) and no stack gap follows it inside the turn (Lucas,
 /// 2026-11-07, Codex parity). Toward the rows above it, it is a step row.
 export const MARK_WORKED = 9;
+/// An edited-files card (turnChanges/sessionRows.ts `isEditRow`): a bordered card, not a line. It
+/// stands the run gap from the one-line rows and the prose around it, the room it has under a reply,
+/// so under "Subagent finished" or a tool run it is never flush (Lucas, 2026-11-08). Toward a footer
+/// row, a prompt or the live line it is a step row.
+export const MARK_CARD = 10;
 
 type MarkedRow = {
   kind: string;
@@ -98,6 +103,11 @@ export function transcriptGap(previous: number, next: number): number {
   if (previous === MARK_WORKED && next !== MARK_PROMPT) return 0;
   if (previous === MARK_WORKED) previous = MARK_STEP;
   if (next === MARK_WORKED) next = MARK_STEP;
+  const near = (mark: number) =>
+    mark === MARK_STEP || mark === MARK_STATUS || mark === MARK_MESSAGE || mark === MARK_CARD;
+  if ((previous === MARK_CARD && near(next)) || (next === MARK_CARD && near(previous))) return TRANSCRIPT_RUN_GAP;
+  if (previous === MARK_CARD) previous = MARK_STEP;
+  if (next === MARK_CARD) next = MARK_STEP;
   // A reply's footer sits 8 under its last line (Claude's placement, ChatGPT's 5); 24 or a prompt's
   // turn gap follows it, by the rules below.
   if ((next === MARK_FOOTER_ROW || next === MARK_FOOTER_SLOT) && previous === MARK_MESSAGE)

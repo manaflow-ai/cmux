@@ -1,6 +1,7 @@
 import { Fragment, memo, useContext, useLayoutEffect, useMemo, type ReactNode } from "react";
 import type { PromptContentPart, PromptImage } from "../model";
-import { attachmentPath, FileAttachment } from "../FileAttachment";
+import { FileAttachment } from "../FileAttachment";
+import { attachmentPath } from "../fileAttachmentModel";
 import { PastedText, PromptText, PromptTyped } from "./PromptText";
 import { FindReveal, foldFind } from "./chatFind";
 import {
@@ -11,7 +12,6 @@ import {
   HUGE_PROMPT_HEAD_CHARS,
   hasHugeTypedPart,
   headParts,
-  isStripMedia,
 } from "./promptCollapse";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { experimentArm } from "../../../experiments/experiment";
@@ -174,14 +174,6 @@ function PromptTextFile({
     </>
   );
 }
-
-/** Whether a part the strip view keeps in the bubble gives it something to read: typed text with
- * more than space, a pasted block, a text file's body. */
-export function readsAsText(part: PromptContentPart): boolean {
-  return part.kind === "text" ? part.text.trim() !== "" : part.kind === "pasted" || Boolean(blockText(part));
-}
-
-export { isStripMedia };
 
 /** A body's text: what a collapsed huge prompt's head counts. */
 const typedText = (part: PromptContentPart) => (part.kind === "text" ? part.text : undefined);

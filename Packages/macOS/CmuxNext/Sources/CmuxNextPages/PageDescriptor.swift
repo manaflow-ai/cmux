@@ -55,12 +55,15 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// navigation such a frame starts, or that would replace its document, is cancelled
     /// (``PageNavigation``). Off by default: other pages' frames keep their navigation hook.
     public let passiveFrames: Bool
+    /// The page belongs to the Chief chat (Bring your history): Agent Chat Zoom scales it too
+    /// (``PageWebView/followsChatZoom``). Off by default: a page keeps `app.uiScale` alone.
+    public let followsChatZoom: Bool
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
                 actions: Set<String> = [], gestureActions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
                 confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html",
                 dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false, acceptsFirstMouse: Bool = false,
-                passiveFrames: Bool = false) {
+                passiveFrames: Bool = false, followsChatZoom: Bool = false) {
         self.id = id
         self.resource = resource
         self.namespaces = namespaces
@@ -78,6 +81,7 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.ownsSearchField = ownsSearchField
         self.acceptsFirstMouse = acceptsFirstMouse
         self.passiveFrames = passiveFrames
+        self.followsChatZoom = followsChatZoom
     }
 
     /// Whether the page may call `op` (or subscribe to the stream `op`).
@@ -253,6 +257,12 @@ public extension PageDescriptor {
     static let siteSettings = PageDescriptor(id: "cmux.site-settings", resource: "site-settings", namespaces: ["cmux.site-settings."])
     static let siteData = PageDescriptor(id: "cmux.site-data", resource: "site-data", namespaces: ["cmux.site-data."])
     static let certificate = PageDescriptor(id: "cmux.certificate", resource: "certificate", namespaces: ["cmux.certificate."])
+    /// The browser's Import Cookies card (webviews/src/pages/cookie-import, its owner CmuxNextBrowser's
+    /// BrowserCookieImportCard through BrowserChromeWebHost), inside the card's native glass on the
+    /// window's overlay. `cmux.cookie-import.state` brings the card's lines; the page sends the
+    /// person's answer and its size. It takes the first click: the card's window is never key.
+    static let cookieImport = PageDescriptor(id: "cmux.cookie-import", resource: "cookie-import", namespaces: ["cmux.cookie-import."],
+                                             acceptsFirstMouse: true)
 
     /// Where the nightly publishes each build's reel (`ReleaseMediaStore.reelBase`): the changelog
     /// page's `media-src`, a folder, so nothing else on that host plays.

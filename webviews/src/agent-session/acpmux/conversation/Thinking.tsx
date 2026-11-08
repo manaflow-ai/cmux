@@ -26,7 +26,7 @@ import { ShimmerText } from "./ShimmerText";
 import { formatDuration, spanDuration } from "./turns";
 import { WAITING_LABEL, type WaitingOn, WaitingOnContext } from "./waitingOn";
 import { compactTokens, hasTokens, tokenDetail, TurnTokens } from "./TurnTokens";
-import { verbLeads } from "./ToolVerb";
+import { verbLeads } from "./toolVerbModel";
 import { useTicking, WorkingCountsContext, workingParts } from "./WorkingFor";
 import { statusVerbAt, statusVerbLabels, useStatusVerbConfig } from "../statusVerbs";
 import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";
@@ -112,10 +112,11 @@ function useRoll(key: string | undefined, label: string, lead: Roll["lead"]): Ro
   return roll;
 }
 
-/// The live line's words split as Claude Code draws them: the action in full ink ("Using repo",
-/// "Running", "Sending"), the rest muted (": repo grep", " bun test"). An MCP call's action runs to
-/// its server's colon (`call`: the line names a call, not a command or a send); any other line's is
-/// its first word. Undefined when the line is one word, or in a language whose verb does not lead.
+/// The live line's words split as Claude Code words them: the action ("Using repo", "Running",
+/// "Sending"), then the rest (": repo grep", " bun test"), both in the line's one muted tone
+/// (conversation.css `.cv-worked__lead`; Leo, 2026-11-07: "don't make it white"). An MCP call's
+/// action runs to its server's colon (`call`: the line names a call, not a command or a send); any
+/// other line's is its first word. Undefined when the line is one word, or in a language whose verb does not lead.
 export function liveLead(label: string, leads: boolean, call: boolean): { lead: string; rest: string } | undefined {
   if (!leads) return undefined;
   const server = call ? /^(\p{L}+ [^\s:]+)(: \S[\s\S]*)$/u.exec(label) : null;

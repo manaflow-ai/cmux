@@ -1,7 +1,7 @@
 // The parts a recorded prompt's bubble draws in their order (UserBubble.tsx), read without React,
 // so Find (chatFind.ts) and the row's height estimate (model.ts) read exactly what the bubble draws.
 import type { AcpmuxRow, PromptContentPart } from "../model";
-import { attachmentPath } from "../fileAttachmentInfo";
+import { isImageOriginal } from "./userBubbleModel";
 import { withoutVideoFrames } from "../composer/videoPrompt";
 import { inlineBubbleParts, isStripMedia } from "./promptCollapse";
 import type { AttachmentView } from "../composerSettings";
@@ -12,11 +12,6 @@ export function imageOriginals(row: Pick<AcpmuxRow, "retryAttachments">): Readon
   return new Set(
     row.retryAttachments?.flatMap((file) => (file.kind === "image" && file.originalPath ? [file.originalPath] : [])),
   );
-}
-
-/// A file part that is an image's retained original: drawn as the image, never again as a file.
-export function isImageOriginal(part: PromptContentPart, originals: ReadonlySet<string>): boolean {
-  return part.kind === "file" && (part.companionOf !== undefined || originals.has(attachmentPath(part.uri) ?? ""));
 }
 
 /// The parts a recorded prompt's bubble draws in their order in the pane's attachment view

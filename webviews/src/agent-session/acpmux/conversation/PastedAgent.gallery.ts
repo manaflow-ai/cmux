@@ -36,6 +36,7 @@ const typedHandoff = () =>
     summary(8.5, { seq: 3, status: "completed" }),
   ]);
 
+// A paste draws as the bubble's own text, a handoff with its "Pasted from" line over it.
 const drawn = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-user__bubble, .cv-user__status"));
 };

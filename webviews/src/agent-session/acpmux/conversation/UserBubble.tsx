@@ -25,7 +25,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { PresentationContext } from "./PresentationContext";
+import { PresentationContext } from "./presentationContextModel";
 import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
@@ -36,26 +36,19 @@ import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { sendMorphRef } from "./sendMorph";
 import { PromptText } from "./PromptText";
-import { InlinePromptContent, isStripMedia, PromptFile, readsAsText } from "./InlinePromptContent";
+import { InlinePromptContent, PromptFile } from "./InlinePromptContent";
+import { readsAsText } from "./inlinePromptContentModel";
 import { recordedPromptParts } from "../inlinePrompt";
-import { inlineBubbleParts } from "./promptCollapse";
-import { imageOriginals, isImageOriginal } from "./bubbleParts";
-import { SENT_IMAGE_HEIGHT, sentImageSize, sentImageWidth } from "./sentImageSize";
+import { inlineBubbleParts, isStripMedia } from "./promptCollapse";
+import { imageOriginals } from "./bubbleParts";
 import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
 import { useComposerSettings } from "../composerSettings";
-import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
+import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
+
 import { SourceBadge } from "../composer/SourceBadge";
 import { useSourceLabel, withSourceLabel } from "../composer/sourceBadgeModel";
-import {
-  ForkButton,
-  forkWithFeedback,
-  MessageCopy,
-  MessageFooterRow,
-  MessageTime,
-  PinButton,
-  PromptRetry,
-  ROW_ICON,
-} from "./MessageActions";
+import { ForkButton, MessageCopy, MessageFooterRow, MessageTime, PinButton, PromptRetry } from "./MessageActions";
+import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { RetryTargetContext, TurnActionsContext, type QueuedActions } from "./turnActions";
 import { NO_RETRY_TARGET, retryPlacement } from "./turns";
 import { useTranscriptReadOnly } from "./readOnly";
@@ -63,20 +56,7 @@ import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalo
 import { SkillWordsContext } from "./skillWords";
 import { SentVideoTile } from "./SentVideoTile";
 import { sentVideoOf, sentVideosOf, type SentVideo } from "./sentVideos";
-
-/// The files a recorded prompt sent (its `inlineParts`: documents, audio, resource links), drawn
-/// as a sent prompt draws them; a file that is an image's companion, a video, or an image's
-/// original path is drawn by that image instead.
-export function recordedFiles(
-  parts: AcpmuxRow["inlineParts"],
-  originals: ReadonlySet<string> = new Set(),
-): FileAttachmentInfo[] | undefined {
-  return parts?.flatMap((part): FileAttachmentInfo[] =>
-    part.kind === "file" && !isImageOriginal(part, originals) && !part.mimeType?.startsWith("video/")
-      ? [{ ...part, path: attachmentPath(part.uri) }]
-      : [],
-  );
-}
+import { recordedFiles, isImageOriginal, SENT_IMAGE_HEIGHT, sentImageWidth, sentImageSize } from "./userBubbleModel";
 
 /// A waiting steer replaces the hover actions with queue controls until delivery is accepted.
 export function UserBubble({
@@ -136,8 +116,10 @@ export function UserBubble({
   const files = (
     recorded?.length
       ? recorded
-      : row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
-          file.kind === "link" && !file.mimeType.startsWith("video/")
+      : // A video that went with its frames is its tile; one sent without them (`withoutFrames`:
+        // an agent that takes no images, a prompt past its budget) is the file chip its echo draws.
+        row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
+          file.kind === "link" && !(file.mimeType.startsWith("video/") && file.video?.frames.length)
             ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }]
             : [],
         )

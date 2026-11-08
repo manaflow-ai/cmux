@@ -182,8 +182,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-2d7a228cbd4e454d173e300a7fb90bc51a32514f/CCmuxAppFFI.xcframework.zip",
-    checksum: "9e8bcbba41bda423441d16f34c0241468cdcdf64f35656acc485004a9146cd79"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-f1ebca568c5dd8c1337f5ab80e9728919c63a202/CCmuxAppFFI.xcframework.zip",
+    checksum: "e865c3bb71cc1ffc6596ad34b9b9281f2370911c1294905d5d4194bbbc1159ed"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -720,6 +720,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextIcons",
+                "CmuxNextPages",
+                "CmuxNextSettings",
                 "CmuxNextWakeups",
             ],
             resources: [
@@ -810,6 +812,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDictation",
                 "CmuxNextHomeModel",
                 "CmuxNextIcons",
+                "CmuxNextPages",
+                "CmuxNextSettings",
                 "CmuxNextWakeups",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
@@ -857,8 +861,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
                 "CmuxNextHomeModel",
+                "CmuxNextPages",
+                "CmuxNextSettings",
                 "CmuxNextTestSupport",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -2010,6 +2017,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             resources: [
                 .process("AccountsActions.xcstrings"),
                 .process("ActionCatalog.xcstrings"),
+                .process("AgentChatMenu.xcstrings"),
                 .process("AgentConfigurationActions.xcstrings"),
                 .process("AppStoreActions.xcstrings"),
                 .process("BookmarkActions.xcstrings"),
@@ -2173,7 +2181,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             resources: [
                 .process("Localizable.xcstrings"),
-                .process("Resources"),
             ],
             swiftSettings: uiSwiftSettings
         ),

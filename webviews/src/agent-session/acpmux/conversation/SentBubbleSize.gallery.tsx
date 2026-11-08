@@ -76,13 +76,13 @@ function attachmentsOf(prompt: Prompt, key: number): ComposerAttachment[] {
       size: file.size,
       path: `/Users/leo/Projects/uploader/${file.name}`,
     })),
-    ...(prompt.video ? [videoChip(prompt.video, key)] : []),
+    ...(prompt.video ? [videoChip(key, prompt.video)] : []),
   ];
 }
 
-/// A screen recording's chip as it went with its first frame: a chip whose frames were left off
-/// (`withoutFrames`) sent only its link and draws as its file chip (sentVideos.ts).
-function videoChip(video: NonNullable<Prompt["video"]>, key: number): ComposerAttachment {
+/// The composer's chip for a video that went with its frames: the one frame the echo names (its
+/// poster's bytes). A video sent without frames is a file chip, not a tile (sentVideos.ts).
+function videoChip(key: number, video: Shot & { name: string; durationMs: number }): ComposerAttachment {
   const poster = paint(video, "image/jpeg");
   return {
     id: `composer-${key}-video`,
@@ -315,6 +315,11 @@ export default componentEntry<Props>({
           },
         ],
       },
+    },
+    "short-head-paste": {
+      note: "A paste whose first 4,000 characters are one line (zero-width spaces) and whose rest is 50 lines: it folds once under Show more and stays folded.",
+      height: 640,
+      props: { prompts: [{ text: "Can you look at this?", paste: "x" + "\u200b".repeat(4000) + "\nline".repeat(50) }] },
     },
     "long-text": {
       note: "A 15-line prompt draws whole; a 40-line one opens on its first lines, fading out, over Show more.",

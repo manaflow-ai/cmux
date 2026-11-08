@@ -158,7 +158,16 @@ public final class DesignSettings {
     /// `layout.stripScrollbar`: the column strip's scrollbar.
     public var stripScrollbar: StripScrollbarMode = .system
     /// `sidebar.*`: section look and pinned band caps.
-    public var sidebarSections = SidebarSectionsPreferences.defaults
+    public var sidebarSections = SidebarSectionsPreferences.defaults {
+        didSet {
+            // The Wallpaper group palette needs the desktop picture's color (`DesktopWallpaperWatch.samplesForGroups`).
+            let wallpaper = sidebarSections.groupPalette == .wallpaper
+            if wallpaper != (oldValue.groupPalette == .wallpaper) { BackdropImageStore.shared.desktop.samplesForGroups = wallpaper }
+        }
+    }
+    /// The desktop picture's color while the Wallpaper group palette is chosen; nil under any other palette or until
+    /// the first sample lands. Observed, so the sidebar's groups repaint when the picture changes.
+    public var groupWallpaperTint: WallpaperTint?
     /// `sidebar.hoverCards.enabled`: off, no hover card opens on hover (sidebar rows, tabs, and a
     /// user's custom card). A change posts `hoverCardsDidChange` so a shown card goes at once.
     public var hoverCardsEnabled = true {

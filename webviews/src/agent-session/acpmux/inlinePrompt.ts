@@ -13,7 +13,7 @@ import { translate } from "./i18n";
 import type { AcpmuxRow, PromptContentPart } from "./model";
 import { parseVideoInfo } from "./composer/videoAttachments";
 import { frameTextOf, isFramesNote, isVideoFrameName, rowImageNames, videoFromFrames } from "./composer/videoPrompt";
-import { withSentShapes } from "./conversation/imageEntries";
+import { knownImageSize, matchSentImages } from "./conversation/imageEntries";
 /// `placed`: the composer put the prompt's attachments in its text (`inlinePrompt`), so this part
 /// sits in the composer's order; acpmux keeps it (hub/prompt_images.rs) and the sent bubble draws
 /// only such a prompt in its recorded order (conversation/UserBubble.tsx). A prompt sent in the
@@ -160,6 +160,12 @@ export function recordedPromptParts(msg: any, known?: readonly PromptContentPart
     const normalized = normalizePromptContentPart(part);
     return normalized ? [normalized] : [];
   });
+  // Each echoed image's own part in the pane's row, by its identity (imageEntries.ts
+  // matchSentImages): never by position, since the echo adds a video's note and frames.
+  const knownImages = (known ?? []).filter(isImagePart);
+  const echoedImages = parts.filter(isImagePart);
+  const imageMatches = knownImages.length ? matchSentImages(echoedImages, knownImages) : [];
+  let imageAt = 0;
   return parts.map((part, index) => {
     const old = known?.[index];
     // This pane placed the prompt it sent; an acpmux from before the marker records none.
@@ -178,14 +184,19 @@ export function recordedPromptParts(msg: any, known?: readonly PromptContentPart
           : {}),
       };
     }
-    if (part.kind !== "image" || old?.kind !== "image") return part;
-    // The pane's own bytes and their size, so the echo draws the image at the shape it landed with
-    // (conversation/imageEntries.ts withSentShapes).
-    const [shaped] = withSentShapes([part], [old]);
+    if (part.kind !== "image") return part;
+    // The pane's own bytes and their size, so the echo draws the image at the shape it landed with;
+    // only for the part that is surely this image, else it is read by its id.
+    const match = imageMatches[imageAt++];
+    const own = match?.sent === undefined ? undefined : knownImages[match.sent];
+    const size = match && !(part.width && part.height) ? knownImageSize(match.src) : undefined;
+    const shaped = match ? { ...part, src: match.src, ...(size && { width: size.width, height: size.height }) } : part;
+    const ids = own?.kind === "image" ? own : old?.kind === "image" ? old : undefined;
+    if (!ids) return shaped;
     return {
-      ...shaped!,
-      attachmentId: old.attachmentId,
-      ...(part.blockIndex === undefined && old.blockIndex !== undefined ? { blockIndex: old.blockIndex } : {}),
+      ...shaped,
+      attachmentId: ids.attachmentId,
+      ...(part.blockIndex === undefined && ids.blockIndex !== undefined ? { blockIndex: ids.blockIndex } : {}),
     };
   });
 }
@@ -419,4 +430,7 @@ export function stripFileDisplay(
         ]
       : [];
   });
+}
+function isImagePart(part: PromptContentPart): part is Extract<PromptContentPart, { kind: "image" }> {
+  return part.kind === "image";
 }

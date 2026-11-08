@@ -278,6 +278,99 @@ describe("the preview's rows", () => {
     expect(rows).toHaveLength(60);
     expect(rows.at(-1)!.title).toBe("Change number 60 keeps working");
   });
+
+  // A pull request's changelog sentence restates its title: "Show in Mini points the floating mini
+  // at any chat, …" over "Show in Mini points the floating mini at any agent chat (…)". Each line is
+  // cut to one line in the preview, so the row read "Show in Mini points the fl…" twice. A row whose
+  // second line opens with the title's words shows the title alone; a different line stays.
+  test("never show a second line that repeats the title", () => {
+    const span = [
+      {
+        build: "1",
+        shortVersion: "1.0.0-nightly.1",
+        date: "2026-11-07",
+        highlights: [],
+        changes: [],
+        items: [
+          {
+            title:
+              "cmux NEXT: Show in Mini points the floating mini at any chat, and its reply box keeps typing to it (#37728)",
+            pr: 37728,
+            description:
+              "Show in Mini points the floating mini at any agent chat (chat menu and palette); the mini wears that chat's avatar and state.",
+          },
+          {
+            title: "fix(terminal): paste keeps its spaces (#6)",
+            pr: 6,
+            description: "Paste keeps its spaces.",
+          },
+          {
+            title: "feat(sidebar): groups take a palette color (#7)",
+            pr: 7,
+            description: "A new group picks its color from the theme instead of a random pastel.",
+          },
+        ],
+      },
+    ] as unknown as ReleaseNotes[];
+    const rows = previewEntries(data, span, "en");
+    expect(rows.map((row) => [row.title, row.detail])).toEqual([
+      ["Show in Mini points the floating mini at any chat, and its reply box keeps typing to it", undefined],
+      ["Paste keeps its spaces", undefined],
+      ["Groups take a palette color", "A new group picks its color from the theme instead of a random pastel."],
+    ]);
+  });
+
+  test("drop a host item's second line that repeats its title", () => {
+    const host: UpdateHighlights = {
+      ...data,
+      items: [
+        {
+          id: "mini",
+          title: "Show in Mini points the floating mini at any chat",
+          summary: "Show in Mini points the floating mini at any agent chat from the chat menu.",
+          category: "new",
+        },
+      ],
+      rest: [],
+    };
+    expect(previewEntries(host, undefined, "en").map((row) => row.detail)).toEqual([undefined]);
+  });
+
+  // A leading article on either line is not a new word: "The host pressure warning…" over "Host
+  // pressure warning…" repeats, as the notes' own comparison (model.ts echoKey) reads it.
+  test("a leading the, a or an does not hide a repeat", () => {
+    const span = [
+      {
+        build: "1",
+        shortVersion: "1.0.0-nightly.1",
+        date: "2026-11-07",
+        highlights: [],
+        changes: [],
+        items: [
+          {
+            title: "fix(sidebar): the host pressure warning names the busy machine (#8)",
+            pr: 8,
+            description: "Host pressure warning names the busy machine and its load.",
+          },
+          {
+            title: "feat(agent): chat folder opens in Finder (#9)",
+            pr: 9,
+            description: "A chat folder opens in Finder from the chat menu.",
+          },
+          {
+            title: "fix(sidebar): the sidebar keeps its width (#10)",
+            pr: 10,
+            description: "Dragging the edge past the window keeps the last width.",
+          },
+        ],
+      },
+    ] as unknown as ReleaseNotes[];
+    expect(previewEntries(data, span, "en").map((row) => row.detail)).toEqual([
+      undefined,
+      undefined,
+      "Dragging the edge past the window keeps the last width.",
+    ]);
+  });
 });
 
 describe("the card", () => {
@@ -454,6 +547,56 @@ describe("the card", () => {
   // after the close (240 ms), so the native host shrank and moved the held card's view mid-drag.
   // Review F4 of #37790: the card with the theme's doodle decoration had no press listener, rest box or
   // anchor, so it could not be dragged.
+  // Review of #38020 at 2b1e9834: the press listener was attached to the card's node once, so a live
+  // theme switch between the plain card and the doodle one replaced the node and the new card did not drag.
+  test("a card that switches to the doodle decoration while shown still drags", async () => {
+    const moves: number[] = [];
+    const drag = {
+      place: () => ({ anchor: "bottom" as const, above: 400, below: 0 }),
+      move: (offset: { x: number; y: number }) => moves.push(offset.y),
+      drop: () => undefined,
+      dismiss: () => undefined,
+    };
+    const { host } = await render({ drag });
+    expect(host.querySelector(".wn-updated")).not.toBeNull();
+    // The theme switches live: the same card, now with the doodle decoration.
+    const { UpdatedCard } = await import("../src/pages/changelog/UpdateSurfaces");
+    const { createStrings } = await import("../src/pages/shared/i18n");
+    const table = (await import("../src/pages/changelog/generated/strings.json")).default;
+    await act(async () =>
+      root!.render(
+        <UpdatedCard
+          data={data}
+          strings={createStrings(table)}
+          actions={{ openChangelog: () => undefined, dismiss: () => undefined }}
+          closeButton={false}
+          decoration="doodle"
+          animate={false}
+          drag={drag}
+        />,
+      ),
+    );
+    const card = host.querySelector<HTMLElement>('.wn-card[data-decoration="doodle"]')!;
+    expect(card).not.toBeNull();
+    const pointer = (type: string, y: number, target: EventTarget) => {
+      const event = new dom.window.MouseEvent(type, {
+        bubbles: true,
+        button: 0,
+        buttons: type === "pointerup" ? 0 : 1,
+        clientX: 100,
+        clientY: y,
+        screenX: 100,
+        screenY: y,
+      });
+      Object.defineProperty(event, "pointerId", { value: 1 });
+      target.dispatchEvent(event);
+    };
+    await act(async () => pointer("pointerdown", 60, card.querySelector(".wn-card-note")!));
+    await act(async () => pointer("pointermove", 20, dom.window));
+    expect(moves).toEqual([-40]);
+    await act(async () => pointer("pointerup", 20, dom.window));
+  });
+
   test("the doodle-decorated card drags too, and says where it rests", async () => {
     const moves: number[] = [];
     const drag = {
