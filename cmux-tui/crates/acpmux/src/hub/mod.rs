@@ -1574,6 +1574,14 @@ impl Hub {
 
     pub(super) fn remove_live_session_index(&self, id: &str) {
         self.live_session_ids.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+        self.overlap_files.lock().unwrap_or_else(|e| e.into_inner()).retain(|_, owners| {
+            owners.remove(id);
+            !owners.is_empty()
+        });
+        self.overlap_pairs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|pair| !pair.split('\0').any(|member| member == id));
         // A purged session leaves the map; a replacement may take its id.
         self.chat_activity_cache.invalidate();
     }
