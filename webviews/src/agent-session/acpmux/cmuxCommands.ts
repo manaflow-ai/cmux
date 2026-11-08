@@ -314,8 +314,10 @@ export function cmuxCommandRefusal(
       if (args?.trim() && !resolveHarnessTarget(args, state.targets)) return "composer.cmuxContinueUnknown";
       return state.canContinue ? undefined : "composer.cmuxContinueBusy";
     case "loop":
-      if (state.harnessLoop) return undefined;
-      if (!state.session || state.newTab) return "composer.cmuxUnavailable";
+      // A harness's own `/loop`, and New Tab's (whose chat does not exist yet, so the prompt
+      // starts it and goes as typed, as before cmux had one): never refused here.
+      if (state.harnessLoop || state.newTab) return undefined;
+      if (!state.session) return "composer.cmuxUnavailable";
       return parseLoop(args) ? undefined : "composer.cmuxLoopUsage";
     case "btw":
       if (!state.sideSessions) return "composer.cmuxBtwDisabled";

@@ -364,9 +364,10 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/agent_pair_resume": .always,
         // Hand back delivers held messages, which runs turns.
         "_acpmux/agent_hold": .always,
-        // A schedule sends its prompt later, as the person's, so it starts only on their Enter or
-        // click; Pause and Cancel stop it: no gesture.
+        // A schedule sends its prompt later, as the person's, so it starts, and resumes, only on
+        // their Enter or click (`pause` carries both, as `paused`); Cancel stops it: no gesture.
         "_acpmux/schedule/set": .always,
+        "_acpmux/schedule/pause": .always,
         "_acpmux/app_reply": .always,
         // Approve sends a guest's held prompt to the agent; Decline drops it: no gesture.
         "_acpmux/queue_approve": .always,

@@ -367,7 +367,12 @@ impl Hub {
         let (hub, session) = (self.clone(), session.clone());
         tokio::spawn(async move {
             let blocks = vec![json!({"type": "text", "text": prompt})];
+            // Whether acpmux took the prompt (queued or started): an error after that is the
+            // turn's, and the agent may have acted on it, so the run is not given back.
+            let accepted = Arc::new(AtomicBool::new(false));
+            let took = accepted.clone();
             let opts = PromptOptions {
+                on_accepted: Some(Box::new(move |_| took.store(true, Ordering::SeqCst))),
                 prompt_id: Some(prompt_id),
                 provenance: Some(json!({"kind": "schedule", "scheduleId": id, "run": run})),
                 trust_gate,
@@ -380,6 +385,11 @@ impl Hub {
                     if last.get(&session.id) == Some(&id) {
                         last.remove(&session.id);
                     }
+                }
+                Err(e) if accepted.load(Ordering::SeqCst) => {
+                    locked(&hub.prompt_schedules.refused).remove(&session.id);
+                    tracing::warn!(session = %session.id, schedule = %id, run, error = %e.message,
+                        "scheduled prompt's turn failed");
                 }
                 Err(e) => {
                     tracing::warn!(session = %session.id, schedule = %id, run, error = %e.message,

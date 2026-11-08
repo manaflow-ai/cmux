@@ -8406,7 +8406,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (refusal) return t(refusal);
     if (command.action === "loop") {
       // A harness with a /loop of its own (Claude Code) takes it as typed, as before.
-      if (harnessListsLoop(snapshot.commands)) return CMUX_PASS_THROUGH;
+      // New Tab has no chat to schedule in yet: the prompt starts one and goes as typed.
+      if (fresh || harnessListsLoop(snapshot.commands)) return CMUX_PASS_THROUGH;
       const loop = parseLoop(args);
       if (!loop) return t("composer.cmuxLoopUsage");
       if (loop.kind === "set") return setSchedule(loop.request);

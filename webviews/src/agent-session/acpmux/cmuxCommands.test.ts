@@ -158,6 +158,8 @@ test("/loop is cmux's on a harness without one, and a harness's own /loop takes 
   expect(cmuxCommandRefusal(loop.command, "5m check CI", { ...state, session: false })).toBe(
     "composer.cmuxUnavailable",
   );
+  // New Tab's `/loop` starts its chat with the prompt as typed: never refused here.
+  expect(cmuxCommandRefusal(loop.command, "check CI", { ...state, session: false, newTab: true })).toBeUndefined();
   // Claude Code's self-paced `/loop check CI` is its own: never refused here.
   expect(cmuxCommandRefusal(loop.command, "check CI", { ...state, harnessLoop: true })).toBeUndefined();
   // Its menu entry stays the harness's when the pane leaves cmux's out.

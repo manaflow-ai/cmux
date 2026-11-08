@@ -62,6 +62,7 @@
     "_acpmux/agent_pair_resume": "always",
     "_acpmux/agent_hold": "always",
     "_acpmux/schedule/set": "always",
+    "_acpmux/schedule/pause": "always",
     "_acpmux/app_reply": "always",
     "_acpmux/agent_login/start": "always",
     "_acpmux/agent_login/api_key": "always"
