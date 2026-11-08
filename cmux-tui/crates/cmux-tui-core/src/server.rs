@@ -2774,6 +2774,8 @@ pub use listen::{
 };
 mod restoring;
 mod terminal_sessions;
+#[cfg(all(test, unix))]
+use listen::still_at_path;
 #[cfg(test)]
 use listen::{prepare_runtime_socket_directory, socket_start_lock_retry_delay};
 pub use restoring::RestoringServer;

@@ -1,6 +1,9 @@
 use serde_json::{Value, json};
 
-use super::{Found, Place, Scope, Target, lookup, replace, resolve, targets, valid_agent_name};
+use super::{
+    Found, Place, Scope, Target, args_with_words, lookup, replace, resolve, rewrite_words, targets,
+    valid_agent_name,
+};
 
 const ALPHA: &str = "term_a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
 const BETA: &str = "term_b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2";
@@ -95,11 +98,15 @@ fn w3h_a_name_selects_the_live_agent_first_then_live_then_exited_tabs() {
     assert_eq!(resolve(&snapshot, "nobody"), Found::Missing);
 }
 
+fn positional(scope: Scope, word: &str, index: usize) -> Target {
+    Target { scope, word: word.into(), flag: None, index, inline: false }
+}
+
 #[test]
 fn w3h_selector_words_and_flags_that_may_be_names_are_found_and_replaced() {
     let words = strings(&["terminal", "alpha", "send", "--text", "hi", "--wait", "idle"]);
     let found = targets(&words);
-    assert_eq!(found, vec![Target { scope: Scope::Terminal, word: "alpha".into(), flag: None }]);
+    assert_eq!(found, vec![positional(Scope::Terminal, "alpha", 1)]);
     // Ids, keywords, command words and the agent verbs are left alone.
     let skipped: [&[&str]; 8] = [
         &["terminal", ALPHA, "send"],
@@ -119,18 +126,30 @@ fn w3h_selector_words_and_flags_that_may_be_names_are_found_and_replaced() {
     assert_eq!(
         targets(&flags),
         vec![
-            Target { scope: Scope::Terminal, word: "alpha".into(), flag: Some("--terminal") },
-            Target { scope: Scope::Tab, word: "beta".into(), flag: Some("--tab") },
+            Target {
+                scope: Scope::Terminal,
+                word: "alpha".into(),
+                flag: Some("--terminal"),
+                index: 3,
+                inline: false,
+            },
+            Target {
+                scope: Scope::Tab,
+                word: "beta".into(),
+                flag: Some("--tab"),
+                index: 4,
+                inline: true,
+            },
         ]
     );
 
     let snapshot = snapshot();
-    let mut args = strings(&["--session", "s", "terminal", "alpha", "send", "--text", "alpha"]);
-    let found = targets(&args[2..]);
+    let mut words = strings(&["terminal", "alpha", "send", "--text", "alpha"]);
+    let found = targets(&words);
     let target = &found[0];
     let id = lookup(&snapshot, target).unwrap().unwrap();
-    assert!(replace(&mut args, target, &id));
-    assert_eq!(args, strings(&["--session", "s", "terminal", ALPHA, "send", "--text", "alpha"]));
+    replace(&mut words, target, &id);
+    assert_eq!(words, strings(&["terminal", ALPHA, "send", "--text", "alpha"]));
 
     let tab = strings(&["tab", "alpha", "focus"]);
     let found = targets(&tab);
@@ -140,17 +159,113 @@ fn w3h_selector_words_and_flags_that_may_be_names_are_found_and_replaced() {
     let found = targets(&flagged);
     let target = &found[0];
     let id = lookup(&snapshot, target).unwrap().unwrap();
-    assert!(replace(&mut flagged, target, &id));
+    replace(&mut flagged, target, &id);
     assert_eq!(flagged, strings(&["agent", "list", &format!("--terminal={BETA}")]));
     // A pane with the name keeps its own name; a missing name stays as it is.
-    let pane = Target { scope: Scope::Pane, word: "left".into(), flag: None };
+    let pane = positional(Scope::Pane, "left", 1);
     assert_eq!(lookup(&snapshot, &pane).unwrap(), None);
-    let terminal = Target { scope: Scope::Terminal, word: "left".into(), flag: None };
+    let terminal = positional(Scope::Terminal, "left", 1);
     assert_eq!(lookup(&snapshot, &terminal).unwrap().as_deref(), Some(SHELL));
-    let missing = Target { scope: Scope::Terminal, word: "nobody".into(), flag: None };
+    let missing = positional(Scope::Terminal, "nobody", 1);
     assert_eq!(lookup(&snapshot, &missing).unwrap(), None);
-    let ambiguous = Target { scope: Scope::Terminal, word: "dup".into(), flag: None };
+    let ambiguous = positional(Scope::Terminal, "dup", 1);
     let error = lookup(&snapshot, &ambiguous).unwrap_err();
     assert_eq!(error["code"], "selector.ambiguous");
     assert_eq!(error["details"]["candidates"], json!(["tab_dup1", "tab_dup2"]));
+}
+
+/// W3-H review: a word the daemon's own selector rules find (here: in the
+/// caller's current tab or pane) stays as it is, also when a tab elsewhere
+/// has that name or the name is shared (no new `selector.ambiguous`). The
+/// rules are asked only for a word that a name matches.
+#[test]
+fn w3h_a_selector_the_daemon_finds_is_never_rewritten() {
+    let snapshot = snapshot();
+    let words = strings(&["terminal", "alpha", "send", "--text", "hi"]);
+    let mut asked = Vec::new();
+    let mut finds = |target: &Target| {
+        asked.push(target.word.clone());
+        true
+    };
+    assert_eq!(rewrite_words(&words, &snapshot, &mut finds).unwrap(), None);
+    let shared = strings(&["tab", "dup", "focus"]);
+    assert_eq!(rewrite_words(&shared, &snapshot, &mut finds).unwrap(), None);
+    let unnamed = strings(&["tab", "nobody", "focus"]);
+    assert_eq!(rewrite_words(&unnamed, &snapshot, &mut finds).unwrap(), None);
+    assert_eq!(asked, ["alpha", "dup"]);
+
+    // Only a word the rules do not find becomes the named tab's id.
+    let mut not_found = |_: &Target| false;
+    assert_eq!(
+        rewrite_words(&words, &snapshot, &mut not_found).unwrap(),
+        Some(strings(&["terminal", ALPHA, "send", "--text", "hi"]))
+    );
+    let error = rewrite_words(&shared, &snapshot, &mut not_found).unwrap_err();
+    assert_eq!(error["code"], "selector.ambiguous");
+}
+
+/// W3-H review: a terminal title wins over a tab name, in the rewrite and in
+/// `terminal … send` (send.rs), as titles did before names existed.
+#[test]
+fn w3h_a_terminal_title_wins_over_a_tab_name() {
+    let mut snapshot = snapshot();
+    snapshot["terminals"][2]["title"] = json!("alpha");
+    let terminal = positional(Scope::Terminal, "alpha", 1);
+    assert_eq!(lookup(&snapshot, &terminal).unwrap(), None);
+    let found = super::send::find_terminal(&snapshot, "alpha").ok().map(|t| t["id"].clone());
+    assert_eq!(found, Some(json!(BETA)));
+    // Two terminals with the title stay ambiguous, as before.
+    snapshot["terminals"][3]["title"] = json!("alpha");
+    let error = super::send::find_terminal(&snapshot, "alpha").err().expect("ambiguous title");
+    assert!(format!("{error:?}").contains("selector.ambiguous"), "{error:?}");
+    // With no title, the name still selects its terminal.
+    let found =
+        super::send::find_terminal(&self::snapshot(), "alpha").ok().map(|t| t["id"].clone());
+    assert_eq!(found, Some(json!(ALPHA)));
+}
+
+/// W3-H review: a subcommand word of the parser (`group` in `tab group
+/// list`) is never a selector, and no agent can take it as a name.
+#[test]
+fn w3h_subcommand_words_are_not_rewritten_or_valid_names() {
+    for words in [&["tab", "group", "list"][..], &["workspace", "group", "list"][..]] {
+        assert!(targets(&strings(words)).is_empty(), "{words:?}");
+    }
+    assert!(valid_agent_name("group").is_err());
+}
+
+/// W3-H review: the scan reads flag values as the parser does: a flag that
+/// is not a boolean flag takes the next word, even one that starts with
+/// `--`, so `foo` below is a word, not the value of `--pane`.
+#[test]
+fn w3h_the_scan_skips_the_values_of_flags_that_take_one() {
+    let words = strings(&["terminal", "alpha", "send", "--text", "--pane", "foo"]);
+    assert_eq!(targets(&words), vec![positional(Scope::Terminal, "alpha", 1)]);
+    let flagged = strings(&["agent", "list", "--text", "--tab", "--terminal", "beta"]);
+    assert_eq!(
+        targets(&flagged),
+        vec![Target {
+            scope: Scope::Terminal,
+            word: "beta".into(),
+            flag: Some("--terminal"),
+            index: 5,
+            inline: false,
+        }]
+    );
+    // A boolean flag takes no value: the word after it is still read.
+    let boolean = strings(&["agent", "list", "--details", "--tab", "beta"]);
+    assert_eq!(targets(&boolean).len(), 1);
+}
+
+/// The changed words go back into the full arguments at the place the
+/// global options leave them, never into a global option's value.
+#[test]
+fn w3h_rewritten_words_never_change_a_global_option_value() {
+    let args = strings(&["--session", "alpha", "terminal", "alpha", "send", "--text", "alpha"]);
+    let words = strings(&["terminal", "alpha", "send", "--text", "alpha"]);
+    let rewritten = strings(&["terminal", ALPHA, "send", "--text", "alpha"]);
+    assert_eq!(
+        args_with_words(&args, &words, &rewritten),
+        Some(strings(&["--session", "alpha", "terminal", ALPHA, "send", "--text", "alpha"]))
+    );
 }

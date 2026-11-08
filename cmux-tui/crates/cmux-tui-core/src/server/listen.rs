@@ -251,17 +251,32 @@ fn socket_start_lock_timeout() -> std::io::Error {
 
 impl SocketStartLock {
     pub fn acquire(socket: &Path, deadline: Instant) -> std::io::Result<Self> {
-        let path = socket_start_lock_path(socket);
+        Self::acquire_with(&socket_start_lock_path(socket), deadline, &mut || {}, &still_at_path)
+    }
+
+    /// [`Self::acquire`] on the lock file `path`. `before_lock` runs after each open and
+    /// check of the path and before the lock; `at_path` tells whether a locked file is still
+    /// the one at the path. Tests use both to make an unlink race happen at a known step.
+    pub(super) fn acquire_with(
+        path: &Path,
+        deadline: Instant,
+        before_lock: &mut dyn FnMut(),
+        at_path: &dyn Fn(&std::fs::File, &Path) -> bool,
+    ) -> std::io::Result<Self> {
+        let mut reopens = 0_u32;
         loop {
-            let file = Self::open_lock_file(&path)?;
-            Self::lock(&file, deadline)?;
-            if still_at_path(&file, &path) {
-                return Ok(Self { _file: file });
+            // `None`: unlinked between the open and the checks; open the path again.
+            if let Some(file) = Self::checked_lock_file(Self::open_lock_file(path)?)? {
+                before_lock();
+                Self::lock(&file, deadline)?;
+                if at_path(&file, path) {
+                    return Ok(Self { _file: file });
+                }
+                // Unlinked or replaced while this start waited: drop that file (and its
+                // lock), then lock the file at the path.
             }
-            // Unlinked or replaced while this start waited: lock the file at the path.
-            if Instant::now() >= deadline {
-                return Err(socket_start_lock_timeout());
-            }
+            reopens += 1;
+            reopen_pause(reopens, deadline)?;
         }
     }
 
@@ -285,7 +300,13 @@ impl SocketStartLock {
             use std::os::unix::fs::OpenOptionsExt as _;
             options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK).mode(0o600);
         }
-        let file = options.open(path)?;
+        options.open(path)
+    }
+
+    /// Checks an opened lock file: a private regular file of this user with one link.
+    /// `Ok(None)` when it has no link: [`remove_socket_start_lock`] unlinked it after the
+    /// open, so the caller opens the path again.
+    pub(super) fn checked_lock_file(file: std::fs::File) -> std::io::Result<Option<std::fs::File>> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
@@ -295,6 +316,9 @@ impl SocketStartLock {
                     std::io::ErrorKind::PermissionDenied,
                     "session-server start lock is not a regular file",
                 ));
+            }
+            if metadata.nlink() == 0 {
+                return Ok(None);
             }
             if metadata.nlink() != 1 {
                 return Err(std::io::Error::new(
@@ -319,7 +343,7 @@ impl SocketStartLock {
                 ));
             }
         }
-        Ok(file)
+        Ok(Some(file))
     }
 
     fn lock(file: &std::fs::File, deadline: Instant) -> std::io::Result<()> {
@@ -340,6 +364,20 @@ impl SocketStartLock {
     }
 }
 
+/// The pause before the `reopens`-th open of a replaced lock file. One unlink is the
+/// normal case, so the first reopen is at once; later ones wait the retry interval, so a
+/// path that keeps changing (or a file system whose fstat and lstat disagree) cannot spin
+/// until `deadline`. A timeout error when `deadline` passed.
+fn reopen_pause(reopens: u32, deadline: Instant) -> std::io::Result<()> {
+    if reopens <= 1 {
+        return if Instant::now() >= deadline { Err(socket_start_lock_timeout()) } else { Ok(()) };
+    }
+    let delay = socket_start_lock_retry_delay(Instant::now(), deadline)
+        .ok_or_else(socket_start_lock_timeout)?;
+    std::thread::sleep(delay);
+    Ok(())
+}
+
 /// The start lock file of `socket`: `<socket>.spawn-lock` beside it.
 pub fn socket_start_lock_path(socket: &Path) -> std::path::PathBuf {
     let mut name = socket.file_name().unwrap_or_default().to_os_string();
@@ -349,7 +387,7 @@ pub fn socket_start_lock_path(socket: &Path) -> std::path::PathBuf {
 
 /// Whether `file` is still the file at `path` (same device and inode).
 #[cfg(unix)]
-fn still_at_path(file: &std::fs::File, path: &Path) -> bool {
+pub(super) fn still_at_path(file: &std::fs::File, path: &Path) -> bool {
     use std::os::unix::fs::MetadataExt as _;
     match (file.metadata(), std::fs::symlink_metadata(path)) {
         (Ok(open), Ok(linked)) => open.dev() == linked.dev() && open.ino() == linked.ino(),
@@ -359,7 +397,7 @@ fn still_at_path(file: &std::fs::File, path: &Path) -> bool {
 
 /// Windows cannot unlink an open file, so the open lock file is the one at the path.
 #[cfg(not(unix))]
-fn still_at_path(_file: &std::fs::File, _path: &Path) -> bool {
+pub(super) fn still_at_path(_file: &std::fs::File, _path: &Path) -> bool {
     true
 }
 
@@ -367,7 +405,8 @@ fn still_at_path(_file: &std::fs::File, _path: &Path) -> bool {
 /// stopped session leaves no `.spawn-lock` behind. It takes the lock first (waiting at most
 /// until `deadline` for a starter that holds it) and unlinks the file while it holds it; a
 /// starter that waits on the unlinked file opens the path again ([`SocketStartLock`]).
-/// `Ok(false)` when there was no lock file. Call it only after the owner of `socket` exited.
+/// `Ok(false)` when there was no lock file. A running owner does not hold the lock (only a
+/// bind does), so call it once the owner of `socket` closed its socket.
 /// Windows cannot unlink an open file, so the lock file stays there (`Ok(false)`).
 #[cfg(unix)]
 pub fn remove_socket_start_lock(socket: &Path, deadline: Instant) -> std::io::Result<bool> {

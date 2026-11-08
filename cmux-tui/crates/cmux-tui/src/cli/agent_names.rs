@@ -7,8 +7,9 @@
 //! other tab name that is unique in the session works the same way.
 //!
 //! Before the CLI parses a command, [`rewrite_args`] looks a selector word
-//! that is not an id, `current`/`caller`/`focused` or a command word up in
-//! one `session.snapshot` and puts the matching id in its place:
+//! that is not an id, `current`/`caller`/`focused` or a command word (also a
+//! subcommand word of the parser, like `group` in `tab group list`) up in
+//! one `session.snapshot`:
 //!
 //! 1. a tab with that name whose terminal runs and has an agent;
 //! 2. else a tab with that name whose terminal runs;
@@ -16,15 +17,19 @@
 //!    `--on-exit keep`, so `terminal alpha resume` finds it).
 //!
 //! The first step with exactly one tab wins; two or more there is
-//! `selector.ambiguous` with the tab ids. No match leaves the word to the
-//! daemon's own name rules (terminal titles, names under a parent), so a
-//! command that worked before works the same. A pane selector is not
-//! rewritten when a pane has that name itself.
+//! `selector.ambiguous` with the tab ids. A name only fills a gap: when a
+//! name matches, the daemon's own selector rules (the current scope,
+//! terminal titles, names under a parent) are asked first, and a word they
+//! find stays as it is. So a selector that resolved before resolves to the
+//! same object. A terminal title and a pane's own name also win over a tab
+//! name.
 
 use std::collections::HashMap;
 
+use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Value, json};
 
+use super::command::WireOperation;
 use super::terminal_talk::send;
 
 /// Agent name grammar: a lowercase letter, then up to 31 lowercase letters,
@@ -74,6 +79,9 @@ pub(in crate::cli) fn valid_agent_name(name: &str) -> Result<(), String> {
     if KEYWORDS.contains(&name)
         || matches!(name, "start" | "resume")
         || cmux_tui_core::resource::is_reserved_selector_token(name)
+        || [Scope::Terminal, Scope::Tab, Scope::Pane]
+            .into_iter()
+            .any(|scope| is_subcommand(scope, name))
     {
         return Err(format!("{name:?} is a cmux command word; choose another agent name"));
     }
@@ -194,6 +202,24 @@ impl Scope {
         })
     }
 
+    /// The scope word of the CLI grammar.
+    fn word(self) -> &'static str {
+        match self {
+            Self::Terminal => "terminal",
+            Self::Tab => "tab",
+            Self::Pane => "pane",
+        }
+    }
+
+    /// The get operation of the scope.
+    fn get(self) -> ResourceOperation {
+        match self {
+            Self::Terminal => ResourceOperation::TerminalGet,
+            Self::Tab => ResourceOperation::TabGet,
+            Self::Pane => ResourceOperation::PaneGet,
+        }
+    }
+
     fn id(self, place: &Place) -> &str {
         match self {
             Self::Terminal => &place.terminal,
@@ -211,6 +237,10 @@ pub(in crate::cli) struct Target {
     pub word: String,
     /// `Some("--tab")` for a flag value, `None` for the positional selector.
     pub flag: Option<&'static str>,
+    /// Where the word is in the command words.
+    pub index: usize,
+    /// The value is in the flag's own word (`--tab=alpha`).
+    pub inline: bool,
 }
 
 /// The word as a name to look up; `None` for an id, an id prefix, a
@@ -230,91 +260,118 @@ fn candidate(word: &str) -> Option<&str> {
     Some(word)
 }
 
+/// Whether the parser reads `word` after `scope` as a subcommand word
+/// (`tab group list`), not as a selector: it does not read
+/// `<scope> <word> show` as a get of `word`. A word with `_` is never a
+/// subcommand word (the parser's words use `-`).
+fn is_subcommand(scope: Scope, word: &str) -> bool {
+    if word.contains('_') {
+        return false;
+    }
+    let words = [scope.word().to_owned(), word.to_owned(), "show".to_owned()];
+    !matches!(
+        super::command::parse(&words, super::Surface::current()),
+        Ok(super::command::CommandPlan::Protocol(plan))
+            if matches!(&plan.operation, WireOperation::Typed(operation) if *operation == scope.get())
+    )
+}
+
 /// The scopes whose `--terminal`, `--tab` and `--pane` flags name a place.
 const FLAG_SCOPES: &[&str] = &["terminal", "tab", "pane", "agent", "notification"];
 
 /// The selector words of `words` (the command after the global options)
-/// that may be names.
+/// that may be names. The words are read as the parser reads them: every
+/// flag that is not a boolean flag takes the next word as its value, and
+/// nothing after `--` is read.
 pub(in crate::cli) fn targets(words: &[String]) -> Vec<Target> {
     let Some(first) = words.first() else { return Vec::new() };
     let scope = super::canonical_scope(first);
     if scope == "agent" && words.get(1).is_some_and(|verb| verb == "start" || verb == "resume") {
         return Vec::new();
     }
+    let mut positional: Vec<(usize, String)> = Vec::new();
+    let mut flagged = Vec::new();
+    let mut index = 0;
+    while index < words.len() && words[index] != "--" {
+        let word = &words[index];
+        let Some(flag) = word.strip_prefix("--") else {
+            positional.push((index, word.clone()));
+            index += 1;
+            continue;
+        };
+        let (name, inline) = match flag.split_once('=') {
+            Some((name, value)) => (name, Some(value)),
+            None => (flag, None),
+        };
+        if super::command::is_boolean_flag(name) {
+            index += 1;
+            continue;
+        }
+        let (value_index, value) = match inline {
+            Some(value) => (index, value.to_owned()),
+            None => match words.get(index + 1) {
+                Some(value) => (index + 1, value.clone()),
+                None => break,
+            },
+        };
+        let named = match name {
+            "terminal" => Some(("--terminal", Scope::Terminal)),
+            "tab" => Some(("--tab", Scope::Tab)),
+            "pane" => Some(("--pane", Scope::Pane)),
+            _ => None,
+        };
+        if let Some((flag, scope)) = named
+            && candidate(&value).is_some()
+        {
+            let inline = inline.is_some();
+            flagged.push(Target {
+                scope,
+                word: value,
+                flag: Some(flag),
+                index: value_index,
+                inline,
+            });
+        }
+        index = value_index + 1;
+    }
     let mut found = Vec::new();
-    // The words before the first flag, read as the parser reads them: a
-    // shorthand (`tab new terminal`, `tab rename`) names no selector.
-    let mut head: Vec<String> =
-        words.iter().take_while(|word| !word.starts_with('-')).cloned().collect();
+    // A shorthand (`tab new terminal`, `tab rename`) names no selector.
+    let mut head: Vec<String> = positional.iter().map(|(_, word)| word.clone()).collect();
     let given = head.get(1).cloned();
     super::shorthand::normalize_words(&mut head);
-    if let (Some(scope), Some(word), Some(_verb)) = (Scope::of(first), head.get(1), head.get(2))
+    if let (Some(scope), Some(word), Some(_verb), Some((index, _))) =
+        (Scope::of(first), head.get(1), head.get(2), positional.get(1))
         && given.as_ref() == Some(word)
         && !(scope == Scope::Tab && word == "new")
         && candidate(word).is_some()
+        && !is_subcommand(scope, word)
     {
-        found.push(Target { scope, word: word.clone(), flag: None });
+        found.push(Target { scope, word: word.clone(), flag: None, index: *index, inline: false });
     }
-    if !FLAG_SCOPES.contains(&scope) {
-        return found;
-    }
-    let mut rest = words.iter().skip(1).take_while(|word| word.as_str() != "--");
-    while let Some(word) = rest.next() {
-        let (name, inline) = match word.split_once('=') {
-            Some((name, value)) => (name, Some(value.to_owned())),
-            None => (word.as_str(), None),
-        };
-        let (flag, scope) = match name {
-            "--terminal" => ("--terminal", Scope::Terminal),
-            "--tab" => ("--tab", Scope::Tab),
-            "--pane" => ("--pane", Scope::Pane),
-            _ => continue,
-        };
-        let Some(value) = inline.or_else(|| rest.next().cloned()) else { break };
-        if candidate(&value).is_some() {
-            found.push(Target { scope, word: value, flag: Some(flag) });
-        }
+    if FLAG_SCOPES.contains(&scope) {
+        found.extend(flagged);
     }
     found
 }
 
-/// Puts `id` in place of `target`'s word in the full `args`; false when the
-/// word is not found there.
-pub(in crate::cli) fn replace(args: &mut [String], target: &Target, id: &str) -> bool {
-    let end = args.iter().position(|word| word == "--").unwrap_or(args.len());
-    match target.flag {
-        None => {
-            let scope = args[..end].iter().position(|word| Scope::of(word).is_some());
-            let Some(scope) = scope else { return false };
-            let Some(offset) = args[scope + 1..end].iter().position(|word| *word == target.word)
-            else {
-                return false;
-            };
-            args[scope + 1 + offset] = id.to_owned();
-            true
-        }
-        Some(flag) => {
-            for index in 0..end {
-                if args[index] == flag && args.get(index + 1) == Some(&target.word) {
-                    args[index + 1] = id.to_owned();
-                    return true;
-                }
-                if args[index] == format!("{flag}={}", target.word) {
-                    args[index] = format!("{flag}={id}");
-                    return true;
-                }
-            }
-            false
-        }
-    }
+/// Puts `id` in place of `target`'s word in the command `words`.
+pub(in crate::cli) fn replace(words: &mut [String], target: &Target, id: &str) {
+    let Some(word) = words.get_mut(target.index) else { return };
+    *word = match target.flag {
+        Some(flag) if target.inline => format!("{flag}={id}"),
+        _ => id.to_owned(),
+    };
 }
 
-/// The id each target selects in `snapshot`: `Ok(None)` for a word that
-/// stays as it is, `Err` with the error for an ambiguous name.
+/// The id `target` selects in `snapshot` by name: `Ok(None)` for a word that
+/// stays as it is, `Err` with the error for an ambiguous name. A terminal
+/// title wins over a tab name, as in `terminal … send` (send.rs), and a pane
+/// with the name keeps it.
 pub(in crate::cli) fn lookup(snapshot: &Value, target: &Target) -> Result<Option<String>, Value> {
     let Some(name) = candidate(&target.word) else { return Ok(None) };
-    if target.scope == Scope::Pane
-        && list(snapshot, "panes").iter().any(|pane| pane["name"] == name)
+    let named = |key: &str, field: &str| list(snapshot, key).iter().any(|item| item[field] == name);
+    if (target.scope == Scope::Pane && named("panes", "name"))
+        || (target.scope == Scope::Terminal && named("terminals", "title"))
     {
         return Ok(None);
     }
@@ -334,30 +391,110 @@ pub(in crate::cli) fn lookup(snapshot: &Value, target: &Target) -> Result<Option
     }
 }
 
+/// The command `words` with each name replaced by its id; `Ok(None)` when
+/// nothing changes. `found_by_selector_rules` tells whether the daemon's own
+/// selector rules (the current scope, terminal titles, names under a parent)
+/// already find a target's word: such a word stays, so a selector that
+/// resolved before resolves to the same object. It is asked only for a word
+/// that a name matches.
+pub(in crate::cli) fn rewrite_words(
+    words: &[String],
+    snapshot: &Value,
+    found_by_selector_rules: &mut dyn FnMut(&Target) -> bool,
+) -> Result<Option<Vec<String>>, Value> {
+    let mut rewritten = words.to_vec();
+    let mut changed = false;
+    for target in targets(words) {
+        let named = lookup(snapshot, &target);
+        if matches!(named, Ok(None)) || found_by_selector_rules(&target) {
+            continue;
+        }
+        let id = named?.expect("a name that stays was skipped above");
+        replace(&mut rewritten, &target, &id);
+        changed = true;
+    }
+    Ok(changed.then_some(rewritten))
+}
+
+/// Whether the daemon resolves `target`'s word with its own selector rules
+/// (as `<scope> <word> show` from this caller). Only `selector.not_found`
+/// counts as "not found": any other answer, or no answer, keeps the word.
+fn daemon_finds(global: &super::GlobalArgs, target: &Target) -> bool {
+    use super::resolve::{self, Failure, SocketRoute};
+    let words = [target.scope.word().to_owned(), target.word.clone(), "show".to_owned()];
+    let Ok(super::command::CommandPlan::Protocol(plan)) =
+        super::command::parse(&words, super::Surface::current())
+    else {
+        return true;
+    };
+    let mut plan = *plan;
+    if resolve::apply_global_route(global, &mut plan).is_err() {
+        return true;
+    }
+    let Ok((socket, derived)) = super::wire::resolve_socket_with_origin(global) else {
+        return true;
+    };
+    let Ok(stream) = cmux_tui_core::server::connect_session_socket(&socket, derived) else {
+        return true;
+    };
+    let _ = stream.set_read_timeout(Some(PROBE_TIMEOUT));
+    let mut reader = std::io::BufReader::new(stream);
+    let route = SocketRoute::new(&socket, derived, global);
+    let caller_route = super::wire::routes_to_caller_session(global);
+    let found = resolve::apply(&mut reader, &mut plan, caller_route, &route).and_then(|()| {
+        let params = plan.params.as_object().cloned().unwrap_or_default();
+        resolve::read(&mut reader, target.scope.get(), params)
+    });
+    !matches!(found, Err(Failure::Resource(error)) if error["code"] == "selector.not_found")
+}
+
+/// How long the selector probe waits for the daemon.
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// `args` with each agent or unique tab name replaced by its id;
 /// `Ok(None)` when nothing changed (or the session could not be read),
 /// `Err(exit code)` after printing an ambiguous-name error.
 pub(in crate::cli) fn rewrite_args(args: &[String]) -> Result<Option<Vec<String>>, i32> {
     let Ok((global, words)) = super::parse_globals(args) else { return Ok(None) };
-    if global.all_sessions || super::has_help_option(&words) {
-        return Ok(None);
-    }
-    let targets = targets(&words);
-    if targets.is_empty() {
+    if global.all_sessions || super::has_help_option(&words) || targets(&words).is_empty() {
         return Ok(None);
     }
     let backend = super::mcp::cli_backend(global.clone());
     let Ok(snapshot) = send::snapshot(&backend, None) else { return Ok(None) };
-    let mut rewritten = args.to_vec();
-    let mut changed = false;
-    for target in &targets {
-        match lookup(&snapshot, target) {
-            Ok(Some(id)) => changed |= replace(&mut rewritten, target, &id),
-            Ok(None) => {}
-            Err(error) => return Err(super::wire::print_local_error(&error, global.output, 1)),
+    let mut probe = |target: &Target| daemon_finds(&global, target);
+    let rewritten = match rewrite_words(&words, &snapshot, &mut probe) {
+        Ok(Some(rewritten)) => rewritten,
+        Ok(None) => return Ok(None),
+        Err(error) => return Err(super::wire::print_local_error(&error, global.output, 1)),
+    };
+    Ok(args_with_words(args, &words, &rewritten))
+}
+
+/// `args` with its command words changed from `words` to `rewritten` (the
+/// same length): each changed word is put at the position of `args` where
+/// the global options then still give `rewritten`. `None` when no position
+/// does, so a global option's value is never changed.
+pub(in crate::cli) fn args_with_words(
+    args: &[String],
+    words: &[String],
+    rewritten: &[String],
+) -> Option<Vec<String>> {
+    let mut result = args.to_vec();
+    for (index, (old, new)) in words.iter().zip(rewritten).enumerate() {
+        if old == new {
+            continue;
         }
+        let mut expected = words.to_vec();
+        expected[..=index].clone_from_slice(&rewritten[..=index]);
+        let end = result.iter().position(|word| word == "--").unwrap_or(result.len());
+        let position = (0..end).filter(|&at| result[at] == *old).find(|&at| {
+            let mut tried = result.clone();
+            tried[at] = new.clone();
+            super::parse_globals(&tried).is_ok_and(|(_, words)| words == expected)
+        })?;
+        result[position] = new.clone();
     }
-    Ok(changed.then_some(rewritten))
+    Some(result)
 }
 
 #[cfg(test)]

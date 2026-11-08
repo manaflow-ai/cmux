@@ -27,3 +27,26 @@ fn w3h_stop_removes_a_left_start_lock() {
     let again = lifecycle_cli(&["--json", "server", "stop", "--socket", socket.to_str().unwrap()]);
     assert_eq!(json_output(&again)["removed"], serde_json::json!([]));
 }
+
+/// W3-H review: a stop of a running owner returns at once and removes the
+/// start lock, also when the stopped owner stays a zombie (its parent, here
+/// the test, has not reaped it yet). `kill(pid, 0)` succeeds for a zombie, so
+/// a pid wait made such a stop 5 s slower and removed nothing.
+#[test]
+fn w3h_stop_of_an_unreaped_owner_is_fast_and_removes_the_start_lock() {
+    let server = HeadlessServer::start("w3h-stop-zombie");
+    let socket = server.socket.to_str().unwrap().to_owned();
+    let lock = format!("{socket}.spawn-lock");
+    assert!(std::path::Path::new(&lock).exists(), "the owner made no start lock");
+    // Terminal hosts outlive a stop; close them first, as the fixture's drop does.
+    server.close_all_resources().unwrap();
+    let started = Instant::now();
+    let stopped = lifecycle_cli(&["--json", "server", "stop", "--socket", &socket]);
+    let elapsed = started.elapsed();
+    assert_success(&stopped);
+    let result = json_output(&stopped);
+    assert_eq!(result["status"], "stopped");
+    assert_eq!(result["removed"], serde_json::json!([lock.clone()]));
+    assert!(!std::path::Path::new(&lock).exists(), "the start lock is left behind");
+    assert!(elapsed < Duration::from_secs(3), "stop took {elapsed:?}");
+}

@@ -232,8 +232,9 @@ pub(in crate::cli) fn snapshot<B: Daemon + ?Sized>(
 }
 
 /// The terminal record `target` names: a `term_` id or unique prefix, a
-/// `tab_` id it shows in, `current` (the caller's terminal), an agent name
-/// or unique tab name (agent_names.rs), or an exact title.
+/// `tab_` id it shows in, `current` (the caller's terminal), an exact title,
+/// or (when no title matches) an agent name or unique tab name
+/// (agent_names.rs).
 pub(in crate::cli) fn find_terminal<'a>(
     snapshot: &'a Value,
     target: &str,
@@ -252,14 +253,6 @@ pub(in crate::cli) fn find_terminal<'a>(
     if let Some(found) = exact {
         return Ok(found);
     }
-    // An agent name (or a unique tab name) before the terminal titles.
-    if !target.starts_with("term_")
-        && let super::super::agent_names::Found::One(place) =
-            super::super::agent_names::resolve(snapshot, target)
-        && let Some(found) = terminals.iter().find(|terminal| terminal["id"] == place.terminal)
-    {
-        return Ok(found);
-    }
     let matches: Vec<&Value> = if target.starts_with("term_") {
         terminals
             .iter()
@@ -268,6 +261,16 @@ pub(in crate::cli) fn find_terminal<'a>(
     } else {
         terminals.iter().filter(|terminal| terminal["title"] == target).collect()
     };
+    // An agent name (or a unique tab name) only where no title matches, so a
+    // title that selected a terminal before still selects it.
+    if matches.is_empty()
+        && !target.starts_with("term_")
+        && let super::super::agent_names::Found::One(place) =
+            super::super::agent_names::resolve(snapshot, target)
+        && let Some(found) = terminals.iter().find(|terminal| terminal["id"] == place.terminal)
+    {
+        return Ok(found);
+    }
     match matches.as_slice() {
         [one] => Ok(one),
         [] => Err(SendFailure::local(

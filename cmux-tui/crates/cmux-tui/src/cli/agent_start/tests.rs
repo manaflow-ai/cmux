@@ -75,6 +75,30 @@ fn w3h_the_folder_trust_dialog_is_blocked_with_a_reason_never_ready() {
     assert_eq!(readiness::startup_dialog(COMPOSER), None);
 }
 
+/// W3-H review: dialog phrases count only at the bottom of the screen, where
+/// a dialog takes the input box's place. An agent that runs and printed
+/// "update now" or "press enter to continue" is not blocked.
+#[test]
+fn w3h_dialog_words_in_agent_output_do_not_block_a_running_agent() {
+    let above_the_input_box = format!(
+        " ⏺ The tool says: Update now? Press Enter to continue. Yes, I accept.\n{COMPOSER}"
+    );
+    assert_eq!(readiness::startup_dialog(&above_the_input_box), None);
+    let look = Look { screen: &above_the_input_box, exited: false, hook_state: None };
+    assert_eq!(readiness::assess(&look), Readiness::Ready);
+    // Far above the bottom rows, while the agent works (no input box drawn).
+    let mut scrolled = String::from(" ⏺ Run `brew upgrade` or choose Update now in the app.\n");
+    for line in 0..30 {
+        scrolled.push_str(&format!(" output line {line}\n"));
+    }
+    scrolled.push_str(" ✻ Working… (esc to interrupt)\n");
+    assert_eq!(readiness::startup_dialog(&scrolled), None);
+    // The same words as the dialog at the bottom are a dialog.
+    let update =
+        format!("{scrolled}\n Update available\n ❯ 1. Update now\n   2. Skip until next version");
+    assert_eq!(readiness::startup_dialog(&update).map(|dialog| dialog.id), Some("update_prompt"));
+}
+
 #[test]
 fn w3h_readiness_reads_the_input_box_the_hooks_and_the_exit() {
     let look = |screen, hook_state, exited| Look { screen, exited, hook_state };

@@ -503,7 +503,11 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 }
                 return ensure_after_stop(Some(actual_session.to_owned()), Some((pid, launch)));
             }
-            let removed = remove_stopped_owner_files(pid, &socket);
+            // A running owner never holds the start lock (only a bind does),
+            // and the owner already closed its socket: remove the lock now.
+            // No pid wait: a parent that has not reaped the owner keeps a
+            // zombie, and kill(pid, 0) succeeds for a zombie.
+            let removed = remove_start_lock(&socket);
             print_success(
                 json!({
                     "status":"stopped",
@@ -1193,20 +1197,11 @@ fn wait_for_exit(pid: u32, deadline: Instant) -> Result<(), String> {
     Ok(())
 }
 
-/// After a stop (not a restart): once the owner `pid` exited, removes what
-/// only a running owner needs, the socket's start lock (`<socket>.spawn-lock`,
-/// cmux-tui-core `remove_socket_start_lock`). The session's saved state stays
-/// (`cmux session <name> reset-state` removes it). Returns the removed paths;
-/// an owner that does not exit within 5 s, or a start that holds the lock,
-/// leaves the file and removes nothing.
-fn remove_stopped_owner_files(pid: u32, socket: &std::path::Path) -> Vec<String> {
-    if wait_for_exit(pid, Instant::now() + Duration::from_secs(5)).is_err() {
-        return Vec::new();
-    }
-    remove_start_lock(socket)
-}
-
-/// Removes `socket`'s start lock file; the removed path, or none.
+/// After a stop (not a restart), removes what only a running owner needs:
+/// the socket's start lock (`<socket>.spawn-lock`, cmux-tui-core
+/// `remove_socket_start_lock`). The session's saved state stays
+/// (`cmux session <name> reset-state` removes it). Returns the removed path,
+/// or none when there is no lock file or a start holds it for 500 ms.
 fn remove_start_lock(socket: &std::path::Path) -> Vec<String> {
     let lock = cmux_tui_core::server::socket_start_lock_path(socket);
     let deadline = Instant::now() + Duration::from_millis(500);

@@ -337,9 +337,11 @@ running owner keeps the listener it was started with. The owner serves the page
 bundle from `CMUX_TUI_PAGES_DIR`, else `<binary dir>/../share/cmux-tui/pages`.
 `daemon stop` first reads the process identity, then sends the existing PID and
 generation-fenced graceful shutdown operation. An absent server is success,
-and stopping never deletes the durable topology. Once the owner has exited
-(it waits up to 5 s), stop removes the socket's `<socket>.spawn-lock` start
-lock, which it takes first so it never unlinks a lock a starting owner holds,
+and stopping never deletes the durable topology. Once the owner has closed
+its socket, stop removes the socket's `<socket>.spawn-lock` start lock (a
+running owner does not hold it; no wait for the process, which can stay a
+zombie of its parent), which it takes first so it never unlinks a lock a
+starting owner holds,
 and reports the removed paths as `removed` (`[]` when there was none; an
 absent server also removes a stale lock). Durable state (`writer.lock`, the
 registry) stays; `session <name> reset-state` deletes it. `session <name>|current stop`
@@ -485,9 +487,16 @@ parses the command, the CLI reads one `session.snapshot` and puts the id in
 place of the name: a tab with that name whose terminal runs an agent, else one
 whose terminal runs, else one whose terminal exited (so `terminal NAME resume`
 finds it). Two tabs at the first step that has any return
-`selector.ambiguous` with their tab ids. A word that matches no tab, an id,
-`current`, `caller`, `focused` and command words are left to the rules below;
-a pane selector stays when a pane has that name itself.
+`selector.ambiguous` with their tab ids. A name only fills a gap: when a name
+matches, the CLI first asks the daemon to resolve the word with the rules below
+(the current scope, terminal titles, names under a parent), and a word that
+resolves stays as it is, so a selector that worked before selects the same
+object. A word that matches no tab, an id, `current`, `caller`, `focused`,
+command words and the parser's subcommand words (such as `group` in
+`tab group list`, which no agent can take as its name) are left to the rules
+below. A terminal title, and a pane's own name for a pane selector, win over a
+tab name. The scan reads flag values as the parser does: every flag that is not
+a boolean flag takes the next word.
 
 Names may be empty, contain Unicode or whitespace, and need not be unique.
 `name:<value>` forces name interpretation and is required for names equal to
@@ -1275,7 +1284,8 @@ caller's pane). The split's shell tab is closed once the agent runs. The tab
 is focused unless `--no-focus`.
 
 The wait looks four times a second at the terminal, its agent records and its
-screen. A startup dialog on screen is `blocked` with `dialog` (`folder_trust`,
+screen. A startup dialog in the last 16 non-blank rows of the screen, where no
+input box shows, is `blocked` with `dialog` (`folder_trust`,
 `bypass_permissions_warning`, `api_key`, `login`, `onboarding`,
 `update_prompt`) and a `reason`; a fresh hook record that says `blocked` is
 `agent_question`. Otherwise a fresh hook record that says idle (the

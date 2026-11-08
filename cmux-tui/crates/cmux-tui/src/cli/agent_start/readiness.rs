@@ -4,7 +4,8 @@
 //! Each look reads the terminal record, its agent records and its screen,
 //! and [`assess`] gives one of:
 //!
-//! - `blocked`: a startup dialog is on screen (Claude's folder-trust
+//! - `blocked`: a startup dialog is at the bottom of the screen, where the
+//!   input box would be (Claude's folder-trust
 //!   question, the bypass-permissions warning, a login or API-key choice,
 //!   onboarding, Codex's trust or update prompt), or a fresh hook record
 //!   says the agent waits on the person. The dialog's id and a reason come
@@ -119,12 +120,23 @@ const COMPOSER_HINTS: &[&str] = &[
     "plan mode on",
 ];
 
-/// The startup dialog on `screen`, if any.
+/// How many of the screen's last non-blank rows a startup dialog fills at most.
+const DIALOG_ROWS: usize = 16;
+
+/// The startup dialog on `screen`, if any. A dialog is the last thing an
+/// agent draws, in place of its input box, so only the last [`DIALOG_ROWS`]
+/// non-blank rows count, and only when they show no input box: a running
+/// agent whose output says "update now" is not held by a dialog.
 pub(in crate::cli) fn startup_dialog(screen: &str) -> Option<Dialog> {
-    let screen = fold(screen);
+    let rows: Vec<&str> = screen.lines().filter(|row| !row.trim().is_empty()).collect();
+    let bottom = rows[rows.len().saturating_sub(DIALOG_ROWS)..].join("\n");
+    if composer_visible(&bottom) {
+        return None;
+    }
+    let bottom = fold(&bottom);
     DIALOGS
         .iter()
-        .find(|(_, phrases)| phrases.iter().any(|phrase| screen.contains(phrase)))
+        .find(|(_, phrases)| phrases.iter().any(|phrase| bottom.contains(phrase)))
         .map(|(dialog, _)| *dialog)
 }
 
