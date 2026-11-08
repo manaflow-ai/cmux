@@ -129,7 +129,7 @@ pub(crate) fn snapshot(exec: Exec<'_>, top: &Path, local: bool) -> Result<Carry>
         let why = if path.ends_with(b"/") {
             Some("a nested git repository")
         } else {
-            cmux_git::secrets::reason(read_in, path)
+            leave_out(read_in, path)
         };
         match why {
             Some(why) => left_out.push((String::from_utf8_lossy(path).into_owned(), why.into())),
@@ -164,6 +164,19 @@ pub(crate) fn snapshot(exec: Exec<'_>, top: &Path, local: bool) -> Result<Carry>
     Ok(Carry { base, patch, files, left_out })
 }
 
+/// Why an untracked file stays behind (`cmux_git::secrets`), or None when it goes.
+#[cfg(unix)]
+fn leave_out(top: &Path, relative: &[u8]) -> Option<&'static str> {
+    cmux_git::secrets::reason(top, relative)
+}
+
+/// The secrets rule reads git's raw path bytes, which only unix has: elsewhere no untracked file
+/// is carried.
+#[cfg(not(unix))]
+fn leave_out(_top: &Path, _relative: &[u8]) -> Option<&'static str> {
+    Some("untracked files are carried only from macOS and Linux")
+}
+
 /// The fixed script that applies a carried patch in the chat's new folder on the target: the
 /// folder and the base commit on the first two lines of stdin, the patch after them. Exit 4:
 /// the worktree there is not at the base.
@@ -192,6 +205,6 @@ pub(crate) fn check_base(carry: &Carry, pushed: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "session_move_carry_tests.rs"]
 mod tests;

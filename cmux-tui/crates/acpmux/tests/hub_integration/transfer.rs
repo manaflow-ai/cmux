@@ -630,3 +630,45 @@ async fn a_chat_moved_from_a_linked_worktree_into_a_fresh_clone_runs_there() {
     assert!(ran.is_ok(), "the moved chat's turn was refused: {ran:?} (source info: {here})");
     assert_eq!(texts(&mut dst, &id, "user_message").await, ["hi", "there"]);
 }
+
+/// A chat moved into the same linked worktree (an export and import on one machine, or two
+/// daemons sharing it) keeps a record of it: once the folder is gone, its next turn makes it
+/// again from the checkout it was a worktree of (`worktree_care/revive.rs`).
+#[tokio::test]
+async fn a_chat_moved_into_the_same_linked_worktree_can_still_recreate_it() {
+    let (_a, mut src) = setup(PermissionPolicy::ApproveAll).await;
+    let (_b, mut dst) = setup(PermissionPolicy::ApproveAll).await;
+    let root = tempfile::tempdir().unwrap();
+    let main = root.path().join("main");
+    std::fs::create_dir_all(&main).unwrap();
+    git(&main, &["init", "-q", "-b", "main"]);
+    git(
+        &main,
+        &[
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "base",
+        ],
+    );
+    let linked = root.path().join("linked");
+    git(&main, &["worktree", "add", "-q", "-b", "lane/y", &linked.to_string_lossy()]);
+    let linked = linked.canonicalize().unwrap();
+    let s =
+        src.request(method::SESSION_NEW, json!({"cwd": linked, "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    src.request(method::SESSION_PROMPT, prompt(&id, "p-hi", "hi")).await.unwrap();
+    let committed = move_whole(&mut src, &mut dst, &id, json!({"sessionId": id})).await;
+    assert_eq!(committed["committed"], true, "{committed}");
+
+    std::fs::remove_dir_all(&linked).unwrap();
+    let ran = dst.request(method::SESSION_PROMPT, prompt(&id, "p-back", "back")).await;
+    assert!(ran.is_ok(), "the moved chat's folder was not made again: {ran:?}");
+    assert!(linked.is_dir(), "its linked worktree is back");
+    assert_eq!(texts(&mut dst, &id, "user_message").await, ["hi", "back"]);
+}
