@@ -17,6 +17,7 @@ set -euo pipefail
 out_dir="${FAST_CHECKS_OUT:-}"
 out="${1:-${out_dir:-/tmp}/remote-stream-ultra.jsonl}"
 mkdir -p "$(dirname "$out")"
+out="$(cd "$(dirname "$out")" && pwd)/$(basename "$out")" # the script changes directory below
 : >"$out"
 cd "$(dirname "$0")/../cmux-tui"
 

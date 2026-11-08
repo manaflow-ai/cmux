@@ -18,8 +18,11 @@
 //!   rebuilds any one lost member per parity, and a burst of up to P
 //!   consecutive losses. Groups end at each pass so a lone keystroke is
 //!   protected at once instead of waiting for K-1 more packets. Handshake
-//!   messages are sent twice. Costs (K+M)/K of the bytes under load and at
-//!   most twice the bytes when every pass sends one datagram.
+//!   messages are sent twice. A full group costs (K+M)/K of its datagrams;
+//!   a parity is as long as the longest member it covers, and short groups
+//!   (a pass with few datagrams) get a parity of their own, so bytes run
+//!   higher in practice (1.25-1.35x for `fec:8:2` on the desktop bench) and
+//!   never above twice the data bytes.
 //!
 //! A parity datagram is a header plus the XOR of ciphertexts; the WireGuard
 //! header of a rebuilt datagram comes from the parity header, so a parity is
@@ -29,10 +32,11 @@
 //! the mode on never breaks an older peer, it only wastes the parity bytes.
 //! Parity itself is not authenticated, so a receiver acts on parity, and keeps
 //! data datagrams for rebuilding, only from an origin (path and address)
-//! WireGuard has already authenticated a datagram from. A peer that receives
-//! such parity answers with the same mode, so one side's setting protects
-//! both directions. A forged parity from a trusted origin can only produce a
-//! datagram that fails WireGuard's authentication.
+//! WireGuard has already authenticated a datagram from. A peer answers with
+//! the same mode only once a datagram rebuilt from such parity passes
+//! WireGuard's authentication, so one side's setting protects both
+//! directions, and a forged or spoofed parity (which can only rebuild a
+//! datagram that fails authentication) changes nothing but a bounded buffer.
 //!
 //! The mode is the `CMUX_WG_ULTRA` environment variable (`off`, `dup`,
 //! `dup3`, `fec`, `fec:8:2`), read when a tunnel starts.
@@ -79,6 +83,13 @@ pub const ENV: &str = "CMUX_WG_ULTRA";
 /// allow (Hysteria's "Brutal" idea, bounded by the 256 KiB window). For
 /// benches: it is unfair to other traffic on a congested link.
 pub const CC_ENV: &str = "CMUX_WG_ULTRA_CC";
+
+/// Whether `datagram` is an ultra-mode parity datagram. A carrier that
+/// classifies datagrams by shape should give parity the class the tunnel's
+/// pacer sent it in, not treat it as control.
+pub fn is_parity(datagram: &[u8]) -> bool {
+    datagram.first() == Some(&TAG)
+}
 
 /// Whether [`CC_ENV`] asks for no congestion control.
 pub(crate) fn loss_blind_from_env() -> bool {
@@ -146,8 +157,8 @@ impl UltraMode {
         }
     }
 
-    /// Bytes sent per byte of data, at most: under load for FEC, and in
-    /// every case for duplication.
+    /// Datagrams sent per data datagram: for FEC with full groups (bytes can
+    /// run higher, at most 2x), and in every case for duplication.
     pub fn overhead_under_load(self) -> f64 {
         match self {
             Self::Off => 1.0,
@@ -401,7 +412,12 @@ pub(crate) struct UltraUnderlay {
     pending: VecDeque<(Vec<u8>, Origin)>,
     /// Origins WireGuard authenticated a datagram from.
     trusted: Vec<Origin>,
-    rebuilt: VecDeque<(Vec<u8>, Origin)>,
+    /// Rebuilt datagrams for the tunnel, each with the mode its parity
+    /// proposes for this side.
+    rebuilt: VecDeque<(Vec<u8>, Origin, Option<UltraMode>)>,
+    /// The mode proposed by the rebuilt datagram just handed to the tunnel:
+    /// adopted if WireGuard authenticates that datagram.
+    proposed: Option<UltraMode>,
     counters: Arc<UltraCounters>,
 }
 
@@ -421,6 +437,7 @@ impl UltraUnderlay {
             pending: VecDeque::new(),
             trusted: Vec::new(),
             rebuilt: VecDeque::new(),
+            proposed: None,
             counters,
         }
     }
@@ -525,13 +542,10 @@ impl UltraUnderlay {
         // Kept datagrams start with the first trusted parity; that group is
         // not rebuilt.
         self.decoding = true;
-        if self.mode == UltraMode::Off
-            && let Some(mode) = UltraMode::fec(parity.k, parity.m)
-        {
-            self.mode = mode;
-        }
         match self.received.rebuild(&parity) {
-            Rebuild::Done(rebuilt) => self.on_rebuilt(rebuilt, origin),
+            Rebuild::Done(rebuilt) => {
+                self.on_rebuilt(rebuilt, origin, UltraMode::fec(parity.k, parity.m));
+            }
             Rebuild::Whole => {}
             Rebuild::Waiting => {
                 if self.pending.len() >= PENDING {
@@ -542,17 +556,20 @@ impl UltraUnderlay {
         }
     }
 
-    fn on_rebuilt(&mut self, rebuilt: Vec<u8>, origin: Origin) {
+    fn on_rebuilt(&mut self, rebuilt: Vec<u8>, origin: Origin, proposed: Option<UltraMode>) {
         if let Some((index, counter)) = data_id(&rebuilt) {
             self.received.keep(index, counter, &rebuilt[WG_DATA_HEADER..]);
         }
         UltraCounters::add(&self.counters.recovered, 1);
-        self.rebuilt.push_back((rebuilt, origin));
+        self.rebuilt.push_back((rebuilt, origin, proposed));
     }
 
     /// A data datagram arrived from a trusted origin: keep it, and retry the
     /// waiting parities whose subgroup it belongs to.
     fn on_data(&mut self, index: [u8; 4], counter: u64, ciphertext: &[u8]) {
+        // The session's first datagram fixes its counter epoch, which a
+        // parity that arrived before it needed to place its group.
+        let new_epoch = !self.received.newest.contains_key(&index);
         self.received.keep(index, counter, ciphertext);
         if self.pending.is_empty() {
             return;
@@ -562,16 +579,18 @@ impl UltraUnderlay {
         waiting.retain(|(datagram, origin)| {
             let Some(parity) = parse_parity(datagram) else { return false };
             let covers = parity.index == index
-                && self.received.first(&parity).is_some_and(|first| {
-                    let offset = counter.wrapping_sub(first);
-                    offset < parity.members as u64 && offset as usize % parity.parities == parity.j
-                });
+                && (new_epoch
+                    || self.received.first(&parity).is_some_and(|first| {
+                        let offset = counter.wrapping_sub(first);
+                        offset < parity.members as u64
+                            && offset as usize % parity.parities == parity.j
+                    }));
             if !covers {
                 return true;
             }
             match self.received.rebuild(&parity) {
                 Rebuild::Done(rebuilt) => {
-                    done.push((rebuilt, *origin));
+                    done.push((rebuilt, *origin, UltraMode::fec(parity.k, parity.m)));
                     false
                 }
                 Rebuild::Whole => false,
@@ -579,8 +598,8 @@ impl UltraUnderlay {
             }
         });
         self.pending = waiting;
-        for (rebuilt, origin) in done {
-            self.on_rebuilt(rebuilt, origin);
+        for (rebuilt, origin, proposed) in done {
+            self.on_rebuilt(rebuilt, origin, proposed);
         }
     }
 }
@@ -626,10 +645,13 @@ impl Underlay for UltraUnderlay {
     }
 
     fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {
+        // Whatever the tunnel received last has been handled by now.
+        self.proposed = None;
         loop {
-            if let Some((datagram, origin)) = self.rebuilt.pop_front() {
+            if let Some((datagram, origin, proposed)) = self.rebuilt.pop_front() {
                 if let Some(slot) = buffer.get_mut(..datagram.len()) {
                     slot.copy_from_slice(&datagram);
+                    self.proposed = proposed;
                     return Poll::Ready(Ok(Received { len: datagram.len(), origin }));
                 }
                 continue;
@@ -653,7 +675,16 @@ impl Underlay for UltraUnderlay {
         }
     }
 
+    /// The driver calls this right after handling the datagram `poll_recv`
+    /// returned, when WireGuard authenticated it.
     fn authenticated(&mut self, origin: Origin) {
+        // A datagram rebuilt from the peer's parity decrypted: the peer
+        // really sends FEC, so answer in kind.
+        if let Some(mode) = self.proposed.take()
+            && self.mode == UltraMode::Off
+        {
+            self.mode = mode;
+        }
         if !self.trusts(origin) {
             if self.trusted.len() >= TRUSTED {
                 self.trusted.remove(0);
@@ -797,11 +828,13 @@ mod tests {
     }
 
     /// An ultra underlay in `mode` that will receive `inbox`, and what it
-    /// handed the tunnel.
+    /// handed the tunnel. Like the driver, it reports each handed-over
+    /// datagram in `authentic` as authenticated before the next receive.
     fn receive(
         mode: UltraMode,
         trusted: Option<Origin>,
         inbox: Vec<(Vec<u8>, Origin)>,
+        authentic: &[Vec<u8>],
     ) -> (UltraUnderlay, Vec<Vec<u8>>, Wire) {
         let sent = Arc::default();
         let script = Script { inbox: inbox.into(), sent: Arc::clone(&sent) };
@@ -813,7 +846,11 @@ mod tests {
         let mut buffer = vec![0u8; 4096];
         let mut out = Vec::new();
         while let Poll::Ready(Ok(received)) = ultra.poll_recv(&mut cx, &mut buffer) {
-            out.push(buffer[..received.len].to_vec());
+            let datagram = buffer[..received.len].to_vec();
+            if authentic.contains(&datagram) {
+                ultra.authenticated(received.origin);
+            }
+            out.push(datagram);
         }
         (ultra, out, sent)
     }
@@ -840,7 +877,7 @@ mod tests {
         let mut inbox: Vec<_> = parities.iter().map(|p| (p.clone(), stranger)).collect();
         inbox.extend(sent.iter().skip(1).map(|d| (d.clone(), stranger)));
         inbox.extend(parities.iter().map(|p| (p.clone(), stranger)));
-        let (mut ultra, out, wire) = receive(UltraMode::Off, Some(origin(1)), inbox);
+        let (mut ultra, out, wire) = receive(UltraMode::Off, Some(origin(1)), inbox, &[]);
         assert_eq!(out.len(), 3, "data is still delivered, nothing is rebuilt");
         assert!(!ultra.decoding, "an untrusted parity starts no buffering");
         assert_eq!(ultra.mode, UltraMode::Off, "and does not turn our parity on");
@@ -862,9 +899,45 @@ mod tests {
         inbox.push((first_parity[0].clone(), peer));
         inbox.extend([0, 1, 3].map(|i| (sent[i].clone(), peer)));
         inbox.push((parity[0].clone(), peer));
-        let (ultra, out, _) = receive(UltraMode::Off, Some(peer), inbox);
+        // WireGuard accepts every genuine datagram, the rebuilt one too.
+        let (ultra, out, _) = receive(UltraMode::Off, Some(peer), inbox, &sent);
         assert_eq!(out.last(), Some(&sent[2]), "the lost member is rebuilt");
         assert_eq!(ultra.mode, UltraMode::Fec { group: 4, parity: 1 }, "the mode is mirrored");
+    }
+
+    /// A parity whose rebuilt datagram WireGuard refuses (spoofed from the
+    /// peer's address) leaves this side's mode alone.
+    #[test]
+    fn spoofed_parity_from_the_peer_address_does_not_mirror() {
+        let index = [8, 8, 8, 8];
+        let peer = origin(1);
+        let (sent, real_parity) = group_of(index, 0, 1);
+        let forged = parity_datagrams(
+            &Group { index, first: 1, ciphertexts: vec![vec![0xAB; 80]], priority: None },
+            1,
+            1,
+        );
+        let inbox = vec![
+            (real_parity[0].clone(), peer), // turns rebuilding on; member 0 arrives
+            (sent[0].clone(), peer),
+            (forged[0].clone(), peer), // "rebuilds" counter 1 from nothing
+        ];
+        let (ultra, out, _) = receive(UltraMode::Off, Some(peer), inbox, &sent);
+        assert_eq!(out.len(), 2, "the forged parity rebuilt a datagram: {out:?}");
+        assert_eq!(ultra.mode, UltraMode::Off, "WireGuard refused it, so nothing is mirrored");
+    }
+
+    /// The session's first data datagram is lost and its group of one has a
+    /// parity: the parity waits until a later datagram places the epoch.
+    #[test]
+    fn a_lost_first_datagram_is_rebuilt_once_the_epoch_is_known() {
+        let index = [3, 3, 3, 3];
+        let peer = origin(1);
+        let (first, parity) = group_of(index, 7, 1);
+        let (later, _) = group_of(index, 8, 1);
+        let inbox = vec![(parity[0].clone(), peer), (later[0].clone(), peer)];
+        let (_, out, _) = receive(UltraMode::Fec { group: 1, parity: 1 }, Some(peer), inbox, &[]);
+        assert_eq!(out, vec![later[0].clone(), first[0].clone()]);
     }
 
     /// A parity that arrives before a reordered member waits for it, and
@@ -877,7 +950,8 @@ mod tests {
         let mut inbox: Vec<_> = [0, 3].map(|i| (sent[i].clone(), peer)).to_vec();
         inbox.push((parity[0].clone(), peer)); // members 1 and 2 still missing
         inbox.push((sent[1].clone(), peer)); // 1 arrives late; 2 is lost
-        let (ultra, out, _) = receive(UltraMode::Fec { group: 4, parity: 1 }, Some(peer), inbox);
+        let (ultra, out, _) =
+            receive(UltraMode::Fec { group: 4, parity: 1 }, Some(peer), inbox, &[]);
         assert_eq!(out.last(), Some(&sent[2]), "rebuilt after the late member: {out:?}");
         assert!(ultra.pending.is_empty());
     }
