@@ -4,7 +4,7 @@
 //!   turned paste mode on (`ESC [ ? 2004 h`, which Claude Code, Codex and
 //!   shells with line editors do), so a multi-line message stays one message
 //!   and no character of it acts as a key binding. Enter goes separately.
-//! - [`reply_after`], [`reply_since`]: the screen lines after the sent message's echo, less
+//! - [`reply_since`]: the screen lines after the sent message's echo, less
 //!   the harness's own input box and status footer. Without the echo (a
 //!   harness that shows a paste as a placeholder), the lines after what the
 //!   screen showed before the send, else the screen alone: never the turns
@@ -163,16 +163,11 @@ fn tidy(lines: &[String]) -> String {
 }
 
 /// The reply in `lines` (history then screen, oldest first) to `message`.
-pub(in crate::cli) fn reply_after(lines: &[String], message: &str) -> Reply {
-    reply_since(lines, message, None, lines)
-}
-
-/// [`reply_after`] for a send that knows what was on the screen first.
 ///
-/// `before` is the screen before the message was typed, and `screen` the
-/// last screen read: without the echo, the reply is what `lines` hold after
-/// the last lines of `before`, else `screen` alone. Without `before` it is
-/// all of `lines`, as [`reply_after`] answers.
+/// Without the echo: with `before`, the screen before the message was
+/// typed, the reply is what `lines` hold after the last lines of `before`,
+/// else `screen` (the last screen read) alone; without `before` it is all
+/// of `lines`.
 pub(in crate::cli) fn reply_since(
     lines: &[String],
     message: &str,

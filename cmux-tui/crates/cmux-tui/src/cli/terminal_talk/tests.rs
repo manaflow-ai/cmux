@@ -179,7 +179,7 @@ fn reply_after_reads_a_claude_code_answer_without_its_input_box() {
     ]);
     let message = "please summarize the failing test in a sentence and name the file it lives in";
     assert_eq!(
-        reply::reply_after(&screen, message),
+        reply_after(&screen, message),
         Reply {
             text: "⏺ The failing test is pinned_columns_tests.rs:232; it expects\n  three \
                    columns and gets two."
@@ -201,7 +201,7 @@ fn reply_after_reads_a_codex_answer_without_its_composer() {
         "  gpt-5-codex high · 98% context left",
     ]);
     assert_eq!(
-        reply::reply_after(&screen, "what is 2+2?"),
+        reply_after(&screen, "what is 2+2?"),
         Reply { text: "• 4".to_owned(), anchored: true }
     );
 }
@@ -210,7 +210,7 @@ fn reply_after_reads_a_codex_answer_without_its_composer() {
 fn reply_after_without_the_echo_answers_the_screen_less_its_footer() {
     let screen = strings(&["output", "more", "──────────────────────", "❯ ", "──────────"]);
     assert_eq!(
-        reply::reply_after(&screen, "never typed"),
+        reply_after(&screen, "never typed"),
         Reply { text: "output\nmore".to_owned(), anchored: false }
     );
 }
@@ -219,7 +219,12 @@ fn reply_after_without_the_echo_answers_the_screen_less_its_footer() {
 fn reply_anchor_finds_a_long_message_by_its_end_when_its_start_scrolled_away() {
     let message = format!("{} the actual question at the end?", "context ".repeat(40));
     let screen = strings(&["context context the actual question at the end?", "", "answer"]);
-    assert_eq!(reply::reply_after(&screen, &message).text, "answer");
+    assert_eq!(reply_after(&screen, &message).text, "answer");
+}
+
+/// The reply of a send that read no screen before it.
+fn reply_after(lines: &[String], message: &str) -> Reply {
+    reply::reply_since(lines, message, None, lines)
 }
 
 fn idle_sample(screen: &str) -> Sample {
