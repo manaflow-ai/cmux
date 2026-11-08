@@ -58,10 +58,13 @@ extension MotionGate {
         defer { CATransaction.commit() }
         layer.removeAnimation(forKey: Self.textSwapOpacityKey)
         layer.removeAnimation(forKey: Self.textSwapRiseKey)
-        for ghost in Self.textSwapGhosts(of: layer).dropLast(max(0, MotionScale.textSwapMaxGhosts - 1)) {
+        // Oldest first: the ones past the cap (with the new one) go, the newest stay.
+        var ghosts = Self.textSwapGhosts(of: layer)
+        for ghost in ghosts.prefix(max(0, ghosts.count - (MotionScale.textSwapMaxGhosts - 1))) {
             ghost.removeAllAnimations()
             ghost.removeFromSuperlayer()
         }
+        ghosts = Self.textSwapGhosts(of: layer)
         change()
 
         let ghost = CALayer()
@@ -78,7 +81,8 @@ extension MotionGate {
         let end = motion.outgoing(at: motion.outDuration, from: start)
         ghost.opacity = Float(end.opacity)
         ghost.transform = CATransform3DMakeTranslation(0, CGFloat(end.y) * down, 0)
-        superlayer.insertSublayer(ghost, above: layer)
+        // Above the newest snapshot (else the view), so the snapshots stand oldest first in the superlayer.
+        superlayer.insertSublayer(ghost, above: ghosts.last ?? layer)
 
         let leaving: CAAnimation
         switch motion.style {
@@ -89,6 +93,9 @@ extension MotionGate {
             let lift = CABasicAnimation(keyPath: "transform.translation.y")
             lift.fromValue = CGFloat(start.y) * down
             lift.toValue = CGFloat(-TextSwapMotion.rise) * down
+            // A group's children keep their own duration (0.25 s when unset) and the group clips them: each spans
+            // the whole out duration, so the fade is gone at `goneAt` of it, as `useTextSwap.ts`'s keyframes are.
+            (fade.duration, lift.duration) = (motion.outDuration, motion.outDuration)
             let group = CAAnimationGroup()
             group.animations = [fade, lift]
             leaving = group
@@ -139,7 +146,7 @@ extension MotionGate {
         }
     }
 
-    /// The snapshots over `layer`, oldest first.
+    /// The snapshots over `layer`, oldest first (`swapText` puts each new one above the last).
     @MainActor static func textSwapGhosts(of layer: CALayer) -> [CALayer] {
         (layer.superlayer?.sublayers ?? []).filter {
             $0.name == textSwapGhostName && ($0.value(forKey: textSwapOwnerKey) as AnyObject?) === layer

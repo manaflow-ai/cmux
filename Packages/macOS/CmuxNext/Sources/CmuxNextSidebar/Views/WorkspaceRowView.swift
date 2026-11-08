@@ -136,8 +136,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// placeholders does not read as one block.
     var placeholderFraction: CGFloat = 0.6
     /// The last title painted by this view, and what it said: whose name, under which `sidebar.rowTitle`
-    /// mode. Recycled rows clear it, so a row scrolled back into view or another workspace's row never
-    /// swaps its title.
+    /// mode. A view rebound to another row clears it; one back at its own row keeps it (its configure may
+    /// return early), and the return never swaps, since only a patch sets `swapsNextTitle`.
     internal var lastTitle: String?
     private var lastTitleSource: TitleSource?
     /// The list patched this row's content in place (`SidebarListView.patchRowsNow`), the house pattern of
@@ -202,6 +202,9 @@ final class WorkspaceRowView: SidebarRowView {
     override class var keepsContentOnReturn: Bool { true }
 
     override func prepareForReuse(key: SidebarRowKey) {
+        // Back at its own row with its content kept (`keepsContentOnReturn`): the next configure may return early,
+        // so the title history stays, or a later rename of the row changed at once.
+        let returning = key == self.key && Self.keepsContentOnReturn
         super.prepareForReuse(key: key)
         isSecondarySelected = false
         isOnScreen = false
@@ -217,7 +220,9 @@ final class WorkspaceRowView: SidebarRowView {
         onToggleAudio = nil
         title.stopMarquee()
         Motion.sidebar.cancelTextSwap(in: title)
-        (lastTitle, lastTitleSource, swapsNextTitle) = (nil, nil, false)
+        // The return itself never swaps: `swapsNextTitle` is off until the list patches the row.
+        swapsNextTitle = false
+        if !returning { (lastTitle, lastTitleSource) = (nil, nil) }
     }
 
     /// What a drawn title says: the workspace's own name (an inherited chat's, a started session's "of"
