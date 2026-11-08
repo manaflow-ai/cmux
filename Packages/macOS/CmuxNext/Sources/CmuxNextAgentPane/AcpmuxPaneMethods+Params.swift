@@ -6,6 +6,7 @@ nonisolated extension AcpmuxPaneMethods {
     /// exactly as the pane sends them (`webviews/src/agent-session/acpmux`). This is the pane's own
     /// param schema, not a mode list. The daemon's `modeFields` are an extra deny inside it.
     static let knownParams: [String: (params: Set<String>, acpmux: Set<String>)] = [
+        "_acpmux/test_tampering_restore": (["sessionId", "eventSeq", "fileIndex", "findingIndex"], []),
         "initialize": (["protocolVersion", "clientInfo", "clientCapabilities"], []),
         // `noProject` is the pane's own (Do not work in a project): AcpmuxPathPolicy reads and strips it.
         // Never `workspaceId`: the host adds the pane's own after this rule (AcpmuxPathPolicy+Workspace).
