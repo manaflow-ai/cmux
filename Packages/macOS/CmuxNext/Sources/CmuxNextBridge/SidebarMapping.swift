@@ -220,11 +220,15 @@ public struct SidebarMapping {
         return rows
     }
 
-    /// The band items (pinned tiles, top rows) of `workspaces`, in order: each row as `rows` maps it with the page
-    /// face's favicon only (an item keeps its own title rule), no unread state and its shell's folder as the label.
-    public func tileInfos(_ workspaces: [(workspace: WorkspaceModel, machine: MachineID)], favicon: @escaping (WorkspaceModel, TabModel) -> SidebarFavicon?,
+    /// The band items (pinned tiles, top rows) of `workspaces`, in order: each row as `rows` maps it with `pageFace`,
+    /// the face the list's rows read (`AppServices.sidebarPageFace`), no unread state and its shell's folder as the label.
+    /// Pinning moves a row and never renames it: an item shows the title its list row shows, the workspace's own name
+    /// or the auto name the face gives one nobody named (Lawrence 2026-11-07: "i pinned a workspace and it's name
+    /// disappeared and went back to workspace-936"; the favicon-only face it read fell back to the daemon's name).
+    public func tileInfos(_ workspaces: [(workspace: WorkspaceModel, machine: MachineID)],
+                          pageFace: @escaping (WorkspaceModel, TabModel, TabModel?) -> PageFace,
                           homeShellTitle: (MachineID) -> String?, faces: SidebarFaceBatch? = nil) -> [SidebarItemInfo] {
-        let mapped = self.rows(workspaces, showsUnread: false, pageFace: { workspace, tab, _ in PageFace(favicon: favicon(workspace, tab)) },
+        let mapped = self.rows(workspaces, showsUnread: false, pageFace: pageFace,
                                homeShellTitle: homeShellTitle, foldersLabel: true, faces: faces)
         return zip(workspaces, mapped).map { item, row in
             var info = SidebarItemInfo(workspaceRow: row, color: color(item.workspace.color))

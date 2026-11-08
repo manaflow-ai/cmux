@@ -95,8 +95,8 @@ extension SidebarBridge {
         let chiefPicture = { [weak services] in services?.wornUpload(of: nil)?.still }
         let uploads = services.chiefAvatarUploads, pictures = services.chiefSidebarPictures
         let home = services.home
-        // A band item's site favicon, read in the observation so a favicon that loads replaces the item's globe.
-        let favicon = { [weak services] (workspace: WorkspaceModel, tab: TabModel) in services?.sidebarPageFavicon(workspace, tab: tab) }, faces = faceBuffers
+        // A band item's page face (the list rows' own), read in the observation so a favicon that loads replaces the item's globe.
+        let pageFace = { [weak services] (workspace: WorkspaceModel, tab: TabModel, work: TabModel?) in services?.sidebarPageFace(workspace, tab: tab, work: work) ?? .init() }, faces = faceBuffers
         sectionsObservation = Task { [weak self] in
             // Also observed: the apps client (installs, hides), the unread count, Home's unread conversations, the built-ins' shortcuts (tooltips) and
             // the workspaces tiles and top rows name. The selected item comes from the one selection.
@@ -104,7 +104,7 @@ extension SidebarBridge {
                 () -> (SidebarLayoutDocument, Int, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo], URL?, Bool) in
                 _ = (apps.apps, ChiefSidebar.shared.status)
                 return (service.document, NotificationCenterService.unreadCount(store), home.unreadConversations.count,
-                        Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs, autoNames: settings?.snapshot.sidebarSections.autoNamesWorkspaces ?? true, favicon: favicon, faces: faces), chiefPicture(), settings?.snapshot.previewFeatures == true)
+                        Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs, autoNames: settings?.snapshot.sidebarSections.autoNamesWorkspaces ?? true, pageFace: pageFace, faces: faces), chiefPicture(), settings?.snapshot.previewFeatures == true)
             }) {
                 // The window closed: the bridge is gone, stop observing.
                 guard self != nil else { return }

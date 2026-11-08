@@ -15,6 +15,8 @@ mod agent_browser_provider;
 use cmux_tui_hooks as agent_hook_install;
 mod agent_plugin_config;
 #[cfg(unix)]
+mod agent_session_context;
+#[cfg(unix)]
 mod agent_start_host;
 mod app;
 #[cfg(unix)]
@@ -1890,6 +1892,9 @@ fn run_main() {
         if let Some(wrapper_args) = codex_wrapper::invocation(&args) {
             client_log::exit(codex_wrapper::run(wrapper_args));
         }
+        if agent_session_context::invocation(&args) {
+            client_log::exit(agent_session_context::run());
+        }
     }
     // Pin the launch directory before any subsystem can move the process:
     // new terminals default to it (not $HOME) for the daemon's lifetime.
@@ -2151,6 +2156,7 @@ fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Resu
     };
     run_connected_session_client(
         socket_path,
+        socket_is_derived,
         args.session,
         config,
         Session::Remote(remote),
@@ -2425,6 +2431,7 @@ fn run_server(
     {
         return run_connected_session_client(
             socket_path,
+            socket_is_derived,
             args.session,
             config,
             Session::Remote(remote),
@@ -3052,6 +3059,7 @@ fn run_tui_with_owner(
         owner_mux,
         config,
         None,
+        None,
     )
 }
 
@@ -3062,6 +3070,7 @@ fn run_tui_with_owner_and_host_colors(
     owner_mux: Option<Arc<Mux>>,
     config: config::StartupConfigSnapshot,
     host_color_override: Option<cmux_tui_core::DefaultColors>,
+    session_reconnector: Option<app::SessionReconnector>,
 ) -> anyhow::Result<()> {
     match run_tui_once(
         session,
@@ -3072,6 +3081,7 @@ fn run_tui_with_owner_and_host_colors(
         None,
         config,
         host_color_override,
+        session_reconnector,
     )? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
@@ -3189,6 +3199,7 @@ fn start_detached_owner_session(
         .context("connect the interactive client to its detached session owner")?;
     run_connected_session_client(
         socket_path,
+        spec.socket_is_derived,
         args.session,
         config,
         Session::Remote(remote),
@@ -3197,8 +3208,18 @@ fn start_detached_owner_session(
     )
 }
 
+/// Connects to the session socket again after its daemon was replaced
+/// (`cmux daemon restart`): the TUI keeps its view and reattaches.
+fn session_reconnector(socket_path: PathBuf, socket_is_derived: bool) -> app::SessionReconnector {
+    Arc::new(move || {
+        RemoteSession::connect_session(&socket_path, socket_is_derived).map(Session::Remote)
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
 fn run_connected_session_client(
     socket_path: PathBuf,
+    socket_is_derived: bool,
     session_label: String,
     config: config::StartupConfigSnapshot,
     session: Session,
@@ -3213,6 +3234,7 @@ fn run_connected_session_client(
             None,
             config,
             host_colors,
+            None,
         );
     }
     match session_client_mode(&config) {
@@ -3223,6 +3245,7 @@ fn run_connected_session_client(
             None,
             config,
             host_colors,
+            Some(session_reconnector(socket_path, socket_is_derived)),
         ),
         SessionClientMode::Machines => {
             let runtime = MachineRuntime::with_creation_sources(
@@ -3284,6 +3307,7 @@ fn run_machine_client_with_hub(
         Some(controller),
         config,
         host_colors,
+        None,
     )? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
@@ -3436,6 +3460,7 @@ fn run_provider_machine_client(
         Some(controller),
         config,
         None,
+        None,
     )? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
@@ -3518,6 +3543,7 @@ fn run_tui_once(
     machine_controller: Option<Box<dyn MachineController>>,
     config: config::StartupConfigSnapshot,
     host_color_override: Option<cmux_tui_core::DefaultColors>,
+    session_reconnector: Option<app::SessionReconnector>,
 ) -> anyhow::Result<app::RunOutcome> {
     crossterm::terminal::enable_raw_mode()?;
     let FrontendSessionPreparation { session, colors } =
@@ -3534,6 +3560,7 @@ fn run_tui_once(
         machine_ui,
         machine_controller,
         startup_config: config,
+        session_reconnector,
     })
 }
 

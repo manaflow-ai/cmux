@@ -228,11 +228,12 @@ extension SettingsSchema {
         // The agent chat's fonts, sizes and width (looks only).
         "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.display.vscodeMinimap",
         "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle",
-        "agentPane.display.font.preset", "agentPane.display.font.ui", "agentPane.display.font.size",
-        "agentPane.display.font.lineHeight", "agentPane.display.code.family", "agentPane.display.code.scale",
-        "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement",
-        "agentPane.display.minimap", "agentPane.display.transcriptView", "agentPane.display.presentation",
-        "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
+        "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge",
+        "agentPane.display.senderIcon.corner", "agentPane.display.font.preset", "agentPane.display.font.ui",
+        "agentPane.display.font.size", "agentPane.display.font.lineHeight", "agentPane.display.code.family",
+        "agentPane.display.code.scale", "agentPane.display.sessionInfo.placement",
+        "agentPane.display.environment.placement", "agentPane.display.minimap", "agentPane.display.transcriptView",
+        "agentPane.display.presentation", "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
         "agentPane.display.harnessPlacement", "agentPane.display.rail.side", "agentPane.display.commandLabels",
         // The code editor's looks and editing behavior (diff-host S7); editor.importFrom is the person's.
         "editor.fontFamily", "editor.fontSize", "editor.fontWeight", "editor.fontLigatures", "editor.lineHeight",

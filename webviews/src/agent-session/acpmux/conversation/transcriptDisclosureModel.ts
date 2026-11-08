@@ -93,28 +93,53 @@ export const useTranscriptViewContext = (): TranscriptView => useContext(ViewCon
 
 export type DisclosureSetter = (value: boolean | ((current: boolean) => boolean)) => void;
 
+const NONE: readonly string[] = [];
+
+/// The value a disclosure reads before the reader set its own: its default, or open when the reader
+/// opened any of the keys it `inherits` (a fold that took the place of those, as a run's line takes
+/// the place of the group it grew from). Keys are joined with "\n" so the memo compares a string.
+function inherited(sessionId: string, inherits: string): boolean {
+  return inherits !== "" && inherits.split("\n").some((key) => read(sessionId, key) === true);
+}
+
 /**
  * Returns a persisted disclosure value and a React-compatible setter. `verboseOpen` opens it by
  * default in the Verbose view (a tool's output). The reader's toggles are kept per view, so each
  * view starts from its own defaults and switching back finds the old toggles where they were.
+ * `inherits`: keys of the disclosures this one replaced; one the reader opened opens this one until
+ * the reader sets this one; `passesDown` (a run's line) hands the reader's choice to those they set
+ * (Leo, 2026-11-07: "I opened up, expanded the tool calls, and then it closed on by itself").
  */
 export function useTranscriptDisclosure(
   key: string,
   defaultOpen = false,
   verboseOpen = false,
+  inherits: readonly string[] = NONE,
+  passesDown = false,
 ): [boolean, DisclosureSetter] {
   const view = useContext(ViewContext);
   const chat = useContext(DisclosureSession);
   const sessionId = view === "normal" ? chat : `${chat}#${view}`;
   const opens = defaultOpen || (verboseOpen && view === "verbose");
-  const getSnapshot = useCallback(() => read(sessionId, key) ?? opens, [sessionId, key, opens]);
+  const from = inherits.join("\n");
+  const getSnapshot = useCallback(
+    () => read(sessionId, key) ?? (opens || inherited(sessionId, from)),
+    [sessionId, key, opens, from],
+  );
   const open = useSyncExternalStore(subscribe, getSnapshot, () => opens);
   const setOpen = useCallback<DisclosureSetter>(
     (value) => {
-      const current = read(sessionId, key) ?? opens;
-      save(sessionId, key, typeof value === "function" ? value(current) : value);
+      const current = read(sessionId, key) ?? (opens || inherited(sessionId, from));
+      const next = typeof value === "function" ? value(current) : value;
+      // A run's line the reader set takes the place of the group lines it inherits from: one they had
+      // set takes the same choice, so a run line they closed never reopens as its group's line when the
+      // run splits back into groups. A line they never set keeps its own default, and a group's line
+      // passes nothing up, so closing one group never closes its sibling through the run's key.
+      if (passesDown && from !== "")
+        for (const other of from.split("\n")) if (read(sessionId, other) !== undefined) save(sessionId, other, next);
+      save(sessionId, key, next);
     },
-    [sessionId, key, opens],
+    [sessionId, key, opens, from, passesDown],
   );
   return [open, setOpen];
 }
