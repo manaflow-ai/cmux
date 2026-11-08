@@ -10,7 +10,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { SCREEN_RECORDING_POSTER_JPEG } from "../../../gallery/fixtures/videoPoster";
-import { tuckSent, type SendTuckStyle } from "./sendTuck";
+import { tuckContent, tuckSent, type SendTuckStyle } from "./sendTuck";
 
 const IMAGE = `data:image/jpeg;base64,${SCREEN_RECORDING_POSTER_JPEG}`;
 const PROMPT = "can you check why this flickers on resize";
@@ -51,7 +51,7 @@ function SendTuckGallery({ variant, rides = false }: { variant: SendTuckStyle; r
   }, [rides, sent]);
   const send = () => {
     if (!draft) return;
-    tuckSent(box.current, PROMPT);
+    tuckSent(box.current, tuckContent(box.current, PROMPT));
     setDraft(false);
     setSent((count) => count + 1);
   };

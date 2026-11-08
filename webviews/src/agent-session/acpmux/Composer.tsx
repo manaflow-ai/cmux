@@ -147,7 +147,7 @@ import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
 import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { EmojiMenu } from "./EmojiMenu";
 import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
-import { sendTucks, tuckSent } from "./conversation/sendTuck";
+import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
 import { composerHoldsDraft } from "./conversation/wakeFolds";
 import {
@@ -1623,12 +1623,14 @@ function ComposerFrame({
       following,
       ridesToLatest: shouldScrollToBottomAfterSend(scrollToBottomOnSend, following),
     });
+    // Its copy is the prompt as sent: a send taken later clears a composer that may hold the next draft.
+    const tuck = tucks ? tuckContent(composerBox.current, marked.text) : undefined;
     const taken = onSend(marked.text, sent, steer, kept);
     if (taken === false || taken instanceof Promise) keepSendOrigins();
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
     const clear = (rest = "") => {
-      if (tucks) tuckSent(composerBox.current, marked.text);
+      if (tuck) tuckSent(composerBox.current, tuck);
       const went = new Set(sent.map((attachment) => attachment.id));
       box.current?.sent(went);
       setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));

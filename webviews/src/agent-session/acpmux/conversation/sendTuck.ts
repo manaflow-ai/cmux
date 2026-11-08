@@ -52,12 +52,19 @@ const MAX_CHIPS = 3;
 /// The tuck now drawing, if any: a new send ends it first.
 let running: (() => void) | undefined;
 
-/// Draws the tuck of a prompt sent from the composer `box` (`.acpmux-composer-box`) with `text`; call
-/// it before the composer clears, while its chips are still drawn. Draws nothing when motion is off,
-/// when the composer is not in a pane, or for `none`.
-export function tuckSent(box: HTMLElement | null | undefined, text: string): void {
+/// The copy that tucks away, taken at the send: the composer may hold the next draft by the time a
+/// send the host takes later clears it.
+export function tuckContent(box: HTMLElement | null | undefined, text: string): HTMLElement | undefined {
+  if (!box?.isConnected) return undefined;
+  return ghostOf(box.ownerDocument, box, text);
+}
+
+/// Draws the tuck of a prompt sent from the composer `box` (`.acpmux-composer-box`), with `sent` its
+/// copy (`tuckContent`, taken at the send while its chips were still drawn). Draws nothing when
+/// motion is off, when the composer is not in a pane, or for `none`.
+export function tuckSent(box: HTMLElement | null | undefined, sent: HTMLElement | undefined): void {
   running?.();
-  if (!box?.isConnected) return;
+  if (!box?.isConnected || !sent) return;
   const doc = box.ownerDocument;
   const view = doc.defaultView;
   const main = box.closest<HTMLElement>(".acpmux-main");
@@ -67,8 +74,7 @@ export function tuckSent(box: HTMLElement | null | undefined, text: string): voi
   if (style === "none" || motionMode(doc) !== "full" || !entranceAllowed(doc)) return;
   const duration = sendMs(box);
   if (!(duration > 0)) return;
-  const ghost = ghostOf(doc, box, text);
-  if (!ghost) return;
+  const ghost = sent;
 
   const mainBox = main.getBoundingClientRect();
   const edge = box.getBoundingClientRect().top - mainBox.top;
