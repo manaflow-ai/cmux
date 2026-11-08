@@ -44,6 +44,10 @@ jobs:
           # The plan reads each highlight's first commit (its age).
           fetch-depth: 0
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
           persist-credentials: false
 
       - name: Plan the states to render
