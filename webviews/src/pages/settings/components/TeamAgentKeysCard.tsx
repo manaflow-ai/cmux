@@ -185,10 +185,11 @@ function KeyForm({ row, keys, onDone }: { row: TeamAgentKeyRow; keys: TeamAgentK
       />
       <div className="accounts-buttons">
         <Button
-          type="submit"
+          type="button"
           className="button"
           data-agent-key-action="save"
           disabled={keys.busy || secret.trim() === ""}
+          onClick={send}
         >
           {labels.save}
         </Button>

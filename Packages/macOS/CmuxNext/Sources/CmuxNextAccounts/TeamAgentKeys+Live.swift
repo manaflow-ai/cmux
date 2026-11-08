@@ -1,6 +1,5 @@
 public import CmuxNextCloud
-import CmuxNextPages
-import CmuxNextSettings
+public import CmuxNextSettings
 public import Foundation
 
 extension TeamAgentKeys {

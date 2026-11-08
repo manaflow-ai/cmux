@@ -54,7 +54,7 @@ public final class TeamAgentKeys {
     public var canManage: Bool { loaded && manage }
     public var currentAgents: [JSONValue] { loaded ? rows : [] }
     var currentProblem: Problem? { problem.flatMap { $0.scope == scope() ? $0 : nil } }
-    var currentDone: (agent: String, removed: Bool)? { done.flatMap { $0.scope == scope() ? ($0.agent, $0.removed) : nil } }
+    var currentDone: (agent: String, removed: Bool)? { done.flatMap { $0.scope == scope() ? (agent: $0.agent, removed: $0.removed) : nil } }
 
     /// `team.agent_key.status` for the active team; on Settings mount, focus, refresh and a team switch.
     public func refresh() async { await run(nil) { _, _ in } }
@@ -129,11 +129,15 @@ public final class TeamAgentKeys {
         }
     }
 
-    /// A lost answer or an unreachable owner may hide a write: its key is kept for the retry.
+    /// A lost answer, an unreachable owner or an answer that arrived after an account switch may
+    /// hide a write: its key is kept for the retry. Only a definitive refusal drops it.
     private nonisolated static func mayHaveWritten(_ error: any Error) -> Bool {
         guard let failure = error as? Failure else { return true }
-        if case .refused(let code) = failure { return code == "owner.unreachable" }
-        return false
+        switch failure {
+        case .refused(let code): return code == "owner.unreachable"
+        case .changedAccount: return true
+        case .invalidReply: return false
+        }
     }
 
     private nonisolated static func code(_ error: any Error) -> String {
