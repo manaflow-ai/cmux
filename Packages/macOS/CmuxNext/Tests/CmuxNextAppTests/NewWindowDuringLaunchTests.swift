@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextAppCore
 @testable import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
@@ -46,6 +47,7 @@ import Testing
         let services = try Self.launching()
         let launch = services.windows.makeController(for: WindowRegistry.Window(id: Self.launchID))
         defer { launch.teardown(); launch.window?.close() }
+        #expect(services.windows.restoresSession(Self.launchID))
         let shown = await RapidWorkspaceCreateTests.wait(within: .seconds(5)) { Self.loadingBars(launch) == SidebarSeed.placeholderCount }
         #expect(shown, "the launch window never drew the connecting machine's loading bars")
     }
@@ -79,5 +81,17 @@ import Testing
         let launch = services.windows.makeController(for: WindowRegistry.Window(id: Self.launchID))
         defer { launch.teardown(); launch.window?.close() }
         #expect(launch.window?.animationBehavior == NSWindow.AnimationBehavior.none)
+    }
+
+    /// A saved window the restore opens is the launch's too, until the launch ends; after it nothing is.
+    @Test func savedWindowsRestoreOnlyWhileTheLaunchRuns() throws {
+        let services = try Self.launching()
+        let windows = services.windows
+        windows.previousLaunch = PreviousLaunch(windowIDs: ["saved-1"], restoredAtMs: 0)
+        #expect(windows.restoresSession("saved-1"))
+        #expect(!windows.restoresSession("new-window-38128"))
+        windows.registry.isLaunching = false
+        #expect(!windows.restoresSession("saved-1"))
+        #expect(!windows.restoresSession(Self.launchID))
     }
 }
