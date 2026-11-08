@@ -1,0 +1,73 @@
+import AppKit
+@testable import CmuxNextApp
+import CmuxNextBridge
+@testable import CmuxNextLayout
+@testable import CmuxNextTerminal
+import CmuxNextTestSupport
+import Foundation
+import GhosttyNextKit
+import Testing
+
+/// RESIZE P0 13, KEY SNAP GRID (films px-keys-single-3k-s1r under Reduce Motion, cmux21 1x 120 Hz: a band in the frame
+/// that shows the press, 3 of 3 films, the same on v3 = #38125). Under Reduce Motion (or with pane animations off) a
+/// keyboard resize press snaps: no spring, so no refresh draws its size ahead (`drawAheadOfKeyPress` returns), and the
+/// press presented in the key's own turn. Each terminal took its new size in that turn's commit, before its program
+/// had its new grid, so the frame that showed the press showed the program's old picture clipped or padded at the new
+/// size (trace keys-single RM: the divider at sample 297, a size-only commit at 298).
+///
+/// The rule, as for a key spring's first refresh (RESIZE P0 11) and a snapped close (CLOSE MOTION 3): the key's turn
+/// gives each resized terminal its new size ahead WITH its grid, and the snap shows at the next frame tick. A close or
+/// a zoom snap keeps its rule (its grid goes when it shows, m58: ``ReduceMotionPaneCloseFrameTests``).
+///
+/// p1 | p2 | p3 (``ReduceMotionPaneCloseFrameTests/ThreePanes``: terminals in the app's pane content, Reduce Motion on,
+/// the frames stepped by the test). Ctrl-Shift-L on p2 moves the divider between p2 and p3.
+@MainActor @Suite(.serialized, .closesItsWindows, .timeLimit(.minutes(1)),
+                  .enabled(if: ["CMUX_TEST_REQUIRE_GUI", "CMUX_CI_DISPLAY_ROUTED"].contains { ProcessInfo.processInfo.environment[$0] == "1" }))
+struct ReduceMotionKeyResizeGridTests {
+    typealias Screen = ReduceMotionPaneCloseFrameTests.ThreePanes
+
+    @Test func aReduceMotionKeyPressSendsEachResizedTerminalsGridBeforeItsNewSizeShows() async throws {
+        let screen = try await Screen()
+        defer { screen.close() }
+        let panes: [PaneID] = ["p1", "p2", "p3"]
+        let hosts = try panes.map { try #require(screen.root.context.hosts[$0], "no host for \($0.rawValue)") }
+        let frames = hosts.map(\.frame)
+        let grids = screen.sessions.map(\.surfaceView.fittedGrid)
+
+        let reports = TerminalSurfaceView.gridReports
+        try #require(PaneResize.press("p2", .right, model: screen.model, view: screen.root), "Ctrl-Shift-L on p2 moved nothing")
+        await TerminalKeyResizeFrameTests.commit() // the key's turn, its presenter pass and its commit
+        let movedInKeyTurn = panes.indices.filter { hosts[$0].frame != frames[$0] }.map { panes[$0].rawValue }
+        let keyTurnGrids = TerminalSurfaceView.gridReports - reports
+
+        // The renderer gets the time the app gives it before the next refresh (here: until each size drawn ahead is drawn,
+        // at most 1 s), then the first frame tick shows the snap.
+        _ = await ReduceMotionPaneCloseFrameTests.commits(screen, seconds: 1) { screen in
+            screen.sessions.allSatisfy { session in
+                let view = session.surfaceView, state = view.hostFrame(present: false)
+                return view.frameOwnership.ahead == nil || state == GHOSTTY_HOST_FRAME_READY || state == GHOSTTY_HOST_FRAME_SHOWN
+            }
+        }
+        _ = screen.root.advanceFrame(1.0 / 120)
+        screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, as the frame tick runs it
+        await TerminalKeyResizeFrameTests.commit()
+        let resized = panes.indices.filter { hosts[$0].frame.size != frames[$0].size }
+        try #require(!resized.isEmpty, "no pane changed size by the first frame after the press")
+        let changedGrid = resized.filter { screen.sessions[$0].surfaceView.fittedGrid != grids[$0] }
+        try #require(!changedGrid.isEmpty, "no resized terminal fits a new grid: the press is too small to test")
+
+        #expect(movedInKeyTurn.isEmpty,
+                "the key's turn showed \(movedInKeyTurn) at their new frames before their programs had their grids: a Reduce Motion press shows at the next frame tick")
+        #expect(keyTurnGrids == UInt64(changedGrid.count),
+                "the key's turn sent \(keyTurnGrids) grids for \(changedGrid.count) terminals with a new grid: each goes with its size drawn ahead, in the key's turn")
+        #expect(TerminalSurfaceView.gridReports - reports == keyTurnGrids,
+                "the first frame sent \(TerminalSurfaceView.gridReports - reports - keyTurnGrids) more grids after the key's turn")
+        for index in resized {
+            let session = screen.sessions[index], view = session.surfaceView, host = session.view
+            let area = host.surfaceSize(forHostSize: host.bounds.size), layer = view.layer?.bounds.size ?? .zero
+            let scale = view.layer?.contentsScale ?? 2
+            #expect(abs(layer.width - area.width) * scale <= 1 && abs(layer.height - area.height) * scale <= 1,
+                    "the first frame showed \(panes[index].rawValue)'s terminal layer at \(layer) in a \(area) area")
+        }
+    }
+}
