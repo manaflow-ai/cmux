@@ -40,7 +40,9 @@ struct SidebarPinFlight {
     func start(_ token: MotionSpring, now: CFTimeInterval) {
         SidebarDragSpring.fly(view, from: start(now), token, now: now)
         if let title { SidebarDragSpring.offset(title.view, by: title.offset, token, now: now) }
+        if let glyph { SidebarDragSpring.attach(glyph) }
         if let layer = glyph?.layer { SidebarDragSpring.appear(layer, token, now: now) }
+        revealed.forEach(SidebarDragSpring.attach)
         for layer in revealed.compactMap(\.layer) { SidebarDragSpring.appear(layer, token, now: now) }
     }
 
@@ -305,7 +307,12 @@ extension SidebarListViewComponents {
     @discardableResult
     private func raiseForFlight(_ view: NSView) -> SidebarFlightGround? {
         view.layer?.zPosition = 1
-        guard view is SidebarItemRowView || view is WorkspaceRowView, let layer = view.layer else { return nil }
+        // A list row paints its own fill on its layer at every display pass: it keeps the ground under that fill.
+        if let row = view as? WorkspaceRowView {
+            row.flightGround = Palette.sidebarBackground
+            return nil
+        }
+        guard view is SidebarItemRowView, let layer = view.layer else { return nil }
         let before = SidebarFlightGround(color: layer.backgroundColor, cornerRadius: layer.cornerRadius)
         var ground: CGColor?
         view.effectiveAppearance.performAsCurrentDrawingAppearance { ground = Palette.sidebarBackground.withAlphaComponent(1).cgColor }
@@ -320,6 +327,7 @@ extension SidebarListViewComponents {
     static func landFlights(_ flights: [SidebarPinFlight]) {
         for flight in flights {
             flight.view.layer?.zPosition = 0
+            (flight.view as? SidebarRowView)?.flightGround = nil
             if let block = flight.view.enclosingRow { block.layer?.zPosition = 0 }
             if let ground = flight.ground {
                 Motion.withoutAnimation {

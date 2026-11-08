@@ -135,6 +135,13 @@ struct SidebarPinFlightTests {
             }
         }
 
+        /// Why it shows or not at `time` (a failure's detail): attached, opacity, size and the view's type.
+        func describe(at time: CFTimeInterval) -> String {
+            let size = self.size.value(at: time)
+            let opacity = nodes.reduce(Float(1)) { $0 * $1.opacity(time) }
+            return "\(type(of: view)) attached \(attached) size \(size.x)x\(size.y) exact \(self.size.isExact) opacity \(opacity)"
+        }
+
         /// Its frame in the list and its opacity at `time`, clipped by the containers that clip; nil when nothing shows.
         func shown(at time: CFTimeInterval) -> (frame: CGRect, opacity: Float)? {
             guard attached else { return nil }
@@ -191,7 +198,8 @@ struct SidebarPinFlightTests {
     static func one(_ probes: [Probe], at time: CFTimeInterval) -> Result<CGRect, Failure> {
         let shown = probes.compactMap { $0.shown(at: time) }
         guard shown.count == 1 else {
-            return .failure(Failure(text: "\(shown.count) copies show: \(shown.map { "\($0.frame) at \($0.opacity)" })"))
+            return .failure(Failure(text: "\(shown.count) copies show: \(shown.map { "\($0.frame) at \($0.opacity)" }) of "
+                + "\(probes.map { $0.describe(at: time) })"))
         }
         return .success(shown[0].frame)
     }
@@ -256,6 +264,11 @@ struct SidebarPinFlightTests {
     /// The flying view hides what it passes (p1 films 31fec6d8: its title printed over the rows' titles): it draws
     /// above them on an opaque ground of its own while it flies.
     static func checkOpaque(_ name: String, _ view: NSView, failures: inout [String]) {
+        // The next display pass paints the row's own fill (its selection) on its layer: the ground must survive it.
+        if let row = view as? SidebarRowView {
+            row.isSelected = true
+            row.updateLayer()
+        }
         let alpha = view.layer?.backgroundColor?.alpha ?? 0
         if alpha < 1 { failures.append("\(name): flies see-through (ground alpha \(alpha))") }
         if (view.layer?.zPosition ?? 0) < 1 { failures.append("\(name): flies under the rows it passes") }
@@ -459,5 +472,36 @@ struct SidebarPinFlightTests {
         }
         #expect(probes.allSatisfy { !$0.size.moves(after: now) && $0.nodes.allSatisfy { !$0.position.moves(after: now) } },
                 "a copy still moves with motion off")
+    }
+
+    /// A pin's Pinned item is made in the apply that flies it. AppKit puts a new subview's layer into its superview's
+    /// layer only at a later display pass, and Core Animation drops every animation added to the layer before that: in
+    /// the app the item's move springs stopped unfinished about one frame in (diag build: didStop finished=false at
+    /// +10 ms, no remove call), so the item showed at its Pinned slot at once and never flew. The flight must start on a
+    /// layer that is in its superview's layer, and still fly frames later.
+    @Test func aNewItemsFlightSurvivesItsLayerJoiningTheTree() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 300, height: 300), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 300))
+        host.wantsLayer = true
+        window.contentView?.addSubview(host)
+        window.orderFrontRegardless()
+        window.displayIfNeeded()
+        CATransaction.flush()
+        let item = SidebarItemRowView()
+        item.frame = NSRect(x: 0, y: 40, width: 200, height: 24)
+        host.addSubview(item)
+        SidebarDragSpring.fly(item, from: NSRect(x: 6, y: 160, width: 196, height: 24), now: SidebarPinFlight.begin(in: item))
+        let layer = try #require(item.layer)
+        #expect(layer.superlayer === host.layer, "the flight started on a layer that is not in its superview's layer")
+        window.displayIfNeeded()
+        CATransaction.flush()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        let moves = (layer.animationKeys() ?? []).filter { $0.hasPrefix("\(SidebarDragSpring.batchKey).position") }
+        #expect(!moves.isEmpty, "the new item's move is gone 50 ms in (its keys: \(layer.animationKeys() ?? []))")
     }
 }

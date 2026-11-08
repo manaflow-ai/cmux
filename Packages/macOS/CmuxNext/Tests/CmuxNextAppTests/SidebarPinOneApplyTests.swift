@@ -35,19 +35,30 @@ struct SidebarPinOneApplyTests {
         return (SidebarLayoutDocument(sections: [top, section]), sections)
     }
 
+    /// The item infos the app gives every workspace the document holds (`SidebarWorkspaceItems.workspaceInfos`): each
+    /// names its workspace, which the list's pin motion reads to find the item that draws it.
+    static func infos() -> [LayoutItemID: SidebarItemInfo] {
+        Dictionary(uniqueKeysWithValues: ([anchor] + listed).map { workspace in
+            var info = SidebarItemInfo(title: workspace.rawValue, symbol: "terminal")
+            info.workspace = workspace
+            return (item(workspace).id, info)
+        })
+    }
+
     final class Harness {
         let model: SidebarModel
         let sidebar: SidebarView
         let window: NSWindow
         var list: SidebarListView { sidebar.list }
 
-        init(pins: [WorkspaceID]) {
+        init(pins: [WorkspaceID], active: WorkspaceID? = nil) {
             _ = NSApplication.shared
             let (layout, sections) = SidebarPinOneApplyTests.state(pins)
-            model = SidebarModel(sections: sections, activeWorkspaceID: nil)
+            model = SidebarModel(sections: sections, activeWorkspaceID: active)
             model.docDrag = SidebarDocDrag(item: { _ in nil }, section: { _ in nil }, begin: { _ in [:] }, drop: { _, _ in },
                                            adoptRef: { _ in nil })
             model.layout = layout
+            model.itemInfo = SidebarPinOneApplyTests.infos()
             sidebar = SidebarView(model: model, design: DesignSettings.shared)
             sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 560)
             window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 560), styleMask: [.titled],
@@ -106,5 +117,60 @@ struct SidebarPinOneApplyTests {
                     "\(name): apply \(index) of \(seen.count) draws d in rows \(apply.rows), in blocks \(apply.blocks)")
         }
         if let last = seen.last { #expect(last.rows == !pin && last.blocks == pin, "\(name): the last apply is not the change") }
+    }
+
+    /// How the app's pin reaches the sidebar: the document and the rows in one render, or in two renders either way
+    /// round (the doc store and the daemon's rows are separate observations).
+    enum Arrival: CaseIterable { case together, layoutThenRows, rowsThenLayout }
+
+    /// The pin as the app sends it (p1j films at 90274b0: the item showed at its Pinned slot at once and never flew, while
+    /// the harness's list-only pin flew): `d` is the active workspace, the change reaches the sidebar as `arrival` says,
+    /// each render followed by its layout pass. The item that draws `d` in Pinned must fly from where its row was drawn:
+    /// it carries a move spring that starts on the row's frame, not on its slot.
+    @Test(arguments: Arrival.allCases, [false, true])
+    func anAppPinFliesTheItemFromItsRow(arrival: Arrival, active: Bool) {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let h = Harness(pins: [], active: active ? Self.moved : nil)
+        defer { h.window.close() }
+        guard let row = h.list.rowViews[.workspace(Self.moved)] else { return #expect(Bool(false), "d has no row before the pin") }
+        let rowFrame = h.list.convert(row.bounds, from: row)
+        let (layout, sections) = Self.state([Self.moved])
+        h.model.noteUserIntent()
+        func pass() {
+            h.sidebar.renderNow()
+            h.sidebar.layoutSubtreeIfNeeded()
+        }
+        switch arrival {
+        case .together:
+            h.model.layout = layout
+            h.model.sections = sections
+            pass()
+        case .layoutThenRows:
+            h.model.layout = layout
+            pass()
+            h.model.sections = sections
+            pass()
+        case .rowsThenLayout:
+            h.model.sections = sections
+            pass()
+            h.model.layout = layout
+            pass()
+        }
+        // The app's turns after the change (its layout pass, the selection's repaint, the display): the flight must
+        // still be on the item a few frames in, not only at the end of the apply's turn.
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        let name = "\(arrival)\(active ? " (active)" : "")"
+        guard let item = h.list.blockRegions.lazy.compactMap({ $0.itemView(workspace: Self.moved) }).first, let layer = item.layer else {
+            return #expect(Bool(false), "\(name): no Pinned item draws d")
+        }
+        let moves = (layer.animationKeys() ?? []).filter { $0.hasPrefix("\(SidebarDragSpring.batchKey).position") }
+            .compactMap { layer.animation(forKey: $0) as? CABasicAnimation }
+        #expect(!moves.isEmpty, "\(name): the Pinned item does not fly (its keys: \(layer.animationKeys() ?? []))")
+        // The additive spring's start offset: the item starts where the row was drawn, \(rowFrame.minY) in the list.
+        let slot = h.list.convert(item.bounds, from: item)
+        let offset = moves.compactMap { ($0.fromValue as? NSValue)?.pointValue.y }.reduce(0, +)
+        #expect(abs(abs(offset) - abs(rowFrame.minY - slot.minY)) < 3,
+                "\(name): the item starts \(offset) pt off its slot, the row was \(rowFrame.minY - slot.minY) pt off")
     }
 }

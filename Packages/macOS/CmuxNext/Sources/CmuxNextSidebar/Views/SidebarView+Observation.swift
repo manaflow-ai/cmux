@@ -178,7 +178,12 @@ extension SidebarViewComponents {
         // now, not at the next layout pass, so the list reloads once with both (ptr8: a settle on the rows alone showed
         // the stale blocks for a frame: the dragged tile back in Pinned, the rows bumped, the card aimed 24 pt off; a
         // pin's row closed one apply before its Pinned item came, a pass later: the p1 films' 20 ms split, cx-odqn).
-        if listChanged, profilesChanged, !profileChanged, model.docDrag != nil, labPinFlies() || list.settling != nil || list.landing != nil {
+        // The rows alone changed but list or drop a workspace a block holds (a pin whose document came a render
+        // earlier): its item comes or goes in this reload too. O(the blocks' workspaces), each an O(1) lookup.
+        // MOTION LAB (motion-lab-nomerge only): P0 keeps the pre-flight rule (a settle or a landing only).
+        let docListingChanged = labPinFlies() && rowsChanged && docWorkspaceListing.contains { model.lists($0.key) != $0.value }
+        if listChanged, profilesChanged || docListingChanged, !profileChanged, model.docDrag != nil,
+           labPinFlies() || list.settling != nil || list.landing != nil {
             updateBands(reloadsList: false)
         }
         if listChanged {

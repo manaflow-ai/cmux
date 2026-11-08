@@ -1709,15 +1709,12 @@ An empty group now keeps only its header at rest. The header's existing + appear
   between the two slots move on the rows' one `.move` spring (critically damped, no overshoot) from rest. Motion off
   or Reduce Motion: the final state in one frame. Regression: `SidebarPinFlightTests`.
 - An unpin's row is not a new workspace: it never takes the create's splice or the `newWorkspace` animation switch.
-- The app's pin reaches the list in two updates (the rows, then the blocks a frame or two later): the leaving row
-  stays where it is drawn until the block's item takes over its frame (at most 250 ms, then it goes at once).
-- In the app the document's pin state comes with the blocks, so at the rows' update the row closes as usual (no wait
-  at the key); when the block comes, its item flies from where the closing row is drawn and the row goes.
-- The app can also send an unpin's rows first while the block still lists the item: the row moves from the item and
-  the item hides until the blocks' update takes it out (it shows again after 250 ms if none comes).
-- An unpin reaches it the other way (the blocks, then the rows): the block's item stays where it is drawn
-  (`SidebarRegionView.heldWorkspaces`) until the row takes over its frame (at most 250 ms, then it goes at once).
-- Gap: the first pin, which creates the Pinned block, still opens that block with its own fade.
+- One apply, no holds: the list gets the rows and the blocks together, and a block never draws a workspace the rows
+  still list. The document and the rows are separate observations: when the document comes a render first, the item
+  waits for the render that closes the row, so the flight starts on the row's frame in that one apply (it started
+  17 pt off before: the block had grown under the row first). The 250 ms holds and their fallbacks no longer exist.
+- The first pin, which creates the Pinned block, translates too: the block shows at once and its header fades in on
+  the move.
 
 ## Reviewed behavior-only commits
 
@@ -1743,3 +1740,11 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   the bounded pin holds and their asyncAfter fallbacks are removed; the flying row gets an opaque ground and the pin glyph an
   opacity spring on the move's curve. `MotionPath` honors backwards fill. Sidebar-Look: Lawrence m70 (above). Draft PR #38267.
   Then the first pin's new Pinned block no longer fades its flying item in (`revealOpeningBlock`).
+  Then a new pinned item's pin glyph has its own layer from its init, so the flight's fade applies (it showed at once).
+  Then a block never draws a workspace the rows still list (`SidebarView.docWorkspaceListing`): a pin whose document
+  comes a render before its rows starts on the row, not 17 pt off.
+  Then the app pin flies: a flight puts a new view's layer into its superview's layer before it adds the springs
+  (`SidebarDragSpring.attach`). AppKit attached a new Pinned item's layer only at its display pass, and Core Animation
+  dropped the springs added before that, so the item showed at its slot at once.
+  Then a flying list row keeps its opaque ground through its own display pass (`SidebarRowView.flightGround`: the fill is
+  painted over the ground, opaque); the p1j films showed the passed titles through a flying selected row.
