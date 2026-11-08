@@ -2951,4 +2951,77 @@ mod tests {
         assert!(last.get("finished_at_ms").is_some_and(Value::is_string), "{record}");
         assert!(last.get("started_at_ms").is_some_and(Value::is_string), "{record}");
     }
+
+    fn capture_diagnostics(mux: &Mux) -> Arc<std::sync::Mutex<Vec<String>>> {
+        let diagnostics = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = diagnostics.clone();
+        assert!(mux.set_diagnostic_reporter(Arc::new(move |message| {
+            sink.lock().unwrap().push(message.to_string());
+        })));
+        diagnostics
+    }
+
+    #[test]
+    fn a_failed_outcome_commit_reports_its_cause_to_the_daemon_log() {
+        let (mux, _surface, selectors) = terminal_fixture(None);
+        let diagnostics = capture_diagnostics(&mux);
+        mux.reject_resource_effect_commits_for_test();
+
+        let error = dispatch(
+            &mux,
+            parsed_request(
+                "terminal.input.write",
+                &selectors,
+                json!({"text":"echo cause\n"}),
+                Some("terminal-write-commit-cause"),
+            ),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "mutation.indeterminate");
+        let diagnostics = diagnostics.lock().unwrap();
+        assert!(
+            diagnostics.iter().any(|message| message.contains("terminal.input.write")
+                && message.contains("terminal-write-commit-cause")
+                && message.contains("injected outcome commit failure")),
+            "the daemon log has no cause for the indeterminate outcome: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn an_unconfirmed_terminal_input_reports_its_kind_but_no_private_detail() {
+        let (mux, _surface, _selectors) = terminal_fixture(None);
+        let diagnostics = capture_diagnostics(&mux);
+        let private = "internal socket /private/terminal.sock token=secret-test-value";
+        let failure = crate::surface::ConfirmedInputFailure::Indeterminate(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            private,
+        ));
+        let prepared = PreparedEffect {
+            idempotency_key: "terminal-write-transport-cause".into(),
+            operation: "terminal.input.write".into(),
+            fingerprint: json!({}),
+            intent: json!({}),
+        };
+
+        let error = finish_action_failure(
+            &mux,
+            prepared,
+            confirmed_input_error("terminal.input.write", failure),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "mutation.indeterminate");
+        assert!(!error.details.to_string().contains(private));
+        let diagnostics = diagnostics.lock().unwrap();
+        assert!(
+            diagnostics.iter().any(|message| message.contains("terminal-write-transport-cause")
+                && message.contains("TimedOut")),
+            "the daemon log has no cause for the unconfirmed input: {diagnostics:?}"
+        );
+        assert!(
+            diagnostics.iter().all(|message| !message.contains("secret-test-value")),
+            "raw transport text reached the daemon log: {diagnostics:?}"
+        );
+    }
 }
