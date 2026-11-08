@@ -41,15 +41,16 @@ import Testing
         for descriptor in SettingsSchema.all {
             let key = JSONValue.string(descriptor.id)
             let before = settings.validatedWrites[descriptor.id, default: 0]
-            // A write of the default removes the key (#38119): the file then keeps nothing.
-            let stored: JSONValue? = settings.isUnsetValue(descriptor.sampleValue, of: descriptor) ? nil : descriptor.sampleValue
+            // A write of the default removes the key (#38119): the file then keeps nothing. `.none`, not a nil
+            // literal: JSONValue is ExpressibleByNilLiteral, so `nil` here would be the JSON null, `.null`.
+            let stored: JSONValue? = settings.isUnsetValue(descriptor.sampleValue, of: descriptor) ? .none : .some(descriptor.sampleValue)
             let set = await call(router, "settings.set", ["path": key, "value": descriptor.sampleValue, "confirm": true])
             #expect((try? set.get()) != nil, "\(descriptor.id): \(set)")
             #expect(settings.validatedWrites[descriptor.id, default: 0] == before + 1, "\(descriptor.id) skipped the settings owner")
             // value(at:) throws on a file that does not parse; a missing file must not pass for "absent" either.
             let read = try await settings.file.value(at: descriptor.path)
             #expect(read == stored, "\(descriptor.id)")
-            if stored == nil {
+            if case .none = stored {
                 #expect(FileManager.default.fileExists(atPath: directory.appending(path: "cmux.json").path), "\(descriptor.id): cmux.json is gone")
             }
             guard case .failure(let refused) = await call(router, "settings.set", ["path": key, "value": ["wrong": true]]) else {
