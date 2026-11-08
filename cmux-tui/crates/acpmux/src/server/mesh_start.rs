@@ -29,6 +29,11 @@
 //! starter's policy goes on as over a link (`forward_starter_policy`). The VM-boundary opt-out
 //! (`hub/vm_boundary.rs`) is not sent: it is a linked peer's setting, and without it the chat
 //! keeps the platform sandbox, which fails safe.
+//!
+//! A marked start goes as control body version 2 (`mesh_control::MARKED_START_VERSION`): a
+//! machine takes it only if it keeps that gate. One on an older cmux refuses the version before
+//! anything runs, and the pane hears `mesh.trust_unsupported`: update cmux on that machine. The
+//! hub's book carries no feature list, so the start itself is the probe.
 
 use super::*;
 use crate::mesh::{HubError, Sender};
@@ -110,6 +115,16 @@ async fn start(
                     .into_iter()
                     .find(|r| why.contains(r))
                     .unwrap_or("mesh.start_refused");
+                if why == "unsupported control body version" {
+                    return Err(RpcError::new(
+                        -32003,
+                        format!(
+                            "{host} runs an older cmux that cannot keep this chat behind its \
+                             folder-trust gate: update cmux on {host}"
+                        ),
+                    )
+                    .with_data(json!({"reason": "mesh.trust_unsupported", "peer": host})));
+                }
                 let said = if why == "mesh.control_not_allowed" {
                     "it takes no chats from this machine (its join was removed, or it is not this \
                      person's)"

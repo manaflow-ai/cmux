@@ -61,11 +61,18 @@ pub enum Command {
     Stop,
 }
 
+/// The start body's version for a start forwarded for a client (`_meta.acpmux.via`): a receiver
+/// that takes it gates the start and the prompts the hub relays to its chat by that mark; one from
+/// before refuses it as an unsupported version, so nothing starts there.
+pub const MARKED_START_VERSION: u64 = 2;
+
 impl Command {
     fn wire(&self) -> (&'static str, Value) {
         match self {
             Self::Start { params } => {
-                ("start", serde_json::json!({"version": 1, "params": params}))
+                let marked = params.get("_meta").and_then(|m| m.pointer("/acpmux/via")).is_some();
+                let version = if marked { MARKED_START_VERSION } else { 1 };
+                ("start", serde_json::json!({"version": version, "params": params}))
             }
             Self::Resume => ("resume", serde_json::json!({"version": 1})),
             Self::Stop => ("stop", serde_json::json!({"version": 1})),

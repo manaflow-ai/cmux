@@ -697,8 +697,16 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
         Ok(body) => body,
         Err(e) => return Some(Ack::refused(format!("invalid control body: {e}"))),
     };
-    if body.get("version").and_then(serde_json::Value::as_u64) != Some(1) {
-        return Some(Ack::refused("unsupported control body version"));
+    // Version 2 is a start forwarded for a client (`via`): taking it promises to gate the start
+    // and every prompt the hub relays to its chat by that mark (`hub_via`). A daemon from before
+    // that refuses it here, so nothing starts on a machine that would not keep the promise
+    // (`mesh_start.rs`, `mesh.trust_unsupported`).
+    let version = body.get("version").and_then(serde_json::Value::as_u64);
+    let marked = body.pointer("/params/_meta/acpmux/via").is_some();
+    match (version, op) {
+        (Some(1), _) => {}
+        (Some(2), "start") if marked => {}
+        _ => return Some(Ack::refused("unsupported control body version")),
     }
     let mut params = match op {
         "start" => {

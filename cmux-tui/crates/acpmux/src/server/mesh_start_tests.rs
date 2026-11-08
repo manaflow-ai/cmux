@@ -57,6 +57,9 @@ struct Loopback {
     hook: super::super::MeshControlHook,
     user: &'static str,
     says: HubSays,
+    /// B runs a cmux from before marked starts: it refuses any control body but version 1, as
+    /// such a daemon's `run_control` does.
+    old_receiver: bool,
     receipts: Mutex<std::collections::HashMap<String, Receipt>>,
 }
 
@@ -73,6 +76,7 @@ impl Loopback {
             hook,
             user: "person-1",
             says: HubSays::Lease,
+            old_receiver: false,
             receipts: Mutex::default(),
         }
     }
@@ -130,9 +134,18 @@ impl MeshHub for Loopback {
                 state: Some("queued".into()),
                 subject: None,
             };
-            let ack = super::super::deliver(&self.b, &message, &self.hook, Some("inst_b"))
-                .await
-                .expect("every message is answered");
+            let old = self.old_receiver
+                && serde_json::from_str::<Value>(&m.body)
+                    .ok()
+                    .and_then(|body| body.get("version").and_then(Value::as_u64))
+                    .is_some_and(|version| version != 1);
+            let ack = if old {
+                Ack::refused("unsupported control body version")
+            } else {
+                super::super::deliver(&self.b, &message, &self.hook, Some("inst_b"))
+                    .await
+                    .expect("every message is answered")
+            };
             let mut receipt: Receipt = serde_json::from_value(json!({
                 "messageId": id, "state": serde_json::to_value(ack.state).unwrap(), "createdAt": 1
             }))
@@ -408,5 +421,59 @@ async fn a_pane_chat_started_through_the_hub_keeps_the_trust_gate_for_its_prompt
         .find_map(|r| r.detail.clone())
         .unwrap_or_else(|| panic!("no relayed prompt was refused"));
     assert!(refusal.contains("trust.untrusted"), "{refusal}");
+    b.shutdown_all().await;
+}
+
+/// A pane start goes through the hub only to a machine that keeps its trust gate: one on an older
+/// cmux refuses the marked start's body version, nothing starts there, and the pane hears
+/// `mesh.trust_unsupported` with the machine to update.
+#[tokio::test]
+async fn a_pane_start_to_a_machine_on_an_older_cmux_is_refused_with_update_advice() {
+    let (dir, root, cwd) = project();
+    let b = machine_b(&root);
+    let gates = tempfile::tempdir().unwrap();
+    let paths = gate(&b, gates.path());
+    crate::trust::set(&paths, cwd.to_str().unwrap(), "trusted").unwrap();
+    let mut hub = Loopback::new(&b, dir.path(), Some("person-1"));
+    hub.old_receiver = true;
+    let a = machine_a(Arc::new(hub));
+    let refused = Client::app(&a)
+        .call("session/new", new_params(&cwd, "machine-b", "older"), &mut Vec::new())
+        .await;
+    assert_eq!(refused["error"]["data"]["reason"], "mesh.trust_unsupported", "{refused}");
+    let said = refused["error"]["message"].as_str().unwrap_or_default();
+    assert!(said.contains("update cmux on machine-b"), "{said}");
+    assert!(b.resolve("older").is_err(), "a chat started on a machine that cannot gate it");
+    b.shutdown_all().await;
+}
+
+/// The receiver takes version 2 only for a start that carries its client's mark.
+#[tokio::test]
+async fn a_version_2_body_is_taken_only_for_a_marked_start() {
+    let (dir, root, cwd) = project();
+    let b = machine_b(&root);
+    let hook = Loopback::new(&b, dir.path(), Some("person-1")).hook;
+    let send = |op: &str, body: Value| InMessage {
+        message_id: format!("msg_{}", uuid::Uuid::now_v7().simple()),
+        kind: crate::mesh::Kind::Control,
+        op: Some(op.into()),
+        mode: Default::default(),
+        to: Target::default(),
+        from: Sender {
+            daemon_id: Some("inst_a".into()),
+            user: Some("person-1".into()),
+            ..Sender::default()
+        },
+        body: body.to_string(),
+        attempt: 1,
+        start_work: None,
+        state: Some("queued".into()),
+        subject: None,
+    };
+    let unmarked = json!({"version": 2, "params": {"cwd": cwd, "name": "bare"}});
+    let ack = super::super::deliver(&b, &send("start", unmarked), &hook, Some("inst_b")).await;
+    let detail = ack.and_then(|a| a.detail).unwrap_or_default();
+    assert!(detail.contains("unsupported control body version"), "{detail}");
+    assert!(b.resolve("bare").is_err());
     b.shutdown_all().await;
 }
