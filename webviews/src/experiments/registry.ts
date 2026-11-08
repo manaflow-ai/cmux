@@ -65,8 +65,7 @@ import { liveBackground } from "../ui/liveBackground/liveBackground.experiment";
 import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
 import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLook.experiment";
 import { composerDeeplinkLook } from "../agent-session/acpmux/composer/deeplinkLook.experiment";
-import { pastedAgentLook } from "../agent-session/acpmux/conversation/pastedAgentLook.experiment";
-import { sentPasteLook } from "../agent-session/acpmux/conversation/sentPasteLook.experiment";
+import { sentPasteJoin } from "../agent-session/acpmux/conversation/sentPasteJoin.experiment";
 import { sentMessageLook } from "../agent-session/acpmux/conversation/sentMessageLook.experiment";
 import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experiment";
 import { contextRingMotion } from "../agent-session/acpmux/contextRingMotion.experiment";
@@ -154,8 +153,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerPlusCommands,
   promptSuggestionLook,
   composerDeeplinkLook,
-  pastedAgentLook,
-  sentPasteLook,
+  sentPasteJoin,
   sentMessageLook,
   contextRingLook,
   contextRingMotion,
