@@ -571,7 +571,36 @@ fn commits(repo: &Repo, scratch: &Scratch) -> Result<Commits, Fallback> {
     // the patterns; entries git keeps out of the working tree stay as they
     // are either way.
     let sparse_flag: &[&str] = if sparse.is_some() { &["--sparse"] } else { &[] };
-    run(repo.scratch_git(&index).args(["add", "-A"]).args(sparse_flag), "adding the working tree")?;
+    if skipped.is_empty() {
+        run(
+            repo.scratch_git(&index).args(["add", "-A"]).args(sparse_flag),
+            "adding the working tree",
+        )?;
+    } else {
+        // Git add writes blobs to the repository's real object store even
+        // with a scratch index. Removing a skipped secret from that index
+        // afterwards leaves its unreferenced blob behind, where a fallback
+        // whole-repository copy could send it to Cloud.
+        //
+        // Include everything except the skipped raw paths during the add.
+        // NUL-delimited literal pathspecs preserve odd/non-UTF-8 names and
+        // avoid treating characters such as '*' or '[' as patterns.
+        let list = scratch.0.join("add-pathspecs");
+        let mut paths = b".\0".to_vec();
+        for item in &skipped {
+            paths.extend_from_slice(b":(exclude,literal)");
+            paths.extend_from_slice(item.raw.strip_suffix(b"/").unwrap_or(&item.raw));
+            paths.push(0);
+        }
+        write(&list, paths)?;
+        run(
+            repo.scratch_git(&index)
+                .args(["add", "-A", "--pathspec-file-nul"])
+                .args(sparse_flag)
+                .arg(format!("--pathspec-from-file={}", list.display())),
+            "adding the working tree",
+        )?;
+    }
     if !skipped.is_empty() {
         let list = scratch.0.join("left-out");
         let mut paths = Vec::new();

@@ -1,7 +1,8 @@
 // Chief messages stay outside the run disclosure, with the agent pane's message rows.
 import { memo, useContext } from "react";
 import { useT } from "../../agent-session/acpmux/i18n";
-import { AgentMessageRow, messagePreview } from "../../agent-session/acpmux/conversation/AgentMessageRow";
+import { AgentMessageRow } from "../../agent-session/acpmux/conversation/AgentMessageRow";
+import { messagePreview } from "../../agent-session/acpmux/conversation/agentMessageRowModel";
 import { AgentMessageBody } from "../../agent-session/acpmux/conversation/AgentMessageBody";
 import { AgentNamesContext, recipientName } from "../../agent-session/acpmux/conversation/agentNames";
 import { MessageCard } from "../../agent-session/acpmux/conversation/MessageCard";

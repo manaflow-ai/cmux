@@ -1,14 +1,16 @@
+import CCmuxLayoutReducerFFI
 import CmuxNextAgentCursor
-import CmuxNextAgentCursorVisibility
+@testable import CmuxNextAgentCursorVisibility
 import CoreGraphics
 import Foundation
 import Testing
 
 /// Replays schemas/agent-cursor-visibility/vectors.json through the Swift
-/// resolver, which encodes the snapshot, calls the Rust rules over the app
-/// FFI (`agent_cursor_visibility`, cmux-focus-core) and decodes the answer. The rules
-/// themselves are proved in cmux-focus-core's own replay of the same file;
-/// this proves the wire between the two in both directions.
+/// resolver, which numbers the snapshot's ids, calls the Rust rules through
+/// the typed app FFI call (`cmux_agent_cursor_visibility`, cmux-focus-core)
+/// and reads the answer back. The rules themselves are proved in
+/// cmux-focus-core's own replay of the same file; this proves the boundary
+/// in both directions.
 struct AgentCursorVisibilityVectorTests {
     struct Expected: Decodable, Equatable {
         var kind: String
@@ -55,9 +57,21 @@ struct AgentCursorVisibilityVectorTests {
     @Test func everySharedVectorResolves() throws {
         let vectors = try Self.vectors()
         #expect(vectors.v == 1)
-        #expect(vectors.cases.count >= 26)
+        #expect(vectors.cases.count >= 27)
         for item in vectors.cases {
             let result = AgentCursorVisibilityResolver.resolve(target: item.target, in: item.snapshot)
+            #expect(Self.describe(result) == item.expect, "\(item.name)")
+        }
+    }
+
+    /// A kept resolver refills its arrays on each resolve: every vector, in
+    /// order and then reversed, gets its own answer, never a part of the last
+    /// snapshot (more windows, panes or ids before, fewer after).
+    @Test func aKeptResolverGivesEachSnapshotItsOwnAnswer() throws {
+        let cases = try Self.vectors().cases
+        var resolver = AgentCursorVisibilityResolver()
+        for item in cases + cases.reversed() {
+            let result = resolver.resolve(target: item.target, in: item.snapshot)
             #expect(Self.describe(result) == item.expect, "\(item.name)")
         }
     }
@@ -103,6 +117,53 @@ struct AgentCursorVisibilityVectorTests {
         page.snapshot.windows[0].panes[0].page?.scale = .infinity
         let viewport = CGRect(x: 0, y: 72, width: 500, height: 628)
         #expect(resolve(page) == .visible(window: "w1", viewport: viewport, clip: viewport, zoom: 1, scale: .infinity))
+    }
+
+    /// The anchor and reason numbers are written by hand in Swift and in the C
+    /// header: every case maps to the header constant of its name, both ways, so
+    /// a number that drifts fails here instead of the user's cursor.
+    @Test func everyAnchorAndReasonIsItsHeaderConstant() {
+        let anchors: [(AgentCursorAnchor, UInt32)] = [
+            (.tabChip, CMUX_CURSOR_ANCHOR_TAB_CHIP),
+            (.tabStrip, CMUX_CURSOR_ANCHOR_TAB_STRIP),
+            (.columnEdge(.leading), CMUX_CURSOR_ANCHOR_COLUMN_EDGE_LEADING),
+            (.columnEdge(.trailing), CMUX_CURSOR_ANCHOR_COLUMN_EDGE_TRAILING),
+            (.columnEdge(.top), CMUX_CURSOR_ANCHOR_COLUMN_EDGE_TOP),
+            (.columnEdge(.bottom), CMUX_CURSOR_ANCHOR_COLUMN_EDGE_BOTTOM),
+            (.workspaceRow, CMUX_CURSOR_ANCHOR_WORKSPACE_ROW),
+            (.windowEdge, CMUX_CURSOR_ANCHOR_WINDOW_EDGE),
+        ]
+        for (anchor, number) in anchors {
+            #expect(anchor.ffiNumber == number, "\(anchor)")
+            #expect(AgentCursorAnchor(ffiNumber: number) == anchor, "\(number)")
+        }
+        #expect(Set(anchors.map(\.1)).count == anchors.count, "anchor numbers are distinct")
+        #expect(AgentCursorAnchor(ffiNumber: 8) == nil)
+        let reasons: [(AgentCursorNotDrawnReason, UInt32)] = [
+            (.tabClosed, CMUX_CURSOR_REASON_TAB_CLOSED),
+            (.notInAnyWindow, CMUX_CURSOR_REASON_NOT_IN_ANY_WINDOW),
+            (.minimized, CMUX_CURSOR_REASON_MINIMIZED),
+            (.otherSpace, CMUX_CURSOR_REASON_OTHER_SPACE),
+        ]
+        for (reason, number) in reasons {
+            #expect(reason.ffiNumber == number, "\(reason)")
+            #expect(AgentCursorNotDrawnReason(ffiNumber: number) == reason, "\(number)")
+        }
+        #expect(Set(reasons.map(\.1)).count == reasons.count, "reason numbers are distinct")
+        #expect(AgentCursorNotDrawnReason(ffiNumber: 4) == nil)
+    }
+
+    /// The vectors reach every anchor through the Swift call (a case no vector
+    /// produces is only read, not tested).
+    @Test func theVectorsProduceEveryAnchor() throws {
+        var seen = Set<String>()
+        for item in try Self.vectors().cases {
+            if case let .hidden(_, anchor, _) = AgentCursorVisibilityResolver.resolve(target: item.target, in: item.snapshot) {
+                seen.insert(anchor.wireName)
+            }
+        }
+        #expect(seen == ["tabChip", "tabStrip", "columnEdge.leading", "columnEdge.trailing", "columnEdge.top",
+                         "columnEdge.bottom", "workspaceRow", "windowEdge"])
     }
 
     @Test(arguments: [AgentCursorAnchor.tabChip, .tabStrip, .columnEdge(.leading), .columnEdge(.trailing),

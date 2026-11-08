@@ -221,12 +221,12 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     await page.close();
   });
 
-  // The hover wave (the default, hoverWave.ts): one loop grows the bump in on the rail's spring over
-  // the micro step and eases it toward the pointer, then stops; leaving hands the ticks back to the
-  // rail's own transforms. Frames are read as painted; a CI runner's headless WebKit paces them
+  // The hover wave (the cosine arm, hoverWave.ts): one loop grows the bump in on the rail's spring
+  // over the micro step and eases it toward the pointer, then stops; leaving hands the ticks back to
+  // the rail's own transforms. Frames are read as painted; a CI runner's headless WebKit paces them
   // unevenly, so the checks hold at any pace.
   test("the wave grows the hovered tick to 26 px on the spring, stops when still, and clears on leave", async () => {
-    const page = await open(false);
+    const page = await open(false, "cosine-4");
     const point = await tickPoint(page, 5);
     await page.mouse.move(point.x + 300, point.y);
     await page.evaluate(() => {
@@ -266,6 +266,66 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
       ).length,
     }));
     expect(left).toEqual({ wave: false, written: 0 });
+    await settled(page);
+    const rest = await page.evaluate(
+      () =>
+        26 *
+        new DOMMatrixReadOnly(
+          getComputedStyle(document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar')!).transform,
+        ).a,
+    );
+    expect(Math.round(rest)).toBe(6);
+    await page.close();
+  });
+
+  // The zipper (the default, hoverWave.ts `ZipperWave`): the hovered tick grows to 26 px on its own
+  // ease, the loop stops when every tick is there, and leaving shrinks the ticks back to rest before
+  // the rail's own transforms take over again, with no property left behind.
+  test("the zipper grows the hovered tick to 26 px, stops when still, and clears once back at rest", async () => {
+    const page = await open(false);
+    const point = await tickPoint(page, 5);
+    await page.mouse.move(point.x + 300, point.y);
+    await page.evaluate(() => {
+      const probe = window as unknown as { __frames: { t: number; width: number }[]; __over?: number };
+      probe.__frames = [];
+      document.addEventListener("pointerover", () => (probe.__over = performance.now()), { once: true, capture: true });
+      const bar = document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar')!;
+      window.cmuxAfterPaint(() => {
+        probe.__frames.push({
+          t: performance.now(),
+          width: 26 * new DOMMatrixReadOnly(getComputedStyle(bar).transform).a,
+        });
+        return probe.__frames.length < 40;
+      });
+    });
+    await page.mouse.move(point.x, point.y);
+    await page.waitForFunction(() => (window as unknown as { __frames: unknown[] }).__frames.length >= 40);
+    await page.waitForSelector('.acpmux-minimap__rail[data-wave-state="still"]', { timeout: 5_000 });
+    const { over, frames } = await page.evaluate(() => {
+      const probe = window as unknown as { __frames: { t: number; width: number }[]; __over: number };
+      return { over: probe.__over, frames: probe.__frames.filter((frame) => frame.t >= probe.__over) };
+    });
+    expect(over).toBeGreaterThan(0);
+    // Never past 26 px (the ease does not overshoot), at 26 once its quick step has run.
+    for (const frame of frames) expect(frame.width).toBeLessThan(26.1);
+    const late = frames.filter((frame) => frame.t - over >= 140);
+    expect(late.length).toBeGreaterThan(0);
+    for (const frame of late) expect(Math.abs(frame.width - 26)).toBeLessThan(0.3);
+    await page.mouse.move(point.x + 300, point.y);
+    await page.waitForFunction(
+      () => !document.querySelector(".acpmux-minimap__rail")!.hasAttribute("data-wave"),
+      undefined,
+      {
+        timeout: 5_000,
+      },
+    );
+    const written = await page.evaluate(
+      () =>
+        [...document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick, .acpmux-minimap__tick *")].filter(
+          (tick) => tick.style.getPropertyValue("--acpmux-minimap-wave") !== "",
+        ).length,
+    );
+    expect(written).toBe(0);
     await settled(page);
     const rest = await page.evaluate(
       () =>

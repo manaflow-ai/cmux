@@ -17,12 +17,27 @@ public nonisolated struct InstalledImportBrowsers: Sendable {
 
     /// The installed browsers and their apps, in offer order (any thread).
     public func locate() -> [(browser: ImportBrowser, app: URL)] {
+        // Browsers, and apps that keep a browser profile (Claude, the ChatGPT app); WebKit
+        // apps import their cookies from WebKit's store (Orion, ChatGPT Classic).
         let candidates = ImportBrowser.allCases.filter { browser in
-            browser.kind == .browser && !browser.refusesSessionData && [.chromium, .firefox, .safari].contains(browser.family)
+            [.browser, .appWithEmbeddedBrowser].contains(browser.kind) && !browser.refusesSessionData
+                && [.chromium, .firefox, .safari, .webkit].contains(browser.family)
         }
         let rank = { (browser: ImportBrowser) in Self.leading.firstIndex(of: browser) ?? Self.leading.count }
         return candidates.sorted { rank($0) < rank($1) }.compactMap { browser in
             browser.bundleIDs.compactMap(appURL).first.map { (browser: browser, app: $0) }
         }
+    }
+}
+
+/// A browser on this Mac that cmux can import from, with its app icon
+/// (``InstalledImportBrowsers`` finds them).
+public struct InstalledImportBrowser {
+    public let browser: ImportBrowser
+    public let icon: NSImage
+
+    public init(browser: ImportBrowser, icon: NSImage) {
+        self.browser = browser
+        self.icon = icon
     }
 }

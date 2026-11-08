@@ -35,6 +35,8 @@ type Surface = { name: string; entry: string; variant: string; kind: "open" | "p
 const SURFACES: readonly Surface[] = [
   { name: "transcript", entry: "agent-pane.transcript", variant: "conversation", kind: "open" },
   { name: "composer", entry: "agent-pane.composer", variant: "new-chat", kind: "open" },
+  { name: "thread_rail", entry: "agent-pane.thread-minimap", variant: "first-paint", kind: "open" },
+  { name: "thread_rail_preview", entry: "agent-pane.thread-minimap", variant: "card-metadata", kind: "play" },
   { name: "chat_rail", entry: "agent-pane.chat-minimap", variant: "at-rest", kind: "open" },
   { name: "new_tab", entry: "agent-pane.new-tab-page", variant: "idle", kind: "open" },
   { name: "home", entry: "pages.home-channels", variant: "normal", kind: "open" },
@@ -86,7 +88,10 @@ async function round(
     colorScheme: "dark",
   });
   // The stage's first paint: its root holds the surface, no longer the "Loading …" placeholder (frame/main.ts).
-  await addStabilityProbe(context, { content: "#root:not(.gallery-frame-loading) > *" });
+  await addStabilityProbe(context, {
+    content: "#root:not(.gallery-frame-loading) > *",
+    traceBoxes: process.env.CMUX_STABILITY_TRACE === "1",
+  });
   const page = await context.newPage();
   const cdp = await cpuSession(page, isChromium);
   try {
@@ -100,7 +105,11 @@ async function round(
     });
     // Ready means the stage held still for 250 ms (frame/main.ts); a second more catches a late move.
     await page.waitForTimeout(1000);
-    const { lastChange, firstContent, actionStarts } = await settledAt(page);
+    const { lastChange, firstContent, actionStarts, boxChanges } = await settledAt(page);
+    if (boxChanges)
+      console.log(
+        `BOX_TRACE ${JSON.stringify({ engine: isChromium ? "chromium" : "webkit", surface: surface.name, firstContent, lastChange, boxChanges })}`,
+      );
     const reports = await page.evaluate((): Reports => ({
       ready: document.documentElement.dataset.galleryReady,
       load: (window as unknown as { cmuxGalleryLoadReport?: Reports["load"] }).cmuxGalleryLoadReport,
@@ -207,7 +216,7 @@ try {
           `${quiet.frames} ${quiet.idleCallbacks} ${quiet.animations}) | ${quiet.cpuMs === null ? "-" : quiet.cpuMs.toFixed(1)}` +
           (quiet.pageLoops === null ? "" : ` | page loops ${quiet.pageLoops}`),
       );
-      for (const source of quiet.sources.slice(0, 4)) console.log(`  woke: ${source}`);
+      for (const source of quiet.sources.slice(0, 12)) console.log(`  woke: ${source}`);
       for (const shift of rounds.at(-1)!.shifted.slice(0, 4)) console.log(`  shifted: ${shift}`);
       const name = `ui.${surface.name}${suffix}`;
       const target = surface.kind === "open" ? TARGET_MS.load : TARGET_MS.response;

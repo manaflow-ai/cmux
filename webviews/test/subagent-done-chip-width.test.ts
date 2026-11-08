@@ -5,7 +5,8 @@
 // agent-pane.subagent-done (subagents/SubagentDoneLine.gallery.tsx):
 // - a long name in a wide pane: the chip is wider than the old cap (40% of its sentence) and reaches
 //   the row's room, cut with an ellipsis;
-// - a failure's long error is cut before the chip;
+// - a failed line sits on the failed-line grid (subagent-failed-line.test.tsx): its title is plain
+//   text, not a chip, and its long reason is cut before the title;
 // - every line: the chevron's glyph starts within MAX_GAP px of the chip's right edge (or of the
 //   failure after it), nothing
 //   overflows the row, and the row stays one 22px line.
@@ -47,6 +48,7 @@ await requireBrowserLane("subagent-done-chip-width.test.ts", async () => {
   });
 
   type Line = {
+    grid: boolean;
     row: { left: number; right: number; height: number; overflow: number };
     chip: { width: number; right: number; cut: boolean; ellipsis: string; words: number };
     suffix: { cut: boolean; right: number } | null;
@@ -69,11 +71,13 @@ await requireBrowserLane("subagent-done-chip-width.test.ts", async () => {
       return await page.evaluate(() =>
         [...document.querySelectorAll(".cv-subagent-done-row")].map((row) => {
           const box = row.getBoundingClientRect();
-          const chip = row.querySelector(".cv-agent-tag")!;
+          const grid = row.getAttribute("data-look") === "grid";
+          const chip = row.querySelector(grid ? ".cv-subagent-failed__title" : ".cv-agent-tag")!;
           const chipBox = chip.getBoundingClientRect();
           const glyph = row.querySelector(".cv-subagent-done__chevron svg path")!.getBoundingClientRect();
           const time = row.querySelector(".cv-subagent-done__time")!.getBoundingClientRect();
           return {
+            grid,
             row: { left: box.left, right: box.right, height: box.height, overflow: row.scrollWidth - row.clientWidth },
             chip: {
               width: chipBox.width,
@@ -83,12 +87,14 @@ await requireBrowserLane("subagent-done-chip-width.test.ts", async () => {
               words: chip.scrollWidth,
             },
             suffix: (() => {
-              const suffix = row.querySelector(".cv-subagent-done__suffix");
+              const suffix = row.querySelector(grid ? ".cv-subagent-failed__reason" : ".cv-subagent-done__suffix");
               return suffix
                 ? { cut: suffix.scrollWidth > suffix.clientWidth + 1, right: suffix.getBoundingClientRect().right }
                 : null;
             })(),
-            sentence: row.querySelector(".cv-agent-activity__sentence")!.getBoundingClientRect().width,
+            sentence: row
+              .querySelector(grid ? ".cv-subagent-failed__text" : ".cv-agent-activity__sentence")!
+              .getBoundingClientRect().width,
             chevron: glyph.left,
             chevronRight: glyph.right,
             time: time.left,
@@ -110,10 +116,11 @@ await requireBrowserLane("subagent-done-chip-width.test.ts", async () => {
     expect(line!.chip.ellipsis).toBe("ellipsis");
   });
 
-  test("a failure with a long error: the error is cut first, the chip keeps its whole name", async () => {
+  test("a failure with a long error: on the grid, the reason is cut and the title keeps its whole name", async () => {
     // At 900px the name fits beside the line's other parts and only the error overflows; at 420px
     // the name alone does not fit, so both are cut.
     const [line] = await lines("failed-long-error", 900);
+    expect(line?.grid).toBe(true);
     expect(line?.suffix?.cut).toBe(true);
     expect(line!.chip.cut).toBe(false);
   });
@@ -130,6 +137,14 @@ await requireBrowserLane("subagent-done-chip-width.test.ts", async () => {
       const all = await lines(variant, width);
       expect(all.length).toBeGreaterThan(0);
       for (const line of all) {
+        expect(line.row.overflow).toBeLessThanOrEqual(0);
+        expect(Math.round(line.row.height)).toBe(22);
+        if (line.grid) {
+          // A failed line's grid: the words, then Retry and the time in fixed columns, the chevron last.
+          expect(line.time).toBeGreaterThan(line.suffix?.right ?? line.chip.right);
+          expect(line.chevron).toBeGreaterThan(line.time);
+          continue;
+        }
         // After the line's last words: the chip, or the reason or failure after it.
         const gap = line.chevron - (line.suffix?.right ?? line.chip.right);
         expect(gap).toBeGreaterThanOrEqual(-0.5);

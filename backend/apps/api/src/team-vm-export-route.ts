@@ -1,9 +1,5 @@
 import type { Env } from "./env.ts"
 
-interface ExportStub {
-  exportDownload(entity: string, ticket: string): Promise<Response>
-}
-
 /**
  * `GET /v1/team-vm/export/<team>/<ticket>` (cx-lyvg): the team files of a retired team VM as a tar.
  * No bearer: a browser download cannot send one. The ticket (256 random bits, single use, 5
@@ -12,6 +8,6 @@ interface ExportStub {
  */
 export const handleTeamVmExport = async (request: Request, env: Env, team: string, ticket: string): Promise<Response> => {
   if (request.method !== "GET") return Response.json({ ok: false, error: { code: "validation.invalid", message: "GET only" } }, { status: 405, headers: { allow: "GET" } })
-  const stub = env.TEAM_VM_DO.get(env.TEAM_VM_DO.idFromName(team)) as unknown as ExportStub
+  const stub = env.TEAM_VM_DO.get(env.TEAM_VM_DO.idFromName(team))
   return stub.exportDownload(team, ticket)
 }

@@ -10,10 +10,28 @@ import os
 @MainActor
 public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering, AgentAskAnswering {
     private let environment: AcpmuxEnvironment
+    private let chiefHomeID: String?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "notifications.approval")
 
-    public init(environment: AcpmuxEnvironment) {
+    public init(environment: AcpmuxEnvironment, chiefHomeID: String? = nil) {
         self.environment = environment
+        self.chiefHomeID = chiefHomeID
+    }
+
+    /// Home may be opened before any agent pane enrolled this daemon. Reuse
+    /// signed-app enrollment and peer/home checks; never restart or hand off it.
+    public func prepareForHome() async {
+        guard chiefHomeID != nil, !environment.isAttached,
+              let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath),
+              status.serves(home: environment.home) else { return }
+        _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
+    }
+
+    /// Decode the card snapshot and use the same canonicalization as both pending reads.
+    public nonisolated static func requestDigest(_ json: String) -> String? {
+        guard let request = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any],
+              AcpmuxPermissionPrompt.isToolPermission(request) else { return nil }
+        return AcpmuxPermissionPrompt.digest(request)
     }
 
     public func pendingApproval(session: String) async -> AgentApproval? {
@@ -34,7 +52,7 @@ public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering, AgentAskAnswe
     public func pendingAsk(session: String, permission: String) async -> AgentPendingAsk? {
         guard let line = await AcpmuxPersonLine.open(environment) else { return nil }
         defer { line.close() }
-        guard let entry = await line.ownPending(of: session).first(where: { $0["permissionId"] as? String == permission }),
+        guard let entry = await line.ownPending(of: session, chiefHomeID: chiefHomeID).first(where: { $0["permissionId"] as? String == permission }),
               let request = entry["request"] as? [String: Any], AcpmuxPermissionPrompt.isToolPermission(request) else { return nil }
         let offered = request["options"] as? [[String: Any]] ?? []
         let approval = AgentApproval(session: session, permission: permission, digest: AcpmuxPermissionPrompt.digest(request),
@@ -54,7 +72,15 @@ public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering, AgentAskAnswe
         await answer(approval, allow: allow, once: true, spend: spend)
     }
 
-    private func answer(_ approval: AgentApproval, allow: Bool, once: Bool, spend: @MainActor () -> Bool) async -> Bool {
+    /// Native Home uses a gate that remains valid through the actual socket write.
+    public func answerOnce(_ approval: AgentApproval, allow: Bool,
+                           through gate: @escaping @Sendable (() -> Void) -> Bool) async -> Bool {
+        await answer(approval, allow: allow, once: true, through: gate) { true }
+    }
+
+    private func answer(_ approval: AgentApproval, allow: Bool, once: Bool,
+                        through gate: (@Sendable (() -> Void) -> Bool)? = nil,
+                        spend: @MainActor () -> Bool) async -> Bool {
         guard let line = await AcpmuxPersonLine.open(environment) else { return false }
         defer { line.close() }
         // acpmux refuses an allow from a connection that is not the person.
@@ -62,7 +88,7 @@ public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering, AgentAskAnswe
             logger.error("approval banner: acpmux refused this app's person proof; nothing allowed")
             return false
         }
-        let pending = once ? await line.ownPending(of: approval.session) : await line.pending(of: approval.session)
+        let pending = once ? await line.ownPending(of: approval.session, chiefHomeID: chiefHomeID) : await line.pending(of: approval.session)
         let offered = { (request: [String: Any]) in request["options"] as? [[String: Any]] ?? [] }
         guard let now = pending.first(where: { $0["permissionId"] as? String == approval.permission }),
               let request = now["request"] as? [String: Any], AcpmuxPermissionPrompt.digest(request) == approval.digest,
@@ -74,6 +100,6 @@ public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering, AgentAskAnswe
         }
         guard spend() else { return false }
         let params: [String: Any] = ["sessionId": approval.session, "permissionId": approval.permission, "optionId": option]
-        return await line.call("_acpmux/permission_respond", params) != nil
+        return await line.call("_acpmux/permission_respond", params, through: gate) != nil
     }
 }

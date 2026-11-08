@@ -60,4 +60,37 @@ public final class ChiefMessenger {
     public func messageAbout(_ subject: ChiefMessageAbout) {
         compose?(subject)
     }
+
+    /// Message Chief (the Mac's Message the Chief from Any App): the message box to the Chief
+    /// with `text` in it, ready to send. Set by the shell while it is on screen; a request that
+    /// comes before (an App Intent opening the app) waits for it, briefly.
+    public var composeText: ((String) -> Void)? {
+        didSet {
+            guard let composeText, let pending = pendingText else { return }
+            pendingText = nil
+            guard now().timeIntervalSince(pending.at) < Self.pendingWindow else { return }
+            composeText(pending.text)
+        }
+    }
+
+    private var pendingText: (text: String, at: Date)?
+    private let now: () -> Date = { Date() }
+    static let pendingWindow: TimeInterval = 20
+
+    public func message(text: String?) {
+        let text = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard let composeText else {
+            pendingText = (text, now())
+            return
+        }
+        composeText(text)
+    }
+}
+
+/// Message Chief's draft (the message box with no link chip).
+public struct ChiefTextDraft: Identifiable, Hashable, Sendable {
+    public let id = UUID()
+    public var text: String
+
+    public init(text: String) { self.text = text }
 }

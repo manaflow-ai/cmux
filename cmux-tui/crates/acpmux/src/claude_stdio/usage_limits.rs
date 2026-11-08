@@ -83,6 +83,16 @@ pub fn merge_usage_limits(saved: Option<&Value>, newer: &Value) -> Value {
     merged
 }
 
+/// Whether saved `usageLimits` (Claude's or Codex's) say a window is used up at `now_secs`: one
+/// at 100% whose reset time, if reported, has not passed. Reported limits alone are not a limit
+/// reached; every Claude Code chat reports them.
+pub fn usage_limit_reached(limits: Option<&Value>, now_secs: i64) -> bool {
+    limits.and_then(|l| l.get("windows")).and_then(Value::as_array).into_iter().flatten().any(|w| {
+        w.get("usedPercent").and_then(Value::as_f64).is_some_and(|u| u >= 100.0)
+            && w.get("resetsAt").and_then(Value::as_i64).is_none_or(|at| at > now_secs)
+    })
+}
+
 impl Translator {
     /// A `rate_limit_event` as a `session_info_update` carrying every window
     /// this Claude Code reported so far, each its newest value. None when the

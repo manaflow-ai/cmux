@@ -226,8 +226,21 @@ extension AgentPaneModel {
             return await videoFrames(src, times: times)
         case .quickLookVideo(let src):
             return await quickLookVideo(src)
+        case .openIn(let url, AgentPaneSignInPage.chatMachineBrowser):
+            // Claude's automatic page of a Cloud chat, in a tab whose localhost is the chat's machine,
+            // on the Sign in click that started its login (or its own click). Only that page; a host
+            // that cannot open such a tab refuses before any gesture is spent.
+            guard AgentPaneSignInPage.callbackPort(url) != nil, let open = onOpenSignInOnMachine?(url) else {
+                return Self.replyFailure(.openFailed)
+            }
+            guard transport.takeSignInPage(url) || transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
+            return open() ? AgentPaneReply.success() : Self.replyFailure(.openFailed)
         case .listBrowsers, .inspectPullRequest, .openIn:
-            return replyLinks.respond(toCard: request, consumeGesture: { transport.gestures.consume() }, openInCmux: onOpenPreview)
+            // A Cloud chat's sign-in page opens on the Sign in click that started its login.
+            let signInPage: URL? = if case .openIn(let url, "cmux") = request { url } else { nil }
+            return replyLinks.respond(toCard: request, consumeGesture: {
+                signInPage.map(transport.takeSignInPage) == true || transport.gestures.consume()
+            }, openInCmux: onOpenPreview)
         case .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile, .copyComposer:
             return await AgentPaneImageCopies.respond(to: request, in: self)
         case .previewPath(let path): return await previewReplyPath(path)

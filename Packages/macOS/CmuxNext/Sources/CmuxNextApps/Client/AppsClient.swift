@@ -47,6 +47,8 @@ public final class AppsClient {
     /// Mount, unmount and user events go out one after another, in order.
     @ObservationIgnored var tail: Task<Void, Never>?
     @ObservationIgnored private var listing: Task<Void, Never>?
+    /// Pages that also hear supervisor events (``observeEvents(owner:_:)``); dropped once their owner is gone.
+    @ObservationIgnored private var eventListeners: [(owner: WeakOwner, listener: @MainActor (AppsTransportEvent) -> Void)] = []
     /// The availability epoch the client last connected for (one `connected()` per epoch).
     @ObservationIgnored private var connectedEpoch: Int?
     /// Apps whose log is followed (followed again after a reconnect).
@@ -71,6 +73,18 @@ public final class AppsClient {
     /// Visible records (mirror + pending intents), in the owner's order.
     public var apps: [AppRecord] { projection.visible.map(withBundledDirectory) }
     public func app(_ id: String) -> AppRecord? { projection.visible(id).map(withBundledDirectory) }
+
+    /// Hears every supervisor event after the client handled it, while `owner` lives
+    /// (the transport's one callback stays the client's).
+    public func observeEvents(owner: AnyObject, _ listener: @escaping @MainActor (AppsTransportEvent) -> Void) {
+        eventListeners.append((WeakOwner(object: owner), listener))
+    }
+
+    public func sessionInfoPanels() async throws(AppsClientError) -> [AppSessionInfoPanel] {
+        if case .unavailable(let reason) = availability { throw .unavailable(reason) }
+        do throws(AppsTransportError) { return try await transport.sessionInfoPanels() }
+        catch { throw .refused(error) }
+    }
 
     /// Adds bundled package directories (loaded once off the main actor at
     /// launch); a directory already known for an app stays.
@@ -171,6 +185,8 @@ public final class AppsClient {
         case let .log(app, level, message, date):
             appendLog(app, level: level, message: message, date: date)
         }
+        eventListeners.removeAll { $0.owner.object == nil }
+        for entry in eventListeners { entry.listener(event) }
     }
 
     /// Lists again (the reply replaces the mirror unless a newer one landed).
@@ -201,4 +217,8 @@ public final class AppsClient {
         for mount in mounts.values { mount.model.status = .disconnected(reason) }
     }
 
+}
+
+private struct WeakOwner {
+    weak var object: AnyObject?
 }

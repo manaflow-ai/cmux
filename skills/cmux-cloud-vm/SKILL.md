@@ -33,24 +33,25 @@ the person can read it. Without `--wait` it answers once the prompt is sent.
   `--target machine:vm-…` takes that machine. With neither it creates a new small
   machine with a new name (`chat-…`), one workspace per machine, so a chat never
   lands on a machine someone else uses.
-- `--cwd /home/cmux/work` starts the chat in that folder on the machine;
+- No folder is needed: without `--cwd` the chat starts in a new folder of its own under
+  `~/chats` on the machine; `--cwd FOLDER` starts it in that existing folder instead;
   `--timeout SECONDS` bounds `--wait` (default 900).
-- Follow-ups on the same chat, with `MACHINE_ID` and `SESSION_ID` from the answer (the
-  answer's `follow_up` has them filled in):
+- The next prompt to the same chat, with `SESSION_ID` from the answer (the answer's
+  `follow_up.send` has it filled in). The session id finds the chat's machine; `--wait`
+  prints the reply:
 
   ```sh
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID "next prompt"'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp wait SESSION_ID --timeout 20'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp last SESSION_ID'
+  cmux chat send SESSION_ID 'next prompt' --wait
   ```
 
-  Each `cloud exec` stops after 25 s, so wait in 20-second slices until `wait` exits 0
-  (2: the agent asks for a permission, answered in the chat's tab).
-- Errors say what to do next: `cloud.signed_out` (run `cmux cloud sign-in`),
+  Exit 2 with `chat.permission_waiting`: the agent asks for a permission, answered in the
+  chat's tab.
+- Errors say what to do next: `cloud.signed_out` (run `cmux login`),
   `cloud.start_pending` (the machine is still coming up: run the same command again,
   its `details.again`, to keep waiting), `chat.permission_waiting`, `chat.wait_timeout`.
-  Run from an agent chat, the app first asks the person with a card in that chat
-  (Start, Not now); `cmux agents dialog list` lists it.
+  Run from an agent chat, it starts at once, as from a terminal: nothing asks the
+  person. Only when they turned off `cloud.agentsStartWithoutAsking` does the app
+  ask first with a card in that chat (Start, Not now); `cmux agents dialog list` lists it.
 
 `cmux cloud start-chat --help` has every flag.
 
@@ -65,7 +66,7 @@ cmux app capabilities
 `action describe` prints the action's targets and arguments. Actions drive the app
 the same way its palette and sidebar do. Run from the CLI or MCP, read actions answer
 in the action result (`--json` prints it): `cloud exec` returns `exit_code`, `stdout`
-and `stderr`, `cloud new-machine` the new `machine_id`, `machine-status` and the file
+and `stderr`, `cmux machine new` (the `cloud new-machine` action) the new `machine_id`, `machine-status` and the file
 and listing actions their facts. They need the app, sign-in and its private tunnel.
 
 ## Machine lifecycle from the Mac

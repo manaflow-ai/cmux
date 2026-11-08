@@ -9,6 +9,6 @@
      "optional": "debug.appearance is DEBUG only"},
     {"title": "Back to the system appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "system"}}, "wait": 1, "shot": false,
      "optional": "debug.appearance is DEBUG only"},
-    {"title": "Removed: back to Compact, both cards say Get", "cmux": ["settings", "unset", "sidebar.density"], "wait": 2}
+    {"title": "Removed: back to Normal, both cards say Get", "cmux": ["settings", "unset", "sidebar.density"], "wait": 2}
   ]
 }

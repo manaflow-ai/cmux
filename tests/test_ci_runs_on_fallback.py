@@ -616,6 +616,26 @@ def cascade_placed_failures(name: str, job_id: str, jobs: dict, placer: str, key
     return failures
 
 
+# Side-workflow Mac jobs whose runs-on may take the owned Mac their placing job picked:
+# (workflow, job) -> the placing job. A re-run of failed jobs keeps the placing job's outputs from the
+# attempt that ran it, so the owned read must hold only on that attempt; a later attempt would wait on
+# a Mac that may be gone or busy (main's cmux#27704).
+OWNED_PICKED = {("nightly-next-launch-smoke.yml", "smoke"): "pick",
+                ("nightly-next-cua-signed-host.yml", "signed-host"): "pick"}
+
+
+def owned_pick_failures(name: str, job_id: str, jobs: dict, placer: str) -> list[str]:
+    """The runs-on alternatives of `job_id` that read the picked owned Mac on any attempt."""
+    fresh = {f"needs.{placer}.outputs.placed_attempt == format('{{0}}', github.run_attempt)", "github.run_attempt == 1"}
+    failures = []
+    for expression in EXPRESSION.findall(runs_on_text(jobs[job_id])):
+        for alternative in split_top(unwrap(expression), "||"):
+            if f"needs.{placer}.outputs.runner" in alternative and not fresh & {
+                    term.strip() for term in conjuncts(alternative)}:
+                failures.append(f"{name} {job_id}: {alternative.strip()}")
+    return failures
+
+
 def smoke_tooling():
     path = ROOT / "scripts" / "ci" / "nightly_next_launch_smoke.py"
     spec = importlib.util.spec_from_file_location("_runs_on_fallback_launch_smoke", path)
@@ -650,6 +670,25 @@ class CascadePlacedSideJobs(unittest.TestCase):
         env = {"JOBS": "launch-smoke", "CASCADE_RUNS": " launch-smoke ", "CASCADE_JOBS": "launch-smoke"}
         self.assertEqual(module.candidates(env, ()), ["launch-smoke"])
         self.assertEqual(module.candidates({**env, "CASCADE_JOBS": ""}, ()), [])
+
+
+class OwnedPickedSideJobs(unittest.TestCase):
+    def test_a_picked_owned_mac_is_read_only_on_the_attempt_that_picked_it(self) -> None:
+        failures = []
+        for (name, job_id), placer in OWNED_PICKED.items():
+            jobs = load(WORKFLOWS / name)["jobs"]
+            self.assertIn(f"needs.{placer}.outputs.runner", runs_on_text(jobs[job_id]), f"{name} {job_id}")
+            failures += owned_pick_failures(name, job_id, jobs, placer)
+        self.assertEqual(failures, [], "an owned pick needs its picker's attempt check in the same alternative")
+
+    def test_the_rule_catches_an_owned_read_on_any_attempt(self) -> None:
+        stale = {"smoke": {"runs-on": "${{ needs.pick.outputs.placed_attempt == format('{0}', github.run_attempt) && "
+                                      "contains(needs.pick.outputs.blacksmith_6_jobs, ' smoke ') && "
+                                      "fromJSON(vars.RUNNER_POOLS).macos_26 || "
+                                      "needs.pick.outputs.owned_jobs != '' && needs.pick.outputs.runner || "
+                                      "fromJSON(vars.RUNNER_POOLS).macos_26 }}"}}
+        self.assertEqual(owned_pick_failures("x.yml", "smoke", stale, "pick"),
+                         ["x.yml smoke: needs.pick.outputs.owned_jobs != '' && needs.pick.outputs.runner"])
 
 
 class OneLaunchSmokePerBuild(unittest.TestCase):
@@ -713,7 +752,7 @@ class RunsOnFallbackTests(unittest.TestCase):
         # otherwise, and when unread, the build takes the plain ten-runner glaeda-nightly-only-m4pro.
         failures = [f"{path.name} {job_id}" for path in workflows()
                     for job_id, job in (load(path).get("jobs") or {}).items()
-                    if re.search(r"nightly-only-m4pro-builder|CI_NIGHTLY_ONLY_BUILDER_RUNNER", runs_on_text(job))]
+                    if re.search(r"nightly-only-m4pro-builder|nightly-only-xl-builder|CI_NIGHTLY_ONLY_BUILDER_RUNNER", runs_on_text(job))]
         self.assertEqual(failures, [], "the warm nightly builder label is a pick, never a runs-on literal")
 
     def test_a_single_host_variable_always_has_a_fallback(self) -> None:
@@ -726,29 +765,20 @@ class RunsOnFallbackTests(unittest.TestCase):
                         failures.append(f"{path.name} {job_id}: vars.{match.group(1)} is the last alternative")
         self.assertEqual(failures, [], "a single-host runner variable needs a later `||` pool fallback")
 
-    def test_a_picked_signing_label_has_a_rerun_alternative(self) -> None:
-        # A Blacksmith macOS label picked once can stall after the pick, and GitHub never
-        # re-routes a queued job: only a re-run leaves it. nightly.yml's signing jobs read the
-        # picker's other macOS 26 size on attempt 2 on, so a re-run never queues on the label
-        # that stalled (run 40489472569, 2026-10-27, waited on blacksmith-6vcpu-macos-26).
+    def test_no_nightly_job_reads_a_picked_blacksmith_label(self) -> None:
+        # Until 2026-11-03 nightly.yml's signing jobs read the picker's Blacksmith macOS label, with the
+        # other size as a re-run alternative (run 40489472569, 2026-10-27, waited on
+        # blacksmith-6vcpu-macos-26). Nightlies never use Blacksmith (Lawrence, 2026-10-30): no job reads
+        # those picks any more (tests/test_nightly_never_blacksmith.py); the owned pick rule below holds.
         jobs = load(WORKFLOWS / "nightly.yml")["jobs"]
-        picked = re.compile(r"\|\| (needs\.(?:pick-nightly-sign-runner|find-nightly-next-recovery|legacy-identity-target)"
-                            r"\.outputs\.)(runner|sign_runner) \|\|")
-        failures, seen = [], set()
-        for job_id, job in jobs.items():
-            text = runs_on_text(job)
-            for match in picked.finditer(text):
-                seen.add(job_id)
-                alternate = match.group(1) + ("alternate" if match.group(2) == "runner" else "sign_alternate")
-                if f"|| github.run_attempt > 1 && {alternate} {match.group(0)}" not in text:
-                    failures.append(f"nightly.yml {job_id}: {match.group(1)}{match.group(2)} has no re-run alternative")
-        self.assertIn("build-sign-notarize-nightly", seen)
-        self.assertEqual(failures, [], "a picked signing label needs `github.run_attempt > 1 && <alternate>` before it")
+        picked = re.compile(r"needs\.(?:pick-nightly-sign-runner|find-nightly-next-recovery|legacy-identity-target)"
+                            r"\.outputs\.(?:runner|sign_runner|alternate|sign_alternate)\b")
+        seen = sorted(job_id for job_id, job in jobs.items() if picked.search(runs_on_text(job)))
+        self.assertEqual(seen, [], "a nightly job reads a picked Blacksmith label")
 
     def test_a_picked_owned_mac_is_read_only_on_the_attempt_that_picked_it(self) -> None:
         # The owned-only form of the rule above. Nightlies never use Blacksmith (Lawrence, 2026-10-30, a7b6a61175c),
-        # so sign-nightly-identity-legacy and its verify read the picker's owned Mac, not a Blacksmith label with an
-        # alternate. A re-run of failed jobs keeps the old pick, so the owned read must hold only on the attempt that
+        # so the signing jobs read the picker's owned Mac, not a Blacksmith label with an alternate. A re-run of failed jobs keeps the old pick, so the owned read must hold only on the attempt that
         # ran the picker; a re-run then falls through to the owned slot or pool, never to the Mac that stalled.
         jobs = load(WORKFLOWS / "nightly.yml")["jobs"]
         owned = re.compile(r"needs\.(pick-nightly-sign-runner)\.outputs\.(?:sign_owned|owned)\b")
@@ -763,7 +793,7 @@ class RunsOnFallbackTests(unittest.TestCase):
                     guards = {f"needs.{match.group(1)}.outputs.attempt == github.run_attempt", "github.run_attempt == 1"}
                     if not guards & {term.strip() for term in conjuncts(alternative)}:
                         failures.append(f"nightly.yml {job_id}: {alternative.strip()}")
-        self.assertTrue({"sign-nightly-identity-legacy", "verify-nightly-identity-legacy"} <= seen, seen)
+        self.assertTrue({"build-sign-notarize-nightly", "generate-nightly-deltas"} <= seen, seen)
         self.assertEqual(failures, [], "an owned pick needs its picker's attempt check in the same alternative")
 
     def test_a_reserved_slot_always_has_a_fallback(self) -> None:

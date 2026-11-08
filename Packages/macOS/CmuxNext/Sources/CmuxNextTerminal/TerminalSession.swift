@@ -177,8 +177,13 @@ public final class TerminalSession {
     /// Kitty images the owner left out of its image replays (its cap).
     private(set) var skippedImages = 0
 
-    public init(io: any TerminalIO, ownsGeometry: Bool = true) {
+    /// Reports a pane that still shows nothing after a reveal (``TerminalBlankWatch``).
+    let blankWatch: TerminalBlankWatch
+
+    /// - Parameter blankClock: The clock of the blank-pane check after a reveal; tests pass a manual clock.
+    public init(io: any TerminalIO, ownsGeometry: Bool = true, blankClock: any Clock<Duration> = ContinuousClock()) {
         self.io = io
+        blankWatch = TerminalBlankWatch(clock: blankClock)
         self.ownsGeometry = ownsGeometry
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
 
@@ -427,12 +432,14 @@ public final class TerminalSession {
         view.onClose = nil
         onClose?()
         surfaceView.clipboardRequests.cancelPendingWrite()
+        surfaceView.cancelGridReport()
         eventsTask?.cancel()
         eventsTask = nil
         closeCancels.forEach { $0.cancel() }
         closeCancels = []
         input.finish()
         frameHold.end() // a held frame has no time limit: it goes with the session, not with the object
+        blankWatch.cancel()
         surfaceView.removeFromSuperview()
     }
 
@@ -558,6 +565,7 @@ public final class TerminalSession {
     private func swapSurface() {
         let old = surfaceView
         old.clipboardRequests.cancelPendingWrite()
+        old.cancelGridReport() // detached: its waiting grid is not this session's any more
         let wasFirstResponder = old.isFirstResponder
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self)
         swappedSurfaces += 1
@@ -621,13 +629,12 @@ public final class TerminalSession {
         input.focusGained()
     }
 
-    /// The surface reports its grid to the PTY owner. `final`: the grid its pane's layout spring will
-    /// land at (``TerminalIO/resizeOnMain(cols:rows:final:window:)``).
-    func surfaceDidReport(grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int, final: Bool = false) {
+    /// The surface reports its grid to the PTY owner (``TerminalIO/resizeOnMain(cols:rows:window:)``).
+    func surfaceDidReport(grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int) {
         guard ownsGeometry else { return }
         // An IO with a main-actor path takes every grid there, so a final grid never overtakes, or
         // is overtaken by, an older grid still in the ordered input stream.
-        if io.resizeOnMain(cols: grid.columns, rows: grid.rows, final: final, window: surfaceView.window) { return }
+        if io.resizeOnMain(cols: grid.columns, rows: grid.rows, window: surfaceView.window) { return }
         input.resize(grid, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
     }
 }

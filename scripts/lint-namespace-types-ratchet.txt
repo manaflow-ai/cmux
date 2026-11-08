@@ -134,7 +134,5 @@ Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Sections/SidebarLayoutPlanner.sw
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Sections/SidebarLayoutReducer.swift:SidebarLayoutReducer
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Sections/SidebarSectionTunables.swift:SidebarSectionTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabTunables.swift:TabTunables
-Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksPaletteCatalog.swift:TasksPaletteCatalog
-Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksTunables.swift:TasksTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/AppcastParser.swift:AppcastParser
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/AppcastSelector.swift:AppcastSelector

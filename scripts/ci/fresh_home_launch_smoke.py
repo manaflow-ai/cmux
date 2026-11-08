@@ -15,7 +15,10 @@ passes when
      HomeDock.page: the Chief conversation, whose empty state is the first-run
      panel) selected, and the launch marks the app streams to
      CMUX_NEXT_LAUNCH_MARKS_FD (LaunchMarkSink) include
-     first_window_frame_committed.
+     first_window_frame_committed. While the first-run Bring your history page
+     covers Home, the tab has no selection: the mark
+     first_run.history_import_shown stands in, so this path proves the frame
+     and that the page opened, not Home's first-run view behind it.
 
 The app keeps its defaults in the account's preferences whatever HOME says
 (cfprefsd), so the run holds a per-bundle lock, sets the domain aside
@@ -28,7 +31,9 @@ Usage: fresh_home_launch_smoke.py (--app APP | --dmg DMG) [--seconds S]
 --dmg copies the app out of the DMG (mounted read-only, detached at once);
 --app copies it too. Every process the run starts runs from its private root
 (/tmp/cmux-fresh-*): cleanup stops the app, then each process of this user
-whose command line names that root, by exact PID, and deletes the root. --out
+whose command line names that root, and each terminal host whose record under
+it names its pid (a host's command line never names the root), by exact PID,
+and deletes the root. --out
 keeps the evidence: report.json (verdict, launch marks, snapshot), the app's
 output, its crash files (run.exception, the .ips) and a screenshot when the
 runner may take one (evidence only, never the verdict).
@@ -45,6 +50,7 @@ import fcntl
 import json
 import os
 import plistlib
+import re
 import shutil
 import signal
 import socket
@@ -59,10 +65,17 @@ PASS, FAIL, USAGE, CANNOT_RUN = 0, 1, 2, 3
 # journey(process, socket_path, env, app, out, report) -> list of failures. It runs once Home has
 # rendered and the app is still up, before the app is stopped; it may quit the app itself.
 AFTER_RENDER = None
-# Extra environment for the launched app, set by such a caller (empty for the nightly smoke).
-EXTRA_ENV: dict[str, str] = {}
+# A caller's preparation of the fresh home before the app starts: prepare(env) (None for the nightly smoke).
+PREPARE_HOME = None
+# A caller whose ready state is not Home (scripts/cmux-next/idle_cpu.py: any visible window) sets this to
+# ready(snapshot) -> bool; it replaces only the Home-tab check, never the first_window_frame_committed mark.
+# None (the nightly smoke): home_rendered, Home's tab selected or covered by the first-run page.
+READY = None
 RENDER_MARK = "first_window_frame_committed"
 HOME_PAGE = "home-dock"
+# The app marks this when it opens the first-run Bring your history page over Home. That page is not
+# in the topology, so Home's tab has no selection while it shows.
+FIRST_RUN_MARK = "first_run.history_import_shown"
 
 
 class CannotRun(Exception):
@@ -156,7 +169,6 @@ def fresh_env(root: Path, socket_path: Path, marks_fd: int) -> dict[str, str]:
         "CMUX_NEXT_SOCKET_MODE": "allowAll",
         "CMUX_NEXT_NO_ACTIVATE": "1",
         "CMUX_NEXT_LAUNCH_MARKS_FD": str(marks_fd),
-        **EXTRA_ENV,
     }
 
 
@@ -302,6 +314,35 @@ def home_tab(snap: dict | None) -> dict | None:
     return None
 
 
+def first_run_home_tab(snap: dict | None) -> dict | None:
+    """Home's page tab with nothing selected in its pane, in a workspace a visible window shows; None otherwise.
+
+    This alone does not prove a healthy launch. It counts only with FIRST_RUN_MARK, the app's word that
+    its first-run page is what covers Home.
+    """
+    topology = (snap or {}).get("topology") or {}
+    shown = {window.get("workspace") for window in topology.get("windows") or []
+             if isinstance(window, dict) and window.get("visible")}
+    for workspace in topology.get("workspaces") or []:
+        if not isinstance(workspace, dict) or workspace.get("id") not in shown:
+            continue
+        for screen in workspace.get("screens") or []:
+            for pane in (screen or {}).get("panes") or []:
+                if (pane or {}).get("selected_tab") is not None:
+                    continue
+                for tab in (pane or {}).get("tabs") or []:
+                    if isinstance(tab, dict) and tab.get("page") == HOME_PAGE:
+                        return tab
+    return None
+
+
+def home_rendered(snap: dict | None, marks: dict[str, float]) -> bool:
+    """A visible window committed a frame showing Home, or the first-run page the app opened over Home."""
+    if RENDER_MARK not in marks:
+        return False
+    return bool(home_tab(snap)) or (FIRST_RUN_MARK in marks and bool(first_run_home_tab(snap)))
+
+
 def read_marks(path: Path) -> dict[str, float]:
     marks: dict[str, float] = {}
     try:
@@ -346,6 +387,41 @@ def pids_under(root: Path) -> list[int]:
         if pid.isdigit() and int(pid) != os.getpid() and (f"{root}/" in args or f"{real}/" in args):
             pids.append(int(pid))
     return pids
+
+
+# Where a cmux NEXT terminal host records itself under the run's HOME: <id>.json names its host_pid.
+HOST_RECORDS = "h/Library/Application Support/cmux/tags/*/tui/terminal-hosts-*/*.json"
+
+
+def terminal_host_pids(root: Path) -> list[int]:
+    """The terminal hosts this run's app started, by the host_pid their records under ROOT name. A host's command
+    line is `cmux-tui __terminal-host ...`, which never names the root, so pids_under misses it, and it outlives
+    the app on purpose (cmux#36625: 17 of them ran for days on a CI Mac). A recorded pid counts only while it
+    still runs as a __terminal-host of this user, so a reused pid is never stopped."""
+    pids = []
+    for record in sorted(root.glob(HOST_RECORDS)):
+        try:
+            pid = json.loads(record.read_text()).get("host_pid")
+        except (OSError, ValueError, AttributeError):
+            continue
+        if not isinstance(pid, int) or pid <= 1 or pid == os.getpid() or pid in pids:
+            continue
+        try:
+            # Only this pid: BSD ps adds selections together, so `-p PID -U UID` would list every process of the user.
+            lines = subprocess.run(["ps", "-ww", "-o", "uid=,args=", "-p", str(pid)],
+                                   capture_output=True, text=True, timeout=30).stdout.splitlines()
+        except (OSError, subprocess.SubprocessError):
+            continue
+        fields = lines[0].split(None, 1) if len(lines) == 1 else []
+        if (len(fields) == 2 and fields[0] == str(os.getuid())
+                and re.search(r"(?:^|\s)__terminal-host(?:\s|$)", fields[1])):
+            pids.append(pid)
+    return pids
+
+
+def own_pids(root: Path) -> list[int]:
+    """Everything this run started that may still run: processes naming its root, and its terminal hosts."""
+    return sorted(set(pids_under(root)) | set(terminal_host_pids(root)))
 
 
 def alive(pid: int) -> bool:
@@ -434,7 +510,9 @@ def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_pat
                 break
             if rendered_at is None:
                 snap = snapshot(socket_path) or snap
-                if home_tab(snap) and RENDER_MARK in read_marks(marks_path):
+                seen = read_marks(marks_path)
+                shown = READY(snap) and RENDER_MARK in seen if READY is not None else home_rendered(snap, seen)
+                if shown:
                     rendered_at = elapsed
                     log(f"ok: Home rendered in a visible window {elapsed:.1f}s after launch")
             if elapsed >= seconds and (rendered_at is not None or elapsed >= startup_timeout):
@@ -466,6 +544,8 @@ def run(args: argparse.Namespace, root: Path, report: dict) -> int:
     with DefaultsAside(bundle_id, root):
         marks_read, marks_write = os.pipe()
         env = fresh_env(root, socket_path, marks_write)
+        if PREPARE_HOME is not None:
+            PREPARE_HOME(env)
         log(f"==> fresh-home launch of {bundle_id} ({app}), HOME={env['HOME']}, {args.seconds:.0f}s")
         launched_wall = time.time() - 1
         with open(root / "app.log", "wb") as app_log:
@@ -488,7 +568,7 @@ def run(args: argparse.Namespace, root: Path, report: dict) -> int:
         if AFTER_RENDER is not None and seen["exit"] is None and seen["rendered_at"] is not None:
             journey_failures = list(AFTER_RENDER(process, socket_path, env, app, out, report) or [])
         stop_child(process)
-        stop(pids_under(root))
+        stop(own_pids(root))
     # ReportCrash writes the .ips a few seconds after the process died.
     wait = float(os.environ.get("CMUX_FRESH_SMOKE_CRASH_REPORT_WAIT_SECONDS", 10))
     deadline = time.monotonic() + (wait if seen["exit"] is not None else 0)
@@ -514,7 +594,8 @@ def run(args: argparse.Namespace, root: Path, report: dict) -> int:
     if seen["rendered_at"] is None and status is None:
         failures.append(f"Home did not render within {elapsed:.0f}s (visible windows {visible_windows(seen['snapshot'])}, "
                         f"Home tab {'selected' if report['home_tab'] else 'not selected'}, "
-                        f"{RENDER_MARK} {'seen' if RENDER_MARK in report['marks'] else 'missing'})")
+                        f"{RENDER_MARK} {'seen' if RENDER_MARK in report['marks'] else 'missing'}, "
+                        f"{FIRST_RUN_MARK} {'seen' if FIRST_RUN_MARK in report['marks'] else 'missing'})")
     if not failures:
         report["verdict"] = "pass"
         log(f"==> fresh-home launch smoke OK: up {elapsed:.0f}s, Home at {seen['rendered_at']:.1f}s, no crash")
@@ -568,13 +649,13 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         if report.get("pid"):
             stop([report["pid"]])
-        stop(pids_under(root))
+        stop(own_pids(root))
         if args.out:
             if (root / "app.log").exists():
                 shutil.copyfile(root / "app.log", Path(args.out) / "app.log")
             with open(Path(args.out) / "report.json", "w", encoding="utf-8") as handle:
                 json.dump(report, handle, indent=2, sort_keys=True)
-        left = pids_under(root)
+        left = own_pids(root)
         if left:
             log(f"warning: processes still under {root}: {left}")
         shutil.rmtree(root, ignore_errors=True)

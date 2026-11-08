@@ -119,7 +119,11 @@ import Testing
     }
 
     /// Lawrence 2026-10-23: "need to revert styling back to original, for the X button". The hover close is the
-    /// row's own x button at the end of the title's line, inside the row's inset, never a corner fold.
+    /// row's own x button at the end of the title's line, on the row's trailing column, never a corner fold.
+    /// cad2620b61f (#32647, Leo 2026-11-02: "JUST ADD A SLIGHT GAP (PADDING)") moved each row's fill in from the
+    /// sidebar's edge; since Leo 2026-11-04 ("too much of a gutter on the right") the column sits
+    /// `trailingCenterInset` inside the fill, so the close ends 4 to 5 pt inside it: the test reads the column the
+    /// close sits on, and that the close stays inside its row.
     @Test(arguments: SidebarDensity.allCases)
     func theHoverCloseIsTheRowsTrailingX(_ density: SidebarDensity) throws {
         try SidebarGroupRailAlignmentTests.with(density, .off) {
@@ -133,7 +137,10 @@ import Testing
                 #expect(!close.isHidden, "\(density.rawValue) \(id.rawValue): no close on hover")
                 #expect(close.frame.size == NSSize(width: SidebarStyle.controlSize, height: SidebarStyle.controlSize))
                 #expect(abs(close.frame.midY - row.title.frame.midY) < 1, "\(density.rawValue) \(id.rawValue): close off the title's line")
-                #expect(close.frame.maxX <= row.bounds.width - SidebarStyle.horizontalInset + 0.5,
+                let column = SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width)
+                #expect(abs(close.frame.midX - column) <= 0.5,
+                        "\(density.rawValue) \(id.rawValue): close centers at \(close.frame.midX), not the trailing column \(column)")
+                #expect(close.frame.maxX < row.bounds.width,
                         "\(density.rawValue) \(id.rawValue): close ends \(row.bounds.width - close.frame.maxX) pt in")
                 #expect(close.frame.minY >= 0 && close.frame.maxY <= row.bounds.height, "\(density.rawValue) \(id.rawValue): close outside its row")
             }

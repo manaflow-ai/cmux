@@ -211,7 +211,7 @@ impl Hub {
             }
             queue
                 .iter_mut()
-                .filter(|q| q.held && q.run.agent.is_some())
+                .filter(|q| q.held && q.goes_in_by_itself())
                 .map(|q| {
                     q.held = false;
                     q.prompt_id.clone()
@@ -229,17 +229,20 @@ impl Hub {
         }
     }
 
-    /// After a hold: the agent messages it held go in again by themselves after the
+    /// After a hold: the prompts it held that do not wait for Resume (agent messages, inbox
+    /// notices, and the person's own up to `PERSON_RETRIES` times, `QueuedPrompt::waits_for_resume`)
+    /// go in again by themselves after the
     /// `autoResumeDelaysMs` wait for their hold count (the last wait once those are used up; the
     /// default waits when it is `[]`), or once more while a continuation of the cut turn may
     /// still answer (it releases them). Only these holds: a message released and held again
     /// since waits its own next wait. Also run for the holds a daemon start restored
     /// (`resume_queues`).
     pub(super) fn retry_held_agent_messages(self: &Arc<Self>, session: &Arc<Session>) {
+        let stop_held = session.stop_hold.load(Ordering::SeqCst) != 0;
         let held: Vec<(String, usize)> = session
             .queue()
             .iter()
-            .filter(|q| q.held && q.run.agent.is_some())
+            .filter(|q| q.held && !q.waits_for_resume(stop_held))
             .map(|q| (q.prompt_id.clone(), q.retries))
             .collect();
         let Some(retries) = held.iter().map(|(_, n)| *n).max() else { return };
@@ -349,7 +352,9 @@ impl Hub {
                     && q.run.trust_gate == head.trust_gate
                     && q.run.cloud_mobile == head.cloud_mobile
                     && !super::subsession_guard::is_family_prompt(q.run.provenance.as_ref())
-                    && !inbox_digest::is_digest(q.run.provenance.as_ref());
+                    && !inbox_digest::is_digest(q.run.provenance.as_ref())
+                    // A goal's continuation runs alone, checked against its goal (`goal_tools.rs`).
+                    && !super::goal_tools::is_continuation(q.run.provenance.as_ref());
                 let size = blocks_bytes(&q.run.blocks);
                 if !joins || bytes + size > DIGEST_MAX_BYTES {
                     break;
@@ -478,6 +483,15 @@ impl Hub {
             let mut msg = json!({"held": held, "requeued": true});
             if by_stop {
                 msg.set("reason", json!("stop"));
+            } else {
+                // Agent messages go in again by themselves (`queue.rs` `pause_queue`'s field): a
+                // client reads no pause from them.
+                let retrying: Vec<&String> = taken
+                    .iter()
+                    .filter(|q| held.contains(&&q.prompt_id) && !q.waits_for_resume(false))
+                    .map(|q| &q.prompt_id)
+                    .collect();
+                msg.set("retrying", json!(retrying));
             }
             self.append(session, "mux", "queue_paused", msg);
         }

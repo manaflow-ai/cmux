@@ -2,11 +2,12 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The curved card leaves a small, unbroken strip of sidebar surface after a row. The resize line
 /// stays in the titlebar band, while the flat style keeps its original edge-to-edge geometry.
-@MainActor @Suite(.serialized) struct SidebarPaneGapTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarPaneGapTests {
     private func root(style: ChromeStyle) -> (NSWindow, WindowRootView) {
         _ = NSApplication.shared
         let design = DesignSettings.shared

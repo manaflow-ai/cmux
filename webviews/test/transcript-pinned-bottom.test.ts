@@ -236,8 +236,9 @@ await requireBrowserLane("transcript-pinned-bottom.test.ts", async () => {
         0,
       );
 
-      // A send while scrolled up: the view is at the bottom from the frame that draws the send on, and
-      // the prompt's row and its reply arrive there.
+      // A send while scrolled up: the view rides down to the bottom on Jump to latest's ride (Leo,
+      // 2026-11-04: "SMOOTH non-jolty ... state transitions"), not one cut, and the prompt's row and
+      // its reply arrive there.
       await sample(page);
       await page.evaluate(() => (window as unknown as { __send(): void }).__send());
       await painted(page);
@@ -249,20 +250,25 @@ await requireBrowserLane("transcript-pinned-bottom.test.ts", async () => {
         row("sent-user", "user", "And then?"),
         row("sent-answer", "assistant", paragraph(99), { streaming: true }),
       ]);
-      await painted(page, 10);
+      await painted(page, 30);
       const sent = await samples(page);
-      // The first frame may still show the scroll up: the send lands on the next painted frame.
-      expect(sent.slice(1).filter((frame) => frame.fromEnd > 1)).toEqual([]);
+      const start = sent[0]!.fromEnd;
+      // Frames on the way down (some part of the way, neither where the reader was nor at the end),
+      // then the end, where it stays.
+      expect(sent.some((frame) => frame.fromEnd > 1 && frame.fromEnd < start - 1)).toBe(true);
+      expect(sent.slice(-10).filter((frame) => frame.fromEnd > 1)).toEqual([]);
       await page.close();
     });
 
-    test(`${name}: a send while the chat pages back to the reader's saved place opens it at the bottom`, async () => {
+    test(`${name}: a saved place older than the loaded tail opens the chat at the bottom at once, and a send keeps it there`, async () => {
       const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 560 } });
       await installPaintedFrames(page);
       const { port } = vite!.httpServer!.address() as { port: number };
       await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
       await page.waitForFunction(() => "__showRows" in window);
-      // The saved place is a row older than the loaded tail: the open pages back for it, unseen.
+      // The saved place is a row older than the loaded tail: the chat shows what it holds, at its
+      // latest message, instead of paging back for it unseen (Leo 2026-11-05: "Just load the recent
+      // bits and render, like, what you already have").
       await page.evaluate(() =>
         (window as unknown as { __openAt(anchor: unknown): void }).__openAt({ rowId: "t-older-answer", offset: 0 }),
       );
@@ -270,9 +276,7 @@ await requireBrowserLane("transcript-pinned-bottom.test.ts", async () => {
       await show(page, opened);
       await painted(page, 10);
       const seeking = () => page.evaluate(() => document.querySelector(".acpmux-scroll")!.hasAttribute("data-seeking"));
-      expect(await seeking()).toBe(true);
-      // The send was counted and dropped while the chat had not opened (#23807 review): it opens at
-      // its latest message now, not at the saved place once that page lands, nor seconds later.
+      expect({ seeking: await seeking(), atEnd: (await fromEnd(page)) <= 1 }).toEqual({ seeking: false, atEnd: true });
       await page.evaluate(() => (window as unknown as { __send(): void }).__send());
       await painted(page, 3);
       expect({ seeking: await seeking(), atEnd: (await fromEnd(page)) <= 1 }).toEqual({ seeking: false, atEnd: true });

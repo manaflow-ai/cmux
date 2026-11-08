@@ -3,10 +3,6 @@ import CmuxNextDesign
 /// Settings > Home (the Home tab's conversations). One group of
 /// `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum HomeSettingsSchema {
-    /// Rows an agent may set (looks only): the Chief chat's bubble style and whether it shows the Feed.
-    static let agentSettableKeys: Set<String> = Set([HomeChiefBubbleStyleSetting.key, HomeFeedRowsSetting.key]
-        + HomeBubbleColorsSetting.roles.map { (HomeBubbleColorsSetting.configPath + [$0]).joined(separator: ".") })
-
     static var descriptors: [SettingDescriptor] {
         let attachments = SettingsText.keyed("settings.group.attachments", "Attachments")
         return [
@@ -92,6 +88,28 @@ nonisolated enum HomeSettingsSchema {
                     SettingChoice("orb-hood", SettingsText.keyed("settings.choice.chiefPetMascot.orb-hood", "Hooded Orb")),
                 ]),
                 default: .string(HomeChiefPetSetting.defaultMascot), keywords: ["chief", "pet", "mascot", "character", "avatar", "pixel"]
+            ),
+            // The Chief panel (user 2026-11-06): the edge the Chief docks at when the person docks it, and whether a link
+            // clicked in the Chief opens its workspace with the Chief floating over it.
+            SettingDescriptor(
+                ChiefDockSetting.edgePath, section: .home, group: SettingsText.keyed("settings.group.chiefDock", "Chief Dock"),
+                title: SettingsText.keyed("settings.home.chiefDockEdge", "Dock Edge"),
+                help: SettingsText.keyed("settings.home.chiefDockEdge.help",
+                                         "The window edge the Chief goes to when you dock it. The rest of the window shows the workspace you pick."),
+                kind: .choice([
+                    SettingChoice("left", SettingsText.keyed("settings.choice.chiefDockEdge.left", "Left")),
+                    SettingChoice("right", SettingsText.keyed("settings.choice.chiefDockEdge.right", "Right")),
+                    SettingChoice("top", SettingsText.keyed("settings.choice.chiefDockEdge.top", "Top")),
+                    SettingChoice("bottom", SettingsText.keyed("settings.choice.chiefDockEdge.bottom", "Bottom")),
+                ]),
+                default: .string(ChiefDockSetting.defaultEdge), keywords: ["chief", "dock", "window", "edge", "left", "right", "top", "bottom", "side", "home"]
+            ),
+            SettingDescriptor(
+                ChiefDockSetting.openBesidePath, section: .home, group: SettingsText.keyed("settings.group.chiefDock", "Chief Dock"),
+                title: SettingsText.keyed("settings.home.chiefDockOpenBeside", "Show Chief When Opening Workspaces"),
+                help: SettingsText.keyed("settings.home.chiefDockOpenBeside.help",
+                                         "A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it."),
+                kind: .toggle, default: .bool(ChiefDockSetting.defaultOpenBeside), keywords: ["chief", "dock", "window", "links", "workspace", "beside", "home"]
             ),
             // Settings > Chief's Chiefs card draws it as its Engine row (ChiefsCard.tsx).
             SettingDescriptor(

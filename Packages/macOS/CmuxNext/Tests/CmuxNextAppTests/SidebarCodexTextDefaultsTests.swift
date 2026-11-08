@@ -207,18 +207,16 @@ import Testing
         store.register(MetricTunables.metrics.map(\.descriptor))
         store.register(SidebarTunables.all)
         let rowKey = MetricTunables.sidebarRowHeight.tunable.key
-        let saved = (store.override(rowKey), store.override(SidebarTunables.evenRowText.key))
+        let saved = store.override(rowKey)
         store.set(rowKey, .number(40))
-        store.set(SidebarTunables.evenRowText.key, .bool(false))
         defer {
-            store.set(rowKey, saved.0)
-            store.set(SidebarTunables.evenRowText.key, saved.1)
+            store.set(rowKey, saved)
             SidebarTunablesWatch.shared.changed()
         }
         Self.at {
             #expect(Metrics.sidebarRowHeight == 40)
             let metrics = SidebarLayoutMetrics.standard
-            #expect(metrics.rowHeight == 28 && metrics.rowHeightWithSubtitle == 28 + 12,
+            #expect(metrics.rowHeight == 28 && metrics.rowHeightWithSubtitle == 28 + SidebarStyle.detailLineHeight,
                     "row \(metrics.rowHeight), with detail \(metrics.rowHeightWithSubtitle)")
         }
     }

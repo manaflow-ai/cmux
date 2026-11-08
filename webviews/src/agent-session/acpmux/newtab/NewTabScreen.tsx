@@ -1,11 +1,15 @@
 import { SignInContext, useSignIn } from "../signIn";
+import type { ExtraFolderControl } from "../extraFolders";
 import { authBlocksSend, authText, useSessionAuth } from "../sessionAuth";
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { ConnectKind } from "../environments";
-import type { DictationField } from "../dictation";
-import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
+import type { CloudMachine } from "../cloudMachines";
+import { isActive, type Dictation, type DictationField } from "../dictation";
+import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../newTabModel";
+import { acpmuxPerf } from "../perf";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, stepSelection, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
@@ -14,8 +18,10 @@ import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
-import { BrowseFailure, browseFailureMessage } from "../BrowseFailure";
-import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "../AddProjectPanel";
+import { BrowseFailure } from "../BrowseFailure";
+import { browseFailureMessage } from "../browseFailureModel";
+import { type BrowseRequest } from "../AddProjectPanel";
+import { BROWSE_BUSY, type BrowseResult } from "../addProjectPanelModel";
 import { errorMessage, isStartCancelled } from "../transportErrors";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunMode, type RunModeRows } from "../sandboxRun";
@@ -31,19 +37,17 @@ import {
 } from "../attachments";
 import { composerCommand } from "../cmuxCommands";
 import type { UploadResult } from "../cloudUploads";
-import {
-  AttachmentStrip,
-  backspacedAttachment,
-  useAttachmentIntake,
-  useSendWhenAttached,
-} from "../composer/attachmentIntake";
+import { AttachmentStrip } from "../composer/attachmentIntake";
+import { backspacedAttachment, useAttachmentIntake, useSendWhenAttached } from "../composer/attachmentIntakeModel";
 import { isPasteAsPlainTextKey, usePastedChips } from "../composer/pastedChips";
 import { DropOverlay } from "../composer/DropOverlay";
-import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
+import { AllChatsList } from "./AllChatsList";
+import { type LoadChatsPage } from "./allChatsListModel";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
-import { type NowPlayingCommand, NowPlayingPlayer } from "./NowPlayingPlayer";
+import { NowPlayingPlayer } from "./NowPlayingPlayer";
+import { type NowPlayingCommand } from "./nowPlayingPlayerModel";
 import { ArrowUpIcon } from "../ComposerPickers";
 import { Spinner } from "../conversation/icons";
 import { newTabStart, useNewTabChipModel } from "./chipDefaults";
@@ -59,6 +63,7 @@ import {
   pairingLinkRefused,
   inlineCompletion,
   needsYouCards,
+  profileRows,
   recentChatCards,
   screenRows,
   inStrip,
@@ -79,7 +84,8 @@ import {
   type PageWidgets,
   type WidgetEdit,
 } from "./pageWidgets";
-import { useWidgetEditing, WidgetEditBar, WidgetFrame } from "./WidgetEditing";
+import { WidgetEditBar, WidgetFrame } from "./WidgetEditing";
+import { useWidgetEditing } from "./widgetEditingModel";
 import { useNoEntryMotion } from "./noEntryMotion";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { AmbientWidgets } from "./AmbientWidgets";
@@ -122,10 +128,13 @@ import {
 } from "../slashCommands";
 import { useNewTabCommand, type NewTabCommandActions } from "./useNewTabCommand";
 import { useHarnessesListed } from "../catalog";
+import { agentName } from "../agents";
 import { openHarnessesPage } from "../harnesses/harnessesPage";
 import { NewTabExtras } from "./NewTabExtras";
 import type { SuggestionOrder } from "./suggestionOrder";
 import { newTabComposerTrailingGapArm } from "./composerGap.experiment";
+import { newTabIconColumnArm } from "./iconColumn.experiment";
+import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = NewTabCommandActions & {
@@ -133,7 +142,7 @@ export type NewTabScreenActions = NewTabCommandActions & {
   onSetup?(continueWith: (harness: string) => void): void;
   /// Enter on a prompt: a chat with `harness` in `cwd` (the project picked on the page).
   /// `model`: the one the chip names, so the chat starts on what the page showed.
-  /// `noProject`: Do not work in a project was picked, so the chat starts in no project.
+  /// `noProject`: No folder was picked, so the chat starts in no project.
   /// `attachments`: what was pasted or dropped on the page (composer/attachmentIntake.tsx), sent
   /// with the chat's first prompt.
   /// `saved`: a saved environment picked the place. `cwd` is its folder, used even when it is the
@@ -148,6 +157,10 @@ export type NewTabScreenActions = NewTabCommandActions & {
     saved?: { peer?: string },
   ): unknown;
   onOpen(url: string): void;
+  /// Open in Profile…'s pick (Lawrence 2026-11-05): `url` in the browser profile `id`.
+  onOpenInProfile?(url: string, id: string): void;
+  /// Open in New Profile: `url` in a profile made for it, named `name` (else the host's default name).
+  onOpenInNewProfile?(url: string, name?: string): void;
   onSearch(text: string): void;
   /// Enter in shell mode (`!` first): the page becomes a chat in its folder that runs `command`.
   onShell(command: string): void;
@@ -261,6 +274,7 @@ type Props = NewTabScreenActions & {
   /// can copy it (cloud.startChat copies only the pane's own folders, AgentPaneHandOff), while the
   /// Return that sends keeps its own gesture for the start.
   onProjectPicked?(cwd: string): void;
+  onCloudMachinePicked?(machine: CloudMachine | undefined): void;
   /// true until this page's daemon connection has listed the chats (`listedSessions`), while no
   /// chat is known: the recent project may still come, so the folder chip holds its place.
   chatsPending?: boolean;
@@ -272,6 +286,8 @@ type Props = NewTabScreenActions & {
   projects?: Project[];
   /// The host's folder panel; resolves with the folder picked, if any.
   onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult>;
+  /// The new chat's extra folders, in its folder menu (ComposerContext `extraFolders`).
+  extraFolders?: ExtraFolderControl;
   chips?: NewTabChips;
   /// Lazily load the chosen harness's actual commands in a deferred chat.
   onCommands?(harness: string, cwd?: string): void;
@@ -306,6 +322,10 @@ type Props = NewTabScreenActions & {
   dictationField?: React.MutableRefObject<DictationField | null>;
   /// A dictation session is waiting for words: the empty field reads "Listening…" in italic.
   dictating?: boolean;
+  /// The page's dictation: while a session runs, Send (or Return) ends it and sends once its last
+  /// words land, the one send while dictating (Leo 2026-11-05: "The dictate button has its own send
+  /// button. We don't need that.").
+  dictation?: Dictation;
   /// On this Mac: where the files of the person's drop or paste are, so a folder or a file no prompt
   /// block takes goes with the first prompt as a link to it (the page has no upload to save one).
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
@@ -372,11 +392,16 @@ export function NewTabScreen(props: Props) {
   const [selected, setSelected] = useState<string | undefined>(undefined);
   /// Shell mode: the field holds a command (its `!` shown as the glyph), Enter runs it in a chat.
   const [shell, setShell] = useState(false);
+  /// Open in Profile…: the field searches the browser profiles to open `url` in; `text` is what it
+  /// held, back in the field when the search is left (Escape, or Backspace in an empty field).
+  const [profilePick, setProfilePick] = useState<{ url: string; text: string }>();
+  /// A dictation session runs: Send ends it and sends (submit).
+  const listening = !shell && props.dictation !== undefined && isActive(props.dictation.state);
   const [seeded, setProject] = useState(props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined);
   // A tab with no project of its own (none, the home folder or a private agent-home folder) and no
   // start folder from the host starts on the most recent project (Leo 2026-10-18), until a pick.
   const [picked, setPicked] = useState(false);
-  // Do not work in a project (Leo 2026-10-18): no project, no start folder, until a folder pick.
+  // No folder (Leo 2026-10-18): no project, no start folder, until a folder pick.
   const [none, setNone] = useState(false);
   // Another machine acpmux lists, picked in the location row's machine list: the chat starts there
   // (screenActions onAsk with its `peer`), in a folder on it once one is picked.
@@ -459,8 +484,14 @@ export function NewTabScreen(props: Props) {
   });
   // A paste on the field (an image, a copied file, a screenshot) and a file drop anywhere on the
   // page stage attachments, as a chat's composer does (composer/attachmentIntake.tsx).
+  // `kind`: what brought them (a paste, a drop, the chooser), which says whether they replace a
+  // selection (inlineAttachments.tsx `place`): only a paste does.
   const inlinePlace = useRef<
-    ((chips: readonly import("../composer/attachmentIntake").PendingAttachment[]) => void) | undefined
+    | ((
+        chips: readonly import("../composer/attachmentIntakeModel").PendingAttachment[],
+        kind: DroppedKind | undefined,
+      ) => void)
+    | undefined
   >(undefined);
   const {
     attachments,
@@ -477,7 +508,7 @@ export function NewTabScreen(props: Props) {
     dropLanded,
     attach,
   } = useAttachmentIntake({
-    place: (chips) => inlinePlace.current?.(chips),
+    place: (chips, kind) => inlinePlace.current?.(chips, kind),
     allowImages: snapshot.summary?.promptCapabilities?.image !== false,
     dropZone: () => fieldElement()?.closest(".acpmux-main") ?? null,
     locked: () => props.cloudStarting === true,
@@ -547,6 +578,8 @@ export function NewTabScreen(props: Props) {
   // The input card, which a file drag rings (composer/DropOverlay.tsx).
   const dropLandingTarget = useCallback(() => fieldElement()?.closest(".nt-box") ?? null, []);
   const submitNow = useRef(() => {});
+  /// Set while the send a finished dictation session waited for goes (submit, below).
+  const dictationEnded = useRef(false);
   const continueAfterSetup = useRef<(harness: string) => void>(() => {});
   const openSetup = () => {
     if (props.onSetup) props.onSetup((agent) => continueAfterSetup.current(agent));
@@ -601,6 +634,11 @@ export function NewTabScreen(props: Props) {
   const envFolder = none
     ? undefined
     : (askFolder ?? (props.cwd && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+  // The start the folder chip shows (none, holding its place, or a folder), first frame to final
+  // (perf.ts noteStartState, read by scripts/cmux-next/new-pane-start-state-bench.py).
+  const startShown = none ? "none" : projectPending ? "pending" : (askFolder ?? "");
+  // Every commit, a string compare: an adopt that keeps the screen mounted is measured again too.
+  useEffect(() => acpmuxPerf.noteStartState(`newTab:${startShown}`));
   // Cloud copies a folder on this Mac (cloudRun.ts): picking it drops a saved environment or a
   // machine picked before, so the folder it sends is the one the chip names.
   const runMode = props.runMode && {
@@ -609,6 +647,10 @@ export function NewTabScreen(props: Props) {
       if (mode === "cloud") {
         saved.pick(undefined);
         setMachine(undefined);
+        // The chip's folder may be a recent project nobody clicked (`recent ?? seeded`): picking
+        // Cloud is the person's pick of it too, so the host grants it (workspace.useFolder) and the
+        // Cloud start may copy it. Without this the host refused it as outside the tab's folders.
+        if (envFolder) props.onProjectPicked?.(envFolder);
       }
       props.runMode?.onMode(mode);
     },
@@ -744,7 +786,7 @@ export function NewTabScreen(props: Props) {
     placing: () => attachmentView !== "strip" && !shell,
   });
   pastedChips.opens.current = inline.expand;
-  inlinePlace.current = (chips) => inline.place(chips, "paste");
+  inlinePlace.current = (chips, kind) => inline.place(chips, kind);
   const parentSignIn = useSignIn();
   const offMachine =
     (props.runMode?.mode === "cloud" && props.onCloud) || (props.runMode?.mode === "sandboxed" && props.onSandbox);
@@ -788,12 +830,14 @@ export function NewTabScreen(props: Props) {
     parentSignIn?.authObservation,
   );
 
-  // The Ask row names the agent Return asks and the model on its chip.
+  // The Ask row names the agent Return asks and, once the catalog lists it, the model on its chip.
+  // A harness the chip names always has the row: a last pick stands before the catalog lists it
+  // (newTabStart), and with no row Return took the prompt to the web search under that chip.
   const ask = useMemo(() => {
+    if (!harness) return undefined;
     const entry = snapshot.catalog.find((agent) => agent.id === harness);
-    if (!harness || !entry) return undefined;
-    const model = entry.models.find((option) => option.id === chipSnapshot.summary?.model)?.name;
-    return { harness, agent: entry.name, ...(model ? { model } : {}) };
+    const model = entry?.models.find((option) => option.id === chipSnapshot.summary?.model)?.name;
+    return { harness, agent: agentName(harness, entry?.name), ...(model ? { model } : {}) };
   }, [snapshot.catalog, harness, chipSnapshot.summary?.model]);
   // Shell mode's text is a command line, where a `/` starts a path.
   const commandAt = shell ? undefined : commandTrigger;
@@ -869,23 +913,39 @@ export function NewTabScreen(props: Props) {
     ],
     [props.onCreate, harness],
   );
+  const profiles = props.onOpenInProfile && props.onOpenInNewProfile ? omnibar.profiles : undefined;
   const suggested = useMemo(
     () =>
-      touched && !shell && !commandTyping
-        ? screenRows(typed, {
-            omnibar,
-            home,
-            create: creates,
-            ...(ask ? { ask } : {}),
-            createNames: {
-              terminal: nt("create.terminal"),
-              browser: nt("create.browser"),
-              chat: nt("create.chat"),
-            },
-            ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
-          })
-        : [],
-    [touched, shell, typed, omnibar, home, ask, creates, commandTyping, props.suggestionOrder, nt],
+      profilePick
+        ? profileRows(typed, profilePick.url, profiles ?? [])
+        : touched && !shell && !commandTyping
+          ? screenRows(typed, {
+              omnibar: profiles ? omnibar : { ...omnibar, profiles: undefined },
+              home,
+              create: creates,
+              ...(ask ? { ask } : {}),
+              createNames: {
+                terminal: nt("create.terminal"),
+                browser: nt("create.browser"),
+                chat: nt("create.chat"),
+              },
+              ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
+            })
+          : [],
+    [
+      profilePick,
+      profiles,
+      touched,
+      shell,
+      typed,
+      omnibar,
+      home,
+      ask,
+      creates,
+      commandTyping,
+      props.suggestionOrder,
+      nt,
+    ],
   );
   const rows = text !== dismissed ? suggested : [];
   // The strip's labels are measured again when their words change (another language): a new ref.
@@ -918,6 +978,7 @@ export function NewTabScreen(props: Props) {
   const chatBox = props.chips !== undefined;
   const split = chatBox;
   const trailingGap = newTabComposerTrailingGapArm();
+  const iconColumn = newTabIconColumnArm();
   // Footer look and template can change while this screen stays mounted.
   useRowFit(foot, `${split}:${plainFooter}:${look}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
@@ -998,12 +1059,14 @@ export function NewTabScreen(props: Props) {
   // field keeps the keyboard and the list its highlight.
   const host = usePopupHost();
   const [shown, setShown] = useState<HTMLDivElement | null>(null);
+  const listEdges = useScrollEdges();
   const attachList = useCallback(
     (node: HTMLDivElement | null) => {
       list.current = node;
+      listEdges(node);
       if (host) setShown(node);
     },
-    [host],
+    [host, listEdges],
   );
   // The suggestions' popover (Leo 2026-10-12) hangs under the composer box, on the popup layer:
   // it floats over every section, never covered and never moving the page.
@@ -1012,6 +1075,9 @@ export function NewTabScreen(props: Props) {
   // under the whole composer instead, so they never cover those controls (a press there would pick
   // a row).
   const [composer, setComposer] = useState<HTMLDivElement | null>(null);
+  // At the page's foot (the stage layout) the app's toasts lift above the composer card and never
+  // cover it (toastAvoidance.ts). Elsewhere it sits at the top or the middle, clear of them.
+  useEffect(() => (stage && composer ? reportToastAvoidance(composer, elementBox) : undefined), [stage, composer]);
   const anchor = split ? (composer ?? box) : box;
   useEscapingPopup(host, shown, () => anchor, {
     // At the foot of the page (the stage layout) the rows open over the composer.
@@ -1116,11 +1182,43 @@ export function NewTabScreen(props: Props) {
         return row.kind === "chat" ? startChat() : create(row.kind);
       case "action":
         return props.onAction?.(row.id);
+      case "inProfile":
+        return enterProfilePick(row.url, row.text);
+      case "profile":
+        return props.onOpenInProfile?.(row.url, row.id);
+      case "newProfile":
+        return props.onOpenInNewProfile?.(row.url, row.name);
     }
+  };
+  /// Open in Profile…: the field empties to search the profiles; the rows list them all.
+  const enterProfilePick = (url: string, typedText: string) => {
+    setProfilePick({ url, text: text || typedText });
+    setText("");
+    setSelected(undefined);
+    setDismissed(undefined);
+    requestAnimationFrame(() => field.current?.focus());
+  };
+  /// Back from the profile search to the address as it was typed.
+  const leaveProfilePick = () => {
+    if (!profilePick) return;
+    const restored = profilePick.text;
+    setProfilePick(undefined);
+    setText(restored);
+    setSelected(undefined);
+    requestAnimationFrame(() => {
+      field.current?.focus();
+      field.current?.setCaret(field.current.plainText().length);
+    });
   };
   const edit = (next: string) => {
     touch();
     setTouched(true);
+    // The profile search's text names a profile: no shell mode, no prompt to warm an agent for.
+    if (profilePick) {
+      setText(next);
+      setSelected(undefined);
+      return;
+    }
     const entry = composing.current || shell ? undefined : shellEntry(text, next, wholeSelection.current);
     wholeSelection.current = false;
     if (entry) {
@@ -1140,6 +1238,25 @@ export function NewTabScreen(props: Props) {
     );
   };
   const submit = () => {
+    // A dictation session still running ends first, keeping its words; this goes once they land.
+    if (listening && props.dictation && !dictationEnded.current) {
+      props.dictation.finish(() => {
+        // The session is over even if this render has not heard so yet.
+        dictationEnded.current = true;
+        try {
+          submitNow.current();
+        } finally {
+          dictationEnded.current = false;
+        }
+      });
+      return;
+    }
+    // The profile search: Return opens the address in the highlighted profile (the first one).
+    if (profilePick) {
+      const row = rows[current] ?? suggested[defaultSelection(suggested)];
+      if (row) activate(row);
+      return;
+    }
     const prompt = typed.trim();
     if (command.intercept(prompt, harness, attachments.length, true)) return;
     // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
@@ -1180,6 +1297,36 @@ export function NewTabScreen(props: Props) {
     askChat(harness, prompt, project, chipModel);
   };
   submitNow.current = submit;
+  /// Cmd-Return: the typed text goes to the agent, whatever row leads (an address, a tab's name, a
+  /// command). The one key back to Ask when the page guessed wrong ("reddit", an exact tab name).
+  const askNow = useRef(() => {});
+  const askTyped = () => {
+    if (listening && props.dictation && !dictationEnded.current) {
+      props.dictation.finish(() => {
+        dictationEnded.current = true;
+        try {
+          askNow.current();
+        } finally {
+          dictationEnded.current = false;
+        }
+      });
+      return;
+    }
+    // Shell mode's field is a command: Cmd-Return runs it, as Return does.
+    if (shell) return send();
+    const prompt = typed.trim();
+    if (!prompt && attachments.length === 0) return;
+    if (command.intercept(prompt, harness, attachments.length, true)) return;
+    if (pairingLinkRefused(typed)) return props.onOpen(prompt);
+    if (holdForAttachments(() => askNow.current())) return;
+    if (command.intercept(prompt, harness, attachments.length)) return;
+    if (!harness) {
+      openSetup();
+      return;
+    }
+    askChat(harness, prompt, project, chipModel);
+  };
+  askNow.current = askTyped;
   // One create per page: a double click, or a click while the terminal spawns, opens one tab.
   const created = useRef(false);
   const create = (kind: "terminal" | "browser") => {
@@ -1298,7 +1445,7 @@ export function NewTabScreen(props: Props) {
     input.focus();
     input.setCaret(input.plainText().length);
   };
-  const placeholder = nt("placeholder");
+  const placeholder = profilePick ? nt("profile.placeholder", { site: shortHost(profilePick.url) }) : nt("placeholder");
   // A dictation waiting for words says so in the empty field, in italic (dictation.css).
   const dictating = props.dictating === true;
   const keyDown = (event: KeyboardEvent) => {
@@ -1308,6 +1455,23 @@ export function NewTabScreen(props: Props) {
     const input = field.current;
     const state = fieldText();
     if (!input) return;
+    if (profilePick) {
+      // The profile search keeps the rows' keys; Escape, or Backspace in its empty field, goes back.
+      if (event.key === "Escape" || (event.key === "Backspace" && !state.value)) {
+        event.preventDefault();
+        leaveProfilePick();
+        return;
+      }
+      const step = listStep(event) ?? (event.key === "Tab" && !event.shiftKey ? 1 : undefined);
+      if (step && rows.length) {
+        event.preventDefault();
+        pick(stepSelection(current < 0 ? 0 : current, step, rows.length));
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        submit();
+      }
+      return;
+    }
     if (commandsOpen) {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -1400,6 +1564,9 @@ export function NewTabScreen(props: Props) {
       setDismissed(undefined);
     } else if (event.key === "Enter" && event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
       // Shift-Return adds a line, as in the chat composer: the field keeps its own newline.
+    } else if (event.key === "Enter" && event.metaKey && !event.shiftKey && !event.ctrlKey && !event.altKey) {
+      event.preventDefault();
+      askTyped();
     } else if (event.key === "Enter") {
       event.preventDefault();
       submit();
@@ -1426,6 +1593,9 @@ export function NewTabScreen(props: Props) {
   const pickProject = (cwd?: string) => {
     projectChoice.current += 1;
     setBrowseError(undefined);
+    // A folder choice starts this draft on this Mac. Drop any account Cloud target selected
+    // earlier so the next keystroke cannot wake that stale machine.
+    props.onCloudMachinePicked?.(undefined);
     // A folder picked anywhere on the page (a widget card's project) replaces a saved environment,
     // and is on this Mac.
     saved.pick(undefined);
@@ -1446,10 +1616,12 @@ export function NewTabScreen(props: Props) {
     // A newer choice than any worktree still on its way (`projectChoice`).
     projectChoice.current += 1;
     setBrowseError(undefined);
+    // Choosing a local or SSH machine replaces an account Cloud target for this draft.
+    props.onCloudMachinePicked?.(undefined);
     saved.pick(undefined);
     touch();
     // A machine picked with a folder there (the location row picks its first known folder) is a
-    // project pick: the chat starts in that folder, so Do not work in a project ends, and the
+    // project pick: the chat starts in that folder, so No folder ends, and the
     // headline, the location row and the send all name it. A machine alone keeps the choice.
     if (next?.folder) setNone(false);
     setMachine(next);
@@ -1626,6 +1798,7 @@ export function NewTabScreen(props: Props) {
         {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
         {...(props.onRefreshMachines ? { onRefreshMachines: props.onRefreshMachines } : {})}
         onComputer={(computer) => pickMachine(computer === "local" ? undefined : { peer: computer })}
+        {...(props.onCloudMachinePicked ? { onCloudMachinePicked: props.onCloudMachinePicked } : {})}
         {...(props.machineName ? { localName: props.machineName } : {})}
         projectChoices={props.projects ?? []}
         onProject={(cwd, peer) => (peer ? pickMachine({ peer, folder: cwd }) : pickProject(cwd))}
@@ -1636,6 +1809,7 @@ export function NewTabScreen(props: Props) {
         {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
         {...(props.onConnect ? { onConnect: props.onConnect, connectOnlyWhenEmpty: !props.environments } : {})}
         {...(props.environments && runMode ? { runMode } : {})}
+        {...(props.extraFolders ? { extraFolders: props.extraFolders } : {})}
         {...(saved.on
           ? {
               saved: {
@@ -1645,6 +1819,8 @@ export function NewTabScreen(props: Props) {
                   projectChoice.current += 1;
                   setBrowseError(undefined);
                   touch();
+                  // Saved environments are local/SSH destinations, never account Cloud machines.
+                  props.onCloudMachinePicked?.(undefined);
                   // A local one starts on this Mac: a machine picked before is no longer where.
                   if (saved.list.find((other) => other.id === id)?.kind === "local") setMachine(undefined);
                   saved.pick(id);
@@ -1653,6 +1829,7 @@ export function NewTabScreen(props: Props) {
                 onClear: () => {
                   projectChoice.current += 1;
                   setBrowseError(undefined);
+                  props.onCloudMachinePicked?.(undefined);
                   saved.pick(undefined);
                 },
                 onCreate: () => saved.edit(null),
@@ -1686,7 +1863,10 @@ export function NewTabScreen(props: Props) {
       machines={sshMachines}
       machineFolders={machineFolders}
       {...(props.onConnect ? { onConnectSSH: () => props.onConnect!("ssh") } : {})}
-      onSave={saved.save}
+      onSave={async (draft) => {
+        await saved.save(draft);
+        props.onCloudMachinePicked?.(undefined);
+      }}
       onRemove={saved.remove}
       onClose={() => {
         saved.edit(undefined);
@@ -1726,7 +1906,8 @@ export function NewTabScreen(props: Props) {
               }
               aria-label={t("composer.send")}
               title={t("composer.sendTooltip")}
-              disabled={!text.trim() && attachments.length === 0 && reading.length === 0}
+              // While dictating, Send ends the session and sends what it heard.
+              disabled={!listening && !text.trim() && attachments.length === 0 && reading.length === 0}
               data-starting={starting !== undefined ? "" : undefined}
               onClick={send}
             >
@@ -1805,8 +1986,10 @@ export function NewTabScreen(props: Props) {
       <div
         ref={setComposer}
         className="nt-composer"
+        data-cloud-starting={props.cloudStarting === true ? "true" : undefined}
         data-composer-look={look === "codex" ? "codex" : undefined}
         data-trailing-gap={trailingGap}
+        data-icon-column={iconColumn}
         data-attachment-view={attachmentView}
       >
         {authBlocksSend(targetAuth) ? (
@@ -2216,8 +2399,14 @@ export function NewTabScreen(props: Props) {
             initialFocus={false}
             finalFocus={false}
           >
-            {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-            <div ref={attachList} className="nt-rows" id="nt-rows" role="listbox" aria-label={nt("suggestions")}>
+            <div
+              ref={attachList}
+              className="nt-rows ui-scroll-edge-fade"
+              id="nt-rows"
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+              role="listbox"
+              aria-label={nt("suggestions")}
+            >
               {rows.map((row, index) =>
                 inStrip(row) ? null : (
                   <div
@@ -2247,7 +2436,9 @@ export function NewTabScreen(props: Props) {
                     <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
                     {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
                     <span className="nt-row-action" data-popup-skip>
-                      {rowAction(t, nt, row)}
+                      {/* An Ask row Return does not take shows Cmd-Return's keycap in its action's place
+                      (always asks), no wider than the word it replaces, so a narrow pane never overflows. */}
+                      {index === current || row.type !== "ask" ? rowAction(t, nt, row) : <kbd>⌘↵</kbd>}
                       {index === current && <kbd>↵</kbd>}
                     </span>
                   </div>
@@ -2370,6 +2561,8 @@ function rowKey(row: ScreenRow): string {
       return `create:${row.kind}`;
     case "action":
       return `action:${row.id}`;
+    case "profile":
+      return `profile:${row.id}`;
     default:
       return row.type;
   }
@@ -2402,6 +2595,12 @@ function rowTitle(nt: NewTabTranslate, row: ScreenRow): string {
       return row.title;
     case "create":
       return nt(`create.${row.kind}`);
+    case "inProfile":
+      return nt("row.openInProfile");
+    case "newProfile":
+      return row.name ? nt("row.openInNamedProfile", { name: row.name }) : nt("row.openInNewProfile");
+    case "profile":
+      return nt("row.openInThisProfile", { name: row.name });
   }
 }
 
@@ -2417,6 +2616,10 @@ function rowDetail(row: ScreenRow): string | undefined {
       return row.detail;
     case "ask":
       return row.model;
+    case "inProfile":
+    case "newProfile":
+    case "profile":
+      return shortHost(row.url);
     default:
       return undefined;
   }
@@ -2439,5 +2642,10 @@ function rowAction(t: Translate, nt: NewTabTranslate, row: ScreenRow): string {
       return t("newTabPage.row.open");
     case "action":
       return row.keycaps?.join("") ?? nt("row.run");
+    case "inProfile":
+      return nt("row.chooseProfile");
+    case "newProfile":
+    case "profile":
+      return t("newTabPage.row.open");
   }
 }

@@ -120,14 +120,14 @@ const { setMessageMenuSource, installMessageMenuReporter } =
   await import("../src/agent-session/acpmux/conversation/messageMenu");
 const { setBookmarkTransport } = await import("../src/agent-session/acpmux/threadMinimap/bookmarks");
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
-const { ShellActionsContext } = await import("../src/agent-session/acpmux/shell/ShellRow");
+const { ShellActionsContext } = await import("../src/agent-session/acpmux/shell/shellRowModel");
 const { SubagentNavContext, SubagentPaneContext, SubagentStopContext } =
-  await import("../src/agent-session/acpmux/subagents/SubagentGroup");
+  await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
 const { ImageViewerContext } = await import("../src/agent-session/acpmux/conversation/imageViewerContext");
 const { ArtifactContext } = await import("../src/agent-session/acpmux/conversation/artifactPreview");
 const { RunInBackgroundContext } = await import("../src/agent-session/acpmux/conversation/runInBackground");
 const { SignInContext } = await import("../src/agent-session/acpmux/signIn");
-const { StartedMentionsContext } = await import("../src/agent-session/acpmux/started/StartedSessionCard");
+const { StartedMentionsContext } = await import("../src/agent-session/acpmux/started/startedSessionCardModel");
 const { AvatarContext } = await import("../src/pages/home-channels/avatars");
 const { askingRecords, fakeRoom, joinFrames, memoryStorage } =
   await import("../src/agent-session/guest/fixtures/liveChat");
@@ -412,6 +412,8 @@ test("the guest page itself, joined and live, reaches no host and no owner actio
         <GuestPage
           shareId="c2hhcmUtMTIzNDU2Nzg"
           guestId="g1"
+          // A talk guest (a plain `role` prop reads as an ARIA role to the linter).
+          {...{ role: "talk" as const }}
           storage={memoryStorage()}
           redeem={() => new Promise(() => undefined)}
           attempt={() => "0".repeat(32)}

@@ -29,8 +29,8 @@ test("each step puts in the tray what the capture records, beside the message fr
   const steps = Array.from({ length: SUBAGENT_TRAY_STEPS }, (_, step) => tray(step));
   expect(steps.map(({ running }) => running)).toEqual([
     [],
-    ["fixture-reviewer", "fixture-auditor"],
-    ["fixture-reviewer", "fixture-auditor"],
+    ["fixture-auditor", "fixture-reviewer"],
+    ["fixture-auditor", "fixture-reviewer"],
     ["fixture-auditor"],
     [],
     [],
@@ -60,9 +60,10 @@ test("the steps keep their rows' ids and times; the group's version moves with i
 // `agents` lets a capture open 3 or more subagents' panes (design/pane-placement.md): past the
 // reviewer and the auditor, helpers that run through every step. Unset, the fixture is unchanged.
 test("agents starts that many running subagents; unset it starts the reviewer and the auditor", () => {
-  expect(tray(1, 4).running).toEqual(["fixture-reviewer", "fixture-auditor", "fixture-helper-1", "fixture-helper-2"]);
+  // The tray lists them newest first.
+  expect(tray(1, 4).running).toEqual(["fixture-helper-2", "fixture-helper-1", "fixture-auditor", "fixture-reviewer"]);
   expect(tray(1).running).toEqual(tray(1, 2).running);
-  expect(tray(4, 4).running).toEqual(["fixture-helper-1", "fixture-helper-2"]);
+  expect(tray(4, 4).running).toEqual(["fixture-helper-2", "fixture-helper-1"]);
   expect(tray(1, 1).running).toHaveLength(2);
   expect(tray(1, 99).running).toHaveLength(SUBAGENT_FIXTURE_MAX);
   expect(tray(5, 4).running).toEqual([]);

@@ -1,0 +1,115 @@
+/* The Share dialog (design chat-multiplayer.md 2, "Share dialog"): Google Docs' order, our glass.
+   One size while it shows: the people list scrolls in a fixed band and the status line keeps its
+   room, so nothing moves when a row comes or goes or a step fails. */
+.share-dialog-popup {
+  width: min(480px, calc(100vw - 32px));
+}
+.share-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-5);
+  color: var(--ui-fg);
+  font-size: var(--text-body);
+}
+.share-dialog__title {
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--text-title);
+  font-weight: var(--weight-emphasis);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.share-dialog__add {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+.share-dialog__field {
+  flex: 1;
+  min-width: 0;
+}
+.share-dialog__status {
+  min-height: var(--ds-control-primary);
+  margin: 0;
+  color: var(--cmux-danger, var(--ui-fg-2));
+  font-size: var(--text-detail);
+}
+.share-dialog__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+}
+.share-dialog__heading {
+  margin: 0;
+  color: var(--ui-fg-2);
+  font-size: var(--text-detail);
+  font-weight: var(--weight-emphasis);
+}
+.share-dialog__people {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  /* Four rows, then the band scrolls. */
+  height: calc(4 * var(--ds-control-primary) + 3 * var(--ds-space-1));
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.share-dialog__person,
+.share-dialog__general {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+  min-height: var(--ds-control-primary);
+}
+.share-dialog__who {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.share-dialog__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.share-dialog__hint {
+  color: var(--ui-fg-2);
+  font-size: var(--text-detail);
+}
+.share-dialog__fixed-role {
+  color: var(--ui-fg-2);
+  font-size: var(--text-detail);
+}
+/* General access's mark: a lock for Restricted, a globe for Anyone (a round, crisp tile). */
+.share-dialog__general-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--ds-control-row);
+  height: var(--ds-control-row);
+  border-radius: 50%;
+  background: var(--ui-hover);
+}
+.share-dialog__general-mark[data-access="anyone"] {
+  background: color-mix(in srgb, var(--cmux-accent, var(--ui-fg)) 18%, transparent);
+}
+.share-dialog__access {
+  align-self: flex-start;
+}
+.share-dialog__footer {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+  padding-top: var(--ds-space-2);
+}
+/* Every role picker is one width, so the rows' pickers and Remove line up whatever the role says. */
+.share-dialog__role {
+  flex: none;
+}
+.share-dialog__role > .ui-select-button {
+  width: calc(3 * var(--ds-space-6));
+}

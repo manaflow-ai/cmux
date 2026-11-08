@@ -82,6 +82,13 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
         if let custom = base.customRowHeight { return custom }
         return (isCompact ? base.rowHeight : base.listRowHeight) + extraHeight
     }
+    /// The tokens of the bands above the list (Home, pinned rows) and of the workspace hover card: at
+    /// Expanded, Comfortable's, since Expanded keeps the one-line row and grows only the list's
+    /// workspace rows by a detail line (pinned rows were too short, Lawrence 2026-11-04). Compact,
+    /// Normal and Comfortable keep their own.
+    public var band: SidebarRowTokens {
+        density == .expanded ? SidebarRowTokens(density: .comfortable, textSize: textSize, base: base) : self
+    }
     /// Rows inset from the sidebar edge, and their content from the row edge: `sidebar.rowPadding` when set;
     /// else Codex's 8 pt `--padding-row-x` (the grid's comfortable inset too), 6 pt at Compact.
     public var horizontalInset: CGFloat {

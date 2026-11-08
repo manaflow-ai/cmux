@@ -112,6 +112,8 @@ extension TabStripView {
         if local < band + edge { speed = -(band + edge - local) * gain }
         if local > viewportWidth - edge { speed = (local - (viewportWidth - edge)) * gain }
         guard speed != 0 else { return false }
+        // A frame that shows no later than the last one (after a hang) moves nothing: keep ticking.
+        guard dt > 0 else { return true }
         settleScroll()
         let target = TabScrollMath.clamp(scrollOffset + speed * dt, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
         guard target != scrollOffset else { return false }

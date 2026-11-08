@@ -21,6 +21,10 @@ pub(crate) enum StartGrant {
     Preset,
     /// The caller session's own mode.
     Inherit,
+    /// The full-access mode a start that names no mode gets here anyway: the
+    /// person's start level (`agents.defaultPermissionMode`) is full access
+    /// (`Hub::names_start_level`, cmux#37392).
+    StartLevel,
 }
 
 impl Hub {
@@ -133,9 +137,10 @@ fn forget_mode(m: &mut crate::store::SessionMeta) {
             .and_then(Value::as_str)
             .is_some_and(|id| id != "modeId" && crate::web_modes::MODE_FIELDS.contains(&id))
     };
-    if let Some(opts) = m.config_options.as_mut().and_then(Value::as_array_mut) {
-        for o in opts.iter_mut().filter(|o| mode_like(o)) {
-            o["currentValue"] = Value::Null;
-        }
+    if let Some(opts) = m.config_options.as_mut() {
+        opts.update_matching(
+            |o| mode_like(o) && o.get("currentValue") != Some(&Value::Null),
+            |o| o["currentValue"] = Value::Null,
+        );
     }
 }

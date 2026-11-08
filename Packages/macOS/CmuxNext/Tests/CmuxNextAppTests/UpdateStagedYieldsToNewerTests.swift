@@ -140,7 +140,7 @@ import CmuxNextWakeupsTestSupport
     @Test func aNewerDevBuildReplacesTheStagedOneAtTheNextScheduledCheck() async throws {
         let h = Self.make(ring: "dev")
         #expect(h.feed.fetches == 0, "the feed was read before the scheduled check")
-        try await h.clock.waitForSleeper()
+        try await probeArmed(h, at: Self.interval)
         h.clock.advance(by: .seconds(Self.interval))
         try await settle(h, fetches: 1)
         #expect(h.sparkle.cancels == 1, "the staged build 300 kept its installer though Dev build 500 is out")
@@ -214,7 +214,7 @@ import CmuxNextWakeupsTestSupport
     /// archive: a newer build replaces the staged one at once, deltas listed or not.
     @Test func aFreshDevBuildWithNoDeltasSwapsAtOnce() async throws {
         let h = Self.make(ring: "dev", feed: Self.feed(devMinutesAgo: 10))
-        try await h.clock.waitForSleeper()
+        try await probeArmed(h, at: Self.interval)
         h.clock.advance(by: .seconds(Self.interval))
         try await settle(h, fetches: 1)
         #expect(h.sparkle.cancels == 1, "a newer build was held back for its deltas")
@@ -223,7 +223,7 @@ import CmuxNextWakeupsTestSupport
 
     @Test func aFreshDevBuildThatListsDeltasSwapsAtOnce() async throws {
         let h = Self.make(ring: "dev", feed: Self.feed(devMinutesAgo: 10, devDeltas: true))
-        try await h.clock.waitForSleeper()
+        try await probeArmed(h, at: Self.interval)
         h.clock.advance(by: .seconds(Self.interval))
         try await settle(h, fetches: 1)
         #expect(h.sparkle.cancels == 1)
@@ -339,7 +339,7 @@ import CmuxNextWakeupsTestSupport
         #expect(!h.updater.stagedRefresh.timer.isScheduled, "automatic checks are off but a probe is still pending")
         h.updater.configure(checkAutomatically: true, checkInterval: Self.interval * 2, downloadAutomatically: true)
         #expect(h.updater.stagedRefresh.timer.isScheduled, "turning checks back on armed no probe while an update waits")
-        try await h.clock.waitForSleeper()
+        try await probeArmed(h, at: Self.interval * 2)
         h.clock.advance(by: .seconds(Self.interval))
         try await Task.sleep(for: .milliseconds(100))
         #expect(h.feed.fetches == 0, "the old interval's deadline still fired")

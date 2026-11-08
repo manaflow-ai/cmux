@@ -31,7 +31,6 @@ import plistlib
 import re
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import traceback
@@ -41,6 +40,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_cli_storm import Client  # noqa: E402
 from ext_e2e import cdp  # noqa: E402
 from ext_e2e.app import free_port  # noqa: E402
+import kit_downloads  # noqa: E402
 
 STORE_EXTENSION = ("eimadpbcbfnmbkopoojfekhnkhdbieeh", "Dark Reader")  # MV3 on the store
 UBO_NAME = "uBlock Origin"
@@ -113,7 +113,7 @@ class Job:
         os.makedirs(self.out, exist_ok=True)
         # The app's downloads folder (CMUX_NEXT_DOWNLOADS_DIR, Debug builds), never the account's ~/Downloads:
         # macOS asks for access to that one in a prompt that covers a fleet Mac's screen.
-        self.downloads = tempfile.mkdtemp(prefix=f"ext-mv2-{phase}-downloads-")
+        self.downloads = kit_downloads.make(f"ext-mv2-{phase}-downloads-")
         self.port = free_port()
         self.extensions = list(extensions)
         self.results = []
@@ -461,6 +461,7 @@ def run_phase(job, steps, cleanup=()):
         job.stop()
         for done in cleanup:
             done()
+        kit_downloads.remove(job.downloads)  # the app has quit: nothing writes there any more
     return job.finish()
 
 
@@ -510,7 +511,8 @@ def phase_store(_args):
             session.close()
 
     def downloads():
-        folder = job.downloads
+        # Only the kit's folder is looked at: no verdict unless the app saves there.
+        folder = kit_downloads.require(job.call("debug.downloads"), job.downloads)
         stray = [f for f in os.listdir(folder) if f.endswith((".crx", ".cmuxdownload"))
                  and os.path.getmtime(os.path.join(folder, f)) > time.time() - 600]
         job.row("store: no CRX copied into Downloads", not stray, stray or "none", gating=False)

@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+public import CmuxNextHomeModel
 
 /// DEBUG: the `home-chief` capture scene reads the listed agents and clicks one.
 extension HomeFirstRunView {

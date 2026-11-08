@@ -31,7 +31,7 @@ enum OnboardingHandlers {
         registry.bind("browser.importFromFiles", run: { invocation in
             BrowserFileImport(services: services).run(profile: BookmarkResolver(services: services).profile(invocation))
         })
-        // Cookies of one browser profile, for the CLI and agents: an agent's run asks the person first.
+        // Cookies of one browser profile, for the CLI and agents: an agent's run asks the person, whose own click alone allows.
         let cef = services.cache.cef
         let cookieImports = CookieImportService(host: CookieImportHost(
             requester: { invocation in
@@ -53,8 +53,8 @@ enum OnboardingHandlers {
             },
             window: { services.windows.active?.window ?? NSApp.mainWindow ?? NSApp.windows.first(where: \.isVisible) },
             reveal: { tab in _ = registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), origin: .user)) },
-            track: { registry.track($0) },
-            destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) }))
+            track: { registry.track($0) }, imported: { services.onboarding.browserImportOffer.importFinished($0) },
+            destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) }, isPersonEvent: services.personInput.isPerson, dispatchingEvent: { [inputDispatch = services.inputDispatch] in inputDispatch.event }))
         registry.bind("browser.importCookies", run: { invocation in try cookieImports.run(invocation) })
         // Brings the Import Cookies banner back (Don't Show Again undone) and shows it; it imports nothing.
         registry.bindEffect("browser.showCookieImportBanner", effect: { _ in services.onboarding.browserImportOffer.showNow(); return .done })
@@ -98,14 +98,15 @@ enum OnboardingHandlers {
         })
     }
 
-    /// What the import cards run through the App: the Import from Browser window's import run
-    /// and Import Workspaces from Classic cmux.
+    /// What the import cards run through the App: the Import from Browser window's import run,
+    /// Import Workspaces from Classic cmux and Import from Conductor.
     static func importCardsHost(_ services: AppServices) -> ImportCardsHost {
         ImportCardsHost(
             runImport: { plan, keys, progress in try await AppOnboardingServices(owner: services.onboarding).runImport(plan, keys: keys, progress: progress) },
             importedProfiles: { Set(await services.onboarding.importStore.sources().map(\.sourceKey)) },
             openSettings: { route in try? services.settingsWindow.show(section: nil, route: route) },
-            importClassic: { progress in try await importClassic(services, in: nil, progress: progress)?.opened })
+            importClassic: { progress in try await importClassic(services, in: nil, progress: progress)?.opened },
+            importConductor: { progress in try await ConductorImport(host: services).run(progress: progress) })
     }
 
     /// Import Workspaces from Classic cmux as every entrypoint runs it (the action, the cmux

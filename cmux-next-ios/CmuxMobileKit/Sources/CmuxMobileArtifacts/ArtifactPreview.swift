@@ -1,6 +1,7 @@
 #if os(iOS)
 import AVKit
 import CmuxMobileDesign
+import CmuxSpinner
 import PDFKit
 import QuickLook
 import SwiftUI
@@ -74,7 +75,7 @@ public struct ArtifactPreview: View {
         Group {
             switch content {
             case nil:
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                CmuxSpinner().frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityIdentifier("artifact.loading")
             case .failure(let error):
                 // Never a blank page: what the Mac said, and a way to try again.
@@ -82,7 +83,7 @@ public struct ArtifactPreview: View {
                     headline: artifact.kind == .directory ? "Can't open this folder" : "Can't open this file",
                     systemImage: "exclamationmark.triangle", name: artifact.name, message: error.localizedDescription
                 ) {
-                    Button("Try Again") {
+                    RetryButton("Try Again") {
                         content = nil
                         attempt += 1
                     }

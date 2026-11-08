@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxHomeCore
 import CmuxNextDesign
+public import CmuxNextHomeModel
 
 /// New Message's To: field, as in Messages: "To:", one token per
 /// recipient, then the text being typed, and a + button at the end. It owns
