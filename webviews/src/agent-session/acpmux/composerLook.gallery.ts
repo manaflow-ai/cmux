@@ -15,6 +15,7 @@ import { assistant, chat, CWD, manySessions, noChat, user } from "../../gallery/
 import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 import { setComposerLook, type ComposerLook } from "./composerLook";
 import type { TaskGoal } from "./goal";
+import type { ChatSchedule } from "./schedule";
 
 /// A started Claude Code chat in a project: the transcript over the composer. It reports its modes,
 /// as a running Claude Code session does, so the mode chip (the permission capsule) draws in both looks.
@@ -81,6 +82,13 @@ const loopChat = (goal: Omit<TaskGoal, "kind" | "status">) => {
     ...snapshot,
     summary: { ...snapshot.summary!, goal: { kind: "loop" as const, status: "active" as const, ...goal } },
   };
+};
+
+/// cmux's own scheduled prompt (`/loop` on any harness, acpmux `prompt_schedule.rs`): a chip over
+/// the composer with its trigger, next run, runs left, and Pause/Resume and Cancel.
+const scheduleChat = (schedule: ChatSchedule) => {
+  const snapshot = startedChat();
+  return { ...snapshot, summary: { ...snapshot.summary!, harness: "codex", schedule } };
 };
 
 const speedNewTab = () => {
@@ -283,6 +291,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/composerFooterShared.css",
     "agent-session/acpmux/LookSwitch.tsx#LookSwitch",
     "agent-session/acpmux/TaskGoalStrip.tsx#TaskGoalStrip",
+    "agent-session/acpmux/TaskGoalStrip.tsx#ScheduleStrip",
     "agent-session/acpmux/newtab/PageDots.tsx#PageDots",
     "agent-session/acpmux/newtab/StyleSwitch.tsx#DotSwitch",
   ],
@@ -342,6 +351,43 @@ export default agentPaneEntry({
       note: 'An interval /loop (CronCreate): its schedule as Claude Code words it, "Repeats every 5 minutes".',
       snapshot: loopChat({ objective: "/babysit-prs", schedule: "every 5 minutes", nextRunAt: GALLERY_NOW + 90_000 }),
       play: (ctx) => look(ctx, "claude"),
+    },
+    "schedule-every": {
+      note: "cmux's own /loop on a harness without one (/loop 5m x3 check CI): every five minutes, next run, runs made of the limit, Pause and Cancel.",
+      snapshot: scheduleChat({
+        id: "sch-1",
+        prompt: "check CI and fix what broke",
+        trigger: { kind: "every", minutes: 5 },
+        maxRuns: 3,
+        runs: 1,
+        nextRunAt: GALLERY_NOW + 4 * 60_000,
+        paused: false,
+      }),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "schedule-idle": {
+      note: "/loop idle keep going: sends after each turn the agent ends, with its default stop of ten runs.",
+      snapshot: scheduleChat({
+        id: "sch-2",
+        prompt: "keep going until the tests pass",
+        trigger: { kind: "idle" },
+        maxRuns: 10,
+        runs: 4,
+        paused: false,
+      }),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "schedule-paused": {
+      note: "A paused schedule: it says so and offers Resume.",
+      snapshot: scheduleChat({
+        id: "sch-3",
+        prompt: "write the standup notes",
+        trigger: { kind: "every", minutes: 60 },
+        runs: 2,
+        nextRunAt: GALLERY_NOW + 30 * 60_000,
+        paused: true,
+      }),
+      play: (ctx) => look(ctx, "codex"),
     },
     "loop-autonomous": {
       note: "An autonomous /loop (no prompt of the person's), in Codex's look.",

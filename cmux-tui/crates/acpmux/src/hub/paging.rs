@@ -320,6 +320,7 @@ const DETAIL_FIELDS: &[(&str, fn() -> Value)] = &[
     ("agentCapabilities", || Value::Null),
     ("usage", || Value::Null),
     ("goal", || Value::Null),
+    ("schedule", || Value::Null),
     ("contextBreakdown", || Value::Null),
     ("usageLimits", || Value::Null),
     ("availableCommands", || Value::Null),

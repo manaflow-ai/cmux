@@ -1,0 +1,314 @@
+//! Part of `Hub`; see `hub/mod.rs`. A chat's scheduled prompt (`crate::prompt_schedule`) runs
+//! here: cmux's own `/loop`, which works the same for every harness.
+//!
+//! The schedule lives in the chat's record (`SessionMeta::prompt_schedule`), so it outlives a
+//! daemon restart: `resume_queues` reads every record's at start (`restore_prompt_schedules`).
+//! Each change is saved and logged as a `session_info_update` carrying `_meta.schedule` (null
+//! once it ends), which every client of the chat hears, the strip over its composer included.
+//!
+//! A run goes in through `prompt_with`, the person's own path, named `schedule` in its
+//! provenance. A run that falls due while the chat is busy (a turn, a queue, a question) waits
+//! for the chat to be free: the end of a turn wakes the timer (`prompt_schedule_turn_ended`),
+//! which looks again `SETTLE_MS` later, once the turn's own wrap-up and whatever it queued have
+//! started. So one run at most is ever waiting, never a queue of them.
+//!
+//! One task per hub waits on the hub clock for the earliest run and on a wake signal for a
+//! change; it never polls. It sleeps at most `MAX_SLEEP_MS` at a time while any schedule waits
+//! (a monotonic wait does not run while the machine sleeps, and the schedule is wall-clock),
+//! sleeps without a deadline when no chat has one, and ends with the hub or once shutdown starts.
+//! It reads only the chats that have a schedule (`Scheduler::chats`), never every chat.
+
+use super::*;
+use crate::prompt_schedule::{PromptSchedule, Request};
+use std::collections::{HashMap, HashSet};
+
+/// After a turn ends, how long the timer waits before it looks at the chat again.
+pub(super) const SETTLE_MS: u64 = 2_000;
+/// The longest single wait, so a wall-clock run is at most this late after the machine wakes.
+pub(super) const MAX_SLEEP_MS: u64 = 60_000;
+
+/// Wall-clock milliseconds since the epoch; tests replace it.
+pub(super) type WallClock = Arc<dyn Fn() -> u64 + Send + Sync>;
+
+pub(crate) struct Scheduler {
+    wake: Arc<Notify>,
+    running: AtomicBool,
+    /// The chats with a schedule, by session id.
+    chats: StdMutex<HashSet<String>>,
+    /// A chat whose turn just ended, and when to look at it again.
+    settle: StdMutex<HashMap<String, u64>>,
+    wall: StdMutex<WallClock>,
+}
+
+impl Default for Scheduler {
+    fn default() -> Self {
+        Self {
+            wake: Arc::new(Notify::new()),
+            running: AtomicBool::new(false),
+            chats: StdMutex::default(),
+            settle: StdMutex::default(),
+            wall: StdMutex::new(Arc::new(crate::store::now_ms)),
+        }
+    }
+}
+
+fn locked<T>(m: &StdMutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+impl Hub {
+    pub(super) fn schedule_now(&self) -> u64 {
+        let wall = locked(&self.prompt_schedules.wall).clone();
+        wall()
+    }
+
+    #[cfg(test)]
+    pub(super) fn set_schedule_wall(&self, wall: WallClock) {
+        *locked(&self.prompt_schedules.wall) = wall;
+    }
+
+    /// `_acpmux/schedule/set`: the chat's schedule, replacing the one it had.
+    pub(crate) fn schedule_set(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        req: Request,
+    ) -> Result<Value, RpcError> {
+        let now = self.schedule_now();
+        let id = format!("sch-{}", uuid::Uuid::new_v4().simple());
+        let schedule = PromptSchedule::new(id, req, now).map_err(RpcError::invalid_params)?;
+        let value = schedule.to_value();
+        locked(&session.meta).prompt_schedule = Some(schedule);
+        self.publish_schedule(session);
+        locked(&self.prompt_schedules.chats).insert(session.id.clone());
+        self.wake_scheduler();
+        Ok(value)
+    }
+
+    /// `_acpmux/schedule/pause {paused}`: the schedule's answer, null when the chat has none.
+    pub(crate) fn schedule_pause(self: &Arc<Self>, session: &Arc<Session>, paused: bool) -> Value {
+        let now = self.schedule_now();
+        let value = {
+            let mut m = locked(&session.meta);
+            let Some(schedule) = m.prompt_schedule.as_mut() else { return Value::Null };
+            schedule.set_paused(paused, now);
+            schedule.to_value()
+        };
+        self.publish_schedule(session);
+        self.wake_scheduler();
+        value
+    }
+
+    /// `_acpmux/schedule/clear`: whether the chat had one.
+    pub(crate) fn schedule_clear(&self, session: &Session) -> bool {
+        let had = locked(&session.meta).prompt_schedule.take().is_some();
+        if had {
+            self.publish_schedule(session);
+        }
+        locked(&self.prompt_schedules.chats).remove(&session.id);
+        had
+    }
+
+    pub(crate) fn schedule_get(&self, session: &Session) -> Value {
+        locked(&session.meta).prompt_schedule.as_ref().map_or(Value::Null, PromptSchedule::to_value)
+    }
+
+    /// Saves the chat's schedule and tells its clients, as one `session_info_update`.
+    fn publish_schedule(&self, session: &Session) {
+        let (sid, schedule) = {
+            let m = locked(&session.meta);
+            (
+                m.agent_session_id.clone().unwrap_or_else(|| session.id.clone()),
+                m.prompt_schedule.as_ref().map_or(Value::Null, PromptSchedule::to_value),
+            )
+        };
+        self.save_meta(session);
+        let update = json!({"sessionUpdate": "session_info_update", "_meta": {"schedule": schedule}});
+        let msg = json!({"jsonrpc": "2.0", "method": "session/update",
+                         "params": {"sessionId": sid, "update": update}});
+        self.append(session, "in", "session_info_update", msg);
+    }
+
+    /// At daemon start: the chats whose record holds a schedule.
+    pub(super) fn restore_prompt_schedules(self: &Arc<Self>) {
+        let found: Vec<String> = self
+            .sessions()
+            .iter()
+            .filter(|s| locked(&s.meta).prompt_schedule.is_some())
+            .map(|s| s.id.clone())
+            .collect();
+        if found.is_empty() {
+            return;
+        }
+        locked(&self.prompt_schedules.chats).extend(found);
+        self.wake_scheduler();
+    }
+
+    /// A turn of `session` ended: an `idle` schedule counts its grace from now, and a run that
+    /// waited for the chat looks again shortly. Costs nothing for a chat with no schedule.
+    pub(super) fn prompt_schedule_turn_ended(self: &Arc<Self>, session: &Arc<Session>) {
+        if !locked(&self.prompt_schedules.chats).contains(&session.id) {
+            return;
+        }
+        let now = self.schedule_now();
+        let changed = locked(&session.meta).prompt_schedule.as_mut().is_some_and(|s| s.turn_ended(now));
+        if changed {
+            self.publish_schedule(session);
+        }
+        locked(&self.prompt_schedules.settle).insert(session.id.clone(), now + SETTLE_MS);
+        self.wake_scheduler();
+    }
+
+    pub(super) fn wake_scheduler(self: &Arc<Self>) {
+        if !self.prompt_schedules.running.swap(true, Ordering::SeqCst) {
+            let weak = Arc::downgrade(self);
+            let wake = self.prompt_schedules.wake.clone();
+            tokio::spawn(async move { Self::scheduler_loop(weak, wake).await });
+        }
+        self.prompt_schedules.wake.notify_one();
+    }
+
+    async fn scheduler_loop(weak: std::sync::Weak<Self>, wake: Arc<Notify>) {
+        loop {
+            let (next, now, clock) = {
+                let Some(hub) = weak.upgrade() else { return };
+                if hub.stopping.load(Ordering::SeqCst) {
+                    return;
+                }
+                let now = hub.schedule_now();
+                let next = hub.run_due_schedules(now);
+                (next, now, hub.clock.lock().unwrap_or_else(|e| e.into_inner()).clone())
+            };
+            match next {
+                Some(at) => {
+                    let wait = at.saturating_sub(now).clamp(1, MAX_SLEEP_MS);
+                    let deadline = clock.now() + std::time::Duration::from_millis(wait);
+                    tokio::select! {
+                        _ = clock.sleep_until(deadline) => {}
+                        _ = wake.notified() => {}
+                    }
+                }
+                None => wake.notified().await,
+            }
+        }
+    }
+
+    /// Ends finished schedules, sends the runs due at `now` to the chats free for them, and
+    /// answers when to look next.
+    pub(super) fn run_due_schedules(self: &Arc<Self>, now: u64) -> Option<u64> {
+        let ids: Vec<String> = locked(&self.prompt_schedules.chats).iter().cloned().collect();
+        let mut next: Option<u64> = None;
+        let mut soonest = |at: u64| next = Some(next.map_or(at, |n| n.min(at)));
+        for id in ids {
+            let Ok(session) = self.resolve(&id) else {
+                locked(&self.prompt_schedules.chats).remove(&id);
+                continue;
+            };
+            if session.id != id || matches!(session.status(), SessionStatus::Closed) {
+                locked(&self.prompt_schedules.chats).remove(&id);
+                continue;
+            }
+            let settling = {
+                let mut settle = locked(&self.prompt_schedules.settle);
+                match settle.get(&id).copied() {
+                    Some(at) if at > now => Some(at),
+                    Some(_) => {
+                        settle.remove(&id);
+                        None
+                    }
+                    None => None,
+                }
+            };
+            let (finished, due, deadline) = {
+                let m = locked(&session.meta);
+                let Some(s) = m.prompt_schedule.as_ref() else {
+                    drop(m);
+                    locked(&self.prompt_schedules.chats).remove(&id);
+                    continue;
+                };
+                (s.finished(now), s.due(now), s.deadline(now))
+            };
+            if finished {
+                self.end_schedule(&session, "finished");
+                continue;
+            }
+            if let Some(at) = deadline {
+                soonest(at);
+            }
+            if !due {
+                continue;
+            }
+            if let Some(at) = settling {
+                soonest(at);
+                continue;
+            }
+            // Busy: the end of its turn wakes this timer again.
+            if !self.free_for_schedule(&session) {
+                continue;
+            }
+            if let Some(at) = self.fire_schedule(&session, now) {
+                soonest(at);
+            }
+        }
+        next
+    }
+
+    /// Whether nothing runs, waits or asks in the chat, so a scheduled run starts at once rather
+    /// than joining a queue.
+    fn free_for_schedule(&self, session: &Session) -> bool {
+        // Idle (hibernated) and Disconnected chats start their agent for it, as for a person's.
+        matches!(
+            session.status(),
+            SessionStatus::Ready | SessionStatus::Idle | SessionStatus::Disconnected
+        )
+            && session.turn().is_none()
+            && !session.harness_turn.load(Ordering::SeqCst)
+            && session.queued() == 0
+            && session.pending_permissions().is_empty()
+            && !self.continuation_pending(session)
+    }
+
+    /// Sends one run, counting it first, so a restart mid-send never sends it twice. The
+    /// schedule's next run, if it has one.
+    fn fire_schedule(self: &Arc<Self>, session: &Arc<Session>, now: u64) -> Option<u64> {
+        let (id, run, prompt, next, done) = {
+            let mut m = locked(&session.meta);
+            let s = m.prompt_schedule.as_mut()?;
+            s.fire(now);
+            let done = s.finished(now);
+            let fired = (s.id.clone(), s.runs, s.prompt.clone(), s.deadline(now), done);
+            if done {
+                m.prompt_schedule = None;
+            }
+            fired
+        };
+        self.publish_schedule(session);
+        if done {
+            locked(&self.prompt_schedules.chats).remove(&session.id);
+        }
+        tracing::info!(session = %session.id, schedule = %id, run, "scheduled prompt sent");
+        let (hub, session) = (self.clone(), session.clone());
+        tokio::spawn(async move {
+            let blocks = vec![json!({"type": "text", "text": prompt})];
+            let opts = PromptOptions {
+                prompt_id: Some(format!("{id}-run-{run}")),
+                provenance: Some(json!({"kind": "schedule", "scheduleId": id, "run": run})),
+                ..PromptOptions::default()
+            };
+            if let Err(e) = hub.prompt_with(&session, blocks, "acpmux", false, opts).await {
+                tracing::warn!(session = %session.id, schedule = %id, run, error = %e.message,
+                    "scheduled prompt refused");
+            }
+        });
+        if done { None } else { next }
+    }
+
+    fn end_schedule(&self, session: &Session, reason: &str) {
+        let ended = locked(&session.meta).prompt_schedule.take();
+        locked(&self.prompt_schedules.chats).remove(&session.id);
+        if let Some(s) = ended {
+            tracing::info!(session = %session.id, schedule = %s.id, runs = s.runs, reason,
+                "scheduled prompt ended");
+            self.publish_schedule(session);
+        }
+    }
+}

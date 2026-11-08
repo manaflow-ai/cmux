@@ -169,6 +169,9 @@ mod lane_report_reads;
 mod lane_report_text;
 mod lane_reports;
 mod loop_goal;
+mod prompt_schedule;
+#[cfg(test)]
+mod prompt_schedule_tests;
 #[cfg(test)]
 mod loop_goal_tests;
 mod mcp_connect;
@@ -727,6 +730,8 @@ pub struct Hub {
     pub(super) probe_only: StdMutex<Option<std::collections::BTreeSet<String>>>,
     pub(super) idle_wake: Arc<Notify>,
     pub(super) idle_reaper: AtomicBool,
+    /// The chats' scheduled prompts' timer (`prompt_schedule.rs`).
+    pub(super) prompt_schedules: prompt_schedule::Scheduler,
     /// The clocks at the last gap check, and how many gaps were seen (`resume.rs`).
     pub(super) resume_watch: Arc<resume::ResumeState>,
     pub(super) resumes: tokio::sync::watch::Sender<u64>,
@@ -1044,6 +1049,7 @@ impl Hub {
             probe_only: StdMutex::new(None),
             idle_wake: Arc::new(Notify::new()),
             idle_reaper: AtomicBool::new(false),
+            prompt_schedules: prompt_schedule::Scheduler::default(),
             resume_watch: resume::new_watch(),
             resumes: tokio::sync::watch::channel(0).0,
             person_prompts: tokio::sync::watch::channel(0).0,

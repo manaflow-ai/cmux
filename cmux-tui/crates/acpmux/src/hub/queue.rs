@@ -1622,6 +1622,8 @@ impl Hub {
     /// import. A chat whose log is read later resumes its own (`log_load.rs`).
     pub fn resume_queues(self: &Arc<Self>) {
         self.queues_resumed.store(true, Ordering::SeqCst);
+        // And the chats' scheduled prompts (`prompt_schedule.rs`).
+        self.restore_prompt_schedules();
         // And what a resumed agent pair still held when the daemon stopped (`agent_pairs.rs`).
         self.resume_agent_pair_drains();
         for session in self.sessions() {

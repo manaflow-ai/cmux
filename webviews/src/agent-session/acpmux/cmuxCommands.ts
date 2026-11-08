@@ -1,4 +1,5 @@
 import { cliOnlyCommand } from "./cliOnlyCommands";
+import { parseLoop } from "./schedule";
 import type { StringKey } from "./i18n";
 import { goesAsText, type SlashCommand } from "./slashCommands";
 
@@ -19,7 +20,8 @@ export type CmuxCommand = SlashCommand & {
     | "status"
     | "cd"
     | "resume"
-    | "login";
+    | "login"
+    | "loop";
   descriptionKey?: SlashCommand["descriptionKey"];
 };
 
@@ -138,6 +140,17 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     descriptionKey: "composer.slashLogin",
     source: "cmux",
     action: "login",
+  },
+  // cmux's own scheduled prompt, for every harness (acpmux `prompt_schedule.rs`): Codex, OpenCode,
+  // Gemini and pi have no loop of their own. A harness that lists its own /loop (Claude Code)
+  // keeps it: the pane passes the command through to it.
+  {
+    name: "loop",
+    description: "",
+    descriptionKey: "composer.slashLoop",
+    hint: "<5m|idle|at 9:30> <prompt>",
+    source: "cmux",
+    action: "loop",
   },
 ];
 
@@ -270,6 +283,8 @@ export function cmuxCommandRefusal(
     cwd?: string;
     /// New Tab, whose own project chip picks its folder.
     newTab?: boolean;
+    /// The harness lists a /loop of its own, which takes the command as typed.
+    harnessLoop?: boolean;
   },
 ): StringKey | undefined {
   switch (command.action) {
@@ -298,6 +313,10 @@ export function cmuxCommandRefusal(
     case "continue":
       if (args?.trim() && !resolveHarnessTarget(args, state.targets)) return "composer.cmuxContinueUnknown";
       return state.canContinue ? undefined : "composer.cmuxContinueBusy";
+    case "loop":
+      if (state.harnessLoop) return undefined;
+      if (!state.session || state.newTab) return "composer.cmuxUnavailable";
+      return parseLoop(args) ? undefined : "composer.cmuxLoopUsage";
     case "btw":
       if (!state.sideSessions) return "composer.cmuxBtwDisabled";
       if (!args?.trim()) return "composer.cmuxBtwQuestion";

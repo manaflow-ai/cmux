@@ -90,7 +90,9 @@ import { configurationSessionMatches, resolveEffortOption } from "./configuratio
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
-import { TaskGoalStrip } from "./TaskGoalStrip";
+import { ScheduleStrip, TaskGoalStrip } from "./TaskGoalStrip";
+import { parseLoop, type ScheduleRequest } from "./schedule";
+import type { SlashCommand } from "./slashCommands";
 import { PageDots } from "./newtab/PageDots";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { editNewTabWidgets, shownPageWidgets, withWidgetEdit } from "./newtab/pageWidgets";
@@ -807,6 +809,14 @@ function keptInChat(error: unknown): boolean {
 
 /// Stops the shown chat's turn; refused while the pane cannot reach acpmux (stopThroughReconnect.ts).
 const cancelTurn = () => callNative<unknown>("chat.cancel");
+
+/// The shown chat's scheduled prompt (cmux's /loop, acpmux `prompt_schedule.rs`).
+const setSchedule = (request: ScheduleRequest) => callNative<unknown>("chat.schedule.set", request);
+const pauseSchedule = (paused: boolean) => callNative<unknown>("chat.schedule.pause", { paused });
+const clearSchedule = () => callNative<unknown>("chat.schedule.clear");
+/// Whether the harness lists a /loop of its own (Claude Code's), which keeps the command.
+const harnessListsLoop = (commands: readonly SlashCommand[] | undefined) =>
+  commands?.some((own) => own.source !== "cmux" && own.name.toLowerCase() === "loop") === true;
 
 /// Withdraws a queued prompt before its turn starts; false when it already started.
 const removeQueued = (promptId: string) =>
@@ -6111,6 +6121,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (continueAvailable) enabledCmuxActions.add("continue");
     // Reserve /btw even with the kill switch off: it must never become a steer or queued prompt.
     if (snapshot.sessionId && !isSideSession && !quick) enabledCmuxActions.add("btw");
+    // cmux's /loop, unless the harness lists its own (Claude Code's stays in the menu as it was).
+    if (snapshot.sessionId && !quick && !harnessListsLoop(snapshot.commands)) enabledCmuxActions.add("loop");
     const withCommands = {
       ...snapshot,
       commands: mergedCommands(snapshot.commands, enabledCmuxActions),
@@ -7389,6 +7401,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           "chat.typing": async ({ text, sessionId }) =>
             client.typing(typeof text === "string" ? text : "", typeof sessionId === "string" ? sessionId : undefined),
           "chat.queue.remove": ({ promptId }) => client.removeQueued(String(promptId)),
+          "chat.schedule.set": (request) => client.setSchedule(request as ScheduleRequest),
+          "chat.schedule.pause": ({ paused }) => client.pauseSchedule(paused === true),
+          "chat.schedule.clear": () => client.clearSchedule(),
           "chat.queue.approve": ({ promptId, revision }) =>
             client.answerHeld(String(promptId), true, typeof revision === "number" ? revision : 0),
           "chat.queue.decline": ({ promptId }) => client.answerHeld(String(promptId), false),
@@ -8332,8 +8347,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       targets: fresh ? [] : handoffTargets,
       cwd: snapshot.summary?.cwd,
       newTab: fresh,
+      harnessLoop: !fresh && harnessListsLoop(snapshot.commands),
     });
     if (refusal) return t(refusal);
+    if (command.action === "loop") {
+      // A harness with a /loop of its own (Claude Code) takes it as typed, as before.
+      if (harnessListsLoop(snapshot.commands)) return CMUX_PASS_THROUGH;
+      const loop = parseLoop(args);
+      if (!loop) return t("composer.cmuxLoopUsage");
+      if (loop.kind === "set") return setSchedule(loop.request);
+      if (loop.kind === "stop") return clearSchedule();
+      return pauseSchedule(loop.kind === "pause");
+    }
     if (command.action === "status") {
       setStatusCardOpen(true);
       return true;
@@ -11599,6 +11624,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
                   fallback={snapshot.presence}
                 />
+                {!showNewTab && composerSnapshot.summary?.schedule && (
+                  <ScheduleStrip
+                    key={`schedule-${composerSnapshot.summary.schedule.id}`}
+                    schedule={composerSnapshot.summary.schedule}
+                    pause={(paused) => pauseSchedule(paused)}
+                    cancel={() => clearSchedule()}
+                  />
+                )}
                 {!showNewTab && composerSnapshot.summary?.goal && (
                   <TaskGoalStrip
                     key={composerSnapshot.summary.sessionId}

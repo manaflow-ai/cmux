@@ -1431,6 +1431,11 @@ impl Hub {
         let ending = EndUnderWay { hub: self, session, turn_id };
         // Named in this turn's `turn_result`, so a restart before it starts still runs it.
         let carried_next = next.filter(|_| !detached);
+        // The chat's scheduled prompt hears the turn end (`prompt_schedule.rs`); a turn its agent
+        // carries on in has not ended.
+        if !detached && carried_next.is_none() {
+            self.prompt_schedule_turn_ended(session);
+        }
         // The turn a Stop was stopping has ended (`cancel.rs`): it no longer reads `stopping`,
         // unless its agent runs on in the turn that takes its place (`carried_turn.rs`).
         let was_stopping = take_if_turn(&session.stopping, turn_id);

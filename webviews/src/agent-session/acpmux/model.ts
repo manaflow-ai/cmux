@@ -80,6 +80,7 @@ import { subsessionCall } from "./conversation/subsessionCalls";
 import { agentMessage } from "./conversation/agentMessages";
 import type { ChatTool } from "./summary/chatTools";
 import type { TaskGoal } from "./goal";
+import type { ChatSchedule } from "./schedule";
 import { MessagePlacement } from "./conversation/messagePlacement";
 import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
 import {
@@ -1130,6 +1131,8 @@ export type AcpmuxSnapshot = {
     name?: string;
     /** Codex's persisted thread goal, when the harness reported one. */
     goal?: TaskGoal;
+    /** cmux's own scheduled prompt for this chat (acpmux `prompt_schedule.rs`). */
+    schedule?: ChatSchedule;
     harness?: string;
     /// The harness family acpmux files the session under (`codex`, `opencode`, ...), when it says.
     family?: string;
