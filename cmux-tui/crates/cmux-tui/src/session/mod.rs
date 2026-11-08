@@ -479,8 +479,8 @@ pub(crate) enum DaemonShutdownNotice {
 
 impl DaemonShutdownNotice {
     /// Reads the notice from a `daemon-shutdown` event.
-    pub(crate) fn from_event(event: &serde_json::Value) -> Self {
-        match event.get("restart").and_then(serde_json::Value::as_bool) {
+    pub(crate) fn from_event(event: &Value) -> Self {
+        match event.get("restart").and_then(Value::as_bool) {
             Some(true) => Self::Restart,
             Some(false) => Self::Stop,
             None => Self::Unspecified,

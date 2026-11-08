@@ -130,7 +130,7 @@ fn daemon_reconnect_state_tracks_one_attempt() {
     assert!(!reconnect.in_progress());
     assert_eq!(reconnect.finish(), None);
     let reconnector: SessionReconnector =
-        std::sync::Arc::new(|| -> anyhow::Result<Session> { anyhow::bail!("unreachable") });
+        Arc::new(|| -> anyhow::Result<Session> { anyhow::bail!("unreachable") });
     let reconnect = DaemonReconnect::new(Some(reconnector));
     assert!(reconnect.can_reconnect());
     assert!(!reconnect.in_progress());

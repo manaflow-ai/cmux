@@ -875,7 +875,7 @@ fn daemon_shutdown_is_local_fenced_and_queues_ack_first() {
 /// without the capability (a strict older SDK) gets the bare event, and a
 /// requester that does not say leaves it out.
 #[test]
-fn daemon_shutdown_notice_carries_restart() {
+fn daemon_reconnect_shutdown_notice_carries_restart() {
     for (restart, expected) in
         [(Some(true), json!(true)), (Some(false), json!(false)), (None, Value::Null)]
     {
