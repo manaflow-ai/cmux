@@ -274,20 +274,116 @@ pub(crate) fn replace_beneath(
                 Err(std::io::Error::last_os_error())
             }
         })
-        .and_then(|()| file.sync_all())
-        .and_then(|()| {
-            // SAFETY: both names are NUL-terminated and beneath the same open folder.
-            let renamed = unsafe {
-                libc::renameat(dir.as_raw_fd(), tmp.as_ptr(), dir.as_raw_fd(), name.as_ptr())
-            };
-            if renamed == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
-        });
+        .and_then(|()| file.sync_all());
+    let dirfd = dir.as_raw_fd();
+    // SAFETY: as above; whichever file is left under the temporary name is ours to remove.
+    let drop_tmp = || unsafe { libc::unlinkat(dirfd, tmp.as_ptr(), 0) };
     if let Err(e) = written {
-        // SAFETY: as above; the new file is ours and is removed after a failed write.
-        unsafe { libc::unlinkat(dir.as_raw_fd(), tmp.as_ptr(), 0) };
+        drop_tmp();
         return Err(format!("{rel}: {e}"));
     }
-    Ok(())
+    #[cfg(test)]
+    before_swap(&name);
+    let changed = || format!("{rel} changed while it was being edited; try again");
+    match read {
+        // No file was read: made only while there is still none.
+        None => match rename(dirfd, &tmp, &name, Rename::NoReplace) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                drop_tmp();
+                Err(if e.raw_os_error() == Some(libc::EEXIST) {
+                    changed()
+                } else {
+                    format!("{rel}: {e}")
+                })
+            }
+        },
+        // The two swap at once; when the one swapped out is not the file read (an editor saved
+        // or appended meanwhile), they swap back and it is left as it is.
+        Some(read) => match rename(dirfd, &tmp, &name, Rename::Exchange) {
+            Ok(()) => {
+                // SAFETY: as above.
+                let out = unsafe {
+                    libc::fstatat(dirfd, tmp.as_ptr(), &mut st, libc::AT_SYMLINK_NOFOLLOW)
+                } == 0;
+                if out && Stamp::of(&st) == read {
+                    drop_tmp();
+                    return Ok(());
+                }
+                if rename(dirfd, &tmp, &name, Rename::Exchange).is_ok() {
+                    drop_tmp();
+                }
+                Err(changed())
+            }
+            Err(e) => {
+                drop_tmp();
+                Err(format!("{rel}: {e}"))
+            }
+        },
+    }
+}
+
+/// How [`rename`] treats a file already at the new name.
+#[cfg(unix)]
+#[derive(Clone, Copy)]
+enum Rename {
+    /// Refused when there is one.
+    NoReplace,
+    /// Swapped with it, both in one step.
+    Exchange,
+}
+
+/// `from` renamed to `to`, both in `dir`, in one step that either refuses an existing `to`
+/// or swaps with it. A system with neither refuses (`ENOSYS`): a plain rename could lose an
+/// edit made meanwhile.
+#[cfg(unix)]
+fn rename(
+    dir: std::os::fd::RawFd,
+    from: &std::ffi::CStr,
+    to: &std::ffi::CStr,
+    how: Rename,
+) -> std::io::Result<()> {
+    #[cfg(target_os = "linux")]
+    let done = {
+        let flags = match how {
+            Rename::NoReplace => libc::RENAME_NOREPLACE,
+            Rename::Exchange => libc::RENAME_EXCHANGE,
+        };
+        // SAFETY: both names are NUL-terminated and beneath the open folder `dir`; the raw call
+        // is used because not every C library wraps renameat2.
+        let r = unsafe {
+            libc::syscall(libc::SYS_renameat2, dir, from.as_ptr(), dir, to.as_ptr(), flags)
+        };
+        r == 0
+    };
+    #[cfg(target_vendor = "apple")]
+    let done = {
+        let flags = match how {
+            Rename::NoReplace => libc::RENAME_EXCL,
+            Rename::Exchange => libc::RENAME_SWAP,
+        };
+        // SAFETY: as above.
+        let r = unsafe { libc::renameatx_np(dir, from.as_ptr(), dir, to.as_ptr(), flags) };
+        r == 0
+    };
+    #[cfg(not(any(target_os = "linux", target_vendor = "apple")))]
+    let done = {
+        let _ = how;
+        return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
+    };
+    if done { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+}
+
+/// A test's write into the window between the checks and the swap, given the file's name.
+#[cfg(test)]
+pub(crate) static BEFORE_SWAP: std::sync::Mutex<Option<Box<dyn Fn(&str) + Send>>> =
+    std::sync::Mutex::new(None);
+
+#[cfg(test)]
+fn before_swap(name: &std::ffi::CStr) {
+    if let Some(hook) = BEFORE_SWAP.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        hook(&name.to_string_lossy());
+    }
 }
 
 /// Elsewhere there is no link-safe open of each step, so no folder file is read.

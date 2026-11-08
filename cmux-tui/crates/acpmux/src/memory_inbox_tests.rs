@@ -280,3 +280,49 @@ fn a_file_that_changed_since_it_was_read_is_left_alone() {
     assert!(replace_beneath(dir.path(), "AGENTS.md", b"ours\n", None).is_err());
     assert_eq!(std::fs::read_to_string(dir.path().join("AGENTS.md")).unwrap(), "theirs\n");
 }
+
+#[cfg(unix)]
+#[test]
+fn an_edit_saved_between_the_checks_and_the_swap_is_kept() {
+    use crate::folder_instructions::BEFORE_SWAP;
+    let dir = tempfile::tempdir().unwrap();
+    // A name no other test writes: the hook is shared by every test in this process.
+    let path = dir.path().join("RACE-EDIT.md");
+    std::fs::write(&path, "# Mine\n").unwrap();
+    let saved = path.clone();
+    *BEFORE_SWAP.lock().unwrap() = Some(Box::new(move |name| {
+        if name == "RACE-EDIT.md" {
+            std::fs::write(&saved, "# Mine\n\nSaved by an editor meanwhile.\n").unwrap();
+        }
+    }));
+    let got = write(dir.path(), "RACE-EDIT.md", &["Use pnpm, not npm.".into()]);
+    *BEFORE_SWAP.lock().unwrap() = None;
+    assert!(got.is_err(), "{got:?}");
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "# Mine\n\nSaved by an editor meanwhile.\n"
+    );
+    let names: Vec<String> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, vec!["RACE-EDIT.md".to_owned()]);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_file_made_between_the_checks_and_the_swap_is_kept() {
+    use crate::folder_instructions::BEFORE_SWAP;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("RACE-NEW.md");
+    let made = path.clone();
+    *BEFORE_SWAP.lock().unwrap() = Some(Box::new(move |name| {
+        if name == "RACE-NEW.md" {
+            std::fs::write(&made, "theirs\n").unwrap();
+        }
+    }));
+    let got = write(dir.path(), "RACE-NEW.md", &["Use pnpm, not npm.".into()]);
+    *BEFORE_SWAP.lock().unwrap() = None;
+    assert!(got.is_err(), "{got:?}");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "theirs\n");
+}
