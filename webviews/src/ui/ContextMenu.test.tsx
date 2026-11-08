@@ -353,4 +353,13 @@ test("a right-click on the page's own menu stays in the menu, also under asChild
   expect(secondary(document.querySelector(".ui-context-menu-backdrop")!).defaultPrevented).toBe(true);
   expect(document.querySelector(".ui-context-menu")).toBeNull();
   expect(target.hasAttribute("data-popup-open")).toBe(false);
+  // A middle click sends no contextmenu after its pointerdown: the backdrop closes on the press.
+  await rightClick(target);
+  act(
+    () =>
+      void document
+        .querySelector(".ui-context-menu-backdrop")!
+        .dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true, button: 1 })),
+  );
+  expect(document.querySelector(".ui-context-menu")).toBeNull();
 });
