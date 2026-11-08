@@ -1502,9 +1502,10 @@ function ComposerFrame({
       return true;
     }
     if (owned) {
-      // Side questions carry text only; staged files stay here for the main turn.
-      // A file still being read counts too: /btw must not cancel it.
-      if (owned.action === "btw" && (attachments.length > 0 || pending.length > 0)) return false;
+      // Side questions and /side's prompt carry text only; staged files stay here for the main
+      // turn. A file still being read counts too: /btw and /side must not cancel it.
+      if ((owned.action === "btw" || owned.action === "side") && (attachments.length > 0 || pending.length > 0))
+        return false;
       if (owned.name === "import") {
         if (importSandboxed) {
           setAttachError(t("composer.cmuxImportSandbox"));

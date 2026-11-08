@@ -87,6 +87,9 @@ class Daemon {
   createdAt = 100;
   listed = true;
   log = LOG.slice();
+  /// What `_acpmux/peer_snapshot` answers, when not the log's newest page: its records and how far
+  /// it covers (past its newest record when the newest seqs are of kinds a page does not ask for).
+  copy?: { events: Daemon["log"]; lastSeq: number };
   readonly asked: Message[] = [];
 
   constructor() {
@@ -170,12 +173,12 @@ class Daemon {
         peer: "huge-blue",
         sessionId: SESSION,
         stale: true,
-        hasMore: this.log.length > 6,
+        hasMore: this.copy ? false : this.log.length > 6,
         capturedAt: START,
         summary: this.summary(),
-        events: this.log.slice(-6),
+        events: this.copy?.events ?? this.log.slice(-6),
         generation: this.createdAt,
-        lastSeq: last,
+        lastSeq: this.copy?.lastSeq ?? last,
       });
     if (message.method === "_acpmux/events" && p.beforeSeq !== undefined) {
       const older = this.log.filter((event) => event.seq < Number(p.beforeSeq));
@@ -240,11 +243,11 @@ afterEach(() => {
 
 /// The tab's chat open with its rows on screen; each new socket is a new `Daemon` on the same log.
 /// `down`: its machine is down from the first socket, so the rows are the Mac's copy of it.
-async function openChat(log?: Daemon["log"], down = false) {
+async function openChat(log?: Daemon["log"], down = false, copy?: Daemon["copy"]) {
   resetKeptTailsForTests();
   const daemons: Daemon[] = [];
   let state:
-    | Pick<Daemon, "down" | "createdAt" | "listed" | "heldAttaches" | "heldReads" | "keepLog" | "log">
+    | Pick<Daemon, "down" | "createdAt" | "listed" | "heldAttaches" | "heldReads" | "keepLog" | "log" | "copy">
     | undefined;
   const drawn: AcpmuxSnapshot[] = [];
   const client = await AcpmuxDirectClient.connect(
@@ -271,12 +274,14 @@ async function openChat(log?: Daemon["log"], down = false) {
           heldAttaches: state.heldAttaches,
           heldReads: state.heldReads,
           keepLog: state.keepLog,
+          copy: state.copy,
           ...(state.keepLog ? { log: state.log } : {}),
         });
       // The machine's log, when the test names one: every socket reaches the same machine.
       else {
         if (log) daemon.log = log.slice();
         daemon.down = down;
+        daemon.copy = copy;
       }
       daemons.push(daemon);
       state = daemon;
@@ -605,6 +610,32 @@ test("a chat drawn from the Mac's copy keeps its older pages when listed again",
   for (const row of shown.rows) expect(ids).toContain(row.id);
   // Still the copy, offline, as before it left the list.
   expect(chat.drawn.at(-1)!.peerCopy?.offline).toBe(true);
+});
+
+test("a copy that covers past its newest record is continued from there when listed again", async () => {
+  // Seven turns; the Mac's copy holds 1..16 and covers through 20 (17..20 are of kinds a page does
+  // not ask for).
+  const log = Array.from({ length: 7 }, (_, turn) => [
+    prompt(turn * 4 + 1),
+    ...[2, 3, 4].map((part) => reply(turn * 4 + part, `turn ${turn} part ${part}. `)),
+  ]).flat();
+  const chat = await openChat(log, true, { events: log.slice(0, 16), lastSeq: 20 });
+  const shown = chat.drawn.at(-1)!;
+  expect(JSON.stringify(shown.rows)).toContain("turn 0 part 2.");
+  // The machine's page after the relist starts right after the copy (21..26): nothing in between.
+  chat.daemon().log = log.filter((event) => event.seq <= 16 || (event.seq > 20 && event.seq <= 26));
+  const from = chat.drawn.length;
+  chat.daemon().purge();
+  await flush(4);
+  chat.daemon().down = false;
+  chat.daemon().announce();
+  await flush();
+  const { empty, left } = frames(chat.drawn, from, shown);
+  expect(empty).toBe(0);
+  expect(left).toEqual([]);
+  const rows = JSON.stringify(chat.drawn.at(-1)!.rows);
+  expect(rows).toContain("turn 0 part 2.");
+  expect(rows).toContain("turn 6 part 2.");
 });
 
 test("a chat that stays gone past its hold keeps no tail of it for a relist", async () => {
