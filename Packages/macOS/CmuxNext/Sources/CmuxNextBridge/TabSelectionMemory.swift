@@ -4,7 +4,7 @@ public import Observation
 
 /// Client-local tab selection per pane (the daemon's `active_tab` is only a
 /// shared default). When the selected tab disappears, the selection goes to
-/// the tab that took its slot, else the new last tab.
+/// the tab before it, else the one after it (`FocusAfterClose.tab`).
 ///
 /// Keyed (`ObservedMap`, perf-speed-of-light.md I2): reading pane X's
 /// selection observes pane X only, and a selection in another pane re-runs
