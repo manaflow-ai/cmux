@@ -95,6 +95,13 @@
 .cv-chip.is-ref[data-pr-state="draft"] .cv-chip__icon--gh {
   color: var(--agent-muted);
 }
+/* An issue as GitHub draws one: closed (completed) purple, not planned grey. */
+.cv-chip.is-ref[data-pr-kind="issue"][data-pr-state="closed"] .cv-chip__icon--gh {
+  color: var(--agent-status-merged);
+}
+.cv-chip.is-ref[data-pr-kind="issue"][data-pr-state="not_planned"] .cv-chip__icon--gh {
+  color: var(--agent-muted);
+}
 .cv-chip:focus-visible {
   outline: 1px solid var(--cv-link);
   outline-offset: 1px;
