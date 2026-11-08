@@ -35,7 +35,7 @@ struct PlanCard: View {
         }
         .padding(16)
         .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
-        .animation(.cmuxMobileSmooth, value: entries)
+        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: entries)
         .accessibilityElement(children: .combine)
     }
 
@@ -176,7 +176,7 @@ public struct PermissionActionBar: View {
                             Text(request.label(for: option)).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.9)
                         }
                     }
-                    .animation(.cmuxMobileSnap, value: approvingOptionID)
+                    .animation(.cmuxMobileSnap.unlessReduceMotion, value: approvingOptionID)
                 }
                     .disabled(approvingOptionID != nil && option.isAllow && option.id != approvingOptionID)
                     .buttonStyle(CmuxMobileCapsuleButtonStyle(style(option), size: .bar))
@@ -235,7 +235,7 @@ public struct QuestionCard: View {
                 card.transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
             }
         }
-        .animation(.cmuxMobileSmooth, value: question.state)
+        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: question.state)
         .onChange(of: question) { _, new in
             state.update(new)
             if !new.isPending { QuestionDraftStore.shared.clear(new.id) }
@@ -390,14 +390,14 @@ public struct QuestionCard: View {
 
     private func page(_ delta: Int) {
         forward = delta > 0
-        withAnimation(.cmuxMobileSmooth) { _ = state.send(delta > 0 ? .nextItem : .previousItem) }
+        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { _ = state.send(delta > 0 ? .nextItem : .previousItem) }
     }
 
     private func send(_ input: AgentQuestionCardState.Input) {
         let before = state.activeItem
         var effect = AgentQuestionCardState.Effect.none
         forward = true
-        withAnimation(.cmuxMobileSmooth) {
+        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) {
             effect = state.send(input)
         }
         if state.activeItem != before { forward = state.activeItem > before }

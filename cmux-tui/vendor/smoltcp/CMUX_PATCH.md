@@ -21,5 +21,14 @@ that peer's MSS and window the same way.
 The changes are in `src/socket/tcp/congestion/cubic.rs` and `src/socket/tcp.rs`,
 each marked `cmux patch`, with tests next to them. Reno's own start is unchanged;
 cmux does not enable it.
+
+## Taken from upstream main
+
+These commits are on smoltcp main but in no release yet; they are applied
+unchanged:
+
+- smoltcp-rs/smoltcp#1211 (c7595c577fed, 7d961a1af84e, 51c662c23e2b):
+  per-socket `set_min_rto` and `set_initial_rto`. cmux-wg sets a 200 ms floor.
+
 Remove this vendor copy when the smoltcp version used by cmux starts at the
-RFC 6928 window.
+RFC 6928 window and has these commits.

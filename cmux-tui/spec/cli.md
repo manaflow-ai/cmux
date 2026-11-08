@@ -1218,6 +1218,47 @@ session host sets `createdAt` and `updatedAt`. `delete` names the ids to
 remove (at most 500); `--versions-json` maps an id to the `updatedAt` read, and
 a comment edited since is kept. Unknown ids are ignored.
 
+## Waiting for one event
+
+`cmux events` (the app's event stream) and `cmux agents events` (the
+daemon's journal and the app's dialogs and chat states) take the same three
+flags, so an agent waiting for one event needs no timeout wrapper or grep:
+
+```bash
+cmux events --until action.catalog.changed --timeout 30s --jsonl
+cmux events --until 'mobile.*' --timeout 5m --jsonl
+cmux agents events --until workspace.changed --match name=build --timeout 30s --json
+cmux agents events --until agent.state --match state=idle --match terminal_id=term_1 --timeout 10m --json
+```
+
+- `--until NAME` names the event: exactly, or by a prefix ending in `*`
+  (`mobile.*`). For `cmux events` it is the frame's `name` (what the app
+  publishes: `action.catalog.changed`, `mobile.rpc.ready`); for `agents
+  events` it is `KIND.CHANGE` (`workspace.changed`, `tab.closed`,
+  `notification.created`, `dialog.opened`, `agent.state`).
+- `--match PATH=VALUE`, repeatable, compares the field at a dotted path into
+  the event's JSON (`workspace_id`, `payload.state`; a number steps into an
+  array): a string by its text, any other value by its JSON (`true`, `3`,
+  `null`). Every condition must hold. Either flag alone starts a wait.
+- `--timeout DURATION` takes `30s`, `5m`, `2h`, `1500ms` or plain seconds.
+
+A wait prints only the matching event and exits 0. When the time runs out it
+exits 124: `cmux events` prints a last line `{"type": "timeout", "timed_out":
+true, "waited_ms": "30000", "until": {...}}` with `--json` or `--jsonl` (a
+person gets a line on stderr), and `agents events` answers `matched: false,
+timed_out: true`. If the app closes the stream before a match, `cmux events`
+fails with `events.closed` (exit 1); rerun it with `--after <last seq>`.
+
+`cmux events` keeps no default timeout (a plain `--timeout` ends a stream
+the same way, exit 124), so an agent passes one. Start the wait before the
+action it waits for, or pass `--after` so events already past count: a
+`cmux events --after <seq>` wait matches replayed events, and an `agents
+events --after <cursor>` wait matches events pending since the cursor. Its
+`next_after` continues right after the matched event. Without `--until` or
+`--match`, `agents events` stays the long-poll it was (at most 60 s, exit 0
+when empty); with one the CLI waits up to a day. The MCP tool `agents_events`
+takes `until` and `match` (an object of path to value) within its 60 s bound.
+
 ## Local sidebar plugins
 
 `sidebar plugin` commands read and write local plugin installation state. They

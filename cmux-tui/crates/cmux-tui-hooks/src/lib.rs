@@ -51,6 +51,8 @@ use windows_sys::Win32::System::Threading::{
 mod claude_worktree_tests;
 mod message_hooks;
 mod status_conflict;
+#[cfg(unix)]
+use message_hooks::hook_command_with;
 use message_hooks::{delivers_messages, hook_command, journal_hook_command};
 use status_conflict::{conflict_row, ensure_replaceable_target};
 
@@ -2038,6 +2040,56 @@ pub fn claude_session_hook_settings(
         }
     }
     Ok(root)
+}
+
+/// Set to [`CLAUDE_PLUGIN_ORIGIN`] by the hook commands of the Claude Code
+/// plugin a cmux-tui pane names in `CLAUDE_CODE_PLUGIN_DIRS`, so the helper
+/// can tell that copy from the installed one and run only one of them.
+pub const CLAUDE_PLUGIN_ORIGIN_ENV: &str = "CMUX_TUI_HOOK_ORIGIN";
+/// The value of [`CLAUDE_PLUGIN_ORIGIN_ENV`] in the plugin's hook commands.
+pub const CLAUDE_PLUGIN_ORIGIN: &str = "claude-plugin";
+
+#[cfg(unix)]
+/// Claude's hook groups for the cmux-tui Claude Code plugin
+/// (`hooks/hooks.json`): the events, timeouts and command shapes of
+/// `agent hook install claude`, marked with [`CLAUDE_PLUGIN_ORIGIN_ENV`] and
+/// falling back to `helper` (this build's hook helper) when the agent's
+/// environment has no `CMUX_TUI_HOOK`. Claude Code runs plugin hooks beside
+/// settings hooks without merging identical commands, so the helper skips the
+/// plugin copy when the installed copy also runs.
+pub fn claude_plugin_hook_settings(helper: &Path) -> anyhow::Result<Map<String, Value>> {
+    let helper = helper.to_str().context("the hook helper path is not UTF-8")?;
+    let fallback = double_quote(helper);
+    let prefix = format!("export {CLAUDE_PLUGIN_ORIGIN_ENV}={CLAUDE_PLUGIN_ORIGIN};");
+    let mut root = claude_session_hook_settings(None)?;
+    let hooks = root.get_mut("hooks").and_then(Value::as_object_mut).context("hooks missing")?;
+    for (event, groups) in hooks.iter_mut() {
+        let command = hook_command_with("claude", event, &prefix, &fallback);
+        for group in groups.as_array_mut().into_iter().flatten() {
+            let handlers = group.get_mut("hooks").and_then(Value::as_array_mut);
+            for handler in handlers.into_iter().flatten() {
+                if let Some(handler) = handler.as_object_mut() {
+                    handler.insert("command".into(), Value::String(command.clone()));
+                }
+            }
+        }
+    }
+    Ok(root)
+}
+
+/// `value` as one double-quoted shell word.
+#[cfg(unix)]
+fn double_quote(value: &str) -> String {
+    let mut quoted = String::new();
+    quoted.push('"');
+    for character in value.chars() {
+        if matches!(character, '"' | '\\' | '$' | '`') {
+            quoted.push('\\');
+        }
+        quoted.push(character);
+    }
+    quoted.push('"');
+    quoted
 }
 
 fn sync_barrier_event(event: &str) -> bool {
@@ -4132,6 +4184,58 @@ mod tests {
         assert_eq!(hook["async"], false);
         assert_eq!(hook["timeout"], 90);
         assert!(hook["command"].as_str().unwrap().contains(HOOK_MODE_ARG));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn any_launcher_plugin_hooks_run_the_build_helper_marked_as_the_plugin_copy() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        // A path that needs every double-quote escape.
+        let folder = dir.path().join("a \"b\" $c `d` \\e");
+        fs::create_dir_all(&folder).unwrap();
+        let helper = folder.join("cmux-tui-hook");
+        let log = dir.path().join("log");
+        fs::write(
+            &helper,
+            format!(
+                "#!/bin/sh\nprintf '%s %s %s\\n' \"${CLAUDE_PLUGIN_ORIGIN_ENV}\" \"$1\" \"$2\" >> '{}'\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
+        let plugin = claude_plugin_hook_settings(&helper).unwrap();
+        let installed = claude_session_hook_settings(None).unwrap();
+        let events = |settings: &Map<String, Value>| {
+            settings["hooks"].as_object().unwrap().keys().cloned().collect::<Vec<_>>()
+        };
+        assert_eq!(events(&plugin), events(&installed));
+        for event in ["SessionStart", "Stop", "PreToolUse", "UserPromptSubmit"] {
+            let hook = &plugin["hooks"][event][0]["hooks"][0];
+            let twin = &installed["hooks"][event][0]["hooks"][0];
+            assert_eq!(hook["timeout"], twin["timeout"], "{event}");
+            assert_eq!(hook["async"], twin["async"], "{event}");
+            let command = hook["command"].as_str().unwrap();
+            assert_ne!(Some(command), twin["command"].as_str(), "{event}");
+            // Without CMUX_TUI_HOOK the build's helper runs; with it, that one.
+            for inherited in [None, Some(helper.as_os_str())] {
+                let mut shell = std::process::Command::new("sh");
+                shell.arg("-c").arg(command).env_remove(CLAUDE_PLUGIN_ORIGIN_ENV);
+                match inherited {
+                    Some(value) => shell.env("CMUX_TUI_HOOK", value),
+                    None => shell.env_remove("CMUX_TUI_HOOK"),
+                };
+                let result = shell.output().unwrap();
+                assert!(result.status.success(), "{event}: {command}");
+            }
+        }
+        let lines = fs::read_to_string(&log).unwrap();
+        assert_eq!(lines.lines().count(), 8, "{lines}");
+        assert!(
+            lines.lines().all(|line| line.starts_with(&format!("{CLAUDE_PLUGIN_ORIGIN} claude "))),
+            "{lines}"
+        );
     }
 
     #[test]

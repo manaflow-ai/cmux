@@ -189,3 +189,71 @@ test("a joined thread keeps the earlier notice's sender metadata for the same se
   expect(other.fromHarness).toBeUndefined();
   expect(other.unverified).toBeUndefined();
 });
+
+// cmux#38642 review: acpmux may mark only the thread unverified, and the thread's newest message
+// takes that mark from its own notice. A later notice whose thread names no record but whose newest
+// message carries its own (verified) one speaks for that sender: the join keeps each message's mark
+// from its own notice, and the earlier notice's thread-level mark never reaches the newest message
+// (nor the line, which names the newest sender). Its own record's session is its chat too, so a
+// second chat of the same name takes nothing of the first one's.
+test("a join never lends an earlier thread's unverified mark to a newest message its notice did not mark", () => {
+  const earlier = inboxNotice("[inbox] 1 thread.", {
+    threads: [
+      {
+        threadId: "pr:9",
+        from: ["lane-a"],
+        promptIds: ["p1"],
+        preview: "first",
+        sender: { label: "lane-a", session: "s-a", verification: "declared" },
+        messages: [{ promptId: "p1", from: "lane-a", text: "first" }],
+      },
+    ],
+  })!;
+  expect(earlier.threads[0]!.unverified).toBe(true);
+  expect(earlier.threads[0]!.messages![0]!.unverified).toBe(true);
+  const later = (session: string) =>
+    inboxNotice("[inbox] 1 thread.", {
+      threads: [
+        {
+          threadId: "pr:9",
+          from: ["lane-a"],
+          promptIds: ["p2"],
+          preview: "second",
+          messages: [{ promptId: "p2", from: "lane-a", text: "second", sender: { session, verification: "verified" } }],
+        },
+      ],
+    })!;
+  const joined = joinNotices(earlier, later("s-a")).threads[0]!;
+  expect(joined.messages!.map((m) => m.unverified)).toEqual([true, undefined]);
+  expect(joined.unverified).toBeUndefined();
+  // Another chat named lane-a: none of s-a's record, session or mark fills the joined thread.
+  const twin = joinNotices(earlier, later("s-b")).threads[0]!;
+  expect(twin.sender).toBeUndefined();
+  expect(twin.fromSession).toBeUndefined();
+  expect(twin.unverified).toBeUndefined();
+  expect(twin.messages!.at(-1)!.sender).toEqual({ session: "s-b" });
+});
+
+// cmux#38791 review (F2): a later record that names the same label but no session is not proof it
+// is the earlier session's chat: two chats can share a label. When either side names a session,
+// only the same session joins as one sender.
+test("a join never lends an earlier session to a later record of the same label with none", () => {
+  const earlier = thread("pr:9", "lane-a", 1, {
+    sender: { label: "vm-1/lane-a", session: "s-a" },
+    fromSession: "s-a",
+    fromHarness: "codex",
+  });
+  const later = joinNotices(
+    { threads: [earlier] },
+    { threads: [thread("pr:9", "lane-a", 1, { sender: { label: "vm-1/lane-a" } })] },
+  ).threads[0]!;
+  expect(later.sender).toEqual({ label: "vm-1/lane-a" });
+  expect(later.fromSession).toBeUndefined();
+  expect(later.fromHarness).toBeUndefined();
+  // Neither names a session: the same label is the same sender.
+  const unnamed = joinNotices(
+    { threads: [thread("pr:9", "lane-a", 1, { sender: { label: "vm-1/lane-a" }, fromHarness: "codex" })] },
+    { threads: [thread("pr:9", "lane-a", 1, { sender: { label: "vm-1/lane-a" } })] },
+  ).threads[0]!;
+  expect(unnamed.fromHarness).toBe("codex");
+});
