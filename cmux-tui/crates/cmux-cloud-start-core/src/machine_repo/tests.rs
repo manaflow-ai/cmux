@@ -471,3 +471,22 @@ fn a_start_with_a_bootstrap_script_clones_the_whole_repository() {
     assert_eq!(machine.git(&["rev-parse", "--is-shallow-repository"]), "false");
     assert!(!machine.0.join("home/held").exists(), "no hold");
 }
+
+#[cfg(unix)]
+/// Review F3 (cmux#38099, 782cd5a47ad): a head-first checkout whose fill never ran, filled again
+/// on a machine with no hold, gets its history too, as a whole clone has it.
+#[test]
+fn a_head_first_checkout_filled_without_a_hold_gets_its_history() {
+    let Some(machine) = Machine::new(true) else { return };
+    let cmux = machine.0.join("bin/cmux");
+    // A hold that takes the folder and never runs its fill.
+    std::fs::write(&cmux, "#!/bin/sh\n[ \"$3\" = --help ] && exit 0\nexit 0\n").unwrap();
+    let (code, record) = machine.run();
+    assert_eq!((code, record["fill"].as_str()), (0, Some("background")), "{record}");
+    assert_eq!(machine.git(&["rev-parse", "--is-shallow-repository"]), "true");
+    std::fs::write(&cmux, "#!/bin/sh\nexit 2\n").unwrap();
+    let (code, record) = machine.run();
+    assert_eq!(code, 0, "{record}");
+    assert!(machine.checkout().join("lib/y.rs").is_file());
+    assert_eq!(machine.git(&["rev-parse", "--is-shallow-repository"]), "false");
+}

@@ -139,7 +139,13 @@ if [ -d "$dir/.git" ]; then
   if [ -n "$changes" ]; then status=kept; else switch && forward || die "$why"; fi
   # A head-first clone whose fill did not finish: fill it again.
   if [ "$(git -C "$dir" config --bool core.sparseCheckout 2>/dev/null)" = true ] && [ -f "$dir/.git/info/sparse-checkout" ]; then
-    if holder; then tip=1; else g -C "$dir" sparse-checkout disable || die "cannot check out all of $url"; fi
+    if holder; then tip=1; else
+      g -C "$dir" sparse-checkout disable || die "cannot check out all of $url"
+      # And its history, as a whole clone has it.
+      if [ "$(g -C "$dir" rev-parse --is-shallow-repository)" = true ]; then
+        g -C "$dir" fetch --quiet --unshallow --filter=blob:none origin || die "cannot fetch the history of $url"
+      fi
+    fi
   fi
 elif [ -e "$dir" ]; then
   die "$dir exists and is not a git checkout"

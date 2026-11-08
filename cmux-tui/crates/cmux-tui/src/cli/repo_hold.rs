@@ -141,7 +141,13 @@ pub(crate) fn hold_run(dir: &Path, cmd: &[String], held: impl FnOnce()) -> i32 {
     held();
     let Some((program, args)) = cmd.split_first() else { return 2 };
     // CMD's stdout goes to stderr: the reader of this process's stdout is gone by now.
-    let stdout = Stdio::from(std::io::stderr());
+    let stdout = match std::os::fd::AsFd::as_fd(&std::io::stderr()).try_clone_to_owned() {
+        Ok(fd) => Stdio::from(fd),
+        Err(error) => {
+            eprintln!("cmux repo hold: cannot pass stderr to {program}: {error}");
+            return 1;
+        }
+    };
     let status = Command::new(program).args(args).stdin(Stdio::null()).stdout(stdout).status();
     match status {
         Ok(status) if status.success() => match sync.complete() {
