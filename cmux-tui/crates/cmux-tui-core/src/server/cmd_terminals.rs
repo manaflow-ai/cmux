@@ -208,6 +208,19 @@ pub(super) fn terminal_last_command(
     Ok(json!({ "terminal_id": terminal_id, "last_command": last }))
 }
 
+/// `terminal-command-context`: the newest command the PTY `surface`'s shell
+/// finished, read from its screen now, or null.
+pub(super) fn terminal_command_context(
+    mux: &Arc<Mux>,
+    surface: SurfaceId,
+    intent: crate::command_context::Intent,
+) -> anyhow::Result<Value> {
+    let surface = get_surface(mux, surface)?;
+    require_pty(&surface)?;
+    let context = surface.terminal_command_context().map(|context| context.to_json(intent));
+    Ok(json!({ "context": context }))
+}
+
 /// `terminal-resume-command`: an absent `command` reads, a string sets and
 /// null clears the terminal's resume command (`resume-command`).
 pub(super) fn terminal_resume_command(

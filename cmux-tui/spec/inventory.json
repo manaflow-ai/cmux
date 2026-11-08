@@ -535,6 +535,7 @@
       "terminal-ports",
       "terminal-read-range",
       "terminal-resources",
+      "terminal-command-context",
       "terminal-last-command",
       "terminal-resume-command",
       "undo-layout",

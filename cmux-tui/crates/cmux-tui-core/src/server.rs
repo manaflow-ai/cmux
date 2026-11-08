@@ -455,6 +455,10 @@ pub const TERMINAL_REAP_CAPABILITY: &str = "terminal-reap-v1";
 /// Advertises `terminal-last-command`: the newest command a live shell
 /// finished, for Run Last Command Again.
 pub const TERMINAL_LAST_COMMAND_CAPABILITY: &str = "terminal-last-command-v1";
+/// Advertises `terminal-command-context`: the newest command a live shell
+/// finished, with its output, status and directory, as chat text (Fix, Send
+/// Last Output to Chat).
+pub const TERMINAL_COMMAND_CONTEXT_CAPABILITY: &str = "terminal-command-context-v1";
 /// Advertises `terminal-resume-command`: a person's resume command for one
 /// terminal, typed on the new prompt when the terminal is respawned.
 pub const RESUME_COMMAND_CAPABILITY: &str = "resume-command";
@@ -1253,6 +1257,16 @@ enum Command {
         surface: Option<SurfaceId>,
         #[serde(default)]
         terminal_id: Option<String>,
+    },
+    /// The newest command the shell of one PTY `surface` finished, read from
+    /// its screen when asked: command line, output (the newest rows), exit
+    /// status, directory, and `text`, the Markdown a chat takes for `intent`
+    /// (`context`, the default, or `fix`). Null without shell integration,
+    /// on the alternate screen and while a command runs.
+    TerminalCommandContext {
+        surface: SurfaceId,
+        #[serde(default)]
+        intent: crate::command_context::Intent,
     },
     /// New tab in a pane (default: the active pane).
     NewTab {

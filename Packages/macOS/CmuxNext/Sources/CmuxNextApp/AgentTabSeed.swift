@@ -1,44 +1,20 @@
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
+import CmuxNextDaemonService
 import Foundation
 
-/// What New Agent Chat takes from the tab it was opened from (#16620): a
-/// terminal's cwd and selection, a page's title, URL and selection. The
-/// draft has no prose of its own, so it reads the same in every language.
-enum AgentTabSeed {
-    /// The longest selection the draft carries, in characters.
-    static let selectionLimit = 8_000
-
-    /// The page's selection, read in an isolated world (the DOM selection is
-    /// shared, page globals are not).
-    static let selectionScript = "String(window.getSelection ? window.getSelection() : '')"
-
-    /// A terminal's selection as a fenced block, or nil without one.
-    static func terminalDraft(selection: String?) -> String? {
-        guard let text = trimmed(selection) else { return nil }
-        // A fence longer than any backtick run inside keeps the block whole.
-        let longestRun = text.split(whereSeparator: { $0 != "`" }).map(\.count).max() ?? 0
-        let fence = String(repeating: "`", count: max(3, longestRun + 1))
-        return "\(fence)\n\(text)\n\(fence)\n\n"
-    }
-
-    /// A page's title and URL, then its selection quoted, or nil for a page
-    /// with neither (a blank tab).
-    static func browserDraft(title: String?, url: URL?, selection: String?) -> String? {
-        var lines: [String] = []
-        let address = url.flatMap { ["http", "https", "file"].contains($0.scheme?.lowercased() ?? "") ? $0.absoluteString : nil }
-        if let title = trimmed(title), title != address { lines.append(title) }
-        if let address { lines.append(address) }
-        if let text = trimmed(selection) {
-            if !lines.isEmpty { lines.append("") }
-            lines += text.split(separator: "\n", omittingEmptySubsequences: false).map { $0.isEmpty ? ">" : "> \($0)" }
+extension AppActionContext {
+    /// Terminal text to a chat (``TerminalToChatActions``): after the draft of the workspace's agent chat the person
+    /// focused last (``WorkContextTrail``), else as the draft of a new chat beside the terminal, in its folder.
+    func draftInChat(_ markdown: String, from invocation: ActionInvocation) {
+        guard let (tab, pane) = daemonTab(invocation) else { return }
+        if let chat = services.inheritedWork(besides: tab, in: pane, kinds: [.chat], value: { $0.id }),
+           services.revealTab(chat), let view = services.agentTabs.existingView(chat) {
+            return view.appendToDraft(markdown)
         }
-        return lines.isEmpty ? nil : lines.joined(separator: "\n") + "\n\n"
-    }
-
-    private static func trimmed(_ text: String?) -> String? {
-        guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
-        return text.count > selectionLimit ? String(text.prefix(selectionLimit)) + "…" : text
+        guard let pane = services.paneController(for: pane) else { return refuse(RefusalStrings.notShownInAnyWindow(tab.id)) }
+        _ = pane.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: tab.cwd, draft: markdown, harness: pane.inheritedHarness())))
     }
 }
 
@@ -55,7 +31,7 @@ extension PaneController {
         switch currentContent {
         case .terminal(let entry):
             let selection = entry.session.surfaceView.accessibilitySelectedText()
-            return AgentPaneSeedSource(AgentPaneSeed(cwd: cwd ?? selectedTab?.cwd, draft: AgentTabSeed.terminalDraft(selection: selection),
+            return AgentPaneSeedSource(AgentPaneSeed(cwd: cwd ?? selectedTab?.cwd, draft: AgentPaneSeed.terminalDraft(selection: selection),
                                                      harness: harness))
         case .browser(let entry):
             let page = entry.tab
@@ -65,8 +41,8 @@ extension PaneController {
             // last terminal tab's, in strip order.
             let pageCwd = cwd ?? pane.tabs.last { $0.kind == .pty && $0.cwd != nil }?.cwd
             return AgentPaneSeedSource { [weak page] in
-                let selection = try? await page?.evaluate(AgentTabSeed.selectionScript, world: .isolated, gesture: .cmux).stringValue
-                return AgentPaneSeed(cwd: pageCwd, draft: AgentTabSeed.browserDraft(title: title, url: url, selection: selection), harness: harness)
+                let selection = try? await page?.evaluate(AgentPaneSeed.selectionScript, world: .isolated, gesture: .cmux).stringValue
+                return AgentPaneSeed(cwd: pageCwd, draft: AgentPaneSeed.browserDraft(title: title, url: url, selection: selection), harness: harness)
             }
         case .agent, .page, .placeholder, .notice, .conversation, nil:
             guard cwd != nil || harness != nil else { return nil }

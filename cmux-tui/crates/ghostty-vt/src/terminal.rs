@@ -59,6 +59,9 @@ mod logical_text;
 
 mod clear_history;
 
+mod command_output;
+pub use command_output::CommandOutput;
+
 mod program_status;
 pub use program_status::{
     ProgramStatusEvent, ProgramStatusFn, ProgramStatusKind, ProgramStatusReport, ProgramStatusState,
