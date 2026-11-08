@@ -22,7 +22,7 @@
     "action.new.browser.tab": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "New Browser to New Tab"}}, "de": {"stringUnit": {"state": "translated", "value": "Neuer Browser in neuem Tab"}}, "fr": {"stringUnit": {"state": "translated", "value": "Nouveau navigateur dans un nouvel onglet"}}, "ar": {"stringUnit": {"state": "translated", "value": "متصفح جديد في علامة تبويب جديدة"}}, "es": {"stringUnit": {"state": "translated", "value": "Nuevo navegador en nueva pestaña"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "在新标签页中新建浏览器"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "在新分頁中新增瀏覽器"}}, "ko": {"stringUnit": {"state": "translated", "value": "새 탭에 새 브라우저"}}, "ja": {"stringUnit": {"state": "translated", "value": "新規タブに新規ブラウザ"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Nuovo browser in una nuova scheda"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Ny browser i ny fane"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Ny nettleser i ny fane"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Novi preglednik u novoj kartici"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Nowa przeglądarka w nowej karcie"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Novo navegador em nova aba"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Новый браузер в новой вкладке"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Новий браузер у новій вкладці"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Yeni sekmeye yeni tarayıcı"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Trình duyệt mới trong tab mới"}}, "th": {"stringUnit": {"state": "needs_review", "value": "เบราว์เซอร์ใหม่ในแท็บใหม่"}}, "km": {"stringUnit": {"state": "needs_review", "value": "កម្មវិធីរុករកថ្មី ក្នុងផ្ទាំងថ្មី"}}}},
     "action.new.browser.up": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "New Browser Above"}}, "de": {"stringUnit": {"state": "translated", "value": "Neuer Browser oben"}}, "fr": {"stringUnit": {"state": "translated", "value": "Nouveau navigateur au-dessus"}}, "ar": {"stringUnit": {"state": "translated", "value": "متصفح جديد في الأعلى"}}, "es": {"stringUnit": {"state": "translated", "value": "Nuevo navegador arriba"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "在上方新建浏览器"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "在上方新增瀏覽器"}}, "ko": {"stringUnit": {"state": "translated", "value": "위에 새 브라우저"}}, "ja": {"stringUnit": {"state": "translated", "value": "上に新規ブラウザ"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Nuovo browser sopra"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Ny browser ovenfor"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Ny nettleser over"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Novi preglednik iznad"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Nowa przeglądarka powyżej"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Novo navegador acima"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Новый браузер сверху"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Новий браузер зверху"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Yukarıya yeni tarayıcı"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Trình duyệt mới ở phía trên"}}, "th": {"stringUnit": {"state": "needs_review", "value": "เบราว์เซอร์ใหม่ด้านบน"}}, "km": {"stringUnit": {"state": "needs_review", "value": "កម្មវិធីរុករកថ្មី នៅខាងលើ"}}}},
     "action.new.browser.window": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "New Browser to New Window"}}, "de": {"stringUnit": {"state": "translated", "value": "Neuer Browser in neuem Fenster"}}, "fr": {"stringUnit": {"state": "translated", "value": "Nouveau navigateur dans une nouvelle fenêtre"}}, "ar": {"stringUnit": {"state": "translated", "value": "متصفح جديد في نافذة جديدة"}}, "es": {"stringUnit": {"state": "translated", "value": "Nuevo navegador en nueva ventana"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "在新窗口中新建浏览器"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "在新視窗中新增瀏覽器"}}, "ko": {"stringUnit": {"state": "translated", "value": "새 창에 새 브라우저"}}, "ja": {"stringUnit": {"state": "translated", "value": "新規ウインドウに新規ブラウザ"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Nuovo browser in una nuova finestra"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Ny browser i nyt vindue"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Ny nettleser i nytt vindu"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Novi preglednik u novom prozoru"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Nowa przeglądarka w nowym oknie"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Novo navegador em nova janela"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Новый браузер в новом окне"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Новий браузер у новому вікні"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Yeni pencereye yeni tarayıcı"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Trình duyệt mới trong cửa sổ mới"}}, "th": {"stringUnit": {"state": "needs_review", "value": "เบราว์เซอร์ใหม่ในหน้าต่างใหม่"}}, "km": {"stringUnit": {"state": "needs_review", "value": "កម្មវិធីរុករកថ្មី ក្នុងបង្អួចថ្មី"}}}},
-    "action.new.browser.workspace": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "New Browser to New Workspace"}}, "de": {"stringUnit": {"state": "translated", "value": "Neuer Browser in neuem Workspace"}}, "fr": {"stringUnit": {"state": "translated", "value": "Nouveau navigateur dans un nouvel espace de travail"}}, "ar": {"stringUnit": {"state": "translated", "value": "متصفح جديد في مساحة عمل جديدة"}}, "es": {"stringUnit": {"state": "translated", "value": "Nuevo navegador en nuevo espacio de trabajo"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "在新工作区中新建浏览器"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "在新工作區中新增瀏覽器"}}, "ko": {"stringUnit": {"state": "translated", "value": "새 워크스페이스에 새 브라우저"}}, "ja": {"stringUnit": {"state": "translated", "value": "新規ワークスペースに新規ブラウザ"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Nuovo browser in un nuovo workspace"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Ny browser i nyt arbejdsområde"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Ny nettleser i nytt arbeidsområde"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Novi preglednik u novom radnom prostoru"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Nowa przeglądarka w nowym obszarze roboczym"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Novo navegador em novo espaço de trabalho"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Новый браузер в новом рабочем пространстве"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Новий браузер у новому робочому просторі"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Yeni çalışma alanına yeni tarayıcı"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Trình duyệt mới trong không gian làm việc mới"}}, "th": {"stringUnit": {"state": "needs_review", "value": "เบราว์เซอร์ใหม่ในพื้นที่ทำงานใหม่"}}, "km": {"stringUnit": {"state": "needs_review", "value": "កម្មវិធីរុករកថ្មី ក្នុងកន្លែងធ្វើការថ្មី"}}}},
+    "action.new.browser.toWorkspace": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "New Browser to New Workspace"}}, "de": {"stringUnit": {"state": "translated", "value": "Neuer Browser in neuem Workspace"}}, "fr": {"stringUnit": {"state": "translated", "value": "Nouveau navigateur dans un nouvel espace de travail"}}, "ar": {"stringUnit": {"state": "translated", "value": "متصفح جديد في مساحة عمل جديدة"}}, "es": {"stringUnit": {"state": "translated", "value": "Nuevo navegador en nuevo espacio de trabajo"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "在新工作区中新建浏览器"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "在新工作區中新增瀏覽器"}}, "ko": {"stringUnit": {"state": "translated", "value": "새 워크스페이스에 새 브라우저"}}, "ja": {"stringUnit": {"state": "translated", "value": "新規ワークスペースに新規ブラウザ"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Nuovo browser in un nuovo workspace"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Ny browser i nyt arbejdsområde"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Ny nettleser i nytt arbeidsområde"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Novi preglednik u novom radnom prostoru"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Nowa przeglądarka w nowym obszarze roboczym"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Novo navegador em novo espaço de trabalho"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Новый браузер в новом рабочем пространстве"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Новий браузер у новому робочому просторі"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Yeni çalışma alanına yeni tarayıcı"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Trình duyệt mới trong không gian làm việc mới"}}, "th": {"stringUnit": {"state": "needs_review", "value": "เบราว์เซอร์ใหม่ในพื้นที่ทำงานใหม่"}}, "km": {"stringUnit": {"state": "needs_review", "value": "កម្មវិធីរុករកថ្មី ក្នុងកន្លែងធ្វើការថ្មី"}}}},
     "action.new.newTabPage": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "New Tab Page"}}, "de": {"stringUnit": {"state": "translated", "value": "Neue Tab-Seite"}}, "fr": {"stringUnit": {"state": "translated", "value": "Page Nouvel onglet"}}, "ar": {"stringUnit": {"state": "translated", "value": "صفحة علامة تبويب جديدة"}}, "es": {"stringUnit": {"state": "translated", "value": "Página de nueva pestaña"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "新标签页"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "新分頁頁面"}}, "ko": {"stringUnit": {"state": "translated", "value": "새 탭 페이지"}}, "ja": {"stringUnit": {"state": "translated", "value": "新規タブページ"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Pagina Nuova scheda"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Ny fane-side"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Ny fane-side"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Stranica nove kartice"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Strona nowej karty"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Página de nova aba"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Страница новой вкладки"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Сторінка нової вкладки"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Yeni sekme sayfası"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Trang tab mới"}}, "th": {"stringUnit": {"state": "needs_review", "value": "หน้าแท็บใหม่"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ទំព័រផ្ទាំងថ្មី"}}}},
     "action.new.newTabPage.columnLeft": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "New Tab Page to New Column Left"}}, "de": {"stringUnit": {"state": "translated", "value": "Neue Tab-Seite in neuer Spalte links"}}, "fr": {"stringUnit": {"state": "translated", "value": "Nouvelle page Nouvel onglet dans une nouvelle colonne à gauche"}}, "ar": {"stringUnit": {"state": "translated", "value": "صفحة علامة تبويب جديدة في عمود جديد إلى اليسار"}}, "es": {"stringUnit": {"state": "translated", "value": "Nueva página de nueva pestaña en nueva columna a la izquierda"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "在左侧新列中打开新标签页"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "在左側新欄中開啟新分頁頁面"}}, "ko": {"stringUnit": {"state": "translated", "value": "왼쪽 새 열에 새 탭 페이지"}}, "ja": {"stringUnit": {"state": "translated", "value": "左の新規列に新規タブページ"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Nuova pagina Nuova scheda in una nuova colonna a sinistra"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Ny fane-side i ny kolonne til venstre"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Ny fane-side i ny kolonne til venstre"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Nova stranica nove kartice u novoj koloni lijevo"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Nowa strona nowej karty w nowej kolumnie po lewej"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Nova página de nova aba em nova coluna à esquerda"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Новая страница новой вкладки в новой колонке слева"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Нова сторінка нової вкладки у новій колонці ліворуч"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Soldaki yeni sütuna yeni sekme sayfası"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Trang tab mới trong cột mới bên trái"}}, "th": {"stringUnit": {"state": "needs_review", "value": "หน้าแท็บใหม่ในคอลัมน์ใหม่ทางซ้าย"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ទំព័រផ្ទាំងថ្មី ក្នុងជួរឈរថ្មីខាងឆ្វេង"}}}},
     "action.new.newTabPage.columnRight": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "New Tab Page to New Column Right"}}, "de": {"stringUnit": {"state": "translated", "value": "Neue Tab-Seite in neuer Spalte rechts"}}, "fr": {"stringUnit": {"state": "translated", "value": "Nouvelle page Nouvel onglet dans une nouvelle colonne à droite"}}, "ar": {"stringUnit": {"state": "translated", "value": "صفحة علامة تبويب جديدة في عمود جديد إلى اليمين"}}, "es": {"stringUnit": {"state": "translated", "value": "Nueva página de nueva pestaña en nueva columna a la derecha"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "在右侧新列中打开新标签页"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "在右側新欄中開啟新分頁頁面"}}, "ko": {"stringUnit": {"state": "translated", "value": "오른쪽 새 열에 새 탭 페이지"}}, "ja": {"stringUnit": {"state": "translated", "value": "右の新規列に新規タブページ"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Nuova pagina Nuova scheda in una nuova colonna a destra"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Ny fane-side i ny kolonne til højre"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Ny fane-side i ny kolonne til høyre"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Nova stranica nove kartice u novoj koloni desno"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Nowa strona nowej karty w nowej kolumnie po prawej"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Nova página de nova aba em nova coluna à direita"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Новая страница новой вкладки в новой колонке справа"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Нова сторінка нової вкладки у новій колонці праворуч"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Sağdaki yeni sütuna yeni sekme sayfası"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Trang tab mới trong cột mới bên phải"}}, "th": {"stringUnit": {"state": "needs_review", "value": "หน้าแท็บใหม่ในคอลัมน์ใหม่ทางขวา"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ទំព័រផ្ទាំងថ្មី ក្នុងជួរឈរថ្មីខាងស្ដាំ"}}}},
@@ -1906,6 +1906,137 @@
         "stringUnit": {
           "state": "translated",
           "value": "Mời mọi người…"
+        }
+      }
+    }
+  },
+    "argument.agentShare.signedInRole": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Signed-in Guests"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Angemeldete Gäste"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Invités connectés"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "الضيوف المسجلون"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Invitados con sesión iniciada"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已登入的訪客"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已登录的访客"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "로그인한 게스트"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "サインイン済みのゲスト"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Prijavljeni gosti"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Indloggede gæster"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ospiti con accesso"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ភ្ញៀវដែលបានចូល"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Innloggede gjester"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Zalogowani goście"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Convidados conectados"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Вошедшие гости"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "แขกที่ลงชื่อเข้าใช้"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Oturum açmış konuklar"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Гості, що увійшли"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Khách đã đăng nhập"
         }
       }
     }
