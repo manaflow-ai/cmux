@@ -6,8 +6,8 @@
 //! or `name-2` and on when that is taken; never an existing folder. It gets an
 //! empty git repository (`git init`), and acpmux's record trusts it, as a
 //! Trust click would: the person made it for this chat. The answer is
-//! `{cwd, name, git}`, with `git` false when `git init` failed (the folder is
-//! still made).
+//! `{cwd, name, git}`; when `git init` fails no folder is left and the request
+//! fails, since the chat was promised a repository.
 //!
 //! Only over the local unix socket and from the app's agent pane
 //! (`Origin::LocalApp`), as a worktree (`new_worktree.rs`): a Web client or a
@@ -45,9 +45,9 @@ pub(super) async fn handle(hub: &Arc<Hub>, origin: Origin, params: &Value) -> Re
     }
     let home = dirs::home_dir().ok_or_else(|| RpcError::internal("no home directory"))?;
     let gate = hub.trust_gate();
-    let made = tokio::task::spawn_blocking(move || -> Result<(PathBuf, bool), String> {
+    let made = tokio::task::spawn_blocking(move || -> Result<PathBuf, String> {
         let paths = gate.or_else(crate::trust::Paths::current).ok_or("no home directory")?;
-        let (cwd, git) = make(&projects_root(&home), &name)?;
+        let cwd = make(&projects_root(&home), &name)?;
         if let Err(failure) = crate::trust::set(&paths, &cwd.to_string_lossy(), "trusted") {
             // The folder is the one just made, empty but for its new repository: take it back, so
             // a retry makes `name` again instead of leaving `name` behind and making `name-2`.
@@ -56,16 +56,16 @@ pub(super) async fn handle(hub: &Arc<Hub>, origin: Origin, params: &Value) -> Re
                 crate::trust::Failure::Invalid(message) | crate::trust::Failure::Record(message) => message,
             });
         }
-        Ok((cwd, git))
+        Ok(cwd)
     })
     .await
     .map_err(|e| RpcError::internal(e.to_string()))?
     .map_err(|e| RpcError::invalid_params(format!("no project folder: {e}")))?;
     // A start waiting on this folder's Trust card goes on (`hub/trust_wait.rs`).
     hub.trust_changed();
-    let (cwd, git) = made;
+    let cwd = made;
     let name = cwd.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    Ok(json!({"cwd": cwd, "name": name, "git": git}))
+    Ok(json!({"cwd": cwd, "name": name, "git": true}))
 }
 
 /// A folder name that stays one plain path component: no separator, no `..`, no hidden or
@@ -87,9 +87,9 @@ fn projects_root(home: &Path) -> PathBuf {
         .unwrap_or_else(|| home.join(PROJECT_ROOTS[0]))
 }
 
-/// Makes `root/name` (or the first free `name-N`), canonical, with an empty git repository in it;
-/// the bool is whether `git init` worked.
-fn make(root: &Path, name: &str) -> Result<(PathBuf, bool), String> {
+/// Makes `root/name` (or the first free `name-N`), canonical, with an empty git repository in it.
+/// When `git init` fails the folder just made is taken back.
+fn make(root: &Path, name: &str) -> Result<PathBuf, String> {
     std::fs::create_dir_all(root).map_err(|e| format!("{}: {e}", root.display()))?;
     let mut made = None;
     for n in 1..=SUFFIX_MAX {
@@ -107,15 +107,31 @@ fn make(root: &Path, name: &str) -> Result<(PathBuf, bool), String> {
     let folder = made
         .ok_or_else(|| format!("{name} through {name}-{SUFFIX_MAX} are taken: choose another name"))?;
     let folder = std::fs::canonicalize(&folder).unwrap_or(folder);
-    let git = std::process::Command::new("git")
-        .args(["init", "-q"])
-        .current_dir(&folder)
+    let git = git_init(&folder, std::env::vars_os().map(|(key, _)| key))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
         .is_ok_and(|status| status.success());
-    Ok((folder, git))
+    if !git {
+        // Only the folder made above, empty: `git init` wrote nothing that worked.
+        let _ = std::fs::remove_dir_all(&folder);
+        return Err("git init failed: is git installed?".to_owned());
+    }
+    Ok(folder)
+}
+
+/// `git init` in `folder`, without Git's own variables of the daemon's environment (`inherited`):
+/// `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` and the rest would point it at another repository.
+fn git_init(folder: &Path, inherited: impl IntoIterator<Item = std::ffi::OsString>) -> std::process::Command {
+    let mut init = std::process::Command::new("git");
+    for key in inherited {
+        if key.to_string_lossy().starts_with("GIT_") {
+            init.env_remove(key);
+        }
+    }
+    init.args(["init", "-q"]).current_dir(folder);
+    init
 }
 
 #[cfg(test)]
@@ -145,17 +161,24 @@ mod tests {
         let root = scratch("make");
         std::fs::create_dir(root.join("habit-tracker")).unwrap();
         std::fs::write(root.join("habit-tracker").join("keep.txt"), "mine").unwrap();
-        let (cwd, git) = make(&root, "habit-tracker").unwrap();
+        let cwd = make(&root, "habit-tracker").unwrap();
         assert_eq!(cwd.file_name().unwrap(), "habit-tracker-2");
-        assert!(cwd.is_dir());
-        if git {
-            assert!(cwd.join(".git").is_dir());
-        }
+        assert!(cwd.join(".git").is_dir());
         // The taken folder is untouched.
         assert_eq!(std::fs::read_to_string(root.join("habit-tracker").join("keep.txt")).unwrap(), "mine");
-        let (third, _) = make(&root, "habit-tracker").unwrap();
+        let third = make(&root, "habit-tracker").unwrap();
         assert_eq!(third.file_name().unwrap(), "habit-tracker-3");
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn project_new_git_init_drops_the_daemons_git_variables() {
+        let inherited = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "HOME", "PATH"].map(std::ffi::OsString::from);
+        let init = git_init(Path::new("/tmp/x"), inherited);
+        let removed: Vec<_> =
+            init.get_envs().filter(|(_, value)| value.is_none()).map(|(key, _)| key.to_owned()).collect();
+        assert_eq!(removed, ["GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE"].map(std::ffi::OsString::from));
+        assert_eq!(init.get_current_dir(), Some(Path::new("/tmp/x")));
     }
 
     #[test]

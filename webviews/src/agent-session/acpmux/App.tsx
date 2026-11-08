@@ -405,7 +405,7 @@ import {
   setAnswerState,
   shownAsks,
 } from "./conversation/waitingAskStore";
-import { turnPreviewUrl } from "./conversation/previewUrl";
+import { turnPreviewUrl, turnServedUrl } from "./conversation/previewUrl";
 import { projectInboxRows } from "./conversation/laneNoticeBatches";
 import {
   canFork,
@@ -672,7 +672,7 @@ import { CloudChatHint } from "./CloudChatHint";
 import { cloudChatHintShown, useCloudChatHint } from "./cloudChatHintModel";
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
-import { takeProjectPreview } from "./newtab/newProject";
+import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
 import { flushHeldModePick, holdModePick } from "./heldModePick";
 import { type MeasurableRenderer, type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
@@ -6142,12 +6142,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const chatCwd = summary?.cwd || undefined;
   // New Project's chat (newtab/newProject.ts) opens the first local page it serves beside it, once,
   // as the header's Preview would; every other chat waits for the person's click.
+  // Only a page the agent gave counts: one the person's prompt names is not served yet, and one
+  // still streaming may be cut short (`http://localhost:5` before `5173/`), so it is read at the
+  // turn's end. The latest turn alone is read, and only while this chat's folder still waits.
+  const servedUrl = useMemo(() => {
+    if (quick || snapshot.isWorking || !awaitsProjectPreview(localCwd)) return undefined;
+    const rows = snapshot.rows;
+    let user = rows.length - 1;
+    while (user >= 0 && rows[user].kind !== "user") user -= 1;
+    return turnServedUrl(rows.slice(user + 1));
+  }, [snapshot.rows, snapshot.isWorking, localCwd, quick]);
   useEffect(() => {
-    if (!previewUrl || quick || !takeProjectPreview(localCwd)) return;
-    void callNative("pane.action", { id: HEADER_ACTIONS.preview, url: previewUrl, mode: "open" }).catch(
+    if (!servedUrl || !takeProjectPreview(localCwd)) return;
+    void callNative("pane.action", { id: HEADER_ACTIONS.preview, url: servedUrl, mode: "open" }).catch(
       () => undefined,
     );
-  }, [previewUrl, localCwd, quick]);
+  }, [servedUrl, localCwd]);
   // Stop reaches acpmux even when pressed while the pane reconnects (stopThroughReconnect.ts).
   const stopThroughReconnect = useStopThroughReconnect(snapshot, cancelTurn);
   const keptStopping = stopThroughReconnect.stopping;

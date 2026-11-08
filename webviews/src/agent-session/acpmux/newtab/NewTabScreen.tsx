@@ -681,7 +681,12 @@ export function NewTabScreen(props: Props) {
     ...props.runMode,
     onMode: (mode: RunMode) => {
       // Cloud and Sandboxed start no chat in a folder of this Mac: New project ends.
-      if (mode !== "persistent") setNewProject(undefined);
+      if (mode !== "persistent") {
+        // A folder still on its way, or made for a start that failed, is no longer this draft's.
+        projectChoice.current += 1;
+        setNewProject(undefined);
+        newProjectMade.current = undefined;
+      }
       if (mode === "cloud") {
         saved.pick(undefined);
         setMachine(undefined);
@@ -853,8 +858,9 @@ export function NewTabScreen(props: Props) {
   const environmentCwd = environment?.kind === "local" ? (environment.folder ?? props.startCwd) : environment?.folder;
   const createsWorktree =
     environment?.kind === "local" && environment.worktree && environment.folder && props.onNewWorktree;
-  // Its final directory (and project-local credentials) exists only after creation.
-  const targetCwd = createsWorktree
+  // Its final directory (and project-local credentials) exists only after creation, as New
+  // project's folder does.
+  const targetCwd = createsWorktree || newProject
     ? undefined
     : environment
       ? environmentCwd
@@ -1295,7 +1301,7 @@ export function NewTabScreen(props: Props) {
     // agent here to warm; an address the person ends up typing releases it once cleared.
     props.onPromptTyped?.(
       shell ? "" : next,
-      environment || !askFolder || !harness ? undefined : { harness, cwd: askFolder },
+      environment || newProject || !askFolder || !harness ? undefined : { harness, cwd: askFolder },
     );
   };
   const submit = () => {
@@ -1662,6 +1668,8 @@ export function NewTabScreen(props: Props) {
     setNone(false);
     // A new folder is this Mac's: a Cloud or Sandboxed pick goes back to this Mac.
     if (props.runMode && props.runMode.mode !== "persistent") runMode?.onMode("persistent");
+    // A folder kept from a failed start belongs to that choice; a new choice makes its own.
+    newProjectMade.current = undefined;
     setNewProject((before) => before ?? {});
     requestAnimationFrame(() => field.current?.focus());
   };
@@ -1946,6 +1954,9 @@ export function NewTabScreen(props: Props) {
                 onPick: (id: string) => {
                   projectChoice.current += 1;
                   setBrowseError(undefined);
+                  // An environment is where the chat starts: New project's folder is no longer it.
+                  setNewProject(undefined);
+                  newProjectMade.current = undefined;
                   touch();
                   // Saved environments are local/SSH destinations, never account Cloud machines.
                   props.onCloudMachinePicked?.(undefined);
