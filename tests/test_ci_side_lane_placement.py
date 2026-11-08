@@ -1030,6 +1030,67 @@ class GatewayRoute(unittest.TestCase):
                          .fleet_jobs, ())
 
 
+class FastTierHandback(unittest.TestCase):
+    """The fast tier's queued hand-back (cmux-next.yml's fast-tier-handback-placement, cmux#38627): a fleet step
+    still queued after the client's wait hands the tier back, and it is placed again then, from a fresh
+    reading: its own idle label, an idle owned side runner, Blacksmith 6 vCPU unless that is excluded, else
+    the owned route. #38627's review: an unconditional Blacksmith 6 vCPU queued on a label under a declared
+    outage, with no verdict and its timeout not yet started."""
+
+    SMALL = "blacksmith-6vcpu-macos-26"
+    NOW = __import__("datetime").datetime(2026, 11, 8, 15, 0, tzinfo=__import__("datetime").timezone.utc)
+
+    def seen(self, outage: bool = False):
+        shot = {"generated_at": "2026-11-08T14:58:00Z",
+                "pools": {self.SMALL: {"queued": 3 if outage else 0, "running": 0, "oldest_queued_minutes": 0}}}
+        if outage:
+            shot["bs_health"] = {"label_outages": [{"pool": self.SMALL, "queued": 3, "last_start_s": 3600}]}
+        return placement.cascade.seen(shot, self.NOW)
+
+    def place(self, runners, outage: bool = False, read: bool = True, **values: str) -> tuple[str, str]:
+        live, waiting = ({self.SMALL: 0}, {self.SMALL: 3 if outage else 0}) if read else (None, None)
+        return placement.handback({"SIDE_LABEL": SIDE, "FAST_LABEL": FAST, **values}, runners, live, waiting,
+                                  self.seen(outage) if read else None)
+
+    def test_an_idle_owned_mac_wins_over_blacksmith(self):
+        self.assertEqual(self.place([runner("mini-f-glaeda-1", labels=(FAST,)), runner("mini-a-glaeda-1")])[0], FAST)
+        self.assertEqual(self.place([runner("mini-f-glaeda-1", busy=True, labels=(FAST,)),
+                                     runner("mini-a-glaeda-1")])[0], SIDE)
+
+    def test_no_idle_mini_takes_blacksmith_while_it_is_live(self):
+        busy = [runner("mini-a-glaeda-1", busy=True), runner("mini-b-glaeda-1", busy=True)]
+        self.assertEqual(self.place(busy)[0], self.SMALL)
+        # Unread runners vouch for no idle mini; an unread Blacksmith reading excludes nothing.
+        self.assertEqual(self.place(None)[0], self.SMALL)
+        self.assertEqual(self.place(busy, read=False)[0], self.SMALL)
+
+    def test_an_excluded_blacksmith_keeps_the_owned_route(self):
+        busy = [runner("mini-a-glaeda-1", busy=True), runner("mini-b-glaeda-1", busy=True)]
+        label, why = self.place(busy, outage=True)
+        self.assertEqual(label, SIDE)
+        self.assertIn("declared outage", why)
+        # Runners unread too: the side label itself, never the excluded Blacksmith.
+        self.assertEqual(self.place(None, outage=True)[0], SIDE)
+        # No owned side label to wait on (unset, or not an owned label): Blacksmith 6 vCPU, as before.
+        self.assertEqual(self.place(busy, outage=True, SIDE_LABEL="")[0], self.SMALL)
+        self.assertEqual(self.place(None, outage=True, SIDE_LABEL=self.SMALL)[0], self.SMALL)
+
+    def test_main_writes_the_runner(self):
+        busy = [runner("mini-a-glaeda-1", busy=True)]
+        for outage, expected in ((False, self.SMALL), (True, SIDE)):
+            with self.subTest(outage=outage), tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "out"
+                values = {"PLACEMENT": "handback", "SIDE_LABEL": SIDE, "GITHUB_OUTPUT": str(output),
+                          "ROUTE_TOKEN": "t", "GITHUB_REPOSITORY": "manaflow-ai/cmux"}
+                read = ({self.SMALL: 0}, {self.SMALL: 3 if outage else 0}, self.seen(outage))
+                with mock.patch.object(placement.pool, "GitHub") as github, \
+                        mock.patch.object(placement.cascade, "read", return_value=read), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    github.return_value.runners.return_value = busy
+                    placement.main(values)
+                self.assertEqual(output.read_text(), f"runner={expected}\n")
+
+
 class SpillToCompatiblePool(unittest.TestCase):
     def setUp(self):
         self.assertIsNotNone(placement, "scripts/ci/side_lane_placement.py is missing")
