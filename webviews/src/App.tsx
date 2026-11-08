@@ -211,6 +211,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const commentLabels = resolveCommentLabels(payload);
   const comments = useDiffComments({
     bridgeAvailable,
+    canPostReview: payload.reviewPost === true,
     canSend: payload.commentsSend === true,
     dispatch,
     latestState,

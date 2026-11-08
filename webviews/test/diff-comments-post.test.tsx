@@ -90,7 +90,7 @@ async function withHost(answer: (call: Call) => Promise<unknown> | unknown, run:
 }
 
 /** The comments hook on `/repo`, its review loaded as the bootstrap loads it. */
-async function mountHook(comments: Comment[], review: Review | null = REVIEW) {
+async function mountHook(comments: Comment[], review: Review | null = REVIEW, canPostReview = true) {
   const { createRoot } = await import("react-dom/client");
   const { useDiffComments } = await import("../src/diff-viewer/useDiffComments");
   const { initialAppState } = await import("../src/diff-viewer/state");
@@ -101,6 +101,7 @@ async function mountHook(comments: Comment[], review: Review | null = REVIEW) {
   function Probe() {
     hook = useDiffComments({
       bridgeAvailable: true,
+      canPostReview,
       canSend: true,
       dispatch: ((action: { type: string; ids?: readonly string[] }) => dispatched.push(action)) as never,
       latestState: state as never,
@@ -301,6 +302,18 @@ test("a draft edited after a post stops the header saying it posted", async () =
       await act(async () => probe.hook().editMessage(comment("c1", "a.ts", 1), "fix it now", null));
       expect(probe.hook().postState).toBe("idle");
       probe.unmount();
+    },
+  );
+});
+
+test("a review on another machine shows no Post: only this Mac's daemon takes the person's post", async () => {
+  await withHost(
+    () => ({}),
+    async (calls) => {
+      const probe = await mountHook([comment("c1", "a.ts", 1)], REVIEW, false);
+      expect(probe.hook().canPost).toBe(false);
+      probe.unmount();
+      expect(calls).toEqual([]);
     },
   );
 });

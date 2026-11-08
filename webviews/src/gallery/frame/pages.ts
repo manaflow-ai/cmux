@@ -240,6 +240,8 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
           appearance: context.appearance,
           labels,
           commentsSend: state.commentsSend,
+          // The in-page host stands for this Mac, whose daemon takes the person's post.
+          reviewPost: state.commentsReview != null,
         },
         ops: ["cmux.diff.comments", ...(state.fingerprintError ? ["cmux.diff.git.fingerprint"] : [])],
       }),

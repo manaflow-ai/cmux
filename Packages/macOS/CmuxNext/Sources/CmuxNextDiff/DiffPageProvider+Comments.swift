@@ -17,6 +17,13 @@ public protocol DiffCommentsStoring: AnyObject {
     /// `git.review.post {root, ids, versions}` → `{url, posted, in_body, cleared}`: a review
     /// worktree's drafts to GitHub as one review, with the person's gh; those still unchanged leave.
     func postReview(root: String, ids: [String], versions: [String: JSONValue], key: String) async throws(AgentPaneGitFailure) -> JSONValue
+    /// Whether ``postReview(root:ids:versions:key:)`` can reach the host as the person: only this
+    /// Mac's daemon takes the app's proof, so another machine's review shows no Post.
+    var postsReviews: Bool { get }
+}
+
+extension DiffCommentsStoring {
+    public var postsReviews: Bool { true }
 }
 
 /// The diff tab's review comments (hq #7563): `cmux.diff.comments {method, params}` carries the
@@ -115,12 +122,14 @@ extension DiffPageProvider {
     }
 
     /// `config` listing `cmux.diff.comments` and, when the tab's chat can take them,
-    /// `payload.commentsSend` (the page's Send to agent).
+    /// `payload.commentsSend` (the page's Send to agent); `payload.reviewPost` when a review's
+    /// drafts can go to GitHub from here (the page's Post).
     func withComments(_ config: JSONValue) -> JSONValue {
-        guard commentStore != nil, case .object(var members) = config, members["pick"] == nil else { return config }
+        guard let store = commentStore, case .object(var members) = config, members["pick"] == nil else { return config }
         members["ops"] = .array((members["ops"]?.arrayValue ?? []) + [.string(Self.commentsOp)])
-        if chat() != nil, case .object(var payload)? = members["payload"] {
-            payload["commentsSend"] = true
+        if case .object(var payload)? = members["payload"] {
+            if chat() != nil { payload["commentsSend"] = true }
+            if store.postsReviews { payload["reviewPost"] = true }
             members["payload"] = .object(payload)
         }
         return .object(members)
@@ -128,6 +137,8 @@ extension DiffPageProvider {
 }
 
 extension DiffAgentGit: DiffCommentsStoring {
+    public var postsReviews: Bool { !isRemote }
+
     public func listComments(root: String) async throws(AgentPaneGitFailure) -> JSONValue {
         try Self.parseComments(try await link.read("diff.comments.list", params: ["root": .string(root)]))
     }

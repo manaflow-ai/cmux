@@ -56,12 +56,15 @@ function nextBatch<Batch extends { ids: string[]; versions: Record<string, strin
 
 export function useDiffComments({
   bridgeAvailable,
+  canPostReview = true,
   canSend,
   dispatch,
   latestState,
   repoRoot,
 }: {
   bridgeAvailable: boolean;
+  /** The host can post a review as the person (`payload.reviewPost`); false on another machine. */
+  canPostReview?: boolean;
   canSend: boolean;
   dispatch: React.Dispatch<AppAction>;
   latestState: React.MutableRefObject<AppState>;
@@ -284,7 +287,7 @@ export function useDiffComments({
   };
 
   return {
-    canPost: review != null && bridgeAvailable,
+    canPost: review != null && bridgeAvailable && canPostReview,
     canSend: canSend && bridgeAvailable,
     editMessage,
     onGutterUtilityClick,

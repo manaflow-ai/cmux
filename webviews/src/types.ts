@@ -20,6 +20,8 @@ export type DiffViewerPayload = {
   sessionCapabilities?: string[];
   /** The host sends the saved comments to the chat that owns this diff (`comments.send`). */
   commentsSend?: boolean;
+  /** The host posts a review worktree's drafts to GitHub as the person (`comments.post`): this Mac only. */
+  reviewPost?: boolean;
   [key: string]: any;
 };
 
