@@ -736,3 +736,17 @@ fn a_refused_start_never_waits_on_a_warm_copy() {
     assert_eq!(refused.step, Step::Refuse);
     assert!(!refused.warm_copy_conflict);
 }
+
+#[test]
+fn a_start_that_keeps_the_machines_login_never_waits_on_a_warm_copy() {
+    // `--login machine` writes nothing: with a login there it keeps it, without one it refuses.
+    for login in [MachineLogin::Working, MachineLogin::Session, MachineLogin::None] {
+        let d = decide(&Inputs {
+            requested: Some(Choice::Machine),
+            requested_by_person: true,
+            machine_login: Some(login),
+            ..owner()
+        });
+        assert!(d.reads_machine && !d.warm_copy_conflict, "{login:?}");
+    }
+}
