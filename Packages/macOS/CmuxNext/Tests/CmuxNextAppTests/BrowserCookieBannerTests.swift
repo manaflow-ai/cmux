@@ -4,6 +4,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDesign
+import CmuxNextFocus
 @testable import CmuxNextImportCards
 @testable import CmuxNextSettings
 import CmuxNextTestSupport
@@ -117,6 +118,55 @@ import Testing
         #expect(text.contains(BrowserImportOfferStrings.notNow))
     }
 
+    /// The card belongs to browser pages only (Lawrence 2026-11-07: it showed over a terminal and agent
+    /// workspace). It floats on the window's overlay host, above every pane, so it shows only while its
+    /// own browser tab has the keyboard, as the window's focus reports it (`followKeyboard`). While a
+    /// terminal, a chat, Home, the sidebar or another browser tab has it, the card is off screen and off
+    /// the overlay host, unanswered; it comes back when its tab has the keyboard again. A card offered
+    /// while the tab lacks the keyboard (Show Import Cookies Banner from a terminal) waits for it.
+    @Test func theCardShowsOnlyWhileItsBrowserTabHasTheKeyboard() throws {
+        let page = Page()
+        defer { page.tearDown() }
+        let entry = BrowserEntry(tab: page.tab)
+        page.chrome.bind(page.tab, state: entry.state)
+        let offer = BrowserImportOfferService(services: nil, defaults: Self.freshDefaults(), locate: { [] })
+
+        entry.followKeyboard(focusedTab: nil, key: "browser-1", window: page.window)  // a terminal has the keyboard
+        offer.show(on: page.chrome, browsers: [InstalledImportBrowser(browser: .chrome, icon: NSImage())])
+        let card = try #require(page.chrome.currentCookieImportCard)
+        #expect(!page.chrome.showsCookieImportOffer, "offered while a terminal has the keyboard: it waits")
+        #expect(card.window?.parent !== page.window, "and is not on the overlay host over the terminal")
+
+        entry.followKeyboard(focusedTab: "browser-1", key: "browser-1", window: page.window)
+        #expect(page.chrome.showsCookieImportOffer, "its browser tab has the keyboard: shown")
+        #expect(card.window?.parent === page.window, "on the window's overlay host")
+
+        entry.followKeyboard(focusedTab: nil, key: "browser-1", window: NSWindow())
+        #expect(page.chrome.showsCookieImportOffer, "another window's focus does not decide this window's card")
+
+        for away in [nil, "browser-2"] as [String?] {  // a terminal, chat, Home or the sidebar; another browser tab
+            entry.followKeyboard(focusedTab: away, key: "browser-1", window: page.window)
+            #expect(!page.chrome.showsCookieImportOffer, "hidden while \(away ?? "a terminal") has the keyboard")
+            #expect(card.window?.parent !== page.window, "and off the overlay host")
+        }
+
+        entry.followKeyboard(focusedTab: "browser-1", key: "browser-1", window: page.window)
+        #expect(page.chrome.showsCookieImportOffer, "back on its tab: shown again, still unanswered")
+        #expect(page.chrome.currentCookieImportCard === card)
+        #expect(card.window?.parent === page.window)
+    }
+
+    /// Only a browser tab's own targets count as the browser tab having the keyboard.
+    @Test(arguments: [
+        (FocusState.Resolved.browserPage(pane: "p", tab: "t"), "t" as String?),
+        (.addressBar(pane: "p", tab: "t"), "t"), (.findBar(pane: "p", tab: "t"), "t"), (.devTools(pane: "p", tab: "t"), "t"),
+        (.terminal(pane: "p", tab: "t"), nil), (.agentPage(pane: "p", tab: "t"), nil), (.page(pane: "p", tab: "t"), nil),
+        (.conversation(pane: "p", tab: "t"), nil), (.emptyPane(pane: "p"), nil), (.sidebar, nil), (.textField, nil), (.none, nil),
+    ])
+    func onlyABrowserTabsTargetsAreItsFocus(resolved: FocusState.Resolved, tab: String?) {
+        #expect(resolved.browserTab == tab)
+    }
+
     /// Clicking Import opens the import window with cookies checked, into the tab's profile; nothing
     /// is read before that click.
     @Test func importOpensTheImportWindowWithCookiesChecked() async throws {
@@ -164,15 +214,17 @@ import Testing
     }
 
     /// Show Import Cookies Banner (palette, `cmux browser show-cookie-banner`, MCP): turns a dismissed
-    /// banner back on. It imports nothing.
+    /// banner back on. It imports nothing. On is the row's default, so the write removes the key
+    /// (#38119: an unset key follows its default) and the snapshot reads it on.
     @Test func theShowActionUndoesADismissal() async throws {
         let h = try await make()
         defer { h.tearDown() }
         try await h.settings.set(.bool(false), at: Self.cookieBannerPath)
         #expect(h.services.registry.isAvailable("browser.showCookieImportBanner"))
         #expect(h.services.registry.perform("browser.showCookieImportBanner", invocation: ActionInvocation(origin: .cli)))
-        try await h.until { try h.storedBannerValue() == true }
-        #expect(try h.storedBannerValue() == true)
+        try await h.until { try h.storedBannerValue() == nil && h.settings.snapshot.browserImportCookieBanner }
+        #expect(try h.storedBannerValue() == nil, "on is the default: cmux.json drops the dismissal and keeps no copy")
+        #expect(h.settings.snapshot.browserImportCookieBanner, "the banner is on again")
         #expect(!h.services.onboarding.isShowing, "showing the banner opens no import")
     }
 

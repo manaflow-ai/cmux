@@ -112,4 +112,9 @@ pub struct NewArgs {
     /// floor; the fleet registry's max_lanes only warns). The daemon logs it.
     #[arg(long)]
     pub force_admit: bool,
+    /// With --json, print the whole record, with the command, tool and option catalogs that
+    /// `--json` leaves out (about 23 of a Claude session's 27 KB). `acpmux --json session info
+    /// NAME` prints them too.
+    #[arg(long)]
+    pub full: bool,
 }

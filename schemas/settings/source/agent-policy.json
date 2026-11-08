@@ -116,8 +116,7 @@
     {
       "agent": "settable",
       "keys": [
-        "newTerminal.opensWorkspace",
-        "tabs.cmdWClosesPinnedTabs"
+        "newTerminal.opensWorkspace"
       ]
     },
     {
@@ -728,6 +727,9 @@
         "agentPane.display.pinnedPlan",
         "agentPane.display.trayTucked",
         "agentPane.display.trayHandle",
+        "agentPane.display.senderIcon.lead",
+        "agentPane.display.senderIcon.badge",
+        "agentPane.display.senderIcon.corner",
         "agentPane.display.font.preset",
         "agentPane.display.font.ui",
         "agentPane.display.font.size",

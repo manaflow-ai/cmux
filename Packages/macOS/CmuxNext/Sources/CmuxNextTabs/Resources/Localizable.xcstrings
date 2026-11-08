@@ -8389,7 +8389,7 @@
       }
     },
     "tabs.zoom.exit": {
-      "comment": "A zoomed pane's indicator on its selected tab: tooltip and VoiceOver label; a click restores the layout.",
+      "comment": "A zoomed pane's indicator at the pane's top-right: tooltip and VoiceOver label; a click restores the layout.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -8521,7 +8521,7 @@
       }
     },
     "tabs.ax.zoomed": {
-      "comment": "VoiceOver: part of a tab's label while its pane is zoomed (the tab shows the zoom indicator).",
+      "comment": "VoiceOver: part of a tab's label while its pane is zoomed.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -14179,6 +14179,110 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Hover Close"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "悬停关闭"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "懸停關閉"}}
+      }
+    },
+    "tabs.playground.section.hoverCard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Hover Card"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ホバーカード"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "بطاقة التمرير"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Kartica pri prelasku"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Svævekort"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Hover-Karte"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Tarjeta flotante"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Carte de survol"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Scheda al passaggio"}},
+        "km": {"stringUnit": {"state": "translated", "value": "កាតពេលដាក់ព្រួញ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "호버 카드"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Svevekort"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Karta po najechaniu"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Cartão ao passar o mouse"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Всплывающая карточка"}},
+        "th": {"stringUnit": {"state": "translated", "value": "การ์ดเมื่อชี้"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Üzerine gelme kartı"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Спливна картка"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Thẻ khi di chuột"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "悬停卡片"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "懸停卡片"}}
+      }
+    },
+    "tabs.playground.hoverCard.morph": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Grows out of the tab, settling like a drop"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "タブから伸び出し、しずくのように落ち着きます"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تنبثق من علامة التبويب وتستقر كقطرة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Izrasta iz kartice i smiruje se poput kapi"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Vokser ud af fanen og falder til ro som en dråbe"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wächst aus dem Tab heraus und kommt wie ein Tropfen zur Ruhe"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Surge de la pestaña y se asienta como una gota"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Naît de l’onglet et se pose comme une goutte"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Nasce dalla scheda e si assesta come una goccia"}},
+        "km": {"stringUnit": {"state": "translated", "value": "លូតចេញពីផ្ទាំង ហើយស្ងប់ដូចដំណក់ទឹក"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "탭에서 자라나 물방울처럼 자리 잡습니다"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Vokser ut av fanen og legger seg som en dråpe"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wyrasta z karty i osiada jak kropla"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Surge da aba e se acomoda como uma gota"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Вырастает из вкладки и оседает, как капля"}},
+        "th": {"stringUnit": {"state": "translated", "value": "งอกออกจากแท็บและนิ่งลงเหมือนหยดน้ำ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Sekmeden çıkar ve bir damla gibi yerine oturur"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Виростає з вкладки й осідає, як крапля"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Mọc ra từ thẻ và lắng xuống như một giọt nước"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "从标签页中长出，像水滴一样落定"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "從分頁中長出，像水滴一樣落定"}}
+      }
+    },
+    "tabs.playground.hoverCard.slide": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Fades in while it slides down from the tab"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "タブから下へスライドしながらフェードインします"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تظهر تدريجيًا أثناء انزلاقها لأسفل من علامة التبويب"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Postepeno se pojavljuje dok klizi naniže iz kartice"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Toner frem, mens det glider ned fra fanen"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Blendet ein, während sie vom Tab nach unten gleitet"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Aparece gradualmente mientras se desliza hacia abajo desde la pestaña"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Apparaît en fondu en glissant vers le bas depuis l’onglet"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Appare in dissolvenza scorrendo verso il basso dalla scheda"}},
+        "km": {"stringUnit": {"state": "translated", "value": "លេចឡើងបន្តិចម្ដងៗ ពេលរអិលចុះពីផ្ទាំង"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "탭에서 아래로 미끄러지며 서서히 나타납니다"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Toner inn mens det glir ned fra fanen"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pojawia się stopniowo, zsuwając się z karty"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Aparece gradualmente enquanto desliza para baixo a partir da aba"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Проявляется, соскальзывая вниз от вкладки"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ค่อย ๆ ปรากฏขณะเลื่อนลงจากแท็บ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Sekmeden aşağı kayarken belirir"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "З’являється, зісковзуючи вниз від вкладки"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Hiện dần trong khi trượt xuống từ thẻ"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "从标签页向下滑出时淡入"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "從分頁向下滑出時淡入"}}
+      }
+    },
+    "tabs.playground.hoverCard.fade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Fades in where it rests"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "止まる位置でフェードインします"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تظهر تدريجيًا في موضع استقرارها"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Postepeno se pojavljuje tamo gdje miruje"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Toner frem, hvor det hviler"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Blendet an ihrer Ruheposition ein"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Aparece gradualmente donde se detiene"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Apparaît en fondu là où elle se pose"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Appare in dissolvenza dove si ferma"}},
+        "km": {"stringUnit": {"state": "translated", "value": "លេចឡើងបន្តិចម្ដងៗ នៅកន្លែងដែលវាឈប់"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "멈추는 자리에서 서서히 나타납니다"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Toner inn der det hviler"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pojawia się stopniowo w miejscu spoczynku"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Aparece gradualmente onde fica"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Проявляется там, где останавливается"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ค่อย ๆ ปรากฏที่ตำแหน่งที่หยุดนิ่ง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Durduğu yerde belirir"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "З’являється там, де зупиняється"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Hiện dần tại chỗ nó dừng"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在停留位置淡入"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在停留位置淡入"}}
       }
     },
     "tabs.playground.hoverClose.crossFade": {

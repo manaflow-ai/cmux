@@ -100,6 +100,7 @@ pub(super) fn identify(
     Ok(identity)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn shutdown_daemon(
     mux: &Arc<Mux>,
     client: u64,
@@ -108,6 +109,7 @@ pub(super) fn shutdown_daemon(
     force: bool,
     end_terminals: bool,
     keep_layout: bool,
+    restart: Option<bool>,
 ) -> anyhow::Result<Value> {
     anyhow::ensure!(
         end_terminals || !keep_layout,
@@ -115,6 +117,7 @@ pub(super) fn shutdown_daemon(
     );
     let actual_identity =
         mux.begin_daemon_handoff(client, DaemonHandoffRequest::fenced(pid, generation, force))?;
+    mux.control_clients.set_daemon_handoff_restart(client, restart);
     // The fenced handoff reservation is held, so no second shutdown
     // can start while the hosts end. A failure releases it and keeps
     // this daemon serving.

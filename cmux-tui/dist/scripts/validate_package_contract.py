@@ -324,6 +324,7 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
         NPM_RELAY_LAUNCHER_FILES,
         NPM_SSH_MANIFEST,
         NOTICE_FILE,
+        SCREEN_DETECTION_BINARY,
     )
 
     if package_name == "cmux":
@@ -352,8 +353,10 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
                 NPM_SSH_MANIFEST,
                 NOTICE_FILE,
             }
-            # The Windows package also packs the per-terminal host (cx-1vlzr).
-            | ({"bin/cmux-tui-host.exe"} if "win32" in package_name else set())
+            # The Windows package also packs the per-terminal host (cx-1vlzr);
+            # the macOS and Linux packages pack the agent screen-detection
+            # plugin the daemon runs from beside its own executable.
+            | ({"bin/cmux-tui-host.exe"} if "win32" in package_name else {f"bin/{SCREEN_DETECTION_BINARY}"})
         )
     expected_names = {f"package/{path}" for path in expected}
     try:
@@ -379,6 +382,7 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
                 or member.name.endswith("/bin/cmux-tui.exe")
                 or member.name.endswith("/bin/cmux-tui-hook.exe")
                 or member.name.endswith("/bin/cmux-tui-host.exe")
+                or member.name.endswith(f"/bin/{SCREEN_DETECTION_BINARY}")
                 or member.name.endswith("/bin/chatmux-relay")
                 or member.name.endswith("/bin/chatmux-relay.exe")
                 or member.name.endswith("/bin/cmux-tui")
