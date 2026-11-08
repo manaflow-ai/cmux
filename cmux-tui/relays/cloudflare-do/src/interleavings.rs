@@ -10,10 +10,14 @@
 //! 1. at most one registration is current;
 //! 2. a socket that is closing is never current (a closed one is gone);
 //! 3. every Incoming (an allocation, a hand-over or a parked pairing) goes to
-//!    the current registration;
+//!    the current registration, except that while no registration is current
+//!    (two or more legacy ones are open) a Connect may go to a legacy one;
 //! 4. after the current registration pings while it is alive, no unjoined
 //!    circuit inside its deadline and no parked Connect is left waiting;
-//! 5. a slot with exactly one open registration has it as current.
+//! 5. a slot with exactly one open registration has it as current;
+//! 6. a Connect is allocated while any open registration on the slot accepts
+//!    Connects (is live), even when none is current because two live legacy
+//!    registrations are open.
 
 use std::collections::BTreeMap;
 
@@ -24,7 +28,8 @@ use crate::abuse::{
 };
 use crate::attachment::{SlotAttachment, SlotPhase};
 use crate::daemon::{
-    current_registration, live_daemon, next_registration_number, record_ping, replaced_by_register,
+    accepts_connects, current_registration, live_daemon, next_registration_number, record_ping,
+    replaced_by_register,
 };
 use crate::park::{
     ConnectDisposition, ParkedConnect, connect_disposition, pairing_order, parked_and_live,
@@ -82,6 +87,9 @@ struct World {
     next_circuit: u64,
     trace: Vec<String>,
     violations: BTreeMap<&'static str, String>,
+    /// Connects that arrived while two or more live legacy registrations
+    /// were open (no registration current): invariant 6's case.
+    two_live_legacy_connects: u64,
 }
 
 fn pending_socket() -> SlotAttachment {
@@ -112,6 +120,7 @@ impl World {
             next_circuit: 0,
             trace: Vec::new(),
             violations: BTreeMap::new(),
+            two_live_legacy_connects: 0,
         };
         // Circuits allocated, and Connects parked, before the upgrade wait
         // only on a slot whose daemons have gone quiet: a daemon heard from
@@ -221,9 +230,13 @@ impl World {
     }
 
     /// Sends the socket at `index` an Incoming for `circuit`: an alive, open
-    /// daemon joins it at once; any other loses it.
-    fn incoming(&mut self, index: usize, circuit: &str, why: &str) {
-        if !self.is_current(index) {
+    /// daemon joins it at once; any other loses it. `connect` says it is a
+    /// Connect's allocation, which may go to a legacy registration while no
+    /// registration is current.
+    fn incoming(&mut self, index: usize, circuit: &str, why: &str, connect: bool) {
+        let legacy_fallback =
+            connect && self.current().is_empty() && self.sockets[index].attachment.generation == 0;
+        if !self.is_current(index) && !legacy_fallback {
             let name = self.sockets[index].name;
             self.violate(
                 "3: an Incoming goes only to the current registration",
@@ -237,7 +250,7 @@ impl World {
     }
 
     /// `RelaySlot::allocate` to the daemon at `index`.
-    fn allocate(&mut self, index: usize, why: &str) -> bool {
+    fn allocate(&mut self, index: usize, why: &str, connect: bool) -> bool {
         let circuit = self.circuit_id();
         if !self.ledger.reserve_for(
             circuit.clone(),
@@ -247,7 +260,7 @@ impl World {
         ) {
             return false;
         }
-        self.incoming(index, &circuit, why);
+        self.incoming(index, &circuit, why, connect);
         true
     }
 
@@ -255,7 +268,7 @@ impl World {
     fn hand_over(&mut self, index: usize, unjoined: bool, parked: bool, why: &str) {
         if unjoined {
             for circuit in self.unjoined() {
-                self.incoming(index, &circuit, why);
+                self.incoming(index, &circuit, why, false);
             }
         }
         if parked {
@@ -266,7 +279,7 @@ impl World {
                 .collect();
             for (client, _) in pairing_order(waiting) {
                 self.clients[client].parked = None;
-                if !self.allocate(index, why) {
+                if !self.allocate(index, why, false) {
                     break;
                 }
             }
@@ -303,11 +316,28 @@ impl World {
             .enumerate()
             .map(|(index, socket)| (index, socket.ready_state, socket.attachment.clone()))
             .collect();
+        let live: Vec<usize> = candidates
+            .iter()
+            .filter(|(_, ready_state, attachment)| {
+                accepts_connects(attachment, *ready_state, SLOT, self.now_ms)
+            })
+            .map(|(index, _, _)| *index)
+            .collect();
+        if live.len() >= 2 && self.current().is_empty() {
+            self.two_live_legacy_connects += 1;
+        }
         match live_daemon(candidates, SLOT, self.now_ms) {
             Some(index) => {
-                self.allocate(index, "a Connect");
+                self.allocate(index, "a Connect", true);
             }
             None => {
+                if let Some(first) = live.first() {
+                    let name = self.sockets[*first].name;
+                    self.violate(
+                        "6: a Connect is allocated while a registration on the slot is live",
+                        format!("the Connect parked while s{name} accepts Connects"),
+                    );
+                }
                 let parked = self.live_parked().len();
                 let pending = self.ledger.pending_count(self.now_ms);
                 if connect_disposition(false, parked, pending) == ConnectDisposition::Park {
@@ -488,6 +518,7 @@ impl World {
 fn register_ping_and_close_interleavings_keep_one_current_registration() {
     let mut first: BTreeMap<&'static str, (u64, String)> = BTreeMap::new();
     let mut counts: BTreeMap<&'static str, u64> = BTreeMap::new();
+    let mut two_live_legacy_connects = 0;
     for seed in 0..SEEDS {
         let mut rng = Rng::new(seed);
         let mut world = World::new(&mut rng);
@@ -495,6 +526,7 @@ fn register_ping_and_close_interleavings_keep_one_current_registration() {
         for _ in 0..STEPS {
             world.step(&mut rng);
         }
+        two_live_legacy_connects += world.two_live_legacy_connects;
         for (invariant, detail) in world.violations {
             *counts.entry(invariant).or_default() += 1;
             first.entry(invariant).or_insert((seed, detail));
@@ -507,4 +539,8 @@ fn register_ping_and_close_interleavings_keep_one_current_registration() {
         })
         .collect();
     assert!(report.is_empty(), "\n{}", report.join("\n\n"));
+    assert!(
+        two_live_legacy_connects > 0,
+        "no seed sent a Connect while two live legacy registrations were open"
+    );
 }

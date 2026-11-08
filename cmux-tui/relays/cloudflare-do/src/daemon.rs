@@ -376,6 +376,47 @@ mod tests {
         ));
     }
 
+    /// Two legacy registrations are open on the slot, so neither is current
+    /// (`current_registration`), and both daemons are pinging. A Connect is
+    /// still allocated, to the first live one, instead of parking until a
+    /// numbered Register or a socket close and timing out.
+    #[test]
+    fn two_live_legacy_registrations_still_serve_a_connect() {
+        let first = registration(0, T);
+        let second = registration(0, T + 1_000);
+        let connect_ms = T + 2_000;
+        assert!(!current_registration(&first, OPEN, [(OPEN, second.clone())]));
+        assert!(!current_registration(&second, OPEN, [(OPEN, first.clone())]));
+        let candidates = [("first", OPEN, first.clone()), ("second", OPEN, second.clone())];
+        assert_eq!(
+            live_daemon(candidates, SLOT, connect_ms),
+            Some("first"),
+            "two live legacy registrations left the Connect parked"
+        );
+
+        // The first one went quiet past the window: the second one serves.
+        let later_ms = T + DAEMON_LIVENESS_WINDOW_MS + 500;
+        let second_pinged = SlotAttachment { last_seen_ms: later_ms - 1_000, ..second };
+        let candidates = [("first", OPEN, first.clone()), ("second", OPEN, second_pinged)];
+        assert_eq!(live_daemon(candidates, SLOT, later_ms), Some("second"));
+
+        // Neither is live: the Connect parks.
+        let candidates = [("first", OPEN, first), ("second", OPEN, registration(0, T))];
+        assert_eq!(live_daemon(candidates, SLOT, later_ms), None);
+    }
+
+    /// A numbered registration is current, so a Connect goes only to it:
+    /// while it is silent past the window the Connect parks, even if a
+    /// closing socket's daemon is still pinging.
+    #[test]
+    fn a_current_registration_takes_every_connect() {
+        let replaced = registration(0, T + 10_000);
+        let current = registration(1, T);
+        let connect_ms = T + DAEMON_LIVENESS_WINDOW_MS + 500;
+        let candidates = [("replaced", CLOSING, replaced), ("current", OPEN, current)];
+        assert_eq!(live_daemon(candidates, SLOT, connect_ms), None);
+    }
+
     /// A legacy registration that resumed while another one was on the slot
     /// is not current, so its Ping hands over nothing. When the other one
     /// closes before its next heartbeat, that heartbeat makes it current and
