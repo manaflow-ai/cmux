@@ -97,3 +97,25 @@ fn only_a_unix_connection_takes_a_stamp() {
     assert_eq!(reply["ok"], json!(false), "{reply}");
     assert_eq!(role(&mux, client), None);
 }
+
+/// A daemon from before the stamp answers it as an unknown command. That reply
+/// lists every command the daemon knows, so the session host's read bound
+/// (`cmux_link::carrier_role::MAX_REPLY_BYTES`) must leave room for it.
+#[test]
+fn an_unknown_commands_reply_fits_the_session_hosts_read_bound() {
+    let mux = mux();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer().0);
+    let (writer, outbound) = writer();
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let line = json!({"cmd":"carrier-role-before-the-stamp",
+                      "id":cmux_link::carrier_role::REQUEST_ID,"vmk":"team"})
+    .to_string();
+    handle_connection_frame(&mux, client, ClientTransport::Unix, &line, &writer, &scheduler);
+    let reply = outbound.try_pop().expect("a reply");
+    let parsed: Value = serde_json::from_str(&reply).unwrap();
+    assert_eq!(parsed["ok"], json!(false), "{parsed}");
+    assert_eq!(parsed["id"], json!(cmux_link::carrier_role::REQUEST_ID), "{parsed}");
+    assert!(reply.len() > 4096, "the reply lists the known commands: {}", reply.len());
+    assert!(reply.len() * 8 < cmux_link::carrier_role::MAX_REPLY_BYTES, "{}", reply.len());
+}
