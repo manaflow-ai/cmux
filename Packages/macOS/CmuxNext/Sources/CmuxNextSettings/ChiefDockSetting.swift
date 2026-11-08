@@ -9,6 +9,8 @@ public nonisolated struct ChiefDockSetting {
     public nonisolated init() {}
     /// `home.chiefDock.edge`.
     public static let edgePath = ["home", "chiefDock", "edge"]
+    /// `home.chiefPanel.style`.
+    public static let stylePath = ["home", "chiefPanel", "style"]
     /// `home.chiefDock.openBeside`.
     public static let openBesidePath = ["home", "chiefDock", "openBeside"]
     /// The edges, in the Settings choice's order.
