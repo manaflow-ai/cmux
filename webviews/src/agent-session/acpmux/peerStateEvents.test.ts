@@ -78,6 +78,14 @@ async function fixture(origin: string | undefined, supported = true, holdPeers =
     socket.onmessage?.({
       data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/peer_state_changed", params: value }),
     });
+  const event = (record: Record<string, unknown>) =>
+    socket.onmessage?.({
+      data: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "_acpmux/event",
+        params: { sessionId: mockHost.sessionId, ...record },
+      }),
+    });
   const f = {
     client,
     socket: () => socket,
@@ -94,6 +102,7 @@ async function fixture(origin: string | undefined, supported = true, holdPeers =
     requests,
     snapshots,
     notify,
+    event,
     latest: () => snapshots.at(-1)!,
     peers: (value: Peer[]) => {
       peers = value;
@@ -116,6 +125,33 @@ async function fixture(origin: string | undefined, supported = true, holdPeers =
   if (origin === "local" && supported && !holdPeers) await f.waitForState("connecting");
   return f;
 }
+
+test("a durable worktree overlap event becomes a reconnect-safe snapshot chip", async () => {
+  const f = await fixture("local");
+  try {
+    const overlap = {
+      peerSessionId: "peer-session",
+      peerName: "fix-login",
+      peerBranch: "lane/fix-login",
+      files: [
+        {
+          repo: "github.com/manaflow-ai/cmux",
+          path: "src/auth.rs",
+          ranges: [{ mine: { start: 42, end: 48 }, theirs: { start: 44, end: 50 } }],
+        },
+      ],
+      suggestedOrder: "smallerFirst",
+      smallerSessionId: "peer-session",
+    };
+    f.event({ seq: 100_000, at: Date.now(), dir: "mux", kind: "worktree_overlap", msg: overlap });
+    expect(f.latest().overlaps).toEqual([overlap]);
+    const emitted = f.snapshots.length;
+    f.event({ seq: 100_000, at: Date.now(), dir: "mux", kind: "worktree_overlap", msg: overlap });
+    expect(f.snapshots).toHaveLength(emitted);
+  } finally {
+    f.client.close();
+  }
+});
 
 const note = (state: string, extra: Record<string, unknown> = {}) => ({
   peer: "studio-mac",
