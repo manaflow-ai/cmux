@@ -688,14 +688,12 @@ impl AgentRoster {
                 return Vec::new();
             }
             let updated_at_ms = event.plugin_observed_at_ms().unwrap_or(event.committed_at_ms);
-            let producer_generation = event
-                .normalized("plugin_generation")
-                .and_then(|value| value.parse::<u64>().ok())
-                .map(|value| value.to_string());
+            let generation =
+                event.normalized("plugin_generation").and_then(|value| value.parse::<u64>().ok());
+            let producer_generation = generation.map(|value| value.to_string());
             let session = event.normalized("source_session").map(str::to_string);
             let agent = event.adapter_id().map(str::to_string);
             let state = if event_name == "session.ended" { AgentState::Done } else { state };
-            let generation = producer_generation.as_deref().and_then(|value| value.parse().ok());
             let saw_blocker_go =
                 self.note_screen_evidence(terminal_id, event.producer_id, generation, state);
             screen_cleared_blocker =

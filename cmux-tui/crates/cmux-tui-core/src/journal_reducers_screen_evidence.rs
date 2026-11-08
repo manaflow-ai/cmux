@@ -33,6 +33,7 @@ impl ScreenEvidence {
     pub(super) fn valid(&self) -> bool {
         self.producer != AGENT_HOOK_PRODUCER_ID
             && valid_component(&self.producer)
+            && self.generation != Some(0)
             && agent_state_from_str(&self.state).is_some_and(|state| state != AgentState::Done)
     }
 }
@@ -61,6 +62,15 @@ impl AgentRoster {
         generation: Option<u64>,
         state: AgentState,
     ) -> bool {
+        // A late report of an older child (one whose exit never reached the
+        // journal) must not replace what a newer child saw.
+        let older = |stored: &ScreenEvidence| {
+            stored.producer == producer
+                && matches!((stored.generation, generation), (Some(stored), Some(new)) if new < stored)
+        };
+        if self.screen_evidence.get(terminal_id).is_some_and(older) {
+            return false;
+        }
         if state == AgentState::Done {
             self.screen_evidence.remove(terminal_id);
             return false;
@@ -81,12 +91,18 @@ impl AgentRoster {
             })
     }
 
-    /// Drop the screen records of `producer`'s exited child: the tagged
-    /// `generation`, or, for an untagged exit, every untagged record. A later
+    /// Drop the screen records of `producer`'s exited child, as the exit
+    /// fence does: a tagged exit `generation` drops that child's and every
+    /// older child's records, an untagged exit every untagged record. A later
     /// child starts with no evidence of a blocker.
     pub(super) fn forget_screen_evidence_of(&mut self, producer: &str, generation: Option<u64>) {
         self.screen_evidence.retain(|_, evidence| {
-            evidence.producer != producer || evidence.generation != generation
+            evidence.producer != producer
+                || match (evidence.generation, generation) {
+                    (Some(seen), Some(exited)) => seen > exited,
+                    (None, None) => false,
+                    _ => true,
+                }
         });
     }
 

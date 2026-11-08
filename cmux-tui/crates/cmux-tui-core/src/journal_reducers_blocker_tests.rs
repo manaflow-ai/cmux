@@ -307,3 +307,17 @@ fn the_same_plugin_child_still_clears_the_blocker_it_saw() {
     apply_screen_from(&mut roster, 4, 15_000, "idle", "2");
     assert_eq!(state(&roster), "idle");
 }
+
+#[test]
+fn a_late_report_of_an_older_plugin_child_keeps_the_newer_childs_blocker() {
+    let mut roster = AgentRoster::default();
+    apply_hook(&mut roster, 1, 10_000, "UserPromptSubmit", "");
+    apply_screen_from(&mut roster, 2, 12_000, "blocked", "3");
+    apply_hook(&mut roster, 3, 12_150, "PermissionRequest", "Bash");
+    // Child 2 crashed with no journaled exit; its last report arrives late.
+    apply_screen_from(&mut roster, 4, 12_500, "working", "2");
+    assert_eq!(state(&roster), "blocked");
+    // Esc: child 3, which saw the dialog, sees it gone.
+    apply_screen_from(&mut roster, 5, 15_000, "idle", "3");
+    assert_eq!(state(&roster), "idle");
+}
