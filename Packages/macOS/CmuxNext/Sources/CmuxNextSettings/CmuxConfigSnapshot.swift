@@ -296,9 +296,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `agents.subsessions.*`: sub-session limits; the acpmux daemon enforces them.
     public var subsessions = SubsessionSettings()
     public var agentGuidance = AgentGuidanceSettings()
-    /// `agents.autoRetry.*`: the retry loop after a rate limit or lost connection; the acpmux
-    /// daemon runs it.
+    /// `agents.autoRetry.*` and `agents.cacheCompact.*`: retrying a failed turn and compacting an idle chat; the acpmux daemon runs both.
     public var agentRetry = AgentRetrySettings()
+    public var agentCache = AgentCacheSettings()
     /// `agents.trust.*`: which folders start an agent without the trust question; the acpmux daemon reads the same file.
     public var trust = TrustSettings()
     /// `mobile.*`: whether the app runs its iPhone host.
@@ -486,7 +486,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.sessions = SessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.subsessions = SubsessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.agentGuidance = AgentGuidanceSettings.parse(root, diagnostics: &snapshot.diagnostics)
-        snapshot.agentRetry = AgentRetrySettings.parse(root, diagnostics: &snapshot.diagnostics)
+        AgentCacheSettings.parseDaemonSettings(root, into: &snapshot)
         snapshot.trust = TrustSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.mobile = MobileSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.macScreen = MacScreenSettings.parse(root, diagnostics: &snapshot.diagnostics)

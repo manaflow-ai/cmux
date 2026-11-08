@@ -34,7 +34,7 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
     var onDismiss: (() -> Void)?
     var onDrag: ((SidebarCardDrag) -> Void)?
     let provider: UpdateSurfaceProvider
-    private var zoom: CGFloat { ((view as? PageWebView)?.webKitView).map { $0.pageZoom * $0.magnification } ?? 1 }
+    var zoom: CGFloat { ((view as? PageWebView)?.webKitView).map { $0.pageZoom * $0.magnification } ?? 1 }
 
     init(kind: SidebarUpdateSurfaceKind, services: AppServices?) {
         let provider = UpdateSurfaceProvider(kind: kind, services: services)

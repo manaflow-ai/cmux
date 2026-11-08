@@ -50,7 +50,7 @@ extension SidebarBridge {
             model.apply(intent)
             // A pick in this window's sidebar shows here, also a workspace another window lists.
             services.windows.show(workspaceID: id.rawValue, in: state, from: .thisWindow)
-        case let .selectTab(_, tab): _ = services.revealTab(tab.rawValue)
+        case let .selectTab(_, tab): revealPinnedTab(tab.rawValue) // shown in this window (cmux#37371)
         // The tab strip's close for that tab, on whichever machine holds it (the palette's Close Tab).
         case let .closeTab(_, tab): PaletteSourcesBridge.TabSource(services: services).closeTab(id: tab.rawValue)
         case .reorder(let ids, let position):

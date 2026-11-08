@@ -141,11 +141,14 @@ extension WindowManager {
             bringToFront(target)
             return
         }
+        // A sidebar pick never files a held normal Cloud workspace into another open window (cmux#37371).
+        if origin == .thisWindow, isHeldCloudWorkspace(workspaceID), value.isIncognito(state.id), !EphemeralWorkspaces.isEphemeral(workspaceID, self), value.mostRecentOpen(incognito: false) != nil { return services.registry.refuse(RefusalStrings.incognitoMismatch) }
+        let openBefore = Set(value.openWindows.map(\.id))
         claim(workspaceID: workspaceID, in: state)
         // An unowned ephemeral workspace went to its own incognito window: that window shows it.
         if let owner = registry.value.owner(of: workspaceID), owner != state.id, let target = controller(for: owner) {
             target.showWorkspace(requested: target.state.workspaceID)
-            bringToFront(target)
+            if origin.raisesOwner(ownerWasOpen: openBefore.contains(owner)) { bringToFront(target) }
             return
         }
         controller(for: state.id)?.showWorkspace(requested: state.workspaceID)
