@@ -30,7 +30,7 @@ fn with(mut value: Value, fields: Value) -> Value {
     value
 }
 
-fn machine(value: Value) -> Machine {
+fn decode(value: Value) -> Machine {
     serde_json::from_value(value).expect("machine decodes")
 }
 
@@ -41,7 +41,7 @@ fn encode(machine: &Machine) -> Value {
 #[test]
 fn a_catalog_record_relays_every_field_as_it_came() {
     let source = with(record("vm-1", "7"), json!({ "pause_reason": null, "desktop": true }));
-    let machine = machine(source.clone());
+    let machine = decode(source.clone());
     assert_eq!(machine.record.status, CloudMachineStatus::Running);
     let encoded = encode(&machine);
     for (key, value) in source.as_object().expect("record") {
@@ -64,7 +64,7 @@ fn fields_the_catalog_lacks_reach_the_app() {
             "idlePause": idle,
         }),
     );
-    let machine = machine(source.clone());
+    let machine = decode(source.clone());
     assert!(machine.has_capability("agent_session"));
     assert!(!machine.has_capability("provider_secret"));
     let encoded = encode(&machine);
@@ -73,7 +73,7 @@ fn fields_the_catalog_lacks_reach_the_app() {
     }
 
     // The older names read as the ones the app reads (cmux-cloud-machine `from_next`).
-    let older = machine(with(
+    let older = decode(with(
         record("vm-2", "3"),
         json!({ "providerCapabilities": ["snapshot"], "idle_pause": { "minutes": 0 } }),
     ));
@@ -82,7 +82,7 @@ fn fields_the_catalog_lacks_reach_the_app() {
     assert_eq!(encoded["idlePause"], json!({ "minutes": 0 }));
 
     // A record without them keeps the shape it had before.
-    let plain = encode(&machine(record("vm-3", "4")));
+    let plain = encode(&decode(record("vm-3", "4")));
     assert_eq!(plain["platform"], Value::Null);
     assert_eq!(plain["capabilities"], json!([]));
     assert!(plain.get("provider_operations").is_none());
@@ -92,7 +92,7 @@ fn fields_the_catalog_lacks_reach_the_app() {
 #[test]
 fn the_extra_fields_never_shadow_a_catalog_field() {
     // Every catalog field present (the optional ones too).
-    let full = machine(with(record("vm-1", "1"), json!({ "pause_reason": "idle", "desktop": true })));
+    let full = decode(with(record("vm-1", "1"), json!({ "pause_reason": "idle", "desktop": true })));
     let catalog = serde_json::to_value(&full.record).expect("record encodes");
     let extra = serde_json::to_value(MachineExtra {
         platform: Some(super::MachinePlatform::default()),
@@ -125,7 +125,7 @@ fn a_record_missing_a_catalog_required_field_is_a_bad_response() {
 
 #[test]
 fn a_status_this_build_does_not_know_passes_through() {
-    let encoded = encode(&machine(with(record("vm-1", "1"), json!({ "status": "hibernating" }))));
+    let encoded = encode(&decode(with(record("vm-1", "1"), json!({ "status": "hibernating" }))));
     assert_eq!(encoded["status"], "hibernating");
 }
 
@@ -146,7 +146,7 @@ fn revisions_order_as_numbers() {
 
 #[test]
 fn a_machine_revision_is_a_checked_decimal() {
-    assert_eq!(machine(record("vm-1", "007")).revision(), "7");
+    assert_eq!(decode(record("vm-1", "007")).revision(), "7");
     for bad in ["", "7a", "-1", " 7"] {
         let error = decode_answer::<Machine>("cloud.machine.get", record("vm-1", bad)).expect_err(bad);
         assert_eq!(error.code, codes::BAD_RESPONSE, "{bad:?}");

@@ -170,10 +170,10 @@ impl ConnectFacts for ConnectInfo {
 /// length): leading zeros carry nothing, then the longer is larger, then
 /// the digits compare.
 pub fn order(a: &str, b: &str) -> Ordering {
-    let digits = |s: &str| {
+    fn digits(s: &str) -> &str {
         let s = s.trim_start_matches('0');
         if s.is_empty() { "0" } else { s }
-    };
+    }
     let (a, b) = (digits(a), digits(b));
     a.len().cmp(&b.len()).then_with(|| a.cmp(b))
 }

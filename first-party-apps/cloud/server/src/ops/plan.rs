@@ -38,7 +38,8 @@ pub(super) fn run<C: ControlPlane>(
     match name {
         "cloud.plan.get" => {
             args::object(raw, &[])?;
-            let plan: <CloudPlanGetOp as Op>::Result = decode_answer(name, ctx.wire(name, json!({}))?.value)?;
+            let plan: <CloudPlanGetOp as Op>::Result =
+                decode_answer(name, ctx.wire(name, json!({}))?.value)?;
             Ok(json!(plan))
         }
         "cloud.billing.checkout" => {

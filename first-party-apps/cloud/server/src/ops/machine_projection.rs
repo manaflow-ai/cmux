@@ -112,8 +112,10 @@ impl Projection {
     /// removal's revision is the one that was removed).
     fn current(&self, machine: &Machine) -> bool {
         let id = machine.id();
-        let known = self.machines.get(id).is_none_or(|m| order(machine.revision(), m.revision()).is_ge());
-        let removed = self.tombstones.get(id).is_none_or(|r| order(machine.revision(), r.as_str()).is_gt());
+        let known =
+            self.machines.get(id).is_none_or(|m| order(machine.revision(), m.revision()).is_ge());
+        let removed =
+            self.tombstones.get(id).is_none_or(|r| order(machine.revision(), r.as_str()).is_gt());
         known && removed && !self.gone.contains(id)
     }
 
