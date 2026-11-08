@@ -7,12 +7,16 @@ import Testing
 /// re-maps nothing.
 @MainActor
 struct PaneFocusMemoryObservationTests {
+    // onChange runs synchronously inside the change's willSet, on this test's main actor; the class only
+    // carries the flag across the Sendable onChange closure.
+    private nonisolated final class Flag: @unchecked Sendable { var raised = false }
+
     /// Whether `change` fires an observation of `read`.
-    private func fires(_ read: @escaping () -> Void, after change: () -> Void) -> Bool {
-        var fired = false
-        withObservationTracking(read, onChange: { fired = true })
+    private func fires(_ read: () -> Void, after change: () -> Void) -> Bool {
+        let flag = Flag()
+        withObservationTracking { read() } onChange: { flag.raised = true }
         change()
-        return fired
+        return flag.raised
     }
 
     @Test func aFocusChangeInOneWorkspaceObservesThatWorkspaceOnly() {
