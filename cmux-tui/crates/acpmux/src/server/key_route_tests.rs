@@ -111,3 +111,16 @@ async fn a_sub_sessions_whole_name_here_and_on_a_peer_is_refused() {
         .collect();
     assert!(uses.contains(&"local-child-1") && uses.contains(&"hb/peer-child-1"), "{reply}");
 }
+
+/// Review of #38112: `local/ID`, a session's qualified id here, names that session through the
+/// dispatcher, never another session whose whole name is the same text.
+#[tokio::test]
+async fn a_local_qualified_id_beats_a_session_named_like_it() {
+    let hub = setup_with(&[("local-a-1", "a"), ("local-b-1", "local/local-a-1")]);
+    let reply = call(&hub, method::MUX_INFO, json!({"sessionId": "local/local-a-1"})).await;
+    assert_eq!(reply["result"]["sessionId"], "local-a-1", "{reply}");
+    // A peer's qualified id, likewise.
+    let hub = setup_with(&[("local-c-1", "hb/peer-review-1")]);
+    let reply = call(&hub, method::MUX_INFO, json!({"sessionId": "hb/peer-review-1"})).await;
+    assert_ne!(reply["result"]["sessionId"], "local-c-1", "{reply}");
+}
