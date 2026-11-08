@@ -85,6 +85,11 @@ afterAll(() => {
 
 async function render(node: React.ReactNode) {
   const { createRoot } = await import("react-dom/client");
+  // Each mount starts from no reader choices: a call's open state is kept by its id past an unmount
+  // (transcriptDisclosureModel.ts useRowDisclosure), and these fixtures reuse their call ids.
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
+  resetTranscriptDisclosure();
   root = createRoot(host);
   await act(async () => root!.render(node));
 }
