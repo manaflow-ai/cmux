@@ -396,7 +396,12 @@ cmux workspace ws_… screen screen_… pane pane_… show
 
 Both paths send `pane.get`. A direct opaque target ID may omit structural
 ancestors. A name or `current` target requires its complete parent chain. Every
-supplied ancestor is checked for containment before the operation runs.
+supplied ancestor is checked for containment before the operation runs. A tab
+name under `current` workspace, screen and pane selectors (what `cmux tab NAME`
+sends) that the current pane does not have is looked up in the current screen,
+then the current workspace, then the session; the first level with a match
+wins, and two or more tabs there are `selector.ambiguous`. A tab name under an
+explicit pane stays in that pane.
 
 Run `cmux <resource> --help` for its exact paths and flags. Parser tests
 map every operational one-shot command and parameter in
