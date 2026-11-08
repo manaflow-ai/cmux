@@ -163,7 +163,7 @@ pub(super) fn run(
     }
     let _ = stdin.read_line(&mut install);
     // The reservation's team (`install_team`, #36037): the spare warmed is the one the reserve claims.
-    let Some(team) = super::install_team(&install) else {
+    let Some(team) = install_team(&install) else {
         return Some(refused(TEAM_UNRESOLVED, "the install token names no team"));
     };
     let Some(_held) = lock(state) else {
@@ -375,6 +375,50 @@ pub(super) fn wait_copy(
 /// The wait a `warm-spare` request asks for instead of a warm (`waitCopy`), if any.
 pub(super) fn wait_request(flags: &Flags) -> Option<WaitCopy> {
     serde_json::from_str::<Request>(flags.one("--request")?).ok()?.wait_copy
+}
+
+/// `warm-spare` and `wait-copy` from `cmux link start-chat`, on the wall clock (the ledger's folder
+/// holds the state). A `warm-spare` request with `waitCopy` is the same wait (the App's one verb).
+pub(super) fn cli(action: &str, flags: &Flags, ledger: &Path) -> Option<Value> {
+    let state = ledger.parent().unwrap_or(ledger);
+    let pause = || std::thread::sleep(std::time::Duration::from_millis(250));
+    if action == "wait-copy" {
+        let (machine, provider) = (flags.one("--machine")?, flags.one("--provider")?);
+        return Some(wait_copy(state, machine, provider, &now_ms, &pause));
+    }
+    if let Some(wait) = wait_request(flags) {
+        return Some(wait_copy(state, &wait.machine, &wait.provider, &now_ms, &pause));
+    }
+    run(flags, state, now_ms(), &mut std::io::stdin().lock(), &post)
+}
+
+/// The one team of a send's reservation, its bind and the spare warm: the install token's `team`
+/// claim, the backend team (`team_…`) the App's machine list, creates and billing send as
+/// `x-cmux-team` (#36037), so the spare warmed is the one the reservation claims and the list
+/// shows. None when the token names no backend team.
+pub(super) fn install_team(install_token: &str) -> Option<String> {
+    cmux_cloud_config::identity::claims(install_token.trim())
+        .team
+        .filter(|team| cmux_cloud_config::identity::is_team(team))
+}
+
+/// Milliseconds since 1970 by the wall clock.
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or_default()
+}
+
+/// An install token whose `team` claim is `team` (tests of the reservation's and the warm's team).
+#[cfg(test)]
+pub(super) fn install_token(team: &str) -> String {
+    use base64::Engine as _;
+    let claims = json!({"sub": "user_a", "team": team}).to_string();
+    format!(
+        "eyJhbGciOiJFUzI1NiJ9.{}.sig",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims)
+    )
 }
 
 #[cfg(test)]

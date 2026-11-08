@@ -68,7 +68,7 @@ struct Request {
 }
 
 /// `reserve|release --request JSON`, stdin the session credential then the install token: the
-/// reservation names the install token's team ([`super::install_team`]), the spare warm's team.
+/// reservation names the install token's team ([`super::spare_warm::install_team`]), the spare warm's team.
 pub(super) fn run(
     flags: &Flags,
     action: Action,
@@ -104,7 +104,7 @@ pub(super) fn run_with(
         send_key: None,
         environment: request.environment,
         platform: request.platform,
-        team: super::install_team(&install),
+        team: super::spare_warm::install_team(&install),
     };
     let result = transport(&call, credential.trim());
     if action == Action::Reserve && result.as_ref().is_ok_and(|body| machine(body).is_none()) {

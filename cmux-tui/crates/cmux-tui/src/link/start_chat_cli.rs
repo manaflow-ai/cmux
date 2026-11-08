@@ -73,9 +73,7 @@ cmux link start-chat create-refused --key KEY --account ACCOUNT --create-key CRE
 cmux link start-chat target-pane --key KEY --account ACCOUNT --machine ID --pane PANE\n       \
 cmux link start-chat ensure --workspace ID --key KEY [--repo OWNER/NAME] [--project-key KEY] [--ref REF] [--environment env_ID] [--platform URL] (the cmux credential on stdin)\n       \
 cmux link start-chat import --entries JSON\n       \
-cmux link start-chat reserve|release --request JSON (the session credential on stdin)\n       \
-cmux link start-chat warm-spare --request JSON (the session credential, then the install token, on stdin)\n       \
-cmux link start-chat wait-copy --machine ID --provider claude|codex\n       \
+cmux link start-chat reserve|release|warm-spare --request JSON (the session credential, then the install token, on stdin), wait-copy --machine ID --provider P\n       \
 cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--store PLATFORM|default] (with --store, the cmux credential on stdin)";
 
 /// The error code a work root the machine's user cannot write answers with:
@@ -163,20 +161,7 @@ pub(super) fn run(args: &[String]) -> i32 {
         "release" => {
             reservations::run(&flags, reservations::Action::Release, &mut std::io::stdin().lock())
         }
-        "warm-spare" => match spare_warm::wait_request(&flags) {
-            Some(wait) => Some(wait_copy(&ledger, &wait.machine, &wait.provider)),
-            None => spare_warm::run(
-                &flags,
-                ledger.parent().unwrap_or(&ledger),
-                now_ms(),
-                &mut std::io::stdin().lock(),
-                &spare_warm::post,
-            ),
-        },
-        "wait-copy" => match (flags.one("--machine"), flags.one("--provider")) {
-            (Some(machine), Some(provider)) => Some(wait_copy(&ledger, machine, provider)),
-            _ => None,
-        },
+        "warm-spare" | "wait-copy" => spare_warm::cli(action, &flags, &ledger),
         _ => None,
     };
     let Some(answer) = answer else {
@@ -185,30 +170,6 @@ pub(super) fn run(args: &[String]) -> i32 {
     };
     println!("{answer}");
     if answer["ok"] == json!(true) { 0 } else { 1 }
-}
-
-/// The one team of a send's reservation, its bind and the spare warm: the install token's `team`
-/// claim, the backend team (`team_…`) the App's machine list, creates and billing send as
-/// `x-cmux-team` (#36037), so the spare warmed is the one the reservation claims and the list
-/// shows. None when the token names no backend team.
-pub(super) fn install_team(install_token: &str) -> Option<String> {
-    cmux_cloud_config::identity::claims(install_token.trim())
-        .team
-        .filter(|team| cmux_cloud_config::identity::is_team(team))
-}
-
-/// Milliseconds since 1970 by the wall clock.
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
-        .unwrap_or_default()
-}
-
-/// A start's wait on a warm's copy (`spare_warm::wait_copy`), on the wall clock, rechecking every 250 ms.
-fn wait_copy(ledger: &Path, machine: &str, provider: &str) -> Value {
-    let pause = || std::thread::sleep(std::time::Duration::from_millis(250));
-    spare_warm::wait_copy(ledger.parent().unwrap_or(ledger), machine, provider, &now_ms, &pause)
 }
 
 /// The keys of the send `key` (lowercased: a retry may spell it in another case).
@@ -436,14 +397,9 @@ fn plan_with_calls(
     if request.credential_on_stdin
         && (request.reservation_key.is_some() || ensures(&request, project_key.as_deref()))
     {
-        let _ = stdin.read_line(&mut credential);
-        // A reserved send's bind names the reservation's team: the install token on the next line.
-        if request.reservation_key.is_some() {
-            let _ = stdin.read_line(&mut install);
-        }
+        let _ = stdin.read_line(&mut credential).and_then(|_| stdin.read_line(&mut install));
     }
-    let credential = credential.trim();
-    let team = install_team(&install);
+    let credential = (credential.trim(), install.as_str()); // the bind's team: the install token's
     let mut line = keys.json();
     let fields = match planned {
         Ok(Destination::Machine(id)) => {
@@ -469,10 +425,10 @@ fn plan_with_calls(
                     .as_ref()
                     .map(|_| request.key.to_lowercase()),
             };
-            let answer = if credential.is_empty() {
+            let answer = if credential.0.is_empty() {
                 Err(crate::cli::PlatformCallError::Status { status: 401, code: "" })
             } else {
-                ensure(&ask, credential.trim())
+                ensure(&ask, credential.0)
             };
             match answer {
                 Ok(body) => {
@@ -506,14 +462,9 @@ fn plan_with_calls(
                 Err(error) => return ensure_answer(Err(error)),
             }
         }
-        Ok(Destination::New) => reservation_destination(
-            ledger,
-            &request,
-            &send,
-            workspace,
-            (credential, team.as_deref()),
-            reservation,
-        ),
+        Ok(Destination::New) => {
+            reservation_destination(ledger, &request, &send, workspace, credential, reservation)
+        }
         Err(error) => return refused("ledger_failed", format!("{error:#}")),
     };
     if let (Value::Object(line), Value::Object(fields)) = (&mut line, fields) {
@@ -532,7 +483,7 @@ fn reservation_destination(
     request: &PlanRequest,
     send: &Send,
     workspace: Option<&str>,
-    (credential, team): (&str, Option<&str>),
+    (credential, install): (&str, &str),
     transport: reservations::Transport<'_>,
 ) -> Value {
     let cold = || {
@@ -550,7 +501,7 @@ fn reservation_destination(
             send_key: Some(request.key.to_lowercase()),
             environment: request.environment.clone(),
             platform: request.platform.clone(),
-            team: team.map(str::to_string),
+            team: spare_warm::install_team(install),
         },
         credential,
     );
