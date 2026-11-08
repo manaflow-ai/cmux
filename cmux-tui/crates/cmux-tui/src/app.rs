@@ -84,6 +84,7 @@ mod workspace_pins;
 pub(crate) use workspace_pins::{WorkspaceDropGeometry, WorkspaceDropSlot};
 
 mod clipboard;
+pub(crate) mod copy_mode;
 mod left_down;
 mod left_drag;
 mod pointer_hover;
@@ -451,6 +452,7 @@ pub struct App {
     pending_size_releases: HashSet<SurfaceId>,
     geometry_authority_surface: Option<SurfaceId>,
     pub prefix_armed: bool,
+    pub(crate) copy_mode: Option<copy_mode::CopyModeSession>,
     pub session_label: String,
     /// Machine-level model spend readout from the session's daemon; `None`
     /// hides the sidebar readout.
