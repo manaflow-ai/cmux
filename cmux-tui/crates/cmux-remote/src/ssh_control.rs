@@ -238,7 +238,8 @@ enum Shared {
 struct ControlMaster {
     child: Child,
     socket: PathBuf,
-    directory: PrivateDirectory,
+    /// Held so the socket's private directory is removed with the master.
+    _directory: PrivateDirectory,
 }
 
 impl ControlMaster {
@@ -284,7 +285,7 @@ impl ControlMaster {
             return Err(SshConnectionError::Exited { status });
         }
         let child = pending.disarm();
-        let master = Self { child, socket, directory };
+        let master = Self { child, socket, _directory: directory };
         if !socket_exists(&master.socket) {
             return Ok(None);
         }
