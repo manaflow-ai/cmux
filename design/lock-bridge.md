@@ -99,7 +99,8 @@ Narrowing it to -34018 is a Swift change for its own PR.
   parsers read differently cannot slip through. A line that does not parse is dropped while locked. Both drivers go through
   it: the helper v2 bridge (`acpmux cua-mcp`) and the legacy `cmux-cua mcp`, which acpmux now starts
   as `acpmux cua-lock-gate -- cmux-cua mcp ...` on a Mac (`src/cua_lock_gate.rs`); the gate ends
-  when the helper does. The lock is read again where a call runs, after every wait: the v2 bridge
+  when the helper does. A Mac whose acpmux cannot name its own executable has no gate to run and
+  gets no Computer Use server at all, never an ungated one. The lock is read again where a call runs, after every wait: the v2 bridge
   reads it after the helper connection and the consent answer, just before it sends the call, and
   the helper reads it in its consent gate (`ConsentGate.admit`), after the target check, the
   takeover wait and the consent answer, with no await before the driver runs. The helper says so in

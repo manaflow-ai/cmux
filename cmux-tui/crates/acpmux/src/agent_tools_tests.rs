@@ -94,20 +94,30 @@ fn cmux_cua_falls_back_to_the_nested_helper_app() {
     let helper = helper_dir.join("cmux-cua");
     std::fs::write(&helper, "#!/bin/sh\nexit 0\n").unwrap();
     std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // The helper the server runs: its command, or on a Mac the one after the lock gate's `--`.
     let cua = |tools: &super::AgentTools| {
-        tools.servers.iter().find(|s| s.name == "cmux-cua").map(|s| s.command.clone())
+        tools.servers.iter().find(|s| s.name == "cmux-cua").map(|s| {
+            match s.args.iter().position(|a| a == "--") {
+                Some(i) => std::path::PathBuf::from(&s.args[i + 1]),
+                None => s.command.clone(),
+            }
+        })
     };
-    let tools = super::resolve(&memory_inputs(&bin, None));
+    let inputs = |bin: &std::path::Path| super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new(root.join("acpmux"), Vec::new())),
+        ..memory_inputs(bin, None)
+    };
+    let tools = super::resolve(&inputs(&bin));
     assert_eq!(cua(&tools), Some(helper.clone()), "the nested helper stands in");
     // A bin copy (a DEV build) wins over the helper.
     let bin_cua = bin.join("cmux-cua");
     std::fs::write(&bin_cua, "#!/bin/sh\nexit 0\n").unwrap();
     std::fs::set_permissions(&bin_cua, std::fs::Permissions::from_mode(0o755)).unwrap();
-    assert_eq!(cua(&super::resolve(&memory_inputs(&bin, None))), Some(bin_cua.clone()));
+    assert_eq!(cua(&super::resolve(&inputs(&bin))), Some(bin_cua.clone()));
     // Neither: no server.
     std::fs::remove_file(&bin_cua).unwrap();
     std::fs::remove_file(&helper).unwrap();
-    assert_eq!(cua(&super::resolve(&memory_inputs(&bin, None))), None);
+    assert_eq!(cua(&super::resolve(&inputs(&bin))), None);
     let _ = std::fs::remove_dir_all(&root);
 }
 

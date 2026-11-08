@@ -522,22 +522,23 @@ pub fn remove_mcp_config(home: &Path, session_id: &str) {
 
 /// How `cmux-cua mcp` starts. On a Mac (`gated`), behind acpmux's locked-screen gate: a call
 /// waits with `mac_locked` while the screen is locked (`cua_lock_gate.rs`), and the env reaches
-/// the helper through the gate unchanged. Elsewhere there is no screen lock to gate on.
+/// the helper through the gate unchanged. A Mac whose acpmux cannot name itself has no gate to
+/// run, so it gets no server: Computer Use never runs ungated on a locked screen. Elsewhere there
+/// is no screen lock to gate on.
 fn cua_launch(
     cua: PathBuf,
     args: Vec<String>,
     acpmux: Option<&crate::self_command::SelfCommand>,
     gated: bool,
 ) -> Option<(PathBuf, Vec<String>)> {
-    match acpmux {
-        Some(acpmux) if gated => {
-            let mut words = vec![crate::cua_lock_gate::COMMAND.to_owned(), "--".to_owned()];
-            words.push(cua.to_string_lossy().into_owned());
-            words.extend(args);
-            Some((acpmux.exe.clone(), acpmux.args_lossy(&words)))
-        }
-        _ => Some((cua, args)),
+    if !gated {
+        return Some((cua, args));
     }
+    let acpmux = acpmux?;
+    let mut words = vec![crate::cua_lock_gate::COMMAND.to_owned(), "--".to_owned()];
+    words.push(cua.to_string_lossy().into_owned());
+    words.extend(args);
+    Some((acpmux.exe.clone(), acpmux.args_lossy(&words)))
 }
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
