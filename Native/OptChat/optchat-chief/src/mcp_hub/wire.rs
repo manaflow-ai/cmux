@@ -219,6 +219,7 @@ impl Wire for StdioWire {
     fn close(&self) {
         let mut child = self.child.lock().unwrap();
         // The group this wire started (process_group(0) above), never another.
+        // SAFETY: kill(2) takes plain integers and touches no Rust memory.
         unsafe {
             libc::kill(-(child.id() as i32), libc::SIGTERM);
         }

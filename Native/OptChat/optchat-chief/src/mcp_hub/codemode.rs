@@ -465,17 +465,18 @@ fn run_file(
                 let Ok(msg) = serde_json::from_str::<Value>(body) else {
                     continue;
                 };
-                match msg["k"].as_str() {
-                    Some("log") => push_log(&logs, msg["text"].as_str().unwrap_or("")),
-                    Some("done") => {
+                let kind = msg["k"].as_str().unwrap_or("").to_owned();
+                match kind.as_str() {
+                    "log" => push_log(&logs, msg["text"].as_str().unwrap_or("")),
+                    "done" => {
                         let _ = tx.send(Ok(msg["value"].clone()));
                         return;
                     }
-                    Some("error") => {
+                    "error" => {
                         let _ = tx.send(Err(msg["message"].as_str().unwrap_or("error").to_owned()));
                         return;
                     }
-                    Some("call") => {
+                    "call" => {
                         let n = calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         let (stdin, call) = (stdin.clone(), call.clone());
                         std::thread::spawn(move || {
@@ -517,6 +518,8 @@ fn run_file(
     // End the script: close its input, then end its process group.
     stdin.lock().unwrap().take();
     std::thread::sleep(Duration::from_millis(50));
+    // SAFETY: kill(2) takes plain integers and touches no Rust memory; the
+    // group is the one this function started (process_group(0)).
     unsafe {
         libc::kill(-pid, libc::SIGKILL);
     }

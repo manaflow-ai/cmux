@@ -1,4 +1,4 @@
-//! The Chief's MCP hub (plans/cmux-next/chief-mcp-hub-DESIGN.md): the Chief
+//! The Chief's MCP hub (docs/chief-mcp-hub.md): the Chief
 //! adds a server by itself ("connect to ..."), its tools work at once in code
 //! mode, MCP tasks wake the Chief with their result, and event subscriptions
 //! wake it like a watch. Both protocol eras: 2025-11-25 (initialize, core

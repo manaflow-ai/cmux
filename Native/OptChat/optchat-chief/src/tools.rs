@@ -829,8 +829,9 @@ pub enum Call {
     /// `cloud_workspace` (cloud_workspace.rs): a Cloud machine and its
     /// workspace for a task.
     CloudWorkspace(crate::cloud_workspace::Request),
-    /// `mcp` (mcp_hub): one action of the MCP hub, its arguments as given.
-    Mcp(Value),
+    /// `mcp` (mcp_hub): one action of the MCP hub, its arguments as JSON
+    /// text (text keeps `Call` `Eq`).
+    Mcp(String),
     /// `escalate_auth` (a subagent's only write tool): the Chief drives a
     /// sign-in for it. `agent` is the caller's own id as it claims it; the
     /// host prefers the id its session binding gives (turn_caller.rs).
@@ -1037,7 +1038,7 @@ impl Call {
                 for k in ["tool", "from", "turn_key"] {
                     a.remove(k);
                 }
-                Ok(Call::Mcp(Value::Object(a)))
+                Ok(Call::Mcp(Value::Object(a).to_string()))
             }
             "remember" => {
                 let text = args.get("text").and_then(Value::as_str).unwrap_or_default();
@@ -1212,7 +1213,7 @@ impl Call {
             Call::Sleep(c) => c.to_json(),
             Call::Watch(c) => c.to_json(),
             Call::Mcp(args) => {
-                let mut v = args.clone();
+                let mut v: Value = serde_json::from_str(args).unwrap_or_else(|_| json!({}));
                 v["tool"] = json!("mcp");
                 v
             }
@@ -1786,6 +1787,7 @@ fn connection(conn: UnixStream, served: &Served) {
                             } else {
                                 crate::mcp_hub::Caller::Chief
                             };
+                            let args: Value = serde_json::from_str(&args).unwrap_or_else(|_| json!({}));
                             hub.handle(&args, &who)
                         }
                         None => Err("mcp: this Chief host has no MCP hub".to_owned()),

@@ -1,4 +1,4 @@
-//! The Chief's MCP hub (plans/cmux-next/chief-mcp-hub-DESIGN.md): the
+//! The Chief's MCP hub (docs/chief-mcp-hub.md): the
 //! person says "connect to <server>" and the Chief adds it itself with its
 //! `mcp` tool. The hub keeps the server (`<optchat root>/mcp/`), connects on
 //! first use over stdio or Streamable HTTP (signing in with OAuth when the
@@ -166,7 +166,7 @@ pub fn name_for_url(url: &str) -> String {
     let pick = labels
         .iter()
         .take(labels.len().saturating_sub(1).max(1))
-        .find(|l| !skip.contains(l) && !l.is_empty())
+        .find(|l| !skip.contains(*l) && !l.is_empty())
         .or(labels.first())
         .copied()
         .unwrap_or("server");
@@ -488,16 +488,17 @@ impl McpHub {
         }
         {
             let mut state = self.state();
-            if let Some(old) = state.server(&name) {
-                if old.transport.as_ref() != Some(&transport) && !replace {
-                    return Err(format!(
-                        "mcp add: a server {name} is added already ({}); pass a different `name`, or `replace`: true",
-                        old.transport
-                            .as_ref()
-                            .map(Transport::label)
-                            .unwrap_or_default()
-                    ));
-                }
+            if let Some(old) = state.server(&name)
+                && old.transport.as_ref() != Some(&transport)
+                && !replace
+            {
+                return Err(format!(
+                    "mcp add: a server {name} is added already ({}); pass a different `name`, or `replace`: true",
+                    old.transport
+                        .as_ref()
+                        .map(Transport::label)
+                        .unwrap_or_default()
+                ));
             }
             state.servers.retain(|s| s.name != name);
             let mut secret_names: Vec<String> = secrets
@@ -572,7 +573,7 @@ impl McpHub {
             if s.state.is_empty() {
                 "added"
             } else {
-                &s.state
+                s.state.as_str()
             },
             s.tools.len(),
             if s.prompts.is_empty() {
@@ -717,12 +718,11 @@ impl McpHub {
                 if tokens.expires_ms > 0
                     && tokens.expires_ms < now_ms() + 60_000
                     && tokens.refresh_token.is_some()
+                    && let Ok(fresh) = oauth::refresh(&tokens)
                 {
-                    if let Ok(fresh) = oauth::refresh(&tokens) {
-                        access = fresh.access_token.clone();
-                        secrets.oauth = Some(fresh);
-                        let _ = dir.save_secrets(&name, &secrets);
-                    }
+                    access = fresh.access_token.clone();
+                    secrets.oauth = Some(fresh);
+                    let _ = dir.save_secrets(&name, &secrets);
                 }
                 out.retain(|(k, _)| !k.eq_ignore_ascii_case("authorization"));
                 out.push(("Authorization".into(), format!("Bearer {access}")));
@@ -743,11 +743,12 @@ impl McpHub {
             .or_default()
             .clone();
         let _held = gate.lock().unwrap();
-        if let Some(l) = self.inner.live.lock().unwrap().get(name).cloned() {
-            if l.client.wire.alive() {
-                l.last_used.store(now_ms(), Ordering::SeqCst);
-                return Ok(l);
-            }
+        let existing = self.inner.live.lock().unwrap().get(name).cloned();
+        if let Some(l) = existing
+            && l.client.wire.alive()
+        {
+            l.last_used.store(now_ms(), Ordering::SeqCst);
+            return Ok(l);
         }
         self.drop_live(name);
         let server = self
@@ -881,15 +882,12 @@ impl McpHub {
             )
         })?;
         let authorize = started.authorize_url.clone();
-        if !self
-            .inner
+        // Each sign-in has its own listener; the newest one the person finishes wins.
+        self.inner
             .signing_in
             .lock()
             .unwrap()
-            .insert(name.to_owned())
-        {
-            // One listener per server: the newest URL replaces nothing; say so.
-        }
+            .insert(name.to_owned());
         let hub = self.clone();
         let name_owned = name.to_owned();
         let _ = std::thread::Builder::new().name("mcp-signin".into()).spawn(move || {
@@ -1366,12 +1364,12 @@ impl McpHub {
                         Ok(r) => codemode::result_text(&r),
                         Err(e) => e,
                     };
-                    let st = if st == "completed" && text.starts_with("the tool failed") {
-                        "failed".to_owned()
+                    let word = if st == "completed" && text.starts_with("the tool failed") {
+                        "failed"
                     } else {
-                        st
+                        st.as_str()
                     };
-                    self.finish_task(id, &st, &text);
+                    self.finish_task(id, word, &text);
                     return;
                 }
                 "input_required" if !asked_input => {
@@ -1828,10 +1826,9 @@ impl McpHub {
                         .tasks
                         .iter_mut()
                         .find(|t| t.server == server && t.remote.as_deref() == Some(remote))
+                        && let Some(m) = task["statusMessage"].as_str()
                     {
-                        if let Some(m) = task["statusMessage"].as_str() {
-                            t.message = m.to_owned();
-                        }
+                        t.message = m.to_owned();
                     }
                 }
             }
