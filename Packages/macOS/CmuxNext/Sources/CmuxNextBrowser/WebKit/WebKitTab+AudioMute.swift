@@ -16,8 +16,8 @@ extension WebKitTab {
 
     /// Mutes or unmutes the page's audio in WebKit as the tab's state says.
     func applyAudioMute() {
+        // crash-allow: WebKit page-mute SPI, called only after webView.responds(to: setter) (no unknown-selector exception).
         let setter = NSSelectorFromString("_setPageMuted:")
-        // crash-allow: WebKit private selectors, only called after responds(to:) (no unknown-selector exception).
         guard let current = mutedState(), webView.responds(to: setter) else { return }
         let wanted = state.isAudioMuted ? current | Self.audioMutedBit : current & ~Self.audioMutedBit
         guard wanted != current else { return }
@@ -26,8 +26,8 @@ extension WebKitTab {
     }
 
     private func mutedState() -> Int? {
+        // crash-allow: WebKit muted-state SPI, called only after webView.responds(to: getter); nil otherwise.
         let getter = NSSelectorFromString("_mediaMutedState")
-        // crash-allow: WebKit private selector, only called after responds(to:).
         guard webView.responds(to: getter) else { return nil }
         typealias Get = @convention(c) (AnyObject, Selector) -> Int
         return unsafeBitCast(webView.method(for: getter), to: Get.self)(webView, getter)

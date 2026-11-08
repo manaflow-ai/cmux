@@ -85,6 +85,7 @@ final class FocusEffectApplier: FocusEffectApplying {
                 controller.services.cache.existingBrowser(tab)?.state.showsFocusModeIndicator = active
             }
         }
+        for (key, entry) in controller.services.cache.browsers { entry.followKeyboard(focusedTab: state.underlying.browserTab, key: key, window: controller.window) } // the cookie card shows only over its focused tab
     }
 
     // MARK: Responder

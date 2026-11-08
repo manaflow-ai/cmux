@@ -751,6 +751,88 @@ class FastRoute(unittest.TestCase):
                 self.assertIn(f"fast_runner={expected}\n", output.read_text())
 
 
+LIGHT_SIDE = "glaeda-side-light-xcode-26.6"
+
+
+def light_seen(pools=None, *, stale: bool = False, queued=None):
+    """A janitor snapshot reading: `pools` as the snapshot lists them, `queued` its owned queue counts."""
+    return placement.cascade.Seen(waits={}, snapshot={"pools": pools or {}}, stale=stale,
+                                  owned_queued=queued or {})
+
+
+class LightFastRoute(unittest.TestCase):
+    """Leo, 2026-11-08: "Ci it's fine to start stuff in parallel sometimes the light minis are largely idling
+    rn". With no fast runner idle, the fast tier takes an idle light side runner instead of the std side queue
+    (p90 34 min in the week to 11-08), never while a nightly job waits on the light minis."""
+
+    def values(self, **overrides):
+        return {"FAST_LABEL": FAST, "SIDE_LABEL": SIDE, "JOBS": "fast-tier " + " ".join(JOBS),
+                "GITHUB_RUN_ATTEMPT": "1", **overrides}
+
+    def test_the_light_side_label_narrows_only_the_class(self):
+        self.assertEqual(placement.light_side_label(SIDE), LIGHT_SIDE)
+        self.assertEqual(placement.light_side_label("glaeda-side-light-xcode-26.6"), "")
+        self.assertEqual(placement.light_side_label(STD), "")
+        self.assertEqual(placement.light_side_label("blacksmith-6vcpu-macos-26"), "")
+
+    def test_an_idle_light_side_runner_takes_the_fast_tier(self):
+        runners = [runner("cmux17-glaeda-1", labels=(LIGHT_SIDE,)), runner("cmux17-glaeda-3", busy=True, labels=(FAST,))]
+        self.assertEqual(placement.light_fast_route(self.values(), runners, light_seen()), LIGHT_SIDE)
+
+    def test_a_nightly_or_release_job_waiting_on_the_light_family_keeps_it_free(self):
+        runners = [runner("cmux17-glaeda-1", labels=(LIGHT_SIDE,))]
+        for name in ("glaeda-light-xcode-26.6", "glaeda-trusted-light-xcode-26.6", LIGHT_SIDE):
+            with self.subTest(name=name):
+                seen = light_seen({name: {"reserved_queued": 1}})
+                self.assertEqual(placement.light_fast_route(self.values(), runners, seen), "")
+        # A nightly job on the std family does not hold the light minis.
+        seen = light_seen({"glaeda-nightly-std-xcode-26.6": {"reserved_queued": 3}})
+        self.assertEqual(placement.light_fast_route(self.values(), runners, seen), LIGHT_SIDE)
+
+    def test_nothing_known_or_nothing_free_places_nothing(self):
+        idle = [runner("cmux17-glaeda-1", labels=(LIGHT_SIDE,))]
+        busy = [runner("cmux17-glaeda-1", busy=True, labels=(LIGHT_SIDE,)),
+                runner("cmux18-glaeda-1", status="offline", labels=(LIGHT_SIDE,))]
+        cases = {
+            "unread runners": (self.values(), None, light_seen()),
+            "no snapshot": (self.values(), idle, None),
+            "stale snapshot": (self.values(), idle, light_seen(stale=True)),
+            "busy or offline": (self.values(), busy, light_seen()),
+            "queued jobs take the idle runner first": (self.values(), idle, light_seen(queued={LIGHT_SIDE: 1})),
+            "a re-run": (self.values(GITHUB_RUN_ATTEMPT="2"), idle, light_seen()),
+            "no fast tier in the run": (self.values(JOBS=" ".join(JOBS)), idle, light_seen()),
+            "no fast lane configured": (self.values(FAST_LABEL=""), idle, light_seen()),
+            "not an owned side label": (self.values(SIDE_LABEL=FALLBACK), idle, light_seen()),
+        }
+        for why, (values, runners, seen) in cases.items():
+            with self.subTest(why=why):
+                self.assertEqual(placement.light_fast_route(values, runners, seen), "")
+
+    def test_main_sends_the_fast_tier_to_the_idle_light_side_runner(self):
+        busy_fast = runner("cmux17-glaeda-3", busy=True, labels=(FAST,))
+        idle_light = runner("cmux17-glaeda-1", labels=(LIGHT_SIDE,))
+        cases = (([busy_fast, idle_light], LIGHT_SIDE),
+                 ([runner("cmux17-glaeda-3", labels=(FAST,)), idle_light], FAST),
+                 ([busy_fast], ""))
+        for runners, expected in cases:
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "out"
+                values = env(JOBS="fast-tier " + " ".join(JOBS), FAST_LABEL=FAST, CASCADE_RUNS=" fast-tier ",
+                             GITHUB_OUTPUT=str(output), ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux")
+                with mock.patch.object(placement.pool, "GitHub") as github, \
+                        mock.patch.object(placement.cascade, "read", return_value=(None, None, light_seen())), \
+                        contextlib.redirect_stdout(io.StringIO()) as printed:
+                    github.return_value.runners.return_value = runners
+                    placement.main(values)
+                text = output.read_text()
+                self.assertIn(f"fast_runner={expected}\n", text)
+                owned = next(line for line in text.splitlines() if line.startswith("owned_jobs="))
+                if expected:
+                    self.assertNotIn(" fast-tier ", owned)
+                if expected == LIGHT_SIDE:
+                    self.assertIn(f"the fast tier takes idle light `{LIGHT_SIDE}`", printed.getvalue())
+
+
 FRESH = "glaeda-dev-std-xcode-26.6"
 
 

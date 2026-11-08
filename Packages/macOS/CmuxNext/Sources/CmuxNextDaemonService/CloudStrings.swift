@@ -1,5 +1,5 @@
 public import CmuxNextDaemon
-import Foundation
+public import Foundation
 
 /// User-facing Cloud text. Keys live in Resources/Cloud.xcstrings (en, ja).
 public enum CloudStrings {
@@ -48,6 +48,15 @@ public enum CloudStrings {
     public static var linkHelperNotRunning: String { String(localized: "cloud.link.helperNotRunning", defaultValue: "The Cloud connection helper is not running on this Mac. Click Connect to start it.", table: "Cloud", bundle: .module) }
     public static var linkRevoked: String { String(localized: "cloud.link.revoked", defaultValue: "Access to this Cloud machine was revoked. Click Connect to connect again.", table: "Cloud", bundle: .module) }
     /// Close Workspace on the last row of a window for a machine that is not connected (a paused Cloud VM): nothing closes until it connects.
+    /// The toast after a person closes a workspace on a Cloud machine: the machine is kept, and
+    /// the day it is deleted unless it resumes when the server says (cmux-platform `evict_at`).
+    public static func closeKeepsMachine(until date: Date?) -> String {
+        guard let date else {
+            return String(localized: "cloud.workspace.closeKeepsMachine", defaultValue: "The Cloud machine stays paused and can be resumed from the sidebar.", table: "Cloud", bundle: .module)
+        }
+        return String(format: String(localized: "cloud.workspace.closeKeepsMachineUntil", defaultValue: "The Cloud machine stays paused and can be resumed from the sidebar. It is deleted on %@ unless resumed.", table: "Cloud", bundle: .module),
+                      date.formatted(date: .abbreviated, time: .omitted))
+    }
     public static func closeNotConnected(_ machine: String) -> String { String(format: String(localized: "cloud.workspace.closeNotConnected", defaultValue: "%@ is not connected. Resume or reconnect it to close its workspace.", table: "Cloud", bundle: .module), machine) }
     public static func linkFailed(_ detail: String) -> String {
         String(format: String(localized: "cloud.link.failed", defaultValue: "Could not connect to the Cloud machine (%@). Click Connect to try again.", table: "Cloud", bundle: .module), detail)

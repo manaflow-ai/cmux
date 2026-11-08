@@ -13,19 +13,25 @@ public struct DaemonBridge: Hashable, Sendable {
     /// An absolute path inside the app bundle (never looked up on PATH).
     public var executable: String
     public var arguments: [String]
+    /// Variables set for the child on top of the app's environment (a carrier dial's platform origin and token).
+    public var environment: [String: String]
+    /// How long the child may take to write its dial line (a carrier dial waits out a cold machine's resume).
+    public var replyTimeoutMs: Int32
 
-    public init(executable: String, arguments: [String]) {
+    public init(executable: String, arguments: [String], environment: [String: String] = [:], replyTimeoutMs: Int32 = 10_000) {
         self.executable = executable
         self.arguments = arguments
+        self.environment = environment
+        self.replyTimeoutMs = replyTimeoutMs
     }
 
-    static let replyTimeoutMs: Int32 = 10_000
     static let maxReplyBytes = 1024
 
     /// Spawns the bridge and waits for its dial line: the descriptor of the
     /// connected stream and the child, or why it failed (the child is then
-    /// killed and reaped).
-    func open() throws(DaemonError) -> (fd: Int32, child: BridgeChild) {
+    /// killed and reaped). `spawned` gets, once the child runs, a kill for it while it dials (an
+    /// owner ending it early: the wait then fails as a dial that ended without an answer).
+    func open(spawned: (_ kill: @escaping @Sendable () -> Void) -> Void = { _ in }) throws(DaemonError) -> (fd: Int32, child: BridgeChild) {
         guard executable.hasPrefix("/") else { throw .launchFailed("the bridge executable is not an absolute path") }
         var pair: [Int32] = [-1, -1]
         guard socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0 else { throw .launchFailed("socketpair: \(String(cString: strerror(errno)))") }
@@ -53,16 +59,21 @@ public struct DaemonBridge: Hashable, Sendable {
         let argv = ([executable] + arguments).map { strdup($0) } + [nil]
         defer { for pointer in argv { free(pointer) } }
         var pid: pid_t = 0
-        let spawned = posix_spawn(&pid, executable, &actions, &attributes, argv, environ)
+        let envp = environment.isEmpty ? nil
+            : ProcessInfo.processInfo.environment.merging(environment) { $1 }.map { strdup("\($0.key)=\($0.value)") } + [nil]
+        defer { for pointer in envp ?? [] { free(pointer) } }
+        let status = if let envp { blockingPosixSpawn(&pid, executable, &actions, &attributes, argv, envp) }
+            else { blockingPosixSpawn(&pid, executable, &actions, &attributes, argv, environ) }
         Darwin.close(theirs)
         Darwin.close(errWrite)
-        guard spawned == 0 else {
+        guard status == 0 else {
             Darwin.close(mine); Darwin.close(errRead)
-            throw .launchFailed("spawn \(executable): \(String(cString: strerror(spawned)))")
+            throw .launchFailed("spawn \(executable): \(String(cString: strerror(status)))")
         }
         let child = BridgeChild(pid: pid, stderr: errRead)
+        spawned { [weak child] in child?.kill() }
         do {
-            try DaemonBridge.check(try Self.readLine(errRead))
+            try DaemonBridge.check(try Self.readLine(errRead, timeoutMs: replyTimeoutMs))
         } catch {
             child.terminate()
             Darwin.close(mine)
@@ -72,11 +83,11 @@ public struct DaemonBridge: Hashable, Sendable {
     }
 
     /// One line from the child's stderr within the deadline.
-    static func readLine(_ fd: Int32) throws(DaemonError) -> Data {
+    static func readLine(_ fd: Int32, timeoutMs: Int32) throws(DaemonError) -> Data {
         var line: [UInt8] = []
         for _ in 0...(maxReplyBytes + 8) {
             var poller = pollfd(fd: fd, events: Int16(clamping: POLLIN), revents: 0)
-            let ready = poll(&poller, 1, replyTimeoutMs)
+            let ready = poll(&poller, 1, timeoutMs)
             if ready < 0, errno == EINTR { continue }
             guard ready > 0 else { throw .endpointBlocked("the link dial gave no answer") }
             var byte: UInt8 = 0
@@ -90,13 +101,21 @@ public struct DaemonBridge: Hashable, Sendable {
         throw .endpointBlocked("the link dial's answer is too long")
     }
 
-    /// The dial line: `"ok": true` passes; a refusal names its `error_code`.
+    /// The dial line: `"ok": true` passes; a refusal names its `error_code` (the stage) and its
+    /// `error_detail`, cut to `maxDetailCharacters`, so the session's end reason says why.
     static func check(_ reply: Data) throws(DaemonError) {
         let object = (try? JSONSerialization.jsonObject(with: reply)) as? [String: Any]
         guard let object else { throw .endpointBlocked("the link dial's answer is not JSON") }
         if object["ok"] as? Bool == true { return }
-        throw .endpointBlocked("the link refused the dial: \(object["error_code"] as? String ?? "refused")")
+        var refusal = object["error_code"] as? String ?? "refused"
+        if let detail = object["error_detail"] as? String, !detail.isEmpty {
+            refusal += ": \(detail.prefix(maxDetailCharacters))"
+        }
+        throw .endpointBlocked("the link refused the dial: \(refusal)")
     }
+
+    /// The longest refusal detail kept from the dial line.
+    static let maxDetailCharacters = 300
 }
 
 /// The bridge process of one connection: killed and reaped exactly once,
@@ -108,6 +127,14 @@ final class BridgeChild: Sendable {
     init(pid: pid_t, stderr: Int32) {
         self.pid = pid
         state = Mutex(stderr)
+    }
+
+    /// Signals the child without reaping it (its owner still does, in ``terminate()``); nothing once reaped.
+    func kill() {
+        state.withLock { stderr in
+            guard stderr >= 0 else { return }
+            Darwin.kill(pid, SIGKILL)
+        }
     }
 
     func terminate() {

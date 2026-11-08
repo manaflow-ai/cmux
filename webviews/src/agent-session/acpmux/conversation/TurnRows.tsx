@@ -33,13 +33,14 @@ import {
   NO_RETRY_TARGET,
   offersRetry,
   retryPlacement,
+  workedCallsText,
   workedLabel,
   workedMessagesText,
 } from "./turns";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
 import { TimedLabel } from "./TurnTokens";
-import { hasTokens, tokensText } from "./turnTokensModel";
+import { replyTimeDetail } from "./turnTokensModel";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
 import {
   ForkButton,
@@ -72,7 +73,7 @@ import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./presentationContextModel";
 import { useTranscriptReadOnly } from "./readOnly";
 import { useTurnWaterfall } from "./useTurnWaterfall";
-import { thoughtIds } from "./turnRowsModel";
+import { groupDisclosureKey, runDisclosureKey, thoughtIds } from "./turnRowsModel";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
@@ -84,8 +85,9 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   if (row.previous !== undefined || row.durationMs === undefined) label = workedLabel(t, row);
   else {
     const key = row.status === "cancelled" ? "turn.stopped" : "turn.worked";
-    const messages = workedMessagesText(t, row);
-    label = <TimedLabel text={(time) => t(key, { time }) + messages} time={row.durationMs} />;
+    // A line that names its runs' work leaves their count to it.
+    const after = (work ? "" : workedCallsText(t, row)) + workedMessagesText(t, row);
+    label = <TimedLabel text={(time) => t(key, { time }) + after} time={row.durationMs} />;
   }
   if (!work) return label;
   return (
@@ -138,6 +140,7 @@ function groupNode(
   live: boolean,
   folded = false,
   thoughts = 0,
+  inherits?: readonly string[],
 ): ReactNode {
   switch (group.type) {
     case "group":
@@ -147,7 +150,8 @@ function groupNode(
           kind={group.kind}
           items={group.items}
           folded={folded}
-          disclosureKey={`group:${group.kind}:${groupId(group.items) || `${rowId}:${index}`}`}
+          disclosureKey={groupDisclosureKey(group, index, rowId)!}
+          inherits={inherits}
           thoughtId={(n) => `${rowId}:thought:${thoughts + n}`}
         />
       );
@@ -156,7 +160,7 @@ function groupNode(
         <McpCallRows
           key={group.items[0]!.tool!.id || index}
           items={group.items}
-          disclosureKey={`group:mcp:${group.items[0]!.tool!.id || `${rowId}:${index}`}`}
+          disclosureKey={groupDisclosureKey(group, index, rowId)!}
         />
       );
     case "message":
@@ -241,6 +245,10 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
   const stretches = useMemo(() => runStretches({ foldRun }, groups), [foldRun, groups]);
   const thoughts = useMemo(() => thoughtIds(groups), [groups]);
   const nodes = stretches.map((stretch) => {
+    // A stretch's line and its groups' lines take each other's place as calls arrive (one group
+    // grows into a run of two kinds; a run loses its line when a call in it runs again): each opens
+    // where the reader opened the other, so a line the reader opened never closes on its own.
+    const key = runDisclosureKey(stretch, row.id);
     // model.ts estimates the stretch from the same start (toolGroups.ts `stretchStart`).
     const start = stretchStart(row, stretch);
     const drawn =
@@ -256,14 +264,15 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
           // A run line open from the start (`runOpen`) opens the groups it holds too.
           start.groupsClosed,
           thoughts[at],
+          [key],
         );
       });
     if (!stretch.fold) return drawn;
-    // The first stretch keeps the run's own key, so a run that grew a card keeps its open state.
-    const first = stretch.items.find((item) => item.tool)?.tool?.id;
-    const key = stretch.from === 0 ? `run:${row.id}` : `run:${row.id}:${first || stretch.from}`;
+    const inherits = stretch.groups.flatMap(
+      (group, offset) => groupDisclosureKey(group, stretch.from + offset, row.id) ?? [],
+    );
     return (
-      <ToolRun key={key} disclosureKey={key} items={stretch.items} defaultOpen={start.lineOpen}>
+      <ToolRun key={key} disclosureKey={key} inherits={inherits} items={stretch.items} defaultOpen={start.lineOpen}>
         <ToolRunSteps items={stretch.items} rowId={row.id} thoughtsBefore={thoughts[stretch.from] ?? 0} />
       </ToolRun>
     );
@@ -336,14 +345,12 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const teamMachine = route?.hostKind === "cloud" && route.teamMachine === true;
   const authenticationFailed = (kind === "subscription-login" || kind === "auth") && !teamMachine;
   const label = footerLabel(t, row);
-  // The turn's time and tokens, for the time's tooltip: "Worked for 13s · ↓ 359 out ↑ 328.8K in".
-  // A Stop acpmux had to force (the agent never answered it) says so here only, never in the
-  // transcript's text (Leo, 2026-11-03: "idk if it should be showing things like that").
+  // The turn's time and tokens, for the time's tooltip: "Worked for 13s", then one token count per
+  // row (turnTokensModel.ts `replyTimeDetail`). A Stop acpmux had to force (the agent never answered it)
+  // says so here only, never in the transcript's text (Leo, 2026-11-03: "idk if it should be showing
+  // things like that").
   const forced = row.stopForced ? t("stop.forced") : undefined;
-  const detail =
-    [label, hasTokens(row.tokens) ? tokensText(t, language, row.tokens) : undefined, forced]
-      .filter(Boolean)
-      .join(" · ") || undefined;
+  const detail = replyTimeDetail(t, language, [label, forced], row.tokens);
   // A stopped turn says so in one muted word, whoever ended it (stoppedTurn.experiment.ts).
   const stoppedLook = isStopped(row) ? experimentArm(stoppedTurnLook) : "none";
   const stoppedWord = stoppedLook !== "none" && (
@@ -438,18 +445,19 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     : offersRetry(row) && !isEmptyFooter(row)
       ? { promptId: row.retryRowId, footerId: row.id }
       : NO_RETRY_TARGET;
+  // An attachment-only prompt's `prompt` is empty (turns.ts offersRetry): its attachments go again.
   const lastRetry =
     !failed &&
     retryPlacement(footerTarget, { canRetry: Boolean(retry), readOnly, messages }) === "footer" &&
     retry &&
-    prompt &&
+    prompt !== undefined &&
     row.retryRowId
       ? () => retry(row.retryRowId!, prompt)
       : undefined;
   const footerRetry = failedRetry ?? lastRetry;
   const retryTitle = row.changedFiles ? t("turn.retryChangedFiles") : t("turn.retryLabel");
   const retryModels =
-    (failed || lastRetry) && retry && prompt && retryWith && retryWith.models.length > 1 ? retryWith : undefined;
+    ((failed && prompt) || lastRetry) && retry && retryWith && retryWith.models.length > 1 ? retryWith : undefined;
   // The card's lead (errorRecovery.ts): Continue when the turn had done work, Retry when nothing
   // ran; it shares the footer Retry's one-at-a-time state and refusal note. A sign-in failure's comes
   // only after its Sign in again, so only the card offers it (signInRetry), never the native command.
@@ -519,7 +527,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
                     <Retry size={ROW_ICON} />
                   </button>
                 )}
-                {retryModels && prompt && (
+                {retryModels && prompt !== undefined && (
                   <RetryModelMenu
                     retryWith={retryModels}
                     onPick={(model) => retryModels.retry(row.retryRowId ?? "", prompt, model)}
