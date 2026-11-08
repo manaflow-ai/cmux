@@ -36,7 +36,7 @@ fn hub() -> Arc<Hub> {
             "fake": {"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}},
             "kin": {"argv": ["python3", FAKE], "family": "kin", "env": {"FAKE_FULL_ACCESS": "1"}},
             // A family whose adapter reports no modes, so none that asks.
-            "bare": {"argv": ["python3", FAKE], "family": "bare", "env": {"FAKE_NO_MODES": "1"}},
+            "bare": {"argv": ["python3", FAKE], "family": "bare", "env": {"FAKE_NO_MODES": "1", "FAKE_NO_ASK_CLAIM": "1"}},
             // A family whose default policy is wider than an asking starter's.
             "lax": {"argv": ["python3", FAKE], "family": "lax", "env": {"FAKE_FULL_ACCESS": "1"}},
             // The starter's family, with a session/new that takes a while.
@@ -308,6 +308,25 @@ async fn an_asking_starter_never_starts_a_child_of_a_family_with_no_mode_that_as
     let wide = starter(&mut app, Some("approve-all"), Some("full-access")).await;
     let mut agent = Client::as_session(&hub, &wide).await;
     agent.ok("session/new", new_params(json!({"harness": "bare"}))).await;
+}
+
+/// Lead, 2026-11-08: an inherited policy holds or the child does not start. A review starter's
+/// child on a family that can keep no policy is refused and closed; on its own family it starts
+/// under review.
+#[tokio::test]
+async fn an_inherited_policy_that_cannot_hold_starts_no_child() {
+    let hub = hub();
+    let mut app = Client::new(&hub);
+    let parent = starter(&mut app, Some("review"), None).await;
+    let mut agent = Client::as_session(&hub, &parent).await;
+    let before = app.ok("_acpmux/sessions", json!({})).await["sessions"].as_array().unwrap().len();
+    let r = agent.call("session/new", new_params(json!({"harness": "bare"}))).await;
+    assert!(r.get("error").is_some(), "{r}");
+    let after = app.ok("_acpmux/sessions", json!({})).await["sessions"].as_array().unwrap().len();
+    assert_eq!(after, before, "the refused child is closed");
+    let child = id(&agent.ok("session/new", new_params(json!({"harness": "fake"}))).await);
+    let info = app.ok("_acpmux/info", json!({"sessionId": child})).await;
+    assert_eq!(info["policy"], "review", "{info}");
 }
 
 #[tokio::test]

@@ -228,7 +228,7 @@ mod tests {
         use PermissionPolicy as P;
         // read, fetch, edit, read-only shell, other shell, other tool
         let rows = [
-            (P::DenyAll, [G::None, G::Deny, G::Deny, G::Allow, G::Deny, G::Deny]),
+            (P::DenyAll, [G::None, G::Deny, G::Deny, G::Deny, G::Deny, G::Deny]),
             (P::Review, [G::None, G::None, G::Deny, G::Allow, G::Deny, G::Deny]),
             (P::ApproveReads, [G::None, G::None, G::Ask, G::Allow, G::Ask, G::Ask]),
             (P::ApproveEdits, [G::None, G::None, G::None, G::Ask, G::Ask, G::Ask]),
