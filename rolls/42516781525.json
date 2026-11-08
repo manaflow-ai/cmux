@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42516781525",
+  "recorded_at": "2026-11-08T19:57:19Z",
+  "reason": "cmux-tui a7daab079346 changes the image's cmux-tui (pinned 98ce60b2a4ec)",
+  "dry_run": false,
+  "cmux_tui": "a7daab0793467d8154122fec341570dbebcd6165",
+  "fixes": [
+    {
+      "sha": "a7daab0793467d8154122fec341570dbebcd6165",
+      "mergedAt": "2026-11-08T19:32:34Z",
+      "subject": "Privacy follow-ups: scrub the standalone CLI's crash reports, opt-out paths, more TLDs (#38555)"
+    },
+    {
+      "sha": "126a0b53cf5f2233afa9254397b8dd3f3b740125",
+      "mergedAt": "2026-11-08T11:30:29-08:00",
+      "subject": "apps: Reload Custom Views (palette, cmux apps reload)"
+    },
+    {
+      "sha": "dea17ed589796eadd1f59ebbf847fb7d4d7e6314",
+      "mergedAt": "2026-11-08T11:30:28-08:00",
+      "subject": "apps: a script that does not load names its file and line (main.js:2:12)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T19:57:19Z",
+    "snapshot_id": "sh-e588794b85f5417b86c4651dbe0137a4",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42516781525): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9007d807b1401a45acf97dd1cde0dde7c921358c",
+    "image": "cloud-native-auto-a7daab07-42516781525-1",
+    "revision": "ci-42516781525-1",
+    "at": "2026-11-08T19:57:19Z"
+  },
+  "rolled_back": false
+}
