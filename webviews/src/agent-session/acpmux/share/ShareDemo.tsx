@@ -17,7 +17,7 @@ export type ShareDemoProps = {
   /** Show the copied-link toast. */
   toast?: "public" | "invite";
   /** A look the gallery compares with the shipped sheet (Share.gallery.css); none is the shipped one. */
-  look?: "two-primaries" | "popover" | "outline";
+  look?: "two-primaries" | "popover" | "outline" | "row-hover" | "row-filled" | "row-bleed";
 };
 
 function fixtureHost(shares: ChatShare[]): ShareCall {
