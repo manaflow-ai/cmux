@@ -11,8 +11,8 @@ another runner's cleanup began).
 So a rust-cache step that can run on a persistent runner must come after a step
 that gives the runner its own CARGO_HOME: the runner-cargo-home action, or
 setup-cmux-tui-rust, which ends by running it. A job may instead set CARGO_HOME
-itself (job, workflow or step env, or an earlier step that writes it to
-GITHUB_ENV), or keep the step off self-hosted runners with
+itself to anything but the shared $HOME/.cargo (job, workflow or step env, or an
+earlier step that writes it to GITHUB_ENV), or keep the step off self-hosted runners with
 `runner.environment != 'self-hosted'` in its `if`. Jobs whose every runner is a
 literal ephemeral Linux or Windows label need nothing. A composite action under
 .github/actions can be called from any job, so it needs the step itself.
@@ -81,8 +81,16 @@ def ephemeral_only(job: dict) -> bool:
                for label in labels)
 
 
+SHARED_HOME = re.compile(r"(\$\{?HOME\}?|~|\$\{\{\s*env\.HOME\s*\}\})/\.cargo/?(\s|\"|'|$)")
+
+
+def own_home_value(value: object) -> bool:
+    """A CARGO_HOME value that is not the shared $HOME/.cargo (dtolnay/rust-toolchain writes that one)."""
+    return not SHARED_HOME.search(f"{value} ")
+
+
 def sets_cargo_home(env: object) -> bool:
-    return isinstance(env, dict) and "CARGO_HOME" in env
+    return isinstance(env, dict) and "CARGO_HOME" in env and own_home_value(env["CARGO_HOME"])
 
 
 def gives_own_home(step: object) -> bool:
@@ -93,7 +101,7 @@ def gives_own_home(step: object) -> bool:
     if uses in (OWN_HOME_ACTION, SETUP_ACTION):
         return True
     run = str(step.get("run", ""))
-    return "CARGO_HOME" in run and "GITHUB_ENV" in run
+    return "CARGO_HOME" in run and "GITHUB_ENV" in run and own_home_value(run)
 
 
 def step_label(step: dict) -> str:
@@ -171,6 +179,10 @@ def self_test() -> list[str]:
         ("runner-cargo-home after", [cache, {"uses": OWN_HOME_ACTION}], 1),
         ("CARGO_HOME to GITHUB_ENV", [{"run": 'echo "CARGO_HOME=$RUNNER_TEMP/c" >> "$GITHUB_ENV"'}, cache], 0),
         ("step env", [dict(cache, env={"CARGO_HOME": "/x"})], 0),
+        ("step env is the shared home", [dict(cache, env={"CARGO_HOME": "${{ env.HOME }}/.cargo"})], 1),
+        ("dtolnay-style shared home to GITHUB_ENV",
+         [{"run": 'echo CARGO_HOME=${CARGO_HOME:-"$HOME/.cargo"} >> $GITHUB_ENV'}, cache], 1),
+        ("~/.cargo to GITHUB_ENV", [{"run": "echo CARGO_HOME=~/.cargo >> $GITHUB_ENV"}, cache], 1),
         ("never self-hosted", [dict(cache, **{"if": "runner.environment != 'self-hosted' && x"})], 0),
     ]
     for name, steps, want in cases:
