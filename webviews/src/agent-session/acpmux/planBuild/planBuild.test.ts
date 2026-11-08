@@ -88,6 +88,7 @@ test("a compare reply is checked field by field", () => {
       added: 3,
       removed: 0,
       files: [{ path: "a.ts", added: 3, removed: 0 }],
+      moreFiles: 0,
       error: undefined,
     },
   ]);

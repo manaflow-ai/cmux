@@ -44,6 +44,8 @@ export type PlanBuildDiff = {
   added: number;
   removed: number;
   files: { path: string; added: number; removed: number }[];
+  /// Changed files past the ones acpmux lists (it lists at most 200).
+  moreFiles?: number;
   error?: string;
 };
 
@@ -139,6 +141,7 @@ export function planBuildReply(value: unknown): PlanBuildReply | undefined {
       added: count(build.added),
       removed: count(build.removed),
       files,
+      moreFiles: count(build.moreFiles),
       error: text(build.error),
     });
   }

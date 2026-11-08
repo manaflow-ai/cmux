@@ -167,7 +167,8 @@ function PlanBuildColumn({
   const branch = diff?.branch ?? child.branch;
   const files = diff?.files ?? [];
   const shown = files.slice(0, SHOWN_FILES);
-  const more = files.length - shown.length;
+  const total = files.length + (diff?.moreFiles ?? 0);
+  const more = total - shown.length;
   const state = diff?.error ? "failed" : child.state;
   return (
     <article className="acpmux-plan-builds-column" data-state={state} data-outcome={outcome}>
@@ -193,7 +194,7 @@ function PlanBuildColumn({
           <>
             <span className="acpmux-plan-builds-added">+{diff.added}</span>
             <span className="acpmux-plan-builds-removed">−{diff.removed}</span>
-            <span className="acpmux-plan-builds-files">{t("planBuild.files", { n: files.length })}</span>
+            <span className="acpmux-plan-builds-files">{t("planBuild.files", { n: total })}</span>
           </>
         ) : (
           " "
