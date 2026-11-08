@@ -8,7 +8,7 @@
 //
 // Nothing secret leaves: env-like assignments, tokens and keys become •••, and a path outside the
 // chat's folder becomes …; a file outside the folder counts but shows no hunk.
-import { turnFiles, type DiffLine, type TurnFile } from "../../diff";
+import { endsTurn, turnFiles, type DiffLine, type TurnFile } from "../../diff";
 import type { AcpmuxRow } from "../../model";
 import { opensTurn } from "../../turnStart";
 
@@ -116,11 +116,12 @@ export function wrap(text: string, width: number, lines: number): string[] {
   return out;
 }
 
-/// The rows of the chat's last finished turn: from its prompt through its turn summary. Undefined
-/// while no turn has finished. Walks back from the end, so it reads only that turn's rows.
+/// The rows of the chat's last finished turn: from its prompt through the summary that ends it (a
+/// `continued` summary, a Stop the turn went on after, does not). Undefined while no turn has
+/// finished. Walks back from the end, so it reads only that turn's rows.
 export function lastFinishedTurn(rows: readonly AcpmuxRow[]): AcpmuxRow[] | undefined {
   let end = rows.length - 1;
-  while (end >= 0 && rows[end]!.kind !== "turnSummary") end--;
+  while (end >= 0 && !endsTurn(rows[end]!)) end--;
   if (end < 0) return undefined;
   let start = end - 1;
   while (start >= 0 && !opensTurn(rows[start]!)) start--;
@@ -142,10 +143,14 @@ function glimpse(lines: readonly DiffLine[], root?: string): PosterLine[] {
     .map((line) => ({ type: line.type, text: clip(redact(line.text.replace(/\t/g, "  "), root), HUNK_CHARS) }));
 }
 
-/// A file in the chat's folder: under `root`, or named relative to it.
-const inside = (file: TurnFile, root?: string) =>
-  (root !== undefined && root !== "" && file.path.startsWith(`${root}/`)) ||
-  (!file.path.startsWith("/") && !file.path.startsWith("~"));
+/// A file in the chat's folder: its canonical path (links and `..` resolved) under `root`; without
+/// one, its path under `root`, or relative to it with no `..` step out.
+function inside(file: TurnFile, root?: string): boolean {
+  const under = (path: string) => root !== undefined && root !== "" && path.startsWith(`${root}/`);
+  if (file.canonical) return under(file.canonical);
+  if (file.path.startsWith("/") || file.path.startsWith("~")) return under(file.path);
+  return !file.path.split("/").includes("..");
+}
 
 /// A file's path as the poster names it: relative to the chat's folder.
 function shownPath(file: TurnFile, root?: string): string {

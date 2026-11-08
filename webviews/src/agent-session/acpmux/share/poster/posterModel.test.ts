@@ -141,3 +141,46 @@ test("durations, links and the key read as people say them", () => {
   expect(isPosterKey({ ...key, shiftKey: true })).toBe(false);
   expect(isPosterKey({ ...key, altKey: false })).toBe(false);
 });
+
+test("a file that resolves outside the project shows no hunk, whatever its spelling", () => {
+  const out = (id: string, path: string, canonical?: string) =>
+    row({
+      id,
+      kind: "activity",
+      items: [
+        {
+          kind: "tool",
+          text: "",
+          tool: {
+            id,
+            kind: "edit",
+            title: "Edit",
+            status: "completed",
+            diffs: [{ path, canonical, oldText: "a\n", newText: "b\n" }],
+          },
+        },
+      ],
+    } as Partial<AcpmuxRow> & { id: string; kind: string });
+  const rows = turn(
+    "edit around",
+    1_000,
+    out("up", "../secrets/.env"),
+    out("link", "linked/notes.md", "/Users/leo/notes.md"),
+    out("ok", "src/ok.ts", "/repo/src/ok.ts"),
+  );
+  const poster = buildPoster(rows, { cwd: "/repo" })!;
+  expect(poster.files).toBe(3);
+  expect(poster.hunks.map((hunk) => hunk.path)).toEqual(["src/ok.ts"]);
+});
+
+test("a summary the turn went on after does not finish it", () => {
+  const rows = [
+    ...turn("finished one", 1_000),
+    row({ id: "p2", kind: "user", text: "still going", at: 9_000 }),
+    row({ id: "s2", kind: "turnSummary", at: 9_500, continued: true } as Partial<AcpmuxRow> & {
+      id: string;
+      kind: string;
+    }),
+  ];
+  expect(buildPoster(rows, {})?.prompt).toBe("finished one");
+});

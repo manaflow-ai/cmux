@@ -103,9 +103,8 @@ export function PosterDialogBody({
   );
 }
 
-/// The pane's light or dark when the dialog opens.
-const paneTheme = (): PosterTheme =>
-  globalThis.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
+/// The pane's light or dark when the dialog opens: its theme (shared/theme.ts), not the system's.
+const paneTheme = (): PosterTheme => (document.documentElement.dataset.theme === "light" ? "light" : "dark");
 
 /// Copies the PNG: the host's `image.copy` in the app, else the page's clipboard.
 async function copyPng(png: string, name: string): Promise<void> {
@@ -162,13 +161,18 @@ export function PosterDialogHost({
   // A callback ref kept in state: the dialog mounts its popup after `open`, and the PNG waits for it.
   const [svg, setSvg] = useState<SVGSVGElement | null>(null);
   const client = useMemo(() => shareClient(sessionId, call), [sessionId, call]);
+  // Each switch change and each open starts a new request generation: a link that arrives after
+  // the switch went off, or after the dialog reopened, is dropped.
+  const linkRequest = useRef(0);
   // Each open builds the poster afresh from the turn that finished last, off by default. No
   // finished turn (the chat changed under the menu): the open ends, so the next one starts again.
   useEffect(() => {
     if (!open) return;
     const data = buildPoster(latest.current.rows, latest.current.chat);
     setPoster(data ? { data, theme: paneTheme() } : undefined);
+    linkRequest.current++;
     setLink(undefined);
+    setMakingLink(false);
     setStatus(null);
     if (!data) latest.current.close(false);
   }, [open]);
@@ -188,16 +192,21 @@ export function PosterDialogHost({
   }, [open, data, svg]);
   const includeLink = (include: boolean) => {
     setStatus(null);
+    const request = ++linkRequest.current;
     if (!include) {
       setLink(undefined);
+      setMakingLink(false);
       return;
     }
     setMakingLink(true);
     void client
       .state()
       .then((view) => client.viewerLink(view))
-      .then(setLink, () => setStatus(translate("poster.error.link")))
-      .finally(() => setMakingLink(false));
+      .then(
+        (url) => request === linkRequest.current && setLink(url),
+        () => request === linkRequest.current && setStatus(translate("poster.error.link")),
+      )
+      .finally(() => request === linkRequest.current && setMakingLink(false));
   };
   const name = title.trim() || t("poster.title");
   /// `done`: what the status line says after; none for Save…, whose panel the person may cancel.
