@@ -22,6 +22,29 @@ use crate::context_inventory::{ContextPart, estimated_tokens};
 /// The part's `source`; `append_snapshot` delivers it.
 pub const SOURCE: &str = "cmux-folder";
 
+/// The instruction file a harness `family` reads first, the one a new file is made as.
+pub(crate) fn own_file(family: &str) -> &'static str {
+    native(family).first().copied().unwrap_or("AGENTS.md")
+}
+
+/// The file a fact learned in a chat of `family` in `cwd` goes to (`memory_inbox.rs`): the
+/// harness's own file when the folder has one, else the file this fallback carries to it, else
+/// a new file of the harness's own (`AGENTS.md` for a harness with none).
+pub(crate) fn learned_target(family: &str, cwd: &Path) -> &'static str {
+    let own = native(family);
+    // A personal file (`CLAUDE.local.md`, `AGENTS.override.md`) is not the shared one.
+    let shared = |name: &&&str| !name.contains(".local.") && !name.contains(".override.");
+    if let Some(name) = own.iter().filter(shared).find(|name| open_beneath(cwd, name).is_some()) {
+        return name;
+    }
+    CANDIDATES
+        .iter()
+        .filter(|name| !own.contains(name) && name.ends_with(".md"))
+        .find(|name| readable(cwd, name).is_some())
+        .copied()
+        .unwrap_or_else(|| own_file(family))
+}
+
 /// The most of a file that goes to the agent; the rest is cut with a note.
 const MAX_BYTES: usize = 32 * 1024;
 
@@ -49,6 +72,13 @@ fn native(family: &str) -> &'static [&'static str] {
 /// linked `.github` or a swapped component never leads out of the session folder.
 #[cfg(unix)]
 fn open_beneath(root: &Path, rel: &str) -> Option<std::fs::File> {
+    open_beneath_with(root, rel, libc::O_RDONLY)
+}
+
+/// [`open_beneath`] with the last name opened for `access` (`O_RDONLY`, or `O_WRONLY` with
+/// `O_CREAT` and `O_TRUNC` to write it, `memory_inbox.rs`); a file made is `0644`.
+#[cfg(unix)]
+pub(crate) fn open_beneath_with(root: &Path, rel: &str, access: i32) -> Option<std::fs::File> {
     use std::ffi::CString;
     use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
 
@@ -92,7 +122,8 @@ fn open_beneath(root: &Path, rel: &str) -> Option<std::fs::File> {
         libc::openat(
             dir.as_raw_fd(),
             name.as_ptr(),
-            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+            access | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+            0o644 as libc::c_uint,
         )
     };
     if fd < 0 {
@@ -107,6 +138,12 @@ fn open_beneath(root: &Path, rel: &str) -> Option<std::fs::File> {
 /// Elsewhere there is no link-safe open of each step, so no folder file is read.
 #[cfg(not(unix))]
 fn open_beneath(_root: &Path, _rel: &str) -> Option<std::fs::File> {
+    None
+}
+
+/// Elsewhere no folder file is written either.
+#[cfg(not(unix))]
+pub(crate) fn open_beneath_with(_root: &Path, _rel: &str, _access: i32) -> Option<std::fs::File> {
     None
 }
 

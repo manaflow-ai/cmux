@@ -15,6 +15,7 @@ mod adoption;
 pub(crate) mod agent_hold;
 mod agent_pairs;
 mod away_recap;
+mod memory_inbox;
 mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;

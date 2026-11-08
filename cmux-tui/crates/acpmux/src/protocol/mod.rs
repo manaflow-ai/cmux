@@ -241,6 +241,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_GITHUB_APP_LEASE, Request),
         keyed::<params::BookmarkGetParams>(method::MUX_BOOKMARK_GET, Request),
         keyed::<params::BookmarkSetParams>(method::MUX_BOOKMARK_SET, Request),
+        keyed::<params::MemoryResolveParams>(method::MUX_MEMORY_RESOLVE, Request),
         untyped(method::MUX_PROMPT_WITHDRAW, Request),
         untyped(method::MUX_INBOX_DIGEST, Request),
         untyped(method::MUX_SEND_QUEUE, Request),
