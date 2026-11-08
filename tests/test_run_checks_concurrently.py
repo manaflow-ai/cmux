@@ -44,31 +44,6 @@ class RunChecksConcurrently(unittest.TestCase):
         self.assertIn("::error title=check failed::exit 3", result.stdout)
         self.assertIn("2 passed, 1 failed", result.stdout)
 
-    def test_a_passing_checks_workflow_commands_stay_inert(self):
-        # test_ios_internal_builder.py's fixtures printed a fake "builder held" ::error:: and a
-        # rate-limit ::warning:: that showed as real annotations on the green step.
-        result = run("echo '::error title=fixture::not real'\nprintf '::warning::no newline'\n", "--jobs", "2")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        lines = result.stdout.splitlines()
-        stops = [i for i, line in enumerate(lines) if line.startswith("::stop-commands::")]
-        self.assertEqual(len(stops), 2, result.stdout)
-        inert = set()
-        for start in stops:
-            token = lines[start].removeprefix("::stop-commands::")
-            self.assertTrue(token)
-            end = lines.index(f"::{token}::", start)
-            self.assertTrue(lines[end + 1].startswith("::endgroup::"), result.stdout)
-            inert.update(range(start + 1, end))
-        live = [line for i, line in enumerate(lines) if i not in inert]
-        self.assertFalse([line for line in live if line.startswith(("::error", "::warning"))], result.stdout)
-
-    def test_a_failed_checks_output_is_reprinted_with_its_commands_live(self):
-        result = run("echo '::error::real finding'; exit 1\n")
-        self.assertEqual(result.returncode, 1)
-        tail = result.stdout.split("----- ", 1)[1]
-        self.assertIn("::error::real finding", tail)
-        self.assertNotIn("::stop-commands::", tail)
-
     def test_skips_blank_lines_and_comments(self):
         result = run("\n  # a note\n  echo only\n")
         self.assertEqual(result.returncode, 0, result.stderr)

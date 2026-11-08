@@ -9,9 +9,8 @@
 # Reads one command per line on stdin; blank lines and `#` comments are skipped.
 # Each command runs under `bash -c` from the current directory with stdin closed.
 # Every command runs even after one fails. Output is printed per command, whole
-# and in input order, in a collapsed group with its duration, with workflow commands
-# (::error::, ::warning::) in it stopped; a failed command's output is printed again
-# at the end with them live, and the exit status is 1 when any failed.
+# and in input order, in a collapsed group with its duration; a failed command's
+# output is printed again at the end, and the exit status is 1 when any failed.
 # --jobs defaults to twice the CPU count: most of these checks wait on child
 # processes and fixtures, not the CPU.
 set -euo pipefail
@@ -52,22 +51,13 @@ export -f run_one
 seq 1 "$count" | xargs -P "$jobs" -I{} bash -c 'run_one "$1" "$2"' _ "$work" {} || true
 
 failed=()
-# A check's own output is inert in the job log: a fixture that prints ::error:: or
-# ::warning:: (test_ios_internal_builder.py's fake "builder held" and rate-limit lines)
-# showed as a real annotation on a green step. A failed check's output is printed
-# again at the end with its workflow commands live.
-stop_token="check-output-$$-$RANDOM$RANDOM"
 for index in $(seq 1 "$count"); do
   command="$(cat "$work/$index.cmd")"
   read -r status seconds < "$work/$index.rc" || { status=1; seconds=0; }
   verdict=ok
   [ "$status" = 0 ] || { verdict="failed (exit $status)"; failed+=("$index"); }
   echo "::group::$command: $verdict, ${seconds}s"
-  echo "::stop-commands::$stop_token"
   cat "$work/$index.log"
-  # A log without a final newline would swallow the resume line.
-  [ -s "$work/$index.log" ] && [ -n "$(tail -c1 "$work/$index.log")" ] && echo
-  echo "::$stop_token::"
   echo "::endgroup::"
 done
 echo "$count checks, $jobs at a time: $(( count - ${#failed[@]} )) passed, ${#failed[@]} failed"
