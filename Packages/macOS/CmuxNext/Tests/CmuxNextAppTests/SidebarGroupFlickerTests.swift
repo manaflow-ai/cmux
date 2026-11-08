@@ -10,6 +10,40 @@ import Testing
 /// paths the app uses (a structural set, a row patch, a fold, a selection). In every frame its header view is the same
 /// instance, shown at full opacity; its y moves one way from start to end; its bar fill, glass rim and members' rail
 /// are present at full opacity and move with the header; and no member row disappears or blinks.
+/// TEMP hang probe: after 25 s without a beat, prints the phase and the main thread's stack (SIGUSR2), three times.
+enum GrpHangProbe {
+    nonisolated(unsafe) static var beat: UInt64 = 0
+    nonisolated(unsafe) static var phase = "start"
+    nonisolated(unsafe) static var main: pthread_t?
+    nonisolated(unsafe) static var started = false
+    static func mark(_ p: String) { phase = p; beat &+= 1 }
+    static func start() {
+        guard !started else { return }
+        started = true
+        main = pthread_self()
+        signal(SIGUSR2) { _ in
+            var buffer = [UnsafeMutableRawPointer?](repeating: nil, count: 200)
+            let count = backtrace(&buffer, 200)
+            backtrace_symbols_fd(&buffer, count, 1)
+            backtrace_symbols_fd(&buffer, count, 2)
+        }
+        Thread.detachNewThread {
+            var seen = beat, quiet = 0, dumps = 0
+            while dumps < 3 {
+                Thread.sleep(forTimeInterval: 5)
+                if beat != seen { seen = beat; quiet = 0; continue }
+                quiet += 5
+                if quiet >= 25, quiet % 10 == 5, let main {
+                    dumps += 1
+                    print("GRPHANG quiet \(quiet)s phase: \(phase)")
+                    fflush(stdout)
+                    pthread_kill(main, SIGUSR2)
+                }
+            }
+        }
+    }
+}
+
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarGroupFlickerTests {
     static let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
     static let top = GroupID("g-top")
@@ -183,15 +217,23 @@ import Testing
     }
 
     static func step(_ list: SidebarListView) {
+        let p = GrpHangProbe.phase
+        GrpHangProbe.mark(p + " >layout")
         list.layoutSubtreeIfNeeded()
+        GrpHangProbe.mark(p + " >flush")
         CATransaction.flush()
+        GrpHangProbe.mark(p + " >runloop")
         RunLoop.main.run(until: Date().addingTimeInterval(1.0 / 60))
+        GrpHangProbe.mark(p)
     }
 
     // MARK: Checks
 
     /// Every frame's failures for one run of `event`.
     static func run(_ event: Event, intent: Bool, topCollapsed: Bool = false, then second: Event? = nil, log: inout [String]) -> [String] {
+        GrpHangProbe.start()
+        let t0 = Date()
+        GrpHangProbe.mark("\(event.rawValue) intent \(intent) make")
         let (model, list, window) = make(topCollapsed: topCollapsed, lowerCollapsed: event != .topFolds,
                                          selected: event == .selectedPassesOver ? loose[1] : members[0],
                                          expanded: [.memberGrows, .looseGrows].contains(event) || [.memberGrows, .looseGrows].contains(second))
@@ -210,20 +252,27 @@ import Testing
             applies += 1
             applyFrames.append((frames.count, sample(list, flipped: flipped)))
         }
+        GrpHangProbe.mark("\(label) apply")
         apply(event, model, list, intent: intent)
+        GrpHangProbe.mark("\(label) frame0 layout")
         list.layoutSubtreeIfNeeded()
+        GrpHangProbe.mark("\(label) frame0 flush")
         CATransaction.flush()
         frames.append(sample(list, flipped: flipped))
         for index in 1...30 {
-            if let second, index == 2 { apply(second, model, list, intent: intent) }
+            if let second, index == 2 { GrpHangProbe.mark("\(label) second apply"); apply(second, model, list, intent: intent) }
+            GrpHangProbe.mark("\(label) frame \(index)")
             step(list)
             frames.append(sample(list, flipped: flipped))
         }
+        GrpHangProbe.mark("\(label) settle 1s")
         RunLoop.main.run(until: Date().addingTimeInterval(1.0))
+        GrpHangProbe.mark("\(label) last step")
         step(list)
         let after = sample(list, flipped: flipped)
+        GrpHangProbe.mark("\(label) checks")
 
-        print("SidebarGroupFlicker ran \(label)")
+        print("SidebarGroupFlicker ran \(label) in \(String(format: "%.1f", Date().timeIntervalSince(t0)))s")
         var failures: [String] = []
         func fail(_ index: Int, _ what: String) { failures.append("\(label), frame \(index): \(what)") }
         func monotonic(_ name: String, _ ys: [CGFloat], start: CGFloat, end: CGFloat) {
