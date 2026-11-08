@@ -155,6 +155,8 @@ pub struct Peer {
     switch_wanted: AtomicBool,
     /// The probes of this peer's other paths run (`Peer::start_probes`).
     probing: AtomicBool,
+    /// Requests the peer sent this daemon that are still being answered (`Answering`).
+    answering: carriers::Answering,
     /// The hub's last-known-good book (`peer_last_good.rs`).
     last_good: std::sync::OnceLock<Arc<crate::peer_last_good::LastGood>>,
     /// Outbound frames, each tagged with the link epoch it was admitted on:
@@ -385,6 +387,7 @@ impl Peer {
             serving: StdMutex::new(None),
             switch_wanted: AtomicBool::new(false),
             probing: AtomicBool::new(false),
+            answering: carriers::Answering::default(),
             last_good: std::sync::OnceLock::new(),
             out,
             out_rx: Mutex::new(Some(out_rx)),
@@ -953,6 +956,10 @@ impl Peer {
     ) {
         let me = self.clone();
         let epoch = link;
+        // Taken before the task runs and held until its answer is queued: the link does not
+        // move to a faster path while it runs (`Peer::switch_due`), for at most the action's
+        // own budget.
+        let answering = self.answering.start(crate::github_broker::ACTION_BUDGET);
         // The slot is held until the answer is queued, within the request budget: at most
         // `OWNER_SLOTS` of these tasks exist per peer name, across reconnects, even when the link
         // stops reading.
@@ -986,6 +993,7 @@ impl Peer {
                 let frame = Outbound { epoch, key: None, line };
                 let _ = tokio::time::timeout(me.timings.request, me.out.send(frame)).await;
             }
+            drop(answering);
             drop(slot);
         });
     }

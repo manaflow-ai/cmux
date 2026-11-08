@@ -18,8 +18,8 @@ use futures_util::stream::FuturesUnordered;
 use futures_util::{SinkExt, StreamExt};
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_tungstenite::tungstenite::Message as Frame;
@@ -312,8 +312,18 @@ impl Peer {
     /// Whether the live link should end now to move to the path the selector picked: one was
     /// picked, and no request is out on this link (its answer would be lost). Its chats'
     /// streams resume on the next link from their cursors (`afterSeq`).
+    ///
+    /// Requests the peer sent this daemon count too: a lent GitHub action (the only incoming
+    /// request answered later; any other is refused at once in the serve loop) holds the link
+    /// until its answer is queued, and a queued frame until it is written (`out` empty). An
+    /// action past its own budget (`ACTION_BUDGET`) no longer holds it: the link moves, the
+    /// action is revoked with the link (`link_ended`, its `gh` killed), and the peer's own
+    /// request deadline fails it there.
     pub(super) fn switch_due(&self) -> bool {
-        if !self.switch_wanted.load(Ordering::SeqCst) || !self.on_wire.lock_or_recover().is_empty()
+        if !self.switch_wanted.load(Ordering::SeqCst)
+            || !self.on_wire.lock_or_recover().is_empty()
+            || self.answering.busy(tokio::time::Instant::now())
+            || self.out.capacity() != self.out.max_capacity()
         {
             return false;
         }
@@ -712,6 +722,45 @@ impl Peer {
             }
             Via::Hub => Err("the hub relay carries no live link yet".to_owned()),
         }
+    }
+}
+
+/// Requests the peer sent this daemon that are still being answered, each with the deadline
+/// past which it no longer holds the link on its path (`Peer::switch_due`).
+#[derive(Default)]
+pub(crate) struct Answering(Arc<StdMutex<AnsweringSet>>);
+
+#[derive(Default)]
+struct AnsweringSet {
+    next: u64,
+    until: std::collections::HashMap<u64, tokio::time::Instant>,
+}
+
+/// One request being answered; dropped once its answer is queued (or never will be).
+pub(crate) struct AnsweringGuard {
+    set: Arc<StdMutex<AnsweringSet>>,
+    id: u64,
+}
+
+impl Answering {
+    /// A request starts being answered, for at most `budget`.
+    pub(crate) fn start(&self, budget: Duration) -> AnsweringGuard {
+        let mut set = self.0.lock_or_recover();
+        let id = set.next;
+        set.next += 1;
+        set.until.insert(id, tokio::time::Instant::now() + budget);
+        AnsweringGuard { set: self.0.clone(), id }
+    }
+
+    /// Whether a request is being answered within its budget at `now`.
+    pub(crate) fn busy(&self, now: tokio::time::Instant) -> bool {
+        self.0.lock_or_recover().until.values().any(|until| *until > now)
+    }
+}
+
+impl Drop for AnsweringGuard {
+    fn drop(&mut self) {
+        self.set.lock_or_recover().until.remove(&self.id);
     }
 }
 
