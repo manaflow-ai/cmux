@@ -1588,6 +1588,9 @@ impl Hub {
                    "agentRequestId": agent_request_id.clone()}),
         );
         self.set_status(session, SessionStatus::Waiting);
+        // A chat restored as Waiting changes no status here, so its parent's count of asks below
+        // is decided now: a new daemon starts every count at none (`asks_below.rs`).
+        self.refresh_parent_asks_below(session);
         let hub = self.clone();
         let s = session.clone();
         let c = child.clone();
