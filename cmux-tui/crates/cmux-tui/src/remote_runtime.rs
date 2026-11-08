@@ -543,7 +543,7 @@ impl ResolvedRouteCandidate {
     /// tickets).
     pub(crate) fn for_provider(
         endpoint: Url,
-        provider: &dyn cmux_remote::provider::TransportProvider,
+        provider: &dyn TransportProvider,
     ) -> Self {
         Self {
             endpoint,
