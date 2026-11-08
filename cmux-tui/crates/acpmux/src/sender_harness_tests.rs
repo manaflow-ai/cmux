@@ -274,3 +274,43 @@ fn a_harness_shell_that_names_its_sender_still_says_where_it_came_from() {
     let (from, claim) = of_send(None, &env(&[]), || "mac".into(), Chain::default);
     assert_eq!((from, claim), (None, None));
 }
+
+#[test]
+fn acpmuxs_own_app_bundle_is_not_where_a_send_came_from() {
+    // The acpmux that cmux.app ships, run from Claude desktop's shell: the walk goes past cmux.app
+    // to the harness and the app above it.
+    let table = [
+        proc(50, 40, "/Applications/cmux.app/Contents/Resources/bin/acpmux"),
+        proc(40, 30, "/bin/zsh"),
+        proc(30, 20, "/Users/l/Library/Application Support/Claude/claude-code/2.1.3/claude"),
+        proc(20, 1, "/Applications/Claude.app/Contents/MacOS/Claude"),
+    ];
+    let walked = chain(of(&table), 50);
+    assert_eq!(walked.harness, Some(("claude-code".into(), 30)));
+    assert_eq!(walked.app, Some(("Claude.app".into(), "/Applications/Claude.app".into())));
+    // In cmux's own terminal the shell's app is cmux.app, a terminal: the person's.
+    let in_cmux = [
+        proc(50, 40, "/Applications/cmux.app/Contents/Resources/bin/acpmux"),
+        proc(40, 30, "/bin/zsh"),
+        proc(30, 1, "/Applications/cmux.app/Contents/MacOS/cmux"),
+    ];
+    let walked = chain(of(&in_cmux), 50);
+    assert_eq!(walked.app, Some(("cmux.app".into(), "/Applications/cmux.app".into())));
+    assert_eq!(from_chain(&walked), None);
+}
+
+#[test]
+fn an_mcp_send_from_codex_under_a_claude_shell_is_codex_by_its_chain_or_by_default() {
+    let both = [("CLAUDECODE", "1"), ("CODEX_THREAD_ID", "t-1")];
+    let client = json!({"name": "claude-ai"});
+    let under = |harness: &str| Chain { harness: Some((harness.into(), 7)), app: None };
+    let claim = of_mcp(&env(&both), || under("codex"), Some(&client)).unwrap();
+    assert_eq!(claim["harness"], "codex");
+    let claim = of_mcp(&env(&both), Chain::default, Some(&client)).unwrap();
+    assert_eq!(claim["harness"], "codex");
+    let claim = of_mcp(&env(&both), || under("claude-code"), Some(&client)).unwrap();
+    assert_eq!(claim["harness"], "claude-code");
+    // With no harness markers, the MCP client names itself.
+    let claim = of_mcp(&env(&[]), no_walk, Some(&client)).unwrap();
+    assert_eq!(claim["harness"], "claude-ai");
+}
