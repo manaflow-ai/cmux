@@ -32,6 +32,13 @@ public actor MacInstallIdentity {
     /// Set by ``signOut(stackUser:session:)`` until the session ends
     /// (``unbind()``): a late sign-in callback registers nothing.
     private var signingOut = false
+    /// Each backend team's scoped client, so its token is reused until it nears its end
+    /// (``InstallAuthClient/refreshMargin``) instead of minted again for every call: a Cloud broker
+    /// answer (each link dial's `link_token`) paid a challenge and a token request first, and the
+    /// #37775 F2 Cloud capture at 8fbc64d4 (2026-11-08) timed out "identify (no reply within 10.0
+    /// seconds)". Kept only for the record and bind it was made under; ``invalidate()``, a refused
+    /// call and the end of the session drop them all.
+    private var teamClients: [String: (record: InstallRecord, generation: UInt64, client: InstallAuthClient)] = [:]
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.install")
 
     public init(store: MacInstallStore, transport: any InstallAuthTransport, deviceName: String, clientVersion: String?) {
@@ -75,10 +82,16 @@ public actor MacInstallIdentity {
         _ = try await client.installToken()
         guard bound == generation, user == stackUser,
               let record = await client.currentRecord, let environment = await client.environment else { throw Failure.signedOut }
-        let scoped = InstallAuthClient(
-            transport: transport, signer: store.signer(for: stackUser), sessionToken: nil, stackUser: stackUser,
-            deviceName: deviceName, clientVersion: clientVersion, record: record,
-            profile: .mac, team: team, expectedEnvironment: environment)
+        let scoped: InstallAuthClient
+        if let kept = teamClients[team], kept.record == record, kept.generation == bound {
+            scoped = kept.client
+        } else {
+            scoped = InstallAuthClient(
+                transport: transport, signer: store.signer(for: stackUser), sessionToken: nil, stackUser: stackUser,
+                deviceName: deviceName, clientVersion: clientVersion, record: record,
+                profile: .mac, team: team, expectedEnvironment: environment)
+            teamClients[team] = (record, bound, scoped)
+        }
         // In this task, so a caller that is cancelled (a superseded lend) stops the mint too.
         let token = try await scoped.installTokenInCallerTask()
         guard bound == generation, user == stackUser, await client.currentRecord == record else { throw Failure.signedOut }
@@ -113,6 +126,7 @@ public actor MacInstallIdentity {
     func nativeOwnerPost(_ body: Data, context: NativeInstallContext) async throws -> (status: Int, body: Data) {
         try await nativeCheck(context)
         let reply = try await transport.post("/v1/ops", json: body, bearer: context.token, headers: requestHeaders)
+        if reply.status == 401 { teamClients = [:] } // a refused team token is minted again next call
         try await nativeCheck(context)
         return reply
     }
@@ -121,6 +135,7 @@ public actor MacInstallIdentity {
     func nativeOwnerGet(_ path: String, context: NativeInstallContext) async throws -> (status: Int, body: Data) {
         try await nativeCheck(context)
         let reply = try await transport.get(path, bearer: context.token, headers: requestHeaders)
+        if reply.status == 401 { teamClients = [:] }
         try await nativeCheck(context)
         return reply
     }
@@ -128,12 +143,16 @@ public actor MacInstallIdentity {
     func nativeOwnerRead(_ body: Data, context: NativeInstallContext) async throws -> (status: Int, body: Data) {
         try await nativeCheck(context)
         let reply = try await transport.post("/v1/read", json: body, bearer: context.token, headers: requestHeaders)
+        if reply.status == 401 { teamClients = [:] } // a refused team token is minted again next call
         try await nativeCheck(context)
         return reply
     }
 
     /// The owner refused the current token (401): the next call mints again.
-    public func invalidate() async { await client?.invalidate() }
+    public func invalidate() async {
+        teamClients = [:]
+        await client?.invalidate()
+    }
 
     /// The registered install's id (`inst_…`), or nil before the first
     /// registration of the signed-in user. `cmux link` runs as this install.
@@ -166,6 +185,7 @@ public actor MacInstallIdentity {
     /// Stops the bound client: no record write, no token from a mint in flight.
     private func drop() async {
         generation &+= 1
+        teamClients = [:]
         let dropped = client
         client = nil
         user = nil
