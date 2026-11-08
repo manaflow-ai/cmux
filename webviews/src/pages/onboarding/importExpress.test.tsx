@@ -13,6 +13,8 @@ import { OnboardingStore } from "./store";
 
 const restore = installDom();
 afterAll(restore);
+// The test DOM has no Web Animations; ViewSwap plays one when the body swaps (summary ⇄ list).
+(window.HTMLElement.prototype as unknown as { animate: unknown }).animate ??= () => ({ cancel() {}, finish() {} });
 
 const strings = createStrings(table, ["en"]);
 
@@ -77,7 +79,7 @@ test("the grant asks sit in the summary and act once each", async () => {
   await act(async () => fda!.click());
   await act(async () => folder!.click());
   expect(calls).toEqual([
-    { op: OPS.openFullDiskAccess, params: undefined },
+    { op: OPS.openFullDiskAccess, params: {} },
     { op: OPS.askAccess, params: { browser: "orbit" } },
   ]);
 });
