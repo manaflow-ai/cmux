@@ -39,6 +39,14 @@ import Testing
             if insets.last != trailingInset { insets.append(trailingInset) }
         }
 
+        /// The page is back on the New Tab screen: no tools in the row.
+        func returnToNewTab() {
+            chat = false
+            guard shared != 0 else { return }
+            shared = 0
+            onTabRowToolsChange?()
+        }
+
         /// The page leaves the New Tab screen and draws its chat's tools, at the inset it holds, then reports them.
         func leaveNewTab() {
             chat = true
@@ -96,7 +104,9 @@ import Testing
         let (pane, toolbar, page) = newTabPane(in: window)
         // What the pane wires (`PaneToolbar.init(pane:)`): the selected page's tools in the row make its tab a chat.
         toolbar.view.pageToolsShown = { [weak page] in (page?.shared ?? 0) > 0 }
-        toolbar.view.onPageToolsShown = { [weak toolbar] in toolbar?.update(target: "t0", kind: nil, paneKinds: [.newTab]) }
+        toolbar.view.onPageToolsShown = { [weak toolbar, weak page] in
+            toolbar?.update(target: "t0", kind: (page?.shared ?? 0) > 0 ? nil : .newTab, paneKinds: [.newTab])
+        }
         let before = try #require(page.insets.last)
         page.leaveNewTab()
         pane.layoutSubtreeIfNeeded() // the one pass the tools' report asks for
@@ -104,5 +114,10 @@ import Testing
         #expect(toolbar.view.frame.width == PaneToolbarView.trailingGap, "the bar beside the tools is its trailing gap")
         #expect(page.insets == [before], "the tools moved: offered insets \(page.insets)")
         #expect(pane.stripView.frame.maxX + page.need + before == pane.bounds.width, "the strip ends where the tools begin")
+        // Back on the New Tab screen before the session lands (a refused first prompt, a reload): its "…" comes back.
+        page.returnToNewTab()
+        pane.layoutSubtreeIfNeeded()
+        #expect(toolbar.view.hasMore, "the New Tab page's \"…\" is back")
+        #expect(page.insets == [before], "the inset the tools would draw at is still the chat's")
     }
 }

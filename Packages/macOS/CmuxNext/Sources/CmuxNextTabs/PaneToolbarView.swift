@@ -70,15 +70,21 @@ public final class PaneToolbarView: NSView {
     public private(set) var yieldsToPageTools = false
     /// Whether the selected page draws its tools in the row now (`AgentPaneTabRow.drawsTools`).
     public var pageToolsShown: (() -> Bool)?
-    /// The page's tools arrived beside a New Tab page's controls: the owner shows the chat's bar (`PaneToolbar.refresh`).
+    /// The page's tools came into the row or left it: the owner applies its state again (`PaneToolbar.refresh`).
     public var onPageToolsShown: (() -> Void)?
 
-    /// Called as the pane lays out, before it measures this bar: a New Tab page that now draws a chat's tools in the row
-    /// (its first prompt left the New Tab screen) gives up its pins and "…" in this pass, not when its chat's session
-    /// lands, so the tools and the bar beside them lay out once (#38142). The tools' report lays the pane out
-    /// (`PaneTabRowSharing.offerTabRow`); the tab store's observation would follow only after a frame.
+    /// ``pageToolsShown`` as the bar's owner last applied its state (``show(_:more:lit:reserving:nativeItems:yieldsToPageTools:)``).
+    private var appliedPageTools = false
+
+    /// Called as the pane lays out, before it measures this bar: when the page's tools came into the row or left it
+    /// since the owner last applied its state, the owner applies it again in this pass (#38142). A New Tab page whose
+    /// first prompt left the New Tab screen then gives up its pins and "…" as its chat's tools arrive, not when the
+    /// chat's session lands, so the tools and the bar beside them lay out once; a page back on the New Tab screen (a
+    /// refused first prompt, a reload) gets them back. The tools' report lays the pane out (`PaneTabRowSharing.offerTabRow`);
+    /// the tab store's observation would follow only after a frame, or not at all.
     public func followPageTools() {
-        guard yieldsToPageTools, pageToolsShown?() == true else { return }
+        guard let shown = pageToolsShown?(), shown != appliedPageTools else { return }
+        appliedPageTools = shown
         onPageToolsShown?()
     }
     /// Each tab's room at the row's trailing end, so its pane's strip ends in one place whichever tab is selected.
@@ -148,6 +154,7 @@ public final class PaneToolbarView: NSView {
     /// - Parameter yieldsToPageTools: ``yieldsToPageTools``.
     public func show(_ items: [PaneToolbarItem] = [], more: Bool, lit: Bool, reserving: Int = 0,
                      nativeItems: [PaneTabRowTool] = [], yieldsToPageTools: Bool = false) {
+        appliedPageTools = pageToolsShown?() ?? false
         let filteredNativeItems = nativeItems.filter { $0.id != "chat-menu" }
         let nextNativeMoreTool = nativeItems.first { $0.id == "chat-menu" }
         guard items != self.items || more != hasMore || lit != self.lit || reserving != reservedCount ||
