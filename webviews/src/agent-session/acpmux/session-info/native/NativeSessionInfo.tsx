@@ -3,7 +3,14 @@
 // what ChatSessionInfo takes and derives the same lists the same way; the per-section mappers turn them
 // into rows. The person's choices the page's sections kept in their own state (a fold, Show more, a
 // Reconnect under way) are kept here, since the App's rows have none.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { usePaneLanguage, useT } from "../../i18n";
 import type { AcpmuxRow } from "../../model";
 import { planDone, type SessionInfoPlan } from "../progressSectionModel";
@@ -15,9 +22,16 @@ import type { Subagent } from "../../subagents/subagentFold";
 import type { WorkflowAgent, WorkflowSummary } from "../../summary/workflow";
 import type { Artifact } from "../../conversation/artifactPreview";
 import type { TurnFile } from "../../diff";
-import type { SessionSummary, SummaryBackgroundTask, SummaryWakeup } from "../../summary/sessionSummary";
+import type {
+  SessionSummary,
+  SummaryBackgroundTask,
+  SummaryWakeup,
+} from "../../summary/sessionSummary";
 import { useScheduledClock } from "../scheduled";
-import { visibleChanges, type SessionInfoPullRequestStatus } from "../changesSectionModel";
+import {
+  visibleChanges,
+  type SessionInfoPullRequestStatus,
+} from "../changesSectionModel";
 import type { OutputArtifact, OutputLink } from "../outputsSectionModel";
 import type { ProducedLink } from "../producedLinks";
 import { sessionInfoLists, type SessionInfoProcess } from "../processes";
@@ -55,7 +69,11 @@ import { tasksSection, useNativeWorkflowPhases } from "./tasks";
 import { CloudRepositoryPicker } from "../CloudRepositoryPicker";
 import { chatMachine, type ChatPlace } from "../../chatMachine";
 import { useCloudRepositories } from "./useCloudRepositories";
-import { cloudEnvironmentRequest, openCloudEnvironment, subscribeCloudEnvironment } from "../../cloudEnvironment";
+import {
+  cloudEnvironmentRequest,
+  openCloudEnvironment,
+  subscribeCloudEnvironment,
+} from "../../cloudEnvironment";
 import { copyText } from "../../conversation/clipboard";
 import { useSubagentLimitController } from "../subagentLimitStepperModel";
 import { useIMessage } from "../imessage";
@@ -99,7 +117,8 @@ export type NativeSessionInfoProps = {
   /// The page's route to the chat (chatMachine.ts `chatPlace`).
   place?: ChatPlace;
   repository?: string;
-  made?: Pick<SessionSummary, "outputs" | "pullRequests" | "scheduled"> & Partial<Pick<SessionSummary, "sources">>;
+  made?: Pick<SessionSummary, "outputs" | "pullRequests" | "scheduled"> &
+    Partial<Pick<SessionSummary, "sources">>;
   links: readonly OutputLink[];
   /// The pull requests, issues and commits the chat produced (producedLinks.ts).
   produced?: readonly ProducedLink[];
@@ -119,7 +138,11 @@ export type NativeSessionInfoProps = {
   agent?: Subagent;
   onOpenSubagent?: (id: string) => void;
   onOpenSession?: (sessionId: string) => void;
-  onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
+  onSetRunningLimit?: (
+    sessionId: string,
+    maxRunning: number | null,
+    from?: number,
+  ) => Promise<unknown>;
   onStopWorkflow?: (id: string) => Promise<unknown>;
   onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
   onStopProcess?: (id: string) => Promise<unknown>;
@@ -136,7 +159,11 @@ export type NativeSessionInfoProps = {
 };
 
 /// Sends the model when it changes, coalesced to a frame; withdraws it when the chat's panel goes.
-function usePostSessionInfo(info: NativeSessionInfoModel, actions: NativeInfoActions, onRevealed?: () => void) {
+function usePostSessionInfo(
+  info: NativeSessionInfoModel,
+  actions: NativeInfoActions,
+  onRevealed?: () => void,
+) {
   const sent = useRef<string>(undefined);
   const mounted = useRef(false);
   const posted = useRef(0);
@@ -151,7 +178,9 @@ function usePostSessionInfo(info: NativeSessionInfoModel, actions: NativeInfoAct
     };
   }, []);
   useLayoutEffect(() => {
-    setNativeSessionInfoActions(actions, (id) => panelAction(id, info.sections));
+    setNativeSessionInfoActions(actions, (id) =>
+      panelAction(id, info.sections),
+    );
     return () => setNativeSessionInfoActions(undefined);
   }, [actions, info.sections]);
   useEffect(() => {
@@ -171,7 +200,8 @@ function usePostSessionInfo(info: NativeSessionInfoModel, actions: NativeInfoAct
             acknowledge.current?.();
         })
         .catch(() => {
-          if (mounted.current && request === posted.current) setNativeSessionInfoHost(false);
+          if (mounted.current && request === posted.current)
+            setNativeSessionInfoHost(false);
         });
     });
     return () => {
@@ -180,7 +210,9 @@ function usePostSessionInfo(info: NativeSessionInfoModel, actions: NativeInfoAct
   }, [info, onRevealed]);
   useEffect(
     () => () => {
-      void postNative("pane.sessionInfo", { info: null }).catch(() => undefined);
+      void postNative("pane.sessionInfo", { info: null }).catch(
+        () => undefined,
+      );
     },
     [],
   );
@@ -196,34 +228,53 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   useEffect(() => {
     if (!imessageStatus || imessageStatus === "connected") return;
     // A persistent claim reveals Connect once across panels; later folds belong to the person.
-    if (claimSessionInfoIMessageReveal()) setSessionInfoSection("connectors", true);
+    if (claimSessionInfoIMessageReveal())
+      setSessionInfoSection("connectors", true);
   }, [imessageStatus]);
   useEffect(() => {
     if (imessage?.expanded) setSessionInfoSection("connectors", true);
   }, [imessage?.expanded]);
-  const contextUsage = props.usage ?? compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
-  const environmentEditor = useSyncExternalStore(subscribeCloudEnvironment, cloudEnvironmentRequest);
+  const contextUsage =
+    props.usage ??
+    compactingUsage(
+      summary?.usage,
+      summary?.usageStats,
+      summary?.contextBreakdown,
+    );
+  const environmentEditor = useSyncExternalStore(
+    subscribeCloudEnvironment,
+    cloudEnvironmentRequest,
+  );
   const cloudSession =
     props.cloudRepositoryAvailable &&
-    chatMachine(summary, props.machineName, props.peerKinds, props.place).kind === "cloud"
+    chatMachine(summary, props.machineName, props.peerKinds, props.place)
+      .kind === "cloud"
       ? summary?.sessionId
       : undefined;
   const cloud = useCloudRepositories(cloudSession, shown);
   const activeStops = useMemo(
     () => [
-      ...props.processes.filter((process) => process.state === "running").map((process) => `process:${process.id}`),
+      ...props.processes
+        .filter((process) => process.state === "running")
+        .map((process) => `process:${process.id}`),
       ...props.workflows
-        .filter((workflow) => workflow.state === "running" || workflow.state === "pending")
+        .filter(
+          (workflow) =>
+            workflow.state === "running" || workflow.state === "pending",
+        )
         .map((workflow) => `workflow:${workflow.id}`),
     ],
     [props.processes, props.workflows],
   );
   const stops = useNativeOperations(activeStops);
   const sourceFiles = useNativeSourceFiles(props.onOpenSourceFile, t);
-  const [localReveal, setLocalReveal] = useState<NativeSessionInfoModel["reveal"]>();
+  const [localReveal, setLocalReveal] =
+    useState<NativeSessionInfoModel["reveal"]>();
   // The person's choices inside the sections (the page's components keep these in their own state).
   const [openLists, setOpenLists] = useState<ReadonlySet<string>>(new Set());
-  const [reconnecting, setReconnecting] = useState<Readonly<Record<string, "reconnecting" | "failed">>>({});
+  const [reconnecting, setReconnecting] = useState<
+    Readonly<Record<string, "reconnecting" | "failed">>
+  >({});
   const reconnectingServers = useRef(new Set<string>());
   const [changesAll, setChangesAll] = useState(false);
   const [outputsAll, setOutputsAll] = useState(false);
@@ -234,13 +285,18 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
     [props.allSessions],
   );
   const usageRanked = useMemo(
-    () => (shown && state.sections.usage ? byUsage(props.allSessions ?? [], usageSort) : []),
+    () =>
+      shown && state.sections.usage
+        ? byUsage(props.allSessions ?? [], usageSort)
+        : [],
     [shown, state.sections.usage, props.allSessions, usageSort],
   );
   const [subagentsAll, setSubagentsAll] = useState(false);
   const [endedOpen, setEndedOpen] = useState(false);
   const [finishedOpen, setFinishedOpen] = useState(false);
-  const { phases, onPhase } = useNativeWorkflowPhases(shown && state.sections.tasks ? props.workflows : []);
+  const { phases, onPhase } = useNativeWorkflowPhases(
+    shown && state.sections.tasks ? props.workflows : [],
+  );
   // Order follows a drag in any pane.
   useSectionOrder();
   useEffect(() => {
@@ -253,7 +309,10 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
       props.sessions.some((session) => session.state === "running") ||
       props.processes.some((process) => process.state === "running") ||
       props.transcriptTasks.some((task) => task.state === "running") ||
-      props.workflows.some((workflow) => workflow.state === "running" || workflow.state === "pending"));
+      props.workflows.some(
+        (workflow) =>
+          workflow.state === "running" || workflow.state === "pending",
+      ));
   const tickingNow = useNow(live);
   // Moves once, when the earliest wakeup or cron job still ahead ends (no per-second poll).
   const scheduledNow = useScheduledClock(props.made?.scheduled ?? NO_SCHEDULED);
@@ -262,7 +321,8 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const { onSetRunningLimit, onReconnectMcp } = props;
   const setRunningLimit =
     onSetRunningLimit && chatId && !summary?.peer
-      ? (maxRunning: number | null, from?: number) => onSetRunningLimit(chatId, maxRunning, from)
+      ? (maxRunning: number | null, from?: number) =>
+          onSetRunningLimit(chatId, maxRunning, from)
       : undefined;
   const limit = useSubagentLimitController({
     chatId,
@@ -276,13 +336,21 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
     shown &&
     !!props.onShowCall &&
     ((!local &&
-      sessionInfoLists(props.processes, props.transcriptTasks, props.listed).tasks.some((task) => task.toolCallId)) ||
+      sessionInfoLists(
+        props.processes,
+        props.transcriptTasks,
+        props.listed,
+      ).tasks.some((task) => task.toolCallId)) ||
       (props.made?.scheduled?.length ?? 0) > 0);
   const calls = useMemo(
     () =>
       showsCalls
         ? new Set(
-            props.rows.flatMap((row) => (row.items ?? []).flatMap((item) => (item.tool?.id ? [item.tool.id] : []))),
+            props.rows.flatMap((row) =>
+              (row.items ?? []).flatMap((item) =>
+                item.tool?.id ? [item.tool.id] : [],
+              ),
+            ),
           )
         : undefined,
     [showsCalls, props.rows],
@@ -327,7 +395,12 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           id: `progress:${index}`,
           title: entry.content,
           ...(symbol ? { symbol } : {}),
-          tone: entry.status === "completed" ? "muted" : working ? "running" : "waiting",
+          tone:
+            entry.status === "completed"
+              ? "muted"
+              : working
+                ? "running"
+                : "waiting",
           working,
         } satisfies NativeInfoRow;
       }),
@@ -349,7 +422,8 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           remoteControl: props.remoteControl,
           cloudRepositoryAvailable: props.cloudRepositoryAvailable,
           onAddCloudRepository: cloud.open,
-          onOpenCloudEnvironment: () => openCloudEnvironment({ section: "overview" }),
+          onOpenCloudEnvironment: () =>
+            openCloudEnvironment({ section: "overview" }),
           attachedCloudRepos: cloud.attachedRepos,
           pendingCloudRepos: cloud.pendingRepos,
           onOpenFolder: props.onOpenFolder,
@@ -383,7 +457,10 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
             id: "progress",
             group: "running",
             title: t("sessionInfo.progress"),
-            meta: t("sessionInfo.progress.count", { done: planDone(props.plan), total: props.plan.entries.length }),
+            meta: t("sessionInfo.progress.count", {
+              done: planDone(props.plan),
+              total: props.plan.entries.length,
+            }),
             meter: planDone(props.plan) / props.plan.entries.length,
             open: state.sections.progress,
             foldable: true,
@@ -404,10 +481,14 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
       ),
       changesSection(
         {
-          pullRequests: visibleChanges(props.made?.pullRequests ?? [], props.statuses),
+          pullRequests: visibleChanges(
+            props.made?.pullRequests ?? [],
+            props.statuses,
+          ),
           statuses: props.statuses,
           onOpenBeside: props.onOpenUrl,
-          onCopyText: (text) => postNative("pane.copyText", { text }).catch(() => copyText(text)),
+          onCopyText: (text) =>
+            postNative("pane.copyText", { text }).catch(() => copyText(text)),
           open: state.sections.changes,
           expanded: changesAll,
           onExpandedChange: setChangesAll,
@@ -418,7 +499,9 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
       sourcesSection(
         {
           sources,
-          ...(summary?.additionalDirectories ? { folders: summary.additionalDirectories } : {}),
+          ...(summary?.additionalDirectories
+            ? { folders: summary.additionalDirectories }
+            : {}),
           cwd: summary?.cwd,
           onOpenFile: sourceFiles.open,
           failures: sourceFiles.failures,
@@ -493,10 +576,14 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           onShowCall: props.onShowCall,
           onStopProcess:
             props.onStopProcess &&
-            ((id) => stops.run(`process:${id}`, () => props.onStopProcess!(id)) ?? Promise.resolve()),
+            ((id) =>
+              stops.run(`process:${id}`, () => props.onStopProcess!(id)) ??
+              Promise.resolve()),
           onStopWorkflow:
             props.onStopWorkflow &&
-            ((id) => stops.run(`workflow:${id}`, () => props.onStopWorkflow!(id)) ?? Promise.resolve()),
+            ((id) =>
+              stops.run(`workflow:${id}`, () => props.onStopWorkflow!(id)) ??
+              Promise.resolve()),
           operations: stops.operations,
           onOpenWorkflowAgent: props.onOpenWorkflowAgent,
           onOpenUrl: props.onOpenUrl,
@@ -516,12 +603,19 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
       usageSection(
         {
           own: summary?.usageStats,
-          planLimits: typeof summary?.usageLimits === "object" ? summary.usageLimits : undefined,
+          timeBreakdown: summary?.timeBreakdown,
+          onShowTurn: props.onShowTurn,
+          planLimits:
+            typeof summary?.usageLimits === "object"
+              ? summary.usageLimits
+              : undefined,
           sessions: props.allSessions ?? [],
           chatId,
           onOpen: props.onOpenChat,
           onCompact: props.onCompact,
-          onShowSubagents: sections.some((section) => section?.id === "subagents")
+          onShowSubagents: sections.some(
+            (section) => section?.id === "subagents",
+          )
             ? () => {
                 setSessionInfoSection("subagents", true);
                 setLocalReveal({ section: "subagents", at: Date.now() });
@@ -549,8 +643,15 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
     ...(props.overChat ? { overChat: true } : {}),
     label: props.label,
     ...(props.title ? { title: props.title } : {}),
-    ...(props.onBack ? { back: actions.add("scope.back", props.onBack), backLabel: props.backLabel } : {}),
-    ...((props.revealed ?? localReveal) ? { reveal: props.revealed ?? localReveal } : {}),
+    ...(props.onBack
+      ? {
+          back: actions.add("scope.back", props.onBack),
+          backLabel: props.backLabel,
+        }
+      : {}),
+    ...((props.revealed ?? localReveal)
+      ? { reveal: props.revealed ?? localReveal }
+      : {}),
     sections: orderSections(sections, t),
   };
   // The page's popups over the App's panel: it steps behind them (overlays.ts).
