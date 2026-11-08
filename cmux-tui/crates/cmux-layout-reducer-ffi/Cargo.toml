@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-or-later"
 publish = false
-description = "C ABI for the pure cmux sidebar drop resolver, section layout reducer, Tasks preview, bookmark preview, window focus rules and the Cloud start's decisions"
+description = "C ABI for the pure cmux sidebar drop resolver, section layout reducer, Tasks preview, bookmark preview, window focus rules, the Cloud start's decisions, NEXT Cloud's configuration rules, the cloud task follower, NEXT Cloud's machine record and rules, the Cloud action handlers' rules and the window handlers' rules"
 
 [workspace]
 
@@ -15,10 +15,16 @@ crate-type = ["staticlib", "rlib"]
 [dependencies]
 # Without its `url` feature: the app links no URL parser (cmux-bookmarks-core `validate_url`).
 cmux-bookmarks-core = { path = "../cmux-bookmarks-core" }
+cmux-cloud-config = { path = "../cmux-cloud-config" }
+cmux-cloud-handlers = { path = "../cmux-cloud-handlers" }
+cmux-cloud-machine = { path = "../cmux-cloud-machine" }
 cmux-cloud-start-core = { path = "../cmux-cloud-start-core" }
+cmux-cloud-tasks = { path = "../cmux-cloud-tasks" }
 cmux-focus-core = { path = "../cmux-focus-core" }
+cmux-imessage = { path = "../cmux-imessage" }
 cmux-layout-reducer = { path = "../cmux-layout-reducer" }
 cmux-tasks-core = { path = "../cmux-tasks-core" }
+cmux-window-rules = { path = "../cmux-window-rules" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

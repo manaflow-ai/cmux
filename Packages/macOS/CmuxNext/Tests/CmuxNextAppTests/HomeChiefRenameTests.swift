@@ -43,6 +43,38 @@ import Testing
         #expect(!view.failure.isHidden)
     }
 
+    /// Lawrence 2026-11-07, "renaming chief doesnt work": he renamed the Chief to "Chief mom" and
+    /// it saved (registry rev 4), then the card sent "Chief" 1.9 s later (rev 5, the same
+    /// `home-chief-rename-agent_mux-*` path). The field still showed "Chief" while he was in it,
+    /// the Home moved the name to "Chief mom" meanwhile (only `shownName`, since the field was
+    /// being edited), and leaving the field sent the text he never touched. Leaving a field the
+    /// person did not change renames nothing and shows the newest name.
+    @Test func leavingAnUntouchedFieldNeverPutsBackTheOldName() throws {
+        let view = Self.view()
+        var sent: [String] = []
+        view.onRename = { sent.append($0); return nil }
+        view.setName("Chief")
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView?.addSubview(view)
+        try #require(window.makeFirstResponder(view.nameField))
+        #expect(view.nameField.currentEditor() != nil)
+        // The rename saved meanwhile (its echo, or the CLI, the phone, Settings > Chief).
+        view.setName("Chief mom")
+        #expect(view.nameField.stringValue == "Chief")
+        // Leaving the field (a click elsewhere, the card closing) sends its action.
+        #expect(view.commitName() == nil)
+        #expect(sent.isEmpty)
+        #expect(view.nameField.stringValue == "Chief mom")
+        // The real end of editing (sendsActionOnEndEditing) sends nothing either.
+        try #require(window.makeFirstResponder(view.nameField))
+        window.makeFirstResponder(nil)
+        #expect(sent.isEmpty)
+        #expect(view.nameField.stringValue == "Chief mom")
+    }
+
     @Test func anAcceptedRenameKeepsTheNewName() async throws {
         let view = Self.view()
         var sent: [String] = []

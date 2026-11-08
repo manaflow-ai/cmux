@@ -40,23 +40,9 @@
 }
 .acpmux-session-info-context__compact {
   flex: none;
-  height: var(--cmux-control-height);
-  padding: 0 var(--ds-space-2);
-  border: 0;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
-  color: var(--agent-text);
-  font: inherit;
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
   white-space: nowrap;
-}
-.acpmux-session-info-context__compact:hover {
-  background: color-mix(in srgb, var(--agent-text) 16%, transparent);
-}
-.acpmux-session-info-context__compact:focus-visible {
-  outline: 1.5px solid var(--agent-text);
-  outline-offset: 1px;
 }
 .acpmux-session-info-context__bar {
   display: flex;

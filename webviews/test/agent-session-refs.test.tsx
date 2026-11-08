@@ -48,7 +48,7 @@ const host = dom.window.document.getElementById("root")!;
 let root: Root | undefined;
 
 const { createRoot } = await import("react-dom/client");
-const { renderInline } = await import("../src/agent-session/acpmux/conversation/Markdown");
+const { renderInline } = await import("../src/agent-session/acpmux/conversation/inlineMarkdown");
 const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
 const refs = await import("../src/agent-session/acpmux/conversation/sessionRefs");
 const { mockResolvable, SESSION_LINK_REFS } = await import("../src/agent-session/acpmux/mockFixture");
@@ -230,9 +230,15 @@ test("without a daemon an agent link is a plain web link and a name plain code",
 });
 
 test("agentRef reads every agent link form and no file or fraction", () => {
+  // An opaque link goes to acpmux whole: it resolves one only where it holds the key.
   expect(refs.agentRef("https://cmux.com/deeplink/agent?id=aid-0123456789abcdef0123")).toEqual({
     kind: "link",
     href: "https://cmux.com/deeplink/agent?id=aid-0123456789abcdef0123",
+    query: "https://cmux.com/deeplink/agent?id=aid-0123456789abcdef0123",
+  });
+  expect(refs.agentRef("https://cmux.com/deeplink/agent?id=aid-0123")).toEqual({
+    kind: "link",
+    href: "https://cmux.com/deeplink/agent?id=aid-0123",
   });
   expect(refs.agentRef("cmux://agent/codex/019a-thread?host=build-mac")).toMatchObject({
     kind: "link",

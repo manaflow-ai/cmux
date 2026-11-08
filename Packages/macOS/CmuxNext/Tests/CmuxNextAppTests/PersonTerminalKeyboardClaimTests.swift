@@ -30,20 +30,20 @@ struct PersonTerminalKeyboardClaimTests {
         return tree
     }
 
-    private static func key(_ characters: String, keyCode: UInt16, in window: NSWindow) throws -> NSEvent {
+    static func key(_ characters: String, keyCode: UInt16, in window: NSWindow) throws -> NSEvent {
         try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                       windowNumber: window.windowNumber, context: nil, characters: characters,
                                       charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode))
     }
 
-    private struct Harness {
+    struct Harness {
         let services: AppServices
         let controller: WindowController
         let window: NSWindow
         let panes: [String]
     }
 
-    private static func withWindow(replay: @escaping HeldKeyReplay = { event, window, router in
+    static func withWindow(replay: @escaping HeldKeyReplay = { event, window, router in
         if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
     }, _ body: (Harness) async throws -> Void) async throws {
         _ = NSApplication.shared

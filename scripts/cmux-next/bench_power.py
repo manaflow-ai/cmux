@@ -46,6 +46,13 @@ One command on the fleet:
     --script scripts/measure/perf-idle-power.sh --ref SHA \\
     --arg=scenarios=loaded --arg=config=bench --artifact artifacts/perf-idle-power.json
 
+`relaunch-reconnect` (run it alone) quits and relaunches the app with agent chats open, one
+streaming, and times each phase from process start to the shown chat's first live event
+(bench_relaunch_reconnect.py; --load-local sets its chats, 6 by default):
+  cmux-ci run --class exclusive --measurement --display --label measure \\
+    --script scripts/measure/perf-idle-power.sh --ref SHA --arg=scenarios=relaunch-reconnect \\
+    --arg=config=bench --artifact artifacts/perf-idle-power.json
+
 `idle-chats` (run it alone) is the same bench at the idle-CPU stop condition (Leo, 2026-11-03:
 "im at 100% cpu rn"; done when every process idles under 5% CPU with about 40 chats open):
 40 local chats on the app's own daemon, each answered once and shown once in its own workspace,
@@ -196,8 +203,12 @@ def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None, 
         last = counters(pid)
         if first is None or last is None:
             continue
-        entry = kinds.setdefault(kind, {"count": 0, "mw": 0.0, "cpu_pct": 0.0, "wakeups_per_s": 0.0, "footprint_mb": 0.0})
+        entry = kinds.setdefault(kind, {"count": 0, "mw": 0.0, "cpu_pct": 0.0, "wakeups_per_s": 0.0, "footprint_mb": 0.0,
+                                        "footprint_unread": 0})
         entry["count"] += 1
+        # A live process never has no footprint: a 0 is a failed read, so the sum is partial (see
+        # measure_processes) and says how many it is missing.
+        entry["footprint_unread"] += 0 if last[3] else 1
         entry["mw"] += (last[0] - first[0]) / 1e6 / elapsed
         entry["cpu_pct"] += 100 * (last[1] - first[1]) / 1e9 / elapsed
         entry["wakeups_per_s"] += (last[2] - first[2]) / elapsed
@@ -206,13 +217,15 @@ def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None, 
         for key in ("mw", "cpu_pct", "wakeups_per_s", "footprint_mb"):
             entry[key] = round(entry[key], 3)
     total = {key: round(sum(e[key] for e in kinds.values()), 3) for key in ("mw", "cpu_pct", "wakeups_per_s", "footprint_mb")}
+    total["footprint_unread"] = sum(e["footprint_unread"] for e in kinds.values())
     result = {"label": label, "seconds": round(elapsed, 1), "total": total,
               "kinds": dict(sorted(kinds.items(), key=lambda item: -item[1]["mw"])), "powermetrics": pm_result}
     for kind, entry in result["kinds"].items():
         print(f"PERF-POWER {label} kind={kind} n={entry['count']} mw={entry['mw']} cpu_pct={entry['cpu_pct']} "
-              f"wakeups_per_s={entry['wakeups_per_s']} footprint_mb={round(entry['footprint_mb'], 1)}")
+              f"wakeups_per_s={entry['wakeups_per_s']} footprint_mb={round(entry['footprint_mb'], 1)} "
+              f"footprint_unread={entry['footprint_unread']}")
     print(f"PERF-POWER-TOTAL {label} mw={total['mw']} cpu_pct={total['cpu_pct']} wakeups_per_s={total['wakeups_per_s']} "
-          f"footprint_mb={round(total['footprint_mb'], 1)} powermetrics={json.dumps(pm_result)}", flush=True)
+          f"footprint_mb={round(total['footprint_mb'], 1)} footprint_unread={total['footprint_unread']} powermetrics={json.dumps(pm_result)}", flush=True)
     app_mw = result["kinds"].get("app", {}).get("mw", 0.0)
     if sampler:
         sampler.wait(timeout=60)
@@ -391,7 +404,10 @@ def measure_processes(app_pid: int, bundle: str, label: str, seconds: float, rol
         span = t1 - t0
         steps = [100 * (b[1][1] - a[1][1]) / 1e9 / (b[0] - a[0]) for a, b in zip(samples, samples[1:]) if b[0] > a[0]]
         role = "app" if kind == "app" else roles.get(pid, kind)
-        rows.append({"pid": pid, "kind": kind, "role": role, "footprint_mb": round(u1[4] / MB, 1),
+        # The largest footprint the window read. A live process never has none: a 0 is a read that
+        # failed (24 of 46 renderers in one display run), so it counts as unread, not as 0 MB.
+        footprint = max(sample[1][4] for sample in samples)
+        rows.append({"pid": pid, "kind": kind, "role": role, "footprint_mb": round(footprint / MB, 1) if footprint else None,
                      "cpu_pct": round(100 * (u1[1] - u0[1]) / 1e9 / span, 3), "cpu_p95_pct": round(percentile(steps, 0.95), 3),
                      "idle_wakeups_per_s": round((u1[2] - u0[2]) / span, 2),
                      "interrupt_wakeups_per_s": round((u1[3] - u0[3]) / span, 2),
@@ -400,7 +416,10 @@ def measure_processes(app_pid: int, bundle: str, label: str, seconds: float, rol
                      "wakeups_per_s": round((u1[2] - u0[2] + u1[3] - u0[3]) / span, 2),
                      "mw": round((u1[0] - u0[0]) / 1e6 / span, 3),
                      "main_thread_pct": round(100 * (m1 - m0) / 1e9 / span, 3) if m0 is not None and m1 is not None else None,
-                     "command": cmd[:160]})
+                     "command": cmd[:160],
+                     # The renderer flags that say which renderer it is, kept whole: a long bundle path
+                     # pushes them past the truncated command.
+                     "flags": " ".join(arg for arg in cmd.split() if arg.startswith(RENDERER_FLAGS))})
         steps_by_role.setdefault(role, []).append(steps)
         steps_by_role.setdefault("total", []).append(steps)
     rows.sort(key=lambda row: -row["cpu_pct"])
@@ -410,7 +429,8 @@ def measure_processes(app_pid: int, bundle: str, label: str, seconds: float, rol
         lists = steps_by_role.get(role) or [[]]
         summed = [sum(values) for values in zip(*lists)]  # the role's CPU per 1 s step
         main = [row["main_thread_pct"] for row in members if row["main_thread_pct"] is not None]
-        totals[role] = {"count": len(members), "footprint_mb": round(sum(r["footprint_mb"] for r in members), 1),
+        totals[role] = {"count": len(members), "footprint_mb": round(sum(r["footprint_mb"] or 0 for r in members), 1),
+                        "footprint_unread": sum(1 for r in members if r["footprint_mb"] is None),
                         "cpu_pct": round(sum(r["cpu_pct"] for r in members), 3), "cpu_p95_pct": round(percentile(summed, 0.95), 3),
                         "idle_wakeups_per_s": round(sum(r["idle_wakeups_per_s"] for r in members), 2),
                         "interrupt_wakeups_per_s": round(sum(r["interrupt_wakeups_per_s"] for r in members), 2),
@@ -418,6 +438,7 @@ def measure_processes(app_pid: int, bundle: str, label: str, seconds: float, rol
                         "main_thread_pct": round(sum(main), 3) if main else None}
     for role, entry in totals.items():
         print(f"PERF-IDLE-COST {label} role={role!r} n={entry['count']} footprint_mb={entry['footprint_mb']} "
+              f"footprint_unread={entry['footprint_unread']} "
               f"cpu_pct={entry['cpu_pct']} cpu_p95_pct={entry['cpu_p95_pct']} idle_wakeups_per_s={entry['idle_wakeups_per_s']} "
               f"interrupt_wakeups_per_s={entry['interrupt_wakeups_per_s']} wakeups_per_s={entry['wakeups_per_s']} main_thread_pct={entry['main_thread_pct']}", flush=True)
     return {"label": label, "seconds": round(seconds, 1), "roles": totals, "processes": rows}
@@ -429,9 +450,10 @@ METRICS = (("cpu_pct", "CPU % (avg)"), ("cpu_p95_pct", "CPU % (p95 of 1 s)"), ("
 
 def perf_rows(before: dict, after: dict | None, harness: str) -> list[str]:
     """Performance-table rows (metric | before | after | delta | harness) for two `loaded` results
-    (or one: after and delta empty). Roles in `before` order, the total first."""
-    def cell(value):
-        return "" if value is None else f"{value:g}"
+    (or one: after and delta empty). Roles in `before` order, the total first. A role's footprint
+    with unread processes is a partial sum: it shows "(N unread)" and no delta on either side."""
+    def cell(value, unread=0):
+        return "" if value is None else f"{value:g}" + (f" ({unread} unread)" if unread else "")
     rows = ["| metric | before | after | delta | harness |", "| --- | --- | --- | --- | --- |"]
     roles = list(before["roles"]) + [role for role in (after or {}).get("roles", {}) if role not in before["roles"]]
     for role in roles:
@@ -440,10 +462,16 @@ def perf_rows(before: dict, after: dict | None, harness: str) -> list[str]:
             new = after["roles"].get(role, {}).get(key) if after else None
             if old is None and new is None:
                 continue
+            unread_key = "footprint_unread" if key == "footprint_mb" else None
+            old_unread = (before["roles"].get(role, {}).get(unread_key) or 0) if unread_key else 0
+            new_unread = (after["roles"].get(role, {}).get(unread_key) or 0) if unread_key and after else 0
             delta = ""
             if old is not None and new is not None:
-                delta = f"{new - old:+.3g}" + (f" ({100 * (new - old) / old:+.0f}%)" if old else "")
-            rows.append(f"| {role}: {title} | {cell(old)} | {cell(new)} | {delta} | {harness} |")
+                if old_unread or new_unread:
+                    delta = "unknown (incomplete read)"
+                else:
+                    delta = f"{new - old:+.3g}" + (f" ({100 * (new - old) / old:+.0f}%)" if old else "")
+            rows.append(f"| {role}: {title} | {cell(old, old_unread)} | {cell(new, new_unread)} | {delta} | {harness} |")
     return rows
 
 
@@ -463,6 +491,8 @@ IDLE_COST_PRESETS = {
     "idle-chats": {"load_remote": 0, "load_local": 40, "load_streaming": 0, "load_tabs": 0, "settle": 60, "measure": 120},
 }
 IDLE_COST_LABELS = tuple(IDLE_COST_PRESETS)
+# Command-line flags that name a Chromium renderer when no page map does (process_rows).
+RENDERER_FLAGS = ("--renderer-client-id", "--extension-process", "--type=")
 # Leo's budget for an idle app: no process above this CPU % (the idle-chats verdict).
 PROCESS_BUDGET_PCT = 5.0
 
@@ -480,6 +510,10 @@ def process_rows(result: dict, budget: float) -> tuple[list[str], dict]:
     PASS when no process averages above `budget` CPU %, else OVER with every process above it."""
     def num(value, digits=2):
         return "" if value is None else f"{value:.{digits}f}"
+
+    def footprint_cell(value):
+        # measure_processes keeps a failed footprint read as None: say so, not a blank that reads as none.
+        return "unread" if value is None else num(value, 1)
     rows = ["| process | pid | CPU % avg | CPU % p95 | wakeups/s | main thread CPU % | footprint MB | over budget |",
             "| --- | --- | --- | --- | --- | --- | --- | --- |"]
     over = []
@@ -488,16 +522,18 @@ def process_rows(result: dict, budget: float) -> tuple[list[str], dict]:
         if proc["kind"] == "cef-renderer" and not role.startswith("cef-renderer:"):
             # No page map for this renderer (a build without debug.cef_pages): its command line says
             # which kind it is (--extension-process, --renderer-client-id).
-            role += " `" + " ".join(arg for arg in proc.get("command", "").split()
-                                    if arg.startswith(("--renderer-client-id", "--extension-process", "--type=")))[:80] + "`"
+            flags = proc.get("flags") or " ".join(arg for arg in proc.get("command", "").split()
+                                                  if arg.startswith(RENDERER_FLAGS))
+            role += f" `{flags[:80]}`" if flags else ""
         flag = proc["cpu_pct"] > budget
         if flag:
             over.append({"pid": proc["pid"], "role": proc["role"], "cpu_pct": proc["cpu_pct"]})
         rows.append(f"| {role} | {proc['pid']} | {num(proc['cpu_pct'])} | {num(proc.get('cpu_p95_pct'))} | "
                     f"{num(proc.get('wakeups_per_s'), 1)} | {num(proc.get('main_thread_pct'))} | "
-                    f"{num(proc.get('footprint_mb'), 1)} | {'OVER' if flag else ''} |")
+                    f"{footprint_cell(proc.get('footprint_mb'))} | {'OVER' if flag else ''} |")
     busiest = max(result["processes"], key=lambda row: row["cpu_pct"], default=None)
-    verdict = {"budget_pct": budget, "verdict": "OVER" if over else "PASS", "over": over,
+    # No process measured (a zero-second window, or every process gone) is no evidence: never PASS.
+    verdict = {"budget_pct": budget, "verdict": "OVER" if over else "PASS" if busiest else "UNMEASURED", "over": over,
                "max_cpu_pct": busiest["cpu_pct"] if busiest else None,
                "max_role": busiest["role"] if busiest else None, "max_pid": busiest["pid"] if busiest else None}
     return rows, verdict
@@ -513,6 +549,103 @@ def idle_cost_markdown(result: dict, budget: float) -> tuple[str, dict]:
              f"{verdict['max_role']} at {verdict['max_cpu_pct']}%)", ""] + rows + ["", "Per role:", ""]
     lines += perf_rows(result, None, result.get("harness", ""))
     return "\n".join(lines) + "\n", verdict
+
+
+def devtools(sock: str, browser: int, method: str, params: dict | None = None):
+    """A DevTools method on cmux's own Chromium page `browser` (`debug.cef_page_devtools`): its reply, parsed."""
+    reply = rpc(sock, "debug.cef_page_devtools", {"browser": browser, "method": method, "params": params or {}}, timeout=60)
+    if reply.get("error") or not isinstance(reply.get("result"), str):
+        return {"error": reply.get("error") or "no reply"}
+    try:
+        return json.loads(reply["result"])
+    except ValueError as error:
+        return {"error": str(error)}
+
+
+def profile_summary(profile: dict, top: int = 25) -> dict:
+    """A V8 CPU profile's self time by function (name, script, line), busiest first, in ms."""
+    nodes = {node["id"]: node for node in profile.get("nodes", [])}
+    samples, deltas = profile.get("samples", []), profile.get("timeDeltas", [])
+    self_us: dict[int, float] = {}
+    for index, node_id in enumerate(samples):
+        # A sample's time is the gap to the next one (Chrome DevTools' own attribution).
+        gap = deltas[index + 1] if index + 1 < len(deltas) else 0
+        self_us[node_id] = self_us.get(node_id, 0) + max(gap, 0)
+    by_function: dict[str, float] = {}
+    for node_id, micros in self_us.items():
+        frame = nodes.get(node_id, {}).get("callFrame", {})
+        url = (frame.get("url") or "").rsplit("/", 1)[-1]
+        key = f"{frame.get('functionName') or '(anonymous)'} {url}:{frame.get('lineNumber', -1) + 1}:{frame.get('columnNumber', -1) + 1}"
+        by_function[key] = by_function.get(key, 0) + micros
+    total = sum(by_function.values())
+    busiest = sorted(by_function.items(), key=lambda item: -item[1])[:top]
+    return {"total_ms": round(total / 1000, 1), "self_ms": [[key, round(micros / 1000, 1)] for key, micros in busiest]}
+
+
+def native_sample(pid: int, role: str, seconds: int) -> dict:
+    """`sample PID seconds` (macOS): the main thread's call tree, its first 200 lines, and the
+    heaviest frames of the whole process (the tool's "Sort by top of stack" section)."""
+    out_path = os.path.join(tempfile.gettempdir(), f"idle-sample-{pid}.txt")
+    try:
+        subprocess.run(["/usr/bin/sample", str(pid), str(seconds), "1", "-mayDie", "-file", out_path],
+                       capture_output=True, timeout=seconds + 60, check=False)
+        text = open(out_path, errors="replace").read()
+    except (OSError, subprocess.SubprocessError) as error:
+        return {"pid": pid, "role": role, "error": str(error)}
+    finally:
+        if os.path.exists(out_path):
+            os.remove(out_path)
+    lines = text.splitlines()
+    main, inside = [], False
+    for line in lines:
+        if "Thread_" in line and ("main-thread" in line or "DispatchQueue_1" in line or "CrRendererMain" in line):
+            inside = True
+        elif inside and re.match(r"\s*\d+ Thread_", line):
+            break
+        if inside:
+            main.append(line[:220])
+        if len(main) >= 200:
+            break
+    top = []
+    if "Sort by top of stack" in text:
+        top = text.split("Sort by top of stack", 1)[1].splitlines()[1:40]
+    return {"pid": pid, "role": role, "seconds": seconds, "main": "\n".join(main), "top": "\n".join(line[:200] for line in top)}
+
+
+def idle_profile(sock: str, pages: list[dict], seconds: float) -> list[dict]:
+    """What each shown cmux page's renderer main thread runs while nobody touches it, all in one
+    window of `seconds`: Chromium's page metrics (task, script, style and layout time, counts) per
+    second, and a V8 CPU profile by function. The profilers and the metrics are off again after."""
+    shown = [page for page in pages if not page.get("hidden") and str(page.get("origin", "")).startswith("cmux-page://")]
+    def metrics(browser):
+        reply = devtools(sock, browser, "Performance.getMetrics")
+        return {m["name"]: m["value"] for m in reply.get("metrics", [])} if "metrics" in reply else reply
+    for page in shown:
+        for method, params in (("Performance.enable", None), ("Profiler.enable", None),
+                               ("Profiler.setSamplingInterval", {"interval": 500}), ("Profiler.start", None)):
+            devtools(sock, page["browser"], method, params)
+    before = {page["browser"]: metrics(page["browser"]) for page in shown}
+    time.sleep(seconds)  # test script: the profiled idle window
+    after = {page["browser"]: metrics(page["browser"]) for page in shown}
+    out = []
+    for page in shown:
+        browser = page["browser"]
+        stopped = devtools(sock, browser, "Profiler.stop")
+        devtools(sock, browser, "Profiler.disable")
+        devtools(sock, browser, "Performance.disable")
+        entry = {"browser": browser, "origin": page.get("origin"), "path": page.get("path"),
+                 "renderer_clients": page.get("renderer_clients"), "seconds": seconds}
+        first, last = before[browser], after[browser]
+        if "error" not in first and "error" not in last:
+            keys = ("TaskDuration", "ScriptDuration", "LayoutDuration", "RecalcStyleDuration", "LayoutCount", "RecalcStyleCount")
+            entry["metrics_per_s"] = {key: round((last.get(key, 0) - first.get(key, 0)) / seconds, 4) for key in keys if key in last}
+            entry["heap_mb"] = round(last.get("JSHeapUsedSize", 0) / MB, 1)
+            entry["nodes"] = last.get("Nodes")
+        else:
+            entry["metrics_error"] = [first, last]
+        entry["profile"] = profile_summary(stopped["profile"]) if "profile" in stopped else stopped
+        out.append(entry)
+    return out
 
 
 def run_loaded(args):
@@ -547,6 +680,23 @@ def run_loaded(args):
         time.sleep(5)  # test script: the debug read's own work ends before the window
         result = measure_processes(pid, args.app, label, args.measure, roles, peer.pids())
         result["load"] = reached
+        if label == "idle-chats":
+            # After the window, so it costs the measurement nothing: what the shown chat's page asks
+            # for while nobody touches it, by call site (idleProbe.ts), for the idle loop's source.
+            # A 3.5 s window: a Chromium page's script call ends at 5 s (Runtime.evaluate).
+            probe = rpc(sock, "debug.agent_pane", {"action": "idle_probe", "ms": 3500}, timeout=20)
+            result["idle_probe"] = probe
+            print(f"PERF-IDLE-PROBE {json.dumps(probe)[:20000]}", flush=True)
+            pages_now = (rpc(sock, "debug.cef_pages") or {}).get("pages") or []
+            result["pages"] = pages_now
+            result["idle_profile"] = idle_profile(sock, pages_now, 10)
+            print(f"PERF-IDLE-PROFILE {json.dumps(result['idle_profile'])[:20000]}", flush=True)
+            # A page's script and tasks can read 0 while its renderer's main thread still burns: a native
+            # sample of each renderer over 1% names that work.
+            busy = [row for row in result["processes"] if row["kind"] == "cef-renderer" and row["cpu_pct"] > 1][:3]
+            result["native_samples"] = [native_sample(row["pid"], row["role"], 8) for row in busy]
+            for entry in result["native_samples"]:
+                print(f"PERF-IDLE-SAMPLE pid={entry['pid']} role={entry['role']!r}\n{entry.get('main', entry.get('error'))}", flush=True)
         result["renderer_roles"] = "debug.cef_pages" if pages is not None else "none (a build without debug.* methods)"
         sha = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"], capture_output=True, text=True).stdout.strip()
         model = subprocess.run(["sysctl", "-n", "hw.model"], capture_output=True, text=True).stdout.strip()
@@ -600,15 +750,34 @@ def main():
                         help="idle-cost: the CPU %% per process the verdict holds each process to")
     parser.add_argument("--md", help="idle-cost: write the per-process Markdown table here")
     parser.add_argument("--scenarios", default="terminal,tab1,tab1-hidden,tabs20,tabs20-hidden,title,scroll,video,switch,minimized")
-    parser.add_argument("--config", default="{}", help="extra cmux.json settings (JSON)")
+    parser.add_argument("--config", default="{}", help="extra cmux.json settings (JSON); a \"debugTunables\" object is taken as --tunable values")
     parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
                         help="extra app environment, e.g. CMUX_NEXT_CEF_EXTRA_SWITCHES=... (repeatable)")
+    parser.add_argument("--tunable", action="append", default=[], metavar="KEY=JSON",
+                        help="a Debug Settings value for this run (repeatable), e.g. browserPage.sparePage=true: the arms of an A/B")
     parser.add_argument("--neighbor-gap", type=float, default=7, help="seconds before each neighbors-scenario switch")
     parser.add_argument("--neighbor-rounds", type=int, default=10)
     parser.add_argument("--sample-idle", action="store_true",
                         help="sample the app's stacks inside each idle window; keep the sample when the app is above 1 mW")
     parser.add_argument("--out")
     args = parser.parse_args()
+    # perf-idle-power.sh passes only settings= through: its "debugTunables" object is the run's Debug Settings, not cmux.json.
+    # The fleet controller allows no JSON characters in a step's args, so `debugTunables:KEY=JSON,KEY=JSON` says the same.
+    if args.config.startswith("debugTunables:"):
+        args.tunable += [item for item in args.config.removeprefix("debugTunables:").split(",") if item]
+        args.config = "{}"
+    config = json.loads(args.config)
+    if isinstance(config, dict) and isinstance(config.get("debugTunables"), dict):
+        args.tunable += [f"{k}={json.dumps(v)}" for k, v in config.pop("debugTunables").items()]
+        args.config = json.dumps(config)
+    if args.tunable:
+        # The build reads its Debug Settings from this file (DebugSettingsService), as chromium-host-bench.py does.
+        tunables = os.path.join(tempfile.mkdtemp(prefix="bench-power-tunables-"), "debug-tunables.json")
+        values = {k: json.loads(v) for k, v in (item.split("=", 1) for item in args.tunable)}
+        with open(tunables, "w") as f:
+            json.dump({"version": 1, "values": values}, f)
+        args.env.append(f"CMUX_NEXT_DEBUG_TUNABLES_FILE={tunables}")
+        print(f"PERF-TUNABLES {json.dumps(values)}", flush=True)
     if args.compare:
         before, after = (loaded_result(path) for path in args.compare)
         print("\n".join(perf_rows(before, after, args.harness or before.get("harness", "bench_power.py loaded"))))
@@ -616,6 +785,18 @@ def main():
     if not args.app:
         parser.error("--app is required")
     scenarios = args.scenarios.split(",")
+    if "relaunch-reconnect" in scenarios:
+        # Relaunch to the first live chat event (bench_relaunch_reconnect.py), through this
+        # script's one fleet entry (perf-idle-power.sh); --load-local sets its chats.
+        if scenarios != ["relaunch-reconnect"]:
+            raise SystemExit("bench-power: the relaunch-reconnect scenario runs alone (--scenarios relaunch-reconnect)")
+        import bench_relaunch_reconnect as relaunch
+        argv = ["--app", args.app, "--config", args.config]
+        argv += ["--chats", str(args.load_local)] if args.load_local is not None else []
+        argv += ["--out", args.out] if args.out else []
+        argv += ["--md", args.md] if args.md else []
+        relaunch.main(argv)
+        return
     for scenario in IDLE_COST_LABELS:
         if scenario in scenarios:
             if scenarios != [scenario]:

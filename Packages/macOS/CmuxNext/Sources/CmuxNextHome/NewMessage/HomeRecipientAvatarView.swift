@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+public import CmuxNextHomeModel
 import ImageIO
 
 /// How a suggestion row under New Message's To: field draws one recipient

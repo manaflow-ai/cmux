@@ -9,24 +9,18 @@ public struct CloudMachineStats: Sendable, Hashable, Decodable {
     public var memoryUsedMb: Double?
     public var diskTotalMb: Double?
     public var diskUsedMb: Double?
+
+    /// Only a state: a Worker machine (the app server link) has no stats route.
+    public init(state: String) { self.state = state }
 }
 
-/// One snapshot from `GET /api/vm/{id}/snapshots` or `POST …/snapshot`.
-public struct CloudSnapshot: Sendable, Hashable, Decodable {
+/// One snapshot, as cmux-cloud-machine `models::read("snapshot")` answers it (its id under `snapshotId` or `id`).
+public struct CloudSnapshot: Sendable, Hashable, Codable {
     public var id: String
     public var name: String?
 
-    enum CodingKeys: String, CodingKey { case id, snapshotId, name }
-
-    public init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decodeIfPresent(String.self, forKey: .snapshotId) ?? c.decode(String.self, forKey: .id)
-        name = try c.decodeIfPresent(String.self, forKey: .name)
+    public init(id: String, name: String? = nil) {
+        self.id = id
+        self.name = name
     }
-}
-
-/// `POST /api/vm/{id}/open-port`.
-public struct CloudPortLink: Sendable, Hashable, Decodable {
-    public var url: String
-    public var openUrl: String?
 }

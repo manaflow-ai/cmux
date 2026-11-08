@@ -48,7 +48,7 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
     /// such session or does not answer.
     static func runs(_ session: String, socketPath: String) async -> Bool {
         guard !session.isEmpty,
-              let found = try? await AcpmuxStatusClient.sessionSummary(socketPath: socketPath, sessionId: session, deadline: .seconds(2))
+              let found = try? await AcpmuxStatusClient.sessionSummary(socketPath: socketPath, sessionId: session, deadline: AcpmuxEnvironment.answerDeadline)
         else { return false }
         return (found["peer"] as? String)?.isEmpty != false
     }
@@ -94,6 +94,11 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
         }
     }
 
+    /// Peer copies belong to this Mac's daemon; reading one never waits for Chief routing.
+    public func peerSnapshot(sessionId: String) async -> Data? {
+        await local.peerSnapshot(sessionId: sessionId)
+    }
+
     public func prewarm() async throws {
         try await local.prewarm()
     }
@@ -113,6 +118,13 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
     /// for a local chat; the Chief home's host starts no daemon, so it stops none.
     public func restartStuckAcpmux(sessionId: String?) async -> Bool {
         await host(for: sessionId).restartStuckAcpmux(sessionId: sessionId)
+    }
+
+    /// An outdated daemon's restart is for this Mac's own daemon and a local chat only: a Chief-owned
+    /// chat's daemon is the Chief home's, even when that host may start daemons, and stays running.
+    public func restartOutdatedAcpmux(sessionId: String?) async -> String? {
+        if let sessionId, await chiefOwns(sessionId) { return nil }
+        return await local.restartOutdatedAcpmux(sessionId: sessionId)
     }
 
     public func putFile(sessionId: String, name: String, data: Data) async throws -> String {

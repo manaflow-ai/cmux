@@ -17,7 +17,7 @@
 // Cost: nothing while nothing waits. The group is made once per change of the waiting rows; the
 // same rows give the same row back, so the transcript keeps its identity.
 import { batchLaneNotices, flattenInboxRows, noticeOf } from "./laneNoticeBatches";
-import { PENDING_MESSAGES, QUEUED_MESSAGE, type AcpmuxRow } from "../model";
+import { isLiveLine, PENDING_MESSAGES, QUEUED_MESSAGE, type AcpmuxRow } from "../model";
 
 /// The group's row id: one while any message waits.
 export const PENDING_MESSAGES_ROW_ID = "pending-messages";
@@ -83,6 +83,16 @@ export function bySender(rows: readonly AcpmuxRow[]): { key: string; rows: Acpmu
     else groups.set(key, [row]);
   }
   return [...groups].map(([key, list]) => ({ key, rows: list }));
+}
+
+/// `rows`, then what waits at the transcript's end (`waiting`: the group of waiting messages, a
+/// guest's held prompt), with a running turn's live line kept the last row: the shimmer stays at
+/// the bottom, under what waits, as a held prompt already sits over it in its turn (Leo, 2026-11-03:
+/// "thinking shimmer not being at the bottom looks bad").
+export function withWaitingRows(rows: AcpmuxRow[], waiting: readonly AcpmuxRow[]): AcpmuxRow[] {
+  if (waiting.length === 0) return rows;
+  const last = rows.at(-1);
+  return last && isLiveLine(last) ? [...rows.slice(0, -1), ...waiting, last] : [...rows, ...waiting];
 }
 
 let version = 0;

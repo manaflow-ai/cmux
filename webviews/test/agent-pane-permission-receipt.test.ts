@@ -84,8 +84,9 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     { permissionId: "perm-test", outcome },
   ];
   const picked = (optionId: string) => decided({ outcome: "selected", optionId });
-  /// The approved call runs to its end: while it runs the live line draws it, and its row (with its
-  /// "Approved" mark) once it is done.
+  /// The approved call runs to its end. While it runs, and while it is the turn's latest finished
+  /// step, the live line names it (turns.ts `liftedStep`); its row, with its "Approved" mark, is
+  /// drawn once the turn moves past it, here the reply's first words (`answered`).
   const ran: Step = [
     "in",
     "tool_call_update",
@@ -175,6 +176,8 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     "agent_message_chunk",
     update({ sessionUpdate: "agent_message_chunk", messageId: "reply-1", content: { type: "text", text } }),
   ];
+  /// The turn moves past the call that ran: the live line lets go of it and its row is drawn.
+  const answered = chunk("Tests pass.");
   const missed = [asked[3]!, picked("allow_once"), chunk("Tests")].map((step, index) => record(LAG, step, 4 + index));
   const session = (sessionId: string) => ({
     sessionId,
@@ -330,6 +333,7 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     expect(await receipts(page)).toEqual([]);
     push(picked("allow_once"));
     push(ran);
+    push(answered);
     await page.locator(".cv-command__approved").first().waitFor({ timeout: 5_000 });
     expect(await page.locator(".acpmux-permission-ask").count()).toBe(0);
     expect(await receipts(page)).toEqual([]);
@@ -348,6 +352,7 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
       push(picked("allow_once"), chat);
       await page.locator(".acpmux-permission-ask").waitFor({ state: "detached", timeout: 5_000 });
       push(ran, chat);
+      push(answered, chat);
       await page.locator(".cv-command__approved").first().waitFor({ timeout: 5_000 });
       expect(await receipts(page)).toEqual([]);
       expect(await approved(page)).toEqual(["call-test"]);

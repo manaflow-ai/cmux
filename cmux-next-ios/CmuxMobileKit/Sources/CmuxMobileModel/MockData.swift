@@ -147,7 +147,15 @@ extension AppStore {
                 quotedPrompt: "run the tests", createdAt: now.addingTimeInterval(-1200)
             ),
         ]
-        return AppStore(teams: teams, activeTeamID: "team-manaflow", workspaces: workspaces.enumerated().map { Self.mockLinkIDs($1, index: $0) }, feed: feed,
+        // CMUX_MOBILE_MOCK_BARE_ROWS=1: two idle workspaces with no branch and no
+        // folder, whose rows have nothing on line 2 (before/after captures).
+        let bare = ProcessInfo.processInfo.environment["CMUX_MOBILE_MOCK_BARE_ROWS"] == "1" ? [
+            Workspace(id: "ws-bare-1", macID: "mac-studio", title: "scratch", directory: "",
+                      tabs: [WorkspaceTab(id: "t-bare-1", kind: .terminal, title: "zsh")], lastActivityAt: ago(8)),
+            Workspace(id: "ws-bare-2", macID: "mac-studio", title: "notes to self", directory: "",
+                      tabs: [WorkspaceTab(id: "t-bare-2", kind: .terminal, title: "zsh")], lastActivityAt: ago(20)),
+        ] : []
+        return AppStore(teams: teams, activeTeamID: "team-manaflow", workspaces: (workspaces + bare).enumerated().map { Self.mockLinkIDs($1, index: $0) }, feed: feed,
                         tabMemory: tabMemory)
     }
 

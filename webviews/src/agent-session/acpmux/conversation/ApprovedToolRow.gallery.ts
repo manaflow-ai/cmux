@@ -41,7 +41,8 @@ const openWork: Play = async (ctx) => {
     [...ctx.document.querySelectorAll<HTMLButtonElement>("button[aria-expanded='false']")].find((node) =>
       /Worked for|Ran \d/.test(node.textContent ?? ""),
     );
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-tool"), { capMs: 10_000 });
+  // A finished Claude turn draws its Worked for line alone until it opens (Codex parity).
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-tool, button.cv-worked"), { capMs: 10_000 });
   for (let i = 0; i < 3 && fold(); i++) fold()!.click();
 };
 
@@ -54,6 +55,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/ApprovedMark.tsx",
     "agent-session/acpmux/conversation/CommandRow.tsx",
     "agent-session/acpmux/conversation/ToolRow.tsx",
+    "agent-session/acpmux/conversation/McpCallRows.tsx",
   ],
   variants: {
     "ask-mode-approved": {
@@ -67,6 +69,17 @@ export default agentPaneEntry({
         run("List open Cloud issues", "gh issue list --repo manaflow-ai/cmux -l cloud"),
         run("File the three Cloud issues", ISSUES, true),
         run("Check they filed", "gh issue list --repo manaflow-ai/cmux -l cloud -L 3"),
+      ]),
+      play: openWork,
+    },
+    "mcp-approved": {
+      note: 'An MCP call the person allowed: its row says "Approved" at the edge too.',
+      snapshot: snapshot([
+        tool("mcp__github__create_issue", "other", "completed", {
+          output: '{"number": 33410}',
+          inputSummary: JSON.stringify({ repo: "manaflow-ai/cmux", title: "Cloud start-session: no machine" }),
+          approved: true,
+        }),
       ]),
       play: openWork,
     },

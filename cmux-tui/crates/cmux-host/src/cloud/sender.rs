@@ -310,6 +310,13 @@ impl Reporter {
         self.trigger("daemon", now)
     }
 
+    /// Replaces the daemon block the next report carries without making one due: for a change
+    /// that goes out with the report its caller makes due next, so that report never carries the
+    /// old block.
+    pub fn replace_daemon(&mut self, daemon: DaemonInfo) {
+        self.daemon = daemon;
+    }
+
     pub fn set_state(&mut self, state: MachineState, now: u64) -> Option<OpRequest> {
         self.state = state;
         self.trigger("state", now)

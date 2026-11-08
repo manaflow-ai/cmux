@@ -3,7 +3,7 @@
 //! claude's `SessionStart`, which carries cmux's startup line (how the
 //! session compacts). Every other event keeps the journal-only shape.
 
-use super::{COMMAND_MARKER, shell_quote};
+use super::{COMMAND_MARKER, shell_quote, sync_barrier_event};
 
 /// Events whose hook output carries the agent's pending messages
 /// (`cmux agent message`): the helper prints the provider's JSON itself, so
@@ -26,6 +26,13 @@ pub(super) fn delivers_messages(provider: &str, event: &str) -> bool {
 /// cmux-tui terminal attached to the pane's tmux session. Anywhere else the
 /// command stays a process-free no-op.
 pub(super) fn hook_command(provider: &str, event: &str) -> String {
+    if matches!(provider, "claude" | "codex") && sync_barrier_event(event) {
+        return format!(
+            "h=${{CMUX_TUI_HOOK:-${{TMUX:+${{XDG_DATA_HOME:-$HOME/.local/share}}/cmux-tui/bin/cmux-tui-hook}}}};if [ -n \"$h\" ];then \"$h\" {} {}||exit 2;else echo {{}};fi;#{COMMAND_MARKER}",
+            shell_quote(provider),
+            shell_quote(event),
+        );
+    }
     if delivers_messages(provider, event) {
         return format!(
             "h=${{CMUX_TUI_HOOK:-${{TMUX:+${{XDG_DATA_HOME:-$HOME/.local/share}}/cmux-tui/bin/cmux-tui-hook}}}};\"${{h:-false}}\" {} {} 2>/dev/null||echo {{}};#{COMMAND_MARKER}",

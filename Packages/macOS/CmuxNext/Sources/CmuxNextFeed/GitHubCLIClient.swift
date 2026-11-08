@@ -31,6 +31,14 @@ public nonisolated struct GitHubCLIClient: GitHubFeedAPI {
         )
     }
 
+    /// The user's own open pull requests that carry the `hold` label: held for their own trial
+    /// of a build (a structural sidebar change waits for a dogfood build this way).
+    public static let heldForTrialQuery = "is:pr is:open author:@me label:hold archived:false"
+
+    public func heldForTrial(etag: String?) async throws -> GitHubAPIResponse<[GitHubReviewRequest]> {
+        try await request(path: "search/issues", fields: ["q": Self.heldForTrialQuery, "per_page": "50"], etag: etag, listKey: "items")
+    }
+
     public func assignedWork(etag: String?) async throws -> GitHubAPIResponse<[GitHubReviewRequest]> {
         try await request(
             path: "search/issues", fields: ["q": "is:open assignee:@me archived:false", "per_page": "50"],

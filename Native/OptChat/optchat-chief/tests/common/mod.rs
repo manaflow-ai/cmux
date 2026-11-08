@@ -152,6 +152,8 @@ pub struct Owner {
     pub refuse_uploads: Option<String>,
     /// Panics outside the owner lock during an original-file upload.
     pub panic_uploads: bool,
+    /// Runs outside the owner lock before an original-file upload reads its bytes.
+    pub before_attachment_upload: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 /// One side conversation as the fake owner keeps it.
@@ -273,6 +275,10 @@ impl PreviewPort for FakeUploader {
     ) -> Result<DerivedImage, OpError> {
         use sha2::Digest;
         use std::io::Read;
+        let before = self.0.lock().unwrap().before_attachment_upload.clone();
+        if let Some(before) = before {
+            before();
+        }
         let panic_uploads = self.0.lock().unwrap().panic_uploads;
         assert!(!panic_uploads, "injected attachment upload panic");
         if let Some(code) = self.0.lock().unwrap().refuse_uploads.clone() {
@@ -567,6 +573,8 @@ pub struct Agents {
     pub prompt_ids: Vec<String>,
     pub events: BTreeMap<String, Vec<AcpmuxEvent>>,
     pub ended: Vec<String>,
+    /// `prompt <session>` and `end <session>`, in the order they ran.
+    pub calls: Vec<String>,
     /// Turns held before they run, released by `release`.
     pub hold: bool,
     pub released: usize,
@@ -605,6 +613,9 @@ pub struct Agents {
     /// `new_session` of a session whose name contains the text takes this
     /// long (a Claude Code process that starts slowly).
     pub slow_session: Option<(String, Duration)>,
+    /// `new_session_watching` never answers: its wait runs, 10 s of it a call, until the watch
+    /// ends it (a harness still working on a loaded machine).
+    pub hold_starts: bool,
     /// `new_session` on this harness profile fails with the text.
     pub session_errors: BTreeMap<String, String>,
     /// The next `new_session` calls fail with these texts, one each, in order.
@@ -618,6 +629,9 @@ pub struct Agents {
     /// The `_acpmux/harnesses` answer; None: `catalog()` (claude-sr and
     /// claude on acpmux's own Claude Code adapter, codex on its ACP adapter).
     pub catalog: Option<Value>,
+    pub machine_status: Option<Value>,
+    pub peer_catalogs: BTreeMap<String, Value>,
+    pub harness_health: BTreeMap<String, Value>,
     /// The harness acpmux reports a new session on (`session`); None: the
     /// one the spec asked for.
     pub session_harness: Option<String>,
@@ -831,6 +845,24 @@ impl AgentPort for FakeAgents {
         Ok(())
     }
 
+    fn new_session_watching(
+        &self,
+        spec: &SessionSpec,
+        keep_waiting: &mut dyn FnMut(Duration) -> bool,
+    ) -> Result<String, String> {
+        if !self.inner.lock().unwrap().hold_starts {
+            return self.new_session(spec);
+        }
+        let mut waited = Duration::ZERO;
+        loop {
+            waited += Duration::from_secs(10);
+            if !keep_waiting(waited) {
+                return Err("session/new: stopped waiting".to_owned());
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {
         if let Some(e) = self.inner.lock().unwrap().session_errors.get(&spec.harness) {
             return Err(e.clone());
@@ -883,6 +915,7 @@ impl AgentPort for FakeAgents {
             inner.prompts.push(blocks.clone());
             inner.prompt_ids.push(prompt_id.to_owned());
             inner.prompt_sessions.push(session.to_owned());
+            inner.calls.push(format!("prompt {session}"));
             inner.signals.insert(session.to_owned(), signals.clone());
             inner.turn_over.remove(session);
             inner.prompts.len() - 1
@@ -948,7 +981,9 @@ impl AgentPort for FakeAgents {
     }
 
     fn end_session(&self, session: &str) -> Result<(), String> {
-        self.inner.lock().unwrap().ended.push(session.to_owned());
+        let mut inner = self.inner.lock().unwrap();
+        inner.ended.push(session.to_owned());
+        inner.calls.push(format!("end {session}"));
         Ok(())
     }
 
@@ -970,6 +1005,43 @@ impl AgentPort for FakeAgents {
             .catalog
             .clone()
             .unwrap_or_else(catalog))
+    }
+
+    fn machine_status(&self) -> Result<Value, String> {
+        Ok(self
+            .inner
+            .lock()
+            .unwrap()
+            .machine_status
+            .clone()
+            .unwrap_or_else(
+                || json!({"here": {"os": "macos", "pressure": {"ok": true}}, "peers": []}),
+            ))
+    }
+
+    fn harness_catalog_on(&self, peer: Option<&str>) -> Result<Value, String> {
+        match peer {
+            Some(name) => self
+                .inner
+                .lock()
+                .unwrap()
+                .peer_catalogs
+                .get(name)
+                .cloned()
+                .ok_or_else(|| "no peer catalog".into()),
+            None => self.harness_catalog(),
+        }
+    }
+
+    fn harness_health_on(&self, peer: Option<&str>) -> Result<Value, String> {
+        Ok(self
+            .inner
+            .lock()
+            .unwrap()
+            .harness_health
+            .get(peer.unwrap_or("here"))
+            .cloned()
+            .unwrap_or_else(|| json!({"harnesses": []})))
     }
 
     fn session(&self, id: &str) -> Result<Option<cmux_chief::acp::SessionSummary>, String> {
@@ -1270,10 +1342,16 @@ impl Harness {
 
     /// A new message in the conversation, as the subscription delivers it.
     pub fn say(&mut self, author: &str, text: &str) -> Message {
+        self.say_at(author, text, "")
+    }
+
+    /// `say`, with the owner's `created_at` stamp (RFC 3339).
+    pub fn say_at(&mut self, author: &str, text: &str, created_at: &str) -> Message {
         let m = {
             let mut owner = self.owner.lock().unwrap();
             let seq = owner.messages.len() as u64 + 1;
-            let m = message(seq, author, text);
+            let mut m = message(seq, author, text);
+            m.created_at = created_at.to_owned();
             owner.messages.push(m.clone());
             m
         };
@@ -1349,6 +1427,19 @@ impl Harness {
     pub fn step(&mut self) {
         let input = self.rx.recv_timeout(WAIT).expect("the brain got no input");
         self.brain.step(input);
+    }
+
+    /// Steps the brain's inputs until `n` prompts were sent. A turn sends
+    /// other inputs before `Settled` (the compactor's stuck-line state, a
+    /// progress note), so one `step` does not reach its prompt.
+    pub fn step_to_prompts(&mut self, n: usize) {
+        let deadline = std::time::Instant::now() + WAIT;
+        while self.agents.inner.lock().unwrap().prompts.len() < n {
+            assert!(std::time::Instant::now() < deadline, "no prompt {n}");
+            if let Ok(input) = self.rx.recv_timeout(std::time::Duration::from_millis(20)) {
+                self.brain.step(input);
+            }
+        }
     }
 
     /// The whole memory log: (kind, text).

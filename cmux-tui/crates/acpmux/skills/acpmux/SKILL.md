@@ -22,7 +22,8 @@ When set, `@` names your own session (`acpmux last @`, `acpmux history @`).
 Sessions you start are siblings, not children: they outlive you.
 
 Inside cmux your `cmux-subsessions` MCP server starts children instead:
-`start_session` (with `worktree: true` for a worktree of its own),
+`start_session` (with `worktree: true` for a worktree of its own, or `fork: true` for a
+fork of your own chat that keeps its history),
 `list_sessions`, `get_session`, `wait_for_sessions`, `send_message`,
 `stop_session` and `retry_session` (a child's failed turn or subagent, again now). Prefer
 them when you have them; this CLI is the fallback (`acpmux retry NAME`).
@@ -241,7 +242,9 @@ resolve): your policy answers those, and `ask` sends them to a person.
 A session on another machine is named `MACHINE/NAME` (`big-red/review-42`), and every command takes that
 form. A bare name (`review-42`) or an id prefix also works when exactly one live session on this
 machine or the machines you added has it; when several do, the command refuses and prints the exact
-`MACHINE/NAME` command for each, so pick one and run it. Say and pass `MACHINE/NAME`: never ask the
+`MACHINE/NAME` command for each, so pick one and run it. A name in another case (`td2-a` for
+`td2-A`), a unique prefix of it or the name without `-`, `_` and spaces works too, and so does a
+machine named that way; several matches are refused with each one, never guessed. Say and pass `MACHINE/NAME`: never ask the
 person for a session id.
 
 ```bash
@@ -281,6 +284,10 @@ acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works o
   pushed and checked out there as a fresh worktree; uncommitted changes refuse the move unless
   `--leave-dirty`. A running turn refuses it unless `--interrupt`. `--dry-run` says where each
   would go. The copy left here never runs again and `resolve` points at the new one.
+  `--from MACHINE` moves chats that are on another machine, driven from here over ssh to both
+  ends (they need not reach each other), and `--machine local` brings them here. The agent's own
+  transcript goes with the chat (Claude Code, Codex, pi files; OpenCode as its export), so it
+  resumes with its full context; other agents resume from the chat's history.
   `acpmux session export MACHINE/NAME` fetches a bundle to `~/.acpmux/bundles/`, and
   `acpmux session import DIR` restores a copy on this machine.
 - **What the machine allows.** Some machines are not for builds or long jobs. When the task or the
@@ -324,3 +331,7 @@ turn was denied · 6 `session stop --if-idle` refused (`busy` or
 - Do not delete sessions you did not create. Do not change defaults, presets, or machines
   unless the task is about them.
 - `--current` / `@` targets your own session only when `ACPMUX_ENV=1`.
+- To hand another session an image (a screenshot, a mockup), attach the file:
+  `acpmux send NAME --no-wait "…" --attach /abs/shot.png`, or `attach` in the MCP
+  `send` tool. It shows as a preview. Never pass a provider's own file id
+  (ChatGPT's `libfile_…`, an upload id): nobody here can open one.

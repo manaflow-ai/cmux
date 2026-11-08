@@ -173,7 +173,7 @@ fn a_save_takes_exactly_one_source_and_refuses_secrets_and_clashes() {
         "other",
     )
     .unwrap();
-    assert_eq!(two[1].bytes, vec![0, 1]);
+    assert_eq!(two[1].bytes.as_ref(), &[0, 1]);
     for bad in [
         json!({"files": [{"name": "a", "text": "a"}, {"name": "A", "text": "b"}]}),
         json!({"files": [{"name": "a", "text": "a"}, {"name": "a/b", "text": "b"}]}),
@@ -338,6 +338,7 @@ async fn save_provisions_then_creates_and_retries_once_on_a_conflict() {
     let moved = "2".repeat(40);
     let (base, server) = fixture(vec![
         (200, JSON, json!({"repo": "r", "headSha": head}).to_string().into_bytes()),
+        (200, JSON, json!({"sha256": "a".repeat(64), "size": 11}).to_string().into_bytes()),
         (409, JSON, json!({"code": "artifacts.conflict", "message": "repository head changed", "currentHeadSha": moved}).to_string().into_bytes()),
         (200, JSON, json!({"id": id, "headSha": "3".repeat(40), "commit": {}}).to_string().into_bytes()),
     ])
@@ -351,15 +352,18 @@ async fn save_provisions_then_creates_and_retries_once_on_a_conflict() {
     let seen = server.await.unwrap();
     assert_eq!(result["isError"], false, "{result}");
     assert!(seen[0].line.starts_with("POST /v1/artifacts/repo "), "{}", seen[0].line);
-    assert!(seen[1].line.starts_with("POST /v1/artifacts "), "{}", seen[1].line);
-    let first: Value = serde_json::from_slice(&seen[1].body).unwrap();
-    let retry: Value = serde_json::from_slice(&seen[2].body).unwrap();
+    assert!(seen[1].line.starts_with("POST /v1/artifacts/blobs "));
+    assert_eq!(seen[1].body, b"<h1>ok</h1>");
+    assert!(seen[2].line.starts_with("POST /v1/artifacts "), "{}", seen[2].line);
+    let first: Value = serde_json::from_slice(&seen[2].body).unwrap();
+    let retry: Value = serde_json::from_slice(&seen[3].body).unwrap();
     assert_eq!(first["expectedHeadSha"], head);
     assert_eq!(retry["expectedHeadSha"], moved);
     assert_eq!(retry["title"], "Build report");
     assert_eq!(retry["kind"], "html");
     assert_eq!(retry["files"][0]["name"], "index.html");
-    assert_eq!(retry["files"][0]["contentBase64"], BASE64.encode("<h1>ok</h1>"));
+    assert_eq!(retry["files"][0]["blobSha256"], "a".repeat(64));
+    assert!(retry["files"][0].get("contentBase64").is_none());
     let data = &result["structuredContent"]["data"];
     assert_eq!(data["id"], id);
     assert_eq!(data["path"], format!("artifacts/{id}"));
@@ -408,4 +412,224 @@ async fn an_answer_over_its_cap_is_refused_not_buffered() {
     server.await.unwrap();
     assert_eq!(r["isError"], true);
     assert!(r["content"][0]["text"].as_str().unwrap().contains("over 4 MiB"), "{r}");
+}
+
+#[test]
+fn text_preview_handles_unicode_across_chunks_and_keeps_one_page() {
+    let mut preview = TextPreview::new(1);
+    for chunk in "a😀éZ".as_bytes().chunks(2) {
+        preview.push(chunk);
+    }
+    assert_eq!(preview.text, "😀éZ");
+    assert_eq!(preview.chars, 4);
+    assert!(preview.pending.is_empty());
+    let mut large = TextPreview::new(0);
+    for _ in 0..100 {
+        large.push(&vec![b'x'; 65536]);
+    }
+    assert_eq!(large.text.len(), MAX_TEXT_CHARS);
+    assert_eq!(large.chars, 100 * 65536);
+    assert!(large.pending.is_empty());
+    large.push(&[0xff]);
+    assert!(!large.valid);
+}
+
+#[tokio::test]
+async fn reads_over_16_mib_stream_complete_files_and_keep_unicode_pagination() {
+    let text = "é".repeat(9 << 20);
+    let binary = vec![0xff; 3 << 20];
+    let (base, server) = fixture(vec![
+        (200, "Content-Type: text/plain\r\n", text.as_bytes().to_vec()),
+        (200, "Content-Type: application/octet-stream\r\n", binary.clone()),
+    ])
+    .await;
+    let c = client(&base);
+    let result =
+        run(&c, "artifact_read", json!({"path": "notes/large.txt", "offset": (9 << 20) - 7})).await;
+    assert_eq!(result["isError"], false, "{result}");
+    let data = &result["structuredContent"]["data"];
+    assert_eq!(data["size"], text.len());
+    assert_eq!(data["text"], "é".repeat(7));
+    assert_eq!(data["chars"], 9 << 20);
+    let path = data["localPath"].as_str().unwrap().to_owned();
+    assert_eq!(tokio::fs::read(&path).await.unwrap(), text.as_bytes());
+    let result = run(&c, "artifact_read", json!({"path": "notes/large.bin"})).await;
+    assert_eq!(result["isError"], false, "{result}");
+    let data = &result["structuredContent"]["data"];
+    assert_eq!(data["size"], binary.len());
+    assert!(data.get("contentBase64").is_none());
+    assert_eq!(tokio::fs::read(data["localPath"].as_str().unwrap()).await.unwrap(), binary);
+    server.await.unwrap();
+    drop(c);
+    assert!(!std::path::Path::new(&path).exists(), "downloads follow client lifetime");
+}
+
+#[tokio::test]
+async fn saves_75_mib_and_300_files_as_staged_blobs_before_one_commit() {
+    let size = 256 << 10;
+    let count = 300;
+    let id = "01J8Z7Q4M6N2K5P8R3T1V9W0X2";
+    let mut answers =
+        vec![(200, JSON, json!({"headSha": "1".repeat(40)}).to_string().into_bytes())];
+    for _ in 0..count {
+        answers.push((
+            200,
+            JSON,
+            json!({"sha256": "a".repeat(64), "size": size}).to_string().into_bytes(),
+        ));
+    }
+    answers.push((
+        200,
+        JSON,
+        json!({"id": id, "headSha": "2".repeat(40)}).to_string().into_bytes(),
+    ));
+    let (base, server) = fixture(answers).await;
+    let args = json!({"title": "Large dataset", "kind": "other", "files":
+        (0..count).map(|i| json!({"name": format!("data-{i}.txt"), "text": "x".repeat(size)})).collect::<Vec<_>>()});
+    let result = tokio::time::timeout(
+        Duration::from_secs(120),
+        call(&client(&base), "artifact_save", &args),
+    )
+    .await
+    .unwrap();
+    assert_eq!(result["isError"], false, "{result}");
+    let seen = server.await.unwrap();
+    assert_eq!(seen.len(), count + 2);
+    for request in &seen[1..=count] {
+        assert!(request.line.starts_with("POST /v1/artifacts/blobs "));
+        assert_eq!(request.body.len(), size);
+        assert!(request.body.iter().all(|b| *b == b'x'));
+    }
+    let manifest = &seen[count + 1];
+    assert!(manifest.line.starts_with("POST /v1/artifacts "));
+    let body: Value = serde_json::from_slice(&manifest.body).unwrap();
+    assert_eq!(body["files"].as_array().unwrap().len(), count);
+    assert!(body["files"].as_array().unwrap().iter().all(|f| f.get("contentBase64").is_none()));
+    assert!(manifest.body.len() < 64 << 10, "75 MiB content never enters the commit request");
+}
+
+#[tokio::test]
+async fn a_failed_blob_upload_does_not_create_an_artifact() {
+    let (base, server) = fixture(vec![
+        (200, JSON, json!({"headSha": null}).to_string().into_bytes()),
+        (500, JSON, json!({"code": "upload.failed"}).to_string().into_bytes()),
+    ])
+    .await;
+    let result =
+        run(&client(&base), "artifact_save", json!({"title": "t", "kind": "html", "html": "x"}))
+            .await;
+    assert_eq!(result["isError"], true);
+    let seen = server.await.unwrap();
+    assert_eq!(seen.len(), 2);
+    assert!(seen[1].line.starts_with("POST /v1/artifacts/blobs "));
+}
+
+// The legacy ArtifactFile from the platform's pre-reference OpenAPI document.
+fn legacy_artifact_schema() -> Value {
+    json!({"paths": {"/v1/artifacts": {"post": {"requestBody": {"content": {
+        "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCreate"}}
+    }}}}}, "components": {"schemas": {
+        "ArtifactCreate": {"properties": {"files": {"items": {"$ref": "#/components/schemas/ArtifactFile"}}}},
+        "ArtifactFile": {"properties": {"name": {"type": "string"}, "contentBase64": {"type": "string"}},
+            "required": ["name", "contentBase64"]}
+    }}})
+}
+
+#[tokio::test]
+async fn legacy_schema_fallback_keeps_all_3_mib_and_retries_conflict_without_reupload() {
+    let bytes = Bytes::from(vec![b'x'; 3 << 20]);
+    let id = "01J8Z7Q4M6N2K5P8R3T1V9W0X2";
+    let (base, server) = fixture(vec![
+        (200, JSON, json!({"headSha": "1".repeat(40)}).to_string().into_bytes()),
+        (
+            200,
+            JSON,
+            json!({"sha256": "a".repeat(64), "size": bytes.len()}).to_string().into_bytes(),
+        ),
+        (400, JSON, Vec::new()),
+        (200, JSON, legacy_artifact_schema().to_string().into_bytes()),
+        (409, JSON, json!({"currentHeadSha": "2".repeat(40)}).to_string().into_bytes()),
+        (200, JSON, json!({"id": id, "headSha": "3".repeat(40)}).to_string().into_bytes()),
+    ])
+    .await;
+    let files = [File {
+        name: "data.txt".into(),
+        bytes: bytes.clone(),
+        content_type: Some("text/plain".into()),
+    }];
+    let result = client(&base).save("Dataset", "other", &files, &json!({})).await.unwrap();
+    assert_eq!(result.0, id);
+    let seen = server.await.unwrap();
+    assert_eq!(seen.len(), 6);
+    assert!(seen[3].line.starts_with("GET /openapi.json "));
+    let staged: Value = serde_json::from_slice(&seen[2].body).unwrap();
+    assert!(staged["files"][0].get("contentBase64").is_none());
+    for request in &seen[4..] {
+        let body: Value = serde_json::from_slice(&request.body).unwrap();
+        assert!(body["files"][0].get("blobSha256").is_none());
+        assert_eq!(
+            BASE64.decode(body["files"][0]["contentBase64"].as_str().unwrap()).unwrap(),
+            bytes
+        );
+        assert_eq!(body["files"][0]["contentType"], "text/plain");
+    }
+    let retry: Value = serde_json::from_slice(&seen[5].body).unwrap();
+    assert_eq!(retry["expectedHeadSha"], "2".repeat(40));
+}
+
+#[tokio::test]
+async fn legacy_fallback_preserves_oversized_and_unrelated_refusals() {
+    let mut modern = legacy_artifact_schema();
+    modern["components"]["schemas"]["ArtifactFile"]["required"] = json!(["name"]);
+    modern["components"]["schemas"]["ArtifactFile"]["properties"]["blobSha256"] =
+        json!({"type": "string"});
+    for (status, refusal, schema, size) in [
+        (400, Vec::new(), Some(legacy_artifact_schema()), (8 << 20) + 1),
+        (400, Vec::new(), Some(json!({"components": {"schemas": {}}})), 1),
+        (400, Vec::new(), Some(modern), 1),
+        (401, Vec::new(), None, 1),
+        (400, Vec::new(), None, 1),
+        (400, json!({"code": "artifacts.bad_path"}).to_string().into_bytes(), None, 1),
+        (403, json!({"code": "artifacts.unauthorized"}).to_string().into_bytes(), None, 1),
+    ] {
+        let mut answers = vec![
+            (200, JSON, json!({"headSha": null}).to_string().into_bytes()),
+            (200, JSON, json!({"sha256": "a".repeat(64), "size": size}).to_string().into_bytes()),
+            (status, JSON, refusal.clone()),
+        ];
+        if status == 400 && refusal.is_empty() {
+            answers.push(match schema {
+                Some(value) => (200, JSON, value.to_string().into_bytes()),
+                None => (404, JSON, Vec::new()),
+            });
+        }
+        if status == 401 {
+            answers.push((401, JSON, refusal.clone()));
+        }
+        let expected_requests = answers.len();
+        let (base, server) = fixture(answers).await;
+        let files = [File {
+            name: "data.bin".into(),
+            bytes: Bytes::from(vec![0xff; size]),
+            content_type: None,
+        }];
+        let error = client(&base).save("Dataset", "other", &files, &json!({})).await.unwrap_err();
+        assert!(error.to_string().contains(&format!("HTTP {status}")), "{error:#}");
+        assert_eq!(server.await.unwrap().len(), expected_requests, "no inline create on refusal");
+    }
+}
+
+#[test]
+fn legacy_fallback_obeys_only_the_old_api_inline_and_rpc_contract() {
+    let one =
+        |name: String, size| File { name, bytes: Bytes::from(vec![0u8; size]), content_type: None };
+    assert!(
+        legacy_inline_files(&(0..257).map(|i| one(format!("{i}.txt"), 0)).collect::<Vec<_>>())
+            .is_none()
+    );
+    assert!(
+        legacy_inline_files(&(0..4).map(|i| one(format!("{i}.bin"), 5 << 20)).collect::<Vec<_>>())
+            .is_none()
+    );
+    assert!(legacy_inline_files(&[one("too-big.bin".into(), (8 << 20) + 1)]).is_none());
 }

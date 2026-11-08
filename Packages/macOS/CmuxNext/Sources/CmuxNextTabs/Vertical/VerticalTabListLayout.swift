@@ -27,7 +27,7 @@ public struct VerticalTabListMetrics: Equatable, Sendable {
 
     public init(rowHeight: CGFloat = 28, rowSpacing: CGFloat = 1, padding: CGFloat = 6, verticalPadding: CGFloat = 6, iconSize: CGFloat = 16,
                 headerHeight: CGFloat = 24, iconsOnlyHeaderHeight: CGFloat = 8, separatorHeight: CGFloat = 9, groupIndent: CGFloat = 8,
-                groupLineWidth: CGFloat = 2, tileSize: CGFloat = 32, tileSpacing: CGFloat = 4, cornerRadius: CGFloat = 6) {
+                groupLineWidth: CGFloat = 2, tileSize: CGFloat = 32, tileSpacing: CGFloat = 4, cornerRadius: CGFloat? = nil) {
         self.rowHeight = rowHeight
         self.rowSpacing = rowSpacing
         self.padding = padding
@@ -40,7 +40,7 @@ public struct VerticalTabListMetrics: Equatable, Sendable {
         self.groupLineWidth = groupLineWidth
         self.tileSize = tileSize
         self.tileSpacing = tileSpacing
-        self.cornerRadius = cornerRadius
+        self.cornerRadius = cornerRadius ?? Metrics.tabCornerRadius // nil: a tab bar tab's corner
     }
 
     /// The live tokens: rows as tall as the strip's tabs, tiles as wide as the collapsed list allows.
@@ -52,7 +52,7 @@ public struct VerticalTabListMetrics: Equatable, Sendable {
             iconSize: Metrics.iconSize, headerHeight: max(Metrics.space6, rowHeight - Metrics.space1), iconsOnlyHeaderHeight: Metrics.space3,
             separatorHeight: Metrics.space3, groupIndent: Metrics.space3, groupLineWidth: VerticalTabTunables.groupLineWidth.value,
             tileSize: max(Metrics.iconSize + Metrics.space2, min(rowHeight + Metrics.space1, VerticalTabTunables.collapsedWidth.value - 2 * padding)),
-            tileSpacing: Metrics.space1, cornerRadius: Metrics.itemCornerRadius
+            tileSpacing: Metrics.space1, cornerRadius: Metrics.tabCornerRadius
         )
     }
 }

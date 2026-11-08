@@ -64,7 +64,7 @@ impl Launch {
                 if let Some(host) = &args.host {
                     bail!(
                         "--worktree makes the worktree on this machine only: run \
-                         `ssh {host} acpmux new ...` there instead of --host {host}"
+                         `ssh {host} acpmux new ...` there instead of --machine {host}"
                     );
                 }
                 if args.cwd.is_some() {
@@ -82,7 +82,7 @@ impl Launch {
         if let (Some(host), Some(from)) = (&args.host, &args.harness_from) {
             bail!(
                 "--harness-from copies a session on this machine only: run \
-                 `ssh {host} acpmux new --harness-from {from} ...` there instead of --host {host}"
+                 `ssh {host} acpmux new --harness-from {from} ...` there instead of --machine {host}"
             );
         }
         let file_prompt = args.prompt_file.as_deref().map(read_prompt_file).transpose()?;
@@ -129,7 +129,8 @@ impl Launch {
         if let Some(to) = &args.report_to {
             parts.push(format!(
                 "You were started by the acpmux session {to}. Report back to it with: \
-                 acpmux send --no-wait {to} '<report>'"
+                 acpmux send --no-wait {to} '<report>'. Hand it an image with \
+                 --attach /abs/path.png, never a provider's file id (libfile_…)."
             ));
         }
         if let Some(w) = created.pointer("/_meta/acpmux/worktree") {

@@ -13,7 +13,9 @@ mod acp;
 mod adapter;
 mod avatar;
 mod backend;
+pub(in crate::cli) mod caller;
 mod chat;
+pub(in crate::cli) mod chat_scope;
 mod control;
 mod editor;
 mod home;
@@ -22,6 +24,7 @@ mod launch;
 mod link;
 mod messages;
 mod pipe;
+mod primary;
 pub(in crate::cli) mod registry;
 mod relocate;
 mod render;
@@ -95,18 +98,21 @@ pub(super) struct Args {
 
 impl Args {
     /// Who sends the `-p` message: `--from`, else the acpmux session this
-    /// runs in; None for the person at a terminal.
-    pub(super) fn sender(&self, env_session: Option<&str>) -> Option<AgentSender> {
-        let name = self.from.as_deref().or(env_session.filter(|n| !n.trim().is_empty()))?;
-        AgentSender::new(name, self.class.as_deref(), self.thread.as_deref())
+    /// runs in, else the coding agent it runs under (`caller.rs`); None for
+    /// the person at a terminal.
+    pub(super) fn sender(
+        &self,
+        env: &dyn Fn(&str) -> Option<String>,
+        host: &dyn Fn() -> Option<String>,
+    ) -> Option<AgentSender> {
+        caller::sender(
+            self.from.as_deref(),
+            self.class.as_deref(),
+            self.thread.as_deref(),
+            env,
+            host,
+        )
     }
-}
-
-/// The acpmux session this CLI runs in (`ACPMUX_SESSION_NAME`, which acpmux
-/// sets for every agent it runs), so an agent's message to the Chief is read
-/// as that agent's even when it names no `--from`.
-pub(super) fn acpmux_session() -> Option<String> {
-    std::env::var("ACPMUX_SESSION_NAME").ok().filter(|name| !name.trim().is_empty())
 }
 
 /// `cmux [global options] chief …`; `None` when `args` names another scope.
@@ -160,8 +166,13 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
             | "--reactions-can-wake"
             | "--classifier-harness"
             | "--classifier-model"
-            | "--classifier-prompt" => {
-                let key = flag.trim_start_matches("--").replace('-', "_");
+            | "--classifier-prompt"
+            | "--mode" => {
+                // `--mode`: the Chief turns' permission mode (cmux#37392).
+                let key = match flag {
+                    "--mode" => "permission_mode".to_owned(),
+                    _ => flag.trim_start_matches("--").replace('-', "_"),
+                };
                 let value = value()?;
                 match &mut parsed.control {
                     Some(control::Control::Engine(changes)) => changes.push((key, value)),
@@ -180,7 +191,7 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
                 parsed.timeout_secs = (secs > 0).then_some(secs);
             }
             "--chief-home" => parsed.chief_home = Some(value()?.into()),
-            "--chief" => {
+            "--chief" | "--to" => {
                 let id = value()?;
                 // `--chief --json` is a missing id, not a Chief named `--json`.
                 if inline.is_none() && id.starts_with('-') {
@@ -203,8 +214,14 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
         }
         index += 1;
     }
-    if parsed.chief.is_some() && parsed.control.is_none() {
-        return Err("--chief goes with `cmux chief engine` or `cmux chief stop`".into());
+    // `-p TEXT --chief NAME` (or `--to NAME`): that Chief's chat, by its id or name.
+    if parsed.control.is_none()
+        && let Some(chief) = parsed.chief.take()
+    {
+        if parsed.target.chat.is_some() {
+            return Err("--chief and --chat name the same thing; give one".into());
+        }
+        parsed.target.chat = Some(chief);
     }
     Ok(parsed)
 }
@@ -219,6 +236,9 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     let m = messages();
     if args.first().is_some_and(|word| registry::WORDS.contains(&word.as_str())) {
         return registry::run(&global, args);
+    }
+    if args.first().is_some_and(|word| word == "primary") {
+        return primary::run(&global, &args[1..]);
     }
     if args.first().is_some_and(|word| word == "move") {
         return relocate::run(&global, &args[1..]);
@@ -507,18 +527,35 @@ impl Session {
     }
 }
 
-/// The chat `chat` names among `chats` (an id, or a unique title), or the
-/// default chat: the Chief conversation (local), the newest chat with an
-/// agent (cloud).
+/// The chat `chat` names among `chats` (an id, its Chief's agent id, a unique
+/// title, or a unique title without its " Chief" ending: `codex` is "Codex
+/// Chief"; `chief` is the default), or the default chat: the Chief
+/// conversation (local), the newest chat with an agent (cloud).
 fn pick_chat(chats: &[Value], chat: Option<&str>, owner: backend::Owner) -> Result<Value, String> {
     let t = script_text::text();
     let text = |c: &Value, key: &str| c.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
-    if let Some(wanted) = chat {
-        if let Some(found) = chats.iter().find(|c| text(c, "id") == wanted) {
+    if let Some(wanted) = chat.map(str::trim).filter(|w| !w.eq_ignore_ascii_case("chief")) {
+        if let Some(found) = chats
+            .iter()
+            .find(|c| text(c, "id") == wanted)
+            .or_else(|| chats.iter().find(|c| backend::chief_of(c) == wanted))
+        {
             return Ok(found.clone());
         }
+        let short = |c: &Value| {
+            let title = text(c, "title");
+            let lower = title.to_ascii_lowercase();
+            match lower.strip_suffix(" chief") {
+                Some(head) if !head.trim().is_empty() => head.trim().to_owned(),
+                _ => lower,
+            }
+        };
         let titled: Vec<&Value> =
             chats.iter().filter(|c| text(c, "title").eq_ignore_ascii_case(wanted)).collect();
+        let titled = match titled.as_slice() {
+            [] => chats.iter().filter(|c| short(c) == wanted.to_ascii_lowercase()).collect(),
+            _ => titled,
+        };
         return match titled.as_slice() {
             [one] => Ok((*one).clone()),
             [] => Err(t.no_such_chat.replace("{chat}", wanted)),

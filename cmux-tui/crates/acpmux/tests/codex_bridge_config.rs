@@ -162,6 +162,8 @@ async fn a_chat_starts_codex_with_its_agent_limits_lifted_unless_the_profile_set
         "-c",
         "agents.max_concurrent_threads_per_session=1000",
         "-c",
+        "tools.update_plan.enabled=true",
+        "-c",
         "agents.max_depth=2",
         "app-server"
     ]);
@@ -196,7 +198,8 @@ async fn a_chat_starts_codex_with_its_agent_limits_lifted_unless_the_profile_set
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
-    let lifted = json!(["-c", "agents.max_depth=16", "app-server"]);
+    let lifted =
+        json!(["-c", "agents.max_depth=16", "-c", "tools.update_plan.enabled=true", "app-server"]);
     assert!(starts.contains(&lifted), "{starts:?}");
     let _ = std::fs::remove_dir_all(&d);
 }

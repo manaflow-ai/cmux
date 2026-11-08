@@ -237,7 +237,13 @@ impl Fold {
                 let key = opt_s(event, "prompt_id").unwrap_or_else(|| format!("{id}:{ts}"));
                 let mut line = base("subagent", key);
                 line.agent = Some(id.clone());
-                line.session = self.sessions.get(&id).cloned();
+                // The host names it on the answer too (its durable record):
+                // after a restart this fold never saw `subagent.start`.
+                line.session = self
+                    .sessions
+                    .get(&id)
+                    .cloned()
+                    .or_else(|| opt_s(event, "session"));
                 line.model = self.models.get(&format!("sub:{id}")).cloned();
                 line.status = opt_s(event, "stop");
                 line.usd_cum = line.usd;

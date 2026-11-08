@@ -6,20 +6,12 @@
 // check only when the clipboard took the text, and goes back after COPIED_MS. It floats, so the
 // card's first line wraps around it instead of running under it; faint at rest, full when the card
 // is hovered (CardCopy.css). Its highlight is the button's own box, never the card's.
-import { createContext, useContext } from "react";
+import { useContext } from "react";
 import { useT } from "../i18n";
-import { copyTextResult } from "./clipboard";
 import { CopyButton } from "./CopyButton";
+
 import "./CardCopy.css";
-
-/// How the corner draws. `faint`, the default: a 14px glyph at 45% until the card is hovered, a
-/// check when copied. The others are gallery versions kept beside it (CardCopy.gallery.tsx):
-/// `quiet`, a 12px glyph at 30%; `word`, the default glyph that says "Copied" beside its check.
-export type CardCopyLook = "faint" | "quiet" | "word";
-export const CardCopyLookContext = createContext<CardCopyLook>("faint");
-/// What puts the text on the clipboard: the page's clipboard, or a gallery stage's stand-in.
-export const CardCopyWriterContext = createContext<(text: string) => Promise<boolean>>(copyTextResult);
-
+import { CardCopyLookContext, CardCopyWriterContext } from "./cardCopyModel";
 export function CardCopy({
   text,
   copy,

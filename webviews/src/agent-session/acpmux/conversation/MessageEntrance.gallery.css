@@ -37,6 +37,17 @@
   border-radius: 12px;
 }
 
+@keyframes cv-gallery-message-scale {
+  from {
+    opacity: 0;
+    scale: 0.985;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
 @keyframes cv-gallery-message-translate {
   from {
     opacity: 0;
@@ -60,6 +71,11 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  .message-entrance-gallery[data-variant="scale"] .acpmux-row--message-enter .acpmux-row__message-presentation {
+    transform-origin: center bottom;
+    animation-name: cv-gallery-message-scale;
+  }
+
   .message-entrance-gallery[data-variant="translate"] .acpmux-row--message-enter .acpmux-row__message-presentation {
     animation-name: cv-gallery-message-translate;
   }

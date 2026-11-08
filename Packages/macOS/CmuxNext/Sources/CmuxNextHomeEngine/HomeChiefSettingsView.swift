@@ -2,7 +2,7 @@ public import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
-import CmuxNextHome
+import CmuxNextHomeModel
 import Foundation
 import CmuxNextCompat
 import UniformTypeIdentifiers
@@ -39,8 +39,12 @@ public final class HomeChiefSettingsView: NSView {
     var muxHome: URL
     let avatarButton = HomeChiefAvatarButton(size: avatarSize)
     let nameField = ThemedTextField(string: "")
-    /// The title the field last showed or sent, so leaving it unchanged renames nothing.
+    /// The Chief's newest name: the one the Home last gave (``setName(_:)``) or this card sent.
     var shownName = ""
+    /// The text this card last put in the field. Only a text the person changed from it renames:
+    /// the Home may move ``shownName`` on while the field is being edited, and leaving the
+    /// untouched field then sent its old text back (2026-11-07: "Chief mom" saved, then "Chief").
+    var fieldName = ""
     /// Where the brain runs, under the name: this Mac or the paired server.
     let place = ThemedLabel(labelWithString: "")
     /// "Switch to …": the same Chief on its other host (Lawrence 2026-10-19 replaced the floating
@@ -95,6 +99,16 @@ public final class HomeChiefSettingsView: NSView {
     /// Renames the Chief: the daemon's set-title op for a Chief of this Mac, the account's
     /// `chief.update` for a cloud Chief. Nil when the name was saved, else why it was not.
     public var onRename: @MainActor (String) async -> HomeChiefRenameFailure? = { _ in nil }
+    /// Makes this Chief the account's primary one (texts to the cmux line reach it); nil when it
+    /// is primary now, else why not. The app sets it for a cloud Chief.
+    public var onMakePrimary: @MainActor () async -> String? = { nil }
+    /// The Primary Chief checkbox and its note; hidden for a Chief with no account record (``setPrimary(_:)``).
+    let primaryBox = NSButton(checkboxWithTitle: HomeEngineStrings.primaryRow, target: nil, action: nil)
+    let primaryNote = HomeChiefSettingsView.footnote(HomeEngineStrings.primaryNote)
+    /// Runs On: where this Mac's Chief runs, whose chip opens the Teleport menu (``showTeleport(_:)``); hidden for other Chiefs.
+    let teleportRow = NSStackView()
+    /// Follows the shown Chief's default flag (``bindPrimary(directory:conversation:)``).
+    var primaryWatch: Task<Void, Never>?
     /// Where Choose Picture… and Use Default Picture write, and for which Chief: the daemon's
     /// registry for a Chief of this Mac (set by the header view); nil writes this panel's
     /// mux home's files (a cloud Chief).
@@ -167,6 +181,8 @@ public final class HomeChiefSettingsView: NSView {
         failure.ink = .danger
         failure.isHidden = true
         addFullWidth(failure)
+        addPrimaryRow()
+        addTeleportRow()
         addFullWidth(Self.sectionHeader(HomeEngineStrings.agentSection))
         for (button, label) in [(harness, HomeEngineStrings.harness), (model, HomeEngineStrings.model), (effort, HomeEngineStrings.effort),
                                 (speed, HomeEngineStrings.speed)] {
@@ -278,12 +294,25 @@ public final class HomeChiefSettingsView: NSView {
     /// The conversation's title, shown in the name field.
     public func setName(_ name: String) {
         shownName = name
-        if nameField.currentEditor() == nil { nameField.stringValue = name }
+        if nameField.currentEditor() == nil { show(name) }
+    }
+
+    /// Puts `name` in the field as the card's own text (``fieldName``).
+    private func show(_ name: String) {
+        nameField.stringValue = name
+        fieldName = name
     }
 
     /// The avatar the header shows: its picture, else its text (one or two characters).
     public func setAvatar(picture: NSImage?, text: String?) {
         avatarButton.show(picture: picture, text: text)
+    }
+
+    /// Puts the keyboard in the name field, as a click on it does; false when the card is not on
+    /// screen. `debug.home.drive {action: "chief_name"}` uses it, so a capture can edit the name.
+    @discardableResult
+    public func beginEditingName() -> Bool {
+        window?.makeFirstResponder(nameField) ?? false
     }
 
     /// Ends an edit in progress (the name), so a close keeps it.
@@ -304,10 +333,11 @@ public final class HomeChiefSettingsView: NSView {
     @discardableResult
     func commitName() -> Task<Void, Never>? {
         let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        // A blank name renames nothing, so the field shows the name the Chief keeps; a kept
-        // name shows as it is saved, without the spaces around it.
-        nameField.stringValue = name.isEmpty ? shownName : name
-        guard !name.isEmpty, name != shownName else { return nil }
+        // A blank name, or a text the person never changed, renames nothing: the field shows the
+        // name the Chief keeps now. A new name shows as it is saved, without the spaces around it.
+        let untouched = name == fieldName.trimmingCharacters(in: .whitespacesAndNewlines)
+        show(name.isEmpty || untouched ? shownName : name)
+        guard !name.isEmpty, !untouched, name != shownName else { return nil }
         let kept = shownName
         shownName = name
         // task-owner: one rename; ends with the owner's answer
@@ -322,7 +352,7 @@ public final class HomeChiefSettingsView: NSView {
             }
             shownName = kept
             // Still in the field after Return: it shows the kept name too, unless the person typed on.
-            if nameField.currentEditor() == nil || nameField.stringValue == name { nameField.stringValue = kept }
+            if nameField.currentEditor() == nil || nameField.stringValue == name { show(kept) }
             note(HomeEngineStrings.renameFailed(failure), kept: true)
         }
     }

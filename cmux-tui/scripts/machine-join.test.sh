@@ -120,6 +120,7 @@ chmod 755 "$shims/curl"
 # The fake acpmux, "downloaded" from the channel. Behaviour from env:
 # JT_CAPS (capability lines), JT_JOIN_EXIT (with JT_JOIN_ERR, its message), JT_STATE (a file; present = joined),
 # JT_DOCTOR=1 (it has `host doctor --here`), JT_SERVICE=1 (`daemon service`),
+# JT_SVC=fail (`daemon service install` fails), JT_RESTART=fail (`daemon restart` fails),
 # JT_VAULT (what `host vault pull --json` answers: ok, not_granted or fail),
 # JT_CODEX_RT=1 (it has `harness codex-runtime`; install records a ready runtime).
 # Recovery, as acpmux's cloud_join/recovery.rs does it: JT_PENDING (a file;
@@ -136,6 +137,12 @@ refuse() { printf '{"error":{"code":"runtime","exit":%s,"detail":"join.incomplet
 case "\$*" in
   capabilities) printf '%s\n' \$JT_CAPS ;;
   "daemon service --help") [ "\${JT_SERVICE:-0}" = 1 ] || exit 2 ;;
+  "daemon service install")
+    case "\${JT_SVC:-ok}" in
+      fail) echo "launchd did not load com.acpmux.daemon" >&2; exit 1 ;;
+      *) echo "acpmux.service runs" ;;
+    esac ;;
+  "daemon restart") [ "\${JT_RESTART:-ok}" != fail ] || exit 1 ;;
   "host doctor --help") [ "\${JT_DOCTOR:-0}" = 1 ] && echo "  --here" || exit 2 ;;
   "host doctor --here") echo '{"step":"credential","state":"ok"}' ;;
   "host join --status --json")
@@ -263,7 +270,7 @@ new_case() {
   JT_OS=Linux JT_ARCH=x86_64
   JT_CAPS="acpmux-v1 machine.join.stdin.v1"
   JT_JOIN_EXIT=0 JT_DOCTOR=0 JT_SERVICE=1 JT_PROBE=unknown JT_JOIN_ERR=""
-  JT_VAULT=fail JT_CODEX_RT=0
+  JT_VAULT=fail JT_CODEX_RT=0 JT_SVC=ok JT_RESTART=ok
   : >"$d/log/argv"
 }
 
@@ -276,7 +283,7 @@ run_join() {
     JT_OS="$JT_OS" JT_ARCH="$JT_ARCH" JT_CAPS="$JT_CAPS" JT_JOIN_EXIT="$JT_JOIN_EXIT" \
     JT_DOCTOR="$JT_DOCTOR" JT_SERVICE="$JT_SERVICE" JT_PROBE="$JT_PROBE" JT_JOIN_ERR="$JT_JOIN_ERR" \
     JT_PENDING="$d/home/pending" JT_REVOKED="$d/home/revoked" \
-    JT_VAULT="$JT_VAULT" JT_CODEX_RT="$JT_CODEX_RT" \
+    JT_VAULT="$JT_VAULT" JT_CODEX_RT="$JT_CODEX_RT" JT_SVC="$JT_SVC" JT_RESTART="$JT_RESTART" \
     CMUX_PLATFORM_URL="$origin" "$@"
   rc=0
   case "$form" in
@@ -487,6 +494,27 @@ suite() {
   run_join env
   check "doctor run" grep -q "^acpmux host doctor --here" "$d/log/argv"
   check "doctor lines printed" out_has '"step":"credential"'
+
+  new_case service
+  run_join env
+  check "service: exit 0 (got $rc)" rc_is 0
+  check "service: installed" grep -q "^acpmux daemon service install" "$d/log/argv"
+  check "service: before the daemon starts" eval '[ "$(grep -n "^acpmux daemon service install" "$d/log/argv" | head -n 1 | cut -d: -f1)" -lt "$(grep -n "^acpmux daemon start" "$d/log/argv" | head -n 1 | cut -d: -f1)" ]'
+  check "service: says where it stands" out_has "cmux join: acpmux.service runs"
+  check "service: no warning" eval '! grep -q "did not install" "$d/out"'
+
+  new_case service-fails
+  JT_SVC=fail
+  run_join env
+  check "service fails: still joins (got $rc)" rc_is 0
+  check "service fails: warns with acpmux's words" out_has "warning: the acpmux service did not install: launchd did not load com.acpmux.daemon"
+  check "service fails: daemon start" grep -q "^acpmux daemon start" "$d/log/argv"
+
+  new_case restart-fails
+  JT_RESTART=fail
+  run_join env
+  check "restart fails: still joins (got $rc)" rc_is 0
+  check "restart fails: says the daemon has no heartbeat yet" out_has "did not restart onto the join, so it sends no heartbeat yet"
 
   new_case no-service
   JT_SERVICE=0

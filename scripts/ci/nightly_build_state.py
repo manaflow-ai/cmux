@@ -101,6 +101,17 @@ STRUCTURE_PATHS = re.compile(r'(^|/)(Package\.swift|[^/]+\.pbxproj|[^/]+\.xcconf
 # Top-level trees the Release app build never reads (no project or package in it references them), so
 # a change there leaves the kept DerivedData valid.
 OUTSIDE_APP_BUILD = ('Prototypes/',)
+# A Swift package's Tests/ tree holds its test targets and the support targets only they link
+# (tests/test_nightly_build_state.py checks every Package.swift for that). The Release build of the
+# app scheme compiles none of them, so an import or a structure line there leaves the kept
+# DerivedData valid: run 41570134320 compiled clean for 562 s on an import change in
+# Packages/Shared/CmuxMessagesLab/Tests/MessagesLabHomeTests/HomeAgentMessageAvatarTests.swift.
+PACKAGE_TESTS = re.compile(r'^Packages/[^/]+/[^/]+/Tests/')
+PACKAGE_TESTS_GLOB = ':(exclude,glob)Packages/*/*/Tests/**'
+
+
+def outside_app_build(name: str) -> bool:
+    return name.startswith(OUTSIDE_APP_BUILD) or PACKAGE_TESTS.match(name) is not None
 NOTICES_CACHE = 'notices-crates'
 NOTICES_CACHE_MAX_BYTES = 8 << 30
 
@@ -174,12 +185,12 @@ def structure_changed(workspace: Path, since: str) -> str | None:
     except subprocess.CalledProcessError:
         return None
     changed = next((name for name in names
-                    if STRUCTURE_PATHS.search(name) and not name.startswith(OUTSIDE_APP_BUILD)), '')
+                    if STRUCTURE_PATHS.search(name) and not outside_app_build(name)), '')
     if changed:
         return changed
     try:
         diff = git(workspace, 'diff', '-U0', '--no-renames', since, 'HEAD', '--', *IMPORT_SOURCES,
-                   *(f':(exclude){tree}' for tree in OUTSIDE_APP_BUILD))
+                   *(f':(exclude){tree}' for tree in OUTSIDE_APP_BUILD), PACKAGE_TESTS_GLOB)
     except subprocess.CalledProcessError:
         return None
     current = ''
@@ -487,6 +498,10 @@ def main(argv: list[str]) -> int:
     if len(argv) == 3 and argv[1] == 'prepare-host':
         mode, why = prepare_host(Path(argv[2]), workspace, toolchain_identity())
         print(f'NEXT Release build: {mode} DerivedData ({why}) in {Path(argv[2]) / "DerivedData"} (host build root)')
+        # This decides the build, not the slot's own prepare line above it in the log.
+        if summary := os.environ.get('GITHUB_STEP_SUMMARY'):
+            with open(summary, 'a', encoding='utf-8') as stream:
+                stream.write(f'### NEXT Release build\n- DerivedData: {mode} ({why}), host build root\n')
         return 0
     if len(argv) == 3 and argv[1] == 'finish-host':
         finish_host(Path(argv[2]), workspace, Path.home(), os.environ.get('RUNNER_NAME', ''))

@@ -5,6 +5,7 @@ pub(crate) struct RemoteClientMessages {
     pub connect_help: &'static str,
     pub ssh_help: &'static str,
     pub forward_help: &'static str,
+    pub dial_tcp_help: &'static str,
     pub browser_proxy_help: &'static str,
     pub rpc_help: &'static str,
     pub enroll_help: &'static str,
@@ -64,6 +65,10 @@ pub(crate) struct RemoteClientMessages {
     pub ssh_destination_invalid: &'static str,
     pub forward_workspace_required: &'static str,
     pub forward_port_required: &'static str,
+    pub dial_tcp_port_required: &'static str,
+    pub dial_tcp_stdin_taken: &'static str,
+    pub dial_tcp_interrupted: &'static str,
+    pub dial_tcp_session_ended: &'static str,
     pub rpc_request_invalid: &'static str,
     pub socket_not_a_route: &'static str,
     pub rpc_input_invalid: &'static str,
@@ -308,6 +313,21 @@ OPTIONS:
   All identity, transport, SSH, relay, Iroh, and reconnect options accepted by
   `cmux remote connect` are also accepted.
 "#,
+    dial_tcp_help: r#"USAGE: cmux remote dial-tcp [ROUTE] --port PORT [OPTIONS]
+
+Connects stdin and stdout to one TCP connection to a loopback port on the
+remote machine, for use as an ssh ProxyCommand:
+  ProxyCommand cmux-tui remote dial-tcp ROUTE ... --host 127.0.0.1 --port 22
+EOF on stdin half-closes the connection; the command exits 0 once the remote
+side closes, and prints only the stream on stdout.
+
+OPTIONS:
+  --host HOST  a loopback address on the remote machine (default 127.0.0.1)
+  --workspace-root PATH  the remote directory the route is scoped to
+  (default /)
+  All identity, transport, SSH, relay, Iroh, and reconnect options accepted by
+  `cmux remote connect` are also accepted, except those that read stdin.
+"#,
     rpc_help: r#"USAGE: cmux remote rpc [ROUTE] [OPTIONS]
 
 Reads one WorkspaceRequest JSON object per stdin line and writes one response
@@ -337,7 +357,7 @@ for up to two relay fallbacks
     remote_mux_binding_refused: "The running remote sidecar cannot prove the requested --mux-socket. Update the sidecar or use a separate --session for this daemon [remote-mux-binding]",
     remote_link_help: "USAGE: cmux-tui remote-link --stdio [--session NAME] [--state-dir PATH] [--mux-socket PATH] [--link-socket PATH] [--agent-hooks PROVIDERS]\n",
     install_self_help: "USAGE: cmux-tui install-self --destination PATH\n",
-    command_help: "USAGE: cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [OPTIONS]\n\nRun `cmux remote COMMAND --help` for command-specific routes and options. Legacy top-level aliases remain available for one compatibility cycle.\n",
+    command_help: "USAGE: cmux remote <connect|ssh|forward|dial-tcp|rpc|enroll|known-daemons|stop> [OPTIONS]\n\nRun `cmux remote COMMAND --help` for command-specific routes and options. Legacy top-level aliases remain available for one compatibility cycle.\n",
     remote_lifecycle_help: "USAGE: cmux remote connect|ssh|forward|rpc [OPTIONS]\n       cmux remote enroll <ACTION> [OPTIONS]\n       cmux remote known-daemons [OPTIONS]\n       cmux remote stop [OPTIONS]\n\nAuthenticated remote operations are explicit under `remote`. Start the owning process with `cmux daemon start` and explicit remote flags. `cmux remote stop` manages only replaceable SSH sidecars. Stop a listener embedded by `cmux daemon start` with `cmux daemon stop`; this also stops its local owner and workspaces.\n",
     option_needs_value: "{option} needs a value",
     invalid_option_value: "{option} has an invalid value; expected {expected}",
@@ -388,6 +408,10 @@ for up to two relay fallbacks
     ssh_destination_invalid: "invalid SSH destination",
     forward_workspace_required: "forward needs --workspace-root on the daemon",
     forward_port_required: "forward needs --port",
+    dial_tcp_port_required: "dial-tcp needs --port",
+    dial_tcp_stdin_taken: "dial-tcp carries the stream on stdin: --wireguard-hub-token-stdin and --invite-file - cannot be used with it",
+    dial_tcp_interrupted: "dial-tcp stopped by a signal before the connection closed",
+    dial_tcp_session_ended: "the remote session ended before the connection closed",
     rpc_request_invalid: "--request is not a WorkspaceRequest JSON object",
     socket_not_a_route: "remote commands (connect, ssh, forward, rpc) reach a ROUTE and take no --socket; for the cmux app's control socket (/tmp/cmux-debug-<tag>.sock) use --app-socket PATH with an app verb, for example `cmux --app-socket PATH app identify`",
     rpc_input_invalid: "invalid WorkspaceRequest",
@@ -487,6 +511,20 @@ ID とセッション:
   `cmux remote connect` の ID、トランスポート、SSH、リレー、Iroh、再接続の
   全オプションも使用できます。
 "#,
+    dial_tcp_help: r#"使用方法: cmux remote dial-tcp [ルート] --port ポート [オプション]
+
+標準入力と標準出力を、リモートマシンのループバックポートへの 1 本の TCP 接続に
+つなぎます。ssh の ProxyCommand として使えます:
+  ProxyCommand cmux-tui remote dial-tcp ルート ... --host 127.0.0.1 --port 22
+標準入力の EOF で接続の送信側を閉じます。リモート側が閉じると終了コード 0 で
+終了し、標準出力にはストリームのデータだけを出力します。
+
+オプション:
+  --host ホスト  リモートマシンのループバックアドレス (既定値 127.0.0.1)
+  --workspace-root パス  ルートを結び付けるリモートのディレクトリ (既定値 /)
+  `cmux remote connect` の ID、トランスポート、SSH、リレー、Iroh、再接続の
+  全オプションも使用できます (標準入力を読むものを除く)。
+"#,
     rpc_help: r#"使用方法: cmux remote rpc [ルート] [オプション]
 
 標準入力の各行から WorkspaceRequest JSON を 1 件読み、応答を 1 行出力します。
@@ -515,7 +553,7 @@ ID とセッション:
     remote_mux_binding_refused: "実行中のリモートサイドカーが指定された --mux-socket を使用していることを確認できません。サイドカーを更新するか、このデーモンに別の --session を使用してください [remote-mux-binding]",
     remote_link_help: "使用方法: cmux-tui remote-link --stdio [--session 名前] [--state-dir パス] [--mux-socket パス] [--link-socket パス] [--agent-hooks プロバイダー]\n",
     install_self_help: "使用方法: cmux-tui install-self --destination パス\n",
-    command_help: "使用方法: cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [オプション]\n\nコマンド別のルートとオプションは `cmux remote コマンド --help` で表示します。従来のトップレベル別名は互換期間中も使用できます。\n",
+    command_help: "使用方法: cmux remote <connect|ssh|forward|dial-tcp|rpc|enroll|known-daemons|stop> [オプション]\n\nコマンド別のルートとオプションは `cmux remote コマンド --help` で表示します。従来のトップレベル別名は互換期間中も使用できます。\n",
     remote_lifecycle_help: "使用方法: cmux remote connect|ssh|forward|rpc [オプション]\n          cmux remote enroll <操作> [オプション]\n          cmux remote known-daemons [オプション]\n          cmux remote stop [オプション]\n\n認証済みリモート操作は `remote` で明示的に指定します。所有プロセスは明示的なリモートフラグを付けた `cmux daemon start` で起動します。`cmux remote stop` は置換可能な SSH サイドカーだけを管理します。`cmux daemon start` に組み込まれたリスナーは `cmux daemon stop` で停止してください。この操作はローカルの所有者とワークスペースも停止します。\n",
     option_needs_value: "{option} には値が必要です",
     invalid_option_value: "{option} の値が無効です。{expected} を指定してください",
@@ -566,6 +604,10 @@ ID とセッション:
     ssh_destination_invalid: "SSH の接続先が無効です",
     forward_workspace_required: "forward にはデーモン上の --workspace-root が必要です",
     forward_port_required: "forward には --port が必要です",
+    dial_tcp_port_required: "dial-tcp には --port が必要です",
+    dial_tcp_stdin_taken: "dial-tcp は標準入力でストリームを運びます。--wireguard-hub-token-stdin と --invite-file - は併用できません",
+    dial_tcp_interrupted: "接続が閉じる前に dial-tcp がシグナルで停止しました",
+    dial_tcp_session_ended: "接続が閉じる前にリモートセッションが終了しました",
     rpc_request_invalid: "--request は WorkspaceRequest JSON オブジェクトではありません",
     socket_not_a_route: "リモートコマンド (connect、ssh、forward、rpc) は ROUTE に接続し、--socket は使えません。cmux アプリの制御ソケット (/tmp/cmux-debug-<tag>.sock) には --app-socket パス とアプリの動詞を使ってください (例: `cmux --app-socket パス app identify`)",
     rpc_input_invalid: "WorkspaceRequest が無効です",

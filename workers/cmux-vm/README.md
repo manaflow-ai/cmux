@@ -362,6 +362,10 @@ and requires its canonical ID to match exactly; mutable aliases or unavailable
 images produce 503 without falling back to a base image. Prepare images without
 embedded credentials. Snapshot references and service approvals stay private;
 the catalog exposes only `id`, `revision` and `displayName`.
+The list keeps `VM_BOOT_IMAGES` order and says so with `order: "configured"`:
+the first entry is the image in use. A caller that follows the list (the cloud
+platform picks the first entry, or the last on an append-only list) must treat a
+response without `order` as unordered, since older servers sorted it by id.
 
 An image create returns `bootImage: { id, revision, displayName }`. Callers must
 check that receipt because an older API may ignore `image`. With the same retry
@@ -375,6 +379,54 @@ The CLI fails if a requested image or egress receipt is missing or mismatched,
 retaining the retry key and a validated public VM ID when available. Creation
 may have succeeded; inspect that VM or retry the same intent with the same key.
 The CLI never automatically deletes a VM after an unconfirmed receipt.
+
+### Rolling a new image (no hand PR)
+
+`.github/workflows/cloud-vm-image-roll.yml` replaces the hand pin PR
+(`images/cmux-vm/pin-cmux-tui.ts`) and the hand approval PR (an entry put first in
+production's `VM_BOOT_IMAGES`):
+
+1. Every feat-cmux-next cmux-tui build that `cmux-tui-artifacts.yml` publishes
+   dispatches it, and so does a push that changes the image inputs
+   (`images/cmux-vm/**`, `web/scripts/cmux-vm-image/**`).
+   `images/cmux-vm/auto-roll.ts plan` rolls only a build of the branch whose
+   binaries differ from the pinned ones, never an older one.
+2. `cloud-vm-image-bake.yml` (called with `roll: true`) pins that build and bakes
+   the Native receiver image with the agent tools. Its 5-clone smoke and agent
+   tools probe on the candidate snapshot are the gate: a red keeps nothing and
+   production stays on its image.
+3. A bot commit (`cmux-vm: image roll cloud-native-auto-<cmux-tui>-<run>-<attempt> ...`)
+   lands the pinned lock and the image, first in production and last in
+   staging. Only the newest 6 `cloud-native-auto-*` entries stay in each list;
+   hand-approved entries are never removed. Its push deploys production and
+   runs `smoke-production`, whose product create boots that first image.
+4. `image-roll-settle` in `cmux-vm.yml` (`auto-roll.ts settle` decides): a
+   deploy or product smoke that isn't green, or a create that booted another
+   image, lands `cmux-vm: image rollback <id> ...`, which takes the image out of
+   both lists, so the entry before it boots again. A failed, cancelled or timed
+   out deploy all roll back. The image leaves the lists even when a newer roll
+   already sits above it, so that roll's own rollback can never bring it back;
+   only an image already gone from both lists needs nothing.
+5. The rollback's own deploy is settled too: its product create must boot the
+   entry now first. If not, `image-roll-settle` dispatches `deploy-production`
+   again, at most 3 production deploys in all, then records `rollback_failed`
+   and comments on the `cloud-image-roll` issue. A rollback never lands another
+   rollback commit.
+
+`images/cmux-vm/auto-roll.json` switches it: `off`, `dry-run` (bake and gate,
+then upload the commit's diff without pushing) or `live`. One roll runs at a
+time and one waits; a newer request replaces the waiting one.
+
+Each roll's record (fix commits with merge times, gate, promotion commit and
+time, production smoke time, rollback) is `rolls/<run id>.json` on the
+`cloud-image-rolls` branch: `git fetch origin cloud-image-rolls` reads it with
+no API call. The roll and rollback commits carry `Image-Roll-Run` and
+`Image-Roll-Image` trailers. A red gate, promotion or rollback comments on the
+open `cloud-image-roll` issue.
+
+cmux-platform boots the image its `CLOUD_VM_API_IMAGE` and
+`CLOUD_VM_API_IMAGE_REVISION` name, so a rolled image reaches people's
+machines only when the platform names it too (or follows the first entry).
 
 ## Creation-time networking
 
@@ -417,6 +469,15 @@ are write-only and are never persisted in ownership, audit or idempotency
 rows, or returned in errors and VM responses. A retry with changed network
 intent or credentials under the same Idempotency-Key is 409. Forks do not
 inherit network intent.
+
+`GET /v1/vms/{vmId}/public-egress` reads, and `PUT` turns on, an existing
+VM's public egress: `{ "id": "vm_...", "publicEgress": true }`. Both require
+`vm:network` and ownership of the VM. It counts only a rule that allows the
+public Internet on every port and whose source is exactly this VM (a create's
+`initialNetwork.publicEgress` rule is one). `PUT` adds that rule, deleted with
+the VM, only when none is there; it never turns egress off or touches other
+rules. A VM created private can join the Internet later this way (cmux Cloud
+keeps a copy that resumes another VM's memory private until it cold boots).
 
 `PUT /v1/vms/{vmId}/https-proxies/{hostname}` replaces an existing HTTP
 proxy with `{ "destination": "https://api.example.com", "headers": { ... } }`.
@@ -527,8 +588,11 @@ Entitlement until billing exists (`src/proofs/tenant-may-create.ts`): outside
 production every tenant may create; in production a tenant may create when it is
 listed in `DEV_TEST_TENANT_IDS` (dev/test: idle timeout at most 300 s) or in
 `MANAFLOW_TEAM_TENANT_IDS` (the manaflow-team flag, cx-b4h.16: product tenant,
-no idle cap). Every other team gets 402. Both lists are Worker vars in
-`wrangler.jsonc`; change them in a reviewed commit.
+no idle cap), or when the request comes with a service key listed in
+`CMUX_VM_ENTITLED_SERVICE_IDS` (cmux-platform production: the platform has
+already decided the team's plan, so the team it acts for needs no list entry;
+the key's teams, scopes and labels still apply). Every other caller gets 402.
+These lists are Worker vars in `wrangler.jsonc`; change them in a reviewed commit.
 
 API key management (`/v1/api-keys`) writes `cmux_vm.api_keys`. Besides
 SELECT, the Worker's database role needs, applied by an operator:

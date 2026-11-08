@@ -20,11 +20,12 @@ impl Brain {
     /// The `send` tool.
     pub(super) fn send(&mut self, call: SendCall) -> Result<String, String> {
         // The length gate: the first long send of a turn comes back for
-        // Chief to cut; the next one posts (chief_kernel::replies).
+        // Chief to cut; the next one posts (chief_kernel::replies). A send
+        // marked `long` (a list the person asked for) posts the first time.
         if let Some(refusal) = chief_kernel::replies::length_check(
             call.text.as_deref().unwrap_or(""),
             self.chief.reply_max_words,
-            self.length_refused,
+            self.length_refused || call.long,
         ) {
             self.length_refused = true;
             self.trace.emit(

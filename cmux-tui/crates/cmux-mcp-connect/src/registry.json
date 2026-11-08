@@ -1,0 +1,25 @@
+{
+  "probed": "2026-11-03: every OAuth entry answered an unauthenticated initialize with 401 and an RFC 9728 resource_metadata; every open entry answered 200",
+  "servers": [
+    {"name": "linear", "aliases": ["linear.app"], "title": "Linear", "publisher": "linear.app", "url": "https://mcp.linear.app/mcp", "auth": "oauth", "scopes": ["read", "write"], "docs": "https://linear.app/docs/mcp"},
+    {"name": "github", "aliases": ["github.com", "gh"], "title": "GitHub", "publisher": "githubcopilot.com", "url": "https://api.githubcopilot.com/mcp/", "auth": "device", "scopes": ["repo", "read:org"], "client_id": "178c6fc778ccc68e1d6a", "docs": "https://github.com/github/github-mcp-server"},
+    {"name": "sentry", "aliases": ["sentry.io", "sentry.dev"], "title": "Sentry", "publisher": "sentry.dev", "url": "https://mcp.sentry.dev/mcp", "auth": "oauth", "scopes": [], "docs": "https://docs.sentry.io/product/sentry-mcp/"},
+    {"name": "notion", "aliases": ["notion.so", "notion.com"], "title": "Notion", "publisher": "notion.com", "url": "https://mcp.notion.com/mcp", "auth": "oauth", "scopes": [], "docs": "https://developers.notion.com/docs/mcp"},
+    {"name": "stripe", "aliases": ["stripe.com"], "title": "Stripe", "publisher": "stripe.com", "url": "https://mcp.stripe.com", "auth": "oauth", "scopes": [], "docs": "https://docs.stripe.com/mcp"},
+    {"name": "vercel", "aliases": ["vercel.com"], "title": "Vercel", "publisher": "vercel.com", "url": "https://mcp.vercel.com", "auth": "oauth", "scopes": [], "docs": "https://vercel.com/docs/mcp"},
+    {"name": "supabase", "aliases": ["supabase.com"], "title": "Supabase", "publisher": "supabase.com", "url": "https://mcp.supabase.com/mcp", "auth": "oauth", "scopes": [], "docs": "https://supabase.com/docs/guides/getting-started/mcp"},
+    {"name": "neon", "aliases": ["neon.tech"], "title": "Neon", "publisher": "neon.tech", "url": "https://mcp.neon.tech/mcp", "auth": "oauth", "scopes": [], "docs": "https://neon.com/docs/ai/neon-mcp-server"},
+    {"name": "atlassian", "aliases": ["jira", "confluence", "atlassian.com"], "title": "Atlassian", "publisher": "atlassian.com", "url": "https://mcp.atlassian.com/v1/mcp", "auth": "oauth", "scopes": [], "docs": "https://support.atlassian.com/rovo/docs/getting-started-with-the-atlassian-remote-mcp-server/"},
+    {"name": "asana", "aliases": ["asana.com"], "title": "Asana", "publisher": "asana.com", "url": "https://mcp.asana.com/v2/mcp", "auth": "oauth", "scopes": [], "docs": "https://developers.asana.com/docs/using-asanas-mcp-server"},
+    {"name": "slack", "aliases": ["slack.com"], "title": "Slack", "publisher": "slack.com", "url": "https://mcp.slack.com/mcp", "auth": "oauth", "scopes": [], "docs": "https://docs.slack.dev/ai/mcp-server"},
+    {"name": "intercom", "aliases": ["intercom.com"], "title": "Intercom", "publisher": "intercom.com", "url": "https://mcp.intercom.com/mcp", "auth": "oauth", "scopes": [], "docs": "https://developers.intercom.com/docs/guides/mcp"},
+    {"name": "canva", "aliases": ["canva.com"], "title": "Canva", "publisher": "canva.com", "url": "https://mcp.canva.com/mcp", "auth": "oauth", "scopes": [], "docs": "https://www.canva.dev/docs/mcp/"},
+    {"name": "posthog", "aliases": ["posthog.com"], "title": "PostHog", "publisher": "posthog.com", "url": "https://mcp.posthog.com/mcp", "auth": "oauth", "scopes": [], "docs": "https://posthog.com/docs/model-context-protocol"},
+    {"name": "monday", "aliases": ["monday.com"], "title": "monday.com", "publisher": "monday.com", "url": "https://mcp.monday.com/mcp", "auth": "oauth", "scopes": [], "docs": "https://developer.monday.com/apps/docs/mondaycom-mcp-integration"},
+    {"name": "figma", "aliases": ["figma.com"], "title": "Figma", "publisher": "figma.com", "url": "https://mcp.figma.com/mcp", "auth": "oauth", "scopes": [], "docs": "https://help.figma.com/hc/en-us/articles/32132100833559"},
+    {"name": "huggingface", "aliases": ["hugging face", "hf", "huggingface.co"], "title": "Hugging Face", "publisher": "huggingface.co", "url": "https://huggingface.co/mcp", "auth": "none", "scopes": [], "docs": "https://huggingface.co/settings/mcp"},
+    {"name": "context7", "aliases": ["context7.com"], "title": "Context7", "publisher": "context7.com", "url": "https://mcp.context7.com/mcp", "auth": "key", "key_header": "CONTEXT7_API_KEY", "key_optional": true, "scopes": [], "docs": "https://context7.com/docs"},
+    {"name": "cloudflare-docs", "aliases": ["cloudflare"], "title": "Cloudflare Docs", "publisher": "cloudflare.com", "url": "https://docs.mcp.cloudflare.com/mcp", "auth": "none", "scopes": [], "docs": "https://developers.cloudflare.com/agents/model-context-protocol/"},
+    {"name": "exa", "aliases": ["exa.ai"], "title": "Exa", "publisher": "exa.ai", "url": "https://mcp.exa.ai/mcp", "auth": "none", "scopes": [], "docs": "https://docs.exa.ai/reference/exa-mcp"}
+  ]
+}

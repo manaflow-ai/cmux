@@ -17,7 +17,7 @@ import {
 } from "./mockFixture";
 import { mockGitCommit, mockGitDiff, mockGitPush, mockGitStatus } from "./mockGit";
 import { mockFileSearch } from "./mockFiles";
-import { loadTurn, streamedReply, streamedTool } from "./loadFixture";
+import { lightTurn, loadTurn, streamedReply, streamedTool } from "./loadFixture";
 
 /** Gallery-only auth data. The mock daemon consumes this; production direct clients do not. */
 export type MockSessionAuth = {
@@ -39,6 +39,10 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockCapabilities?: string[];
   /** Gallery only: `session/new` refuses with `trust.pending` until `acp.trust.set` trusts a folder. */
   cmuxAcpmuxMockTrustPending?: boolean;
+  /** `?mock&slowDaemon` fixture: keep the socket open while one RPC answers slowly. */
+  cmuxAcpmuxMockSlowMethod?: string;
+  /** Delay for `cmuxAcpmuxMockSlowMethod`; tests use a short delay, the gallery uses six seconds. */
+  cmuxAcpmuxMockSlowMs?: number;
 };
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -244,6 +248,8 @@ export class MockAcpmuxSocket {
     },
   );
   private events: EventRecord[] = [];
+  /// Light load sessions (`seedLoadSession` `light`): attach answers their whole log.
+  private openWhole = new Set<string>();
   private seq = 0;
   /// The images prompts sent, by id, as acpmux keeps them (`_acpmux/attachment`).
   private promptImages = new Map<string, { mimeType: string; data: string }>();
@@ -315,7 +321,10 @@ export class MockAcpmuxSocket {
 
   /// A new session holding `turns` finished heavy turns (loadFixture.ts), recorded without
   /// delivery; the client reads them when it attaches. Returns the session id.
-  seedLoadSession(turns: number): string {
+  ///
+  /// `light` turns are a prompt and a one-line reply each (two rows), and the session opens whole
+  /// (attach ignores its page caps), so a bench can open a chat of an exact length in rows.
+  seedLoadSession(turns: number, light = false): string {
     const now = Date.now();
     const id = `load-session-${this.sessions.length + 1}`;
     const created = {
@@ -326,8 +335,9 @@ export class MockAcpmuxSocket {
     };
     for (let turn = 0; turn < turns; turn += 1) {
       const at = now - (turns - turn) * 60_000;
-      for (const step of loadTurn(turn)) this.record(id, step, at);
+      for (const step of light ? lightTurn(turn) : loadTurn(turn)) this.record(id, step, at);
     }
+    if (light) this.openWhole.add(id);
     this.sessions.push(created);
     this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "created", session: created } });
     return id;
@@ -362,6 +372,56 @@ export class MockAcpmuxSocket {
     this.emit(target, { mux: "turn_result", msg: { status: "completed" } });
     this.touch(target, { status: "idle", indicator: "done" });
     return { deltas, chars: at, tools };
+  }
+
+  /// Runs one long tool call in `target` for `options.seconds`, as a busy agent's command does: its
+  /// output grows every `tickMs` (the running row and the live line tick), and every `sidebarMs`
+  /// another chat in the list changes (its indicator and time), as a sidebar does while it works.
+  /// No reply text streams, so whatever the transcript draws past the running turn is waste.
+  async tickLoadTurn(
+    target: string,
+    options: { seconds: number; tickMs: number; sidebarMs: number; lineSuffix?: string },
+  ): Promise<{ ticks: number; sidebar: number }> {
+    const turn = Number(this.sessions.find((entry) => entry.sessionId === target)?.turnCount ?? 0) + 1;
+    this.touch(target, { turnCount: turn, status: "running", indicator: "working" });
+    this.emit(target, { mux: "user_message", msg: { text: `Turn ${turn}: run the long check` } });
+    this.emit(target, { mux: "turn_started" });
+    const call = `load-tick-${turn}`;
+    this.emit(target, {
+      update: tool(call, "execute", "Run bun test --watch", "in_progress", {
+        rawInput: { command: "bun test --watch" },
+      }),
+    });
+    const other = this.sessions.find((entry) => entry.sessionId !== target)?.sessionId;
+    const start = performance.now();
+    const end = start + options.seconds * 1000;
+    let ticks = 0;
+    let sidebar = 0;
+    let output = "";
+    let nextSidebar = start + options.sidebarMs;
+    while (performance.now() < end && !this.closed) {
+      await this.delay(options.tickMs);
+      ticks += 1;
+      output += `pass ${ticks}${options.lineSuffix ?? ""}\n`;
+      this.emit(target, {
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: call,
+          status: "in_progress",
+          content: [{ type: "content", content: { type: "text", text: output } }],
+        },
+      });
+      if (other && options.sidebarMs > 0 && performance.now() >= nextSidebar) {
+        nextSidebar += options.sidebarMs;
+        sidebar += 1;
+        this.touch(other, { indicator: sidebar % 2 ? "working" : "done", status: sidebar % 2 ? "running" : "idle" });
+      }
+    }
+    this.emit(target, { update: done(call) });
+    this.emit(target, { mux: "turn_result", msg: { status: "completed" } });
+    this.touch(target, { status: "idle", indicator: "done" });
+    if (other) this.touch(other, { indicator: null, status: "idle" });
+    return { ticks, sidebar };
   }
 
   send(raw: string): void {
@@ -403,6 +463,8 @@ export class MockAcpmuxSocket {
       method: `acpmux ${method}`,
       params,
     });
+    const { cmuxAcpmuxMockSlowMethod: slowMethod, cmuxAcpmuxMockSlowMs: slowMs } = globalThis as MockAuthGlobals;
+    if (slowMethod === method) await this.delay(typeof slowMs === "number" ? slowMs : 6_000);
     if (Object.values(HANDOFF_OPS).includes(method as any)) return this.handoffs.answer(method, params);
     switch (method) {
       // The mock serves forks, so the pane's fork action can be tried before acpmux ships it.
@@ -458,6 +520,13 @@ export class MockAcpmuxSocket {
       case "_acpmux/attach": {
         this.attached = target;
         const page = this.page(target, params, true);
+        // A chat whose last turn left a suggestion: acpmux sends it live, never in a page.
+        const suggestion = mockSessions.find((entry) => entry.sessionId === target)?.suggestion;
+        if (suggestion)
+          setTimeout(() => {
+            if (this.attached === target)
+              this.emit(target, { update: { sessionUpdate: "prompt_suggestion", suggestion } });
+          }, 0);
         // Opening a session reads it; it keeps its place in the list.
         if (this.sessions.find((entry) => entry.sessionId === target)?.unread)
           this.touch(target, { unread: false }, false);
@@ -647,13 +716,23 @@ export class MockAcpmuxSocket {
         // Its words: every text block but a pasted block's (attachments.ts promptBlocks marks those,
         // and the prompt's text never carries them), in order. Attachments the composer placed in
         // the text split the words into blocks around them, so words after an attachment stay.
-        const text = (Array.isArray(params.prompt) ? params.prompt : [])
-          .filter(
-            (block: Record<string, any>) =>
-              block?.type === "text" && typeof block.text === "string" && block._meta?.cmux?.pasted !== true,
-          )
+        const blocks = (Array.isArray(params.prompt) ? params.prompt : []).filter(
+          (block: Record<string, any>) => block?.type === "text" && typeof block.text === "string",
+        );
+        const text = blocks
+          .filter((block: Record<string, any>) => block._meta?.cmux?.pasted !== true)
           .map((block: Record<string, string>) => block.text)
           .join("");
+        // What acpmux records when something was pasted (hub/session.rs prompt_text_parts): every
+        // text block, pasted ones too, one per line, and each paste's range in UTF-16 units, so the
+        // sent row draws them as acpmux's echo does.
+        const recorded = { text: "", pasted: [] as { start: number; end: number }[] };
+        blocks.forEach((block: Record<string, any>, index: number) => {
+          if (index > 0) recorded.text += "\n";
+          const start = recorded.text.length;
+          recorded.text += block.text;
+          if (block._meta?.cmux?.pasted === true) recorded.pasted.push({ start, end: recorded.text.length });
+        });
         const promptId = params._meta?.acpmux?.promptId;
         // acpmux keeps each image once and names it in the prompt's user_message.
         const images = (Array.isArray(params.prompt) ? params.prompt : [])
@@ -670,7 +749,7 @@ export class MockAcpmuxSocket {
         const turn = this.queue
           .then(() => {
             if (queued) this.emit(target, { mux: "dequeued", msg: { promptId } });
-            return this.prompt(target, text, promptId, images);
+            return this.prompt(target, text, promptId, images, recorded.pasted.length ? recorded : undefined);
           })
           .finally(() => {
             this.pending -= 1;
@@ -808,6 +887,7 @@ export class MockAcpmuxSocket {
     prompt: string,
     promptId?: string,
     images: { id: string; mimeType: string; name?: string }[] = [],
+    recorded?: { text: string; pasted: { start: number; end: number }[] },
   ): Promise<unknown> {
     // A prompt queued behind a closed daemon never starts.
     if (this.closed) return { stopReason: "cancelled" };
@@ -825,7 +905,7 @@ export class MockAcpmuxSocket {
     const started = Date.now();
     this.emit(target, {
       mux: "user_message",
-      msg: { text: prompt, promptId, ...(images.length > 0 ? { images } : {}) },
+      msg: { ...(recorded ?? { text: prompt }), promptId, ...(images.length > 0 ? { images } : {}) },
     });
     this.emit(target, { mux: "turn_started" });
     const steps: MockScript["steps"] = this.script?.steps ?? mockTurn(prompt, this.turns);
@@ -884,12 +964,21 @@ export class MockAcpmuxSocket {
     const wanted = (event: EventRecord) =>
       kinds.length === 0 ||
       kinds.includes(event.kind) ||
-      (event.kind !== "available_commands_update" && kinds.includes("transcript"));
+      (event.kind !== "available_commands_update" &&
+        event.kind !== "prompt_suggestion" &&
+        kinds.includes("transcript"));
     const after = Number(params.afterSeq ?? 0);
     const before = params.beforeSeq === undefined ? Infinity : Number(params.beforeSeq);
     const newest = params.beforeSeq !== undefined || (attach && params.afterSeq === undefined);
-    const limit = params.limit === undefined ? (attach ? 2000 : Infinity) : Math.max(1, Number(params.limit));
-    const maxBytes = params.maxBytes === undefined ? Infinity : Number(params.maxBytes);
+    const whole = attach && this.openWhole.has(target);
+    const limit = whole
+      ? Infinity
+      : params.limit === undefined
+        ? attach
+          ? 2000
+          : Infinity
+        : Math.max(1, Number(params.limit));
+    const maxBytes = params.maxBytes === undefined || whole ? Infinity : Number(params.maxBytes);
     const events: EventRecord[] = [];
     let bytes = 0;
     let hasMore = false;

@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixtures (model names, a prompt and a reply), not shipped UI.
-// Retry's model menu in a prompt's action row (RetryModelMenu.tsx): Claude Code's list as a chat reports it,
+// Retry's model menu on the last turn's reply footer (RetryModelMenu.tsx, TurnRows.tsx TurnFooter): Claude Code's list as a chat reports it,
 // releases, its own aliases and older versions mixed, the aliases' releases twice (Leo 2026-10-20:
 // Opus 5.5, Sonnet 5.5 and Haiku 5.5 each twice, a stale tail of old models, the bare system font),
 // drawn as the composer's model menu: the top models, then older ones under More models.
@@ -38,13 +38,18 @@ const open: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]') !== null);
 };
 
-const prompt = {
-  id: "user-1",
+// The chat's last turn (turns.ts marks it retryable and its retryTarget, with the prompt it sends again).
+const lastTurn = {
+  id: "summary-2",
   version: 1,
   at: Date.UTC(2026, 9, 20, 21, 41),
-  kind: "user" as const,
-  seq: 1,
-  text: "Add retry to the uploader",
+  kind: "turnSummary" as const,
+  status: "completed",
+  text: "Added retry to the uploader.",
+  retryable: true,
+  retryTarget: true as const,
+  prompt: "Add retry to the uploader",
+  retryRowId: "user-1",
 };
 
 export default componentEntry<Record<string, never>>({
@@ -57,7 +62,7 @@ export default componentEntry<Record<string, never>>({
   anchors: [{ selector: ".cv-turn-retry-menu" }],
   covers: ["agent-session/acpmux/conversation/RetryModelMenu.tsx"],
   load: async () => {
-    const { UserBubble } = await import("./UserBubble");
+    const { TurnFooter } = await import("./TurnRows");
     const { TurnActionsContext } = await import("./turnActions");
     const actions = {
       retry: () => {},
@@ -73,20 +78,18 @@ export default componentEntry<Record<string, never>>({
     };
     return function GalleryRetryModelMenu() {
       return (
-        // Retry shows on the last ended turn's prompt (VirtualTranscript marks its row retryable). The
-        // prompt's action row is laid in the turn gap under the row, overhanging the column's edge
-        // (design/grid.md 5.5), so the row is the column, as the transcript's article rows are: the
-        // stage's inset is a wrapper's (the row's own --cv-inset offset is cleared), and the row keeps
-        // layout containment alone (paint containment, styles.css .acpmux-row, would clip the action
-        // row away).
+        // Retry shows on the last turn's reply footer. The footer's first glyph overhangs the column's
+        // edge (design/grid.md 5.5), so the row is the column, as the transcript's article rows are:
+        // the stage's inset is a wrapper's (the row's own --cv-inset offset is cleared), and the row
+        // keeps layout containment alone (paint containment, styles.css .acpmux-row, would clip the
+        // action row away).
         <div style={{ padding: "16px 16px 0" }}>
           <div
-            className="acpmux-row cv-user"
-            data-retryable=""
+            className="acpmux-row acpmux-turnSummary acpmux-row--final-footer"
             style={{ position: "relative", insetInline: 0, contain: "layout" }}
           >
             <TurnActionsContext.Provider value={actions}>
-              <UserBubble row={prompt} text={prompt.text} />
+              <TurnFooter row={lastTurn} />
             </TurnActionsContext.Provider>
           </div>
         </div>

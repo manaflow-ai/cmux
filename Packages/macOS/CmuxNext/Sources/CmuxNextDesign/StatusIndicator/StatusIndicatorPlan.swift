@@ -152,7 +152,8 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
             }
             switch style {
             case .none: return .hidden
-            case .arc: return StatusIndicatorPlan(glyph: .arc, animation: .spin, tint: .loading)
+            // The working mark's arc, so a check or a page loading turns the one spinner (webviews/test/one-spinner.test.ts).
+            case .arc: return StatusIndicatorPlan(glyph: workingGlyph, animation: .spin, tint: .loading)
             case .native: return StatusIndicatorPlan(glyph: .native, animation: .step, tint: .loading)
             case .dot: return StatusIndicatorPlan(glyph: .dot, animation: .pulse, tint: .loading)
             case .braille: return StatusIndicatorPlan(glyph: .braille, animation: .frames, tint: .loading)
