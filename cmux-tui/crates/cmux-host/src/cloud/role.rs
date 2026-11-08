@@ -26,13 +26,14 @@ use cmux_server_core::install_key::{InstallKey, SystemRandom};
 use cmux_server_core::role::{HostEvent, Role, RoleContext, RoleError, StopContext};
 use serde_json::{Value, json};
 
+use super::agent_socket::listen;
+use super::carrier_server::CarrierServer;
 use super::client::{
     BindResult, CloudClient, Http, Store, bind_machine, ensure_install_key, ensure_wg_key,
 };
 use super::github;
 use super::github_minter::{Ask, Minter, Stop};
 use super::handoff::{self, HandoffReport};
-use super::relay::{Relay, Runner};
 use super::sender::{Answer, Backoff, OpRequest};
 use super::session::Session;
 use super::trajectory::Layout;
@@ -218,16 +219,6 @@ impl Http for PosterHttp {
 
     fn post_empty(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
         self.0.post_empty(url, bearer)
-    }
-
-    fn request_until(
-        &self,
-        url: &str,
-        body: Option<&Value>,
-        bearer: Option<&str>,
-        deadline: Instant,
-    ) -> Result<(u16, Vec<u8>), String> {
-        self.0.request_until(url, body, bearer, deadline)
     }
 
     fn request_with_deadline(
@@ -462,8 +453,8 @@ impl Role for CloudRole {
                 self.send("resume");
                 Ok(())
             }
-            // The late network attach lands about a second after the bind: a bind or relay token in flight over the
-            // old addresses would otherwise hang to its 20 s bound.
+            // The late network attach lands about a second after the bind: a bind in flight over the old
+            // addresses would otherwise hang to its 20 s bound.
             HostEvent::AddressesChanged => {
                 cmux_server::cloud_http::network_changed();
                 Ok(())
@@ -509,11 +500,6 @@ struct Live {
 
 struct Worker {
     bootstrap: Option<super::bootstrap_role::WorkerBridge>,
-    bootstrap_retry_at: Option<u64>,
-    bootstrap_backoff: Backoff,
-    /// The Native receiving failure last logged, so a retry loop logs each
-    /// new reason once instead of failing silently or flooding the journal.
-    bootstrap_last_error: Option<String>,
     paths: Paths,
     store: FileStore,
     instance_id: String,
@@ -527,12 +513,12 @@ struct Worker {
     live: Option<Live>,
     /// GitHub token asks, off the poll loop (`github_minter.rs`).
     github: Minter<PosterHttp>,
+    /// The session host's relay Register tickets, on their own socket and thread (`carrier_server.rs`).
+    carrier: Option<CarrierServer<PosterHttp>>,
     /// The carrier grant keyset's own fetch (`carrier_keyset.rs`).
     keyset: super::carrier_keyset::Refresher<PosterHttp>,
     /// ACP chats kept in cmux Cloud and restored on a replacement (`trajectory_thread.rs`).
     trajectories: Option<Trajectories<PosterHttp>>,
-    /// The held socket of the relay-first chat path (`relay.rs`), from bind on.
-    relay: Option<Relay>,
     /// This machine's inference gateway bearer, while the person made it their gateway (gateway_token.rs).
     gateway_token: Option<super::gateway_token::GatewayToken>,
     bind_retry_at: Option<u64>,
@@ -566,11 +552,13 @@ impl Worker {
             spawn_trajectories(&paths).map_err(|e| log(&format!("trajectory mirror: {e}"))).ok();
         forget_harness_login_state(&paths);
         let keyset = super::carrier_keyset::Refresher::spawn(paths.clone(), log)?;
+        // Before the bind: a ticket asked meanwhile waits for it there, not in the poll loop.
+        let carrier = listen(&paths, super::carrier_server::CARRIER_SOCKET)
+            .and_then(|l| CarrierServer::spawn(l, wall_ms, log, Arc::clone(&github_stop)))
+            .map_err(|e| log(&format!("carrier socket: {e}")))
+            .ok();
         Ok(Worker {
             bootstrap: None,
-            bootstrap_retry_at: None,
-            bootstrap_backoff: Backoff::new(1_000, 30_000),
-            bootstrap_last_error: None,
             store: FileStore::new(paths.clone()),
             paths,
             instance_id,
@@ -590,9 +578,9 @@ impl Worker {
             },
             live: None,
             github: Minter::spawn(wall_ms, log, github_stop)?,
+            carrier,
             keyset,
             trajectories,
-            relay: None,
             gateway_token: None,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
@@ -610,7 +598,8 @@ impl Worker {
     }
 
     fn run(&mut self) -> io::Result<()> {
-        self.listener = self.serve_socket().map_err(|e| log(&format!("agent socket: {e}"))).ok();
+        self.listener =
+            listen(&self.paths, AGENT_SOCKET).map_err(|e| log(&format!("agent socket: {e}"))).ok();
         if self.store.read(BIND_FILE).is_some() {
             self.bind_now();
         } else if let Some(saved) = self.store.read(BOUND_FILE) {
@@ -619,12 +608,13 @@ impl Worker {
             log("no bind.json and no bound.json; waiting for bind.json");
         }
         loop {
-            self.drive_bootstrap();
+            if let Some(bridge) = &self.bootstrap {
+                bridge.drive();
+            }
             let deadline = [
                 self.live.as_ref().and_then(|l| l.session.next_deadline()),
                 self.bind_retry_at,
                 self.activity.retry_at,
-                self.bootstrap_retry_at,
                 self.workload_at,
             ]
             .into_iter()
@@ -675,7 +665,6 @@ impl Worker {
                 return Ok(());
             }
             // The retained bootstrap descriptors wake the next loop's drive.
-            // Process control and binding changes before preparing private data.
             if ready(1) {
                 let bind = self.inotify.read_events()?.iter().any(|e| e.name == "bind.json");
                 if bind {
@@ -715,25 +704,14 @@ impl Worker {
         for word in words {
             match word.as_str() {
                 "stop" => {
-                    // cmux-host is stopping (a restart, an update): the relay's chats keep their turns in acpmux,
-                    // and the next cmux-host reattaches. Dropping the Relay instead (a rebind) cancels them.
-                    if let Some(relay) = self.relay.take() {
-                        relay.detach();
-                    }
                     return Ok(true);
                 }
                 "resume" => {
-                    // Connections from before a pause are stale, and the guest's clock did not count the pause, so
-                    // nothing here would notice for a minute: the relay dials again before a chat can go down its
-                    // old socket, and the resume report below gets a fresh HTTPS connection instead of hanging.
-                    if let Some(relay) = &self.relay {
-                        relay.resumed();
-                    }
+                    // Connections from before a pause are stale: the resume report below gets a fresh HTTPS
+                    // connection instead of hanging.
                     if let Some(live) = &self.live {
                         live.client.reset_transport();
                     }
-                    self.bootstrap_retry_at = None;
-                    self.bootstrap_backoff.reset();
                     if let Some(bridge) = &mut self.bootstrap {
                         bridge.resume();
                         if self.live.is_some() {
@@ -750,24 +728,6 @@ impl Worker {
             }
         }
         Ok(false)
-    }
-
-    fn serve_socket(&self) -> io::Result<UnixListener> {
-        let path = self.paths.at(AGENT_SOCKET);
-        if let Some(dir) = path.parent() {
-            fs::create_dir_all(dir)?;
-            fs::set_permissions(dir, fs::Permissions::from_mode(0o755))?;
-        }
-        let _ = fs::remove_file(&path);
-        let listener = UnixListener::bind(&path)?;
-        listener.set_nonblocking(true)?;
-        if self.paths.is_system_root()
-            && let Some(gid) = group_id("cmux")
-        {
-            std::os::unix::fs::chown(&path, Some(0), Some(gid))?;
-        }
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o660))?;
-        Ok(listener)
     }
 
     fn accept(&mut self) {
@@ -842,60 +802,6 @@ impl Worker {
                 continue;
             }
             let now = self.now();
-            if serde_json::from_str::<Value>(&line).is_ok_and(|v| {
-                v.get("op").and_then(Value::as_str) == Some(super::receiver::POLICY_OP)
-            }) {
-                let Some(client) = self.clients.get(i) else { continue };
-                if !client.output.is_empty() {
-                    closed.push(i);
-                    continue;
-                }
-                // A queued batch must not hold shutdown behind up to sixteen
-                // separate network deadlines. Check the role's control fd
-                // before every policy request, not only before the batch.
-                if self.control_words().unwrap_or(true) {
-                    return true;
-                }
-                // The request is deliberately parameterless. The role owns
-                // every identity and credential used for this hidden read.
-                #[derive(serde::Deserialize)]
-                #[serde(deny_unknown_fields)]
-                struct Request {
-                    op: String,
-                }
-                let valid = serde_json::from_str::<Request>(&line)
-                    .is_ok_and(|r| r.op == super::receiver::POLICY_OP);
-                let value = if valid {
-                    self.live.as_mut().map(|live| {
-                        super::receiver_files::reply(
-                            &self.paths,
-                            &self.instance_id,
-                            &mut live.client,
-                            wall_ms(),
-                        )
-                    })
-                } else {
-                    None
-                };
-                // `refused` revokes the receiver's retained policy at once;
-                // `unavailable` (no answer) lets local admission keep it.
-                let value = match value {
-                    Some(Ok(value)) => value,
-                    Some(Err(error)) if super::receiver::is_refusal(&error) => {
-                        json!({ "ok": false, "error": super::receiver::POLICY_REFUSED })
-                    }
-                    _ => json!({ "ok": false, "error": super::receiver::POLICY_UNAVAILABLE }),
-                };
-                let Some(client) = self.clients.get_mut(i) else { continue };
-                client.output = serde_json::to_vec(&value).unwrap_or_default();
-                if client.output.len() > 1024 * 1024 {
-                    closed.push(i);
-                    continue;
-                }
-                client.output.push(b'\n');
-                client.write_deadline = Some(self.epoch.elapsed().as_millis() as u64 + 1000);
-                continue;
-            }
             let Some(live) = self.live.as_mut() else { continue };
             let (reqs, note) = live.session.line(&line, now);
             if let Some(note) = note {
@@ -1085,6 +991,12 @@ impl Worker {
             Ok(client) => self.github.bound(client),
             Err(e) => log(&format!("github minter: {e}")),
         }
+        if let Some(carrier) = self.carrier.as_ref() {
+            match github_client(&bound, &key) {
+                Ok(client) => carrier.bound(client),
+                Err(e) => log(&format!("carrier ticket: {e}")),
+            }
+        }
         match github_client(&bound, &key) {
             Ok(client) => self.keyset.bound(client),
             Err(e) => log(&format!("carrier keyset: {e}")),
@@ -1094,16 +1006,6 @@ impl Worker {
                 Ok(client) => trajectories.bound(client),
                 Err(e) => log(&format!("trajectory mirror: {e}")),
             }
-        }
-        // A rebind replaces the relay: dropping the old one closes its socket and ends its chats at once.
-        self.relay = None;
-        match (github_client(&bound, &key), relay_runner()) {
-            (Ok(client), Ok(runner)) => {
-                self.relay = Relay::spawn(client, runner, wall_ms, log)
-                    .map_err(|e| log(&format!("relay: {e}")))
-                    .ok();
-            }
-            (Err(e), _) | (_, Err(e)) => log(&format!("relay: {e}")),
         }
         self.gateway_token = None;
         match github_client(&bound, &key) {
@@ -1146,10 +1048,15 @@ impl Worker {
         if self.activity.unsupported || self.live.is_none() {
             return;
         }
-        let attempt = daemon_socket(&self.paths)
+        let paths = self.paths.clone();
+        let mut identified = None;
+        let attempt = daemon_socket(&paths)
             .ok_or_else(|| io::Error::other("no daemon socket"))
             .and_then(|socket| {
                 let identify = query_identify(&socket, Duration::from_secs(2))?;
+                // The running session host's block, not the bake's (Session::daemon_identified).
+                identified =
+                    Some(with_desktop(&paths, daemon_info_from_identify(&identify, false)));
                 let caps = identify.field("capabilities").as_array().cloned().unwrap_or_default();
                 if !caps.iter().any(|c| c == DAEMON_ACTIVITY_CAPABILITY) {
                     return Ok(None);
@@ -1159,6 +1066,13 @@ impl Worker {
                 stream.set_nonblocking(true)?;
                 Ok(Some(stream))
             });
+        if let Some(daemon) = identified {
+            let now = self.now();
+            if let Some(live) = self.live.as_mut() {
+                let reqs = live.session.daemon_identified(&daemon, now);
+                self.drive(reqs);
+            }
+        }
         match attempt {
             Ok(Some(stream)) => self.activity.stream = Some(stream),
             Ok(None) => {
@@ -1338,23 +1252,6 @@ fn spawn_trajectories(paths: &Paths) -> io::Result<Trajectories<PosterHttp>> {
     Trajectories::spawn(layout, Box::new(importer), identity, wall_ms, random_unit, log)
 }
 
-/// Who runs relay chats: the machine's acpmux as the work user (the
-/// trajectory mirror's layout), or root's on an image without that user.
-fn relay_runner() -> Result<Runner, String> {
-    let user = lookup_user(WORK_USER)
-        .or_else(|| lookup_user("root"))
-        .ok_or_else(|| "no work user and no root user".to_owned())?;
-    let home = if user.uid == 0 { PathBuf::from(ROOT_HOME) } else { PathBuf::from(WORK_HOME) };
-    Ok(Runner {
-        bin: binary_path(&home),
-        user: user.name.clone(),
-        uid: user.uid,
-        gid: user.gid,
-        groups: crate::linux::spawn::group_list(&user.name, user.gid),
-        home,
-    })
-}
-
 /// The harness-login sync (removed) kept its state here on machines that ran
 /// it. The state held fingerprints and revisions only, never a login; it is
 /// removed so nothing reads it again. A person's login stays in Claude Code's
@@ -1450,17 +1347,6 @@ fn take_lines(buf: &mut Vec<u8>) -> Vec<String> {
     out
 }
 
-fn group_id(name: &str) -> Option<u32> {
-    let cname = std::ffi::CString::new(name).ok()?;
-    // SAFETY: getgrnam returns a pointer to static storage or null.
-    let group = unsafe { libc::getgrnam(cname.as_ptr()) };
-    if group.is_null() {
-        return None;
-    }
-    // SAFETY: non-null result from getgrnam.
-    Some(unsafe { (*group).gr_gid })
-}
-
 /// `cmux host cloud probe-activity`: the daemon advertises vm-activity-v1
 /// and a `subscribe-activity` stream answers with a snapshot.
 pub fn probe_activity(paths: &Paths, timeout: Duration) -> Result<Value, String> {
@@ -1497,6 +1383,3 @@ pub fn print_daemon_info(paths: &Paths, timeout: Duration) -> Result<Value, Stri
 #[cfg(test)]
 #[path = "role_tests.rs"]
 mod role_tests;
-
-#[path = "role_bootstrap.rs"]
-mod bootstrap;

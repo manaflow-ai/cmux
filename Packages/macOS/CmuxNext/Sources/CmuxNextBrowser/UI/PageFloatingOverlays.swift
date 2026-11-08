@@ -134,7 +134,9 @@ final class PageFloatingOverlays {
             let view = cards[index].view
             // A hidden card waits for its tab (one chrome per pane): off screen, it takes no clicks.
             // So does a card that a pane in front of the page covers whole: the page is cut there too.
-            if view.isHidden || !shown.showsAny(of: placedRect(of: cards[index], in: clip)) {
+            if view.isHidden || (view as? BrowserCookieImportCard)?.waitsForFocus == true
+                || !shown.showsAny(of: placedRect(of: cards[index], in: clip))
+            {
                 dismiss(index)
                 continue
             }
