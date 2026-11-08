@@ -1195,6 +1195,8 @@ async fn authenticate_one(
     let primary = lanes[0];
     let physical =
         group.open(LinkRequest { lane: primary, generation: context.generation }).await?;
+    let timeout = config.reconnect.attempt_timeout;
+    let deadline = tokio::time::Instant::now() + timeout;
     let secure = initiate_secure_link(
         physical,
         ClientHandshake {
@@ -1212,7 +1214,14 @@ async fn authenticate_one(
         },
     )
     .await?;
-    let ready = match receive_control::<LinkHandshakeResponse>(&secure).await? {
+    // The daemon's answer is part of the handshake and shares its deadline: a link that stalls
+    // after the Noise exchange fails this attempt (so it is retried) instead of hanging it, and
+    // cannot hand back a session the daemon dropped meanwhile as an incomplete link group.
+    let answer =
+        tokio::time::timeout_at(deadline, receive_control::<LinkHandshakeResponse>(&secure))
+            .await
+            .map_err(|_| ConnectionError::Crypto(CryptoError::HandshakeTimeout { timeout }))?;
+    let ready = match answer? {
         LinkHandshakeResponse::Ready(ready) => ready,
         LinkHandshakeResponse::Rejected(LinkRejected {
             rejected: LinkRejection::SessionUnavailable,
