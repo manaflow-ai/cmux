@@ -1640,14 +1640,19 @@ export function restRoom(): number {
 /// sending a steer changes no row's height. A waiting prompt of images alone has no bubble to lay
 /// the row under, so its row (Send now first, PendingSteer.tsx) stays in flow.
 const userMetaHeight = (row: AcpmuxRow) => (row.steer === "waiting" && !row.text?.trim() ? META_GAP + metaRow() : 0);
-/// The author line over a shared chat's prompt (multiplayer/multiplayer.css `.cv-author`).
-const AUTHOR_HEIGHT = 22;
+/// The author line over a shared chat's prompt (multiplayer/multiplayer.css `.cv-author`): the taller
+/// of its 18 line and its face (`--cv-author-face`, five grid units, 20 at 1x, scaling with the
+/// interface), and the 4 under it.
+const AUTHOR_LINE = 18;
+const AUTHOR_FACE = 20;
+const AUTHOR_GAP = 4;
+const authorHeight = () => Math.max(AUTHOR_LINE, AUTHOR_FACE * chromeScale) + AUTHOR_GAP;
 const chromeHeight = (row: AcpmuxRow, _actions: boolean) =>
   row.kind === "user"
     ? userBubblePadding() +
       userMetaHeight(row) +
       (row.status ? USER_STATUS_HEIGHT : 0) +
-      (row.author ? AUTHOR_HEIGHT : 0)
+      (row.author ? authorHeight() : 0)
     : 0; // Reply controls overlay the container gap.
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
 const USER_BUBBLE_SHARE = 0.7;

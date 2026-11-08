@@ -156,7 +156,10 @@ function headingTag(name: string): "h3" | "h4" | "h5" | "h6" {
 }
 
 function image(element: Element, key: number): ReactNode {
-  const src = imageSource(element.getAttribute("src"));
+  // GitHub's responsive images: a srcset whose every candidate may load is kept, and an image with
+  // only a srcset loads its first candidate (review of #38075, F2).
+  const srcSet = imageSourceSet(element.getAttribute("srcset"));
+  const src = imageSource(element.getAttribute("src")) ?? srcSet?.split(/,\s+/)[0]?.split(/\s+/)[0];
   const alt = element.getAttribute("alt") ?? "";
   // An image off GitHub's proxy is its alt text, or nothing (a tracking pixel has none).
   if (!src) return alt ? <span key={key}>{alt}</span> : null;
@@ -165,6 +168,7 @@ function image(element: Element, key: number): ReactNode {
       key={key}
       className="gh-md-img"
       src={src}
+      srcSet={srcSet}
       alt={alt}
       width={size(element.getAttribute("width"))}
       height={size(element.getAttribute("height"))}

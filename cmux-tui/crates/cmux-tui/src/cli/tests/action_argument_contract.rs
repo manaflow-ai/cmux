@@ -847,3 +847,29 @@ fn open_remote_focus_reaches_the_action() {
     assert_eq!(params["focus"], serde_json::json!(true));
     assert!(params["args"].get("focus").is_none(), "{params}");
 }
+
+/// `cmux share chat --view-only` makes a link where nobody sends: `role: view` (the daemon's link
+/// role, which lifts the uses cap) and `signedInRole: view` (signed-in link guests watch too; the
+/// daemon's `signed_in_role`, cmux#38102). Both are `agent.share` arguments, so the app takes the
+/// run instead of refusing it with "agent.share has no argument 'role'".
+#[test]
+fn share_chat_view_only_sends_only_arguments_the_action_takes() {
+    let words = ["share", "chat", "--surface", "3", "--view-only"].map(str::to_owned);
+    let Some(Ok((name, args))) = super::super::share_cli::action(&words) else {
+        panic!("share chat --view-only is rewritten")
+    };
+    let mut rewritten = name.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+    rewritten.extend(args);
+    let params = encoded(&rewritten);
+    assert_eq!(params["args"]["role"], "view", "{params}");
+    assert_eq!(params["args"]["signedInRole"], "view", "{params}");
+    let actions = actions();
+    let share = actions.iter().find(|action| action.id == "agent.share").expect("agent.share");
+    for key in params["args"].as_object().expect("args").keys() {
+        assert!(
+            share.args.contains(key),
+            "agent.share has no argument '{key}' (it takes {:?})",
+            share.args
+        );
+    }
+}

@@ -691,8 +691,13 @@ pub fn parse_gh_hosts(hosts_yml: &str) -> GhHosts {
     match docs.into_iter().next() {
         None | Some(yaml_rust::Yaml::Null) => GhHosts::default(),
         Some(yaml_rust::Yaml::Hash(root)) => GhHosts {
-            // Trimmed: yaml-rust keeps a tab of indentation in the key.
-            hosts: root.keys().filter_map(|k| k.as_str().map(|h| h.trim().to_owned())).collect(),
+            // yaml-rust keeps the tabs of a tab-indented file at the start of
+            // the key: strip those only, so a quoted `" github.com "` stays
+            // another key rather than a github.com login.
+            hosts: root
+                .keys()
+                .filter_map(|k| k.as_str().map(|h| h.trim_start_matches('\t').to_owned()))
+                .collect(),
             unread: false,
         },
         Some(_) => unread,
@@ -1573,6 +1578,10 @@ mod tests {
             "  x:\n      github.com: 1\n",
             "{}\n",
             "# github.com:\n",
+            // cmux#35263: a quoted key with spaces is another host, not github.com.
+            "\" github.com \":\n  user: me\n",
+            "\"github.com \":\n  user: me\n",
+            "{\" github.com\": {user: me}}\n",
         ] {
             assert!(!hosts_has_github(hosts), "{hosts:?}");
         }
