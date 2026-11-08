@@ -400,6 +400,23 @@ fn redeem(id: &str, attempt: &str, secret: &Value) -> Value {
 }
 
 #[test]
+fn a_link_names_the_build_that_made_it_unless_it_is_the_default_app() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, mut owner) = bridged("room-app-scheme", &room);
+    // NIGHTLY (the guest page's default) and anything that is not a cmux scheme name nothing.
+    for scheme in [Some("cmux-nightly"), Some("javascript"), Some("cmux-"), None] {
+        set_link_share_app_scheme(&mux, scheme);
+        assert!(shares(&mux).bridge.app_scheme.lock().unwrap().is_none(), "{scheme:?}");
+    }
+    set_link_share_app_scheme(&mux, Some("cmux-next-dev"));
+    let reply = create(&mut owner, surface);
+    assert_eq!(reply["ok"], true, "{reply}");
+    let share = &reply["data"];
+    let (id, secret) = (share["share_id"].as_str().unwrap(), share["secret"].as_str().unwrap());
+    assert_eq!(share["url"], format!("{}/g/{id}?app=cmux-next-dev#{secret}", room.url));
+}
+
+#[test]
 fn a_provisioned_share_answers_hello_with_its_guests_and_redeems_through_the_daemon() {
     let room = FakeRoom::start(&[]);
     let (_fake, _mux, surface, mut owner) = bridged("room-redeem", &room);

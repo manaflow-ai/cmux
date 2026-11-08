@@ -22,13 +22,17 @@
 .guest-join__edit{align-self:center;padding:0;border:0;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 .guest-join__edit:hover{color:var(--agent-text);text-decoration:underline}
 .guest-join__edit:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+/* Open in cmux (OpenInApp.tsx): the app link as the primary button, the browser as a quiet second choice. */
+.guest-app__open{display:inline-flex;align-items:center;box-sizing:border-box;text-decoration:none}
+.guest-app__browser{flex:none;height:32px;padding:0 12px;border:1px solid var(--agent-border);border-radius:8px;background:transparent;color:var(--agent-text);font:inherit}
+.guest-app__browser:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 /* The transcript's column: 760px wide, 16px from the edges on a phone. */
 .guest-live{--guest-inset:max(16px, calc((100% - 760px) / 2));height:100%;display:flex;flex-direction:column}
 .guest-live__header{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--guest-inset);border-bottom:1px solid var(--agent-border)}
 [data-borders="none"] .guest-live__header{border-bottom:0}
 .guest-live__titles{flex:1;min-width:0}
-.guest-live__title{min-height:var(--text-body--line-height);margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-body);line-height:var(--text-body--line-height);font-weight:600}
-.guest-live__owner{min-height:var(--text-detail--line-height);margin:0;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
+.guest-live__title{height:var(--text-body--line-height);margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-body);line-height:var(--text-body--line-height);font-weight:600}
+.guest-live__owner{height:var(--text-detail--line-height);margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 /* Connecting floats at the top of the transcript's area: it comes and goes without moving a row. */
 .guest-live__notice{position:absolute;top:0;left:0;right:0;margin:0;padding:8px var(--guest-inset);color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);text-align:center;background:var(--agent-page-bg);pointer-events:none}
 .guest-live__notice--failed{color:var(--agent-text);pointer-events:auto}
