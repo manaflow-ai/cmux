@@ -2,11 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { setNativeHost } from "./native";
+import { postNative, setNativeHost } from "./native";
 import {
   bottomStackBox,
   elementBox,
   reportToastAvoidance,
+  resendToastAvoidance,
   resetToastAvoidanceReports,
   watchToastAvoidance,
   type StackBox,
@@ -113,6 +114,61 @@ describe("toast avoidance", () => {
       setNativeHost(undefined);
       resetToastAvoidanceReports();
     }
+  });
+
+  test("a handshake retry clears the host's box; a mounted composer with unchanged bounds is heard again", async () => {
+    const { dom, document, place } = page();
+    const view = dom.window as unknown as Window & typeof globalThis;
+    const resized: (() => void)[] = [];
+    (view as any).ResizeObserver = class {
+      constructor(callback: () => void) {
+        resized.push(callback);
+      }
+      observe() {}
+      disconnect() {}
+    };
+    const frames: FrameRequestCallback[] = [];
+    view.requestAnimationFrame = (callback) => frames.push(callback);
+    view.cancelAnimationFrame = () => {};
+    const flush = () => frames.splice(0).forEach((callback) => callback(0));
+    resetToastAvoidanceReports();
+    // The host as AgentPaneHandshakeReply has it: every `ready` (an in-page retry too) clears its box.
+    let hostBox: unknown = [];
+    setNativeHost(async (method, params) => {
+      if (method === "pane.toastAvoidance") hostBox = params.rects;
+      if (method === "ready") hostBox = [];
+    });
+    try {
+      // A New Tab stage composer card, mounted.
+      const card = document.createElement("div");
+      document.body.append(card);
+      place("body > div", { left: 40, top: 600, width: 820, height: 100 });
+      const stop = reportToastAvoidance(card, elementBox);
+      flush();
+      const box = [{ left: 40, top: 600, right: 860, bottom: 700 }];
+      expect(hostBox).toEqual(box);
+      // The handshake retries in the same document; the card has not moved.
+      await postNative("ready", { reconnect: true });
+      expect(hostBox).toEqual([]);
+      resendToastAvoidance();
+      expect(hostBox).toEqual(box);
+      // Later resizes with the same bounds still leave the host avoiding it.
+      resized.forEach((callback) => callback());
+      flush();
+      expect(hostBox).toEqual(box);
+      stop();
+      expect(hostBox).toEqual([]);
+    } finally {
+      setNativeHost(undefined);
+      resetToastAvoidanceReports();
+    }
+  });
+
+  test("the page's handshake resends the toast box once the host answers", () => {
+    const app = readFileSync(join(import.meta.dir, "App.tsx"), "utf8");
+    expect(app).toMatch(
+      />\("ready", reconnect \? \{ reconnect \} : \{\}\)\s*(\/\/[^\n]*\s*)?\.finally\(resendToastAvoidance\)/,
+    );
   });
 
   test("no rule lets a toast band move the shell, the stage or the stack", () => {

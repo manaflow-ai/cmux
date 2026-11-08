@@ -124,6 +124,14 @@ function post(): void {
   });
 }
 
+/// Tells the host the newest report's box again, changed or not. Each handshake (`ready`, a retry's
+/// too, which keeps this document) clears the host's box, so the page sends it again once the host
+/// answers: a mounted composer whose bounds never move is still avoided.
+export function resendToastAvoidance(): void {
+  posted = null;
+  post();
+}
+
 /// Reports `dock`'s stack (or what `box` measures of it) to the host for as long as it is mounted.
 /// A report mounted later takes over; when it stops, the host hears the one under it again.
 export function reportToastAvoidance(
