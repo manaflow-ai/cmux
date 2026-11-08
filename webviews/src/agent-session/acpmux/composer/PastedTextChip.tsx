@@ -170,7 +170,7 @@ export function PastedTextChip({
         <span className="acpmux-paste-chip__panel" aria-hidden={!open} inert={!open}>
           <span className="acpmux-paste-chip__panel-inner">
             {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focus the text's scroller to read it with the keys. */}
-            <span className="acpmux-paste-view__text" role="document" tabIndex={0} dir="auto">
+            <span className="acpmux-paste-view__text selectable" role="document" tabIndex={0} dir="auto">
               {open ? text : null}
             </span>
             <span className="acpmux-paste-view__actions">{actions}</span>
@@ -243,7 +243,7 @@ function PastedTextSheet({
           </button>
         </div>
         {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focus the text's scroller to read it with the keys. */}
-        <div ref={body} className="acpmux-paste-view__text" role="document" tabIndex={0} dir="auto">
+        <div ref={body} className="acpmux-paste-view__text selectable" role="document" tabIndex={0} dir="auto">
           {text}
         </div>
         <div className="acpmux-paste-view__actions">{children}</div>
