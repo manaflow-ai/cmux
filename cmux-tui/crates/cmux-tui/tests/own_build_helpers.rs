@@ -301,6 +301,9 @@ fn own_build_status_says_where_it_looked_for_screen_detection() {
             .env("HOME", &home)
             .env("XDG_DATA_HOME", &data)
             .env("CMUX_TUI_CONFIG", root.join("daemon-ob-s/config.json"))
+            // The daemon's own state root (`use_private_state`): ensure
+            // refuses an owner that serves another state directory.
+            .env("CMUX_TUI_STATE_DIR", root.join("daemon-ob-s/cmux-tui/sessions"))
             .env("LC_ALL", "C")
             .env_remove("CMUX_TUI_SOCKET")
             .env_remove("CMUX_MUX_SOCKET")
