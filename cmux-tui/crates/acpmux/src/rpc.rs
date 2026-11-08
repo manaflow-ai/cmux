@@ -535,6 +535,9 @@ pub mod method {
     /// Personal stats over every session log (`stats.rs`); the local unix
     /// socket only (the app reaches it there), never a WebSocket origin.
     pub const MUX_STATS: &str = "_acpmux/stats";
+    /// What turns cost, per session, workspace, repository, pull request, day, person, vendor,
+    /// model and account (`hub/ledger`); the local unix socket and the local app only.
+    pub const MUX_LEDGER: &str = "_acpmux/ledger";
     /// Stop and delete every chat of one cmux workspace, an incognito one when its window
     /// closes (`server/chats/workspace_purge.rs`); the local unix socket only.
     pub const MUX_WORKSPACE_PURGE: &str = "_acpmux/workspace_purge";
@@ -545,6 +548,8 @@ pub mod method {
     pub const MUX_COMPOSERS: &str = "_acpmux/composers";
     pub const MUX_BOOKMARK_GET: &str = "_acpmux/bookmark_get";
     pub const MUX_BOOKMARK_SET: &str = "_acpmux/bookmark_set";
+    /// The person's Accept or Dismiss on a chat's memory offer (`server/memory_inbox.rs`).
+    pub const MUX_MEMORY_RESOLVE: &str = "_acpmux/memory_resolve";
     pub const MUX_ASK: &str = "_acpmux/ask";
     /// A side session about a chat (`/btw`, `hub/btw.rs`): read-only, on a
     /// cheap model, sent the question; answers with its session id at once.
@@ -680,6 +685,12 @@ pub mod method {
     /// the person accepts or dismisses with `offer_respond`.
     pub const MUX_OFFER_SESSION: &str = "_acpmux/offer_session";
     pub const MUX_OFFER_RESPOND: &str = "_acpmux/offer_respond";
+    /// Parallel model races owned by the parent session.
+    pub const MUX_RACE_START: &str = "_acpmux/race/start";
+    pub const MUX_RACE_LIST: &str = "_acpmux/race/list";
+    pub const MUX_RACE_GET: &str = "_acpmux/race/get";
+    pub const MUX_RACE_CANCEL: &str = "_acpmux/race/cancel";
+    pub const MUX_RACE_STATS: &str = "_acpmux/race/stats";
     /// Sub-sessions (`hub/subsessions.rs`, `server/subsessions.rs`): an agent
     /// session's own children, with the caller proven by its token.
     pub const MUX_SUBSESSION_START: &str = "_acpmux/subsession/start";

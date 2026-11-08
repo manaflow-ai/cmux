@@ -142,8 +142,8 @@ async function press(target: HTMLElement, key: string, init: KeyboardEventInit =
   await settle();
 }
 
-/// 130 lines (780 words): over the 750-word chip limit.
-const LONG_LOG = Array.from({ length: 130 }, (_, index) => `line ${index + 1} of the build log`).join("\n");
+/// 600 lines (3,600 words): over the 3,500-word chip limit.
+const LONG_LOG = Array.from({ length: 600 }, (_, index) => `line ${index + 1} of the build log`).join("\n");
 
 async function pasteText(editor: HTMLElement, text: string) {
   const paste = new dom.window.Event("paste", { bubbles: true, cancelable: true });
@@ -219,7 +219,7 @@ test("a long text paste is one attachment chip in New Tab", async () => {
   await pasteText(editor, LONG_LOG);
   expect(pastedChipCount()).toBe(1);
   expect(editor.textContent).toContain("before");
-  expect(editor.textContent).not.toContain("line 130 of the build log");
+  expect(editor.textContent).not.toContain("line 600 of the build log");
 });
 
 test("pasting the same long block again opens its chip once instead of duplicating it", async () => {
@@ -231,7 +231,7 @@ test("pasting the same long block again opens its chip once instead of duplicati
   expect(pastedChipCount()).toBe(0);
   expect(editor.textContent).toContain("before");
   expect(editor.textContent).toContain("line 1 of the build log");
-  expect(editor.textContent).toContain("line 130 of the build log");
+  expect(editor.textContent).toContain("line 600 of the build log");
   await press(editor, "Enter");
   expect(calls).toContainEqual(["ask", "claude", `before ${LONG_LOG}`, undefined, "claude-opus-5-5"]);
 });
@@ -243,7 +243,7 @@ test("Paste as Plain Text keeps a long New Tab paste as text", async () => {
   await press(editor, "V", { metaKey: true, shiftKey: true });
   await pasteText(editor, LONG_LOG);
   expect(pastedChipCount()).toBe(0);
-  expect(editor.textContent).toContain("line 130 of the build log");
+  expect(editor.textContent).toContain("line 600 of the build log");
 });
 
 test("a long paste in shell mode remains raw command text", async () => {
@@ -252,7 +252,7 @@ test("a long paste in shell mode remains raw command text", async () => {
   const editor = await type(field, "!");
   await pasteText(editor, LONG_LOG);
   expect(pastedChipCount()).toBe(0);
-  expect(editor.textContent).toContain("line 130 of the build log");
+  expect(editor.textContent).toContain("line 600 of the build log");
   await press(editor, "Enter");
   expect(calls).toContainEqual(["shell", LONG_LOG]);
 });
@@ -276,7 +276,7 @@ test("a pasted chip in the strip expands back into the prompt when opened", asyn
   await settle();
   expect(host.querySelector(".acpmux-attachment-pasted")).toBeNull();
   expect(editor.textContent).toContain("before");
-  expect(editor.textContent).toContain("line 130 of the build log");
+  expect(editor.textContent).toContain("line 600 of the build log");
 });
 
 // Review of #37674 (F1): only a paste takes the selection's place (inlineAttachments.tsx `place`). The

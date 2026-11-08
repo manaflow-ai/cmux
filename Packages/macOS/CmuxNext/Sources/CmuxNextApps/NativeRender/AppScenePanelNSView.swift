@@ -19,7 +19,8 @@ final class AppScenePanelNSView: AppSceneNodeNSView {
         layer?.addSublayer(card)
         title.font = Typography.caption
         title.maximumNumberOfLines = 1
-        [surface, title, content].forEach(addSubview)
+        [title, content].forEach(addSubview)
+        showSurface()
     }
 
     override var childHost: NSView { content }
@@ -34,8 +35,17 @@ final class AppScenePanelNSView: AppSceneNodeNSView {
         super.configure(node)
         title.stringValue = node.string("title") ?? ""
         title.isHidden = !hasTitle
-        surface.isHidden = isCard
+        showSurface()
         card.isHidden = !isCard
+    }
+
+    /// The glass surface is in the view only for `glass`: a `card` panel has no sidebar card surface, hidden or not.
+    private func showSurface() {
+        if isCard {
+            surface.removeFromSuperview()
+        } else if surface.superview !== self {
+            addSubview(surface, positioned: .below, relativeTo: nil)
+        }
     }
 
     override func paint() {

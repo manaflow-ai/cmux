@@ -203,7 +203,7 @@ export default agentPaneEntry({
       play: hoverTime("time.cv-user__time"),
     },
     "answer-time-tooltip": {
-      note: "Play: point at an answer's footer; its exact date and time shows at the row's end, after the buttons (hidden at rest, as ChatGPT's: #31609), its tooltip the turn's time and tokens.",
+      note: "Play: point at an answer's footer; its age (15 hours ago) shows at the row's end, after the buttons (hidden at rest: #31609), as a prompt's does; its tooltip the exact date and time, the turn's time and tokens under it.",
       snapshot: yesterday(),
       play: async (ctx) => {
         const selector = "time.cv-turn-time";
@@ -213,7 +213,7 @@ export default agentPaneEntry({
           const time = ctx.document.querySelector<HTMLElement>(selector);
           return (
             time !== null &&
-            /\d:\d\d/.test(time.textContent ?? "") &&
+            (time.textContent ?? "").endsWith(" ago") &&
             ctx.document.defaultView!.getComputedStyle(time).opacity === "1"
           );
         });

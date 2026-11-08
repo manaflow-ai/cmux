@@ -127,6 +127,27 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ("Merge same-named groups", "acpmux group tidy --apply"),
         ],
     ),
+    (
+        "race",
+        &[
+            (
+                "Race two models on a task and let a third review",
+                "acpmux race new -m claude -m codex --reviewer claude 'Fix the flaky test'",
+            ),
+            ("List this chat's races", "acpmux race ls"),
+        ],
+    ),
+    (
+        "race new",
+        &[(
+            "Race two models on a task in a file",
+            "acpmux race new -m claude -m codex --reviewer claude --prompt-file task.md",
+        )],
+    ),
+    ("race show", &[("Read a race and the reviewer's pick", "acpmux race show RACE_ID")]),
+    ("race stop", &[("Stop a race's agents, keeping its results", "acpmux race stop RACE_ID")]),
+    ("race ls", &[("List this chat's races", "acpmux race ls")]),
+    ("race stats", &[("Wins per model in this chat", "acpmux race stats")]),
     ("group ls", &[("List sidebar groups as JSON", "acpmux group ls --json")]),
     ("group move", &[("Put a session in the Leads group", "acpmux group move coord Leads")]),
     (

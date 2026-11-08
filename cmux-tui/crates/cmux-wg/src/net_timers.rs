@@ -10,6 +10,7 @@ use tokio::time::Instant;
 use super::Driver;
 use crate::probing;
 use crate::timers::SESSION_FRESH;
+use crate::underlay::Underlay as _;
 
 /// Waits before each repeat of the shutdown resets: 0.2, 0.4, 0.8 and 1.6 s
 /// after shutdown.
@@ -109,7 +110,7 @@ impl Driver {
         let now = Instant::now();
         self.probe_deadline = if self.schedule.is_active(now) {
             let (tunn, scratch) = (&mut self.tunn, &mut self.scratch);
-            probing::send_due(tunn, &mut *self.underlay, scratch, self.probe_route, now)
+            probing::send_due(tunn, &mut self.underlay, scratch, self.probe_route, now)
         } else {
             None
         };

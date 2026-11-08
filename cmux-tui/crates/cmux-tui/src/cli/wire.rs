@@ -54,11 +54,10 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
 }
 
 fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) -> i32 {
-    if plan.stream && global.output == OutputMode::Json {
-        return usage_failure(
-            global.output,
-            "cmux: streams require --jsonl, --quiet, or human output",
-        );
+    if plan.stream
+        && let Some(code) = super::stream_output::refuse_json(global.output)
+    {
+        return code;
     }
     if let Err(error) = super::resolve::apply_global_route(global, &mut plan) {
         return usage_failure(global.output, &format!("cmux: {error}"));
@@ -146,7 +145,7 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
     }
     // The caller's terminal belongs to the session its environment names; an
     // explicit route targets that session's current workspace.
-    let caller_route = global.socket.is_none() && global.session.is_none();
+    let caller_route = routes_to_caller_session(global);
     // An agent's terminal with no place goes beside its chat (beside.rs).
     #[cfg(unix)]
     match super::beside::run_cli(
@@ -884,6 +883,12 @@ pub(super) fn print_result(global: &GlobalArgs, plan: &RequestPlan, result: Valu
         .then(|| result.pointer("/extra/last_command").cloned())
         .flatten();
     let result = plan.view.project(result);
+    if global.output == OutputMode::Human
+        && plan.view == super::command::ResponseView::ScreenText
+        && let Some(text) = result.get("text").and_then(Value::as_str)
+    {
+        return print_screen_text(text);
+    }
     let shown = match global.output {
         OutputMode::Human => human_view(plan, &result),
         output => agent_roster::machine_view(plan, &result, output),
@@ -901,6 +906,20 @@ fn last_command_line(last: &Value) -> String {
     match last.get("exit_code").and_then(Value::as_i64) {
         Some(code) => format!("LAST COMMAND exit {code}"),
         None => "LAST COMMAND exit status unknown".to_owned(),
+    }
+}
+
+/// `terminal <t> screen read` as plain text: the screen's rows as they show,
+/// without trailing blank rows, then one newline.
+fn print_screen_text(text: &str) -> i32 {
+    let mut stdout = io::stdout().lock();
+    let shown = text.trim_end_matches(['\n', ' ']);
+    match writeln!(stdout, "{shown}").and_then(|()| stdout.flush()) {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("stdout error: {error}");
+            3
+        }
     }
 }
 
@@ -1177,6 +1196,10 @@ mod sanitize;
 mod socket;
 mod workspace_created_by;
 pub(super) use agent_roster::across as agent_roster_across;
+pub(super) use agent_roster::{NOTIFICATION_LIMIT, daemon_state_for_status};
+// terminal_talk (unix-only) reads unread notifications the same way.
+#[cfg(unix)]
+pub(super) use agent_roster::unseen_terminals;
 pub(super) use hints::connect_failure;
 #[cfg(test)]
 use human::human_text;
@@ -1194,6 +1217,9 @@ pub(super) use socket::resolve_failure_message;
 #[cfg(test)]
 pub(super) use socket::resolve_socket_with_env;
 pub(super) use socket::resolve_socket_with_origin;
+pub(super) use socket::routes_to_caller_session;
+#[cfg(test)]
+pub(super) use socket::routes_to_caller_session_with;
 pub(super) use socket::{RESOLVE_FAILURE_EXIT, resolve_failure, resolve_socket_or_report};
 
 #[cfg(test)]
