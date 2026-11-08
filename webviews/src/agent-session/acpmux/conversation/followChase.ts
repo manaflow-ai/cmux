@@ -26,8 +26,9 @@
 // send's rows rise out from behind the composer they left in every arm (`below` unbounded).
 //
 // Stop condition: the frame loop runs only while the thread is drawn away from its layout and ends
-// at rest (within REST_PX and REST_SPEED); `stop` ends it at once (reader input, Jump to latest, a
-// chat switch, a resize, a fold that animates the thread itself, unmount). With Reduce Motion, the
+// at rest (within REST_PX and REST_SPEED); `stop` ends it at once (Jump to latest, a chat switch, a
+// resize, a fold that animates the thread itself, unmount), and `hold` ends the loop where the
+// thread is drawn (reader input: the reader's view moves only with their scroll). With Reduce Motion, the
 // host's motion switch off (`data-agent-motion`/`data-cmux-motion`) or a zero move token, `shift`
 // moves nothing and the view steps at once, as before.
 import { MOTION_MS } from "../../../motion/scale.generated";
@@ -81,6 +82,15 @@ export type FollowChase = {
   outstanding(): number;
   /// Ends the chase where the rows lay out.
   stop(): void;
+  /// The reader took the view: the chase stops where the thread is drawn, so nothing moves but the
+  /// reader's own scroll (a parked reader's view holds still, streaming-parked-still.test.ts). The
+  /// thread stays drawn there until `resume` (followed again) or `stop`.
+  hold(): void;
+  /// Followed again: a held chase goes on home from where it is drawn.
+  resume(): void;
+  /// The turn ended: the chase lands now, at once within a line of home, else within BURST_S at no
+  /// more than a line a frame (a snap of the whole trail moved the rows up to two lines in a frame).
+  land(): void;
 };
 
 /// The host's motion speed as a factor of the standard step (`--agent-motion-move`), 0 with motion
@@ -116,6 +126,8 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
   /// When (ms, the frame clock) the trail must be back within its bound: BURST_S after the landing
   /// that first put it past, kept while more lands before then.
   let due: number | undefined;
+  /// `land`: home within BURST_S whatever the trail, nothing more to chase.
+  let landing = false;
   /// While it chases the thread is its own compositor layer, so a frame's step moves it without
   /// painting its rows again (a `translate` on an unpromoted thread repainted every row each frame).
   const draw = () => {
@@ -137,6 +149,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     burst = 0;
     due = undefined;
     rising = false;
+    landing = false;
     draw();
   };
   const step = (now: number) => {
@@ -148,7 +161,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     const line = currentChatMetrics().lineHeight;
     const catchUp = CATCH_UP_LINES * line;
     const over = Math.abs(x) - chaseMaxTrail();
-    if (!(over > 0)) {
+    if (!(over > 0) && !landing) {
       burst = 0;
       due = undefined;
     }
@@ -172,7 +185,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
         nextV = Math.sign(nextV) * Math.min(Math.abs(nextV), limit);
       }
       // Past the bound, at least the burst's step (the spring from rest starts slower).
-      if (over > 0 && Math.abs(nextX - x) < burst * dt) {
+      if ((over > 0 || landing) && Math.abs(nextX - x) < burst * dt) {
         nextX = x - Math.sign(x) * Math.min(Math.abs(x), burst * dt);
         nextV = -Math.sign(x) * burst;
       }
@@ -200,10 +213,41 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     draw();
     frame = thread?.ownerDocument.defaultView?.requestAnimationFrame(step);
   };
+  /// Runs the frame loop again from where the thread is drawn (after `hold`, or for `land`).
+  const resume = () => {
+    if (x === 0 || frame !== undefined || !thread) return;
+    const view = thread.ownerDocument.defaultView;
+    const timeline = thread.ownerDocument.timeline?.currentTime;
+    last = typeof timeline === "number" ? timeline : performance.now();
+    frame = view?.requestAnimationFrame(step);
+  };
   return {
     arm,
     outstanding: () => x,
     stop,
+    hold() {
+      if (frame !== undefined) thread?.ownerDocument.defaultView?.cancelAnimationFrame(frame);
+      frame = undefined;
+      last = undefined;
+      v = 0;
+      burst = 0;
+      due = undefined;
+      if (x === 0) stop();
+    },
+    resume,
+    land() {
+      const line = currentChatMetrics().lineHeight;
+      if (!thread || Math.abs(x) <= CHASE_MAX_FRAME_LINES * line) {
+        stop();
+        return;
+      }
+      // Nothing under the stack holds it back (`fit`), and it moves at least the rest of the trail
+      // over BURST_S, no frame more than a line.
+      landing = true;
+      rising = true;
+      burst = Math.min((CHASE_MAX_FRAME_LINES * line) / (1 / 120), Math.abs(x) / BURST_S);
+      resume();
+    },
     fit(below) {
       if (!rising && x > Math.max(0, below)) {
         x = Math.max(0, below);
@@ -222,6 +266,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       }
       if (thread && thread !== node) stop();
       thread = node;
+      landing = false;
       scale = speed;
       // Drawn back by the move: the rows stay where the reader saw them this frame (up to
       // CHASE_MAX_LAG of the view; only a whole screen landing moves at once).

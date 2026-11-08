@@ -160,3 +160,48 @@ test("stop rests the thread where it lays out and ends the frame loop", () => {
   expect(drawn()).toBe(0);
   expect(pending()).toBe(0);
 });
+
+test("the reader's input holds the chase where it is drawn, and following again resumes it home", () => {
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn, pending } = fixture();
+  chase.shift(node, -40);
+  frame();
+  const held = drawn();
+  expect(held).toBeGreaterThan(0);
+  chase.hold();
+  // Nothing moves while held: no frame is asked for, and the thread stays drawn where it was.
+  expect(pending()).toBe(0);
+  frame();
+  expect(drawn()).toBe(held);
+  expect(chase.outstanding()).toBe(held);
+  chase.resume();
+  let frames = 0;
+  while (pending() > 0 && frames < 240) {
+    frame();
+    frames += 1;
+  }
+  expect(drawn()).toBe(0);
+});
+
+test("the turn ending lands the chase within BURST_S, no frame more than a line", () => {
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn, pending } = fixture();
+  const line = currentChatMetrics().lineHeight;
+  chase.shift(node, -1.8 * line);
+  chase.land();
+  let previous = drawn();
+  let frames = 0;
+  while (pending() > 0 && frames < 240) {
+    const at = frame();
+    frames += 1;
+    expect(previous - at).toBeLessThanOrEqual(line + 1e-6);
+    previous = at;
+  }
+  expect(drawn()).toBe(0);
+  expect(frames).toBeLessThanOrEqual(Math.ceil(BURST_S * 120) + 1);
+  // Within a line of home it lands at once.
+  chase.shift(node, -0.5 * line);
+  chase.land();
+  expect(drawn()).toBe(0);
+  expect(pending()).toBe(0);
+});
