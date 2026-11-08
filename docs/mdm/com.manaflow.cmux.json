@@ -2269,6 +2269,12 @@
       "title" : "Show Customize Menu…",
       "type" : "boolean"
     },
+    "developerTools.appPages" : {
+      "default" : true,
+      "description" : "Inspect Element in the right-click menu and Toggle Developer Tools (⌥⌘I) work in agent chats, Home, Markdown and Settings. Browser tabs always have them.",
+      "title" : "Developer Tools for cmux Pages",
+      "type" : "boolean"
+    },
     "deviceHub.url" : {
       "default" : "",
       "description" : "Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub.",
