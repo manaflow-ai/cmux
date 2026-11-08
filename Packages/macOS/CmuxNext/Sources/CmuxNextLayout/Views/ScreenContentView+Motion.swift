@@ -29,7 +29,11 @@ extension ScreenContentView {
         let cameraSpring = scrollRidesFrames ? frameSpring : policy.spring(.scroll)
         if stepRows(dt, spring: cameraSpring) { moving = true }
         if stepAreas(dt, policy: policy) { moving = true }
-        if MotionTrace.isEnabled { MotionTrace.sample("layout.travel", Double(travelLeft)) }
+        if MotionTrace.isEnabled {
+            MotionTrace.sample("layout.travel", Double(travelLeft))
+            // Right after its frame's `layout.travel`: the strip camera's points left (New Column moves only the camera).
+            MotionTrace.sample("layout.camera", Double(abs(scroll.target - scroll.value)))
+        }
         let panesMoving = paneFrames.values.contains { $0.rect != $0.targetRect }
         // The panes landed: their terminals' grids go to the PTY once, now.
         if holdsGrids, !panesMoving { holdsGrids = false }
