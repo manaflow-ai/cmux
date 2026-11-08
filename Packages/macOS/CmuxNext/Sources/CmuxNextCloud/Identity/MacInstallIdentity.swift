@@ -38,7 +38,11 @@ public actor MacInstallIdentity {
     /// #37775 F2 Cloud capture at 8fbc64d4 (2026-11-08) timed out "identify (no reply within 10.0
     /// seconds)". Kept only for the record and bind it was made under; ``invalidate()``, a refused
     /// call and the end of the session drop them all.
-    private var teamClients: [String: (record: InstallRecord, generation: UInt64, client: InstallAuthClient)] = [:]
+    private var teamClients: [String: (record: InstallRecord, generation: UInt64, client: InstallAuthClient)] = [:] {
+        didSet { if teamClients.isEmpty { teamClientsCleared &+= 1 } }
+    }
+    /// Counts the clears of ``teamClients``: a broker token read across one may be the refused one.
+    private var teamClientsCleared: UInt64 = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.install")
 
     public init(store: MacInstallStore, transport: any InstallAuthTransport, deviceName: String, clientVersion: String?) {
@@ -82,7 +86,12 @@ public actor MacInstallIdentity {
 
     /// The team token a Cloud broker call uses (``nativeContext(team:)``): reused while it lasts.
     package func brokerToken(team: String) async throws -> String {
-        try await installToken(team: team, reuse: true)
+        let cleared = teamClientsCleared
+        let token = try await installToken(team: team, reuse: true)
+        // A clear (invalidate, a 401, the bind's end) while this read waited may have refused
+        // exactly this token: read once more, from a new client.
+        guard cleared != teamClientsCleared else { return token }
+        return try await installToken(team: team, reuse: false)
     }
 
     /// `reuse`: a token this bind already minted for `team` while it has more than
