@@ -11,8 +11,8 @@ use worker::{
 
 use crate::abuse::{
     CIRCUITS_STORAGE_KEY, CLIENT_CONTROL_IDLE_TIMEOUT_MS, CircuitLedger,
-    DAEMON_CONTROL_IDLE_TIMEOUT_MS, SLOT_HANDSHAKE_TIMEOUT_MS, SlotEndpoint, SlotSocketCounts,
-    admit_slot_socket, websocket_counts_toward_capacity,
+    DAEMON_CONTROL_IDLE_TIMEOUT_MS, PendingRoute, SLOT_HANDSHAKE_TIMEOUT_MS, SlotEndpoint,
+    SlotSocketCounts, admit_slot_socket, websocket_counts_toward_capacity,
 };
 use crate::attachment::{SlotAttachment, SlotPhase};
 use crate::auth::{DEFAULT_TICKET_ISSUER, TicketExpectation, issue_ticket, verify_ticket};
@@ -144,9 +144,10 @@ impl RelaySlot {
         circuit: &CircuitId,
         deadline_ms: u64,
         now_ms: u64,
+        route: PendingRoute,
     ) -> Result<bool> {
         let mut ledger = self.circuits().await?;
-        if !ledger.reserve(circuit.0.clone(), deadline_ms, now_ms) {
+        if !ledger.reserve_for(circuit.0.clone(), deadline_ms, now_ms, Some(route)) {
             return Ok(false);
         }
         self.write_circuits(&ledger).await?;
@@ -293,6 +294,12 @@ impl RelaySlot {
             .min(REGISTRATION_HEARTBEAT_SECONDS)
             .min(u32::MAX.into()) as u32;
         send_control(socket, &RelayControl::Registered { lease_seconds })?;
+        // Circuits allocated to a daemon that never joined them (it went away
+        // without closing its socket) go to this one; the client is still
+        // waiting on them.
+        if let Err(error) = self.hand_over_unjoined(&slot, socket, attachment.expires_at).await {
+            worker::console_error!("RelaySlot circuit hand-over error: {error}");
+        }
         // A failure answering a waiting client must not fail the daemon's
         // registration; that client is answered with a retryable error.
         if let Err(error) = self.pair_parked(&slot, socket, attachment.expires_at).await {
@@ -460,6 +467,77 @@ impl RelaySlot {
         Ok(())
     }
 
+    /// Sends `daemon` an `Incoming`, with a new join ticket, for every
+    /// pending circuit on `slot` that no daemon has joined.
+    async fn hand_over_unjoined(
+        &self,
+        slot: &str,
+        daemon: &WebSocket,
+        daemon_expires_at: u64,
+    ) -> Result<()> {
+        let now_ms = self.now_ms();
+        let now = now_ms / 1_000;
+        for unjoined in self.circuits().await?.unjoined(now_ms) {
+            let expires_at = now
+                .saturating_add(JOIN_TICKET_TTL_SECONDS)
+                .min(unjoined.deadline_ms / 1_000)
+                .min(daemon_expires_at);
+            if expires_at <= now {
+                continue;
+            }
+            let circuit = CircuitId(unjoined.circuit);
+            let join_ticket = self.join_ticket(
+                RelayRole::Daemon,
+                slot,
+                &circuit,
+                &unjoined.route.lane,
+                unjoined.route.generation,
+                now,
+                expires_at,
+            )?;
+            send_control(
+                daemon,
+                &RelayControl::Incoming {
+                    circuit,
+                    lane: unjoined.route.lane,
+                    generation: unjoined.route.generation,
+                    join_ticket,
+                },
+            )?;
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn join_ticket(
+        &self,
+        role: RelayRole,
+        slot: &str,
+        circuit: &CircuitId,
+        lane: &LaneToken,
+        generation: u64,
+        now: u64,
+        expires_at: u64,
+    ) -> Result<String> {
+        let key = self.ticket_key()?;
+        let issuer = self.ticket_issuer();
+        let claims = RelayTicketClaims {
+            version: RelayTicketClaims::VERSION,
+            issuer: issuer.clone(),
+            permission: RelayPermission::Join,
+            role,
+            slot: slot.into(),
+            circuit: Some(circuit.clone()),
+            lane: Some(lane.clone()),
+            generation: Some(generation),
+            issued_at_unix: now,
+            expires_at_unix: expires_at,
+        };
+        issue_ticket(&claims, key.as_bytes(), &issuer).map_err(|error| {
+            worker::Error::RustError(format!("failed to mint {role:?} join ticket: {error}"))
+        })
+    }
+
     /// Reserves a circuit and sends `Allocated` to the client and `Incoming`
     /// to the daemon. Returns false when the daemon socket failed and closed.
     #[allow(clippy::too_many_arguments)]
@@ -475,40 +553,33 @@ impl RelaySlot {
     ) -> Result<bool> {
         let now_ms = self.now_ms();
         let now = now_ms / 1_000;
-        let key = self.ticket_key()?;
-        let issuer = self.ticket_issuer();
         let namespace = self.env.durable_object("RELAY_CIRCUITS")?;
         let circuit = CircuitId(namespace.unique_id()?.to_string());
         let join_expires_at = now
             .saturating_add(JOIN_TICKET_TTL_SECONDS)
             .min(client_expires_at)
             .min(daemon_expires_at);
-        let join_claims = |role| RelayTicketClaims {
-            version: RelayTicketClaims::VERSION,
-            issuer: issuer.clone(),
-            permission: RelayPermission::Join,
-            role,
-            slot: slot.into(),
-            circuit: Some(circuit.clone()),
-            lane: Some(lane.clone()),
-            generation: Some(generation),
-            issued_at_unix: now,
-            expires_at_unix: join_expires_at,
-        };
-        let client_join_ticket =
-            issue_ticket(&join_claims(RelayRole::Client), key.as_bytes(), &issuer).map_err(
-                |error| {
-                    worker::Error::RustError(format!("failed to mint client join ticket: {error}"))
-                },
-            )?;
-        let daemon_join_ticket =
-            issue_ticket(&join_claims(RelayRole::Daemon), key.as_bytes(), &issuer).map_err(
-                |error| {
-                    worker::Error::RustError(format!("failed to mint daemon join ticket: {error}"))
-                },
-            )?;
+        let client_join_ticket = self.join_ticket(
+            RelayRole::Client,
+            slot,
+            &circuit,
+            &lane,
+            generation,
+            now,
+            join_expires_at,
+        )?;
+        let daemon_join_ticket = self.join_ticket(
+            RelayRole::Daemon,
+            slot,
+            &circuit,
+            &lane,
+            generation,
+            now,
+            join_expires_at,
+        )?;
         let join_deadline_ms = join_expires_at.saturating_mul(1_000);
-        if !self.reserve_pending_circuit(&circuit, join_deadline_ms, now_ms).await? {
+        let route = PendingRoute { lane: lane.clone(), generation };
+        if !self.reserve_pending_circuit(&circuit, join_deadline_ms, now_ms, route).await? {
             Self::capacity(
                 socket,
                 "slot-circuit-capacity",
@@ -582,7 +653,14 @@ impl RelaySlot {
                     .min(attachment.expires_at.saturating_mul(1_000));
                 socket.serialize_attachment(&attachment)?;
                 self.ensure_cleanup_alarm(attachment.idle_deadline_ms).await?;
-                send_control(socket, &RelayControl::Pong { nonce })
+                send_control(socket, &RelayControl::Pong { nonce })?;
+                // A Connect parked while this daemon was past the liveness
+                // window (crate::daemon) is answered now that it spoke.
+                let slot = attachment.relay.slot.clone();
+                if let Err(error) = self.pair_parked(&slot, socket, attachment.expires_at).await {
+                    worker::console_error!("RelaySlot parked pairing error: {error}");
+                }
+                Ok(())
             }
             RelayControl::Ping { .. } if attachment.phase == SlotPhase::Registered => {
                 Self::fail(
