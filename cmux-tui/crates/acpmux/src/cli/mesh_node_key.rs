@@ -2,38 +2,28 @@
 //!
 //! The key is raw Curve25519 private-key bytes in `node.wg.key`. The file is
 //! created below [`crate::config::home`] after the same owner-only checks as
-//! every other acpmux state file. Only the public half leaves this module.
+//! every other acpmux state file. It is opened only through
+//! `cmux_link::key_holder`: the transport reads the private half with the key
+//! lock held ([`load_or_create_held`]); everyone else gets the public half.
 
 use anyhow::{Context, Result, anyhow};
 use base64::Engine;
+use cmux_link::key_holder::{self, KeyFile, KeyHolder};
 use std::io::{Read, Write};
 use std::path::Path;
 use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::Zeroizing;
 
-const KEY_FILE: &str = "node.wg.key";
-
-/// A node's WireGuard identity. The private key is retained only in a
-/// zeroizing buffer and is never included in `Debug`, JSON or error text.
+/// A node's WireGuard identity: its public half. The private half leaves this
+/// module only through [`load_or_create_held`].
+#[derive(Debug)]
 pub struct NodeKeypair {
-    // Retained for the separately landing transport; join exposes only the public half.
-    #[allow(dead_code)]
-    private_key: Zeroizing<[u8; 32]>,
     pub public_key: [u8; 32],
 }
 
-impl std::fmt::Debug for NodeKeypair {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.debug_struct("NodeKeypair").field("public_key", &self.public_key).finish()
-    }
-}
-
 impl NodeKeypair {
-    /// The private half for the transport in this process only.
-    // This key-helper dependency lands before its transport consumer.
-    #[allow(dead_code)]
-    pub(crate) fn private_key(&self) -> Zeroizing<[u8; 32]> {
-        self.private_key.clone()
+    fn of(private: &[u8; 32]) -> Self {
+        Self { public_key: PublicKey::from(&StaticSecret::from(*private)).to_bytes() }
     }
 
     /// Standard padded RFC 4648 base64, the spelling used by WireGuard tools.
@@ -52,14 +42,35 @@ pub fn load_or_create() -> Result<NodeKeypair> {
     load_or_create_at(&crate::config::home())
 }
 
-/// Load or create a node key in `state_dir`. This is public for the host-join
-/// command and tests; callers should pass the acpmux state directory, not a
-/// user-controlled key path.
+/// Load or create a node key in `state_dir` for its public half. This is public
+/// for the host-join command and tests; callers should pass the acpmux state
+/// directory, not a user-controlled key path.
 pub fn load_or_create_at(state_dir: &Path) -> Result<NodeKeypair> {
+    let private = load_or_create_with(state_dir, || {
+        key_holder::open_for_public_key(KeyFile::Node, state_dir, read_key)
+    })?;
+    Ok(NodeKeypair::of(&private))
+}
+
+/// The node key in `state_dir` for a session, created on first use: only
+/// with this machine's WireGuard key lock (`holder`) held.
+pub(crate) fn load_or_create_held(
+    state_dir: &Path,
+    holder: &KeyHolder,
+) -> Result<(NodeKeypair, Zeroizing<[u8; 32]>)> {
+    let private =
+        load_or_create_with(state_dir, || holder.open(KeyFile::Node, state_dir, read_key))?;
+    Ok((NodeKeypair::of(&private), private))
+}
+
+fn load_or_create_with(
+    state_dir: &Path,
+    read: impl Fn() -> Result<Zeroizing<[u8; 32]>>,
+) -> Result<Zeroizing<[u8; 32]>> {
     crate::config::private_state_dir(state_dir)?;
-    let path = state_dir.join(KEY_FILE);
-    let private = match std::fs::symlink_metadata(&path) {
-        Ok(_) => read_key(&path)?,
+    let path = KeyFile::Node.path_in(state_dir);
+    match std::fs::symlink_metadata(&path) {
+        Ok(_) => read(),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             let mut bytes = Zeroizing::new([0u8; 32]);
             getrandom::fill(&mut *bytes).map_err(|error| anyhow!("generate node key: {error}"))?;
@@ -67,13 +78,10 @@ pub fn load_or_create_at(state_dir: &Path) -> Result<NodeKeypair> {
             // rename, hard-link refuses to replace a key another process won.
             create_key_if_absent(&path, &bytes)
                 .with_context(|| format!("write node key in {}", state_dir.display()))?;
-            read_key(&path)?
+            read()
         }
-        Err(error) => return Err(error.into()),
-    };
-    let secret = StaticSecret::from(*private);
-    let public = PublicKey::from(&secret).to_bytes();
-    Ok(NodeKeypair { private_key: private, public_key: public })
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// A fresh node key in `state_dir`, in place of the one there: what a box whose home was copied
@@ -81,7 +89,7 @@ pub fn load_or_create_at(state_dir: &Path) -> Result<NodeKeypair> {
 /// of the new key is returned; the old key's bytes are not read.
 pub fn replace_at(state_dir: &Path) -> Result<NodeKeypair> {
     crate::config::private_state_dir(state_dir)?;
-    let path = state_dir.join(KEY_FILE);
+    let path = KeyFile::Node.path_in(state_dir);
     match std::fs::symlink_metadata(&path) {
         Ok(meta) => {
             anyhow::ensure!(meta.file_type().is_file(), "node key is not a regular file");
@@ -159,13 +167,18 @@ mod tests {
         assert_eq!(first.public_key_base64().len(), 44);
         #[cfg(unix)]
         {
-            let mode = std::fs::metadata(dir.path().join(KEY_FILE)).unwrap().permissions().mode();
+            let mode =
+                std::fs::metadata(KeyFile::Node.path_in(dir.path())).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o600);
         }
         let bytes =
             base64::engine::general_purpose::STANDARD.decode(first.public_key_base64()).unwrap();
         assert_eq!(bytes.len(), 32);
         assert!(!format!("{first:?}").contains("private"));
+        let holder = KeyHolder::acquire(dir.path()).unwrap();
+        let (held, private) = load_or_create_held(dir.path(), &holder).unwrap();
+        assert_eq!(held.public_key, first.public_key);
+        assert_eq!(NodeKeypair::of(&private).public_key, first.public_key);
     }
 
     #[test]
@@ -195,11 +208,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         // Start with the helper's owner-only file on every supported platform.
         load_or_create_at(dir.path()).unwrap();
-        std::fs::write(dir.path().join(KEY_FILE), bytes).unwrap();
+        std::fs::write(KeyFile::Node.path_in(dir.path()), bytes).unwrap();
         let error = load_or_create_at(dir.path()).unwrap_err();
         assert_eq!(format!("{error:#}"), "node key has invalid length");
         assert!(!format!("{error:?}").contains(std::str::from_utf8(bytes).unwrap()));
-        assert_eq!(std::fs::read(dir.path().join(KEY_FILE)).unwrap(), bytes);
+        assert_eq!(std::fs::read(KeyFile::Node.path_in(dir.path())).unwrap(), bytes);
     }
 
     #[test]
