@@ -996,6 +996,9 @@ mod model {
 
         /// `Fetcher::resume`.
         fn resume(&mut self, seed: u64, rng: &mut Rng, generation: u64) {
+            if !self.core.resume_holds(generation) {
+                return;
+            }
             let Some(&binding) = self.hands.for_resume() else {
                 return self.core.defer_resume(generation);
             };
