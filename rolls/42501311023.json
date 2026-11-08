@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42501311023",
+  "recorded_at": "2026-11-08T16:51:09Z",
+  "reason": "cmux-tui 4ef656c47ccc changes the image's cmux-tui (pinned 4ac88b794861)",
+  "dry_run": false,
+  "cmux_tui": "4ef656c47ccc834fb4158b0bea28e8c688478859",
+  "fixes": [
+    {
+      "sha": "4ef656c47ccc834fb4158b0bea28e8c688478859",
+      "mergedAt": "2026-11-08T08:28:03-08:00",
+      "subject": "carry-changes: a checkout with no index starts at HEAD; sparse checkouts carry (#38620)"
+    },
+    {
+      "sha": "e2b5e2a0b03a526829dad22e06104b6baa322c0a",
+      "mergedAt": "2026-11-08T16:23:53Z",
+      "subject": "chore(next): base autofix at da3b3a815d99"
+    },
+    {
+      "sha": "64a276427eb9d23f42ef29c50a1b83c87b216747",
+      "mergedAt": "2026-11-08T16:21:56Z",
+      "subject": "cmux-tui-core: the router owns 98 connection operations (resource_attach base red since #37350) (#38691)"
+    },
+    {
+      "sha": "63ad36e514166fe3d95c30a8442b2f198de72cf0",
+      "mergedAt": "2026-11-08T16:21:50Z",
+      "subject": "cmux-tui: cloud hands tests install the rustls provider (15 nextest base reds) (#38687)"
+    },
+    {
+      "sha": "d4698acca56507880896f4c26d8f68ab7d7d8e2b",
+      "mergedAt": "2026-11-08T08:21:33-08:00",
+      "subject": "acpmux: caller identity survives daemon restarts; Codex subagent identity; robust hook mark; review policy (W4-K) (#38633)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T16:51:09Z",
+    "snapshot_id": "sh-98a9d5e76d05456ebd3f306b267a41be",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42501311023): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "97ed453aed4a41711d1f24b7d2fec5d259c33f4c",
+    "image": "cloud-native-auto-4ef656c4-42501311023-1",
+    "revision": "ci-42501311023-1",
+    "at": "2026-11-08T16:51:09Z"
+  },
+  "rolled_back": false
+}
