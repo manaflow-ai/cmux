@@ -119,7 +119,7 @@ const openRun: Play = async (ctx) => {
 /// Claude's Bash description (Codex parity), so it is "rg -l fetchWithRetry src".
 const hoverStep: Play = async (ctx) => {
   await openRun(ctx);
-  await ctx.hover({ role: "button", name: /rg -l fetchWithRetry src/ });
+  await ctx.hover({ role: "button", name: /Searched for “fetchWithRetry”/ });
   await ctx.waitFor(() => ctx.document.querySelector(".cv-steps > .cv-step > .cv-tool:hover"), { capMs: 10_000 });
 };
 

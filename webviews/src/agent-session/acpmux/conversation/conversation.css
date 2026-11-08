@@ -6984,3 +6984,8 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   padding-bottom: var(--grid-gap-foot);
   margin-bottom: var(--grid-gap-inner);
 }
+/* The command line after a named action, in the dim tone (commandLabel.experiment.ts
+   "verbs-command"): what ran, under what it did. */
+.cv-command__dim {
+  color: var(--cv-text-dim);
+}

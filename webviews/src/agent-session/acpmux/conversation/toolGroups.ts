@@ -17,6 +17,7 @@ import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
 import { agentCall, type AgentCall } from "./agentCalls";
 import { isThought, mergeThoughts } from "./thoughts";
 import { finishedBackgroundPhrase, isFoldedRun } from "./toolRunSummary";
+import { commandGroupSaid } from "./commandActions";
 
 /// The kinds of call that group with their neighbors.
 export type ToolGroupKind = "commands" | "reads" | "edits" | "searches";
@@ -439,8 +440,8 @@ export function isDraftCall(tool: Tool): boolean {
     isRunning(tool) &&
     tool.kind === "execute" &&
     isBareShellName(tool, tool.title) &&
-    // A description alone is still nothing to show: the row reads as its command, never as Bash's
-    // description (toolPaths.ts toolLabel).
+    // A description alone is still nothing to show: a running row reads as its command, never as
+    // Bash's description (commandActions.ts commandSaid).
     !tool.output &&
     !tool.background &&
     !tool.diffs?.length &&
@@ -489,7 +490,14 @@ export function toolGroupLabel(
       // header does, joined as the run's sentence: "Finished 2 background tasks and ran 3 commands"
       // (toolRunSummary.ts).
       const finished = running ? undefined : finishedBackgroundPhrase(t, calls);
-      if (!finished) return t(running ? "tools.running" : "tools.ran", { n: calls.length });
+      // Commands that all did one thing say it, "Searched memory twice" (commandActions.ts).
+      if (!finished)
+        return (
+          commandGroupSaid(
+            t,
+            calls.map((item) => item.tool!),
+          ) ?? t(running ? "tools.running" : "tools.ran", { n: calls.length })
+        );
       const ran = calls.length === 1 ? t("toolRun.ran.one") : t("toolRun.ran.other", { n: calls.length });
       const text = [finished, ran].join(t("toolRun.and"));
       return text.charAt(0).toUpperCase() + text.slice(1);

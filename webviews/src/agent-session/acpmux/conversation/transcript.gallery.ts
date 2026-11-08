@@ -3717,15 +3717,19 @@ export default agentPaneEntry({
       play: openGroupedShells,
     },
     "long-commands-fill-row": {
-      note: 'Leo 2026-10-22, of Ran rows cut with an ellipsis about two thirds across: "shouldnt these also ellipsis later". Long commands (a cp of two long paths, a gh pr comment) draw their whole first step and end in an ellipsis at the row\'s right edge, before the chevron; no 60-character cut. Play: open Worked for and the run; each command line is the whole step.',
+      note: 'Leo 2026-10-22, of Ran rows cut with an ellipsis about two thirds across: "shouldnt these also ellipsis later". Long commands (a cp of two long paths, a gh pr comment) draw their whole first step and end in an ellipsis at the row\'s right edge, before the chevron; no 60-character cut. The cp row says what it did, its two file names in full (commandActions.ts); the gh row, a command the verb table does not know, draws its whole step. Play: open Worked for and the run; the cp row names both files and the gh line is the whole step.',
       checks: shellDisclosureChecks,
       snapshot: chat(longCommandRows),
       play: async (ctx) => {
         await openWorked(ctx);
         await openFoldedRun(ctx);
         await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-command").length === 2);
+        const [cp] = ctx.document.querySelectorAll(".cv-command");
+        const copied = cp?.textContent ?? "";
+        if (!copied.includes("ellipsis-before.png") || !copied.includes("ellipsis-after.png"))
+          throw new Error(`the cp row reads ${copied}, not both of its files`);
         const lines = [...ctx.document.querySelectorAll(".cv-command__line")].map((line) => line.textContent);
-        if (lines[0] !== LONG_CP) throw new Error(`the cp row reads ${lines[0]}, not the whole command`);
+        if (!lines.includes(LONG_GH)) throw new Error(`the gh row reads ${lines.join(" | ")}, not the whole command`);
       },
     },
     "worked-for-opening": {

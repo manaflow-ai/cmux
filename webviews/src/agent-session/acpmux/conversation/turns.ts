@@ -2290,7 +2290,7 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
     if (!file) return t(done ? "tools.wrote.unnamed" : "tools.writing.unnamed");
     return t(done ? "tools.wrote.file" : "tools.writing.file", { file });
   }
-  const label = toolLabel(tool, text, (command) => command);
+  const label = toolLabel(tool, text, (command) => command, undefined, undefined, false);
   const path = editedPaths(tool)[0];
   if (!path || tool.kind === "execute") return label;
   if (isEditTool(tool) && tool.status === "completed" && editedPaths(tool).length === 1)
