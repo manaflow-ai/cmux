@@ -5,6 +5,7 @@
 
 mod attention;
 mod completed_selection;
+mod copy_mode;
 mod deferred_input;
 mod docked_workspaces;
 mod graphics_pointer;
@@ -638,6 +639,7 @@ fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
         pending_size_releases: HashSet::new(),
         geometry_authority_surface: None,
         prefix_armed: false,
+        copy_mode: None,
         session_label: "test".to_string(),
         surface_only: None,
         sidebar_visible: true,
