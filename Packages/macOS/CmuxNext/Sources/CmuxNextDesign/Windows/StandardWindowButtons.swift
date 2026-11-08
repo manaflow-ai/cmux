@@ -12,6 +12,17 @@ public struct StandardWindowButtons {
 
     public init() {}
 
+    /// What the cache knows about `type` in `window`: `.unknown` (ask AppKit, then `store`), or AppKit's answer.
+    public enum Answer {
+        case unknown
+        case known(NSButton?)
+    }
+
+    /// The cached answer for `type` in `window`. Ask AppKit only on `.unknown`.
+    public func answer(_ type: NSWindow.ButtonType, in window: NSWindow) -> Answer {
+        cached(type, in: window).map { .known($0) } ?? .unknown
+    }
+
     /// The cached `type` button of `window`, while it is still in `window`.
     public func cached(_ type: NSWindow.ButtonType, in window: NSWindow) -> NSButton? {
         guard let button = buttons[type], button.window === window, button.superview != nil else { return nil }
