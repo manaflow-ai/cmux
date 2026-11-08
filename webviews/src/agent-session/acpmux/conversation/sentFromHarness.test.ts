@@ -27,6 +27,15 @@ test("a Claude desktop send the daemon saw under Claude.app is confirmed", () =>
   });
 });
 
+test("a Claude desktop send the daemon found only as Claude.app, with no harness binary, is confirmed", () => {
+  const from = sentFrom({ promptId: "p", claimed: desktop, checked: { app: "Claude.app" } });
+  expect(from?.label).toBe("Claude desktop");
+  expect(from?.confirmed).toBe(true);
+  // Only for a desktop claim: a Codex claim is not confirmed by Claude.app.
+  const codex = { harness: "codex", selfReported: true };
+  expect(sentFrom({ promptId: "p", claimed: codex, checked: { app: "Claude.app" } })?.confirmed).toBe(false);
+});
+
 test("a claim the daemon could not check, or found otherwise, stays self-reported", () => {
   expect(sentFrom({ promptId: "p", claimed: desktop })?.confirmed).toBe(false);
   // A shell in a terminal that set Claude desktop's variables itself.
