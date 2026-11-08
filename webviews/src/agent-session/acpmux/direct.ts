@@ -1615,6 +1615,9 @@ const MANY_SLOTS = Symbol("many");
 /// replays events older than it, it moves after them again.
 export class OrderedRows extends Map<string, AcpmuxRow> {
   private readonly order = new Map<string, number>();
+  /// The newest event that wrote each streamed reply (`assistant`), where it differs from the one
+  /// that made it: a reply the person left mid-stream goes on past where they left (`placeAfter`).
+  private readonly lastWrite = new Map<string, number>();
   private readonly local = new Set<string>();
   private made = 0;
   /// The sequence number of the event being reduced.
@@ -1759,7 +1762,10 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
         this.order.set(id, this.latest + 0.5 + (this.made += 1e-6));
         this.local.add(id);
       }
-    } else if (this.current !== undefined) this.latest = Math.max(this.latest, this.current);
+    } else if (this.current !== undefined) {
+      this.latest = Math.max(this.latest, this.current);
+      if (row.kind === "assistant") this.lastWrite.set(id, this.current);
+    }
     // A row an event of a background turn made is that turn's, whoever updates it later. A prompt
     // never is: it starts a turn of its own (acpmux ends the background turn before it).
     let turn: string | undefined;
@@ -1822,11 +1828,23 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.snapshot = undefined;
   }
 
-  /// Sets `row` to sort right after the event at `seq`, before the next event's rows: "New since you
-  /// looked" (`SINCE_DIVIDER`), which no event of its own makes.
-  setAfter(seq: number, row: AcpmuxRow): void {
-    if (this.order.get(row.id) !== seq + 0.5) {
-      this.order.set(row.id, seq + 0.5);
+  /// Where "New since you looked" goes for a person who had seen through the event at `seq`: right
+  /// after it, or before a reply that started at or before it and streamed on past it, so the rest
+  /// of that reply reads as new. One pass over the rows, made only when the line is placed.
+  placeAfter(seq: number): number {
+    let place = seq + 0.5;
+    for (const [id, last] of this.lastWrite) {
+      const first = this.order.get(id);
+      if (first !== undefined && first <= seq && last > seq) place = Math.min(place, first - 0.25);
+    }
+    return place;
+  }
+
+  /// Sets `row` to sort at `place` (`placeAfter`): "New since you looked" (`SINCE_DIVIDER`), which no
+  /// event of its own makes.
+  setAt(place: number, row: AcpmuxRow): void {
+    if (this.order.get(row.id) !== place) {
+      this.order.set(row.id, place);
       this.local.delete(row.id);
       this.ordered = undefined;
       this.transcriptSummaryVersion = {};
@@ -1861,6 +1879,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.snapshot = undefined;
     this.order.delete(id);
     this.local.delete(id);
+    this.lastWrite.delete(id);
     return super.delete(id);
   }
 
@@ -1872,6 +1891,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.snapshot = undefined;
     this.order.clear();
     this.local.clear();
+    this.lastWrite.clear();
     this.latest = 0;
     this.backgroundSpans = [];
     this.backgroundEnds.clear();
@@ -4577,6 +4597,8 @@ export class AcpmuxDirectClient {
   /// "New since you looked" for the chat on screen (`markSeen`): its row, after the record at
   /// `since.seq`. Placed again after a reset clears the rows; O(1) when it is there already.
   private since?: Omit<AcpmuxSince, "key"> & { sessionId: string };
+  /// Each standalone recap row by the chat and the `since` its record named (`placeSince`).
+  private readonly recapsBySince = new Map<string, string>();
   private placeSince(): void {
     // Its attach answered before the list said turns ended unseen (a cold open): acpmux keeps the
     // return on the chat while the person stays (`lastReturn`).
@@ -4588,10 +4610,18 @@ export class AcpmuxDirectClient {
       if (this.rows.has(SINCE_DIVIDER)) this.rows.delete(SINCE_DIVIDER);
       return;
     }
+    // The recap made for this return, drawn on its own before the divider was known: onto it.
+    const recapId = since.recap ? undefined : this.recapsBySince.get(`${since.sessionId}:${since.seq}`);
+    const recap = recapId ? this.rows.get(recapId)?.recap : undefined;
+    if (recapId && recap) {
+      this.rows.delete(recapId);
+      this.since = { ...since, recap };
+      return this.placeSince();
+    }
     const drawn = this.rows.get(SINCE_DIVIDER);
     if (drawn?.since?.seq === since.seq && drawn.since.turns === since.turns && drawn.since.recap === since.recap)
       return;
-    this.rows.setAfter(since.seq, {
+    this.rows.setAt(this.rows.placeAfter(since.seq), {
       id: SINCE_DIVIDER,
       version: (drawn?.version ?? 0) + 1,
       at: drawn?.at ?? Date.now(),
@@ -7196,6 +7226,9 @@ export class AcpmuxDirectClient {
           this.placeSince();
         } else if (typeof msg.text === "string" && msg.text.trim() && !recapDismissed(key)) {
           const id = `recap-${event.seq}`;
+          // Its return's divider may come only after this (an attach that answered before the
+          // list): `placeSince` moves the recap onto it then.
+          if (typeof msg.since === "number") this.recapsBySince.set(`${this.selectedSessionId ?? ""}:${msg.since}`, id);
           this.rows.set(id, {
             id,
             version: 1,
