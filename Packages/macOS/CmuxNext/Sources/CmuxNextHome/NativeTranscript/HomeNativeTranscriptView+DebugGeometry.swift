@@ -2,6 +2,10 @@
 public import AppKit
 
 extension HomeNativeTranscriptView {
+    /// The transcript's selected text, as Copy reads it, for `debug.home.drive` `selection`
+    /// (https://github.com/manaflow-ai/cmux/issues/38145).
+    public var debugSelectedText: String { transcript.debugSelectedText }
+
     /// Read-only native approval geometry and state for capture automation.
     public func debugApprovalCards() -> [(id: String, text: String, pending: Bool, busy: Bool, ended: Bool, allow: CGRect, deny: CGRect)] {
         transcript.debugApprovalCards()

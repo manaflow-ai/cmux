@@ -58,7 +58,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     /// `debug.home.drive` {action: focus | type | send | tapback | video | scroll
-    /// | chat_colors | menu | geometry | link | texts | typing | rows | resize | nudge | list | presence | live | agent_messages (notes, open, group, step, pill) | faces, text, steps, elapsed, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
+    /// | chat_colors | menu | geometry | link | texts | typing | rows | selection | resize | nudge | list | presence | live | agent_messages (notes, open, group, step, pill) | faces, text, steps, elapsed, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
     /// field's text system, Return's send, the tapback picker's react, the
     /// scroll view) for screenshots and recordings on a window that is
     /// never key. `tab` (a key from `debug.home` page.tabs) drives that Home tab.
@@ -113,6 +113,8 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             return .object(["ok": .bool(fixture.debugTyping(params["on"]?.boolValue ?? true))])
         case "typing": return JSONValue(foundation: view.debugTypingState()) ?? .null
         case "rows": return JSONValue(foundation: view.debugRowsState()) ?? .null
+        // The transcript's selected text, as Copy reads it (https://github.com/manaflow-ai/cmux/issues/38145).
+        case "selection": return .object(["ok": .bool(true), "text": .string(view.debugSelectedText)])
         case "resize":
             // Width changes in one main-thread turn (one display frame): the pass counters and rows after each.
             let trims = params["trims"]?.arrayValue?.compactMap(\.doubleValue) ?? []
