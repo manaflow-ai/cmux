@@ -150,9 +150,9 @@ struct State<H: Http> {
     want: bool,
     /// A ticket asked for ahead, for the next ask.
     warm: Option<Warm>,
-    /// The answer to a wanted ticket that is not kept (a refusal, or a
-    /// ticket too short to keep), for the next ask.
-    answered: Option<Value>,
+    /// The answer to a ticket an asker wanted, and when it came: for that
+    /// asker, or, when it gave up, a ticket for the next ask.
+    answered: Option<(Value, Instant)>,
 }
 
 struct Shared<H: Http> {
@@ -301,7 +301,7 @@ impl Warm {
 
 /// What the fetch thread does next.
 enum Job<H: Http> {
-    Bind(Next<H>),
+    Bind(Box<Next<H>>),
     Resume,
     Wanted,
     Refresh,
@@ -326,7 +326,7 @@ impl<H: Http> Fetcher<'_, H> {
     fn run(&mut self) {
         while let Some(job) = self.next_job() {
             match job {
-                Job::Bind(next) => self.bind(next),
+                Job::Bind(next) => self.bind(*next),
                 Job::Resume => {
                     if let Some(client) = self.client.as_ref() {
                         client.reset_transport();
@@ -359,7 +359,7 @@ impl<H: Http> Fetcher<'_, H> {
             if let Some(next) = state.next.take() {
                 state.fetching = true;
                 state.warm = None;
-                return Some(Job::Bind(next));
+                return Some(Job::Bind(Box::new(next)));
             }
             let resumes = self.resumes.count();
             if resumes != self.seen {
@@ -416,9 +416,10 @@ impl<H: Http> Fetcher<'_, H> {
             let mut state = self.shared.lock();
             state.fetching = false;
             if let Some(reply) = &reply {
-                state.warm = Warm::of(reply, (self.hooks.now)());
-                if state.warm.is_none() && wanted {
-                    state.answered = Some(reply.clone());
+                if wanted {
+                    state.answered = Some((reply.clone(), Instant::now()));
+                } else {
+                    state.warm = Warm::of(reply, (self.hooks.now)());
                 }
             }
         }
@@ -522,8 +523,14 @@ fn ticket<H: Http>(
         {
             return (warm.reply, true);
         }
-        if let Some(answered) = state.answered.take() {
-            return (answered, false);
+        // A ticket asked for an ask is this ask's while it is good; a
+        // refusal only when it came after this ask did.
+        if let Some((answered, at)) = state.answered.take() {
+            let good = Warm::of(&answered, (hooks.now)()).is_some_and(|w| w.usable((hooks.now)()));
+            let fresh = answered.get("ok") != Some(&Value::Bool(true)) && at >= started;
+            if good || fresh {
+                return (answered, false);
+            }
         }
         // A bind handed over or in progress counts: its ticket comes within the ask wait.
         let busy = state.bound || state.fetching || state.next.is_some();

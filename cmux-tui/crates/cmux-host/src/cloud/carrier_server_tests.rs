@@ -325,6 +325,13 @@ impl Http for LiveHttp {
             let _ = entered.send(());
             let _ = gate.recv_timeout(Duration::from_secs(20));
         }
+        if url.ends_with("/v1/auth/token") {
+            // A bearer good for 10 minutes on the wall clock, so it is minted once.
+            return Ok((
+                200,
+                json!({ "access_token": "bearer-1", "token_type": "Bearer", "expires_at": wall_now() + 600_000, "install": INSTALL, "user": "user_u0000000000000000001", "grant": "grant_v000000000000000004", "team": "team_t0000000000000000001" }),
+            ));
+        }
         Fake::default().post(url, body, bearer)
     }
 
