@@ -28,20 +28,25 @@ export function isRunnableLanguage(language: string): boolean {
 
 /**
  * The command a block runs: its text as written, or for a session block (`console`) only its prompt
- * lines (`$ ` or `% `), without the prompt and without the output lines. Empty when nothing runs.
+ * lines (`$ ` or `% `), without the prompt and without the output lines. A `> ` line right after a
+ * command line is the shell's continuation prompt (an open quote, a heredoc, a trailing `\\`): its
+ * `> ` goes too, so it never runs as a redirection. Empty when nothing runs.
  */
 export function runnableCommand(language: string, text: string): string {
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
   if (!SESSION_LANGUAGES.has(fenceLanguage(language))) return lines.join("\n").trim();
   const commands: string[] = [];
+  let inCommand = false;
   let continued = false;
   for (const line of lines) {
     const prompt = /^\s*[$%#]\s+(.*)$/.exec(line);
-    if (prompt || continued) {
-      const command = prompt ? prompt[1]! : line;
+    const secondary = inCommand ? /^\s*>\s?(.*)$/.exec(line) : null;
+    if (prompt || secondary || continued) {
+      const command = prompt ? prompt[1]! : secondary ? secondary[1]! : line;
       commands.push(command);
+      inCommand = true;
       continued = /\\\s*$/.test(command);
-    }
+    } else inCommand = false;
   }
   return commands.join("\n").trim();
 }
@@ -135,6 +140,12 @@ export function parseRunbook(source: string): RunbookStep[] {
   let listContent: number | null = null;
   for (let at = 0; at < lines.length; at++) {
     const line = lines[at]!;
+    // An HTML comment hides what it holds, fences too: the viewer shows it as one raw block.
+    if (/^\s{0,3}<!--/.test(line)) {
+      while (at < lines.length && !lines[at]!.includes("-->")) at++;
+      paragraph = [];
+      continue;
+    }
     const indent = line.length - line.trimStart().length;
     if (line.trim()) {
       const item = /^(\s*)([-*+]|\d{1,9}[.)])(\s+)\S/.exec(line);
@@ -196,8 +207,10 @@ function flatten(text: string): string {
   return plain.length > LEAD_LIMIT ? `${plain.slice(0, LEAD_LIMIT - 1)}…` : plain;
 }
 
-/** The most step text one Run all prompt carries; past it the agent reads the rest from the file. */
+/** The most step text, in UTF-8 bytes (the host's unit), one Run all prompt carries; past it the
+ * agent reads the rest from the file. With the contract it stays far under the host's 128 KiB. */
 const PROMPT_STEPS_LIMIT = 48_000;
+const utf8 = new TextEncoder();
 
 const RISK_NOTE: Record<StepRisk, string> = {
   destructive: "destructive",
@@ -230,11 +243,12 @@ export function runbookPrompt(path: string, steps: readonly RunbookStep[]): stri
       .join("\n");
     // The whole entry counts, so many short steps stay as bounded as a few long ones. A first
     // step too long for the budget is left to the file too.
-    if (entry.length > budget) {
+    const bytes = utf8.encode(entry).length;
+    if (bytes > budget) {
       listed.push(`(Steps ${step.index} to ${total} are in the file: read them there.)`);
       break;
     }
-    budget -= entry.length + 2;
+    budget -= bytes + 2;
     listed.push(entry);
   }
   return [

@@ -59,12 +59,22 @@ describe("runbook steps", () => {
     expect(parseRunbook(source).map((step) => step.command)).toEqual(["make"]);
   });
 
+  test("a block inside an HTML comment is not a step", () => {
+    const source = "<!--\n```bash\nrm -rf old\n```\n-->\n\n<!-- one line -->\n\n```bash\nmake\n```\n";
+    expect(parseRunbook(source).map((step) => step.command)).toEqual(["make"]);
+  });
+
   test("runnable languages", () => {
     for (const language of ["bash", "sh", "zsh", "shell", "console", 'Bash title="x"', "{bash}"])
       expect(isRunnableLanguage(language)).toBe(true);
     for (const language of ["", "json", "ts", "text", "mermaid", "python"])
       expect(isRunnableLanguage(language)).toBe(false);
     expect(runnableCommand("console", "output only\nno prompt")).toBe("");
+    // The continuation prompt is not a redirection: `> world` is the rest of the command.
+    expect(runnableCommand("console", "$ echo hello \\\n> world\nhello world\n> not a prompt")).toBe(
+      "echo hello \\\nworld",
+    );
+    expect(runnableCommand("console", "$ cat <<EOF\n> one\n> EOF\none")).toBe("cat <<EOF\none\nEOF");
   });
 
   test("the Run button asks before destructive commands only", () => {
@@ -139,6 +149,9 @@ describe("Run all prompt", () => {
     const short = parseRunbook(lead.repeat(5_000));
     const shortPrompt = runbookPrompt("/doc.md", short);
     expect(shortPrompt.length).toBeLessThan(60_000);
+    // Wide characters count in UTF-8 bytes, the host's limit.
+    const wide = parseRunbook(("```sh\necho " + "界".repeat(2_000) + "\n```\n\n").repeat(40));
+    expect(new TextEncoder().encode(runbookPrompt("/doc.md", wide)).length).toBeLessThan(60_000);
     expect(shortPrompt).toMatch(/\(Steps \d+ to 5000 are in the file: read them there\.\)/);
   });
 });
