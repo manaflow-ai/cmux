@@ -18,8 +18,7 @@ import { useStripReorder } from "./stripReorder";
 
 import { SourceBadge } from "./SourceBadge";
 import { useSourceLabel, withSourceLabel } from "./sourceBadgeModel";
-
-import { FADE_BAND_PX } from "../MarkdownField";
+import { FADE_BAND_PX } from "../markdownFieldModel";
 import { useScrollEdges } from "../summary/scrollEdges";
 import { isVideoAttachment, useVideoReading } from "./videoAttachments";
 import { VideoAttachmentTile } from "./VideoAttachmentTile";
@@ -27,7 +26,7 @@ import { useAttachedVideoPlayer } from "./videoAttachmentTileModel";
 import { FileAttachment } from "../FileAttachment";
 import { TextAttachmentCard } from "./TextAttachmentCard";
 import { pastedSize } from "./textAttachmentCardModel";
-import { ATTACHMENT_LABELS, type PendingAttachment } from "./attachmentIntakeModel";
+import { ATTACHMENT_LABELS, imageShape, type PendingAttachment } from "./attachmentIntakeModel";
 import { RemoveGlyph } from "./RemoveGlyph";
 import { PasteLoadingMark } from "./pasteLoading";
 import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
@@ -40,6 +39,7 @@ export function AttachmentStrip({
   codex = false,
   onRemove,
   onExpand,
+  onKeepFile,
   onCancel,
   onRetry,
   onReorder,
@@ -66,6 +66,8 @@ export function AttachmentStrip({
   /// A pasted text chip's click: its text goes back into the prompt (pastedText.ts). Unset, the chip
   /// only shows.
   onExpand?(id: string): void;
+  /// A pasted text chip's Keep as .txt: it goes as a file instead. Unset, the chip has no such button.
+  onKeepFile?(id: string): void;
 }) {
   const t = useT();
   // More chips than fit scroll sideways: the side with chips past it is marked, and the CSS fades it
@@ -130,6 +132,7 @@ export function AttachmentStrip({
             codex={codex}
             onRemove={onRemove}
             {...(onExpand ? { onExpand } : {})}
+            {...(onKeepFile ? { onKeepFile } : {})}
             {...(onRetry && originalFailures?.[attachment.id]
               ? { onRetry, originalFailed: originalFailures[attachment.id] }
               : {})}
@@ -182,6 +185,11 @@ function PendingChip({
   // video. ... Just do the square.").
   const square = chip.image || chip.video;
   const kind = square ? "acpmux-attachment-image" : "acpmux-attachment-file";
+  const shape = chip.image ? imageShape(chip.size) : undefined;
+  const style =
+    shape || (chip.preview && square)
+      ? { ...shape, ...(chip.preview && square ? { backgroundImage: `url("${chip.preview}")` } : {}) }
+      : undefined;
   // One that could not be attached keeps its shape: what it is (its kind's glyph, a file's name),
   // one small retry button, and its ×; why is in its tooltip (Leo, 2026-10-31: "video attachments
   // (big attachments?) still sucks", over a strip of empty tiles with only an underlined Retry).
@@ -212,9 +220,12 @@ function PendingChip({
       data-paste-look={look}
       aria-busy="true"
       aria-label={name}
-      // The image's own picture behind the spinner (a background, not an <img>: the strip's images
-      // are its ready chips).
-      {...(chip.preview && square ? { "data-instant": "", style: { backgroundImage: `url("${chip.preview}")` } } : {})}
+      // The image's shape from its header (the slot its thumbnail ends in), and its own picture
+      // behind the spinner (a background, not an <img>: the strip's images are its ready chips).
+      {...(chip.image && shape ? { "data-sized": "" } : {})}
+      {...(chip.sizing ? { "data-sizing": "" } : {})}
+      {...(chip.preview && square ? { "data-instant": "" } : {})}
+      {...(style ? { style } : {})}
     >
       <PasteLoadingMark
         look={look}
@@ -302,6 +313,18 @@ export function UploadProgress({ value, name, size = 16 }: { value: number; name
 /// inlineCopyId) draws the original's.
 const keptThumbOf = (id: string) => keptThumb(id) ?? keptThumb(inlineCopyParent(id) ?? id);
 
+/// An oversized paste's other way on (Leo, 2026-11-07: "you can either just paste it and it just
+/// becomes this, like, .txt, kind of like an attachment, um, or you can just make it raw"): a click on
+/// its card puts it in the prompt as text, this sends it as a Pasted text.txt file.
+export function KeepFileButton({ onKeep }: { onKeep(): void }) {
+  const t = useT();
+  return (
+    <button type="button" className="acpmux-attachment-keep-file" onClick={onKeep}>
+      {t(ATTACHMENT_LABELS.keepPasted)}
+    </button>
+  );
+}
+
 /// A staged attachment's chip: the strip draws it, and so does the prompt for one placed in its text
 /// (composer/inlineAttachments.tsx), with the same preview, open, play and remove.
 export function AttachmentChip({
@@ -309,6 +332,7 @@ export function AttachmentChip({
   codex = false,
   onRemove,
   onExpand,
+  onKeepFile,
   onRetry,
   originalFailed,
 }: {
@@ -316,6 +340,8 @@ export function AttachmentChip({
   codex?: boolean;
   onRemove(id: string): void;
   onExpand?(id: string): void;
+  /// A pasted chip sent as a .txt file instead (composer/pastedChips.ts `keepAsFile`).
+  onKeepFile?(id: string): void;
   /// An image whose original failed to upload (`originalFailed`, why): its Retry uploads it again.
   onRetry?(id: string): void;
   originalFailed?: string;
@@ -371,15 +397,21 @@ export function AttachmentChip({
     </>
   );
   // Its right-click menu: Open (or what a click does) where a click opens it, and Remove (cx-2lm4).
-  const menu = (open: (() => void) | undefined, chip: React.ReactNode, openLabel = t("image.open")) => (
+  const menu = (
+    open: (() => void) | undefined,
+    chip: React.ReactNode,
+    openLabel = t("image.open"),
+    keep?: () => void,
+  ) => (
     <ContextMenu
       className="acpmux-attachment-menu"
       items={[
         ...(open ? [{ id: "open", label: openLabel, onSelect: open }] : []),
+        ...(keep ? [{ id: "keep", label: t(ATTACHMENT_LABELS.keepPasted), onSelect: keep }] : []),
         {
           id: "remove",
           label: t(ATTACHMENT_LABELS.removeAttachment, { name }),
-          separatorBefore: Boolean(open),
+          separatorBefore: Boolean(open || keep),
           onSelect: () => onRemove(attachment.id),
         },
       ]}
@@ -393,6 +425,8 @@ export function AttachmentChip({
         alt={name}
         // A drag moves the chip along the strip (stripReorder.ts), never the picture out as a file.
         draggable={false}
+        // Its thumbnail's shape before it decodes, so the chip is its final width from its first frame.
+        style={imageShape(thumb)}
         src={thumb?.url ?? source}
         onError={() => setBroken(true)}
         onLoad={(event) => {
@@ -440,6 +474,7 @@ export function AttachmentChip({
   if (pasted) {
     const text = attachment.text ?? "";
     const expand = onExpand ? () => onExpand(attachment.id) : undefined;
+    const keep = onKeepFile ? () => onKeepFile(attachment.id) : undefined;
     const label = `${name} · ${pastedSize(t, language, text)}`;
     const accessible = `${attachment.name || pasteName(text)}, ${label}`;
     const body = <TextAttachmentCard text={text} label={label} wrap />;
@@ -460,9 +495,11 @@ export function AttachmentChip({
         ) : (
           <span className="acpmux-attachment-pasted-open">{body}</span>
         )}
+        {keep ? <KeepFileButton onKeep={keep} /> : null}
         {remove}
       </div>,
       t(ATTACHMENT_LABELS.editPasted),
+      keep,
     );
   }
   // A text file (attachments.ts readAttachment) or a picked selection: the same page of its first

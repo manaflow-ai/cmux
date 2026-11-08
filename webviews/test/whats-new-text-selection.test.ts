@@ -210,7 +210,7 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
         expect(await selection(page)).toContain("groups at a");
         await dragAcross(page, ".wn-pop-line");
         expect(await selection(page)).toContain("match the rows");
-        await dragAcross(page, ".wn-pop-from");
+        await dragAcross(page, ".wn-pop-span-from");
         expect(await selection(page)).toContain("3801702");
         expect(await calls(page)).toEqual({ openChangelog: 0, dismiss: 0 });
         await page.locator(".wn-pop-all").click();

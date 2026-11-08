@@ -170,11 +170,16 @@ export function OverlayDialog({ dialog, onEdit, onPress, onLayout, onPainted }: 
         {dialog.icon && <img className="overlay-dialog-icon" src={dialog.icon} alt="" />}
         <h1 className="overlay-dialog-title">{dialog.title}</h1>
         {dialog.from && <p className="overlay-dialog-from">{dialog.from}</p>}
-        {dialog.lines.map((line, index) => (
-          <p key={index} className="overlay-dialog-line">
-            {line}
-          </p>
-        ))}
+        {dialog.lines.length > 0 && (
+          // A long message (an import preview) scrolls here, so the buttons stay on screen.
+          <div className="overlay-dialog-lines">
+            {dialog.lines.map((line, index) => (
+              <p key={index} className="overlay-dialog-line">
+                {line}
+              </p>
+            ))}
+          </div>
+        )}
         {leading.map((field, index) => (
           <Field key={fieldKey(field, index)} field={field} values={values} title={dialog.title} onEdit={edit} />
         ))}

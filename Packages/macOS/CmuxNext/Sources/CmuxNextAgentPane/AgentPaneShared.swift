@@ -1,5 +1,6 @@
 public import CmuxNextApps
 public import CmuxNextDesign
+public import CmuxNextDictation
 
 /// The app-wide objects every agent pane view shares, built once in the composition root and handed to each
 /// ``AgentPaneView`` the agent tabs make, so the app holds one value for them, not one field per object.
@@ -18,15 +19,19 @@ public struct AgentPaneShared {
     public let apps: AppsClient?
     public let actAsMe: AgentPaneActAsMe?
     public let flickerLog: AgentPageFlickerLog?
+    /// Another app's use of the microphone, for the composer's outside-dictation mark: one per
+    /// ``AgentPaneShared`` (the app's), listening only while one of its panes' composers has the keyboard.
+    public let microphone: MicrophoneActivity?
 
     /// The defaults (tests): no open panel, a posting-process table of the pane's own, no apps, no grant and no flicker log.
     public init(openPanel: MadeAheadOpenPanel? = nil, eventSources: EventSourceProcesses = EventSourceProcesses(), apps: AppsClient? = nil,
-                actAsMe: AgentPaneActAsMe? = nil, flickerLog: AgentPageFlickerLog? = nil) {
+                actAsMe: AgentPaneActAsMe? = nil, flickerLog: AgentPageFlickerLog? = nil, microphone: MicrophoneActivity? = MicrophoneActivity()) {
         self.openPanel = openPanel
         self.eventSources = eventSources
         self.apps = apps
         self.actAsMe = actAsMe
         self.flickerLog = flickerLog
+        self.microphone = microphone
     }
 }
 
@@ -38,5 +43,6 @@ extension AgentPaneView {
                   openPanel: shared.openPanel, eventSources: shared.eventSources, flickerLog: shared.flickerLog)
         model.transport.gestures.actAsMe = shared.actAsMe
         showActAsMe(shared.actAsMe)
+        microphoneActivity = shared.microphone
     }
 }

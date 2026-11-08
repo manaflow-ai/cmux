@@ -19,13 +19,14 @@ public extension WindowDockFrame {
         frameChiefPanelArm = now.advanced(by: Self.chiefPanelLinkWindow)
     }
 
-    /// A show of `target` is about to replace the shown workspace: an armed link opens the panel over it. Any show
-    /// of another workspace takes the arm, used or not.
+    /// A show of `target` is about to replace the shown workspace: an armed link opens the panel floating over it,
+    /// also when the person docked it before (cmux#37372: no link click docks the Chief). Any show of another
+    /// workspace takes the arm, used or not.
     func openChiefPanelOnLeave(for target: String, now: ContinuousClock.Instant = .now) {
         guard let until = frameChiefPanelArm, target != frameHome else { return }
         frameChiefPanelArm = nil
         guard now < until else { return }
-        frameChiefPanel.open()
+        frameChiefPanel.openFloating()
         frameSaveRecord()
     }
 
@@ -63,6 +64,16 @@ public extension WindowDockFrame {
     @discardableResult
     func floatChiefPanel() -> Bool {
         guard frameChiefPanel.undock() else { return false }
+        frameChiefPanelDidChange()
+        return true
+    }
+
+    /// Undock Chief (cmux#37372): a docked panel floats again and shows, also when the person had hidden it, so
+    /// the action always has a visible result. False when it was not docked.
+    @discardableResult
+    func undockChiefPanel() -> Bool {
+        guard frameChiefPanel.dockedEdge != nil else { return false }
+        frameChiefPanel.openFloating()
         frameChiefPanelDidChange()
         return true
     }

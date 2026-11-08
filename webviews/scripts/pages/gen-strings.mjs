@@ -68,11 +68,16 @@ export function schemaKeys(schemaFile) {
 }
 
 // Page -> output and catalogs. `keys(catalogKeys)` picks the keys the page uses (all by default).
-// The History table moves next to the page when the Swift page is deleted (react-pages.md H4).
 export const PAGES = {
   "import-history": {
     out: "webviews/src/pages/import-history/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/import-history/Localizable.xcstrings" }],
+  },
+  // The onboarding tool window (Agents, Import from Browsers, Computer Use): the page's own table,
+  // its keys and translations the Swift steps' (CmuxNextOnboarding) it replaces.
+  onboarding: {
+    out: "webviews/src/pages/onboarding/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/onboarding/Localizable.xcstrings" }],
   },
   gallery: {
     out: "webviews/src/gallery/generated/strings.json",
@@ -160,7 +165,11 @@ export const PAGES = {
   },
   history: {
     out: "webviews/src/pages/history/generated/strings.json",
-    catalogs: [{ file: `${sources}/CmuxNextHistory/Resources/Localizable.xcstrings` }],
+    catalogs: [{ file: "webviews/src/pages/history/Localizable.xcstrings" }],
+  },
+  stash: {
+    out: "webviews/src/pages/stash/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/stash/Localizable.xcstrings" }],
   },
   // The App Store page reads the `store.` keys of the app platform's table until the Swift store
   // is deleted (react-pages.md A3); then the table moves next to the page.

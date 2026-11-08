@@ -55,6 +55,9 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+// These cover the paste card (sentPasteLook `card`); the default draws a paste as the bubble's own
+// text (test/sent-bubble-final-size.test.ts, user-prompt-collapse.test.tsx).
+globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "sent-paste-look": "card" };
 // jsdom lays nothing out and its Range has no rects; ProseMirror and the bubble's measure ask one.
 const box = () => ({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) });
 Object.assign(dom.window.Range.prototype, {
@@ -67,7 +70,8 @@ const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("../src/agent-session/acpmux/Composer");
 const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
-const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+const { resetTranscriptDisclosure } =
+  await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
 const { noChat } = await import("../src/gallery/fixtures/acpmux");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
 const { pastedSize } = await import("../src/agent-session/acpmux/composer/textAttachmentCardModel");

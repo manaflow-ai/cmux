@@ -2,7 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { markSentNow, NewestSteerContext, PendingSteer, takesSteersBack } from "./PendingSteer";
+import { PendingSteer } from "./PendingSteer";
+import { markSentNow, NewestSteerContext, takesSteersBack } from "./pendingSteerModel";
 import { TurnActionsContext } from "./turnActions";
 import type { AcpmuxRow } from "../model";
 

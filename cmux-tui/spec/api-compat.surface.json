@@ -3966,6 +3966,19 @@
         "required": true
       }
     },
+    "event:stash-changed": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"stash-changed\""
+        ]
+      },
+      "/revision": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "event:status": {
       "/event": {
         "ty": "literal",

@@ -84,10 +84,11 @@ final class TerminalGridReporter {
         return true
     }
 
-    /// A drag's grid: it waits for the window, or opens one. `waitsForRefresh`: never at once
-    /// (``TerminalGridReportCoalescer/viewSized(_:waitsForRefresh:)``).
-    func coalesced(_ grid: TerminalGridSize, waitsForRefresh: Bool = false) {
-        coalescer.viewSized(grid, waitsForRefresh: waitsForRefresh)
+    /// A drag's or a key spring's grid: it waits for the window, or opens one. `waitsForRefresh`: never at once;
+    /// `replacesUnshown`: at once, in place of a grid whose frame never shows
+    /// (``TerminalGridReportCoalescer/viewSized(_:waitsForRefresh:replacesUnshown:)``).
+    func coalesced(_ grid: TerminalGridSize, waitsForRefresh: Bool = false, replacesUnshown: Bool = false) {
+        coalescer.viewSized(grid, waitsForRefresh: waitsForRefresh, replacesUnshown: replacesUnshown)
     }
 
     /// `grid` goes now; a grid that waits is older and is dropped.
