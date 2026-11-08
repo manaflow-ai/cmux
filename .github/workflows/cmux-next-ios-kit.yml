@@ -38,6 +38,7 @@ on:
       - "vendor/stack-auth-swift-sdk-prerelease/**"
       # The toolchains it uses.
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/actions/runner-cargo-home/**"
       - "cmux-tui/rust-toolchain.toml"
       - "scripts/select-ci-xcode.sh"
       - "scripts/ci/xcode-pins.txt"
@@ -62,6 +63,7 @@ on:
       - "vendor/stack-auth-swift-sdk-prerelease/**"
       # The toolchains it uses.
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/actions/runner-cargo-home/**"
       - "cmux-tui/rust-toolchain.toml"
       - "scripts/select-ci-xcode.sh"
       - "scripts/ci/xcode-pins.txt"
