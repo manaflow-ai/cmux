@@ -1455,7 +1455,7 @@ async fn run_registration_loop(
 ) {
     let mut backoff = Backoff::new();
     let mut credential_backoff = Backoff::credential();
-    let mut failures = 0_u64;
+    let mut log = RegisterLog::new(log, Instant::now());
     loop {
         if *shutdown.borrow() {
             return;
@@ -1472,6 +1472,7 @@ async fn run_registration_loop(
             &mut shutdown,
             &mut first_ready,
             &mut registered,
+            &log,
         )
         .await;
         // A registration that got ready and later died (a pause, a relay
@@ -1479,12 +1480,7 @@ async fn run_registration_loop(
         if registered {
             backoff.reset();
             credential_backoff.reset();
-            if let Some(label) = &log
-                && failures > 0
-            {
-                eprintln!("{label}: registered after {failures} failed attempts");
-            }
-            failures = 0;
+            log.dropped(Instant::now());
         }
         let credential_failure = result.as_ref().is_err_and(is_credential_source_error);
         if first_ready.is_some()
@@ -1503,10 +1499,11 @@ async fn run_registration_loop(
         } else {
             backoff.next(random_unit())
         };
-        if let (Some(label), Err(error)) = (&log, &result) {
-            failures += 1;
+        if let (Some(label), Err(error)) = (&log.label, &result) {
+            log.failures += 1;
             eprintln!(
-                "{label}: attempt {failures} failed, retrying in {} ms: {error}",
+                "{label}: attempt {} failed, retrying in {} ms: {error}",
+                log.failures,
                 wait.as_millis()
             );
         }
@@ -1522,6 +1519,54 @@ async fn run_registration_loop(
     }
 }
 
+/// What a background registration writes to stderr when the relay answers
+/// its Register: the first one, and each one after a drop, never a
+/// heartbeat. A journey timeline reads the Register time from it.
+struct RegisterLog {
+    /// The registration's stderr prefix; nothing is written without one.
+    label: Option<String>,
+    /// When the registration started.
+    started: Instant,
+    /// Failed attempts since the last Register (or the start).
+    failures: u64,
+    /// When the last registration ended, once one has.
+    dropped_at: Option<Instant>,
+}
+
+impl RegisterLog {
+    fn new(label: Option<String>, started: Instant) -> Self {
+        Self { label, started, failures: 0, dropped_at: None }
+    }
+
+    /// A registration that got ready has ended at `now`.
+    fn dropped(&mut self, now: Instant) {
+        self.failures = 0;
+        self.dropped_at = Some(now);
+    }
+
+    /// The line for a Register answered at `now` on `slot`.
+    fn registered_line(&self, slot: &str, now: Instant) -> Option<String> {
+        let label = self.label.as_ref()?;
+        let elapsed = now.saturating_duration_since(self.started).as_millis();
+        let again = match self.dropped_at {
+            Some(dropped) => {
+                format!(
+                    " again, {} ms after the drop,",
+                    now.saturating_duration_since(dropped).as_millis()
+                )
+            }
+            None => String::new(),
+        };
+        let retried = match self.failures {
+            0 => String::new(),
+            1 => " and 1 failed attempt".to_owned(),
+            failures => format!(" and {failures} failed attempts"),
+        };
+        Some(format!("{label}: registered{again} on slot {slot} after {elapsed} ms{retried}"))
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn run_registration_once(
     daemon: Arc<RemoteDaemon>,
     config: &RelayDaemonConfig,
@@ -1530,6 +1575,7 @@ async fn run_registration_once(
     shutdown: &mut watch::Receiver<bool>,
     first_ready: &mut Option<oneshot::Sender<Result<(), ProviderError>>>,
     registered: &mut bool,
+    log: &RegisterLog,
 ) -> Result<(), ProviderError> {
     let authentication = authenticate_daemon_control(config, credentials);
     tokio::pin!(authentication);
@@ -1544,6 +1590,9 @@ async fn run_registration_once(
     };
     let heartbeat = Duration::from_secs(u64::from(lease_seconds).max(3) / 3);
     *registered = true;
+    if let Some(line) = log.registered_line(&config.slot, Instant::now()) {
+        eprintln!("{line}");
+    }
     if let Some(sender) = first_ready.take() {
         let _ = sender.send(Ok(()));
     }
@@ -2502,6 +2551,31 @@ mod tests {
         let stopped = count();
         tokio::time::sleep(Duration::from_millis(1500)).await;
         assert_eq!(count(), stopped, "the registration kept running after shutdown");
+    }
+
+    #[test]
+    fn a_register_is_logged_with_its_slot_and_time_first_and_after_a_drop() {
+        let started = Instant::now();
+        let at = |ms| started + Duration::from_millis(ms);
+        let mut log =
+            RegisterLog::new(Some("cmux-tui: relay registration on relay+wss://r".into()), started);
+        assert_eq!(
+            log.registered_line("slot-a", at(812)).as_deref(),
+            Some(
+                "cmux-tui: relay registration on relay+wss://r: registered on slot slot-a after 812 ms"
+            )
+        );
+        log.dropped(at(5_000));
+        log.failures = 2;
+        assert_eq!(
+            log.registered_line("slot-a", at(7_250)).as_deref(),
+            Some(
+                "cmux-tui: relay registration on relay+wss://r: registered again, 2250 ms after \
+                 the drop, on slot slot-a after 7250 ms and 2 failed attempts"
+            )
+        );
+        // A registration with no label (the foreground one) writes nothing.
+        assert_eq!(RegisterLog::new(None, started).registered_line("slot-a", at(1)), None);
     }
 
     #[test]
