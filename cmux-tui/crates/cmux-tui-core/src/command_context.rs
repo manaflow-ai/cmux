@@ -107,9 +107,10 @@ fn newest_bytes(text: &str, max: usize) -> (&str, bool) {
     while !text.is_char_boundary(start) {
         start += 1;
     }
+    let tail = text.get(start..).unwrap_or_default();
     // Start on a whole line when there is one.
-    let start = text[start..].find('\n').map_or(start, |newline| start + newline + 1);
-    (&text[start..], true)
+    let tail = tail.split_once('\n').map_or(tail, |(_, rest)| rest);
+    (tail, true)
 }
 
 fn longest_backtick_run(text: &str) -> usize {

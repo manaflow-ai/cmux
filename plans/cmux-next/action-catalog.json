@@ -42800,7 +42800,7 @@
         "contextMenus" : [
           {
             "context" : "terminalSelection",
-            "folder" : null,
+            "folder" : "tools",
             "group" : "edit",
             "label" : null,
             "parent" : null,
@@ -42875,7 +42875,7 @@
         "contextMenus" : [
           {
             "context" : "terminalSelection",
-            "folder" : null,
+            "folder" : "tools",
             "group" : "edit",
             "label" : null,
             "parent" : null,
@@ -42951,7 +42951,7 @@
         "contextMenus" : [
           {
             "context" : "terminalSelection",
-            "folder" : null,
+            "folder" : "tools",
             "group" : "edit",
             "label" : null,
             "parent" : null,
