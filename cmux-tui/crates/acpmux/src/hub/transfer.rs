@@ -218,6 +218,26 @@ impl Hub {
         meta.status = SessionStatus::Idle;
         // It lives here now, whatever the daemon it came from had recorded.
         meta.moved_to = None;
+        // The linked-worktree record (`worktree_care/revive.rs`) is read again from the folder
+        // here. A chat moved from another machine's linked worktree into a fresh clone brought
+        // that machine's root and git dir: they never match here, and `revive_folder` refused
+        // every turn as `session.folder_missing` while its folder was there. A chat imported
+        // into the same linked worktree reads the same record back, so its folder can still be
+        // recreated if it goes. A read that is inconclusive keeps the bundle's record only for
+        // the folder it names.
+        let read = tokio::task::spawn_blocking({
+            let cwd = meta.cwd.clone();
+            move || {
+                super::worktree_care::revive::origin_of(
+                    &cwd,
+                    &crate::git_state::GitState::read(&cwd),
+                )
+            }
+        });
+        meta.worktree = match tokio::time::timeout(std::time::Duration::from_secs(2), read).await {
+            Ok(Ok(Some(found))) => found,
+            _ => meta.worktree.take().filter(|w| w.cwd == meta.cwd),
+        };
         // An approve-all an older daemon or a vmHost machine gave asks here (`policy_source.rs`).
         super::policy_source::settle_imported_grant(&mut meta);
         meta.subsession = None;
