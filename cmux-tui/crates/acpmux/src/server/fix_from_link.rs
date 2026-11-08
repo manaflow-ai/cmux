@@ -192,7 +192,8 @@ fn valid_segment(value: &str) -> bool {
 async fn fetch_issue(issue: &GithubIssueLink, cwd: Option<&str>) -> Result<IssueContext, RpcError> {
     let endpoint = format!("repos/{}/{}/issues/{}", issue.owner, issue.repo, issue.number);
     let comments_endpoint = format!("{endpoint}/comments?per_page=20");
-    let (issue_result, comments_result) = tokio::join!(gh_api(&endpoint, cwd), gh_api(&comments_endpoint, cwd));
+    let (issue_result, comments_result) =
+        tokio::join!(gh_api(&endpoint, cwd), gh_api(&comments_endpoint, cwd));
     let issue_json = issue_result?;
     let comments_json = comments_result.unwrap_or_else(|_| json!([]));
     let title =

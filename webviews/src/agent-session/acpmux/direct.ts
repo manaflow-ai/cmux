@@ -10236,15 +10236,54 @@ export class AcpmuxDirectClient {
   }
   /// Starts a GitHub issue fix in a local worktree and returns the created chat.
   async fixFromLink(url: string, cwd?: string, harness?: string, model?: string): Promise<string | undefined> {
-    const result = await this.request(
-      "chat.fix_from_link",
-      { url, ...(cwd ? { cwd } : {}), ...(harness ? { harness } : {}), ...(model ? { model } : {}) },
-      120_000,
-    );
-    const sessionId = typeof result?.sessionId === "string" ? result.sessionId : undefined;
-    // l10n-allow: internal transport shape failure; the user sees the host error surface.
-    if (!sessionId) throw new Error("fix-from-link did not return a session");
-    return sessionId;
+    this.cancelTrustStart?.();
+    const generation = this.selectionGeneration;
+    const trustCancellation = this.trustCancellation;
+    return new Promise<string>((resolve, reject) => {
+      let settled = false;
+      let running = false;
+      const finish = (id?: string, error?: unknown) => {
+        if (settled) return;
+        settled = true;
+        if (this.cancelTrustStart === cancel) this.cancelTrustStart = undefined;
+        if (id) resolve(id);
+        else reject(error ?? startCancelled());
+      };
+      const cancel = () => {
+        if (settled) return;
+        this.cancelTrustRefusals();
+        finish();
+      };
+      const current = () =>
+        !this.closed && generation === this.selectionGeneration && trustCancellation === this.trustCancellation;
+      const run = () => {
+        if (settled || running) return;
+        if (!current()) return cancel();
+        running = true;
+        void this.request(
+          "chat.fix_from_link",
+          { url, ...(cwd ? { cwd } : {}), ...(harness ? { harness } : {}), ...(model ? { model } : {}) },
+          120_000,
+        ).then(
+          (result) => {
+            if (!current()) return cancel();
+            const sessionId = typeof result?.sessionId === "string" ? result.sessionId : undefined;
+            // l10n-allow: internal transport shape failure; the user sees the host error surface.
+            finish(sessionId, sessionId ? undefined : new Error("fix-from-link did not return a session"));
+          },
+          (error: unknown) => {
+            running = false;
+            if (settled) return;
+            if (!current()) return cancel();
+            // Keep the same chip gesture pending. Trust retries it once; declining or leaving
+            // the page settles it without creating a worktree or selecting another chat.
+            if (!this.routeTrustRefusal(error, run, cancel)) finish(undefined, error);
+          },
+        );
+      };
+      this.cancelTrustStart = cancel;
+      run();
+    });
   }
 
   /// A new session, in `cwd` when given; otherwise in the inherited cwd, then where acpmux defaults.

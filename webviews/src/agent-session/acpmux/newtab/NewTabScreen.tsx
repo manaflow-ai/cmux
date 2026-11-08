@@ -939,8 +939,11 @@ export function NewTabScreen(props: Props) {
   /// One parse per change of the value, not per render.
   const typed = useMemo(() => (fieldReady ? (field.current?.agentText(text) ?? text) : text), [text, fieldReady]);
   const fixFromLink = useMemo(
-    () => (!shell && attachments.length === 0 ? githubIssueLink(typed) : undefined),
-    [typed, shell, attachments.length],
+    () =>
+      !shell && !machine && (props.runMode?.mode ?? "persistent") === "persistent" && attachments.length === 0
+        ? githubIssueLink(typed)
+        : undefined,
+    [typed, shell, machine, props.runMode?.mode, attachments.length],
   );
   // The create actions the buttons under the field offer, at the end of the rows too.
   const creates = useMemo(
@@ -2199,10 +2202,12 @@ export function NewTabScreen(props: Props) {
                 onClick={() => {
                   if (fixing) return;
                   setFixing(true);
-                  void Promise.resolve(props.onFixFromLink?.(fixFromLink.url, project ?? askFolder, harness, chipModel)).then(
-                    () => setFixing(false),
-                    () => setFixing(false),
-                  );
+                  void Promise.resolve()
+                    .then(() => props.onFixFromLink?.(fixFromLink.url, project ?? askFolder, harness, chipModel))
+                    .then(
+                      () => setFixing(false),
+                      () => setFixing(false),
+                    );
                 }}
               >
                 {t("worktree.fixFromLink")}

@@ -550,6 +550,18 @@ export default agentPaneEntry({
         if (ctx.document.querySelector(".nt-fix-error")) throw new Error("the idle fix action shows an error");
       },
     },
+    "fix-from-link-stage": {
+      note: "The same explicit issue action in the optional stage layout; the default minimal layout keeps the focus on the pasted report.",
+      ready: newTab({
+        template: "default",
+        location: "https://github.com/manaflow-ai/cmux/issues/38426",
+        projects: [CWD],
+      }),
+      snapshot: noChat(manySessions(3), { listedSessions: true }),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-fix-chip") !== null);
+      },
+    },
     "fix-from-link-error": {
       note: "When checkout discovery fails, the Fix in a new worktree action stays in place and reports the host error inline beside the composer.",
       ready: newTab({

@@ -126,6 +126,7 @@ export function newTabScreenActions(deps: {
       });
     },
     onFixFromLink: (url, selectedCwd, harness, model) => {
+      const current = deps.startScope?.(false) ?? (() => true);
       deps.clearError?.();
       return callNative("chat.fix_from_link", {
         url,
@@ -134,6 +135,7 @@ export function newTabScreenActions(deps: {
         ...(model ? { model } : {}),
       })
         .then((result) => {
+          if (!current()) throw startCancelled();
           const sessionId =
             result && typeof result === "object" && typeof (result as { sessionId?: unknown }).sessionId === "string"
               ? (result as { sessionId: string }).sessionId
@@ -142,7 +144,9 @@ export function newTabScreenActions(deps: {
           if (!sessionId) throw new Error("fix-from-link did not return a session");
           deps.selectSession(sessionId);
         })
-        .catch((error) => deps.showError?.(error));
+        .catch((error) => {
+          if (!isStartCancelled(error)) deps.showError?.(error);
+        });
     },
     savedEnvironments: savedEnvironmentHost(callNative),
     onOpen: (url) => {
