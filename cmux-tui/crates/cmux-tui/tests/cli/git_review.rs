@@ -344,16 +344,17 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
 
     // Removing a review's worktree runs no teardown: the project's recipe can
     // name a script the pull request changed.
-    let recipe = format!("teardown = \"touch '{}'\"\n", hook_ran.display());
+    let teardown_ran = root.join("teardown-ran");
+    let recipe = format!("teardown = \"touch '{}'\"\n", teardown_ran.display());
     fs::create_dir_all(checkout.join(".cmux")).unwrap();
     fs::write(checkout.join(".cmux/worktree.toml"), recipe).unwrap();
-    let other_root = std::path::PathBuf::from(other["root"].as_str().unwrap());
+    let other_root = PathBuf::from(other["root"].as_str().unwrap());
     // `--discard`: the pull request's commits are on no branch of this clone.
     let remove = ["worktree", "remove", "--discard", "--idempotency-key", "rm"];
     let removed = git_cli(&server, &other_root, &remove);
     assert_success(&removed);
     assert!(!other_root.exists(), "the review's worktree was not removed");
-    assert!(!hook_ran.exists(), "the project's teardown ran in a review's checkout");
+    assert!(!teardown_ran.exists(), "the project's teardown ran in a review's checkout");
 
     // A comment outside a review worktree is refused.
     let plain = git_cli(&server, &checkout, &draft);
