@@ -28299,6 +28299,37 @@
       "args" : [
 
       ],
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-show-in-mini",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentPane.showInMini",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show in Mini",
+      "title_key" : "action.agentPane.showInMini",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
       "cli" : "offered",
       "cli_name" : "agent archive-chat",
       "context_menu" : "offered",
@@ -31469,6 +31500,11 @@
         {
           "kind" : "string",
           "name" : "repo",
+          "required" : false
+        },
+        {
+          "kind" : "string",
+          "name" : "environment",
           "required" : false
         }
       ],
@@ -34715,6 +34751,11 @@
         {
           "kind" : "string",
           "name" : "promptId",
+          "required" : false
+        },
+        {
+          "kind" : "string",
+          "name" : "login",
           "required" : false
         }
       ],
@@ -38473,6 +38514,37 @@
       "palette_suggested" : null,
       "title" : "Window Style: Floating Panes",
       "title_key" : "action.appearance.chromeStyle.floating",
+      "title_table" : "SettingsActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "settings window-style-blocks",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "appearance.chromeStyle.blocks",
+      "main_menu" : null,
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Window Style: Blocks",
+      "title_key" : "action.appearance.chromeStyle.blocks",
       "title_table" : "SettingsActions"
     },
     {
@@ -59117,10 +59189,6 @@
     {
       "name" : "homeBackground",
       "source" : "CmuxNextHomeEngine\/HomePageMenus.swift"
-    },
-    {
-      "name" : "taskAssignee",
-      "source" : "CmuxNextTasks\/Views\/AssigneeMenu.swift"
     }
   ],
   "version" : 1
