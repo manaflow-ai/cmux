@@ -1393,3 +1393,23 @@ fn pane_and_screen_close_detach_views_without_closing_terminal_hosts() {
         assert!(mux.surface(surface).is_none());
     }
 }
+
+/// A requester that leaves while its reservation is pending takes its
+/// `restart` along: a later handoff that names none (session.shutdown, the
+/// orphan stop) must not announce the old one.
+#[test]
+fn daemon_reconnect_restart_does_not_outlive_its_reservation() {
+    let mux = test_mux();
+    mux.mark_server_lifecycle_ready();
+    let (writer, _outbound) = captured_writer();
+    let first = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    mux.begin_daemon_handoff(first, DaemonHandoffRequest::unfenced(false)).unwrap();
+    mux.control_clients.set_daemon_handoff_restart(first, Some(true));
+    assert_eq!(mux.control_clients.daemon_handoff_restart(), Some(true));
+    mux.control_clients.remove(first);
+    assert_eq!(mux.control_clients.daemon_handoff_restart(), None);
+
+    let second = mux.control_clients.register(ClientTransport::Unix, writer);
+    mux.begin_daemon_handoff(second, DaemonHandoffRequest::unfenced(false)).unwrap();
+    assert_eq!(mux.control_clients.daemon_handoff_restart(), None);
+}

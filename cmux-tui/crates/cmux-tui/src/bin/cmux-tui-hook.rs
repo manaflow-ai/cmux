@@ -375,7 +375,9 @@ fn settle_detached_child(mut child: DetachedChildGuard, reader: std::thread::Joi
 }
 
 fn handoff_wait(source: &str, native_event: &str) -> Duration {
-    if source == "codex" && native_event == "SessionEnd" {
+    // Codex SessionStart also reads the session context after the handoff
+    // (session_context.rs, 1.5 s), all inside the 5 s hook timeout.
+    if source == "codex" && matches!(native_event, "SessionEnd" | "SessionStart") {
         CODEX_SESSION_END_HANDOFF_WAIT
     } else {
         HANDOFF_WAIT
@@ -858,6 +860,8 @@ mod tests {
     #[test]
     fn codex_session_end_handoff_stays_below_the_codex_hook_cap() {
         assert!(handoff_wait("codex", "SessionEnd") < Duration::from_secs(3));
+        // The session context read (session_context.rs) still fits in 5 s.
+        assert!(handoff_wait("codex", "SessionStart") < Duration::from_secs(3));
         assert_eq!(handoff_wait("codex", "Stop"), HANDOFF_WAIT);
         assert_eq!(handoff_wait("claude", "SessionEnd"), HANDOFF_WAIT);
     }

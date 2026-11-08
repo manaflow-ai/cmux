@@ -11,11 +11,11 @@ use std::borrow::Cow;
 use super::pane_context::{self, Innermost};
 
 /// Root-help scopes that only the cmux app serves (`cli/app.rs` app scopes
-/// and the app-routed person verbs).
+/// and the app-routed person verbs). `chief` is not one: with no app it
+/// starts its own owner (cli/chief/launch.rs).
 pub(super) const APP_ONLY_SCOPES: &[&str] = &[
     "login",
     "chat",
-    "chief",
     "avatar",
     "billing",
     "auth",

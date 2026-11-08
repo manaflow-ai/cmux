@@ -1055,6 +1055,8 @@ impl ClientRegistry {
             anyhow::bail!("daemon handoff is already in progress");
         }
         state.daemon_handoff = Some(DaemonHandoffReservation::Pending(requesting_client));
+        // A new reservation starts with no `restart`; only its own request sets one.
+        state.daemon_handoff_restart = None;
         Ok(())
     }
 

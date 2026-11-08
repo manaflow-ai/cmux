@@ -41,9 +41,24 @@ pub(super) fn innermost_with(
     if app_owns(&socket) { Innermost::AppPane } else { Innermost::SessionPane { socket, terminal } }
 }
 
-/// [`innermost_with`] for this process.
+/// [`innermost_with`] for this process. A `cmux` bundled in one app and run
+/// in a terminal of another acts for its own app (app_identity.rs
+/// `OTHER_APP_STATE_KEYS`): the daemon keys there are the other app's.
 pub(super) fn innermost() -> Innermost {
+    if in_other_apps_terminal() {
+        return Innermost::Outside;
+    }
     innermost_with(|key| std::env::var(key).ok(), owning_app)
+}
+
+#[cfg(unix)]
+fn in_other_apps_terminal() -> bool {
+    crate::app_identity::this_process_in_other_apps_terminal()
+}
+
+#[cfg(not(unix))]
+fn in_other_apps_terminal() -> bool {
+    false
 }
 
 #[cfg(unix)]
