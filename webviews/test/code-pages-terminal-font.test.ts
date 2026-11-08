@@ -55,7 +55,8 @@ describe("code pages follow the terminal font", () => {
     hostSends(null);
     applyDiffViewerAppearance(resolveDiffViewerAppearance(undefined));
     expect(codeFamily().startsWith('"Menlo",')).toBe(true);
-    expect(editorFamily().startsWith("ui-monospace")).toBe(true);
+    expect(editorFamily().startsWith('"Menlo",')).toBe(true);
+    expect(editorFamily()).toContain('"Symbols Nerd Font Mono"');
   });
 
   test("a page's own appearance still wins over the terminal's", () => {
