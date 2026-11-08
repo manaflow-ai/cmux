@@ -11,10 +11,10 @@ nonisolated enum AgentShareActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "agent.share",
                 title: t("action.agent.share", "Share Chat with Guest…"),
-                description: "Makes a guest link to an agent chat (--target tab:<id>, --surface N, else the chat that runs the command, else the focused chat): the guest sees the chat as you do, including command output and the agent's reasoning, and each message they send waits for you. --ttl (seconds, or 30m, 24h, 7d; default 24h) and --uses (1 to 8; default 1). Returns share_id, url (null when no share service is configured), expires_at (ms), uses_left, session and surface. Errors: share.needs_sign_in, share.room_unreachable (try again), share.room_refused, share.not_a_chat, share.limit.",
+                description: "Makes a guest link to an agent chat (--target tab:<id>, --surface N, else the chat that runs the command, else the focused chat): the guest sees the chat as you do, including command output and the agent's reasoning, and each message they send waits for you. --ttl (seconds, or 30m, 24h, 7d; default 24h) and --uses (1 to 8; default 1). --role (view or talk) gives the link a role; a guest who opens it without signing in only watches either way. --signed-in-role (talk, the default, or view) says whether a guest signed in to cmux may also send. `cmux share chat --view-only` sends both as view: a link where nobody sends. Returns share_id, url (null when no share service is configured), expires_at (ms), uses_left, session and surface. Errors: share.needs_sign_in, share.room_unreachable (try again), share.room_refused, share.not_a_chat, share.limit.",
                 keywords: ["share", "guest", "invite", "link", "multiplayer", "agent", "chat", "collaborate"],
                 category: .agents, symbol: "person.badge.plus", surfaces: [.palette, .contextMenu],
-                arguments: [surfaceArgument, ttlArgument, usesArgument], targets: [.tab], cliName: "share chat",
+                arguments: [surfaceArgument, ttlArgument, usesArgument, roleArgument, signedInRoleArgument], targets: [.tab], cliName: "share chat",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
                     // In the tab menu's More (its top level is Chrome's twelve rows, ContextMenuEssentials).
                     ActionSurfaceCatalog.p(.tab, .identity, 590, label: t("action.agent.share.menu", "Share with Guest…")),
@@ -109,6 +109,15 @@ nonisolated enum AgentShareActionCatalog: ActionCatalogGroup {
     /// `view` watches; `talk` (the default) also sends messages, each held for the owner.
     static var roleArgument: ActionArgument {
         ActionArgument(name: "role", title: t("argument.agentShare.role", "Access"), kind: .enumeration([
+            ActionEnumCase(value: "talk", title: t("argument.agentShare.role.talk", "Can talk")),
+            ActionEnumCase(value: "view", title: t("argument.agentShare.role.view", "Can view")),
+        ]), isRequired: false)
+    }
+
+    /// Share Chat with Guest's `signed_in_role`: whether a guest signed in to cmux may send on the link
+    /// (`talk`, the daemon's default) or only watches (`view`). Guests who are not signed in always watch.
+    static var signedInRoleArgument: ActionArgument {
+        ActionArgument(name: "signedInRole", title: t("argument.agentShare.signedInRole", "Signed-in Guests"), kind: .enumeration([
             ActionEnumCase(value: "talk", title: t("argument.agentShare.role.talk", "Can talk")),
             ActionEnumCase(value: "view", title: t("argument.agentShare.role.view", "Can view")),
         ]), isRequired: false)

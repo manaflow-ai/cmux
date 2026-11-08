@@ -9900,7 +9900,7 @@
       },
       "palette_suggested" : null,
       "title" : "New Browser to New Workspace",
-      "title_key" : "action.new.browser.workspace",
+      "title_key" : "action.new.browser.toWorkspace",
       "title_table" : "ActionCatalog"
     },
     {
@@ -31891,6 +31891,24 @@
           "min" : 1,
           "name" : "uses",
           "required" : false
+        },
+        {
+          "kind" : "enum",
+          "name" : "role",
+          "required" : false,
+          "values" : [
+            "talk",
+            "view"
+          ]
+        },
+        {
+          "kind" : "enum",
+          "name" : "signedInRole",
+          "required" : false,
+          "values" : [
+            "talk",
+            "view"
+          ]
         }
       ],
       "cli" : "offered",

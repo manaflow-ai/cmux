@@ -9,7 +9,13 @@ import nightlySpan from "./fixtures/nightly-3913596493801-span.json";
 import table from "./generated/strings.json";
 import type { ReleaseNotes } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
-import { UpdatedCard, UpdateReadyHighlights, type BriefLayout, type WhatsNewPlacement } from "./UpdateSurfaces";
+import {
+  UpdatedCard,
+  UpdateReadyHighlights,
+  type BriefLayout,
+  type ReadyLayout,
+  type WhatsNewPlacement,
+} from "./UpdateSurfaces";
 
 const base: UpdateHighlights = {
   version: "1.0.0-nightly.3845050428001",
@@ -57,6 +63,8 @@ type Props = {
   theme?: keyof typeof themes;
   /** Where the popover with no change list puts See release notes. */
   briefLayout?: BriefLayout;
+  /** How the popover with a change list lays out a change. */
+  layout?: ReadyLayout;
   /** The decoration in the card's slot (ThemeDecorations `updated-card`): "doodle", else none. */
   decoration?: string | null;
   /** The doodle draws on (false: drawn from the start). */
@@ -202,6 +210,56 @@ const longNotes: UpdateHighlights = {
   })),
 };
 
+// Leo's screenshot (2026-11-05, nightly 4210546 to 4212118: "this is too big ... i can't even
+// scroll through the changes from that preview!"): the staged build's one change with its long
+// paragraph, and the changes of the nightlies the update skips, which the popover now lists too.
+const rollbackLine =
+  "What's New lists the recent builds of your channel. Pick one and cmux downloads it, checks its signature the same way it checks an update, installs it and restarts, keeping your windows, tabs and running agents.";
+const leoData: UpdateHighlights = {
+  ...base,
+  version: "1.0.0-nightly.4212118000001",
+  build: "4212118000001",
+  fromVersion: "1.0.0-nightly.4210546000001",
+  fromBuild: "4210546000001",
+  source: "whatsNew",
+  items: [
+    { id: "rollback", title: "Go back to any recent version from What's New", summary: rollbackLine, category: "new" },
+  ],
+  rest: [],
+  moreCount: 0,
+  changelog: { from: "1.0.0-nightly.4210546000001", to: "1.0.0-nightly.4212118000001" },
+};
+const skipped: [string, string, "new" | "improved" | "fixed"][] = [
+  ["Session Info sections drag to a new order", "The order stays per window.", "new"],
+  ["The model menu shows each model's effort", "", "improved"],
+  ["Workspace rows keep their color while dragged", "", "improved"],
+  ["Onboarding steps share one edge", "Text, icons and controls line up.", "improved"],
+  ["The agent chat's live line names the tool it runs", "", "improved"],
+  ["Terminal tabs reopen where they were", "Closing the last tab of a pane keeps the pane.", "fixed"],
+  ["Find in the browser pane scrolls to the match", "", "fixed"],
+  ["Restart to Update keeps a pinned hover card", "", "fixed"],
+  ["Pasting a screenshot into the composer keeps its name", "", "fixed"],
+  ["A paused cloud machine resumes on its first keystroke", "", "fixed"],
+  ["The command palette lists recent settings first", "", "improved"],
+  ["Notifications mark a session read when you open it", "", "fixed"],
+];
+const leoSpan: ReleaseNotes[] = [
+  {
+    build: "4212118000001",
+    shortVersion: leoData.version,
+    date: "2026-11-05",
+    highlights: [{ id: "rollback", title: leoData.items[0]!.title, body: rollbackLine, category: "new" }],
+    changes: [],
+  },
+  {
+    build: "4211300000001",
+    shortVersion: "1.0.0-nightly.4211300000001",
+    date: "2026-11-05",
+    highlights: skipped.map(([title, body, category], index) => ({ id: `skipped-${index}`, title, body, category })),
+    changes: [],
+  },
+];
+
 /** The doodle's face has loaded (doodleFont.ts): a still shows the handwriting, not its fallback. */
 function doodleFontLoaded(doc: Document): boolean {
   let loaded = false;
@@ -302,6 +360,7 @@ function UpdateSurfacesGallery({
   maxHeight,
   theme,
   briefLayout,
+  layout,
   decoration = null,
   animate = false,
   width,
@@ -363,15 +422,18 @@ function UpdateSurfacesGallery({
             borderRadius: 8,
             background: "var(--page-elevated)",
             boxShadow: "0 0 0 1px var(--page-separator)",
-            // The host's height cap (60% of the window): the popup scrolls in place.
-            ...(maxHeight ? { maxHeight, overflowY: "auto" as const, overscrollBehavior: "contain" as const } : {}),
+            overflow: "hidden",
+            // A window shorter than the hover card's cap (60% of it): the list scrolls in place.
+            ...(maxHeight ? { "--wn-pop-max": `${maxHeight}px` } : {}),
           }}
         >
           <UpdateReadyHighlights
             data={data}
+            span={notes}
             strings={strings}
             actions={{ openChangelog: noop }}
             briefLayout={briefLayout}
+            layout={layout}
           />
         </div>
       )}
@@ -404,6 +466,11 @@ export default componentEntry<Props>({
           const box = chip.getBoundingClientRect();
           if (!chip.textContent?.match(/#\d+/) || box.width <= 0 || box.height <= 0) {
             throw new Error("The update-ready PR chip must have a visible number and nonzero size");
+          }
+          // A long title is cut before the chip, never the chip past the row's edge.
+          const row = chip.closest(".wn-pop-text")?.getBoundingClientRect();
+          if (row && (box.left < row.left - 0.5 || box.right > row.right + 0.5)) {
+            throw new Error("The update-ready PR chip must show whole inside its row");
           }
         }
         await ctx.hover({ selector: ".wn-pop-list a.cl-pr" });
@@ -595,8 +662,32 @@ export default componentEntry<Props>({
         },
       },
     },
+    "popover-compact": {
+      note: "Leo 2026-11-05, on this hover card: \"this is too big / it's just oddly spaced and oddly rendered / and i can't even scroll through the changes from that preview!\" Picked: one heading line, version to version; every change of the update, the skipped nightlies too, each its title on one line and its line under it, cut to one line, the rest under New / Improved / Fixed; the list scrolls under the heading and above See all changes, both pinned; at most 360 px tall.",
+      props: { surface: "popover", data: leoData, span: leoSpan },
+    },
+    "popover-compact-one-line": {
+      note: 'Variant: each change\'s line after its title on the same line. The most changes fit, but most lines are cut to a stub ("The or…", "Closing t…"), and a long title loses its line entirely.',
+      props: { surface: "popover", data: leoData, span: leoSpan, layout: "line" },
+    },
+    "popover-compact-flat": {
+      note: "Variant: one line per change and no New / Improved / Fixed headings. The densest, but the kinds of change blur together and lines are still cut to stubs.",
+      props: { surface: "popover", data: leoData, span: leoSpan, layout: "flat" },
+    },
+    "popover-compact-dark": {
+      note: "The picked layout in a dark theme.",
+      props: { surface: "popover", data: leoData, span: leoSpan, theme: "dark" },
+    },
+    "popover-compact-short-window": {
+      note: "A window whose 60% is shorter than the cap (here 200 px): the list scrolls in less room; the heading and See all changes stay.",
+      props: { surface: "popover", data: leoData, span: leoSpan, maxHeight: 200 },
+    },
+    "popover-compact-one-change": {
+      note: "Leo's update before the skipped nightlies' notes load: its one change on one line, the card as short as its content.",
+      props: { surface: "popover", data: leoData },
+    },
     popover: {
-      note: 'Popover A, only what the Update Ready card lacks: a quiet "What\'s new in nightly 3845050" (the full build in its tooltip), the top three changes numbered in small tertiary type, +N more, See all changes once. Menu type, 340 pt wide (Leo 2026-10-19).',
+      note: "The host's three highlights with their lines, +N more and See all changes; 340 pt wide.",
       props: { surface: "popover", data: base },
     },
     "popover-wallpaper": {
@@ -604,11 +695,11 @@ export default componentEntry<Props>({
       props: { surface: "popover", data: base, wallpaper: true },
     },
     "popover-media": {
-      note: "A change with a screenshot: the picture at the popover's width, inline with the text; a click opens the notes, where it shows larger.",
+      note: "A change with a screenshot: a thumbnail at the row's end; a click opens the notes, where it shows larger.",
       props: { surface: "popover", data: withMedia },
     },
     "popover-scroll": {
-      note: "Notes taller than the cap (60% of the window, here 260 px): the popup scrolls in place with the wheel or the trackpad and stays open.",
+      note: "Notes taller than the cap (60% of the window, here 260 px): the list scrolls in place with the wheel, the trackpad or the keys, and the popup stays open.",
       props: { surface: "popover", data: longNotes, maxHeight: 260 },
     },
     "popover-titles-only": {
