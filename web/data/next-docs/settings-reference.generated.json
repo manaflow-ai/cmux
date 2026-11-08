@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 606,
+  "count": 609,
   "sections": [
     {
       "id": "general",
@@ -225,6 +225,27 @@
             "min": 0,
             "max": 3600,
             "unit": "seconds"
+          }
+        },
+        {
+          "key": "agents.cacheCompact.enabled",
+          "title": "Compact Before the Cache Expires",
+          "help": "When a Claude chat sits idle, compact it while its prompt cache is still warm, so the next message doesn't reread the whole context uncached. Costs one model call per compaction, read from the cache.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Prompt Cache"
+        },
+        {
+          "key": "agents.cacheCompact.minContextPercent",
+          "title": "Only Above Context Used (%)",
+          "help": "Chats using less of their context window than this are left as they are.",
+          "kind": "number",
+          "default": 50,
+          "group": "Prompt Cache",
+          "range": {
+            "min": 10,
+            "max": 95,
+            "unit": "count"
           }
         },
         {
@@ -467,10 +488,9 @@
           "title": "When Quitting",
           "help": "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
           "kind": "choice",
-          "default": "ask",
+          "default": "keep",
           "group": "Quitting",
           "values": [
-            "ask",
             "keep",
             "end-keep-layout",
             "end-everything"
@@ -5136,6 +5156,14 @@
           "key": "browser.import.cookieBanner",
           "title": "Offer to Import Cookies",
           "help": "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Import"
+        },
+        {
+          "key": "browser.import.cookieSync",
+          "title": "Keep Imported Cookies in Sync",
+          "help": "After you import cookies from Chrome or another Chromium browser, cmux brings over the sites whose cookies changed there, so you stay signed in. It reads only the profile you imported from, on this Mac; nothing leaves it.",
           "kind": "toggle",
           "default": true,
           "group": "Import"

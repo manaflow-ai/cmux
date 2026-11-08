@@ -15,7 +15,7 @@
 // An agent names its model only where it is not the workflow's. A running agent is a spinner, never
 // a pulsing dot.
 import { Fragment, useId, useLayoutEffect, useRef, useState } from "react";
-import { compactTokens } from "../conversation/CompactionNote";
+import { compactTokens } from "../conversation/compactionNoteModel";
 import { Spinner } from "../conversation/icons";
 import { Markdown } from "../conversation/Markdown";
 import { formatDuration } from "../conversation/turns";

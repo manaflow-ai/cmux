@@ -21,11 +21,11 @@ import { isPrivateUrl, redactUrlText } from "./linkDisplay";
 import { isDeniedPath, pathName } from "./paths";
 import { useReplyFolders } from "./replyFolders";
 import { LinkHoverCard } from "./LinkHoverCard";
-import { pullRequestRef } from "./pullRequestCardModel";
+import { githubItemRef } from "./pullRequestCardModel";
 import { usePullRequestState } from "./pullRequestStore";
 import { useHoverCard } from "./useHoverCard";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
-import { useAgentLinkClick } from "../conversation/SessionRef";
+import { useAgentLinkClick } from "../conversation/sessionRefModel";
 import { githubRefLabel, githubRefTitle } from "./linkChipsModel";
 import { useSessionHover } from "../started/useSessionHover";
 import { SubsessionContext } from "../subagents/subsessions";
@@ -153,7 +153,8 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
   const cardMark = mark ?? favicon ?? <Globe size={16} className="cv-chip__icon" />;
   const hover = useHoverCard();
   const [anchor, setAnchor] = useState<HTMLAnchorElement | null>(null);
-  const pullRequest = pullRequestRef(href);
+  // A pull request or an issue: both get the card and the state's colour (Leo 2026-11-08).
+  const pullRequest = githubItemRef(href);
   // A pull request's mark takes its state's colour once the host knows it, as GitHub draws a
   // reference and as the card's glyph does: merged purple (Leo 2026-10-23, of a merged #23835's
   // blue chip: "I feel like this should be purple"). Colour only, so the chip never reflows.
@@ -209,6 +210,7 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
         ref={setAnchor}
         className={`cv-link cv-chip is-web${ref ? " is-ref" : ""}`}
         data-pr-state={state}
+        data-pr-kind={pullRequest?.kind === "issue" ? "issue" : undefined}
         data-session-ref={agent["data-session-ref"]}
         // A link to one of the reader's chats right-clicks as that chat (menuParts.ts `session`).
         data-open-session={agent["data-open-session"]}
@@ -238,7 +240,13 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
           hover={hover}
           mark={cardMark}
           siteTitle={site?.title}
-          pullRequest={pullRequest && { ...pullRequest, title: githubRefTitle(site?.title) }}
+          pullRequest={
+            pullRequest && {
+              repo: pullRequest.repo,
+              number: pullRequest.number,
+              title: githubRefTitle(site?.title),
+            }
+          }
         />
       )}
     </>

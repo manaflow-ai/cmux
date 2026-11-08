@@ -247,7 +247,7 @@ BUNDLE_INPUTS = (
     "Resources/markdown-viewer/marked.min.js",
     "scripts/build-webviews-app.sh", "scripts/check-webviews-bun-version.sh",
     "scripts/cmux-next/build-agent-pane-web.sh", "scripts/cmux-next/build-pages-web.sh",
-    "scripts/cmux-next/build-agent-activity-web.sh", "scripts/cmux-next/build-palette-ranker.sh",
+    "scripts/cmux-next/build-agent-activity-web.sh",
     "scripts/cmux-next/build-optchat-inspector-web.sh",
     "scripts/cmux-next/build-web-bundles.sh", "scripts/cmux-next/web-bundle-key.py",
     # Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
@@ -262,7 +262,7 @@ BUNDLE_INPUTS = (
     # The UI font the gallery frame imports (src/gallery/frame/uiFont.ts).
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
 )
-BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity", "CmuxNextPalette")
+BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity")
 BUNDLE_SWIFT_TEST_REASON = "(no swift test suite reads a built bundle; only the tests that read this file run)"
 # Committed web bundles that ci-web rebuilds and compares (`--check`) on every pull request,
 # and that the app takes as a `.copy` resource: a change to them needs no compile.

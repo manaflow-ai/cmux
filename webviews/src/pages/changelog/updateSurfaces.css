@@ -370,10 +370,24 @@
   height: var(--wn-preview-h, 0px);
   box-shadow: inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 var(--composer-material-edge);
 }
-/* The one structural move: the motion scale's standard step, on the shared gate (WebTheme's
-   data-cmux-motion: "reduced" keeps only fades, so the preview is simply there). */
+/* The card over the sidebar's rows: its open preview grows over them, and a held card is dragged
+   over them. The page's glass cannot frost them (they are native views under the WebKit view,
+   outside the document a backdrop filter reads), so the sidebar draws the frost: a native glass
+   view behind the page (SidebarUpdatedCardHost), sized to the card and its open preview, follows
+   the open on the same curve. The card keeps the tint in both states, over that frost, so the rows
+   stay unreadable through it (Lawrence 2026-11-07: "this ui transparency looks bad now") while
+   their motion still shows (Leo 2026-11-08: "I feel like we should be able to keep it as glass
+   though, right?"). */
+/* The one structural move, on the card's own curve (Leo 2026-11-08: "the animation also seems like
+   it's a little bit slow"): a fast start that settles long, 265ms, the native glass's twin
+   (Motion.web.animateCard). On the shared gate (WebTheme's data-cmux-motion: "reduced" keeps
+   only fades, so the preview is simply there). */
+.wn-updated {
+  --wn-preview-motion: 265ms; /* motion-allow: Leo's card curve (2026-11-08), the native glass's fixed twin */
+  --wn-preview-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
 :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .wn-preview {
-  transition: height var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out);
+  transition: height var(--wn-preview-motion) var(--wn-preview-ease);
 }
 @media (prefers-reduced-motion: reduce) {
   .wn-preview { transition: none !important; }

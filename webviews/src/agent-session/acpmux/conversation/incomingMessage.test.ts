@@ -970,3 +970,66 @@ test("a sender's [from APP › PERSONA] label names the app and the persona", ()
     text: "Yes, on it.",
   });
 });
+
+test("a plain send from a Codex or Claude Code shell is that agent's message, with its harness", () => {
+  // acpmux cli/sender.rs: an agent harness's own shell outside acpmux names `<harness>@<host>` and
+  // its harness (Leo, 2026-11-05: "why is it sending it as if it were me?").
+  const sent = {
+    kind: "agent_message",
+    from: "fromAgent",
+    fromName: "codex@workstation",
+    to: "s-1",
+    fromHarness: "codex",
+  };
+  const text = "Message from an audit agent: scope corrected.";
+  expect(incomingPrompt(text, { _meta: { provenance: sent }, client: "acpmux-cli#01a2f3@workstation" })).toEqual({
+    kind: "message",
+    message: { name: "codex@workstation", harness: "codex", text, raw: text },
+  });
+});
+
+test("a harness a local sender only claims still draws its mark", () => {
+  const sent = {
+    kind: "agent_message",
+    from: "fromAgent",
+    fromName: "codex@workstation",
+    to: "s-1",
+    claimed: { fromHarness: "codex" },
+  };
+  const incoming = incomingPrompt("scope corrected", { _meta: { provenance: sent } });
+  expect(incoming?.kind === "message" && incoming.message.harness).toBe("codex");
+});
+
+test("a prompt acpmux could not attribute is an unverified sender's card, never the person's", () => {
+  const unverified = { kind: "unverified", to: "s-1", transport: "unix", verified: false };
+  const text = "Merged the fix";
+  expect(incomingPrompt(text, { _meta: { provenance: unverified }, client: "acpmux-cli#01a2f3@workstation" })).toEqual({
+    kind: "message",
+    message: { name: "", unverified: true, text, raw: text },
+  });
+  // A name it puts first is only its claim: the card names it, still marked unverified.
+  const named = "[coord-deputy] Merged the fix";
+  expect(incomingPrompt(named, { _meta: { provenance: unverified } })).toEqual({
+    kind: "message",
+    message: { name: "coord-deputy", unverified: true, text: "Merged the fix", raw: named },
+  });
+});
+
+test("an edited agent's message stays the agent's and says it was edited", () => {
+  const sent = {
+    kind: "agent_message",
+    from: "fromAgent",
+    fromName: "lane-a",
+    to: "s-1",
+    editedBy: { actor: "owner" },
+  };
+  const incoming = incomingPrompt("rebase first", { _meta: { provenance: sent } });
+  expect(incoming?.kind === "message" && incoming.message.name).toBe("lane-a");
+  expect(incoming?.kind === "message" && incoming.message.edited).toBe(true);
+});
+
+test("a record with no provenance and no origin keeps the person's bubble, with no mark", () => {
+  // Every person's prompt before acpmux's `_meta.origin` mark was recorded so: it stays theirs.
+  expect(incomingPrompt("rebase first", {})).toBeUndefined();
+  expect(incomingPrompt("rebase first", { _meta: {} })).toBeUndefined();
+});

@@ -23,6 +23,7 @@ fn fake_sudo(dir: &Path) -> PathBuf {
 echo "$*" >> '{calls}'
 [ "$1" = "-k" ] && exit 0
 if [ "$1" = "-n" ] && [ "$3" = "-l" ]; then
+  if [ -e '{listing}' ]; then cat '{listing}'; exit 0; fi
   [ -e '{nopasswd}' ] && exit 0
   echo "sudo: a password is required" >&2; exit 1
 fi
@@ -39,6 +40,7 @@ exec "$@"
 "#,
         calls = dir.join("calls").display(),
         nopasswd = dir.join("nopasswd").display(),
+        listing = dir.join("listing").display(),
     );
     std::fs::write(&path, script).unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -220,4 +222,140 @@ async fn the_prompt_marker_is_unique_and_kept_out_of_stderr() {
     assert_eq!(out["exitCode"], 0, "{out}");
     assert_eq!(out["stderr"], "seen\n", "{out}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `sudo -l` as an account with one passwordless rule and the rest behind a password lists it.
+const MIXED: &str = "Matching Defaults entries for leo on mac:\n    env_reset\n\n\
+User leo may run the following commands on mac:\n    (ALL) NOPASSWD: /usr/bin/pmset, PASSWD: /usr/sbin/fs_usage\n    (ALL) ALL\n";
+
+/// Whether a passwordless rule could run the command is read per command; anything unclear
+/// counts as passwordless, which only costs the password (review follow-ups of #37949).
+#[test]
+fn a_listing_says_which_commands_a_passwordless_rule_could_run() {
+    assert!(listing_may_skip_password(MIXED, "pmset"));
+    assert!(listing_may_skip_password(MIXED, "/usr/bin/pmset"));
+    assert!(!listing_may_skip_password(MIXED, "fs_usage"));
+    assert!(!listing_may_skip_password(MIXED, "dtruss"));
+    let rules =
+        |line: &str| format!("User leo may run the following commands on mac:\n    {line}\n");
+    assert!(!listing_may_skip_password(&rules("(ALL) ALL"), "fs_usage"));
+    assert!(listing_may_skip_password(&rules("(ALL) NOPASSWD: ALL"), "fs_usage"));
+    assert!(listing_may_skip_password(&rules("(root) NOPASSWD: SHUTDOWN_CMDS"), "fs_usage"));
+    assert!(listing_may_skip_password(&rules("(root) NOPASSWD: /usr/sbin/*"), "fs_usage"));
+    assert!(listing_may_skip_password(
+        &rules("(ALL : ALL) SETENV: NOPASSWD: /usr/sbin/fs_usage -w"),
+        "fs_usage"
+    ));
+    assert!(listing_may_skip_password(
+        &rules("(root) NOPASSWD: TIMEOUT=1m /usr/sbin/fs_usage"),
+        "fs_usage"
+    ));
+    assert!(!listing_may_skip_password(
+        &rules("(root) NOPASSWD: !/usr/sbin/fs_usage, PASSWD: ALL"),
+        "fs_usage"
+    ));
+    assert!(listing_may_skip_password(&rules("something sudo prints we do not read"), "fs_usage"));
+    assert!(listing_may_skip_password(
+        "Defaults !authenticate\nUser leo may run the following commands on mac:\n    (ALL) ALL\n",
+        "id"
+    ));
+    assert!(listing_may_skip_password("", "id"), "no rules read: passwordless");
+}
+
+/// With one passwordless rule for another command, a command behind a password still gets the
+/// person's password through sudo's prompt (the run no longer goes `sudo -n` for every command).
+#[cfg(unix)]
+#[tokio::test]
+async fn a_passwordless_rule_for_another_command_leaves_this_one_on_the_password() {
+    let _one = FAKES.lock().await;
+    let dir = temp("mixed");
+    let sudo = fake_sudo(&dir);
+    std::fs::write(dir.join("listing"), MIXED).unwrap();
+    let out =
+        run(&sudo, &ask(&["sh", "-c", "echo ok"], 30), Zeroizing::new(PASSWORD.to_owned())).await;
+    assert_eq!(out["exitCode"], 0, "{out}");
+    assert_eq!(out["stdout"], "ok\n", "{out}");
+    let calls = std::fs::read_to_string(dir.join("calls")).unwrap();
+    assert!(calls.lines().any(|l| l.starts_with("-S -k -p [acpmux-sudo-")), "{calls}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// stderr stays within its cap with acpmux's own notes on it.
+#[cfg(unix)]
+#[tokio::test]
+async fn stderr_stays_within_its_cap_with_the_notes() {
+    let _one = FAKES.lock().await;
+    let dir = temp("cap");
+    let sudo = fake_sudo(&dir);
+    std::fs::write(dir.join("nopasswd"), "").unwrap();
+    let script = format!("head -c {} /dev/zero | tr '\\0' x >&2", MAX_OUTPUT_BYTES * 2);
+    let out =
+        run(&sudo, &ask(&["sh", "-c", &script], 30), Zeroizing::new(PASSWORD.to_owned())).await;
+    let stderr = out["stderr"].as_str().unwrap();
+    assert!(stderr.len() <= MAX_OUTPUT_BYTES, "{}", stderr.len());
+    assert!(stderr.contains("acpmux: a passwordless sudo rule"), "the note was cut");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A card the daemon no longer holds (it restarted while the card was open) closes on the next
+/// answer to it: its request gets a `cancelled` decision, so no client keeps showing it.
+#[test]
+fn an_answer_to_a_card_lost_in_a_restart_closes_it() {
+    use crate::store::{META_SCHEMA, SessionMeta};
+    let config: crate::config::Config =
+        serde_json::from_value(json!({"store": {"mode": "memory"}})).unwrap();
+    let store = crate::store::open(&config.store, Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(config, store);
+    let meta: SessionMeta = serde_json::from_value(json!({
+        "schema": META_SCHEMA, "id": "elev-stale", "name": "elev-stale", "harness": "claude",
+        "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+    }))
+    .unwrap();
+    hub.store.save(&meta).unwrap();
+    let session = hub.make_session(meta);
+    let request = |seq: u64, id: &str, at: u64| crate::store::EventRecord {
+        seq,
+        at,
+        dir: "mux".into(),
+        kind: "elevation_request".into(),
+        msg: json!({
+            "secretId": id, "argv": ["id"], "reason": "r", "host": "h",
+            "decisionNonce": "n", "personInstance": "i",
+        }),
+        host_seq: None,
+    };
+    // Asked by an earlier run of the daemon, and by this one (its ask settles it).
+    hub.store.append(&session.id, &request(1, "card-1", hub.started_at - 1)).unwrap();
+    hub.store.append(&session.id, &request(2, "card-2", hub.started_at)).unwrap();
+    assert!(hub.submit_secret(&session, "card-2", None).is_err());
+    assert!(hub.submit_secret(&session, "card-1", None).is_err());
+    let mut decisions = Vec::new();
+    hub.store
+        .scan_kinds(&session.id, &["elevation_decision"], &mut |e| {
+            decisions.push(e.msg);
+            true
+        })
+        .unwrap();
+    assert_eq!(decisions.len(), 1, "{decisions:?}");
+    assert_eq!(decisions[0]["secretId"], "card-1");
+    assert_eq!(decisions[0]["outcome"], "cancelled");
+    assert!(decisions[0].get("decisionNonce").is_none(), "{decisions:?}");
+    // A second late answer finds it closed and writes nothing more.
+    assert!(hub.submit_secret(&session, "card-1", None).is_err());
+    let mut again = 0;
+    hub.store
+        .scan_kinds(&session.id, &["elevation_decision"], &mut |_| {
+            again += 1;
+            true
+        })
+        .unwrap();
+    assert_eq!(again, 1);
+}
+
+/// A NOPASSWD rule for a directory allows every command in it.
+#[test]
+fn a_passwordless_directory_rule_counts() {
+    let rules =
+        "User leo may run the following commands on mac:\n    (root) NOPASSWD: /usr/local/bin/\n";
+    assert!(listing_may_skip_password(rules, "fs_usage"));
 }

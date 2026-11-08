@@ -131,7 +131,6 @@ WEB_GENERATED = (
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/*",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/*",
     "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/*",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
     "Resources/markdown-viewer/webviews-app/*",
     # fnmatch's * crosses "/": every strings table gen-strings.mjs writes
     # (build output since #21946; an older branch still tracks them).
