@@ -211,8 +211,9 @@ extension ScreenContentView {
         for layer in fadingIn {
             film.drive(layer, "opacity", { p in NSNumber(value: Float(min(1, max(0, p)))) }, completion: nothing)
         }
-        // The picture leaves at rest: the live zoomed pane is under it at its place.
-        film.drive(container, "opacity", { _ in NSNumber(value: Float(1)) }, completion: finish)
+        // The old full picture fades out on the same p while it shrinks (film zv-z4-c3-view: kept opaque, it covered the
+        // live pane at its place with the old wide lines until the spring rested); the live zoomed pane is under it.
+        film.drive(container, "opacity", { p in NSNumber(value: Float(min(1, max(0, 1 - p)))) }, completion: finish)
     }
 
     /// The frame at progress `p` (past 1 on a spring's overshoot) from `a` to `b`.
@@ -280,6 +281,8 @@ extension ScreenContentView {
         copy.borderWidth = layer.borderWidth
         copy.borderColor = layer.borderColor
         copy.opacity = layer.opacity
+        // Chrome text (`ChromeTextLayer`) is a fill layer masked by its glyphs: without the mask the copy shows a solid box.
+        if let mask = layer.mask { copy.mask = filmZoomCopy(mask) }
         for sub in layer.sublayers ?? [] where !sub.isHidden && sub.opacity > 0 {
             copy.addSublayer(filmZoomCopy(sub))
         }
