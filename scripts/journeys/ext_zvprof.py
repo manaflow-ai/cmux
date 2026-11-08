@@ -101,9 +101,16 @@ def step_zv_turn_zooms(j, step):
     label = step.get("label", "z4")
     runs, gap = int(step.get("runs", 12)), float(step.get("gap", 1.0))
     seq0 = _budget_seq(j)
+    spans = []
     for i in range(runs):
+        traced = bool(step.get("spans", True))
+        if traced:
+            j.app.rpc("debug.motion", {"action": "start"})
         V.step_hid_key(j, {"key": "return", "modifiers": ["cmd", "shift"], "mark": f"zoomturn.{label}.{i}"})
         time.sleep(gap)
+        if traced:
+            motion = j.app.rpc("debug.motion", {"action": "stop"}) or {}
+            spans.append([s for s in motion.get("spans") or [] if str(s.get("name", "")).startswith("zk.") or s.get("name") == "layout"])
     if runs % 2:
         V.step_hid_key(j, {"key": "return", "modifiers": ["cmd", "shift"], "mark": f"zoomturn.{label}.back"})
         time.sleep(gap)
@@ -115,7 +122,7 @@ def step_zv_turn_zooms(j, step):
     result = {"bench": "zoom-turn", "label": label, "n": len(ms), "ids": sorted({str(r.get("id")) for r in zoom}),
               "commit_ms": ms, "p50": _pct(ms, .5), "p95": _pct(ms, .95), "max": max(ms) if ms else None,
               "in_p50": _pct(ins, .5), "in_p95": _pct(ins, .95), "out_p50": _pct(outs, .5), "out_p95": _pct(outs, .95),
-              "rows": zoom}
+              "rows": zoom, "spans": spans}
     (j.out / f"diag-zoomturn-{label}.json").write_text(json.dumps(result, default=str))
     result.pop("rows", None)
     return result

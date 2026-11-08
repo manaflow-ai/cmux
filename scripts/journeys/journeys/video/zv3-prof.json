@@ -4,7 +4,7 @@
   "title": "ZOOM VARIANTS 3 key-turn step: 12 clean zooms (turn ms) then 12 under xctrace, Z4 K6, C3 nvim middle",
   "why": "ZOOM VARIANTS 3 item 2: measure each key-turn step (turn ms p50/p95 without profiler, xctrace top frames).",
   "source": "zoom-variants profile kit (ext_zvprof.py)",
-  "budget_seconds": 260,
+  "budget_seconds": 290,
   "recordings": [],
   "options": {
     "key_path": "real"
@@ -238,9 +238,9 @@
     {
       "do": "zv_turn_zooms",
       "label": "z4-k6",
-      "runs": 12,
+      "runs": 20,
       "gap": 1.0,
-      "title": "12 real Cmd-Shift-Enter zooms (Z4 K6), no profiler: key turn ms"
+      "title": "20 real Cmd-Shift-Enter zooms (Z4 K6), no profiler: key turn ms + zk spans (debug.motion per press)"
     },
     {
       "do": "wait",
