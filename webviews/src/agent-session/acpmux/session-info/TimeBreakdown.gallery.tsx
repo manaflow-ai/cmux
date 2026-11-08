@@ -4,15 +4,15 @@ import { TimeBreakdown, type TimeBreakdownLook } from "./TimeBreakdown";
 import type { AcpmuxTimeBreakdown } from "../model";
 
 const breakdown: AcpmuxTimeBreakdown = {
-  totalMs: 2_400_000,
+  totalMs: 2_550_000,
   totalTokens: 18_400,
-  tokensComplete: false,
+  tokensComplete: true,
   categories: [
     { id: "read", wallMs: 180_000, tokens: 1_200 },
     { id: "edit", wallMs: 90_000, tokens: 800 },
     { id: "run", wallMs: 1_320_000, tokens: 7_000 },
     { id: "think", wallMs: 420_000, tokens: 8_900 },
-    { id: "person", wallMs: 540_000 },
+    { id: "person", wallMs: 390_000 },
     { id: "model", wallMs: 150_000, tokens: 500 },
   ],
   spans: [
@@ -43,8 +43,16 @@ const breakdown: AcpmuxTimeBreakdown = {
     {
       turnSeq: 1,
       turnId: "turn-you",
-      category: "person",
+      category: "model",
       startAt: 1_920_000,
+      endAt: 2_070_000,
+      tokens: 500,
+    },
+    {
+      turnSeq: 1,
+      turnId: "turn-you",
+      category: "person",
+      startAt: 2_070_000,
       endAt: 2_460_000,
     },
     {

@@ -426,7 +426,10 @@ impl Hub {
 
     /// Fold a chat's journal once, then keep the reducer current at the append seam. The append
     /// lock makes the seed and the next record one ordered view for Session Info.
-    fn time_breakdown_of(&self, session: &Session) -> Option<crate::hub::time_breakdown::TimeBreakdown> {
+    fn time_breakdown_of(
+        &self,
+        session: &Session,
+    ) -> Option<crate::hub::time_breakdown::TimeBreakdown> {
         let _append = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut state = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
         if !state.initialized {

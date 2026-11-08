@@ -20,14 +20,14 @@ const elapsed = (ms: number) => {
   const seconds = Math.floor((ms % 60_000) / 1_000);
   return minutes ? `${minutes}m ${seconds}s` : `${seconds}s`;
 };
-const timeLabel = (id: string) =>
+const timeLabel = (id: string, t: Translate) =>
   ({
-    read: "Reading",
-    edit: "Editing",
-    run: "Commands",
-    think: "Thinking",
-    person: "You",
-    model: "Model",
+    read: t("timeBreakdown.read"),
+    edit: t("timeBreakdown.edit"),
+    run: t("timeBreakdown.run"),
+    think: t("timeBreakdown.think"),
+    person: t("timeBreakdown.person"),
+    model: t("timeBreakdown.model"),
   })[id] ?? id;
 
 function ownRows(
@@ -181,15 +181,15 @@ export function usageSection(
   if (input.timeBreakdown) {
     rows.push({
       id: "time:head",
-      title: "Where the time went",
+      title: t("timeBreakdown.title"),
       trailing: elapsed(input.timeBreakdown.totalMs),
     });
     for (const category of input.timeBreakdown.categories.filter((category) => category.wallMs > 0)) {
       const turnId = input.timeBreakdown.spans.find((span) => span.category === category.id)?.turnId;
       rows.push({
         id: `time:${category.id}`,
-        title: timeLabel(category.id),
-        trailing: elapsed(category.wallMs),
+        title: timeLabel(category.id, t),
+        trailing: `${elapsed(category.wallMs)}${category.tokens !== undefined ? ` · ${usageTokens(category.tokens, input.locale)} ${t("timeBreakdown.tokensSuffix")}` : ""}`,
         ...(turnId && input.onShowTurn
           ? { action: actions.add(`time.show:${category.id}`, () => input.onShowTurn!(turnId)) }
           : {}),
