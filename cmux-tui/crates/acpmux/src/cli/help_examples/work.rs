@@ -139,12 +139,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     (
         "race new",
-        &[
-            (
-                "Race two models on a task in a file",
-                "acpmux race new -m claude -m codex --reviewer claude --prompt-file task.md",
-            ),
-        ],
+        &[(
+            "Race two models on a task in a file",
+            "acpmux race new -m claude -m codex --reviewer claude --prompt-file task.md",
+        )],
     ),
     ("race show", &[("Read a race and the reviewer's pick", "acpmux race show RACE_ID")]),
     ("race stop", &[("Stop a race's agents, keeping its results", "acpmux race stop RACE_ID")]),
