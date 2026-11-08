@@ -65,6 +65,7 @@ import { liveBackground } from "../ui/liveBackground/liveBackground.experiment";
 import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
 import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLook.experiment";
 import { composerDeeplinkLook } from "../agent-session/acpmux/composer/deeplinkLook.experiment";
+import { cmuxLinkLook } from "../agent-session/acpmux/chips/cmuxLinkLook.experiment";
 import { pastedAgentLook } from "../agent-session/acpmux/conversation/pastedAgentLook.experiment";
 import { sentPasteLook } from "../agent-session/acpmux/conversation/sentPasteLook.experiment";
 import { sentMessageLook } from "../agent-session/acpmux/conversation/sentMessageLook.experiment";
@@ -152,6 +153,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerPlusCommands,
   promptSuggestionLook,
   composerDeeplinkLook,
+  cmuxLinkLook,
   pastedAgentLook,
   sentPasteLook,
   sentMessageLook,
