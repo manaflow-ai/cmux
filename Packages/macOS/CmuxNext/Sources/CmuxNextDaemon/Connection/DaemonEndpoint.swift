@@ -153,6 +153,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `terminal-last-command`: the newest command a live shell finished,
     /// for Run Last Command Again.
     case terminalLastCommand = "terminal-last-command-v1"
+    /// `terminal-command-context`: the newest finished command's line, output, status and folder,
+    /// as chat text, for Fix and Send Last Output to Chat.
+    case terminalCommandContext = "terminal-command-context-v1"
     /// The owner's reaper runs now (started with a reap grace, as the app
     /// starts it), so a detached terminal ends after the grace period. An
     /// owner started without a grace does not serve it.
@@ -561,7 +564,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .workspaceChecklist, .notificationMarkUnread, .tabMarkUnread, .tabAttention, .tabAttentionRequestID, .workspaceDescription, .workspaceStatus,
              .screenMetadata, .screenGroups, .stateResources, .windowRecords, .terminalEnv, .terminalPlacementEnv,
              .splitClientKeys, .splitClientSplitID, .rowClientKeys, .conversationTabSplit, .frontendBrowserTabSplit,
-             .terminalInputWhileCreating, .terminalReap, .resumeCommand, .terminalLastCommand, .terminalReaperActive,
+             .terminalInputWhileCreating, .terminalReap, .resumeCommand, .terminalLastCommand, .terminalCommandContext, .terminalReaperActive,
              .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
              .browserHostProvider, .remoteHost, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
              .browserRuntime, .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration,

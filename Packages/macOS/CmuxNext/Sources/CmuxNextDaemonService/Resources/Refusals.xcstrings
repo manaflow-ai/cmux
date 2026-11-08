@@ -34086,6 +34086,137 @@
           }
         }
       }
+    },
+    "handlers.misc.failed.noCommandToSend": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This terminal shows no finished command to send. A command must finish in a shell with shell integration."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا تعرض هذه الطرفية أمرًا منتهيًا لإرساله. يجب أن ينتهي أمر في صدفة تدعم تكامل الصدفة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj terminal ne prikazuje završenu naredbu za slanje. Naredba mora završiti u ljusci s integracijom ljuske."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne terminal viser ingen afsluttet kommando at sende. En kommando skal afsluttes i en shell med shell-integration."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieses Terminal zeigt keinen abgeschlossenen Befehl zum Senden. Ein Befehl muss in einer Shell mit Shell-Integration beendet sein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este terminal no muestra ningún comando terminado para enviar. Un comando debe terminar en un shell con integración de shell."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce terminal n’affiche aucune commande terminée à envoyer. Une commande doit se terminer dans un shell avec l’intégration du shell."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo terminale non mostra alcun comando terminato da inviare. Un comando deve terminare in una shell con l'integrazione della shell."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このターミナルには送信できる完了したコマンドがありません。シェル統合のあるシェルでコマンドが完了している必要があります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្ថានីយនេះមិនបង្ហាញពាក្យបញ្ជាដែលបានបញ្ចប់ដើម្បីផ្ញើទេ។ ពាក្យបញ្ជាត្រូវតែបញ្ចប់ក្នុងសែលដែលមានការរួមបញ្ចូលសែល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 터미널에는 보낼 완료된 명령이 없습니다. 셸 통합이 있는 셸에서 명령이 완료되어야 합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne terminalen viser ingen fullført kommando å sende. En kommando må fullføres i et skall med skallintegrasjon."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten terminal nie pokazuje zakończonego polecenia do wysłania. Polecenie musi zakończyć się w powłoce z integracją powłoki."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este terminal não mostra nenhum comando concluído para enviar. Um comando precisa terminar em um shell com integração de shell."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В этом терминале нет завершённой команды для отправки. Команда должна завершиться в оболочке с интеграцией оболочки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เทอร์มินัลนี้ไม่มีคำสั่งที่เสร็จแล้วให้ส่ง คำสั่งต้องเสร็จในเชลล์ที่มีการผสานรวมเชลล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu terminalde gönderilecek tamamlanmış bir komut yok. Komutun kabuk entegrasyonu olan bir kabukta bitmesi gerekir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У цьому терміналі немає завершеної команди для надсилання. Команда має завершитися в оболонці з інтеграцією оболонки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal này không có lệnh đã hoàn tất để gửi. Lệnh phải hoàn tất trong shell có tích hợp shell."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此终端没有可发送的已完成命令。命令必须在启用了 Shell 集成的 Shell 中完成。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此終端機沒有可傳送的已完成命令。命令必須在啟用 Shell 整合的 Shell 中完成。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -44,12 +44,19 @@ public final class TerminalHostView: NSView {
     private var retryButton: TerminalRetryButton?
     /// "Sized for <device>" with Take over, bottom-trailing, while another view sets the grid.
     private var sizedForChip: TerminalSizedForChip?
+    /// "Exit 101 · Fix" bottom-trailing after a failed command, while the App gave ``onFixCommand``.
+    private var fixChip: TerminalFixChip?
     private var restartAction: (@MainActor () -> Void)?
     /// The App's `tab.restart` for this tab; nil hides the button (a daemon
     /// without `tab-restart-v1`, a tab that cannot restart).
     public var onRestart: (@MainActor () -> Void)? {
         get { restartAction }
         set { restartAction = newValue; syncRestartButton(); needsLayout = true }
+    }
+    /// The App's `terminal.fixLastCommand` for this tab; nil offers no Fix chip (a daemon without
+    /// `terminal-command-context-v1`, the chip turned off).
+    public var onFixCommand: (@MainActor () -> Void)? {
+        didSet { if onFixCommand == nil { showFix(exitCode: nil) } }
     }
     /// Called before the terminal session removes this host from its pane.
     /// Transient input owners use it to cancel work pinned to this surface.
@@ -189,7 +196,7 @@ public final class TerminalHostView: NSView {
         if view === bottomAccessory { return .accessory }
         if view === statusLabel.banner { return .statusLabel }
         if view === topOverlay || view === restartButton || view === retryButton || view === sizedForChip
-            || view is TerminalFindBarView { return .overlay }
+            || view === fixChip || view is TerminalFindBarView { return .overlay }
         return nil
     }
 
@@ -269,6 +276,45 @@ public final class TerminalHostView: NSView {
             addChrome(chip, .overlay)
         }
         sizedForChip?.show(sizedFor)
+        needsLayout = true
+    }
+
+    /// The Fix chip's text, nil while hidden (diagnostics and tests).
+    var fixChipText: String? {
+        guard let fixChip, !fixChip.isHidden else { return nil }
+        return fixChip.shownExitCode.map { TerminalFixChip.text(exitCode: $0) }
+    }
+
+    /// A command the shell finished (OSC 133 `D`): a failure offers Fix, anything else hides it.
+    /// One call per finished command, never per output line; a hidden pane only flips the chip.
+    func commandFinished(_ result: TerminalCommandResult) {
+        showFix(exitCode: TerminalFixChip.offersFix(exitCode: result.exitCode) ? result.exitCode : nil)
+    }
+
+    /// The person pressed Return in the terminal: the next command starts, so the last one's Fix goes.
+    func commandSubmitted() {
+        if fixChip?.isHidden == false { showFix(exitCode: nil) }
+    }
+
+    /// Whether the Fix chip shows now (the surface's Return check reads it).
+    var offersFix: Bool { fixChip?.isHidden == false }
+
+    private func showFix(exitCode: Int?) {
+        let exitCode = onFixCommand == nil ? nil : exitCode
+        // The chip shows exactly while it has a status, so the same status changes nothing.
+        guard exitCode != fixChip?.shownExitCode else { return }
+        if fixChip == nil {
+            let chip = TerminalFixChip()
+            chip.onFix = { [weak self] in
+                guard let self else { return }
+                self.showFix(exitCode: nil)
+                self.onFixCommand?()
+            }
+            chip.onDismiss = { [weak self] in self?.showFix(exitCode: nil) }
+            fixChip = chip
+            addChrome(chip, .overlay)
+        }
+        fixChip?.show(exitCode: exitCode)
         needsLayout = true
     }
 
@@ -457,11 +503,19 @@ public final class TerminalHostView: NSView {
             layoutStatus(buttons: buttons)
         }
         let inset = Metrics.panelInset
+        // Bottom-trailing, clear of the scroller: where a padded grid leaves room, and next to the
+        // prompt a finished command leaves at the bottom. Fix stacks above "Sized for" when both show.
+        let trailing = bounds.width - scrollerWidth - inset
+        var bottom = terminalBounds.minY + inset
         if let sizedForChip, !sizedForChip.isHidden {
-            // Bottom-trailing, clear of the scroller: where a padded grid leaves room.
-            let trailing = bounds.width - scrollerWidth - inset
-            _ = place(sizedForChip, maxWidth: bounds.width - inset * 2) { size in
-                CGPoint(x: max(inset, trailing - size.width), y: self.terminalBounds.minY + inset)
+            let frame = place(sizedForChip, maxWidth: bounds.width - inset * 2) { size in
+                CGPoint(x: max(inset, trailing - size.width), y: bottom)
+            }
+            bottom = frame.maxY + 6
+        }
+        if let fixChip, !fixChip.isHidden {
+            _ = place(fixChip, maxWidth: bounds.width - inset * 2) { size in
+                CGPoint(x: max(inset, trailing - size.width), y: bottom)
             }
         }
         if let topOverlay, !topOverlay.isHidden {

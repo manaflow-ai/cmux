@@ -60,6 +60,10 @@ enum TerminalTabContent {
         let entry = BenchSpans.measure("terminal.surface") { services.cache.terminal(for: tab, daemon: daemon) }
         services.themes.catchUp(entry, fresh: true)
         TabRestart.offer(on: entry, tab: tab, daemon: daemon, registry: services.registry)
+        // The Fix chip on a failed command runs `terminal.fixLastCommand` on this tab (TerminalToChatActions).
+        let fix = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id))
+        entry.session.view.onFixCommand = !daemon.supports(DaemonCapability.terminalCommandContext.rawValue) ? nil
+            : { [weak registry = services.registry] in _ = registry?.perform("terminal.fixLastCommand", invocation: fix) }
         return .terminal(entry)
     }
 }

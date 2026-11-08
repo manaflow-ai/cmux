@@ -40,6 +40,13 @@ extension AgentPaneView {
         let json = JSONValue.string(sessionId).compactText
         deliver([.sideQuestion(sessionId)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"sideQuestion\",\(json));"])
     }
+    /// Send to Chat from a terminal (Fix, Send Selection or Last Output to Chat): `markdown` goes
+    /// after this chat's draft, which stays as typed (the path Quote in Reply takes), and the
+    /// composer takes the keyboard. Nothing is sent: the person reads it and presses Return.
+    public func appendToDraft(_ markdown: String) {
+        focusChat()
+        runMessageAction("chat.quoteReply", ["markdown": markdown])
+    }
     /// A chat that just opened from a fork (``AgentForkDestination``): the keyboard goes to its
     /// composer, so the next words go to the fork.
     public func focusComposer() { showWithKeyboard("focusComposer") }
