@@ -546,7 +546,11 @@ pub struct SubsessionLink {
     /// The worktree its start made for it (`start_session` with `worktree: true`), set by the
     /// daemon then and never by a tag: the only folder a plan build's Keep may remove for it
     /// (`hub/plan_build.rs` `plan_discard`), and only while that folder is still this one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "MadeWorktree::or_path"
+    )]
     pub worktree: Option<MadeWorktree>,
     /// The plan build it was started as (`hub/plan_build.rs`), set by the daemon at its start:
     /// unlike the `planBuild` tag, which `_acpmux/tag` may write, an agent cannot make another
@@ -577,6 +581,21 @@ pub struct MadeWorktree {
 }
 
 impl MadeWorktree {
+    /// The record, or the top folder alone as a session saved before the record was (its
+    /// `worktree` a path): a record with no identity, so nothing is ever removed for it.
+    fn or_path<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Self>, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Saved {
+            Made(MadeWorktree),
+            Path(PathBuf),
+        }
+        Ok(Option::<Saved>::deserialize(d)?.map(|saved| match saved {
+            Saved::Made(made) => made,
+            Saved::Path(root) => Self { root, pin: None, born: None, branch: String::new() },
+        }))
+    }
+
     /// The creation time of the folder `held` is open on, in nanoseconds since the epoch.
     pub fn born_of(held: &File) -> Option<u128> {
         let created = held.metadata().ok()?.created().ok()?;

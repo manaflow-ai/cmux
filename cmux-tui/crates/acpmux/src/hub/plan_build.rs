@@ -521,6 +521,8 @@ impl Hub {
         others: &[Arc<Session>],
     ) -> Vec<Value> {
         let mut left: Vec<(String, PathBuf)> = Vec::new();
+        let mut made_at: std::collections::HashMap<PathBuf, crate::store::MadeWorktree> =
+            Default::default();
         let mut rows = Vec::new();
         for s in others {
             if let Err(e) = self.kill(s, false).await {
@@ -544,7 +546,10 @@ impl Hub {
             };
             let checked = made.clone();
             match tokio::task::spawn_blocking(move || still_made(&checked)).await {
-                Ok(Ok(())) => left.push((s.id.clone(), made.root)),
+                Ok(Ok(())) => {
+                    left.push((s.id.clone(), made.root.clone()));
+                    made_at.insert(made.root.clone(), made);
+                }
                 Ok(Err(why)) => {
                     tracing::warn!(session = %s.id, root = %made.root.display(), why, "plan build worktree kept");
                     rows.push(json!({"sessionId": s.id, "removed": false, "error": why}));
@@ -554,13 +559,23 @@ impl Hub {
                 }
             }
         }
+        // Checked again inside worktree care, before it acts and right before each folder goes:
+        // a worktree made at a path since the check above is never removed in its place.
+        let made_at = Arc::new(made_at);
+        let still: Arc<cmux_worktree_care::procs::Still> = {
+            let made_at = Arc::clone(&made_at);
+            Arc::new(move |path: &std::path::Path| match made_at.get(path) {
+                Some(made) => still_made(made).map_err(str::to_owned),
+                None => Err("not a worktree this build made".to_owned()),
+            })
+        };
         let by = Instant::now() + DISCARD_LIMIT;
         let mut last_error: std::collections::HashMap<String, String> = Default::default();
         while !left.is_empty() {
             let only: Vec<PathBuf> = left.iter().map(|(_, root)| root.clone()).collect();
             // The archive of each worktree this pass removed, by its folder.
             let mut archives: std::collections::HashMap<String, String> = Default::default();
-            match self.care_discard(only).await {
+            match self.care_discard(only, Arc::clone(&still)).await {
                 Ok(report) => {
                     for item in report.get("items").and_then(Value::as_array).into_iter().flatten()
                     {
@@ -590,6 +605,11 @@ impl Hub {
             }
             left.retain(|(id, root)| {
                 if root.exists() {
+                    // Another folder at its path now: it stays, with no more tries.
+                    if let Err(why) = still(root) {
+                        rows.push(json!({"sessionId": id, "removed": false, "error": why}));
+                        return false;
+                    }
                     return true;
                 }
                 rows.push(match archives.remove(&*root.to_string_lossy()) {

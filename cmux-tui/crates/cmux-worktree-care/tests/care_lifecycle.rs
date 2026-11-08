@@ -127,6 +127,7 @@ fn care_unpushed_and_uncommitted_work_survives_reclaim_and_restore() {
         &store,
         &*nothing(),
         &*closed(),
+        None,
     )
     .unwrap();
     assert!(!wt.exists(), "the folder is gone");
@@ -164,6 +165,7 @@ fn care_a_restore_takes_the_archive_from_its_bundle_when_the_ref_is_gone() {
         &store,
         &*nothing(),
         &*closed(),
+        None,
     )
     .unwrap();
     let reference = manifest.archive_ref.clone().unwrap();
@@ -197,6 +199,7 @@ fn care_a_pushed_clean_worktree_goes_without_an_archive() {
         &store,
         &*nothing(),
         &*closed(),
+        None,
     )
     .unwrap();
     assert!(manifest.archive_ref.is_none() && !wt.exists());
@@ -226,6 +229,7 @@ fn care_a_worktree_a_program_has_open_stays() {
         &store,
         &*nothing(),
         &*held,
+        None,
     )
     .unwrap_err();
     assert!(error.contains("4242"), "{error}");
@@ -239,10 +243,28 @@ fn care_a_worktree_a_program_has_open_stays() {
         &store,
         &*nothing(),
         &*failing,
+        None,
     )
     .unwrap_err();
     assert!(error.contains("could not check"), "{error}");
-    // The folder, its work and no archive: both checks left it as it was.
+    // The caller's own check, the last before the folder goes: a folder that is no longer the
+    // one it meant (another made at its path) stays, and its archive is dropped.
+    let other: Arc<cmux_worktree_care::procs::Still> =
+        Arc::new(|_| Err("not the worktree that was made".into()));
+    let error = archive::reclaim(
+        &repo,
+        worktree,
+        facts,
+        Action::Archive,
+        "test",
+        &store,
+        &*nothing(),
+        &*closed(),
+        Some(&*other),
+    )
+    .unwrap_err();
+    assert!(error.contains("not the worktree that was made"), "{error}");
+    // The folder, its work and no archive: the checks left it as it was.
     assert_eq!(std::fs::read_to_string(wt.join("notes.txt")).unwrap(), "not pushed\n");
     assert!(store.list().is_empty());
     assert_eq!(git(&main, &["for-each-ref", "refs/cmux/archive"]).trim(), "");
@@ -364,6 +386,7 @@ fn care_a_sparse_worktree_comes_back_sparse() {
         &store,
         &*nothing(),
         &*closed(),
+        None,
     )
     .unwrap();
     restore(&store, &manifest, None).unwrap();
@@ -399,6 +422,7 @@ fn care_a_pass_reclaims_idle_work_and_keeps_an_open_session_s() {
         open: closed(),
         apply: true,
         pressure: Some(Pressure::Critical),
+        still: None,
         only: Vec::new(),
         measure: true,
     };
@@ -431,6 +455,7 @@ fn care_a_restore_over_a_branch_that_moved_on_detaches_at_the_archive() {
         &store,
         &*nothing(),
         &*closed(),
+        None,
     )
     .unwrap();
     // Someone commits on the branch while the worktree is archived.
@@ -468,6 +493,7 @@ fn care_a_restore_that_cannot_find_its_archive_adds_nothing() {
         &store,
         &*nothing(),
         &*closed(),
+        None,
     )
     .unwrap();
     git(&main, &["update-ref", "-d", manifest.archive_ref.as_deref().unwrap()]);
@@ -511,6 +537,7 @@ fn care_an_archive_goes_after_its_keep_time() {
         &store,
         &*nothing(),
         &*closed(),
+        None,
     )
     .unwrap();
     let day = 24 * 60 * 60 * 1000;
@@ -541,6 +568,7 @@ fn care_a_worktree_whose_folder_is_missing_keeps_its_git_state() {
         open: closed(),
         apply: true,
         pressure: Some(Pressure::Critical),
+        still: None,
         only: Vec::new(),
         measure: false,
     };
@@ -592,6 +620,7 @@ fn care_a_claude_session_registered_in_a_worktree_keeps_it() {
         },
         apply: true,
         pressure: Some(Pressure::Critical),
+        still: None,
         only: Vec::new(),
         measure: false,
     };

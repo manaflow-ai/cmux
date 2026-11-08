@@ -110,6 +110,11 @@ pub const OPEN_CHECK: Duration = Duration::from_secs(10);
 /// Whether a program has a folder open, and which: see [`open_inside`].
 pub type Open = dyn Fn(&Path) -> Result<Option<u32>, String> + Send + Sync;
 
+/// Whether `folder` is still the one the caller means to act on (its own record of a worktree it
+/// made, `acpmux` `plan_discard`): checked first and again right before the folder goes; an
+/// error leaves it, with that reason.
+pub type Still = dyn Fn(&Path) -> Result<(), String> + Send + Sync;
+
 /// A program other than this one that has `folder` open: its working folder,
 /// or a file at the folder's top level (`lsof +d`, not `+D`: no walk of the
 /// tree). For what no registry records (a shell, an editor, a build started

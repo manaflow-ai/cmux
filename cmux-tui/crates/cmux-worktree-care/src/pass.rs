@@ -37,6 +37,9 @@ pub struct Options {
     pub pressure: Option<Pressure>,
     /// Only these worktrees (folders); all when empty.
     pub only: Vec<PathBuf>,
+    /// With `only`: each is still the folder the caller means (`procs::Still`), checked before
+    /// acting and right before it goes.
+    pub still: Option<Arc<crate::procs::Still>>,
     /// Measure the bytes each worktree a pass would act on takes.
     pub measure: bool,
 }
@@ -198,6 +201,9 @@ fn act(
     pressure: Pressure,
     store: &Store,
 ) -> Result<(u64, Option<String>), String> {
+    if let Some(still) = &options.still {
+        still(path)?;
+    }
     let processes = (options.uses)()?;
     let fresh = inventory::rescan(repo, path)?;
     let verdict = policy::decide(
@@ -225,6 +231,7 @@ fn act(
             store,
             &*options.uses,
             &*options.open,
+            options.still.as_deref(),
         )
         .map(|manifest| (manifest.freed, Some(manifest.id))),
     }

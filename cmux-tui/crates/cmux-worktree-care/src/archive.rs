@@ -65,6 +65,7 @@ pub fn reclaim(
     store: &Store,
     uses: &Uses,
     open: &Open,
+    still: Option<&procs::Still>,
 ) -> Result<Manifest, String> {
     if let Some(why) = &facts.unarchivable {
         return Err(format!("cannot archive: {why}"));
@@ -149,6 +150,11 @@ pub fn reclaim(
         uses,
         open,
     ) {
+        discard(&wt, store, &manifest);
+        return Err(format!("{why}; it stays"));
+    }
+    // The caller's own check of the folder, the very last before it goes.
+    if let Some(Err(why)) = still.map(|still| still(&worktree.path)) {
         discard(&wt, store, &manifest);
         return Err(format!("{why}; it stays"));
     }
