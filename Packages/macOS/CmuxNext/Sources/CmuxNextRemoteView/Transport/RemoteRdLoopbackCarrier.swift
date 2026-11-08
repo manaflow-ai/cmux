@@ -21,13 +21,15 @@ public nonisolated final class RemoteRdLoopbackCarrier: RemoteRdByteCarrier {
             case .ready:
                 emit(.ready)
                 receiveNext()
-            case .failed, .cancelled:
-                emit(.closed)
-            case .waiting:
+            case let .failed(error):
+                emit(.closed(reason: "loopback connection failed: \(error)"))
+            case .cancelled:
+                emit(.closed(reason: "loopback connection cancelled"))
+            case let .waiting(error):
                 // A loopback host that refuses the connection (no listener)
                 // only makes the connection wait for a path change that never
                 // comes: end the session so the viewer says why (cx-erey).
-                emit(.closed)
+                emit(.closed(reason: "loopback host refused the connection: \(error)"))
             default:
                 break
             }
@@ -37,8 +39,8 @@ public nonisolated final class RemoteRdLoopbackCarrier: RemoteRdByteCarrier {
 
     public func send(_ bytes: Data) {
         connection.send(content: bytes, completion: .contentProcessed { [weak self] error in
-            guard error != nil else { return }
-            self?.emit(.closed)
+            guard let error else { return }
+            self?.emit(.closed(reason: "loopback send failed: \(error)"))
         })
     }
 
@@ -55,8 +57,10 @@ public nonisolated final class RemoteRdLoopbackCarrier: RemoteRdByteCarrier {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, error in
             guard let self else { return }
             if let data, !data.isEmpty { emit(.data(data)) }
-            if isComplete || error != nil {
-                emit(.closed)
+            if let error {
+                emit(.closed(reason: "loopback receive failed: \(error)"))
+            } else if isComplete {
+                emit(.closed(reason: "loopback host ended the stream"))
             } else {
                 receiveNext()
             }
