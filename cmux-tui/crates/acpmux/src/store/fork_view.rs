@@ -240,6 +240,10 @@ impl ForkView {
         meta.history_from = None;
         meta.history_kept_through = Some(reference.through_seq);
         self.inner.save(&meta)?;
+        // Durable before the chat may go: a journal store's save only queues its record, and a
+        // crash before it is written would bring back the reference to a deleted chat, whose
+        // fork then shows none of the history written here (review of #37020 at 82dd442, F1).
+        self.inner.flush_session(id)?;
         let mut refs = self.refs.write().unwrap_or_else(|e| e.into_inner());
         refs.dropped.insert(id.to_owned(), reference.through_seq);
         refs.by_fork.remove(id);
