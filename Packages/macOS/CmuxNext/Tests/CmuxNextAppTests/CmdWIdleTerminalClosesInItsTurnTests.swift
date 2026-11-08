@@ -371,15 +371,17 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
                 let surface = try await connection.newTab(in: paneModel.handle).surface
                 try await PinnedPageTests.until({ store.tab(surface: surface).map { pane.orderedIDs.map(\.rawValue).contains($0.id) } == true })
                 before.append(try #require(store.tab(surface: surface)))
-                pane.select(TabID(before[before.count - 1].id)) // the next new tab goes right after it, at the end or after the selection
+                pane.select(TabID(before[before.count - 1].id))
             }
             let surface = try await connection.newTab(in: paneModel.handle).surface
             try await PinnedPageTests.until({ store.tab(surface: surface) != nil })
             let tab = try #require(store.tab(surface: surface))
             try await PinnedPageTests.until({ pane.orderedIDs.map(\.rawValue).contains(tab.id) && pane.orderedIDs.count > 1 })
-            let order = pane.orderedIDs.map(\.rawValue)
-            try #require(Array(order.drop(while: { $0 != (before.first?.id ?? tab.id) }).prefix(count + 1)) == before.map(\.id) + [tab.id],
-                         "the terminals before the focused one are not right before it: \(order)")
+            let order: [String] = pane.orderedIDs.map(\.rawValue)
+            let expected: [String] = before.map(\.id) + [tab.id]
+            let start: Int = order.firstIndex(of: expected[0]) ?? order.endIndex
+            let run: [String] = Array(order[start...].prefix(expected.count))
+            try #require(run == expected, "the terminals before the focused one are not right before it: \(order)")
             pane.select(TabID(tab.id))
             try #require(services.windows.active?.focusedPane === pane, "the terminal's pane is not the focused one")
             try #require(TabCloseGuard.asks([tab], services: services), "the terminal close warning does not apply")
