@@ -13,7 +13,7 @@ extension AgentTabStore {
         let open: AgentTabOpen = { [weak self] pane, daemon, split in guard let self else { throw CancellationError() }; return try self.open(in: pane, of: daemon, session: session, split: split) }
         let chat = resolvedKey(tabKey(provisional, machine: machine))
         guard let (pane, daemon) = self.pane(for: chat) else { return false }
-        let machine = daemon.machineID, locate = { [weak self] (key: String) in self?.locateScoped(AgentTabKey(machine: machine, key: key)) }
+        let machine = daemon.machineID
         // Made in its split right or below (`conversation-tab-split-v1`; else made in the chat's pane and moved), or a tab.
         let splitFirst = SplitDirection(splitFirst: destination.splitDirection ?? "", served: daemon.supports(DaemonCapability.conversationTabSplit.rawValue)) != nil
         guard destination.opening == .moved || (destination.opening == .split && !splitFirst) else {
@@ -25,11 +25,11 @@ extension AgentTabStore {
         guard let pending = try? open(pane, daemon, nil), hold?.started(true) != false else { hold?.finish(moved: false); return false }; hold?.made(key: pending.key)
         // task-owner: one tab creation, one move, one focus once it landed (a new workspace: placed in its window, else the chat's showed it)
         Task { [weak self] in
-            guard let tab = try? await pending.value(), let self, await TabMirror.reaches(tab.key, in: locate) else { hold?.finish(moved: false); return }
+            guard let tab = try? await pending.value(), let self, await TabMirror.reaches(tab.key, in: { [weak self] in self?.locateScoped(AgentTabKey(machine: machine, key: $0)) }) else { hold?.finish(moved: false); return }
             if destination == .workspace || destination == .window { guard await moveToNewWorkspace(tab.key, daemon.machineID, destination == .window) else { hold?.finish(moved: false); return focusForkComposer(tab.key, machine: machine) } } else if let move = destination.moveAction {
                 _ = actionRegistry?.perform(move, invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), arguments: destination.splitDirection.map { ["direction": .string($0), "keepFocus": .bool(false)] } ?? [:], origin: .user))
             } else { placeForkScoped(AgentTabKey(machine: machine, key: tab.key), resolvedKey(chat), { if case let .column(left) = TerminalForkPlacement(destination) { left } else { nil } }()) }
-            let moved = await TabMirror.reaches(tab.key, in: { locate($0).flatMap { $0.pane != pane ? $0 : nil } }); hold?.finish(moved: moved)
+            let moved = await TabMirror.reaches(tab.key, in: { [weak self] in self?.locateScoped(AgentTabKey(machine: machine, key: $0)).flatMap { $0.pane != pane ? $0 : nil } }); hold?.finish(moved: moved)
             focusForkComposer(tab.key, machine: machine)
         }
         return true
