@@ -118,6 +118,19 @@
       "events": [
         "tasks-changed"
       ]
+    },
+    "skills": {
+      "description": "Skills, MCP servers and plugins directory. It reads the curated catalog and asks for confirmation before installing or removing entries across the local harnesses.",
+      "read": [
+        "skills.directory.list",
+        "skills.directory.status"
+      ],
+      "gesture": [],
+      "confirm": [
+        "skills.directory.install",
+        "skills.directory.remove"
+      ],
+      "events": []
     }
   },
   "namespaces": {
@@ -178,6 +191,18 @@
         "tasks.move",
         "tasks.archive",
         "tasks.delegate"
+      ]
+    },
+    "skills": {
+      "owner": "skills.directory",
+      "description": "The local skills directory installer. It lists curated entries and writes harness-native skill, plugin and MCP configuration files.",
+      "read": [
+        "skills.directory.list",
+        "skills.directory.status"
+      ],
+      "mutation": [
+        "skills.directory.install",
+        "skills.directory.remove"
       ]
     }
   }
