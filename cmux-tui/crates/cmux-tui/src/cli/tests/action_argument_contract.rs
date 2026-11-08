@@ -678,18 +678,13 @@ fn encoded(words: &[String]) -> Value {
 }
 
 /// The requests the CLI's encoder builds, which the app's `ArgumentActionContractTests` validate against
-/// its catalog: `cmux cloud start-chat`'s relay request as `cloud_start_chat` builds it, and, for each
-/// action the CLI offers, its CLI name with every argument given as its `--flag`.
+/// its catalog: for each action the CLI offers, its CLI name with every argument given as its `--flag`.
 fn cli_requests() -> Value {
     let path = repo_root().join("plans/cmux-next/action-surfaces.json");
     let root: Value =
         serde_json::from_str(&std::fs::read_to_string(&path).expect("action-surfaces.json"))
             .unwrap();
     let mut requests = Vec::new();
-    let relay = super::super::cloud_start_chat::tests::contract_relay_words();
-    requests.push(
-        serde_json::json!({"source": "cmux cloud start-chat (relay)", "params": encoded(&relay)}),
-    );
     for action in root["actions"].as_array().expect("actions") {
         let Some(cli_name) = action["cli_name"].as_str().filter(|_| action["cli"] == "offered")
         else {
