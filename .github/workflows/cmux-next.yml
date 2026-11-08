@@ -3283,6 +3283,9 @@ jobs:
     # (glaeda-fast-<class>-xcode-26.6). The tier takes it only through the
     # placement's fast_runner, set while one of its runners is idle, and only on
     # attempt 1: a re-run reuses attempt 1's placement, whose idle reading is stale.
+    # With no fast runner idle, fast_runner names an idle light side runner instead
+    # (glaeda-side-light-xcode-26.6, side_lane_placement.light_fast_route(); Leo, 2026-11-08:
+    # "the light minis are largely idling"), never while a nightly job waits on the light minis.
     # Otherwise the tier takes the current cascade allocation. With every
     # alternative excluded, deferred_runner preserves the base owned queue;
     # it never bypasses Blacksmith outage/nightly exclusions or skips tests.

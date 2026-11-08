@@ -22,8 +22,10 @@ public nonisolated enum MotionTunables {
         .tabOpen: (SpringParameters(response: 0.1, dampingFraction: 1), "A new tab growing in at its slot and the tabs right of it making room."),
         // plans/cmux-next/split-spring-animation/DESIGN.md: slightly under-damped (0.95) for a short
         // tail, overshoot under 0.1 pt on 700 pt. 0.28 ended visibly at 287 ms (half its travel at
-        // 73 ms); 0.23 ends at 235 ms, under the ceiling, half its travel at 60 ms (Leo 2026-10-20).
-        .split: (SpringParameters(response: 0.23, dampingFraction: 0.95), "Cmd-D and Cmd-Shift-D: the new pane growing in while its whole chain makes room, on one spring."),
+        // 73 ms); 0.23 ended at 235 ms (Leo 2026-10-20). 0.11 ends at 113 ms, 8% of its travel in the
+        // first 120 Hz frame and 80% at 50 ms (Leo 2026-11-08: "our animations should be so fast";
+        // the instant-splits target is a transition done in 120 ms).
+        .split: (SpringParameters(response: 0.11, dampingFraction: 0.95), "Cmd-D and Cmd-Shift-D: the new pane growing in while its whole chain makes room, on one spring."),
         .appear: (SpringParameters(response: 0.135, dampingFraction: 1), "Palette scale-in, tab grow-in, group expand, row insert, sidebar show."),
         .disappear: (SpringParameters(response: 0.11, dampingFraction: 1), "Tab close, group collapse, row removal, sidebar hide."),
         // Ends visibly at 235 ms, between standard and the ceiling on purpose: it carries the
