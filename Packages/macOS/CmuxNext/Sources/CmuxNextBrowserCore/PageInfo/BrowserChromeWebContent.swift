@@ -29,8 +29,23 @@ public protocol BrowserChromeWebContent: AnyObject {
     func close()
 }
 
+/// Only the toolbar's page gates the keys, edits its menu and keeps a reload state; any other page
+/// (and a test's stand-in) takes the keys in its view, always, and keeps the defaults.
 extension BrowserChromeWebContent {
     public func keepForReload(_ state: [String: Any]) {}
+    public var focusView: NSView { view }
+    public var acceptsKeyFocus: (() -> Bool)? {
+        get { nil }
+        set {}
+    }
+    public var onResignedKeys: (() -> Void)? {
+        get { nil }
+        set {}
+    }
+    public var contextMenuEditor: (@MainActor (NSMenu) -> Void)? {
+        get { nil }
+        set {}
+    }
 }
 
 /// The surfaces the browser chrome draws in React.

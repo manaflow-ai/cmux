@@ -68,10 +68,6 @@ import CmuxNextTestSupport
 @MainActor private final class SizedWebContent: BrowserChromeWebContent {
     let view = NSView()
     var onMessage: ((String, [String: Any]) -> Void)?
-    var focusView: NSView { view }
-    var acceptsKeyFocus: (() -> Bool)?
-    var onResignedKeys: (() -> Void)?
-    var contextMenuEditor: (@MainActor (NSMenu) -> Void)?
     func push(_ state: [String: Any]) { onMessage?("size", ["height": 240, "revision": state["revision"] ?? 0]) }
     func focus() {}
     func close() { onMessage = nil }
