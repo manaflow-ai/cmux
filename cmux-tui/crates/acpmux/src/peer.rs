@@ -1060,11 +1060,23 @@ impl Peer {
         new
     }
 
-    /// True when the peer streams this daemon every kind of record of chat `id`: the latest
-    /// attach of it that reached the link named no `kinds` filter, and no other attach of it is
-    /// on its way there.
+    /// True when the peer streams this daemon every kind of record of chat `id` on the live
+    /// link: an attach of it reached this link's queue, the latest one named no `kinds` filter,
+    /// and no other attach of it is on its way there. A chat marked attached whose attach never
+    /// reached this link (#38305 F1) streams nothing yet.
     pub fn streams_every_kind(&self, id: &str) -> bool {
-        self.attach_filters.lock_or_recover().get(id).is_none_or(|f| !f.narrowed && f.coming == 0)
+        let link = self.link_epoch();
+        self.attach_filters.lock_or_recover().get(id).is_some_and(|f| {
+            f.streamed_on == Some(link) && !f.narrowed && f.coming == 0
+        })
+    }
+
+    /// Chat `id` is no longer marked attached: nothing of it streams over the link.
+    fn forget_attach_filter(&self, id: &str) {
+        let mut filters = self.attach_filters.lock_or_recover();
+        if filters.get(id).is_some_and(|f| f.coming == 0) {
+            filters.remove(id);
+        }
     }
 
     /// An `_acpmux/attach` of chat `id` on its way to the link: until it is in the queue (or
@@ -1075,11 +1087,14 @@ impl Peer {
         AttachComing { peer: self, id: id.to_owned() }
     }
 
-    /// Chat `id`'s attach went into the link's queue, under `attach_order`: the peer's
-    /// subscription for it streams what its `kinds` filter lets through.
-    pub(crate) fn note_attach_queued(&self, id: &str, params: &Value) {
+    /// Chat `id`'s attach went into the queue of link `link`, under `attach_order`: the peer's
+    /// subscription for it there streams what its `kinds` filter lets through.
+    pub(crate) fn note_attach_queued(&self, id: &str, params: &Value, link: u64) {
         let every = crate::hub::EventFilter::parse(params.get("kinds")).is_ok_and(|f| f.is_all());
-        self.attach_filters.lock_or_recover().entry(id.to_owned()).or_default().narrowed = !every;
+        let mut filters = self.attach_filters.lock_or_recover();
+        let filter = filters.entry(id.to_owned()).or_default();
+        filter.narrowed = !every;
+        filter.streamed_on = Some(link);
     }
 
     /// Forget the replay baseline of an attachment whose first baseline request failed. The
@@ -1112,6 +1127,7 @@ impl Peer {
                     let mut marks = self.attached.lock_or_recover();
                     if marks.get(id).copied() == ticket {
                         marks.remove(id);
+                        self.forget_attach_filter(id);
                     }
                 }
                 tracing::warn!(peer = %self.name, session = %id, refused, "the peer's chat was not attached, so it streams nothing until it is again: {}", e.message);
@@ -1313,7 +1329,7 @@ impl Peer {
         match tokio::time::timeout_at(deadline, self.out.send(frame)).await {
             Ok(Ok(())) => {
                 if let Some((coming, params)) = attach {
-                    self.note_attach_queued(&coming.id, &params);
+                    self.note_attach_queued(&coming.id, &params, tag);
                     drop(coming);
                 }
                 drop(order);
@@ -1534,6 +1550,7 @@ impl Peer {
                         let mut marks = self.attached.lock_or_recover();
                         if marks.get(&sid).copied() == ticket {
                             marks.remove(&sid);
+                            self.forget_attach_filter(&sid);
                         }
                     }
                     break;
@@ -2827,6 +2844,9 @@ const TOKEN_REREADS: [Duration; 3] =
 struct AttachFilter {
     /// The latest attach that went into the queue named a `kinds` filter.
     narrowed: bool,
+    /// The link epoch whose queue the latest attach went into: on any other link, nothing of
+    /// the chat streams until an attach reaches it.
+    streamed_on: Option<u64>,
     /// Attaches of it on their way to the queue.
     coming: u32,
 }
@@ -2842,7 +2862,7 @@ impl Drop for AttachComing<'_> {
         let mut filters = self.peer.attach_filters.lock_or_recover();
         if let Some(filter) = filters.get_mut(&self.id) {
             filter.coming = filter.coming.saturating_sub(1);
-            if filter.coming == 0 && !filter.narrowed {
+            if filter.coming == 0 && filter.streamed_on.is_none() {
                 filters.remove(&self.id);
             }
         }

@@ -576,7 +576,7 @@ async fn forward_inner(
         }
         // A read the session list's row answers (`ROW_WILL_DO`), while the link is ready: its
         // notices keep the row as current as the peer's answer would be, one round trip sooner.
-        if m == method::MUX_INFO && row_will_do(params) && peer.ready() {
+        if m == method::MUX_INFO && row_will_do(params) && row_is_current(&peer) {
             return Ok(Some(from_row(&row, &peer.name)));
         }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
@@ -654,7 +654,7 @@ async fn forward_inner(
             if m == method::MUX_ATTACH
                 && !first_attach
                 && row_will_do(params)
-                && peer.ready()
+                && row_is_current(&peer)
                 && subscribes_only(params)
                 && peer.streams_every_kind(&id)
             {
@@ -1043,6 +1043,13 @@ pub const ROW_WILL_DO: &str = "row";
 
 fn row_will_do(params: &Value) -> bool {
     params.get(ROW_WILL_DO).and_then(Value::as_bool) == Some(true)
+}
+
+/// The link's notices keep its rows current: it is ready, and the hub applied the session list
+/// it sent at its handshake (`rows_ready`). Until then the rows are the link before's
+/// (#38305 F2).
+fn row_is_current(peer: &crate::peer::Peer) -> bool {
+    peer.ready() && peer.rows_ready.load(std::sync::atomic::Ordering::SeqCst)
 }
 
 /// An attach that reads no records: a subscription, and the row.

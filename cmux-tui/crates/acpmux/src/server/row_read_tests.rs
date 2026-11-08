@@ -75,6 +75,7 @@ async fn a_subscription_to_a_streamed_peer_chat_is_answered_here() {
         call(&hub, method::MUX_ATTACH, json!({"sessionId": key, "limit": 0, "row": true})).await;
     assert!(first.is_err(), "the first attach goes to the peer: {first:?}");
     peer.mark_attached(CHAT);
+    peer.note_attach_queued(CHAT, &json!({"sessionId": CHAT, "limit": 0}), peer.link_epoch());
     let sub = call(&hub, method::MUX_ATTACH, json!({"sessionId": key, "limit": 0, "row": true}))
         .await
         .expect("answered here");
@@ -116,12 +117,13 @@ async fn a_subscription_after_a_filtered_attach_goes_to_the_peer() {
     hub.seed_peer_back(&peer, vec![row()]);
     let key = format!("far/{CHAT}");
     peer.mark_attached(CHAT);
-    peer.note_attach_queued(CHAT, &json!({"sessionId": CHAT, "kinds": ["tool_call"]}));
+    let link = peer.link_epoch();
+    peer.note_attach_queued(CHAT, &json!({"sessionId": CHAT, "kinds": ["tool_call"]}), link);
     assert!(!peer.streams_every_kind(CHAT));
     let sub = json!({"sessionId": key, "limit": 0, "row": true});
     let widened = call(&hub, method::MUX_ATTACH, sub.clone()).await;
     assert!(widened.is_err(), "a filtered stream is widened by the peer: {widened:?}");
-    peer.note_attach_queued(CHAT, &json!({"sessionId": CHAT, "limit": 0}));
+    peer.note_attach_queued(CHAT, &json!({"sessionId": CHAT, "limit": 0}), link);
     assert!(peer.streams_every_kind(CHAT));
     let again = call(&hub, method::MUX_ATTACH, sub).await.expect("answered here");
     assert_eq!(again["row"], true, "{again}");
