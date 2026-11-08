@@ -354,6 +354,23 @@ class FakeChats:
             time.sleep(1)  # test script: waiting for the app's acpmux to listen
         raise SystemExit("bench-memory: the app's acpmux opened no socket within 90 s")
 
+    def workspace_ids(self) -> set[str]:
+        """The ids of the app's workspaces (`snapshot.get`)."""
+        found: set[str] = set()
+
+        def walk(node):
+            if isinstance(node, dict):
+                value = node.get("id")
+                if isinstance(value, str) and value.startswith("ws_"):
+                    found.add(value)
+                for child in node.values():
+                    walk(child)
+            elif isinstance(node, list):
+                for child in node:
+                    walk(child)
+        walk(self.app.call("snapshot.get", timeout=30))
+        return found
+
     def open(self, index: int) -> str | None:
         """A new workspace on a new answered chat; returns the workspace id."""
         made = subprocess.run([self.app.cli_path, "acp", "new", "--json", "-d", "-m", FAKE_AGENT_ID,
@@ -364,8 +381,16 @@ class FakeChats:
         except (ValueError, KeyError):
             print(f"   acp new: {(made.stdout + made.stderr).strip()[:300]}", file=sys.stderr)
             return None
+        before = self.workspace_ids()
         response = self.app.action("agent.openSessionWorkspace", session=session)
         created = [item for item in response.get("created", []) if str(item).startswith("ws_")]
+        if not created and "in_progress" in json.dumps(response):
+            # The action answers "timeout" at its deadline while the open goes on (its state
+            # "in_progress"): the workspace it makes is the one that was not there before.
+            deadline = time.monotonic() + 60
+            while not created and time.monotonic() < deadline:
+                time.sleep(1)  # test script: waiting for the open that went on to make its workspace
+                created = sorted(self.workspace_ids() - before)
         if not created:
             print(f"   agent.openSessionWorkspace: {response.get('error') or response}", file=sys.stderr)
             return None
