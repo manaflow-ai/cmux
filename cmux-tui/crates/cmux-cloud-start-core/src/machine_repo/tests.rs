@@ -522,10 +522,12 @@ fn a_symlinked_harness_folder_takes_the_whole_tree_at_once() {
 }
 
 #[cfg(unix)]
-/// A machine's `cmux` for the barrier: `repo wait` exits with `$HOME/wait` (0 when absent),
-/// `repo hold` runs its fill in the foreground, and `repo hold-run` records its folder and runs it.
+/// A machine's `cmux` for the barrier: `repo wait DIR 0` exits with `$HOME/wait` (0 when absent),
+/// a longer wait with `$HOME/wait-long` (0 when absent: the earlier fill ended), `repo hold` runs
+/// its fill in the foreground, and `repo hold-run` records its folder and runs it.
 const BARRIER_CMUX: &str = "#!/bin/sh\ncase \"$1 $2\" in\n\
-    \"repo wait\") exit \"$(cat \"$HOME/wait\" 2>/dev/null || echo 0)\" ;;\n\
+    \"repo wait\") [ \"$4\" = 0 ] && exit \"$(cat \"$HOME/wait\" 2>/dev/null || echo 0)\"\n\
+    exit \"$(cat \"$HOME/wait-long\" 2>/dev/null || echo 0)\" ;;\n\
     \"repo hold\") [ \"$3\" = --help ] && exit 0; echo \"$3\" > \"$HOME/held\"; shift 4; exec \"$@\" ;;\n\
     \"repo hold-run\") echo \"$3\" > \"$HOME/held-run\"; shift 4; echo held; exec \"$@\" ;;\n\
     esac\nexit 2\n";
@@ -655,4 +657,24 @@ fn a_start_during_the_history_fetch_leaves_the_checkout_to_it() {
     let _ = holder.wait();
     assert_eq!((code, record["status"].as_str()), (0, Some("kept")), "{record}");
     assert_eq!(machine.git(&["rev-parse", "HEAD"]), before);
+}
+
+#[cfg(unix)]
+/// Review F1 and F2 (cmux#38582, 0d1a4678b96): a start that needs more than the checkout as it is,
+/// a branch to switch to or a script of its own that runs right after the step, waits for the
+/// earlier start's fill instead of leaving the checkout to it.
+#[test]
+fn a_start_with_a_ref_or_a_script_waits_for_the_fill() {
+    let Some(machine) = Machine::new(true) else { return };
+    machine.cmux(BARRIER_CMUX);
+    let (code, _) = machine.run();
+    assert_eq!(code, 0);
+    machine.settle();
+    machine.barrier_reads(124);
+    let (code, record) = machine.run_with(Some("feature"), crate::machine_bootstrap::NO_SCRIPT);
+    assert_eq!((code, record["status"].as_str()), (0, Some("updated")), "{record}");
+    assert!(machine.checkout().join("f.txt").is_file(), "switched to feature");
+    machine.settle();
+    let (code, record) = machine.run_with(None, "#!/bin/sh\ntrue\n");
+    assert_eq!((code, record["status"].as_str()), (0, Some("updated")), "{record}");
 }

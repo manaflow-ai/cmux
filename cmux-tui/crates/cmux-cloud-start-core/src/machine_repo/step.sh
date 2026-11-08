@@ -85,8 +85,10 @@ root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }
 # script (anything but machine_bootstrap.rs `NO_SCRIPT`): the runner runs it right after this
 # step, and nothing holds it at the barrier.
 head_dirs=".claude .codex .cursor .gemini .github .vscode .devcontainer"
+# The start runs no bootstrap script of its own (machine_bootstrap.rs `NO_SCRIPT`).
+no_script() { printf '#!/bin/sh\nexit 0\n' | cmp -s - "$d/script"; }
 holder() {
-  printf '#!/bin/sh\nexit 0\n' | cmp -s - "$d/script" &&
+  no_script &&
     { hx=$(command -v cmux-tui) || hx=$(command -v cmux); } && "$hx" repo hold --help >/dev/null 2>&1 &&
     command -v systemd-run >/dev/null 2>&1
 }
@@ -166,13 +168,23 @@ state=none
 if [ -d "$dir/.git" ]; then
   state=$(barrier)
   # A fill or history fetch from an earlier start still runs in it: nothing here fetches, switches
-  # or fills beside it (its git locks would fail this start). The chat starts on it as it is, and
-  # its tools wait at the barrier.
+  # or fills beside it (its git locks would fail this start). A start that needs nothing more than
+  # the checkout as it is (no ref, no script of its own) leaves it to that one: its chat's tools
+  # wait at the barrier. Any other waits for it first (a script runs on the tree right after this
+  # step, and a ref skipped now would be skipped by every identical start after it).
   if [ "$state" = busy ] || history_busy; then
-    echo "cmux repo: $dir is still being filled by an earlier start; it is left to that one" >&2
-    [ "$state" = busy ] && fill=background
-    status=kept; sha=$(git -C "$dir" rev-parse --verify --quiet HEAD) || die "no commit checked out in $dir"
-    result; exit 0
+    if [ -z "$ref" ] && no_script; then
+      echo "cmux repo: $dir is still being filled by an earlier start; it is left to that one" >&2
+      [ "$state" = busy ] && fill=background
+      status=kept; sha=$(git -C "$dir" rev-parse --verify --quiet HEAD) || die "no commit checked out in $dir"
+      result; exit 0
+    fi
+    echo "cmux repo: waiting for an earlier start's fill of $dir" >&2
+    if [ "$state" = busy ]; then
+      c=0; "$wx" repo wait "$dir" 1800 >/dev/null 2>&1 || c=$?
+      case $c in 0) state=ready ;; 1) state=failed ;; *) die "$dir is still being filled after 30 min" ;; esac
+    fi
+    [ ! -f "$history_lock" ] || flock -w 1800 "$history_lock" true || die "$dir is still fetching its history after 30 min"
   fi
   net -C "$dir" fetch --quiet --tags origin
   status=updated
