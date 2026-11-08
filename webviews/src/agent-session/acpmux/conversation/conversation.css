@@ -6980,6 +6980,32 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 :root:is([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cv-needs-input-glyph.is-answered {
   display: none;
 }
+/* An ask that opens under a line already drawn: the dot grows in from nothing, its room opening with
+   it (the 8px gap too), so the pill's words slide over in the same motion rather than jump (Leo,
+   2026-11-08: "I mostly just meant the yellow circle thing"). The house settle curve and step
+   (265 ms); with motion off or reduced the dot is simply there. */
+.cv-needs-input-glyph.is-asked {
+  animation: cv-needs-input-asked var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle) both;
+}
+@keyframes cv-needs-input-asked {
+  from {
+    width: 0;
+    margin-inline-end: -8px;
+    transform: scale(0);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cv-needs-input-glyph.is-asked {
+    animation: none;
+  }
+}
+:root:is([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cv-needs-input-glyph.is-asked {
+  animation: none;
+}
 
 /* The live line while the harness retries a failed model request (Thinking.tsx `retryParts`):
    the cause in the line's text color, the count and error muted, the error the part that gives way. */
