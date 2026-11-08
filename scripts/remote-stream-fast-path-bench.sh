@@ -11,7 +11,7 @@
 #
 # Env: FAST_RTT, SLOW_RTT (ms), SECONDS_PER_RUN, DROP_AT, REPEAT, BULK_BYTES,
 # BENCH_PATH (wg-tcp: one multipath underlay; wg-mesh: two `WgMesh` ends, the
-# `cmux link` and acpmux engine).
+# `cmux link` and acpmux engine), BENCH_BIN (a prebuilt bench binary).
 set -euo pipefail
 
 out_dir="${FAST_CHECKS_OUT:-}"
@@ -29,10 +29,14 @@ repeat="${REPEAT:-3}"
 bulk="${BULK_BYTES:-16000000}"
 path="${BENCH_PATH:-wg-tcp}"
 
-cargo build --release -p cmux-wg --example remote_stream_bench >&2
-# CARGO_TARGET_DIR (set on the fleet) moves the binary; ask cargo where it is.
-target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
-bench="$target_dir/release/examples/remote_stream_bench"
+if [ -n "${BENCH_BIN:-}" ]; then
+  bench="$BENCH_BIN" # a binary built earlier (a before/after pair in one job)
+else
+  cargo build --release -p cmux-wg --example remote_stream_bench >&2
+  # CARGO_TARGET_DIR (set on the fleet) moves the binary; ask cargo where it is.
+  target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
+  bench="$target_dir/release/examples/remote_stream_bench"
+fi
 [ -x "$bench" ] || { echo "no bench binary at $bench" >&2; exit 1; }
 
 run() { # label, args...
