@@ -28,6 +28,8 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         public var moved: @MainActor (ChiefPanelFrame) -> Void
         /// Stop the Chief's answer (Esc while it answers).
         public var stop: @MainActor () -> Void
+        /// The eye: turn "sees your screen" off or on.
+        public var toggleSeesScreen: @MainActor () -> Void = {}
 
         /// - Parameters:
         ///   - toggleDock: Dock or Float.
@@ -65,6 +67,12 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     }
     /// Where a press moves the panel (and, resting, a click opens it), in this view's coordinates (y down).
     public var gripRect: NSRect { bar.frame }
+    /// Whether the Chief gets a look at the screen when the panel opens (the eye).
+    public var seesScreen = true
+    /// Whether the panel's glass shows behind the chat.
+    public var showsPanelGlass: Bool { true }
+    /// The glass plate under the message box (see-through styles), in this view's coordinates; nil without one.
+    public var composerPlate: NSRect? { nil }
     /// The Chief view this panel shows now; nil while it is in Home's pane.
     public private(set) weak var chief: NSView?
 
@@ -258,8 +266,8 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         guard floating else { return .bar }
         switch style {
         case .panel: return .bar
-        case .card: return .strip
-        case .composeBar, .pill, .bubble: return holdsOpen || hasKeys ? .strip : .rest
+        case .card, .seeThrough: return .strip
+        case .composeBar, .pill, .bubble, .seeThroughBar: return holdsOpen || hasKeys ? .strip : .rest
         }
     }
 

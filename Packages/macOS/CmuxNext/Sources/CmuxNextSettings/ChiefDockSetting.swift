@@ -17,6 +17,8 @@ public nonisolated struct ChiefDockSetting {
     public static let styles = ["composeBar", "pill", "card", "panel", "bubble"]
     /// The compose bar: the least on screen that still takes a message (user 2026-11-07).
     public static let defaultStyle = "composeBar"
+    /// `home.chiefPanel.seesScreen`.
+    public static let seesScreenPath = ["home", "chiefPanel", "seesScreen"]
     /// `home.chiefDock.openBeside`.
     public static let openBesidePath = ["home", "chiefDock", "openBeside"]
     /// The edges, in the Settings choice's order.

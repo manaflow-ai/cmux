@@ -89,7 +89,7 @@ struct ChiefPanelStyleWindowTests {
     func theCollapsingStylesGrowIntoTheChatWithTheKeys(_ style: ChiefPanelStyle) async throws {
         let (f, view, _) = try await Self.openPanel(style)
         defer { f.close() }
-        let collapses = [ChiefPanelStyle.composeBar, .pill, .bubble].contains(style)
+        let collapses = [ChiefPanelStyle.composeBar, .pill, .bubble, .seeThroughBar].contains(style)
         let resting = view.frame
         #expect((resting.height < 100) == collapses, "\(style): resting height \(resting.height)")
         f.controller.frameFocusChiefPanel()
@@ -99,6 +99,46 @@ struct ChiefPanelStyleWindowTests {
         f.controller.focusStagePane(toward: nil)
         f.frame()
         #expect(view.frame == resting, "\(style): without the keys it did not rest again: \(view.frame)")
+    }
+
+    /// The see-through styles (user 2026-11-07, "iMessage style: very transparent and minimal"): no panel glass behind
+    /// the chat, so the workspace shows through between the bubbles; what stays readable over any background is the
+    /// Chief's own bubbles with a halo around its text, and a glass plate under the message box. The others keep
+    /// the panel glass.
+    @Test(arguments: ChiefPanelStyle.allCases)
+    func theSeeThroughStylesDropThePanelGlassButKeepTheTextReadable(_ style: ChiefPanelStyle) async throws {
+        let (f, view, chief) = try await Self.openPanel(style)
+        defer { f.close() }
+        f.controller.frameFocusChiefPanel()
+        f.frame()
+        let clear = style == .seeThrough || style == .seeThroughBar
+        #expect(style.isSeeThrough == clear)
+        #expect(view.showsPanelGlass == !clear, "\(style): panel glass \(view.showsPanelGlass)")
+        #expect((chief.shadow != nil) == clear, "\(style): no halo keeps the Chief's text readable over the workspace")
+        let plate = view.composerPlate
+        #expect((plate != nil) == clear, "\(style): the message box has no plate")
+        if let plate { #expect(plate.minY >= view.bounds.height - 80 && plate.width >= view.bounds.width - 2, "\(style): plate \(plate)") }
+    }
+
+    /// "Sees your screen" (user 2026-11-07): an eye in the panel says the Chief gets a look at the screen when it
+    /// opens, on by default; a click on it turns it off (and on), through the setting.
+    @Test func theEyeShowsWhetherTheChiefSeesTheScreenAndTogglesIt() async throws {
+        let (f, view, _) = try await Self.openPanel(.card)
+        defer { f.close() }
+        var toggles = 0
+        view.actions.toggleSeesScreen = { toggles += 1 }
+        let eye = try #require(Self.find("window.chiefPanel.seesScreen", in: view) as? NSButton, "no eye in the panel")
+        #expect(!eye.isHidden && view.seesScreen, "the eye is hidden or off by default")
+        eye.performClick(nil)
+        #expect(toggles == 1)
+        view.seesScreen = false
+        #expect(eye.toolTip != nil && eye.image?.accessibilityDescription != nil)
+    }
+
+    static func find(_ id: String, in view: NSView) -> NSView? {
+        if view.accessibilityIdentifier() == id { return view }
+        for child in view.subviews { if let found = find(id, in: child) { return found } }
+        return nil
     }
 
     @MainActor @Observable final class StyleBox { var style = ChiefPanelStyle.panel }

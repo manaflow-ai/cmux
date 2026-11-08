@@ -19,9 +19,16 @@ public enum ChiefPanelStyle: String, CaseIterable, Sendable {
     case panel
     /// A round button with the Chief's mark; a click grows it into the chat.
     case bubble
+    /// The chat's bubbles over the workspace, as in Messages: no panel glass, a glass plate under the message box.
+    case seeThrough
+    /// The see-through message box alone; it grows into the see-through chat.
+    case seeThroughBar
 
     /// Whether the style rests small and grows into the chat with the keys.
     public var collapses: Bool { self == .composeBar || self == .pill || self == .bubble }
+
+    /// Whether the panel draws no glass behind the chat (the workspace shows between the bubbles).
+    public var isSeeThrough: Bool { false }
 
     /// The style a window uses when the setting is unset or unknown.
     public static let `default` = ChiefPanelStyle.composeBar
