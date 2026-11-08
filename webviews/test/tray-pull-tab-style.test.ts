@@ -16,7 +16,7 @@ function rule(selector: string): string {
 // wider control (review of #36323 at 2c299524).
 describe("tucked hat pull tab count", () => {
   test("shows up to 99, then 99+", async () => {
-    const { pullTabCountText } = await import("../src/agent-session/acpmux/subagents/TrayPullTab");
+    const { pullTabCountText } = await import("../src/agent-session/acpmux/subagents/trayPullTabModel");
     expect(pullTabCountText(1)).toBe("1");
     expect(pullTabCountText(99)).toBe("99");
     expect(pullTabCountText(100)).toBe("99+");
