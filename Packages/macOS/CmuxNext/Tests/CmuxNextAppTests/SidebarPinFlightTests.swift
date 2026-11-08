@@ -256,6 +256,11 @@ struct SidebarPinFlightTests {
     /// The flying view hides what it passes (p1 films 31fec6d8: its title printed over the rows' titles): it draws
     /// above them on an opaque ground of its own while it flies.
     static func checkOpaque(_ name: String, _ view: NSView, failures: inout [String]) {
+        // The next display pass paints the row's own fill (its selection) on its layer: the ground must survive it.
+        if let row = view as? SidebarRowView {
+            row.isSelected = true
+            row.updateLayer()
+        }
         let alpha = view.layer?.backgroundColor?.alpha ?? 0
         if alpha < 1 { failures.append("\(name): flies see-through (ground alpha \(alpha))") }
         if (view.layer?.zPosition ?? 0) < 1 { failures.append("\(name): flies under the rows it passes") }
