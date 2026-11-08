@@ -217,6 +217,14 @@ pub(super) fn create(
             return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
         }
         if let Some(url) = review.filter(|_| run.success) {
+            // In the worktree's own admin folder too, which stays whatever its
+            // HEAD becomes: a detached or switched checkout is still a review's.
+            if let Some(admin) = admin_dir(&attempt.root)
+                && let Err(error) = std::fs::write(admin.join(REVIEW_FILE), url)
+            {
+                let message = format!("{}: {error}", admin.display());
+                return Err(refused(OPERATION, "git_failed", message, Value::Null));
+            }
             let run = git
                 .run(&["config", marker.as_str(), url])
                 .map_err(|failure| run_failed(OPERATION, &failure))?;
@@ -303,6 +311,15 @@ fn setup(mux: &Mux, attempt: &Attempt, common_dir: &Path) -> Value {
 }
 
 /// A linked worktree's own git folder, from its `.git` file.
+/// In a review worktree's admin folder: the pull request it checks out.
+const REVIEW_FILE: &str = "cmux-review";
+
+/// Whether the worktree at `root` was made for a pull request review
+/// (`git.review.start`), whatever its HEAD is now.
+pub(super) fn reviewed(root: &Path) -> bool {
+    admin_dir(root).is_some_and(|admin| admin.join(REVIEW_FILE).is_file())
+}
+
 pub(super) fn admin_dir(root: &Path) -> Option<PathBuf> {
     let link = std::fs::read_to_string(root.join(".git")).ok()?;
     let admin = link.trim().strip_prefix("gitdir:")?.trim();

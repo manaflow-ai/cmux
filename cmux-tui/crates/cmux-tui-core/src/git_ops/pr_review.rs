@@ -411,6 +411,9 @@ fn hunks(
         "--dst-prefix=b/",
         "-M",
         github::CONTEXT_LINES,
+        // GitHub's hunks: a `diff.interHunkContext` the person set would join
+        // two of them, and a line between them would pass as in the diff.
+        "--inter-hunk-context=0",
         base,
         head,
     ];

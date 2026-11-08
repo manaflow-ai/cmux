@@ -79,7 +79,7 @@ pub(super) fn dispatch(
                     worktree_recipe::resolve(mux, Some(&attempt.main_root), &attempt.main_root)
                         .recipe
                         .teardown
-                        .filter(|_| !reviews(&target.repository, attempt.branch.as_deref()));
+                        .filter(|_| !reviews(&target.repository, &attempt));
                 attempt.teardown = script.is_some();
                 journal.start(&fingerprint, &attempt)?;
                 teardown = run_teardown(&attempt, target.git_dir(), script.as_deref());
@@ -111,11 +111,16 @@ pub(super) fn dispatch(
     })
 }
 
-/// Whether `branch` is a pull request review's (`git.review.start` records
-/// `cmuxReview` on it): its checkout is the pull request's code, so the
-/// project's teardown, which can name a script in it, never runs there.
-fn reviews(repository: &Repository, branch: Option<&str>) -> bool {
-    let Some(branch) = branch else { return false };
+/// Whether the worktree is a pull request review's (`git.review.start`
+/// records it in the worktree's admin folder and as `cmuxReview` on its
+/// branch): its checkout is the pull request's code, so the project's
+/// teardown, which can name a script in it, never runs there. Either record
+/// counts, so a detached or switched HEAD keeps it a review's.
+fn reviews(repository: &Repository, attempt: &Attempt) -> bool {
+    if worktree::reviewed(&attempt.root) {
+        return true;
+    }
+    let Some(branch) = attempt.branch.as_deref() else { return false };
     let setting = format!("branch.{branch}.cmuxReview");
     repository
         .run(&["config", "--get", setting.as_str()], 4096)
@@ -247,7 +252,7 @@ fn remove(repository: &Repository, attempt: &Attempt) -> Result<bool, ResourceEr
     // A review's checkout is the pull request's code: `worktree remove`
     // checks it is clean inside it, so its hooks, fsmonitor and filter
     // drivers (the worktree's own included) are off for every run here.
-    let untrusted = if reviews(repository, attempt.branch.as_deref()) {
+    let untrusted = if reviews(repository, attempt) {
         let root = if attempt.root.exists() { &attempt.root } else { &attempt.main_root };
         worktree::untrusted(root)?
     } else {

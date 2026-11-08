@@ -459,6 +459,8 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     // Another branch keeps the pull request's commits, so no `--discard`: the
     // removal checks the checkout is clean.
     git(&checkout, &["branch", "kept", &head]);
+    // Its HEAD detached since: it is still a review's checkout.
+    git(&other_root, &["update-ref", "--no-deref", "HEAD", &head]);
     let remove = ["worktree", "remove", "--idempotency-key", "rm"];
     let removed = git_cli(&server, &other_root, &remove);
     assert_success(&removed);
