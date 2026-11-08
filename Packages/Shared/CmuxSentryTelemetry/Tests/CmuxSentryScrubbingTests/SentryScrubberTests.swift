@@ -114,6 +114,9 @@ import Testing
             scrubber.scrub(#"{"password":"a\"AFTERsecret","n":1}"#) == #"{"password":"<redacted-secret>","n":1}"#
         )
         #expect(scrubber.scrub(#"sid="x'AFTERsecret""#) == #"sid="<redacted-secret>""#)
+        // A backslash before a real newline (a shell line continuation) is an escape too.
+        #expect(scrubber.scrub("password=\"a\\\nAFTERsecret\" next") == "password=\"<redacted-secret>\" next")
+        #expect(scrubber.scrub("sid='a\\\nAFTERsecret' next") == "sid='<redacted-secret>' next")
     }
 
     @Test func leavesWordsThatShareATokenPrefix() {

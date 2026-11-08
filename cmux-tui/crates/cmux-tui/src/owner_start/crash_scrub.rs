@@ -110,6 +110,10 @@ mod tests {
         assert_eq!(scrub(escaped, None), r#"{"password":"<redacted-secret>","n":1}"#);
         let sid = r#"sid="x'AFTERsecret""#;
         assert_eq!(scrub(sid, None), r#"sid="<redacted-secret>""#);
+        // A backslash before a real newline (a shell line continuation) is an escape too.
+        let continued = "password=\"a\\\nAFTERsecret\" next";
+        assert_eq!(scrub(continued, None), r#"password="<redacted-secret>" next"#);
+        assert_eq!(scrub("sid='a\\\nAFTERsecret' next", None), "sid='<redacted-secret>' next");
     }
 
     /// Payment and identity numbers are redacted too: a panic can carry pasted text (cmux#38555
