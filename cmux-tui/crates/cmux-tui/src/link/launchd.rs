@@ -176,7 +176,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("agent.plist");
         let program = Path::new("/Applications/cmux.app/Contents/MacOS/cmux");
-        let (state, lock) = (Path::new("/s/link"), Path::new("/home/.acpmux"));
+        let (state, lock) = (Path::new("/s/link"), Path::new("/lock/dir"));
         assert!(!rewrite_key_lock_dir(&path, state, FLAG, lock).unwrap(), "no agent");
         let old: Vec<String> =
             ["link", "serve", "--state-dir", "/s/link", "--session-socket", "/s.sock"]
@@ -187,7 +187,7 @@ mod tests {
         assert!(rewrite_key_lock_dir(&path, state, FLAG, lock).unwrap());
         let mut wanted = vec![program.to_string_lossy().into_owned()];
         wanted.extend(old.iter().cloned());
-        wanted.extend([FLAG.to_owned(), "/home/.acpmux".to_owned()]);
+        wanted.extend([FLAG.to_owned(), "/lock/dir".to_owned()]);
         assert_eq!(command_of(&path), wanted);
         let written = std::fs::read(&path).unwrap();
         assert!(
