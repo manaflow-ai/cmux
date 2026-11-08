@@ -60,6 +60,20 @@ impl Surface {
             .last_command()
     }
 
+    /// The newest command the terminal's shell finished, read from its screen
+    /// now (`terminal-command-context`); `None` without one to read.
+    pub(crate) fn terminal_command_context(
+        &self,
+    ) -> Option<crate::command_context::CommandContext> {
+        let (read, cwd) = self.with_terminal(|term| {
+            let read = term.last_command_output(crate::command_context::MAX_OUTPUT_ROWS)?;
+            let cwd = term.pwd().as_deref().and_then(crate::shell_history::command_cwd);
+            Some((read, cwd))
+        })??;
+        let exit_code = self.terminal_last_command().and_then(|last| last.exit_code);
+        Some(crate::command_context::CommandContext::new(read, exit_code, cwd))
+    }
+
     /// When the terminal last printed anything: `extra.last_output`
     /// (`terminal-activity-v1`).
     pub(crate) fn terminal_last_output(&self) -> Option<u64> {

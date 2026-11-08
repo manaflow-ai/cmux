@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "1768118a3f6c36eca9967eb1114909809bec1c337cc65d95be19e530da94a705";
+pub const ir_sha256 = "38ca7a14500e41fe8cc4622047c22325eee3956ca45db6a7bfa33779d258fe17";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -2642,6 +2642,37 @@ pub const TerminalColors = struct {
         "overrides",
         "palette",
     };
+};
+
+pub const TerminalCommandContext = struct {
+    command: wire.Nullable([]const u8),
+    cwd: wire.Nullable([]const u8),
+    exit_code: wire.Nullable(i32),
+    output: []const u8,
+    text: []const u8,
+    truncated: bool,
+};
+
+pub const TerminalCommandContextIntent = enum {
+    context,
+    fix,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "context")) return .context;
+        if (std.mem.eql(u8, value, "fix")) return .fix;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .context => "context",
+            .fix => "fix",
+        };
+    }
+};
+
+pub const TerminalCommandContextResult = struct {
+    context: wire.Nullable(TerminalCommandContext),
 };
 
 pub const TerminalCommandDeleteResult = struct {
@@ -9695,6 +9726,28 @@ pub fn terminalClipboardSubscribe(client: anytype, request: TerminalClipboardSub
     );
 }
 
+pub const TerminalCommandContextRequest = struct {
+    intent: ?TerminalCommandContextIntent = null,
+    surface: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "intent",
+    };
+};
+
+pub fn terminalCommandContext(client: anytype, request: TerminalCommandContextRequest) !wire.Decoded(TerminalCommandContextResult) {
+    return client.callTyped(
+        TerminalCommandContextResult,
+        .{
+            .name = "terminal-command-context",
+            .authority = "control",
+            .since = 12,
+            .capability = "terminal-command-context-v1",
+        },
+        request,
+    );
+}
+
 pub const TerminalEventsRequest = struct {
     after_revision: ?u64 = null,
 
@@ -12014,7 +12067,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 295;
+pub const command_count: usize = 296;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -12280,6 +12333,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "swap-pane", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "terminal-clipboard-reply", .authority = "frontend", .since = 12, .capability = "terminal-clipboard-read-v1", .stream = null },
     .{ .name = "terminal-clipboard-subscribe", .authority = "frontend", .since = 12, .capability = "terminal-clipboard-read-v1", .stream = "subscribe" },
+    .{ .name = "terminal-command-context", .authority = "control", .since = 12, .capability = "terminal-command-context-v1", .stream = null },
     .{ .name = "terminal-events", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "terminal-history", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
     .{ .name = "terminal-last-command", .authority = "control", .since = 12, .capability = "terminal-last-command-v1", .stream = null },

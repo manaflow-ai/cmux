@@ -30,6 +30,7 @@ pub mod remote_host;
 pub use cmux_tui_cloud_conversations as cloud_conversations;
 pub mod chief_brains;
 mod chief_registry;
+mod command_context;
 mod conversation_drafts;
 mod conversation_live;
 mod conversation_search;

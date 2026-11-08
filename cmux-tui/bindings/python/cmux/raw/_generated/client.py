@@ -804,6 +804,9 @@ class GeneratedClientMixin:
     def terminal_clipboard_subscribe(self, terminal_ids: List[str]) -> Any:
         return self._open_command_stream('terminal-clipboard-subscribe', TerminalClipboardSubscribeRequest(terminal_ids=terminal_ids))
 
+    def terminal_command_context(self, surface: Id, *, intent: Union[TerminalCommandContextIntent, MissingType] = MISSING) -> TerminalCommandContextResult:
+        return self._invoke_command('terminal-command-context', TerminalCommandContextRequest(surface=surface, intent=intent))
+
     def terminal_events(self, *, after_revision: Union[int, MissingType] = MISSING) -> TerminalEventsResult:
         return self._invoke_command('terminal-events', TerminalEventsRequest(after_revision=after_revision))
 
@@ -1162,6 +1165,7 @@ GeneratedClientMixin.subscribe_activity.__cmux_command__ = COMMANDS['subscribe-a
 GeneratedClientMixin.swap_pane.__cmux_command__ = COMMANDS['swap-pane']
 GeneratedClientMixin.terminal_clipboard_reply.__cmux_command__ = COMMANDS['terminal-clipboard-reply']
 GeneratedClientMixin.terminal_clipboard_subscribe.__cmux_command__ = COMMANDS['terminal-clipboard-subscribe']
+GeneratedClientMixin.terminal_command_context.__cmux_command__ = COMMANDS['terminal-command-context']
 GeneratedClientMixin.terminal_events.__cmux_command__ = COMMANDS['terminal-events']
 GeneratedClientMixin.terminal_history.__cmux_command__ = COMMANDS['terminal-history']
 GeneratedClientMixin.terminal_last_command.__cmux_command__ = COMMANDS['terminal-last-command']

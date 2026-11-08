@@ -321,6 +321,9 @@ fn dispatch_command(
         Command::TerminalLastCommand { surface, terminal_id } => {
             cmd_terminals::terminal_last_command(mux, surface, terminal_id)
         }
+        Command::TerminalCommandContext { surface, intent } => {
+            cmd_terminals::terminal_command_context(mux, surface, intent)
+        }
         Command::TerminalResumeCommand { surface, terminal_id, command } => {
             cmd_terminals::terminal_resume_command(mux, surface, terminal_id, command)
         }
