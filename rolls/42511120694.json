@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42511120694",
+  "recorded_at": "2026-11-08T18:46:21Z",
+  "reason": "cmux-tui 9d2c9bd4aaa9 changes the image's cmux-tui (pinned bc39a31d26b1)",
+  "dry_run": false,
+  "cmux_tui": "9d2c9bd4aaa96e54224de39532fed60f564c9574",
+  "fixes": [
+    {
+      "sha": "9d2c9bd4aaa96e54224de39532fed60f564c9574",
+      "mergedAt": "2026-11-08T10:23:59-08:00",
+      "subject": "Agent chat: relayed sender follow-ups (long names, whole queued text, newest-first hover, unverified marks, narrow chips) (#38642)"
+    },
+    {
+      "sha": "b2fa4cdaf18533ea36813b165cf0024506a677da",
+      "mergedAt": "2026-11-08T10:19:13-08:00",
+      "subject": "agent pane policy: admit _acpmux/memory_resolve (fixes the base red) (#38765)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-08T18:46:21Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
