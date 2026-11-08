@@ -170,6 +170,39 @@ struct Shared<H: Http> {
     /// asked for in an earlier generation is never kept or handed out. Read
     /// without the state's lock under the stop's, at the hand-out.
     generation: AtomicU64,
+    /// Tests: points where a test steps in between two steps of the threads.
+    #[cfg(test)]
+    test_points: TestPoints,
+}
+
+/// Tests: each is run once, where it is named, then cleared.
+#[cfg(test)]
+#[derive(Default)]
+struct TestPoints {
+    /// The socket thread, right before it hands out a ticket.
+    before_handout: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// The fetch thread waits here (its state unlocked) at the top of its
+    /// job loop until the sender sends or is dropped.
+    hold_fetcher: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+    /// The fetch thread, after it took an asker's want and before it asks.
+    before_wanted: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+}
+
+#[cfg(test)]
+impl TestPoints {
+    fn run(point: &Mutex<Option<Box<dyn FnOnce() + Send>>>) {
+        let step = point.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(step) = step {
+            step();
+        }
+    }
+
+    fn hold(&self) {
+        let gate = self.hold_fetcher.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(gate) = gate {
+            let _ = gate.recv();
+        }
+    }
 }
 
 impl<H: Http> Shared<H> {
@@ -236,6 +269,8 @@ impl<H: Http + Send + 'static> CarrierServer<H> {
             }),
             changed: Condvar::new(),
             generation: AtomicU64::new(0),
+            #[cfg(test)]
+            test_points: TestPoints::default(),
         });
         let waking = Arc::clone(&shared);
         resumes.set_waker(Some(Box::new(move || {
@@ -402,7 +437,11 @@ impl<H: Http + Send + 'static> Fetcher<'_, H> {
                     self.start(Task { mint: true, ticket });
                 }
                 Job::Resume => self.resume(),
-                Job::Wanted => self.start(Task::ticket("fetched for an ask", true)),
+                Job::Wanted => {
+                    #[cfg(test)]
+                    TestPoints::run(&self.shared.test_points.before_wanted);
+                    self.start(Task::ticket("fetched for an ask", true));
+                }
                 Job::Refresh => {
                     if self.refreshes >= MAX_REFRESHES {
                         (self.hooks.log)("carrier ticket: the unused ticket lapses");
@@ -425,6 +464,18 @@ impl<H: Http + Send + 'static> Fetcher<'_, H> {
         let shared = Arc::clone(&self.shared);
         let mut state = shared.lock();
         loop {
+            #[cfg(test)]
+            if shared
+                .test_points
+                .hold_fetcher
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .is_some()
+            {
+                drop(state);
+                shared.test_points.hold();
+                state = shared.lock();
+            }
             if state.stopping {
                 return None;
             }
@@ -642,6 +693,8 @@ fn answer<H: Http>(stream: UnixStream, shared: &Shared<H>, stop: &Stop, hooks: H
             drop(stopped);
             continue;
         }
+        #[cfg(test)]
+        TestPoints::run(&shared.test_points.before_handout);
         let _ = write_reply(stream, &reply);
         drop(stopped);
         return (hooks.log)(&note(&reply, kept, started.elapsed()));

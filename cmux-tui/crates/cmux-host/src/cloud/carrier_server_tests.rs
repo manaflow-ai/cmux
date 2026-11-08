@@ -616,3 +616,93 @@ fn a_ticket_asked_for_an_ask_before_a_resume_is_not_handed_out_after_it() {
     assert_ne!(reply["ticket"], "t-1", "the ticket from before the pause was handed out");
     drop(server);
 }
+
+/// Waits for `ok` up to `limit`; whether it held.
+fn holds_within(limit: Duration, mut ok: impl FnMut() -> bool) -> bool {
+    let until = Instant::now() + limit;
+    while !ok() {
+        if Instant::now() >= until {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    true
+}
+
+/// #38593's review (F1): a resume that lands right before the hand-out
+/// (after the socket thread took the kept ticket and checked it) does not
+/// let that ticket out. The ask gets the ticket asked for after the resume.
+#[test]
+fn a_resume_right_before_the_hand_out_does_not_hand_out_the_old_ticket() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, path, live, resumes) = live_server(&dir, 300, Duration::from_secs(5));
+    server.bound(client_with(LiveHttp(Arc::clone(&live))), true);
+    wait_for("the kept ticket", || server.shared.lock().warm.is_some());
+    let shared = Arc::clone(&server.shared);
+    let resuming = Arc::clone(&resumes);
+    *server.shared.test_points.before_handout.lock().unwrap() = Some(Box::new(move || {
+        let before = shared.generation.load(std::sync::atomic::Ordering::SeqCst);
+        resuming.note();
+        wait_for("the resume's generation", || {
+            shared.generation.load(std::sync::atomic::Ordering::SeqCst) != before
+        });
+    }));
+    let reply = ask(&path, r#"{"carrier_ticket": {}}"#);
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_ne!(reply["ticket"], "t-1", "the ticket from before the resume was handed out");
+    assert_eq!(reply["ticket"], "t-2", "{reply}");
+    drop(server);
+}
+
+/// #38593's review (F1): an ask between `bound()` and the fetch thread
+/// taking the bind does not get the kept ticket of the bind before it.
+#[test]
+fn an_ask_before_the_fetch_thread_takes_a_rebind_does_not_get_the_old_ticket() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, path, live, _resumes) = live_server(&dir, 300, Duration::from_secs(5));
+    server.bound(client_with(LiveHttp(Arc::clone(&live))), true);
+    wait_for("the kept ticket", || server.shared.lock().warm.is_some());
+    let (release, gate) = std::sync::mpsc::channel();
+    *server.shared.test_points.hold_fetcher.lock().unwrap() = Some(gate);
+    server.bound(client_with(LiveHttp(Arc::clone(&live))), true);
+    wait_for("the fetch thread held", || {
+        server.shared.test_points.hold_fetcher.lock().unwrap().is_none()
+    });
+    let asking = {
+        let path = path.clone();
+        std::thread::spawn(move || ask(&path, r#"{"carrier_ticket": {}}"#))
+    };
+    std::thread::sleep(Duration::from_millis(200));
+    release.send(()).unwrap();
+    let reply = asking.join().unwrap();
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_ne!(reply["ticket"], "t-1", "the ticket of the bind before was handed out");
+    drop(server);
+}
+
+/// #38593's review (F2): between the fetch thread taking an asker's want and
+/// starting its request, the asker woken again (another ask, any wake) does
+/// not ask a second time: one ask is one ticket request.
+#[test]
+fn an_asker_woken_before_its_request_starts_causes_one_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, path, live, _resumes) = live_server(&dir, 300, Duration::from_secs(5));
+    server.bound(client_with(LiveHttp(Arc::clone(&live))), false);
+    wait_for("the bind", || {
+        let state = server.shared.lock();
+        state.bound && !state.fetching
+    });
+    let shared = Arc::clone(&server.shared);
+    *server.shared.test_points.before_wanted.lock().unwrap() = Some(Box::new(move || {
+        shared.changed.notify_all();
+        let _ = holds_within(Duration::from_millis(500), || shared.lock().want);
+    }));
+    let reply = ask(&path, r#"{"carrier_ticket": {}}"#);
+    assert_eq!(reply["ticket"], "t-1", "{reply}");
+    assert!(
+        !holds_within(Duration::from_millis(500), || live.tickets() > 1),
+        "the one ask asked for {} tickets",
+        live.tickets()
+    );
+    drop(server);
+}
