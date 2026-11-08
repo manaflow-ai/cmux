@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '1768118a3f6c36eca9967eb1114909809bec1c337cc65d95be19e530da94a705'
+IR_SHA256 = 'e7af6076daff4eb4abb7391170e60058b9981e9e9de358d6bb23d5c14eb08d37'
 
 
 @dataclass(frozen=True)
@@ -2520,6 +2520,7 @@ COMMANDS = {
         None,
         {
             'data': CommandFieldMetadata(None, None),
+            'filename': CommandFieldMetadata(None, 'terminal-file-paste-v1'),
             'lease': CommandFieldMetadata(None, None),
             'mime': CommandFieldMetadata(None, None),
             'offset': CommandFieldMetadata(None, None),

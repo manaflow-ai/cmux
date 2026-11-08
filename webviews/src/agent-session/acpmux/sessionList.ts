@@ -2,7 +2,7 @@
 // by project. It follows the acpmux TUI sidebar (crates/acpmux/src/tui/render),
 // so a session reads the same in the terminal and in the pane.
 import { type Translate, translate } from "./i18n";
-import { withoutRelayLabel } from "./conversation/relayEnvelope";
+import { withoutRelayLabel, withoutRelayLabelOfMessage } from "./conversation/relayEnvelope";
 import { readRetry, type RetryState } from "./subagents/retryState";
 import { senderSessionName } from "./senderIdentity";
 import { type SessionUsageStats, usageStatsOf } from "./usageStats";
@@ -445,9 +445,20 @@ export function sessionTitle(
   return session.title?.trim() || firstPrompt(session.lastPrompt) || t("sidebar.newChat");
 }
 
+/// How long acpmux keeps `lastPrompt` (hub/turns.rs `short_text(&line, 200)`), an ellipsis after,
+/// in characters (Rust `chars`, code points here), not UTF-16 units.
+const LAST_PROMPT_CHARS = 200;
+
 /// A chat's first prompt as its title: a lane's message the broker relayed reads as the message,
-/// never the label around it (conversation/relayEnvelope.ts).
-const firstPrompt = (prompt: string | undefined) => withoutRelayLabel(prompt?.trim() ?? "").trim();
+/// never the label around it (conversation/relayEnvelope.ts). `lastPrompt` is the whole prompt on
+/// one line (acpmux hub/turns.rs), so words that only start like a label stay. One cut at acpmux's
+/// limit is a preview, which a long sender's head can run past: a head cut inside itself holds none
+/// of the message and titles nothing (cmux#38642 review).
+const firstPrompt = (prompt: string | undefined) => {
+  const line = prompt?.trim() ?? "";
+  const cut = line.endsWith("…") && Array.from(line).length > LAST_PROMPT_CHARS;
+  return (cut ? withoutRelayLabel(line) : withoutRelayLabelOfMessage(line)).trim();
+};
 
 /// A list's preview text without the broker's label; undefined when none is left.
 const shown = (value: unknown): string | undefined => {

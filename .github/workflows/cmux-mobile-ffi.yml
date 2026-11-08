@@ -27,6 +27,7 @@ on:
     paths:
       - ".github/workflows/cmux-mobile-ffi.yml"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/actions/runner-cargo-home/**"
       - "cmux-tui/Cargo.toml"
       - "cmux-tui/Cargo.lock"
       - "cmux-tui/rust-toolchain.toml"

@@ -7,6 +7,12 @@
 //! `CMUX_SOCKET_PATH`), the app does not know the pane and answered
 //! `caller.found false`. There the innermost multiplexer answers instead
 //! (pane_context.rs). `cmux app identify` and `--app-socket` still ask the app.
+//!
+//! Where no cmux app can be found at all (a headless session on a runner,
+//! `--session NAME` or `CMUX_TUI_SOCKET` naming a session no app owns), the
+//! session daemon answers too: the same identity with `app_connected: false`,
+//! `app: null` and the app's `app_error`, exit 0. Only the app commands need
+//! the app; `identify` says where the caller runs.
 
 use std::io::{BufReader, Write as _};
 use std::path::Path;
@@ -22,13 +28,44 @@ use super::{GlobalArgs, OutputMode};
 /// explicit route; `None` lets the app answer.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, command_args) = super::parse_globals(args).ok()?;
-    if !super::app::is_classic_identify(&command_args) || explicitly_routed(&global) {
+    if !super::app::is_classic_identify(&command_args) {
         return None;
     }
-    let Innermost::SessionPane { socket, terminal } = pane_context::innermost() else {
+    if !explicitly_routed(&global)
+        && let Innermost::SessionPane { socket, terminal } = pane_context::innermost()
+    {
+        return Some(run(&global, &socket, &terminal));
+    }
+    run_headless(&global)
+}
+
+/// `identify` with no cmux app to ask: the session daemon's answer, marked
+/// `app_connected: false`. `None` (the app's own error stands) when an app
+/// socket is found or named, or no session daemon answers either.
+fn run_headless(global: &GlobalArgs) -> Option<i32> {
+    // `--socket` and `--app-socket` name the app socket here, and
+    // `--machine` another machine: those keep the classic answer.
+    if global.socket.is_some() || global.app_socket.is_some() || global.machine.is_some() {
         return None;
-    };
-    Some(run(&global, &socket, &terminal))
+    }
+    let app_error = super::app::command_socket(global).err()?;
+    let (socket, derived) = super::wire::resolve_socket_with_origin(global).ok()?;
+    let terminal = std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| id.starts_with("term_"));
+    let identity = read_identity_at(&socket, derived, terminal.as_deref()).ok()?;
+    Some(print(global, &without_app(identity, &app_error)))
+}
+
+/// `identity` marked as answered with no cmux app: `app_error` is why none
+/// was reached (`app.not_found`, `socket.no_app`).
+fn without_app(mut identity: Value, app_error: &Value) -> Value {
+    if let Some(object) = identity.as_object_mut() {
+        object.insert("app_connected".into(), Value::Bool(false));
+        object.insert("app".into(), Value::Null);
+        let pick = |key: &str| app_error.get(key).cloned().unwrap_or(Value::Null);
+        object
+            .insert("app_error".into(), json!({"code": pick("code"), "message": pick("message")}));
+    }
+    identity
 }
 
 /// A route the caller named keeps its classic meaning (`--socket` and
@@ -42,18 +79,21 @@ fn explicitly_routed(global: &GlobalArgs) -> bool {
 }
 
 fn run(global: &GlobalArgs, socket: &Path, terminal: &str) -> i32 {
-    let identity = match read_identity(socket, terminal) {
-        Ok(identity) => identity,
-        Err(failure) => return failure.report(global.output),
-    };
+    match read_identity(socket, terminal) {
+        Ok(identity) => print(global, &identity),
+        Err(failure) => failure.report(global.output),
+    }
+}
+
+fn print(global: &GlobalArgs, identity: &Value) -> i32 {
     match global.output {
         OutputMode::Human => {
             let mut stdout = std::io::stdout().lock();
-            let _ = stdout.write_all(human(&identity).as_bytes());
+            let _ = stdout.write_all(human(identity).as_bytes());
             let _ = stdout.flush();
             0
         }
-        output => super::wire::print_local_success(&identity, output),
+        output => super::wire::print_local_success(identity, output),
     }
 }
 
@@ -62,20 +102,32 @@ const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// The pane's identity from the daemon at `socket`.
 pub(super) fn read_identity(socket: &Path, terminal: &str) -> Result<Value, Failure> {
-    let stream = cmux_tui_core::server::connect_session_socket(socket, false).map_err(|error| {
-        Failure::Local {
-            error: json!({
-                "code": "socket.unreachable",
-                "message": format!(
-                    "cannot reach this pane's cmux-tui session at {}: {error}",
-                    socket.display()
-                ),
-                "details": {"socket": socket.display().to_string()},
-                "retryable": true,
-            }),
-            exit: 3,
-        }
-    })?;
+    read_identity_at(socket, false, Some(terminal))
+}
+
+/// The identity from the daemon at `socket` (`derived`: a path in cmux's
+/// own runtime directory). With no `terminal`, the caller runs in no cmux
+/// terminal and `caller.found` is false.
+fn read_identity_at(
+    socket: &Path,
+    derived: bool,
+    terminal: Option<&str>,
+) -> Result<Value, Failure> {
+    let stream =
+        cmux_tui_core::server::connect_session_socket(socket, derived).map_err(|error| {
+            Failure::Local {
+                error: json!({
+                    "code": "socket.unreachable",
+                    "message": format!(
+                        "cannot reach this pane's cmux-tui session at {}: {error}",
+                        socket.display()
+                    ),
+                    "details": {"socket": socket.display().to_string()},
+                    "retryable": true,
+                }),
+                exit: 3,
+            }
+        })?;
     let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
     let mut reader = BufReader::new(stream);
     let mut read = |operation, extra: Option<(&str, &str)>| {
@@ -88,14 +140,24 @@ pub(super) fn read_identity(socket: &Path, terminal: &str) -> Result<Value, Fail
     let session = read(ResourceOperation::SessionGet, None)?;
     let machine = read(ResourceOperation::MachineGet, None)?;
     let mut records = CallerRecords::default();
-    let caller = match caller_records(&mut read, terminal, &mut records) {
-        Ok(()) => records.caller(terminal),
-        Err(Failure::Resource(error)) => json!({
+    let caller = match terminal {
+        None => json!({
             "found": false,
-            "terminal_id": terminal,
-            "error": error,
+            "terminal_id": null,
+            "error": {
+                "code": "caller.outside",
+                "message": "this command runs in no cmux terminal (CMUX_TUI_TERMINAL_ID is unset)",
+            },
         }),
-        Err(failure) => return Err(failure),
+        Some(terminal) => match caller_records(&mut read, terminal, &mut records) {
+            Ok(()) => records.caller(terminal),
+            Err(Failure::Resource(error)) => json!({
+                "found": false,
+                "terminal_id": terminal,
+                "error": error,
+            }),
+            Err(failure) => return Err(failure),
+        },
     };
     Ok(identity_value(socket, &session, &machine, caller, outer_app()))
 }
@@ -226,6 +288,9 @@ fn human(identity: &Value) -> String {
         rows.push((labels.terminal, labels.not_found.replace("{why}", why)));
     }
     rows.push((labels.socket, text("/socket_path")));
+    if at("/app_connected").as_bool() == Some(false) {
+        rows.push((labels.app, labels.no_app.to_owned()));
+    }
     if let Some(app) = at("/outer_app/socket_path").as_str() {
         rows.push((labels.outer_app, format!("{app} (`cmux app identify`)")));
     }
@@ -320,6 +385,31 @@ mod tests {
         let text = human(&value);
         assert!(text.contains("session_1 bench"), "{text}");
         assert!(text.contains("/x/cmux.sock (`cmux app identify`)"), "{text}");
+    }
+
+    /// With no app, identify still answers from the daemon and says why no
+    /// app answered.
+    #[test]
+    fn a_headless_identity_says_no_app_answered() {
+        let value = without_app(
+            identity_value(
+                Path::new("/run/cmux-tui/main.sock"),
+                &record(&[("id", "session_1"), ("name", "main")]),
+                &record(&[("id", "machine_1"), ("name", "runner")]),
+                json!({"found": false, "terminal_id": null, "error": {"message": "outside"}}),
+                Value::Null,
+            ),
+            &json!({"code": "app.not_found", "message": "no cmux app found", "details": {}}),
+        );
+        assert_eq!(value["app_connected"], false);
+        assert_eq!(value["app"], Value::Null);
+        assert_eq!(
+            value["app_error"],
+            json!({"code": "app.not_found", "message": "no cmux app found"})
+        );
+        assert_eq!(value["session"]["name"], "main");
+        let text = human(&value);
+        assert!(text.contains(crate::localization::catalog().pane_cli.no_app), "{text}");
     }
 
     /// `machine.get` refuses a session parameter ("unknown parameters").

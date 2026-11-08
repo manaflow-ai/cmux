@@ -59,6 +59,7 @@
 //! found", like `_acpmux/directories`. Agents and MCP get them only through
 //! the `chats.read` scope, which is never granted by default.
 
+mod ledger;
 mod offers;
 mod search;
 mod stats;
@@ -117,6 +118,9 @@ pub(super) async fn route(
     if let Some(reply) = heap(|| super::subsessions::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
+    if let Some(reply) = heap(|| super::races::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
     // So do the forum methods (`forum.rs`): this daemon's own log.
     if let Some(reply) = heap(|| super::forum::dispatch(hub, conn, m, &params)).await {
         return reply;
@@ -136,6 +140,9 @@ pub(super) async fn route(
         return reply;
     }
     if let Some(reply) = super::goal::dispatch(hub, conn, m, &params) {
+        return reply;
+    }
+    if let Some(reply) = heap(|| super::memory_inbox::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
     if let Some(reply) = heap(|| super::workflow_runs::dispatch(hub, conn, m, &params)).await {
@@ -159,6 +166,16 @@ pub(super) async fn route(
     // Personal stats over the session logs (`stats.rs`): local, never a peer's.
     if m == crate::rpc::method::MUX_STATS {
         return stats::handle(hub, conn.origin, &params).await;
+    }
+    // The review queue, review verdicts and the approvals audit trail (`review_queue.rs`).
+    if let Some(reply) =
+        super::review_queue::route(hub, conn.origin, conn.auth, conn.is_person(), m, &params).await
+    {
+        return reply;
+    }
+    // What turns cost (`hub/ledger`): local and the app's pane, never a peer's.
+    if m == crate::rpc::method::MUX_LEDGER {
+        return ledger::handle(hub, conn.origin, &params);
     }
     // A chat's route (`routes.rs`) is a session method, not the chat index.
     if !m.starts_with(PREFIX) || m == crate::rpc::method::MUX_CHAT_ROUTE_SET {

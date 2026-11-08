@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "1768118a3f6c36eca9967eb1114909809bec1c337cc65d95be19e530da94a705";
+pub const ir_sha256 = "e7af6076daff4eb4abb7391170e60058b9981e9e9de358d6bb23d5c14eb08d37";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -7863,6 +7863,7 @@ pub fn parkTabs(client: anytype, request: ParkTabsRequest) !wire.Decoded(ParkTab
 
 pub const PasteImageRequest = struct {
     data: wire.Field([]const u8) = .absent,
+    filename: wire.Field([]const u8) = .absent,
     lease: []const u8,
     mime: wire.Field([]const u8) = .absent,
     offset: wire.Field(u64) = .absent,
@@ -7885,6 +7886,9 @@ pub fn pasteImage(client: anytype, request: PasteImageRequest) !wire.Decoded(Pas
             .authority = "control",
             .since = 12,
             .capability = "terminal-image-paste-v1",
+            .fields = &.{
+                .{ .name = "filename", .since = null, .capability = "terminal-file-paste-v1" },
+            },
         },
         request,
     );

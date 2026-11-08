@@ -21,6 +21,11 @@ public nonisolated protocol TerminalIO: Sendable {
     /// paste.
     func write(_ data: Data) async
 
+    /// This terminal's filesystem lives on another machine. Native pasteboard
+    /// files must be handed to its owner instead of becoming local path text.
+    var uploadsPasteboardFiles: Bool { get }
+    func pasteFiles(_ pasteboard: TerminalFilePaste) async throws
+
     /// Requests this view's grid when it owns canonical geometry. An IO that
     /// sends `.resize` events answers with one once the PTY has the size;
     /// one that does not must apply the size itself (the surface keeps
@@ -82,6 +87,8 @@ public nonisolated protocol TerminalIO: Sendable {
 }
 
 public extension TerminalIO {
+    nonisolated var uploadsPasteboardFiles: Bool { false }
+    nonisolated func pasteFiles(_ pasteboard: TerminalFilePaste) async throws { throw CocoaError(.featureUnsupported) }
     var answersTerminalQueries: Bool { true }
     @MainActor func appliesViewGrid(reporting: Bool) -> Bool { false }
     @MainActor var linkGrids: TerminalLinkGrids? { nil }

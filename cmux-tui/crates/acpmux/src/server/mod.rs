@@ -1683,6 +1683,9 @@ async fn serve_connection_from(
                     }
                 }
                 conn.bind_person(&hub, &m, &mut params);
+                if m == method::INITIALIZE {
+                    requests::note_initialize(&conn, params.as_ref().unwrap_or(&Value::Null));
+                }
                 // Before its reply is built: the reply says whether large messages go compressed.
                 if m == method::INITIALIZE
                     && let Some(wire) = &conn.wire
@@ -1864,6 +1867,11 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     // Attached peer updates retain the raw wire id, but also identify its owner so
     // clients can key live transcripts by the same route as their session rows.
     let routed = |mut params: Value| {
+        if conn.origin != Origin::Peer
+            && let Some(remote) = &ev.remote
+        {
+            races::peer::qualify_event(&remote.peer, &mut params);
+        }
         if let Some(obj) = params.as_object_mut() {
             obj.remove("peer");
             if let Some(remote) = &ev.remote {
@@ -2041,6 +2049,7 @@ pub mod conn_auth;
 mod durable_gate;
 mod ephemeral;
 mod fanout;
+mod fix_from_link;
 mod forum;
 mod media_forward;
 mod mesh_control_send;
@@ -2062,9 +2071,11 @@ mod bg_tasks;
 mod goal;
 pub mod local_app;
 pub(crate) mod machine_health;
+mod memory_inbox;
 mod models_fanout;
 mod new_worktree;
 mod outbound;
+mod review_queue;
 use outbound::{
     OUTBOUND_CONTROL_RESERVE, enqueue_after_controls, enqueue_outbound, enqueue_outbound_locked,
     report_outbound_loss_locked,
@@ -2098,6 +2109,7 @@ mod routes;
 mod secrets;
 mod vault;
 pub(crate) use vault::reply as vault_reply;
+mod races;
 mod session_auth;
 mod session_files;
 mod stream;

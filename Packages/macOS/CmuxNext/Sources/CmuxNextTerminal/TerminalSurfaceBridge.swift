@@ -42,6 +42,7 @@ nonisolated final class SurfaceBridge: @unchecked Sendable {
 /// so a resize never overtakes input typed before it.
 nonisolated enum TerminalOutgoing: Sendable {
     case bytes(Data)
+    case filePaste(TerminalFilePaste)
     case resize(TerminalGridSize, pixelWidth: Int, pixelHeight: Int)
     case focusGained
     /// Take over from the "Sized for" chip.
@@ -64,6 +65,10 @@ nonisolated struct TerminalInputSink: Sendable {
 
     func send(_ data: Data) {
         continuation.yield(.bytes(data))
+    }
+
+    func pasteFiles(_ pasteboard: TerminalFilePaste) {
+        continuation.yield(.filePaste(pasteboard))
     }
 
     func resize(_ grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int) {

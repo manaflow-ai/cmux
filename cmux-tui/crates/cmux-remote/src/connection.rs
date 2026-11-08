@@ -22,6 +22,9 @@ use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits
 
 const TERMINAL_CLOSE_SEND_TIMEOUT: Duration = Duration::from_secs(1);
 const TERMINAL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
+/// How long a probe sent because the network changed may take, write and answer, before the
+/// link is redialed. A route that survived the change answers well within it.
+const NETWORK_CHANGE_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone)]
 pub struct ClientConnectionConfig {
@@ -261,6 +264,9 @@ pub struct ClientConnection {
     /// Bumped by [`ClientConnection::network_changed`]: probes a live link at
     /// once, abandons a dial on the old network and wakes a parked recovery.
     network: watch::Sender<u64>,
+    /// Why the last redial failed, until one succeeds: the reason a waiter
+    /// that runs out of time is given.
+    last_failure: StdMutex<Option<String>>,
 }
 
 #[derive(Clone, Debug)]
@@ -395,6 +401,7 @@ impl ClientConnection {
             state: watch::channel(ConnectionState::Connected).0,
             actions: watch::channel(0).0,
             network: watch::channel(0).0,
+            last_failure: StdMutex::new(None),
         });
         Self::spawn_heartbeat(&connection);
         Ok(connection)
@@ -451,10 +458,15 @@ impl ClientConnection {
         if self.session_unavailable() {
             return Err(ConnectionError::SessionUnavailable);
         }
+        // The published generation, not the session's: replay holds the
+        // session lock for its whole run, and a wait for it would outlive the
+        // deadline, then read the replayed generation and redial a link that
+        // just came back. Read before the state, so a recovery that publishes
+        // in between is either seen as connected or ends `recover_by` at once.
+        let generation = *self.generation.borrow();
         if *self.state.borrow() == ConnectionState::Connected {
             return Ok(());
         }
-        let generation = self.session.read().await.generation();
         self.recover_by(generation, Some(deadline)).await
     }
 
@@ -469,6 +481,16 @@ impl ClientConnection {
         flags: FrameFlags,
     ) -> Result<u64, ConnectionError> {
         self.send_with(None, Some(deadline), lane, stream, payload, flags).await
+    }
+
+    /// Why the last redial failed, or `None` when the link has not failed a
+    /// redial since it last connected.
+    pub fn last_failure(&self) -> Option<String> {
+        self.last_failure.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    fn set_last_failure(&self, failure: Option<String>) {
+        *self.last_failure.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = failure;
     }
 
     /// Whether the daemon refused a reconnect because it no longer has this
@@ -570,7 +592,10 @@ impl ClientConnection {
         payload: Bytes,
         flags: FrameFlags,
     ) -> Result<u64, ConnectionError> {
-        let _lane = self.lane_sends[lane as usize].lock().await;
+        // Another send may hold this lane through an unbounded recovery, and
+        // replay holds the session lock; a send with a deadline waits for
+        // neither past it.
+        let _lane = self.by_deadline(deadline, self.lane_sends[lane as usize].lock()).await?;
         loop {
             if self.closed.load(Ordering::Acquire) {
                 return Err(ConnectionError::Closed);
@@ -578,7 +603,7 @@ impl ClientConnection {
             if self.session_unavailable() {
                 return Err(ConnectionError::SessionUnavailable);
             }
-            let session = self.session.read().await.clone();
+            let session = self.by_deadline(deadline, self.session.read()).await?.clone();
             let generation = session.generation();
             if let Some(expected) = expected_generation
                 && expected != generation
@@ -602,7 +627,7 @@ impl ClientConnection {
                 }
                 Err(error) if reconnectable_session_error(&error) => {
                     self.recover_by(generation, deadline).await?;
-                    let actual = self.session.read().await.generation();
+                    let actual = *self.generation.borrow();
                     if expected_generation.is_some() || !lane.replays_across_generations() {
                         return Err(ConnectionError::GenerationChanged {
                             expected: expected_generation.unwrap_or(generation),
@@ -618,6 +643,30 @@ impl ClientConnection {
                     return Err(error.into());
                 }
             }
+        }
+    }
+
+    /// Await `wait`, but not past `deadline` when there is one: then the
+    /// answer is [`ConnectionError::ReconnectDeadlineExceeded`]. A caller
+    /// with a deadline that waits on a link that is not connected is an
+    /// action, so a parked recovery dials now.
+    async fn by_deadline<T>(
+        &self,
+        deadline: Option<tokio::time::Instant>,
+        wait: impl Future<Output = T>,
+    ) -> Result<T, ConnectionError> {
+        let Some(deadline) = deadline else { return Ok(wait.await) };
+        if *self.state.borrow() != ConnectionState::Connected {
+            self.actions.send_modify(|count| *count = count.wrapping_add(1));
+        }
+        // The deadline is polled first: a wait that is ready at or past it
+        // still loses, so nothing goes on after its deadline.
+        tokio::select! {
+            biased;
+            () = tokio::time::sleep_until(deadline) => {
+                Err(ConnectionError::ReconnectDeadlineExceeded { attempts: 0 })
+            }
+            value = wait => Ok(value),
         }
     }
 
@@ -668,12 +717,18 @@ impl ClientConnection {
     /// application frame or terminal error is deferred, which keeps liveness
     /// independent of caller polling without creating an unbounded side queue.
     async fn probe_liveness(&self, generation: u64, observed: Instant) -> bool {
-        let Ok(_receiving) = self.receiving.try_lock() else {
+        let _receiving = match self.receiving.try_lock() {
+            Ok(receiving) => receiving,
             // An application reader holds the receive side and consumes the
             // answer itself: any frame after the probe proves the link live.
-            // Waiting for its lock instead held every probe to its timeout.
-            self.received_after(observed).await;
-            return true;
+            // Waiting only for its lock held every probe to its timeout. A
+            // reader cancelled before the answer leaves it unread, so the
+            // probe takes the receive side over when that reader lets go.
+            Err(_) => tokio::select! {
+                biased;
+                () = self.received_after(observed) => return true,
+                receiving = self.receiving.lock() => receiving,
+            },
         };
         if self.closed.load(Ordering::Acquire)
             || self.session.read().await.generation() != generation
@@ -1117,6 +1172,8 @@ impl ClientConnection {
             if let Some(hooks) = self.resume_hooks() {
                 hooks.attempt_ended(result.as_ref().map(|_| ()), attempt_started.elapsed());
             }
+            // Every failed redial is the reason the link reports, a gone session too.
+            self.set_last_failure(result.as_ref().err().map(ToString::to_string));
             match result {
                 Ok(()) => {
                     if !self.closed.load(Ordering::Acquire) {
@@ -1135,6 +1192,13 @@ impl ClientConnection {
                         let next = tokio::select! {
                             biased;
                             _ = close_state.changed() => return Err(ConnectionError::Closed),
+                            // Discovery dials relay or peer transports too; one
+                            // on the network that went away is dropped, and the
+                            // new burst below dials the current group at once.
+                            _ = network.changed() => {
+                                network_moved = true;
+                                None
+                            }
                             next = async {
                                 if let Some(deadline) = recovery_deadline
                                     && tokio::time::Instant::now() >= deadline
@@ -1292,12 +1356,12 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
     network.borrow_and_update();
     drop(initial);
     loop {
-        tokio::select! {
+        let network_moved = tokio::select! {
             biased;
             _ = close_state.changed() => return,
-            _ = network.changed() => {}
-            _ = tokio::time::sleep(interval) => {}
-        }
+            _ = network.changed() => true,
+            _ = tokio::time::sleep(interval) => false,
+        };
         let Some(connection) = weak.upgrade() else { return };
         if connection.closed.load(Ordering::Acquire) || connection.session_unavailable() {
             return;
@@ -1314,7 +1378,12 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
         }
         let observed = connection.last_received();
         let generation = connection.session.read().await.generation();
-        let deadline = tokio::time::Instant::now() + timeout;
+        // After a network change the old route may be gone with a write stuck on it: the
+        // probe queues behind that write and never goes out. Waiting the full answer window
+        // for it held a blocked link up to 4 s past the change; give it the short one.
+        let timeout =
+            if network_moved { timeout.min(NETWORK_CHANGE_PROBE_TIMEOUT) } else { timeout };
+        let mut deadline = tokio::time::Instant::now() + timeout;
         let send = connection.send_in_generation(
             Some(generation),
             Lane::Control,
@@ -1322,24 +1391,23 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
             Bytes::new(),
             FrameFlags::HEARTBEAT_REQUEST,
         );
-        let send_result = tokio::select! {
-            biased;
-            result = tokio::time::timeout_at(deadline, send) => result,
-            _ = close_state.changed() => return,
+        let Ok(send_result) = probe_by(send, &mut deadline, &mut network, &mut close_state).await
+        else {
+            return;
         };
         match send_result {
-            Ok(Ok(_)) => {}
-            Ok(Err(_)) => continue,
-            Err(_) => {
+            Some(Ok(_)) => {}
+            Some(Err(_)) => continue,
+            None => {
                 let _ = connection.recover(generation).await;
                 continue;
             }
         }
-        let live = tokio::select! {
-            biased;
-            result = tokio::time::timeout_at(deadline, connection.probe_liveness(generation, observed)) => result.unwrap_or(false),
-            _ = close_state.changed() => return,
+        let answer = connection.probe_liveness(generation, observed);
+        let Ok(live) = probe_by(answer, &mut deadline, &mut network, &mut close_state).await else {
+            return;
         };
+        let live = live.unwrap_or(false);
         if connection.closed.load(Ordering::Acquire)
             || connection.session.read().await.generation() != generation
         {
@@ -1347,6 +1415,30 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
         }
         if !live && connection.last_received() <= observed {
             let _ = connection.recover(generation).await;
+        }
+    }
+}
+
+/// Await one phase of a heartbeat probe until `deadline`: `Ok(None)` when it passes, `Err` when
+/// the connection closes. A network change meanwhile pulls `deadline` in to
+/// [`NETWORK_CHANGE_PROBE_TIMEOUT`] from the change, so a probe already stuck behind a write
+/// on the route that went away does not wait out the full answer window.
+async fn probe_by<T>(
+    phase: impl Future<Output = T>,
+    deadline: &mut tokio::time::Instant,
+    network: &mut watch::Receiver<u64>,
+    close_state: &mut watch::Receiver<CloseState>,
+) -> Result<Option<T>, ()> {
+    tokio::pin!(phase);
+    loop {
+        tokio::select! {
+            biased;
+            result = tokio::time::timeout_at(*deadline, phase.as_mut()) => return Ok(result.ok()),
+            _ = close_state.changed() => return Err(()),
+            Ok(()) = network.changed() => {
+                let short = tokio::time::Instant::now() + NETWORK_CHANGE_PROBE_TIMEOUT;
+                *deadline = (*deadline).min(short);
+            }
         }
     }
 }

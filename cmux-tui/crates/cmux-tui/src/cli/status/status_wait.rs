@@ -168,7 +168,7 @@ fn wait(global: &GlobalArgs, wait: &WaitPlan) -> i32 {
     };
     let deadline = wait.timeout.and_then(|timeout| Instant::now().checked_add(timeout));
     // The caller's terminal names the workspace only on its own session.
-    let caller_route = global.socket.is_none() && global.session.is_none();
+    let caller_route = wire::routes_to_caller_session(global);
     let held = cmux_tui_core::server::connect_session_socket(&socket, derived)
         .map_err(|error| Failure::Local {
             error: json!({

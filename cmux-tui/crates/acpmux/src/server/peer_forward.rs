@@ -88,6 +88,10 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_HANDOFF_DISCARD,
     "_acpmux/peers",
     "_acpmux/peer_status",
+    // This daemon's own queue and audit trail (`hub/review_queue.rs`, `hub/audit_log.rs`).
+    method::MUX_REVIEW_QUEUE,
+    method::MUX_REVIEW_VERDICT,
+    method::MUX_AUDIT,
     // Names a peer machine, never a session (`vm_host.rs`).
     "_acpmux/vm_host",
     // Every live chat on this daemon (`host_notice.rs`).
@@ -929,6 +933,14 @@ async fn forward_inner(
         }
         if purge {
             hub.forget_remote((&peer.name, peer.generation), &id, asked);
+        }
+        // Qualify race references only for the local viewer, after saving the raw peer page.
+        if conn.origin != Origin::Peer
+            && let Some(events) = result.get_mut("events").and_then(Value::as_array_mut)
+        {
+            for event in events {
+                super::races::peer::qualify_event(&peer.name, event);
+            }
         }
         if let Some(obj) = result.as_object_mut() {
             obj.insert("peer".into(), Value::String(peer.name.clone()));

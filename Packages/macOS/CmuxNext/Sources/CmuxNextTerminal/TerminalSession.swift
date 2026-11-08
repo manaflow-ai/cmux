@@ -174,8 +174,6 @@ public final class TerminalSession {
     /// Local-history READYs restored with the surface's own reflowed history
     /// (proves the local path ran in dogfood).
     private(set) var localSnapshots = 0
-    /// Kitty images the owner left out of its image replays (its cap).
-    private(set) var skippedImages = 0
 
     /// Reports a pane that still shows nothing after a reveal (``TerminalBlankWatch``).
     let blankWatch: TerminalBlankWatch
@@ -201,11 +199,17 @@ public final class TerminalSession {
         find.target = self
         view.attachFind(find)
 
-        writerTask = Task.detached(priority: .userInitiated) { [io] in
+        writerTask = Task.detached(priority: .userInitiated) { [io, weak self] in
             for await item in outgoing {
                 switch item {
                 case .bytes(let data):
                     await io.write(data)
+                case .filePaste(let pasteboard):
+                    do { try await io.pasteFiles(pasteboard) }
+                    catch {
+                        if Task.isCancelled { return }
+                        await self?.filePasteFailed()
+                    }
                 case .resize(let grid, let width, let height):
                     await io.resize(cols: grid.columns, rows: grid.rows, pixelWidth: width, pixelHeight: height)
                 case .focusGained:
@@ -332,6 +336,10 @@ public final class TerminalSession {
         text.withCString { pointer in
             ghostty_surface_text(surface, pointer, UInt(text.utf8.count))
         }
+    }
+
+    func enqueueFilePaste(_ pasteboard: TerminalFilePaste) {
+        input.pasteFiles(pasteboard)
     }
 
     /// Downscaled image of the last presented frame, for static previews.
@@ -611,10 +619,6 @@ public final class TerminalSession {
     }
 
     // MARK: From the surface view
-
-    func noteSkippedImages(_ count: Int) {
-        skippedImages += max(0, count)
-    }
 
     func noteLocalSnapshot() {
         localSnapshots += 1

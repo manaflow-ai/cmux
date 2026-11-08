@@ -49,6 +49,8 @@ public nonisolated struct ClassicMigrationPlanner: Sendable {
         /// cmux-next held workspaces before its first migration: classic's
         /// were recorded as seen (``ClassicMigrationPlanner/baseline(_:ledger:)``), none made.
         case inUseBefore
+        /// The person cancelled the launch's import preview (``ClassicMigrationLedger/declinedAt``).
+        case declined
     }
 
     public init() {}
@@ -70,6 +72,8 @@ public nonisolated struct ClassicMigrationPlanner: Sendable {
         guard let ledger else { return classicRunning ? .skip(.classicRunning) : .firstRun }
         // A cut-off run finishes from the save it started with, even while classic runs.
         if ledger.state == .inProgress { return .resume }
+        // A No stands until the person imports by hand.
+        if ledger.declinedAt != nil { return .skip(.declined) }
         if let last = ledger.source, last.isSameSave(as: source) { return .skip(.unchanged) }
         return classicRunning ? .skip(.classicRunning) : .merge
     }
