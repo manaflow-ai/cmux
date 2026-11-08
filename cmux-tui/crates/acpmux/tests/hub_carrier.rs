@@ -26,7 +26,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, watch};
 
 const PERSON_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -532,4 +532,242 @@ async fn hub_carrier_a_replaced_node_key_stops_the_carrier() {
     .expect("the carrier kept serving with a replaced key");
     let refused = carrier.dial(&public(&key)).await.unwrap_err();
     assert!(refused.contains("replaced"), "{refused}");
+}
+
+/// What the tampering relay does to the next record A sends once armed.
+#[derive(Clone, Copy, Debug)]
+enum Tamper {
+    /// Sends the record twice.
+    Duplicate,
+    /// Holds the record and sends it after the one that follows.
+    Reorder,
+}
+
+/// A relay in the middle that replays or reorders A's ciphertext: a TCP proxy that parses the
+/// WebSocket frames A's circuit sends the relay and, once armed, duplicates or swaps whole
+/// binary frames verbatim (each is one Noise record on a `relay+ws` circuit).
+struct TamperProxy {
+    port: u16,
+    armed: Arc<std::sync::Mutex<Option<Tamper>>>,
+}
+
+impl TamperProxy {
+    async fn start(target: SocketAddr) -> Self {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let armed = Arc::new(std::sync::Mutex::new(None));
+        let shared = armed.clone();
+        tokio::spawn(async move {
+            while let Ok((inbound, _)) = listener.accept().await {
+                let Ok(outbound) = tokio::net::TcpStream::connect(target).await else { continue };
+                let armed = shared.clone();
+                tokio::spawn(async move {
+                    let (mut ir, mut iw) = inbound.into_split();
+                    let (or, mut ow) = outbound.into_split();
+                    let mut or = or;
+                    let up = tamper_upstream(&mut ir, &mut ow, &armed);
+                    let down = tokio::io::copy(&mut or, &mut iw);
+                    tokio::select! {
+                        _ = up => {}
+                        _ = down => {}
+                    }
+                });
+            }
+        });
+        Self { port, armed }
+    }
+
+    fn arm(&self, tamper: Tamper) {
+        *self.armed.lock().unwrap() = Some(tamper);
+    }
+}
+
+/// One whole WebSocket frame a client sent: its opcode, its unmasked payload and its bytes.
+fn next_frame(buf: &[u8]) -> Option<(u8, Vec<u8>, usize)> {
+    if buf.len() < 2 {
+        return None;
+    }
+    let opcode = buf[0] & 0x0f;
+    let masked = buf[1] & 0x80 != 0;
+    let (len, mut at) = match buf[1] & 0x7f {
+        126 if buf.len() >= 4 => (u16::from_be_bytes([buf[2], buf[3]]) as usize, 4),
+        127 if buf.len() >= 10 => (u64::from_be_bytes(buf[2..10].try_into().unwrap()) as usize, 10),
+        126 | 127 => return None,
+        n => (n as usize, 2),
+    };
+    let mask = if masked {
+        let key: [u8; 4] = buf.get(at..at + 4)?.try_into().unwrap();
+        at += 4;
+        Some(key)
+    } else {
+        None
+    };
+    let payload = buf.get(at..at + len)?;
+    let payload = match mask {
+        Some(key) => payload.iter().enumerate().map(|(i, b)| b ^ key[i % 4]).collect(),
+        None => payload.to_vec(),
+    };
+    Some((opcode, payload, at + len))
+}
+
+async fn tamper_upstream(
+    from: &mut tokio::net::tcp::OwnedReadHalf,
+    to: &mut tokio::net::tcp::OwnedWriteHalf,
+    armed: &std::sync::Mutex<Option<Tamper>>,
+) {
+    let mut buf = Vec::new();
+    let mut chunk = vec![0u8; 16 * 1024];
+    // Before the HTTP upgrade completes the bytes pass as they are.
+    let mut upgraded = false;
+    // Only A's circuit (the connection whose first control message is `connect`) is tampered.
+    let mut dialer = None;
+    let mut held: Option<Vec<u8>> = None;
+    loop {
+        let n = match from.read(&mut chunk).await {
+            Ok(0) | Err(_) => return,
+            Ok(n) => n,
+        };
+        buf.extend_from_slice(&chunk[..n]);
+        if !upgraded {
+            let Some(end) = buf.windows(4).position(|w| w == b"\r\n\r\n") else { continue };
+            if to.write_all(&buf[..end + 4]).await.is_err() {
+                return;
+            }
+            buf.drain(..end + 4);
+            upgraded = true;
+        }
+        while let Some((opcode, payload, size)) = next_frame(&buf) {
+            let frame: Vec<u8> = buf.drain(..size).collect();
+            if opcode == 1 && dialer.is_none() {
+                dialer = Some(String::from_utf8_lossy(&payload).contains("\"connect\""));
+            }
+            let mut out = vec![frame.clone()];
+            if opcode == 2 && dialer == Some(true) {
+                if let Some(first) = held.take() {
+                    out = vec![frame.clone(), first];
+                } else {
+                    match armed.lock().unwrap().take() {
+                        Some(Tamper::Duplicate) => out = vec![frame.clone(), frame.clone()],
+                        Some(Tamper::Reorder) => {
+                            held = Some(frame.clone());
+                            out = vec![];
+                        }
+                        None => {}
+                    }
+                }
+            }
+            for frame in out {
+                if to.write_all(&frame).await.is_err() {
+                    return;
+                }
+            }
+        }
+    }
+}
+
+/// A relay replaying or reordering A's records ends the stream at B's first check, and what A
+/// sent reaches B's service at most once (the stateless Noise transport's receive nonce must
+/// be the next one, `SecureLink::receive`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_replayed_or_reordered_record_closes_the_stream() {
+    let _ = HERMETIC;
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    let proxy = TamperProxy::start(relay_address).await;
+    let route = format!("relay+ws://127.0.0.1:{}", proxy.port);
+
+    // B's service: answers an `upgrade` line, then counts every request line it runs.
+    let service = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let service_address = service.local_addr().unwrap();
+    let ran: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+    let log = ran.clone();
+    tokio::spawn(async move {
+        while let Ok((conn, _)) = service.accept().await {
+            let log = log.clone();
+            tokio::spawn(async move {
+                let (read, mut write) = conn.into_split();
+                let mut lines = tokio::io::BufReader::new(read).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    if line == "upgrade" {
+                        let _ = write.write_all(b"switched\n").await;
+                    } else {
+                        log.lock().unwrap().push(line);
+                    }
+                }
+            });
+        }
+    });
+
+    let (key_a, key_b) = (random_key(), random_key());
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
+    let carrier_b = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route.clone(),
+            peers: vec![public(&key_a)],
+            asked: AtomicU64::new(0),
+        }),
+        key_b,
+        fast,
+    );
+    let _serving = carrier_b.serve(service_address);
+    let carrier_a = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route,
+            peers: vec![public(&key_b)],
+            asked: AtomicU64::new(0),
+        }),
+        key_a,
+        fast,
+    );
+
+    for (tamper, sent) in [(Tamper::Duplicate, 1), (Tamper::Reorder, 2)] {
+        ran.lock().unwrap().clear();
+        // B registers in the background: dial until it answers.
+        let mut stream = None;
+        for _ in 0..40 {
+            if let Ok(s) = carrier_a.dial(&public(&key_b)).await {
+                stream = Some(s);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+        let stream = stream.expect("A never reached B over the relay");
+        let (read, mut write) = tokio::io::split(stream);
+        let mut lines = tokio::io::BufReader::new(read).lines();
+        write.write_all(b"upgrade\n").await.unwrap();
+        let switched = tokio::time::timeout(Duration::from_secs(10), lines.next_line()).await;
+        assert_eq!(switched.unwrap().unwrap().as_deref(), Some("switched"), "{tamper:?}");
+
+        proxy.arm(tamper);
+        for n in 0..sent {
+            // Separate writes, apart in time, so each line is its own record.
+            let _ = write.write_all(format!("request {n}\n").as_bytes()).await;
+            tokio::time::sleep(Duration::from_millis(150)).await;
+        }
+        // The stream ends: B closed the link at the bad record.
+        let end = tokio::time::timeout(Duration::from_secs(10), lines.next_line())
+            .await
+            .unwrap_or_else(|_| panic!("{tamper:?}: the stream stayed open"));
+        assert!(!matches!(end, Ok(Some(_))), "{tamper:?}: {end:?}");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let ran = ran.lock().unwrap().clone();
+        match tamper {
+            Tamper::Duplicate => assert_eq!(ran, vec!["request 0"], "the request ran twice"),
+            // B refuses the record that arrived first, `request 1`: nothing ran out of order.
+            Tamper::Reorder => assert!(ran.is_empty(), "a reordered request ran: {ran:?}"),
+        }
+    }
 }
