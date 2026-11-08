@@ -181,7 +181,7 @@ keyed! {
     /// `_acpmux/bookmark_set`.
     BookmarkSetParams: ["sessionId", "seq", "bookmarked"];
     /// `_acpmux/btw`.
-    BtwParams: ["sessionId", "question", "model", "inline"];
+    BtwParams: ["sessionId", "question", "model", "inline", "targetHarness"];
     /// `_acpmux/chat/route.set`.
     ChatRouteSetParams: ["sessionId", "routeId", "when"];
     /// `_acpmux/draft_get`.

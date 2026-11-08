@@ -7,9 +7,12 @@ import { fuzzyScore } from "../../viewer-empty/fuzzy";
 import { matchRuns, type FileMatch, type Run } from "./fileSearchModel";
 import { mentionText } from "./mentionMenuModel";
 import { isAgentHome, listed, projectLabel, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
+import type { AcpmuxSnapshot } from "./model";
+import { isModelRouterKind } from "./routerKinds";
 
 export type MentionItem =
   | { kind: "session"; key: string; sessionId: string; title: string; project?: string; name: Run[] }
+  | { kind: "harness"; key: string; harnessId: string; family?: string; name: Run[] }
   | { kind: "folder" | "file"; key: string; path: string; name: Run[]; dir: Run[] };
 
 /// How many chats and folders the picker lists ahead of the files.
@@ -57,7 +60,7 @@ export function loadRecentMentionPaths(scope: string | undefined): RecentMention
 }
 
 export function rememberMentionPath(scope: string | undefined, item: MentionItem): void {
-  if (!scope || item.kind === "session") return;
+  if (!scope || item.kind === "session" || item.kind === "harness") return;
   const picked: RecentMention = { kind: item.kind, path: item.path };
   const next = [
     picked,
@@ -193,6 +196,39 @@ function sessionItems(
 export const hasOtherChats = (sessions: readonly AcpmuxSessionEntry[], chatId: string | undefined) =>
   sessions.some((entry) => entry.sessionId !== chatId && listed(entry));
 
+function harnessItems(
+  catalog: readonly AcpmuxSnapshot["catalog"][number][],
+  query: string,
+): MentionItem[] {
+  const ranked: { entry: AcpmuxSnapshot["catalog"][number]; score: number; indexes: number[]; label: string }[] = [];
+  for (const entry of catalog) {
+    const raw = entry as AcpmuxSnapshot["catalog"][number] & { folder?: { state?: string } };
+    if (
+      !entry.id ||
+      entry.pickable === false ||
+      entry.unavailable && !entry.probeFailed ||
+      entry.kind === "terminal" ||
+      entry.kind === "unknown" ||
+      isModelRouterKind(entry.kind) ||
+      raw.folder?.state && raw.folder.state !== "enabled"
+    )
+      continue;
+    const label = entry.name?.trim() || entry.id;
+    const match = query ? fuzzyIndices(query, label) ?? fuzzyIndices(query, entry.id) : [];
+    if (query && !match) continue;
+    const score = query ? (entry.id.toLowerCase().startsWith(query.toLowerCase()) ? 2 : 1) : 0;
+    ranked.push({ entry, score, indexes: match ?? [], label });
+  }
+  ranked.sort((a, b) => b.score - a.score || a.entry.id.localeCompare(b.entry.id));
+  return ranked.slice(0, 8).map(({ entry, indexes, label }) => ({
+    kind: "harness",
+    key: `harness:${entry.id}`,
+    harnessId: entry.id,
+    family: entry.family,
+    name: textRuns(label, indexes),
+  }));
+}
+
 /// `text` as runs marked matched or not, without splitting it at a slash as a path is.
 function textRuns(text: string, indexes: readonly number[] = []): Run[] {
   const hit = new Set(indexes);
@@ -243,9 +279,11 @@ export function mentionItems({
   sessions: readonly AcpmuxSessionEntry[];
   chatId?: string;
   recent?: readonly RecentMention[];
+  harnesses?: readonly AcpmuxSnapshot["catalog"][number][];
 }): MentionItem[] {
   const text = query.trim();
   const chats = sessionItems(sessions, chatId, text);
+  const harnesses = harnessItems(harnesses ?? [], text);
   const known = new Set(files.map((file) => file.path));
   const matching = (entry: RecentMention) => !text || fuzzyIndices(text, entry.path) !== undefined;
   const recentFiles = recent
@@ -254,7 +292,7 @@ export function mentionItems({
   // A bare @ leads with recent picks; once there is a query, the host's own results come first.
   const allFiles = text ? [...files, ...recentFiles] : [...recentFiles, ...files];
   const searchedFolders = folderItems(allFiles, text);
-  const shownFolders = new Set(searchedFolders.flatMap((item) => (item.kind === "session" ? [] : [item.path])));
+  const shownFolders = new Set(searchedFolders.flatMap((item) => (item.kind === "folder" ? [item.path] : [])));
   const recentFolders = recent
     .filter((entry) => entry.kind === "folder" && !shownFolders.has(entry.path) && matching(entry))
     .map((entry): MentionItem => {
@@ -270,7 +308,7 @@ export function mentionItems({
       ...matchRuns(file.path, file.matches),
     })),
   ];
-  return /[./]/.test(text) ? [...paths, ...chats] : [...chats, ...paths];
+  return /[./]/.test(text) ? [...paths, ...chats, ...harnesses] : [...harnesses, ...chats, ...paths];
 }
 
 /// The row Return or Tab picks: the one the person moved to (by key, so it stays put when the
@@ -287,6 +325,7 @@ export function mentionSelection(items: readonly MentionItem[], activeKey: strin
 /// JSON string so a `"` in it does not end it, and full id, which an agent can look up with cmux
 /// and the transcript links (#22055).
 export function mentionInsert(item: MentionItem): { markdown: string; shown: string } {
+  if (item.kind === "harness") return mentionText(item.harnessId);
   if (item.kind !== "session") return mentionText(item.kind === "folder" ? `${item.path}/` : item.path);
   const shown = `cmux session ${JSON.stringify(item.title)} (${item.sessionId}) `;
   return { markdown: shown.replace(/[\\`*_[\]~<&]/g, "\\$&"), shown };

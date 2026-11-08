@@ -10908,12 +10908,29 @@ export class AcpmuxDirectClient {
   /// sends it only for a chat in the pane's scope (AcpmuxPaneMethods.sessionScoped) and on a click
   /// (its gesture rule), and its reply's session joins the scope, so the host may open it beside
   /// the chat (`chat.sideChat`).
-  async btw(question: string, sessionId = this.actingSessionId): Promise<string> {
+  async btw(question: string, sessionId = this.actingSessionId, targetHarness?: string): Promise<string> {
     if (!sessionId) throw new Error(translate("error.notOpen"));
-    const result = await this.request(SIDE_SESSION_METHOD, { sessionId, question });
+    const result = await this.request(SIDE_SESSION_METHOD, {
+      sessionId,
+      question,
+      ...(targetHarness ? { targetHarness } : {}),
+    });
     // No id: the caller says the side session did not start, without a reason it does not have.
     if (typeof result?.sessionId !== "string" || !result.sessionId) throw new Error("");
     return result.sessionId;
+  }
+  /// One-shot cross-harness guest reply. The daemon creates a fresh read-only side session,
+  /// carries the bounded transcript context, returns its answer, and removes the guest session.
+  async btwInline(question: string, targetHarness: string, sessionId = this.actingSessionId): Promise<string> {
+    if (!sessionId) throw new Error(translate("error.notOpen"));
+    const result = await this.request(SIDE_SESSION_METHOD, {
+      sessionId,
+      question,
+      targetHarness,
+      inline: true,
+    });
+    if (typeof result?.text !== "string" || !result.text.trim()) throw new Error("");
+    return result.text;
   }
   /// The chat's effective prompt context for the Context screen (`_acpmux/context`, acpmux
   /// context_inventory.rs): what cmux adds in full, the harness's own parts as counts.

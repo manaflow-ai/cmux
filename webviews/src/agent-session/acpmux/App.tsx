@@ -626,6 +626,7 @@ import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { BtwNotes } from "./aside/btwNotes";
 import { askBtwQuestion } from "./btwCapability";
+import { SecondOpinionContext } from "./conversation/secondOpinion";
 import { HELD_EFFORT_ID, HELD_FAST_ID, HELD_FAST_ON, isFastModeOption } from "./heldOptions";
 import { clearHeldFork, prepareHeldFork, sendHeldFork } from "./forkHold";
 import { setSuggestedTasks } from "./offer/offersShown";
@@ -3977,6 +3978,40 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const turn = cardEdit.turn;
     if (turn) openDiff(turn.rowId, path);
   };
+  const launchSecondOpinion = useCallback(
+    (rowId: string) => {
+      const sessionId = snapshot.sessionId;
+      const client = directClient.current;
+      if (!sessionId || !client) return;
+      const current = snapshot.summary?.harness;
+      const target =
+        composerSnapshot.catalog.find(
+          (entry) =>
+            entry.id !== current && entry.pickable !== false && (!entry.unavailable || entry.probeFailed),
+        ) ?? composerSnapshot.catalog.find((entry) => entry.pickable !== false);
+      if (!target) return;
+      const files = cardEdit.changes?.files.map((file) => file.path).filter(Boolean).slice(0, 40) ?? [];
+      const question = [
+        "Give a second opinion on the plan and current diff in this chat.",
+        `The relevant turn is ${rowId}.`,
+        files.length > 0 ? `Changed files: ${files.join(", ")}` : undefined,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      const anchor = [...turnRowsShown].reverse().find(
+        (row) => ![WORKING, THINKING, ACTIVITY_LINE, DATE].includes(row.kind),
+      );
+      btwNotes.ask(
+        sessionId,
+        question,
+        anchor,
+        (guestQuestion, guestSession, harness) =>
+          client.btwInline(guestQuestion, harness ?? target.id, guestSession),
+        target.id,
+      );
+    },
+    [cardEdit.changes, composerSnapshot.catalog, snapshot.sessionId, snapshot.summary?.harness, turnRowsShown, btwNotes],
+  );
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   /// For a transcript that acts on nothing live (a replay, a read-only subagent's): its recaps draw
   /// no × (ReadOnlyRecapRow).
@@ -9626,6 +9661,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                         findRef={findRef}
                                                       >
                                                         {(find) => (
+                                                          <SecondOpinionContext.Provider
+                                                            value={quick ? undefined : launchSecondOpinion}
+                                                          >
                                                           <VirtualTranscript
                                                             key={chatPresentation}
                                                             topInset={soloUnder ? tabRow.height : 0}
@@ -9747,6 +9785,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                             onOpenDiff={quick ? undefined : openDiff}
                                                             onToggleActivity={toggleActivity}
                                                           />
+                                                          </SecondOpinionContext.Provider>
                                                         )}
                                                       </ChatFindScope>
                                                       <SelectionReplyChip />
@@ -10330,6 +10369,49 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               }
               // Until acpmux connects nothing takes a prompt; the composer keeps it.
               if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
+              // An installed harness mention is a read-only guest request. Keep the normal send
+              // path untouched for ordinary @text, attachments, or unknown profiles; each known
+              // mention gets one inline guest note anchored at the current transcript tail.
+              if (!chips?.length && snapshot.sessionId && directClient.current) {
+                const mentionPattern = /(^|\s)@([A-Za-z0-9_.:/-]+)(?=\s|$)/g;
+                const mentions = [...text.matchAll(mentionPattern)]
+                  .map((match) => {
+                    const id = match[2]!;
+                    const entry = composerSnapshot.catalog.find(
+                      (candidate) =>
+                        candidate.id.toLowerCase() === id.toLowerCase() &&
+                        candidate.pickable !== false &&
+                        (!candidate.unavailable || candidate.probeFailed),
+                    );
+                    return entry ? { id: entry.id } : undefined;
+                  })
+                  .filter((entry): entry is { id: string } => entry !== undefined);
+                if (mentions.length > 0) {
+                  const changedFiles = cardEdit.changes?.files.map((file) => file.path).filter(Boolean).slice(0, 40) ?? [];
+                  const question = [
+                    text.replace(mentionPattern, " ").trim() || "Review this chat and its current working changes.",
+                    changedFiles.length > 0 ? `Current changed files: ${changedFiles.join(", ")}` : undefined,
+                  ]
+                    .filter(Boolean)
+                    .join("\n\n");
+                  const anchor = [...turnRowsShown].reverse().find(
+                    (row) => ![WORKING, THINKING, ACTIVITY_LINE, DATE].includes(row.kind),
+                  );
+                  for (const mention of mentions) {
+                    const client = directClient.current;
+                    btwNotes.ask(
+                      snapshot.sessionId,
+                      question,
+                      anchor,
+                      (guestQuestion, guestSession, harness) =>
+                        client?.btwInline(guestQuestion, harness ?? mention.id, guestSession) ??
+                        Promise.reject(new Error(translate("error.notOpen"))),
+                      mention.id,
+                    );
+                  }
+                  return true;
+                }
+              }
               // A held pick of another harness's model (forkHold.ts; Leo 2026-11-06: "it should only
               // need to necessarily fork when you enter a message on that new model"): this message
               // forks the chat there through Continue In…, whose review it joins, and the model lands

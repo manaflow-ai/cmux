@@ -111759,6 +111759,18 @@
         }
       }
     },
+    "edited.secondOpinion": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Second opinion"
+          }
+        }
+      }
+    },
     "edited.viewDiff": {
       "comment": "Agent pane",
       "extractionState": "manual",

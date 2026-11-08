@@ -1226,7 +1226,7 @@ function ComposerFrame({
   const chatId = snapshot.summary?.sessionId;
   const otherChats = useMemo(() => hasOtherChats(snapshot.sessions, chatId), [snapshot.sessions, chatId]);
   const mentionTyped =
-    !open && !recalling && (searchFiles || otherChats) && mentionDismissed !== text
+    !open && !recalling && (searchFiles || otherChats || snapshot.catalog.length > 0) && mentionDismissed !== text
       ? mentionQuery(text, markdownOffset(text, caret))
       : undefined;
   const mentionWord = mentionTyped?.query;
@@ -1246,8 +1246,9 @@ function ComposerFrame({
             recent: loadRecentMentionPaths(recentScope),
             sessions: snapshot.sessions,
             chatId,
+            harnesses: snapshot.catalog,
           }),
-    [mentionWord, mentionFiles, snapshot.sessions, chatId, recentScope],
+    [mentionWord, mentionFiles, snapshot.sessions, snapshot.catalog, chatId, recentScope],
   );
   // A chat whose folder cannot be searched (a remote chat) opens the picker only on a matching
   // chat; it never hints at a file search.
