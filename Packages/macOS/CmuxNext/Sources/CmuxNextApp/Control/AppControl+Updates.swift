@@ -73,15 +73,6 @@ extension AppControl {
         }
         #if DEBUG
         service?.router.register([
-            // `debug.update_surfaces {action}`: for proofs, on the active window's
-            // sidebar. "show-popover" (default) opens the staged-update highlights
-            // popover (the React surface); "state" reads which update pages the
-            // sidebar holds and the web views under it; "dismiss-updated" runs
-            // the Updated card's x (cx-asynu). "sidebar-width" {width} sets the
-            // active window's sidebar width (narrow-sidebar shots; answers the
-            // previous width, to restore it); "open-changes"
-            // runs the staged card's "See all changes" (its intent) and
-            // "open-whats-new" the Updated card's "See What's New" (cx-7rone).
             .mainActor("debug.update_surfaces") { [weak services = appServices] call in
                 guard let services, let sidebar = services.windows.active?.sidebar.container.sidebarView else {
                     throw ControlError.invalidParams("debug.update_surfaces: no active window")
@@ -135,6 +126,15 @@ extension AppControl {
                     let firstMouse = hit?.acceptsFirstMouse(for: nil) ?? false
                     return .value(.object(["chain": .array(chain), "inUpdatedPage": .bool(inPage), "onUpdatedClose": .bool(onClose),
                                            "acceptsFirstMouse": .bool(firstMouse)]))
+                case "probe":
+                    // SCRATCH readback probe (never landed): evaluates `js` in the Updated card's page.
+                    guard let web = (sidebar.debugUpdatedPageView as? PageWebView)?.webKitView,
+                          let js = call.params["js"]?.stringValue else { throw ControlError.invalidParams("probe: no page or js") }
+                    let pressed = NSEvent.pressedMouseButtons
+                    return .followUp { @MainActor in
+                        let value = try? await web.evaluateJavaScript(js)
+                        return .object(["pressed": .number(Double(pressed)), "value": .string(value.map { "\($0)" } ?? "nil")])
+                    }
                 case "dismiss-updated":
                     services.updater.whatsNew.dismissUpdated()
                     return .value(.null)
