@@ -28,7 +28,9 @@ whats-new-gallery.yml runs this on each push to feat-cmux-next that changes a hi
   the one case per planned state, named HIGHLIGHT--ROLE; with `--parent SHA`, from the cases of the
   checkout at SHA, the befores rendered there (the same state, else the entry's first one);
 - scripts/gallery-matrix/runner.ts renders them in Chromium;
-- `publish` reads each picture through scripts/pr-media.py's privacy check (a refusal uploads
+- `publish` crops each picture to what it shows (the stage's empty background off, a small margin
+  kept; an after and its before to the same box, so they line up), then reads it through
+  scripts/pr-media.py's privacy check (a refusal uploads
   nothing) and puts it at release-notes.py's gallery_url, whats-new/ID/gallery-KEY-ROLE.png.
 
 The next nightly's notes find the pictures there (release-notes.py add_gallery_media). Only the
@@ -43,11 +45,13 @@ import importlib.util
 import json
 from pathlib import Path
 import re
+import struct
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
+import zlib
 
 ROOT = Path(__file__).resolve().parents[3]
 REPO = "manaflow-ai/cmux"
@@ -229,6 +233,102 @@ def manifest(rows: list[dict], cases: list[dict], parent: str | None = None) -> 
     return out, missing
 
 
+# The component frame renders the entry on a pane-wide stage, so most of a picture is the stage's
+# empty background. `publish` keeps what differs from it, plus MARGIN device pixels.
+MARGIN = 32
+TOLERANCE = 6
+PNG = b"\x89PNG\r\n\x1a\n"
+
+
+def png_read(data: bytes) -> tuple[int, int, int, list[bytearray]] | None:
+    """(width, height, channels, rows) of an 8-bit, non-interlaced RGB or RGBA PNG (what the
+    runner writes), else None."""
+    if not data.startswith(PNG):
+        return None
+    pos, idat, head = 8, [], None
+    while pos + 8 <= len(data):
+        size, kind = struct.unpack(">I4s", data[pos:pos + 8])
+        body = data[pos + 8:pos + 8 + size]
+        if kind == b"IHDR":
+            head = struct.unpack(">IIBBBBB", body)
+        elif kind == b"IDAT":
+            idat.append(body)
+        pos += 12 + size
+    if head is None or head[2] != 8 or head[3] not in (2, 6) or head[6] != 0:
+        return None
+    width, height, channels = head[0], head[1], 3 if head[3] == 2 else 4
+    raw, stride, rows, prior = zlib.decompress(b"".join(idat)), width * channels, [], bytearray(width * channels)
+    for y in range(height):
+        kind, line = raw[y * (stride + 1)], bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
+        for i in range(stride):
+            left = line[i - channels] if i >= channels else 0
+            up = prior[i]
+            if kind == 1:
+                line[i] = (line[i] + left) & 255
+            elif kind == 2:
+                line[i] = (line[i] + up) & 255
+            elif kind == 3:
+                line[i] = (line[i] + ((left + up) >> 1)) & 255
+            elif kind == 4:
+                corner = prior[i - channels] if i >= channels else 0
+                guess = left + up - corner
+                pa, pb, pc = abs(guess - left), abs(guess - up), abs(guess - corner)
+                line[i] = (line[i] + (left if pa <= pb and pa <= pc else up if pb <= pc else corner)) & 255
+        rows.append(line)
+        prior = line
+    return width, height, channels, rows
+
+
+def png_write(width: int, height: int, channels: int, rows: list[bytearray]) -> bytes:
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+    head = struct.pack(">IIBBBBB", width, height, 8, 2 if channels == 3 else 6, 0, 0, 0)
+    raw = b"".join(b"\0" + bytes(row) for row in rows)
+    return PNG + chunk(b"IHDR", head) + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b"")
+
+
+def content_box(width: int, height: int, channels: int, rows: list[bytearray]) -> tuple[int, int, int, int] | None:
+    """(left, top, right, bottom) of what differs from the background, the commonest colour on
+    the picture's edge; None for a picture with nothing on it."""
+    def pixel(row, x):
+        return tuple(row[x * channels:x * channels + 3])
+    edge = [pixel(rows[0], x) for x in range(width)] + [pixel(rows[-1], x) for x in range(width)]
+    edge += [pixel(row, 0) for row in rows] + [pixel(row, width - 1) for row in rows]
+    background = max(set(edge), key=edge.count)
+    left, top, right, bottom = width, height, -1, -1
+    for y, row in enumerate(rows):
+        hits = [x for x in range(width)
+                if any(abs(row[x * channels + c] - background[c]) > TOLERANCE for c in range(3))]
+        if hits:
+            left, right = min(left, hits[0]), max(right, hits[-1])
+            top, bottom = min(top, y), y
+    return None if right < 0 else (left, top, right + 1, bottom + 1)
+
+
+def crop_pictures(paths: list[Path], out: Path) -> list[Path]:
+    """Each picture cropped to the union of their content boxes plus MARGIN, written under `out`;
+    a picture that is not a plain PNG or the same size as the others is kept as it is."""
+    read = {path: png_read(path.read_bytes()) for path in paths}
+    sizes = {(png[0], png[1]) for png in read.values() if png}
+    boxes = [content_box(*png) for png in read.values() if png]
+    boxes = [box for box in boxes if box]
+    if len(sizes) != 1 or not boxes or None in read.values():
+        return paths
+    width, height = sizes.pop()
+    left = max(0, min(b[0] for b in boxes) - MARGIN)
+    top = max(0, min(b[1] for b in boxes) - MARGIN)
+    right = min(width, max(b[2] for b in boxes) + MARGIN)
+    bottom = min(height, max(b[3] for b in boxes) + MARGIN)
+    out.mkdir(parents=True, exist_ok=True)
+    cropped = []
+    for path, (_, _, channels, rows) in read.items():
+        target = out / path.name
+        target.write_bytes(png_write(right - left, bottom - top, channels,
+                                     [row[left * channels:right * channels] for row in rows[top:bottom]]))
+        cropped.append(target)
+    return cropped
+
+
 def publish(rows: list[dict], results: Path) -> list[str]:
     pr_media = _load("pr_media_tool", ROOT / "scripts/pr-media.py")
     files = []
@@ -239,6 +339,13 @@ def publish(rows: list[dict], results: Path) -> list[str]:
             problems.append(f"{row['id']} {row['role']}: {row['state']} did not render")
             continue
         files.append((row, local))
+    # An after and its before share one box, so the What's New pair lines up.
+    by_highlight: dict[str, list[tuple[dict, Path]]] = {}
+    for row, local in files:
+        by_highlight.setdefault(row["id"], []).append((row, local))
+    files = [pair for group in by_highlight.values()
+             for pair in zip([row for row, _ in group],
+                             crop_pictures([local for _, local in group], results / "cropped"))]
     if files:
         if pr_media.privacy_module().ocr_binary() is None:
             raise SystemExit("whats-new-gallery: publish reads every picture first, and no OCR is set up")
