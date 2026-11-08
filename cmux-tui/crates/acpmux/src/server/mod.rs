@@ -1683,6 +1683,9 @@ async fn serve_connection_from(
                     }
                 }
                 conn.bind_person(&hub, &m, &mut params);
+                if m == method::INITIALIZE {
+                    requests::note_initialize(&conn, params.as_ref().unwrap_or(&Value::Null));
+                }
                 // Before its reply is built: the reply says whether large messages go compressed.
                 if m == method::INITIALIZE
                     && let Some(wire) = &conn.wire
@@ -2046,6 +2049,7 @@ pub mod conn_auth;
 mod durable_gate;
 mod ephemeral;
 mod fanout;
+mod fix_from_link;
 mod forum;
 mod media_forward;
 mod mesh_control_send;
@@ -2069,6 +2073,7 @@ pub mod local_app;
 pub(crate) mod machine_health;
 mod memory_inbox;
 mod models_fanout;
+mod review_queue;
 mod new_worktree;
 mod project_new;
 mod outbound;

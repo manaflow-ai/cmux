@@ -241,6 +241,18 @@ pub fn with_subagent(mut provenance: Value, params: &Value) -> Value {
     provenance
 }
 
+/// Set beside [`FROM_SUBAGENT`] when the subagent's message starts a turn of a lane of its own
+/// lead: that turn's answer reaches the subagent (`hub/lane_report_subagents.rs`).
+pub const SUBAGENT_GETS_REPLY: &str = "subagentGetsReply";
+
+/// `provenance` marked [`SUBAGENT_GETS_REPLY`] when it names a subagent ([`FROM_SUBAGENT`]).
+pub fn subagent_gets_reply(mut provenance: Value) -> Value {
+    if provenance.get(FROM_SUBAGENT).is_some() {
+        provenance.set(SUBAGENT_GETS_REPLY, json!(true));
+    }
+    provenance
+}
+
 /// The subagent a send names (`_meta.acpmux.callerSubagent`), `{id, type}`, when both are plain
 /// words (`cli::sender::subagent_word`).
 pub fn subagent_of(params: &Value) -> Option<Value> {

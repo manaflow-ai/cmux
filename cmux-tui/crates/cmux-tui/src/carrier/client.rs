@@ -45,8 +45,7 @@ use zeroize::Zeroizing;
 
 use super::answer::{CarrierAnswer, CarrierSource, Prefetched, SourceError, TicketCache};
 use super::contract::{
-    Backoff, Failure, MAX_FRESH_SESSIONS, Phase, PhaseTimes, PhasesOf, Step, phases_line,
-    route_line,
+    Backoff, Failure, FreshSessions, Phase, PhaseTimes, PhasesOf, Step, phases_line, route_line,
 };
 
 /// The relay's frame bound for a carrier (the Mac's remote client uses the same).
@@ -83,6 +82,8 @@ pub(super) struct DialPlan {
     /// Where each attempt's phases line goes: the connect log only, never
     /// stderr ([`phases_line`]).
     pub phases: Arc<dyn Fn(String) + Send + Sync>,
+    /// The dial's fresh sessions, shared with the caller's own retries.
+    pub fresh_sessions: FreshSessions,
 }
 
 /// A failure of the connection step: a provider error is the relay's (or,
@@ -479,7 +480,6 @@ pub(super) async fn dial(
     let resume = Arc::new(Resume { machine: plan.machine.clone(), log: plan.log.clone() });
     let mut backoff = Backoff::default();
     let mut attempts = 0_u32;
-    let mut fresh_sessions = 0_u32;
     loop {
         attempts += 1;
         let started = Instant::now();
@@ -509,8 +509,7 @@ pub(super) async fn dial(
             return Err(failure);
         }
         if failure.fresh_session {
-            fresh_sessions += 1;
-            if fresh_sessions > MAX_FRESH_SESSIONS {
+            if !plan.fresh_sessions.take() {
                 return Err(Failure { retryable: false, fresh_session: false, ..failure });
             }
             // The daemon is up and answered: no backoff.
