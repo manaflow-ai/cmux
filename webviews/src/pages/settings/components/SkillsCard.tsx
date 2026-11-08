@@ -200,7 +200,7 @@ export function SkillsPanel({
               <NewSkillForm
                 key={creating ? "open" : "closed"}
                 state={state}
-                busy={busy === "create"}
+                busy={busy === "create" || !creating}
                 onCancel={() => setCreating(false)}
                 onCreate={async (draft) => {
                   const reply = await gesture("create", { action: "create", ...draft });
@@ -420,7 +420,7 @@ const SkillRow = memo(function SkillRow({
           onClick={() => onExpand(skill.id)}
         >
           <span className="row-title">{skill.name}</span>
-          <span className="row-help skills-description" title={text}>
+          <span className="row-help selectable skills-description" title={text}>
             {text}
           </span>
         </button>
@@ -465,7 +465,7 @@ const SkillTile = memo(function SkillTile({
         <span className="row-title">{skill.name}</span>
         <SkillSwitch skill={skill} busy={busy} actions={actions} />
       </div>
-      <span className="row-help skills-tile-description" title={text}>
+      <span className="row-help selectable skills-tile-description" title={text}>
         {text}
       </span>
       <div className="skills-tile-foot">

@@ -140,127 +140,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Every skill your coding agents load on this Mac, by where it comes from."
+            "value": "Every skill your agents load on this Mac, by source."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "كل مهارة يحمّلها وكلاء البرمجة على هذا الماك، حسب مصدرها."
+            "value": "كل مهارة يحمّلها وكلاؤك على هذا الماك، حسب المصدر."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Svaka vještina koju vaši agenti za kodiranje učitavaju na ovom Macu, prema izvoru."
+            "value": "Vještine koje vaši agenti učitavaju na ovom Macu, po izvoru."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alle færdigheder, dine kodeagenter indlæser på denne Mac, efter hvor de kommer fra."
+            "value": "Agenternes færdigheder på denne Mac, efter kilde."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alle Skills, die deine Coding-Agents auf diesem Mac laden, nach ihrer Herkunft."
+            "value": "Alle Skills deiner Agents auf diesem Mac, nach Quelle."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Todas las habilidades que cargan tus agentes de código en este Mac, según su origen."
+            "value": "Las habilidades de tus agentes en este Mac, por origen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toutes les compétences que vos agents de code chargent sur ce Mac, selon leur provenance."
+            "value": "Les compétences de vos agents sur ce Mac, par source."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tutte le skill che i tuoi agenti di programmazione caricano su questo Mac, per provenienza."
+            "value": "Le skill dei tuoi agenti su questo Mac, per origine."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac でコーディングエージェントが読み込むすべてのスキル（入手元別）。"
+            "value": "この Mac でエージェントが読み込むすべてのスキル（入手元別）。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ជំនាញទាំងអស់ដែលភ្នាក់ងារសរសេរកូដរបស់អ្នកផ្ទុកនៅលើ Mac នេះ តាមប្រភព។"
+            "value": "ជំនាញដែលភ្នាក់ងាររបស់អ្នកផ្ទុកនៅលើ Mac នេះ តាមប្រភព។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Mac에서 코딩 에이전트가 불러오는 모든 스킬(출처별)."
+            "value": "이 Mac에서 에이전트가 불러오는 모든 스킬(출처별)."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alle ferdighetene kodeagentene dine laster på denne Macen, etter hvor de kommer fra."
+            "value": "Agentenes ferdigheter på denne Macen, etter kilde."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wszystkie umiejętności, które Twoi agenci kodujący wczytują na tym Macu, według źródła."
+            "value": "Umiejętności Twoich agentów na tym Macu, według źródła."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Todas as habilidades que seus agentes de código carregam neste Mac, por origem."
+            "value": "As habilidades dos seus agentes neste Mac, por origem."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Все навыки, которые ваши агенты для кода загружают на этом Mac, по источнику."
+            "value": "Навыки ваших агентов на этом Mac, по источнику."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ทักษะทั้งหมดที่เอเจนต์เขียนโค้ดโหลดบน Mac เครื่องนี้ แยกตามที่มา"
+            "value": "ทักษะที่เอเจนต์โหลดบน Mac เครื่องนี้ แยกตามที่มา"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kodlama ajanlarınızın bu Mac’te yüklediği tüm beceriler, kaynağına göre."
+            "value": "Ajanlarınızın bu Mac’teki tüm becerileri, kaynağa göre."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Усі навички, які ваші агенти для коду завантажують на цьому Mac, за джерелом."
+            "value": "Навички ваших агентів на цьому Mac, за джерелом."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mọi kỹ năng mà các tác nhân lập trình tải trên máy Mac này, theo nguồn."
+            "value": "Mọi kỹ năng các tác nhân tải trên máy Mac này, theo nguồn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "编码代理在这台 Mac 上加载的所有技能，按来源分组。"
+            "value": "代理在这台 Mac 上加载的所有技能，按来源分组。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "編碼代理在這台 Mac 上載入的所有技能，依來源分組。"
+            "value": "代理在這台 Mac 上載入的所有技能，依來源分組。"
           }
         }
       }
@@ -1880,7 +1880,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kleinbuchstaben, Ziffern und Bindestriche, höchstens 64 Zeichen."
+            "value": "Kleinbuchstaben, Ziffern und Bindestriche, max. 64 Zeichen."
           }
         },
         "es": {
@@ -2936,7 +2936,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stattdessen wird ein anderer Skill mit demselben Namen verwendet."
+            "value": "Ein gleichnamiger Skill wird stattdessen verwendet."
           }
         },
         "es": {
@@ -2984,7 +2984,7 @@
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zamiast niej używana jest inna umiejętność o tej samej nazwie."
+            "value": "Używana jest inna umiejętność o tej samej nazwie."
           }
         },
         "pt-BR": {
@@ -4112,37 +4112,37 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vještine se prikazuju ovdje kada se poveže cmux server ovog Maca."
+            "value": "Vještine se prikazuju ovdje kada se poveže cmux server."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Færdigheder vises her, når denne Macs cmux-server er forbundet."
+            "value": "Færdigheder vises her, når cmux-serveren er forbundet."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skills erscheinen hier, sobald der cmux-Server dieses Macs verbunden ist."
+            "value": "Skills erscheinen, sobald der cmux-Server verbunden ist."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las habilidades aparecen aquí cuando el servidor de cmux de este Mac está conectado."
+            "value": "Las habilidades aparecen al conectar el servidor de cmux."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les compétences s’affichent ici une fois le serveur cmux de ce Mac connecté."
+            "value": "Compétences visibles une fois le serveur cmux connecté."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le skill compaiono qui quando il server cmux di questo Mac è connesso."
+            "value": "Le skill compaiono qui quando il server cmux è connesso."
           }
         },
         "ja": {
@@ -4166,49 +4166,49 @@
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ferdigheter vises her når denne Macens cmux-server er tilkoblet."
+            "value": "Ferdigheter vises her når cmux-serveren er tilkoblet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Umiejętności pojawią się tu po połączeniu serwera cmux tego Maca."
+            "value": "Umiejętności pojawią się tu po połączeniu serwera cmux."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "As habilidades aparecem aqui quando o servidor cmux deste Mac estiver conectado."
+            "value": "As habilidades aparecem quando o servidor cmux conectar."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Навыки появятся здесь, когда сервер cmux этого Mac подключится."
+            "value": "Навыки появятся здесь, когда подключится сервер cmux."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ทักษะจะแสดงที่นี่เมื่อเซิร์ฟเวอร์ cmux ของ Mac เครื่องนี้เชื่อมต่อแล้ว"
+            "value": "ทักษะจะแสดงที่นี่เมื่อเซิร์ฟเวอร์ cmux เชื่อมต่อแล้ว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu Mac’in cmux sunucusu bağlandığında beceriler burada görünür."
+            "value": "cmux sunucusu bağlandığında beceriler burada görünür."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Навички з’являться тут, коли сервер cmux цього Mac підключиться."
+            "value": "Навички з’являться тут, коли підключиться сервер cmux."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kỹ năng sẽ hiện ở đây khi máy chủ cmux của máy Mac này được kết nối."
+            "value": "Kỹ năng sẽ hiện ở đây khi máy chủ cmux được kết nối."
           }
         },
         "zh-Hans": {

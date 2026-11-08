@@ -2512,10 +2512,3 @@ button.menu-disclosure {
   width: 64%;
 }
 
-/* The skeleton breathes on the shared clock (desktop.css), and holds still under Reduce Motion or
-   Settings > Static status indicators. */
-@media (prefers-reduced-motion: no-preference) {
-  :root:not([data-status-indicators="static"]) .skills-skeleton-line {
-    animation: cmux-breathe var(--cmux-breath-period, 2.4s) var(--cmux-ease-out) infinite;
-  }
-}
