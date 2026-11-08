@@ -23,8 +23,8 @@ import { createOnBar, groupChildren, menuRows, moveOnBar, type MenuRow, type Men
 export const BarOps = {
   /** `{browser_profile_id, parent, depth?, limit?}` → `{bookmarks_revision, bookmarks, total, truncated}`. */
   children: "cmux.bookmarks.children",
-  /** `{title, anchor: {x, y, width, height}, rows}`: the host pops a native menu under `anchor`
-   * and opens what the person picks there. */
+  /** `{profile, title, anchor: {x, y, width, height}, rows}`: the host pops a native menu under
+   * `anchor` and opens what the person picks there; it drops one for a profile it left. */
   menu: "cmux.bookmarksBar.menu",
   /** `{bookmark?, point: {x, y}}`: the registry's Bookmark (or Bookmarks Bar) menu at `point`. */
   contextMenu: "cmux.bookmarksBar.contextMenu",
@@ -267,44 +267,49 @@ export class BookmarksBarStore {
 
   /** A folder's native menu under `anchor`: its subtree read now, so the menu is the stored one. */
   async openFolder(folder: Bookmark, anchor: Anchor, title: string): Promise<void> {
-    const groups = await this.subtree(folder.id);
-    if (!groups) return;
-    await this.showMenu(title, anchor, menuRows(groups, folder.id, this.words));
+    const read = await this.subtree(folder.id);
+    if (!read) return;
+    await this.showMenu(read.profile, title, anchor, menuRows(read.groups, folder.id, this.words));
   }
 
   /** Other Bookmarks' menu. */
   async openOther(anchor: Anchor): Promise<void> {
-    const groups = await this.subtree("other");
-    if (!groups) return;
-    await this.showMenu(this.snapshot.otherTitle, anchor, menuRows(groups, "other", this.words));
+    const read = await this.subtree("other");
+    if (!read) return;
+    await this.showMenu(read.profile, this.snapshot.otherTitle, anchor, menuRows(read.groups, "other", this.words));
   }
 
   /** The chevron's menu: the bar items past the first `shown`, folders with their contents. The
    * subtree is read on the click, so a bar longer than one read's rows lists them all. */
   async openOverflow(shown: number, anchor: Anchor, title: string): Promise<void> {
-    const groups = await this.subtree("bar");
-    if (!groups) return;
-    const hidden = (groups.get("bar") ?? []).slice(shown);
-    await this.showMenu(title, anchor, menuRows(groups, null, this.words, hidden));
+    const read = await this.subtree("bar");
+    if (!read) return;
+    const hidden = (read.groups.get("bar") ?? []).slice(shown);
+    await this.showMenu(read.profile, title, anchor, menuRows(read.groups, null, this.words, hidden));
   }
 
-  private async subtree(parent: string): Promise<Map<string, Bookmark[]> | null> {
+  /** `parent`'s subtree in the bar's profile, or null when the read failed or the page moved to
+   * another profile meanwhile (its rows would open the old profile's bookmarks in the new tab). */
+  private async subtree(parent: string): Promise<{ profile: string; groups: Map<string, Bookmark[]> } | null> {
     if (!this.client) return null;
+    const profile = this.snapshot.profile;
     try {
       const reply = await this.client.call<ChildrenResult>(BarOps.children, {
-        browser_profile_id: this.snapshot.profile,
+        browser_profile_id: profile,
         parent,
         depth: MAX_DEPTH,
         limit: MENU_LIMIT,
       });
-      return groupChildren(reply.bookmarks);
+      if (this.snapshot.profile !== profile) return null;
+      return { profile, groups: groupChildren(reply.bookmarks) };
     } catch {
       return null;
     }
   }
 
-  private async showMenu(title: string, anchor: Anchor, rows: MenuRow[]): Promise<void> {
-    await this.client?.call(BarOps.menu, { title, anchor, rows }).catch(() => undefined);
+  /** The host drops a menu for a profile its bar no longer shows (the page has not heard yet). */
+  private async showMenu(profile: string, title: string, anchor: Anchor, rows: MenuRow[]): Promise<void> {
+    await this.client?.call(BarOps.menu, { profile, title, anchor, rows }).catch(() => undefined);
   }
 
   contextMenu(bookmark: string | null, point: { x: number; y: number }): void {

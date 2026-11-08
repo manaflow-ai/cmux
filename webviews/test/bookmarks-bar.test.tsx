@@ -58,7 +58,7 @@ const link = (index: number, kind: Bookmark["kind"] = "url"): Bookmark => ({
   created_ms: 0,
 });
 
-async function render(items: Bookmark[], width: number, hasOther = false, profile = "default") {
+async function render(items: Bookmark[], width: number | undefined, hasOther = false, profile = "default") {
   const events: string[] = [];
   const layouts: unknown[] = [];
   const host = dom.window.document.getElementById("root")!;
@@ -149,4 +149,28 @@ test("a middle click on a folder opens its menu; on a link it opens a background
   expect(events).toContain("folder bm_1 number");
   expect(events).toContain("open bm_0 backgroundTab");
   act(() => root.unmount());
+});
+
+test("with no width given, the bar lays out from its own box: nothing past it or under Other Bookmarks", async () => {
+  const proto = dom.window.HTMLElement.prototype;
+  const original = proto.getBoundingClientRect;
+  proto.getBoundingClientRect = function (this: HTMLElement) {
+    const width = this.classList.contains("bb-bar") ? 360 : 0;
+    return { x: 0, y: 0, left: 0, top: 0, right: width, bottom: 28, width, height: 28, toJSON: () => ({}) };
+  };
+  try {
+    const items = Array.from({ length: 40 }, (_, index) => link(index));
+    const { host, root, layouts } = await render(items, undefined, true);
+    const other = host.querySelector<HTMLElement>(".bb-other")!;
+    const otherLeft = 360 - Number.parseFloat(other.style.right) - Number.parseFloat(other.style.width);
+    const ends = Array.from(host.querySelectorAll<HTMLElement>(".bb-item:not(.bb-other)")).map(
+      (item) => Number.parseFloat(item.style.left) + Number.parseFloat(item.style.width),
+    );
+    expect(ends.length).toBeGreaterThan(1);
+    expect(Math.max(...ends)).toBeLessThanOrEqual(otherLeft);
+    expect((layouts.at(-1) as { overflow: string[] }).overflow.length).toBeGreaterThan(0);
+    act(() => root.unmount());
+  } finally {
+    proto.getBoundingClientRect = original;
+  }
 });

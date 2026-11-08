@@ -195,3 +195,36 @@ test("a refusal is said through the host and the row is read again", async () =>
   expect(fake.calls.find((call) => call.op === BarOps.refused)?.params).toEqual({ message: "Too many bookmarks." });
   expect(fake.calls.filter((call) => call.op === BarOps.children).length).toBeGreaterThan(reads);
 });
+
+test("a menu read that lands after the page moved to another profile shows nothing", async () => {
+  const fake = fakeClient();
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((done) => (release = done));
+  const call = fake.client.call;
+  fake.client.call = async <R>(op: string, params: unknown) => {
+    const p = (params ?? {}) as Record<string, unknown>;
+    if (op === BarOps.children && p.depth === 64) await held;
+    return call<R>(op, params);
+  };
+  const store = new BookmarksBarStore(fake.client, words);
+  await store.start();
+  const work = store.getSnapshot().items[0]!;
+  const anchor = { x: 2, y: 2, width: 60, height: 24 };
+  const menus = [
+    store.openFolder(work, anchor, "work"),
+    store.openOther(anchor),
+    store.openOverflow(1, anchor, "More"),
+  ];
+  fake.setProfile("p2");
+  fake.emit(HostOps.changed, { reason: "state" });
+  await tick();
+  await tick();
+  expect(store.getSnapshot().profile).toBe("p2");
+  release();
+  await Promise.all(menus);
+  expect(fake.calls.filter((entry) => entry.op === BarOps.menu)).toEqual([]);
+
+  // The same menu for the profile the bar shows goes to the host with that profile.
+  await store.openOther(anchor);
+  expect(fake.calls.find((entry) => entry.op === BarOps.menu)?.params).toMatchObject({ profile: "p2" });
+});
