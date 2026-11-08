@@ -2083,6 +2083,98 @@ let package = Package(
 
 
 
+class ToolDownloadFallbackTests(unittest.TestCase):
+    """2026-11-08: every GitHub release download answered 504, so every PR's fast gates went red on fetching ast-grep,
+    while the release-assets API served the same bytes. The gate fetches a failed release download through that API;
+    the pinned sha256 still judges what it got."""
+
+    def test_a_release_download_that_fails_is_fetched_through_the_release_assets_api(self):
+        import hashlib, io, json as jsonlib, urllib.error, zipfile
+        gate = load_gate_tools()
+        payload = io.BytesIO()
+        with zipfile.ZipFile(payload, "w") as zf:
+            zf.writestr("tool-bin", "#!/bin/sh\necho ok\n")
+        archive = payload.getvalue()
+        url = "https://github.com/acme/tool/releases/download/1.2.3/tool-linux.zip"
+        tag = "https://api.github.com/repos/acme/tool/releases/tags/1.2.3"
+        asset = "https://api.github.com/repos/acme/tool/releases/assets/42"
+        asked = []
+
+        def urlopen(request, timeout=None):
+            target = request.full_url if hasattr(request, "full_url") else request
+            asked.append(target)
+            if target == url:
+                raise urllib.error.HTTPError(url, 504, "Gateway Time-out", {}, None)
+            if target == tag:
+                return io.BytesIO(jsonlib.dumps({"assets": [{"name": "other.zip", "url": asset + "0"},
+                                                            {"name": "tool-linux.zip", "url": asset}]}).encode())
+            if target == asset:
+                self.assertEqual(request.get_header("Accept"), "application/octet-stream")
+                return io.BytesIO(archive)
+            raise AssertionError(f"unexpected fetch {target}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = Path(tmp) / "lint-tools.lock"
+            lock.write_text(f"tool\t1.2.3\t{gate.platform_key()}\t{url}\t{hashlib.sha256(archive).hexdigest()}\ttool-bin\n")
+            old_dir, old_open = os.environ.get("CMUX_LINT_TOOLS_DIR"), gate.urllib.request.urlopen
+            os.environ["CMUX_LINT_TOOLS_DIR"] = str(Path(tmp) / "tools")
+            gate.urllib.request.urlopen = urlopen
+            try:
+                path = gate.ensure_tool(lock, "tool")
+            finally:
+                gate.urllib.request.urlopen = old_open
+                if old_dir is None:
+                    os.environ.pop("CMUX_LINT_TOOLS_DIR")
+                else:
+                    os.environ["CMUX_LINT_TOOLS_DIR"] = old_dir
+            self.assertTrue(path.is_file() and os.access(path, os.X_OK))
+            self.assertEqual(asked, [url, tag, asset])
+
+    def test_the_fast_gates_step_hands_the_fallback_a_token(self):
+        # 2026-11-08 run 42471118536: the release download 504'd and the fallback's unauthenticated API call answered
+        # 403 "rate limit exceeded" (runners share their IPs' 60 calls an hour). fetch() reads GH_TOKEN.
+        workflow = (SOURCE / ".github/workflows/cmux-next-fast-gates.yml").read_text(encoding="utf-8")
+        step = workflow.split("- name: Fast gates on the merge", 1)[1].split("\n      - name:", 1)[0]
+        self.assertIn("GH_TOKEN: ${{ github.token }}", step.split("run:", 1)[0])
+
+    def test_the_fallback_sends_the_token_to_the_api_and_never_on_a_redirect(self):
+        import io, json as jsonlib, urllib.error
+        gate = load_gate_tools()
+        url = "https://github.com/acme/tool/releases/download/1.2.3/tool-linux.zip"
+        tag = "https://api.github.com/repos/acme/tool/releases/tags/1.2.3"
+        asset = "https://api.github.com/repos/acme/tool/releases/assets/42"
+        requests = {}
+
+        def urlopen(request, timeout=None):
+            requests[request.full_url] = request
+            if request.full_url == url:
+                raise urllib.error.HTTPError(url, 504, "Gateway Time-out", {}, None)
+            if request.full_url == tag:
+                return io.BytesIO(jsonlib.dumps({"assets": [{"name": "tool-linux.zip", "url": asset}]}).encode())
+            return io.BytesIO(b"archive")
+
+        old_open, old_token = gate.urllib.request.urlopen, os.environ.get("GH_TOKEN")
+        os.environ["GH_TOKEN"] = "token-for-test"
+        gate.urllib.request.urlopen = urlopen
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                gate.download(url, Path(tmp) / "tool.zip")
+        finally:
+            gate.urllib.request.urlopen = old_open
+            if old_token is None:
+                os.environ.pop("GH_TOKEN")
+            else:
+                os.environ["GH_TOKEN"] = old_token
+        self.assertIsNone(requests[url].get_header("Authorization"), "the release download itself carries no token")
+        for api in (tag, asset):
+            self.assertEqual(requests[api].unredirected_hdrs.get("Authorization"), "Bearer token-for-test")
+            self.assertNotIn("Authorization", requests[api].headers)
+        # The asset answers with a redirect to a signed storage URL: urllib's redirect copies only `headers`.
+        signed = gate.urllib.request.HTTPRedirectHandler().redirect_request(
+            requests[asset], None, 302, "Found", {}, "https://objects.example/signed?sig=1")
+        self.assertIsNone(signed.get_header("Authorization"))
+
+
 class StaleInstallTests(unittest.TestCase):
     """The check trees never take the pushed head's scripts/swift_source_mask.py on a hook run."""
 

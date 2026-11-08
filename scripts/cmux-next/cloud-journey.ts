@@ -24,10 +24,9 @@
  *
  *   health -> sign in -> user.ensure -> install token -> create machine -> running (status) -> listed
  *   -> first exec -> pass Claude login -> start agent (acpmux on the machine) -> send chat -> reply -> turn 2 (same
- *   session) -> daemon restart keeps the session (the guest's agent daemon killed, then a turn) -> connect (connect_info
- *   + link_token + link dial) -> carrier dial (an identify answered over the machine's relay slot) -> handoff record
- *   -> sync push/pull (a folder round trip) -> pause -> resume -> carrier dial after resume -> turn after resume
- *   -> delete. `--skip lifecycle` leaves out the later turns and the daemon restart.
+ *   session) -> daemon restart keeps the session (the guest's agent daemon killed, then a turn) -> connect_info
+ *   -> carrier dial (an identify answered over the machine's relay slot) -> handoff record -> pause -> resume
+ *   -> carrier dial after resume -> turn after resume -> delete. `--skip lifecycle` leaves out the later turns and the daemon restart.
  *
  * Each step prints PASS/FAIL/SKIP with its latency; --out DIR also gets journey.json (the steps) and
  * summary.md (a table for a PR comment or job summary). The machine this run made is deleted at the
@@ -73,7 +72,6 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { createServer } from "node:net";
 import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -330,6 +328,45 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
   };
 }
 
+/** A carrier answer's `relay`, as the dial takes it (cmux-tui carrier/answer.rs relay_route): a bare `relay+do://<host>`. */
+function relayDoProblem(text: unknown): string | null {
+  if (typeof text !== "string") return "relay is missing";
+  let url: URL;
+  try { url = new URL(text); } catch { return "relay is not a URL"; }
+  const bare = !url.username && !url.password && !url.search && !url.hash && (url.pathname === "" || url.pathname === "/");
+  return url.protocol === "relay+do:" && bare && url.hostname ? null : "relay is not a relay+do:// origin";
+}
+
+/** A ticket or grant as the dial takes it (answer.rs secret): 1 to 4096 visible ASCII bytes. */
+const visibleSecret = (v: unknown): boolean => typeof v === "string" && /^[\x21-\x7e]{1,4096}$/.test(v);
+
+/** A canonical 32-byte base64url key without padding (answer.rs key_bytes: it re-encodes to the same text). */
+export function canonicalKey(v: unknown): boolean {
+  if (typeof v !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(v)) return false;
+  const bytes = Buffer.from(v, "base64url");
+  return bytes.length === 32 && bytes.toString("base64url") === v;
+}
+
+/**
+ * What `cmux carrier dial` would refuse in a POST /v1/cloud/machines/{id}/carrier answer for a person who sent a
+ * noise_key (cmux-platform CarrierRoute.ts), or null when the dial would take it. The rules are answer.rs
+ * parse_answer's (relay, slot, ticket, expires_at, grant) and client.rs pinned_daemon's (the daemon key a dial pins),
+ * plus a ticket still live and a grant present, which a dial with a noise_key needs.
+ */
+export function carrierTicketProblem(status: number, body: any, nowS = Date.now() / 1000): string | null {
+  if (status !== 200 || body?.ok !== true) return `HTTP ${status} ${short(body?.error ?? body)}`;
+  const v = body.value ?? {};
+  const relay = relayDoProblem(v.relay);
+  if (relay) return relay;
+  if (typeof v.slot !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(v.slot)) return "slot is not 1 to 128 base64url characters";
+  if (!visibleSecret(v.ticket)) return "ticket is not 1 to 4096 visible ASCII bytes";
+  if (!Number.isSafeInteger(v.expires_at) || v.expires_at < 0) return "expires_at is missing";
+  if (v.expires_at <= nowS) return `the ticket is not live (expires_at ${v.expires_at})`;
+  if (!visibleSecret(v.grant)) return "grant is not 1 to 4096 visible ASCII bytes";
+  if (!canonicalKey(v.daemon_key)) return "no canonical 32-byte daemon_key: the dial refuses an answer without one";
+  return null;
+}
+
 /** The carrier dials still running, so a cancelled journey stops them instead of leaving them to their deadline. */
 const carrierDials = new Set<ReturnType<typeof spawn>>();
 
@@ -425,42 +462,6 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
     if (!failed) child.stdin!.end();
     child.kill("SIGTERM");
   }
-}
-
-type HeadlessLink = { stateDir: string; linkSocket: string; bridgeSocket: string; close: () => Promise<void> };
-
-/** Start the userspace link and bridge its stdio dial into a Unix socket for link sync. */
-async function startHeadlessLink(cmux: string, host: string, install: { id: string; token: string }, api: string, tag: string): Promise<HeadlessLink> {
-  const stateDir = mkdtempSync(path.join(tmpdir(), `cmux-journey-link-${tag}-`));
-  const ensured = spawnSync(cmux, ["link", "ensure", "--state-dir", stateDir, "--install", install.id, "--port", "0"], {
-    env: { ...process.env, CMUX_CLOUD_API_URL: api, CMUX_CLOUD_INSTALL_TOKEN: install.token }, encoding: "utf8", timeout: 30_000,
-  });
-  if (ensured.error || ensured.status !== 0) throw new Error(`link ensure failed: ${ensured.stderr || ensured.stdout || ensured.error?.message}`);
-  let ready: any;
-  for (const line of ensured.stdout.split("\n").reverse()) {
-    try { const value = JSON.parse(line); if (value.socket) { ready = value; break; } } catch { /* status output */ }
-  }
-  if (!ready?.socket) throw new Error(`link ensure returned no socket: ${ensured.stdout.slice(-300)}`);
-  const bridgeSocket = path.join(stateDir, "machine.sock");
-  const server = createServer((socket) => {
-    const child = spawn(cmux, ["link", "dial", "--host", host, "--service", "daemon", "--socket", ready.socket], { stdio: ["pipe", "pipe", "pipe"] });
-    socket.pipe(child.stdin);
-    child.stdout.pipe(socket);
-    child.stderr.resume();
-    const close = () => { if (!socket.destroyed) socket.destroy(); if (!child.killed) child.kill(); };
-    socket.on("close", close);
-    child.on("exit", () => { if (!socket.destroyed) socket.destroy(); });
-  });
-  await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(bridgeSocket, () => resolve()); });
-  return {
-    stateDir, linkSocket: ready.socket, bridgeSocket,
-    close: async () => {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-      const stopped = spawnSync(cmux, ["link", "stop", "--state-dir", stateDir], { encoding: "utf8", timeout: 20_000 });
-      if (stopped.error) throw stopped.error;
-      rmSync(stateDir, { recursive: true, force: true });
-    },
-  };
 }
 
 /**
@@ -827,20 +828,6 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
   }
 }
 
-/** The link_token refusals that mean "this install has no Native device enrollment" (cloud-native-dial.ts details.reason). */
-const NATIVE_ENROLLMENT_REASONS = new Set(["host_missing", "host_unconfirmed", "proof_missing"]);
-
-/**
- * The skip reason when a link_token answer refused only for want of a Native device proof (an app-only
- * enrollment), else null: every other answer, an older backend's refusal with no reason included, is the step's own.
- */
-export function nativeProofSkip(body: any): string | null {
-  const error = body?.ok === false ? body.error : null;
-  const reason = error?.details?.reason;
-  if (error?.code !== "auth.forbidden" || typeof reason !== "string" || !NATIVE_ENROLLMENT_REASONS.has(reason)) return null;
-  return `needs a Native device proof (app-only): link_token refused ${reason}; this journey's cli install has no Native device enrollment`;
-}
-
 /**
  * Steps that passed on the version before a deploy and fail after it: the deploy's own reds. A step that
  * was already red before (a known backend bug) is not the deploy's fault and never triggers a rollback.
@@ -947,14 +934,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   let localGatewayDir: string | null = null;
   let deleted = false;
   let cleaned = false;
-  let headlessLink: HeadlessLink | null = null;
   // Delete what this run made, pass, fail or cancel. A create whose reply was lost leaves `machine`
   // null, so the run's own machine is also found by its name (`cloud journey <tag>`).
   const cleanup = async () => {
-    if (headlessLink) {
-      await headlessLink.close().catch(() => undefined);
-      headlessLink = null;
-    }
     if (localGateway?.pid) {
       // Only the process this run started, by its own pid.
       try { process.kill(localGateway.pid, "SIGTERM"); } catch {}
@@ -1096,13 +1078,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (!rows.some((r) => r.id === created.id)) throw new Error(`${created.id} missing from ${rows.length} machines`);
       return { value: null, detail: `${rows.length} machines` };
     });
-
-    if (cmux) {
-      await J.step("link ensure (headless)", async () => {
-        headlessLink = await startHeadlessLink(cmux, bound.host, install, backend.api, tag);
-        return { value: null, detail: `socket ${headlessLink.linkSocket}` };
-      });
-    }
 
     const exec = cmux ? cliExec(cmux, api, created.id) : directExec(api, created.id, J);
     if (reuse) {
@@ -1526,49 +1501,26 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
     }
 
-    // A Native (vm-api) machine's link_token needs a Native device proof, which only an enrolled app install
-    // makes (NativeDeviceEnrollment.swift). This install never enrolled, so that refusal is a SKIP with the
-    // backend's own reason; any other refusal (a receiver that is not ready, a policy) stays red.
+    // The carrier is the only way into a Cloud machine (cmux-platform#1007 deletes the Native link_token and the relay
+    // chat), so the journey connects with the carrier dial and nothing else.
     await J.step("connect (connect_info)", async () => {
       const info = await installApi.read("cloud.machine.connect_info", { machine: created.id });
       return { value: null, detail: `host ${info.host} state ${info.state} epoch ${info.epoch}` };
     });
-    const linkToken = await installApi.raw("POST", "/v1/ops", { op: "cloud.machine.link_token", params: { host: bound.host, services: ["daemon"] } })
-      .catch((error: Error) => error);
-    const nativeOnly = linkToken instanceof Error ? null : nativeProofSkip(linkToken.body);
-    if (nativeOnly) {
-      J.skip("connect (link_token)", nativeOnly);
-      J.skip("connect (link dial)", nativeOnly);
-    } else {
-      await J.step("connect (link_token)", async () => {
-        if (linkToken instanceof Error) throw new Error(`cloud.machine.link_token: ${linkToken.message}`);
-        if (linkToken.status !== 200 || linkToken.body?.ok !== true) throw new Error(`cloud.machine.link_token: HTTP ${linkToken.status} ${short(linkToken.body?.error ?? linkToken.body)}`);
-        const tok = linkToken.body.value;
-        if (!tok?.expires_at) throw new Error(`link_token answered ${short(Object.keys(tok ?? {}))}`);
-        return { value: null, detail: `link token until ${tok.expires_at}` };
-      });
-    }
-    if (nativeOnly) {
-      // link_token and link dial are recorded as skips above.
-    } else if (headlessLink) {
-      await J.step("connect (link dial)", async () => {
-        const dial = spawnSync(cmux!, ["link", "dial", "--host", bound.host, "--service", "daemon", "--socket", headlessLink!.linkSocket], {
-          input: '{"id":1,"cmd":"identify"}\n', encoding: "utf8", timeout: 45_000,
-        });
-        if (dial.error || dial.status !== 0) throw new Error(`link dial failed: ${dial.stderr || dial.error?.message}`);
-        if (!dial.stdout.includes("capabilities") && !dial.stdout.includes('"data"')) throw new Error(`link dial returned no identify response: ${dial.stdout.slice(-300)}`);
-        return { value: null, detail: dial.stdout.trim().split("\n").slice(-1)[0].slice(0, 280) };
-      });
-    } else {
-      J.skip("connect (link dial)", "--cmux is required for a headless link dial");
-    }
-
     if (cmux) {
       await J.step("connect (carrier dial)", async () => {
         const d = await carrierDial(cmux, api, created.id);
         return { value: null, detail: `connect ${d.connectMs} ms, reply ${d.replyMs} ms, ${d.retries} retried attempts: ${d.reply.slice(0, 160)}` };
       });
     } else {
+      // Without a cmux binary (the production journeys) the dial cannot run; its platform half still can: the
+      // ticket, grant and daemon key it asks for, checked by the dial's own rules.
+      await J.step("connect (carrier ticket)", async () => {
+        const r = await api.raw("POST", `/v1/cloud/machines/${created.id}/carrier`, { noise_key: randomBytes(32).toString("base64url") });
+        const problem = carrierTicketProblem(r.status, r.body);
+        if (problem) throw new Error(`carrier ticket: ${problem}`);
+        return { value: null, detail: `${r.body.value.relay}, ticket until ${r.body.value.expires_at}, grant and daemon key present` };
+      });
       J.skip("connect (carrier dial)", "--cmux is required for a carrier dial");
     }
 
@@ -1583,27 +1535,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return { value: null, detail: `HTTP ${handoff.status} ${short(handoff.body.value?.id ?? handoff.body.id ?? handoff.body)}` };
     }).catch(() => undefined);
     J.skip("handoff (agent move)", "headless agent move requires a local session daemon socket; the Cloud guest session has no local source socket");
-
-    if (only.has("sync")) J.skip("sync push/pull (folder round trip)", "--skip sync");
-    else if (nativeOnly) J.skip("sync push/pull (folder round trip)", nativeOnly);
-    else await J.step("sync push/pull (folder round trip)", async () => {
-      if (!headlessLink) throw new Error("--cmux is required for link sync");
-      const payload = Buffer.from(`journey ${tag} ${Date.now()}\n`.repeat(64)).toString("base64");
-      const local = mkdtempSync(path.join(tmpdir(), `cmux-journey-sync-${tag}-`));
-      const source = path.join(local, "file.txt");
-      writeFileSync(source, Buffer.from(payload, "base64"));
-      const remote = `/home/cmux/.cmux-journey-${tag}/sync`;
-      const push = spawnSync(cmux!, ["link", "sync", "push", "--socket", headlessLink.bridgeSocket, local, remote], { encoding: "utf8", timeout: 120_000 });
-      if (push.error || push.status !== 0) throw new Error(`sync push failed: ${push.stdout || push.stderr || push.error?.message}`);
-      const mutate = await exec(`printf '%s' ${shq("remote-change\n")} >> ${shq(`${remote}/file.txt`)}`);
-      if (mutate.code !== 0) throw new Error(`remote mutation failed: ${mutate.stderr}`);
-      const pull = spawnSync(cmux!, ["link", "sync", "pull", "--socket", headlessLink.bridgeSocket, local, remote], { encoding: "utf8", timeout: 120_000 });
-      if (pull.error || pull.status !== 0) throw new Error(`sync pull failed: ${pull.stdout || pull.stderr || pull.error?.message}`);
-      const back = readFileSync(source, "utf8");
-      rmSync(local, { recursive: true, force: true });
-      if (!back.endsWith("remote-change\n")) throw new Error("pulled file did not include the remote change");
-      return { value: null, detail: `${back.length} bytes pushed and pulled through link` };
-    });
 
     if (!only.has("pause")) {
       await J.step("pause", async () => {
