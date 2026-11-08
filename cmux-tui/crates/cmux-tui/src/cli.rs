@@ -169,6 +169,7 @@ mod skew;
 mod skill;
 #[cfg(unix)]
 mod status;
+mod stream_output;
 mod surface;
 mod tab_capabilities;
 #[cfg(unix)]

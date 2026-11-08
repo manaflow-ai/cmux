@@ -54,11 +54,10 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
 }
 
 fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) -> i32 {
-    if plan.stream && global.output == OutputMode::Json {
-        return usage_failure(
-            global.output,
-            "cmux: streams require --jsonl, --quiet, or human output",
-        );
+    if plan.stream
+        && let Some(code) = super::stream_output::refuse_json(global.output)
+    {
+        return code;
     }
     if let Err(error) = super::resolve::apply_global_route(global, &mut plan) {
         return usage_failure(global.output, &format!("cmux: {error}"));
