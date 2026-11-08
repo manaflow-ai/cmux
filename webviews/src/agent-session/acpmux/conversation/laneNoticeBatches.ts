@@ -32,6 +32,7 @@ const inboxLaneNotice = (notice: InboxNotice): LaneNotice => {
       id: thread.threadId,
       sender,
       ...(lookup && { lookup }),
+      ...(thread.sender && { senderRecord: thread.sender }),
       ...(preview ? { preview } : {}),
       ...(messages?.length ? { messages } : {}),
       ...(thread.label ? { label: thread.label } : {}),
@@ -167,6 +168,7 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
                 ...(thread.fromSession ? { fromSession: thread.fromSession } : {}),
                 ...(thread.fromHarness ? { fromHarness: thread.fromHarness } : {}),
                 ...(delivery.unverified ? { unverified: delivery.unverified } : {}),
+                ...(thread.senderRecord ? { senderRecord: { ...thread.senderRecord } } : {}),
               },
             }
           : {}),

@@ -31,6 +31,9 @@ export type LaneNoticeDelivery = {
 export type LaneNoticeThread = {
   readonly id: string;
   readonly sender: string;
+  /// The newest sender as acpmux recorded it (inboxNotice.ts `SenderRef`), for a row with no
+  /// messages to ask for that chat by.
+  readonly senderRecord?: { readonly session?: string; readonly label?: string };
   /// The newest sender's key (`LaneNoticeDelivery.lookup`).
   readonly lookup?: string;
   readonly preview?: string;
