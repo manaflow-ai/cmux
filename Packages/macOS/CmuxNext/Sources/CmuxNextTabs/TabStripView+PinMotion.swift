@@ -56,7 +56,8 @@ extension TabStripView {
     /// `neighbours`: the tabs that stay in their region (they slide, they do not fly). One that lands right of the new
     /// place carries the divider on its leading edge and one it would cover hides it, as a flying tab does: the divider
     /// never draws through a sliding tab's icon (the films: through tab1's icon for 4 frames).
-    func addPinnedDividerCrossing(_ move: TabStripMove, from oldX: CGFloat, wasShown: Bool, crossing: [CALayer],
+    /// `fromOpacity`: the opacity it shows at the start (a crossing retargeted mid-fade goes on from there).
+    func addPinnedDividerCrossing(_ move: TabStripMove, from oldX: CGFloat, wasShown: Bool, fromOpacity: Float = 1, crossing: [CALayer],
                                   neighbours: [CALayer] = []) {
         let divider = pinnedDivider
         let newX = divider.position.x
@@ -112,7 +113,7 @@ extension TabStripView {
                     x = max(x, frames[k][index].maxX + (oldX - start.maxX))
                 }
                 xs.append(x)
-                opacities.append(Float(1 - CGFloat(k) / CGFloat(max(1, outEnd))))
+                opacities.append(fromOpacity * Float(1 - CGFloat(k) / CGFloat(max(1, outEnd))))
             } else {
                 xs.append(inXs[k])
                 opacities.append(k <= inStart ? 0 : Float(CGFloat(k - inStart) / CGFloat(max(1, last - inStart))))
