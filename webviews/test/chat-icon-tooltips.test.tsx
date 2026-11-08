@@ -58,7 +58,7 @@ const { createRoot } = await import("react-dom/client");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
 const { TurnFooter } = await import("../src/agent-session/acpmux/conversation/TurnRows");
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
-const { COPIED_MS } = await import("../src/agent-session/acpmux/conversation/CopyButton");
+const { COPIED_MS } = await import("../src/agent-session/acpmux/conversation/copyButtonModel");
 
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
