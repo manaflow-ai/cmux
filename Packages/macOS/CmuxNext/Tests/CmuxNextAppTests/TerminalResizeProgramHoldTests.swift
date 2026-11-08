@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextCompat
 @testable import CmuxNextLayout
 @testable import CmuxNextTerminal
 import CmuxNextTerminalGeometry
@@ -82,6 +83,96 @@ struct TerminalResizeProgramHoldTests {
         }
         await TerminalKeyResizeFrameTests.settle(screen)
         try presents.check("divider drag, \(moves) moves")
+    }
+
+    /// RESIZE P0 14 (review of #38206): a resize the program did not redraw in time (a shell at its prompt does not redraw
+    /// its whole screen) must not stop the NEXT gesture's sizes waiting for a program that does (a full-screen program the
+    /// person started after it). Before, the size shown at the hold's bound set `programMissedHold`, and it cleared only
+    /// when a frame the program drew at its grid happened to be presented: the next key spring showed its sizes with the
+    /// program's last picture, as before the hold.
+    ///
+    /// A key press whose program does not redraw (its sizes show at the bound), then the program redraws at each grid, and
+    /// a second key press (Ctrl-Shift-H, L two frames apart, to its landing) shows each new grid only with the redraw.
+    @Test func aKeySpringAfterAMissedHoldWaitsForTheProgramAgain() async throws {
+        let screen = try await Self.missedHoldScreen()
+        defer { screen.close() }
+        let presents = Presents(screen)
+        defer { presents.stop() }
+        var steps = 0
+        let presses: [LayoutDirection] = [.left, .right]
+        for (index, direction) in presses.enumerated() {
+            try #require(PaneResize.press("p2", direction, model: screen.model, view: screen.root), "Ctrl-Shift-\(direction) on p2 moved nothing")
+            let last = index == presses.count - 1
+            var moving = true, stepped = 0
+            while moving, stepped < (last ? 240 : 2) {
+                moving = await TerminalKeyResizeFrameTests.stepFrame(screen).moving
+                await Self.waitForShownSizes(screen)
+                stepped += 1
+            }
+            steps += stepped
+        }
+        await TerminalKeyResizeFrameTests.settle(screen)
+        try #require(steps >= 4, "the presses' spring ran \(steps) frames: no spring ran")
+        try presents.check("key spring after a missed hold, \(steps) frames")
+    }
+
+    /// The same for a divider drag after a missed hold: the drag's sizes wait for the program's redraw again.
+    @Test func aDividerDragAfterAMissedHoldWaitsForTheProgramAgain() async throws {
+        let screen = try await Self.missedHoldScreen()
+        defer { screen.close() }
+        let presents = Presents(screen)
+        defer { presents.stop() }
+        let view = try #require(screen.root.screenViews["s"])
+        let handle = try #require(view.dividerViews[.split("x")])
+        let start = handle.convert(CGPoint(x: handle.bounds.midX, y: handle.bounds.midY), to: nil)
+        view.handleDrag(kind: .split("x"), event: .began(start, []))
+        let moves = 12
+        for move in 1...moves {
+            view.handleDrag(kind: .split("x"), event: .moved(CGPoint(x: start.x - CGFloat(move) * 6, y: start.y), []))
+            _ = screen.root.advanceFrame(1.0 / 120)
+            screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, as the frame tick runs it
+            await Self.waitForShownSizes(screen)
+        }
+        view.handleDrag(kind: .split("x"), event: .ended(CGPoint(x: start.x - CGFloat(moves) * 6, y: start.y), []))
+        screen.root.syncWithModel()
+        var moving = true, steps = 0
+        while moving || steps < 6, steps < 240 {
+            moving = screen.root.advanceFrame(1.0 / 120)
+            screen.root.layoutSubtreeIfNeeded() // sync-layout: the release's frames
+            await Self.waitForShownSizes(screen)
+            steps += 1
+        }
+        await TerminalKeyResizeFrameTests.settle(screen)
+        try presents.check("divider drag after a missed hold, \(moves) moves")
+    }
+
+    /// While set, the ring screen's programs do not redraw at a new grid (a shell at its prompt).
+    nonisolated private static let quiet = Mutex(false)
+
+    /// The ring screen after one key press (Ctrl-Shift-L on p2, to its landing) that its programs did not redraw: its sizes
+    /// showed at the hold's bound. Then the programs redraw at each new grid again.
+    static func missedHoldScreen() async throws -> TerminalKeyResizeFrameTests.PaneScreen {
+        Self.quiet.withLock { $0 = true }
+        defer { Self.quiet.withLock { $0 = false } }
+        let screen = try await TerminalKeyResizeFrameTests.PaneScreen(announcesGrids: true) { cols, rows in
+            Self.quiet.withLock { $0 } ? Data() : Self.ring(cols: cols, rows: rows)
+        }
+        for (io, session) in zip(screen.ios, screen.sessions) {
+            let grid = try #require(session.surfaceView.fittedGrid, "SETUP: a terminal fits no grid")
+            io.send(.output(Self.ring(cols: grid.columns, rows: grid.rows)))
+        }
+        await TerminalKeyResizeFrameTests.settle(screen)
+        try #require(PaneResize.press("p2", .right, model: screen.model, view: screen.root), "SETUP: Ctrl-Shift-L on p2 moved nothing")
+        var moving = true, stepped = 0
+        while moving, stepped < 240 {
+            moving = await TerminalKeyResizeFrameTests.stepFrame(screen).moving
+            await Self.waitForShownSizes(screen)
+            stepped += 1
+        }
+        await TerminalKeyResizeFrameTests.settle(screen)
+        try #require(screen.sessions.contains { $0.surfaceView.frameOwnership.programMissedHold },
+                     "SETUP: no size of the quiet press showed at the hold's bound")
+        return screen
     }
 
     /// p1 | p2, each a full-screen program that draws its ring at its grid and redraws it at each new grid.
