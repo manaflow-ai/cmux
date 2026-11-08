@@ -13,13 +13,33 @@ import { TEXT_CARD_LINES, TEXT_CARD_LINE_CHARS, TEXT_CARD_WRAP_CHARS, textPrevie
 /// The card's body: the preview lines and the label under them. Its host (a button or a span)
 /// carries the chip's box, its click and its accessible name. `wrap` (a paste's card) wraps each line
 /// at the card's width in the composer's font; a file's keeps its lines as they are, in monospace.
-export function TextAttachmentCard({ text, label, wrap = false }: { text: string; label: string; wrap?: boolean }) {
+/// `reserve`: the text of an action its host draws over the label row's end (Keep as .txt,
+/// attachmentIntake.tsx KeepFileButton). An invisible copy of it holds that end, so the label stops
+/// before the action in every locale instead of running under it (review of #37516).
+export function TextAttachmentCard({
+  text,
+  label,
+  wrap = false,
+  reserve,
+}: {
+  text: string;
+  label: string;
+  wrap?: boolean;
+  reserve?: string;
+}) {
   return (
     <>
       <span className="acpmux-text-card__lines" aria-hidden="true" dir="auto" data-wrap={wrap ? "" : undefined}>
         {textPreview(text, TEXT_CARD_LINES, wrap ? TEXT_CARD_WRAP_CHARS : TEXT_CARD_LINE_CHARS)}
       </span>
-      <span className="acpmux-text-card__label">{label}</span>
+      <span className="acpmux-text-card__foot">
+        <span className="acpmux-text-card__label">{label}</span>
+        {reserve ? (
+          <span className="acpmux-text-card__reserve" aria-hidden="true">
+            {reserve}
+          </span>
+        ) : null}
+      </span>
     </>
   );
 }
