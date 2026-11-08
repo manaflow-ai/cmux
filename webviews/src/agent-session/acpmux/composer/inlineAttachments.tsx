@@ -17,13 +17,13 @@ import { usePaneLanguage, useT } from "../i18n";
 import { pasteName } from "../conversation/promptCollapse";
 import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
-import { AttachmentChip, InstantPreview, KeepFileButton, RetryButton, UploadProgress } from "./attachmentIntake";
+import { AttachmentChip, InstantPreview, RetryButton, UploadProgress } from "./attachmentIntake";
 import { imageShape, type PendingAttachment } from "./attachmentIntakeModel";
 import { keptThumb } from "./imagePool";
 import { PasteLoadingMark } from "./pasteLoading";
 import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 import { reordered } from "./stripReorder";
-import { TextAttachmentCard } from "./TextAttachmentCard";
+import { PastedTextChip } from "./PastedTextChip";
 import { pastedSize } from "./textAttachmentCardModel";
 import { RemoveGlyph } from "./RemoveGlyph";
 import { chipRef } from "../conversation/sendMorph";
@@ -421,8 +421,8 @@ const InlineChip = memo(function InlineChip({
         {remove}
       </span>
     );
-  // A huge paste: a small page of its first lines (TextAttachmentCard); a click puts its text back
-  // in the prompt at its place.
+  // A huge paste: the compact chip that opens its whole text (PastedTextChip.tsx), Edit in Prompt
+  // and Keep as .txt in the opened view.
   if (attachment.kind === "pasted") {
     const text = attachment.text ?? "";
     const label = `${t("composer.pastedText")} · ${pastedSize(t, language, text)}`;
@@ -440,30 +440,15 @@ const InlineChip = memo(function InlineChip({
     ];
     return (
       <ContextMenu className="acpmux-attachment-menu" items={items}>
-        <span
-          className="acpmux-md-inline-chip acpmux-text-card"
-          data-state="ready"
-          data-kind="file"
-          data-preview="text"
-          /* tooltip-allow: the card shows the paste's first lines; the tooltip says a click puts it back in the prompt */
-          title={t("composer.pastedText.edit")}
-        >
-          <button
-            type="button"
-            className="acpmux-md-inline-retry acpmux-text-card__open"
-            aria-label={`${attachment.name || pasteName(text)}, ${label}`}
-            onClick={() => onExpand(id)}
-          >
-            <TextAttachmentCard
-              text={text}
-              label={label}
-              wrap
-              {...(onKeepFile ? { reserve: t("composer.pastedText.keepFile") } : {})}
-            />
-          </button>
-          {onKeepFile ? <KeepFileButton onKeep={() => onKeepFile(id)} /> : null}
-          {remove}
-        </span>
+        <PastedTextChip
+          host="inline"
+          text={text}
+          name={t("composer.pastedText")}
+          accessibleName={`${attachment.name || pasteName(text)}, ${label}`}
+          remove={remove}
+          onEdit={() => onExpand(id)}
+          {...(onKeepFile ? { onKeep: () => onKeepFile(id) } : {})}
+        />
       </ContextMenu>
     );
   }

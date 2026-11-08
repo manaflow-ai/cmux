@@ -265,7 +265,14 @@ test("a pasted chip in the strip expands back into the prompt when opened", asyn
   await pasteText(editor, LONG_LOG);
   const open = host.querySelector<HTMLButtonElement>(".acpmux-attachment-pasted-open");
   expect(open).not.toBeNull();
+  // A click opens its whole text (composer/PastedTextChip.tsx); Edit in Prompt there puts it back.
   await act(async () => open!.click());
+  await settle();
+  const edit = [...host.ownerDocument.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+    (button) => button.textContent === "Edit in Prompt",
+  );
+  expect(edit).toBeDefined();
+  await act(async () => edit!.click());
   await settle();
   expect(host.querySelector(".acpmux-attachment-pasted")).toBeNull();
   expect(editor.textContent).toContain("before");
