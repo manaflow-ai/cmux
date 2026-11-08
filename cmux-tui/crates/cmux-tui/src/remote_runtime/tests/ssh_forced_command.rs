@@ -53,7 +53,11 @@ async fn forced_command_reconnect_route_is_never_probed() {
         Duration::from_millis(40),
         "a forced-command SSH route must not reserve a remote-probe budget"
     );
-    assert_eq!(source.next_group().await.unwrap().description(), "ssh://cmux@10.0.0.7");
+    // The group describes its route without the user name.
+    assert_eq!(
+        source.next_group().await.unwrap().description(),
+        sanitized_route(&Url::parse("ssh://cmux@10.0.0.7").unwrap())
+    );
     assert_eq!(logged_lines(&log, "remote-probe"), 0, "a forced-command route was probed");
 }
 
