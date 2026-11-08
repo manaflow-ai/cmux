@@ -66,9 +66,9 @@ export function ReviewScreen({ sessions, readDiff, openDiff, accept, send, look 
   const found = rows.findIndex((row) => row.key === selected);
   const index = rows.length === 0 ? -1 : found >= 0 ? found : Math.min(lastIndex.current, rows.length - 1);
   const current = index >= 0 ? rows[index] : undefined;
+  // The cursor's place, for when its row leaves: a ref, so no render follows.
   useLayoutEffect(() => {
     if (index >= 0) lastIndex.current = index;
-    if (current && current.key !== selected) setSelected(current.key);
   });
   useEffect(() => {
     if (index >= rows.length - NEAR_END) extend();
@@ -149,10 +149,10 @@ export function ReviewScreen({ sessions, readDiff, openDiff, accept, send, look 
   return (
     <div className="rv" data-look={look}>
       <h1 className="rv-title">{t("review.title")}</h1>
-      {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a listbox of rows with their own controls */}
       <div
         ref={list}
         className="rv-list"
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rows hold a comment field and buttons, which a <select> cannot
         role="listbox"
         aria-label={t("review.list")}
         aria-activedescendant={current ? rowId(current.key) : undefined}
@@ -250,7 +250,9 @@ function Row({
     <div
       id={rowId(row.key)}
       className="rv-row"
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an option holding a comment field and buttons
       role="option"
+      tabIndex={-1}
       aria-selected={selected}
       data-selected={selected || undefined}
       onClick={onSelect}
