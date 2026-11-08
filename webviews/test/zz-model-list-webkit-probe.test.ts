@@ -9,6 +9,7 @@ setDefaultTimeout(400_000);
 const webviews = path.resolve(import.meta.dir, "..");
 let vite: any;
 const browsers: Record<string, Browser> = {};
+const lines: string[] = [];
 
 beforeAll(async () => {
   const { createServer } = await import("vite");
@@ -23,6 +24,7 @@ beforeAll(async () => {
   await warmGalleryFrame(vite, "agent-pane.composer", { browser: browsers.chromium, params: { variant: "picker-toggle" } });
 });
 afterAll(async () => {
+  console.log(lines.join("\n"));
   for (const b of Object.values(browsers)) await b.close();
   await vite?.close();
 });
@@ -60,7 +62,7 @@ for (const engine of ["webkit", "chromium"])
       await page.mouse.up();
       await page.waitForFunction(() => document.querySelector('button[aria-haspopup][aria-label="Model"]')?.getAttribute("aria-expanded") === "true");
       await page.waitForTimeout(800);
-      console.log(`PROBE-DOM ${engine} ${variant} ${await page.evaluate(() => [...new Set([...document.querySelectorAll('[role^="menuitem"], [role="option"]')].map((r) => `${r.getAttribute("role")}<${r.parentElement?.className}>`))].join(" | "))}`);
+      if (0) console.log(`PROBE-DOM ${engine} ${variant} ${await page.evaluate(() => [...new Set([...document.querySelectorAll('[role^="menuitem"], [role="option"]')].map((r) => `${r.getAttribute("role")}<${r.parentElement?.className}>`))].join(" | "))}`);
       if (variant === "noMinWidth")
         await page.evaluate(() => {
           for (const el of document.querySelectorAll<HTMLElement>("[style*=min-width]")) el.style.minWidth = "";
@@ -84,7 +86,9 @@ for (const engine of ["webkit", "chromium"])
         }
         return out;
       });
-      console.log(`PROBE ${engine} ${variant} ${JSON.stringify(report)}`);
+      const r: any = report;
+      const misses = (r.rows ?? []).filter((x: any) => !x.hit);
+      lines.push(`P ${engine[0]} ${variant}: list w${r.list?.w} off${r.list?.offsetW} cli${r.list?.clientW} sb${r.list?.scroller} padR${r.list?.padR} | rowW ${[...new Set((r.rows ?? []).map((x: any) => x.w))].join("/")} css ${r.rows?.[0]?.rowCss} | miss ${misses.length}/${r.rows?.length} ${misses[0]?.at ?? ""}`);
       await page.close();
       expect(true).toBe(true);
     });
