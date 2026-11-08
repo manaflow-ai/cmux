@@ -78,6 +78,7 @@ public struct BrowserImportedCookie: Sendable, Equatable {
         // A partitioned (CHIPS) cookie belongs to one embedding site; importing it
         // unpartitioned would hand it to the embedded site everywhere.
         guard !originAttributes.contains("partitionKey=") else { return nil }
+        guard containerIDs.contains(firefoxUserContextID(originAttributes)) else { return nil }
         // First-party isolation keys a cookie to one top-level site, which a
         // WebKit cookie store cannot express.
         guard !originAttributes.contains("firstPartyDomain=") else { return nil }
@@ -182,6 +183,19 @@ public struct BrowserImportedCookie: Sendable, Equatable {
         case .lax: .sameSiteLax
         case .strict: .sameSiteStrict
         }
+    }
+
+    /// The `userContextId` in a Firefox origin-attributes suffix such as
+    /// `^userContextId=6&privateBrowsingId=1`; 0, the default, when absent.
+    private static func firefoxUserContextID(_ originAttributes: String) -> Int {
+        let attributes = originAttributes.hasPrefix("^") ? originAttributes.dropFirst() : Substring(originAttributes)
+        for pair in attributes.split(separator: "&") {
+            let parts = pair.split(separator: "=", maxSplits: 1)
+            if parts.count == 2, parts[0] == "userContextId" {
+                return parts[1].removingPercentEncoding.flatMap { Int($0) } ?? -1
+            }
+        }
+        return 0
     }
 
     /// The expiry date of a `moz_cookies.expiry` value, or `nil` when it is not

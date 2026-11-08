@@ -5297,5 +5297,11 @@
     "identityLocales": {
       "fr": "Suggestions is the standard French noun for this label and shares the English spelling."
     }
+  },
+  "browser.import.firefoxContainer.personal": {
+    "source": "Personal",
+    "identityLocales": {
+      "es": "Personal is Firefox's own Spanish name for this built-in container and shares the English spelling."
+    }
   }
 }

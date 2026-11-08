@@ -10530,11 +10530,22 @@ enum BrowserDataImporter {
         var cookies: [HTTPCookie] = []
         var warnings: [String] = []
 
-        let databaseURLs = sourceProfiles.map {
-            $0.rootURL.appendingPathComponent("cookies.sqlite", isDirectory: false)
-        }.filter { fileManager.fileExists(atPath: $0.path) }
+        // A profile and its containers share one cookie database, so read each
+        // database once and keep the rows of every selected container.
+        var databases: [(url: URL, containerIDs: Set<Int>)] = []
+        var databaseIndexByPath: [String: Int] = [:]
+        for profile in sourceProfiles {
+            let url = profile.rootURL.appendingPathComponent("cookies.sqlite", isDirectory: false)
+            let containerID = profile.containerID ?? 0
+            if let index = databaseIndexByPath[url.standardizedFileURL.path] {
+                databases[index].containerIDs.insert(containerID)
+            } else if fileManager.fileExists(atPath: url.path) {
+                databaseIndexByPath[url.standardizedFileURL.path] = databases.count
+                databases.append((url: url, containerIDs: [containerID]))
+            }
+        }
 
-        for databaseURL in databaseURLs {
+        for (databaseURL, containerIDs) in databases {
             do {
                 try querySQLiteRows(
                     sourceDatabaseURL: databaseURL,
@@ -10558,7 +10569,8 @@ enum BrowserDataImporter {
                         isHTTPOnly: sqliteColumnInt64(statement, index: 6) != 0,
                         sameSite: sqliteColumnInt64(statement, index: 7),
                         originAttributes: sqliteColumnText(statement, index: 8) ?? "",
-                        schemaVersion: sqliteColumnInt64(statement, index: 9)
+                        schemaVersion: sqliteColumnInt64(statement, index: 9),
+                        containerIDs: containerIDs
                     ) else { return }
                     if let cookie = imported.makeHTTPCookie() {
                         cookies.append(cookie)
@@ -10686,7 +10698,11 @@ enum BrowserDataImporter {
         var rows: [HistoryRow] = []
         var warnings: [String] = []
 
-        let databaseURLs = sourceProfiles.map {
+        // A profile and its containers share one history, so read each profile once.
+        var seenProfileRoots = Set<String>()
+        let databaseURLs = sourceProfiles.filter {
+            seenProfileRoots.insert($0.rootURL.standardizedFileURL.path).inserted
+        }.map {
             $0.rootURL.appendingPathComponent("places.sqlite", isDirectory: false)
         }.filter { fileManager.fileExists(atPath: $0.path) }
 
