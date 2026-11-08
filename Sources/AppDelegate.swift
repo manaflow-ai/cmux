@@ -3153,16 +3153,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let bounds = terminalPanel.hostedView.bounds
             guard bounds.width > 0, bounds.height > 0 else { return nil }
 
-            let size = ghostty_surface_size(surface)
-            let rows = max(Int(size.rows), 1)
-            let cols = max(Int(size.columns), 1)
-            let debugCellSize = terminalPanel.hostedView.debugCellSize
-            let cellWidth = debugCellSize.width > 0 ? debugCellSize.width : CGFloat(size.cell_width_px)
-            let cellHeight = debugCellSize.height > 0 ? debugCellSize.height : CGFloat(size.cell_height_px)
-            guard cellWidth > 0, cellHeight > 0 else { return nil }
-
-            let xInset = max(0, (bounds.width - (CGFloat(cols) * cellWidth)) / 2)
-            let yInset = max(0, (bounds.height - (CGFloat(rows) * cellHeight)) / 2)
+            // Click points are view points; use the grid metrics, not the
+            // backing-pixel cell size, as the Cmd-click lookup does.
+            var grid = ghostty_surface_grid_metrics_s()
+            guard ghostty_surface_grid_metrics(surface, &grid),
+                  grid.cell_width.isFinite, grid.cell_width > 0,
+                  grid.cell_height.isFinite, grid.cell_height > 0,
+                  grid.padding_left.isFinite, grid.padding_top.isFinite else { return nil }
+            let cellWidth = CGFloat(grid.cell_width)
+            let cellHeight = CGFloat(grid.cell_height)
+            let xInset = CGFloat(grid.padding_left)
+            let yInset = CGFloat(grid.padding_top)
+            let rows = max(Int(grid.rows), 1)
+            let cols = max(Int(grid.columns), 1)
             let pointClampX: (CGFloat) -> CGFloat = { x in
                 min(bounds.width - 4, max(4, x))
             }
