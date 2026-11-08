@@ -301,7 +301,8 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
 
 /// One shown dialog: the window's glass at the card's rect, under the transparent overlay page that
 /// draws the card's contents. The page in the overlay panel cannot blur the window under it, so the
-/// glass (Liquid Glass, opaque under Reduce Transparency) stays the window's own.
+/// card's glass and shadow (``OverlayDialogCard``: the blur of what is behind the window, opaque under
+/// Reduce Transparency) are native.
 @MainActor
 final class OverlayDialogView: NSView {
     let page: PageWebView
