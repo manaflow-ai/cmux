@@ -479,6 +479,13 @@ final class ScreenContentView: NSView {
         defer { frameInput.filmSnapSendsGrid = false }
         #endif
         if holdsSnap, !holdsSnapForContent() { releaseSnapDeparted() }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // Z4 key turn step 2 (ZOOM VARIANTS 3, never merged): a film zoom presents in the key's own turn, so that turn's
+        // commit carries the film's first moved frame (Chromium: the input applies at the next begin-frame). The zoomed
+        // host still got its size ahead above (grid in this turn); its terminal keeps its old bounds until its frame at
+        // the new size and the program's redraw come (the shared hold), as at the frame tick before.
+        if filmSnaps { frameInput.snapWaitsForContent = false }
+        #endif
         if presents { applyPresentation() }
         let moving = animate && hasMotion
         if !(moving && holdsGrids) { holdsGrids = false }
