@@ -131,7 +131,7 @@ def trace_stats(trace, sent_host_s=None):
         samples = before[-1:] + [x for x in samples if x["t"] >= sent]
     movers = trace_movers(samples)
     first = last = None
-    turns, ticks, ends = {}, set(), {}
+    turns, ticks, ends, dump = {}, set(), {}, {}
     for key, points in movers.items():
         for (_, v0), (t1, v1) in zip(points, points[1:]):
             if len(v0) != len(v1) or any(abs(a - b) > EPS for a, b in zip(v0, v1)):
@@ -144,6 +144,7 @@ def trace_stats(trace, sent_host_s=None):
         if turned:
             turns[key] = len(turned)
             ticks |= turned
+            dump.setdefault(key, {"ticks": sorted(turned), "points": [[round(t, 2), list(v)] for t, v in points]})
     times = [x["t"] for x in samples]
     intervals = []
     if first is not None:
@@ -157,7 +158,7 @@ def trace_stats(trace, sent_host_s=None):
     out = {"refresh_ms": refresh, "motion_ms": round(last - first, 1) if first is not None else 0,
            "moved_frames": len(intervals), "frame_p50_ms": pct(intervals, 0.5), "frame_p95_ms": pct(intervals, 0.95),
            "frame_max_ms": max(intervals) if intervals else None, "dropped_frames": dropped,
-           "retargets": len(ticks), "retargeted": turns, "movers": len(movers), "aligned": sent is not None}
+           "retargets": len(ticks), "retargeted": turns, "retarget_dump": dump, "sent_ms": sent, "movers": len(movers), "aligned": sent is not None}
     if sent is not None:
         out["layout_first_ms"] = round(first - sent, 1) if first is not None else None
         out["layout_settled_ms"] = round(last - sent, 1) if last is not None else None
