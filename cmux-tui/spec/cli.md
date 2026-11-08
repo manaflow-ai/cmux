@@ -838,6 +838,15 @@ line and older output never match. Output printed before the wait starts is
 not new, so start the wait before the command, or use `terminal send
 --pattern`.
 
+A terminal whose tab, pane, screen or workspace was closed keeps its shell
+until the reap grace ends (unless it is kept), so `closed reopen` can show it
+again. Until then input to it (`write`, `keys`, `mouse`, `focus`, `send`) fails
+with `terminal.closed`, whose message names `closed list` and `closed <id>
+reopen`, and `screen read` still answers its last screen with `"closed": true`.
+A `selector.not_found` for a closed workspace, screen, pane, tab, terminal or
+browser id says it was closed and names `closed <id> reopen`; any other unknown
+id names the `list` command of its kind.
+
 `terminal <t> send` reads with soft wraps joined when the daemon can, and an
 older daemon gets row reads. With OSC 133 shell integration the terminal
 record carries `extra.last_command` (`terminal-exit-status-v1`): the last

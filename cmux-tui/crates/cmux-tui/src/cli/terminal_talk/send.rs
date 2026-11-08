@@ -279,6 +279,29 @@ pub(in crate::cli) fn find_terminal<'a>(
     }
 }
 
+/// A `term_` id no terminal has any more: say it was closed and name its reopen when the closed
+/// history has it, else the list command (closed_hint.rs). A failed lookup keeps the plain answer.
+fn closed_terminal_hint<B: Daemon + ?Sized>(
+    backend: &B,
+    session: Option<&str>,
+    target: &str,
+    mut failure: SendFailure,
+) -> SendFailure {
+    if failure.failure.error["code"] != "selector.not_found" || !target.starts_with("term_") {
+        return failure;
+    }
+    let Ok(closed) = plan(&["closed", "list"]).and_then(|plan| Ok(backend.request(session, plan)?))
+    else {
+        return failure;
+    };
+    let items = closed.as_array().map(Vec::as_slice).unwrap_or_default();
+    failure.failure.error.set(
+        "message",
+        json!(super::super::closed_hint::not_found_message("terminal", target, items)),
+    );
+    failure
+}
+
 /// One look at the terminal while the wait runs.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(in crate::cli) struct Sample {
@@ -431,7 +454,8 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         None => None,
     };
     let snapshot = snapshot(backend, session)?;
-    let terminal = find_terminal(&snapshot, &request.target)?;
+    let terminal = find_terminal(&snapshot, &request.target)
+        .map_err(|failure| closed_terminal_hint(backend, session, &request.target, failure))?;
     let id = terminal["id"].as_str().unwrap_or_default().to_owned();
     let before = last_command(terminal).cloned();
     // A send's durable child keys include this resolved terminal identity.

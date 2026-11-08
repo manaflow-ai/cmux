@@ -393,12 +393,29 @@ fn terminal_effect(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Val
         } else {
             resolve_terminal_surface(mux, &request.selectors)?.0
         };
+        // A terminal whose tab, pane, screen or workspace was closed keeps its shell for the reap
+        // grace (a reopen shows it again), but input to it reached nothing anyone sees and answered
+        // a success: refuse it and name the way back.
+        if is_terminal_input(request.envelope.operation) && mux.terminal_awaiting_reap(&terminal_id)
+        {
+            return Err(ResourceError::terminal_tab_closed(&terminal_id));
+        }
         Ok(json!({"terminal_id":terminal_id,"fields":fields}))
     })?;
     match preparation {
         EffectPreparation::Complete(result) => result,
         EffectPreparation::Execute(prepared) => execute_terminal_effect(mux, prepared),
     }
+}
+
+fn is_terminal_input(operation: ResourceOperation) -> bool {
+    matches!(
+        operation,
+        ResourceOperation::TerminalInputWrite
+            | ResourceOperation::TerminalInputKeys
+            | ResourceOperation::TerminalInputMouse
+            | ResourceOperation::TerminalInputFocus
+    )
 }
 
 fn execute_terminal_effect(

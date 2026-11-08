@@ -646,6 +646,10 @@ fn run_response(
                     {
                         error = outdated;
                     }
+                    // An unknown id that was closed says so and names its reopen.
+                    if global.output != OutputMode::Quiet {
+                        super::closed_hint::annotate_not_found(plan, reader, &mut error);
+                    }
                     if matches!(global.output, OutputMode::Quiet | OutputMode::Human) {
                         localize_operation_error(plan, &mut error);
                     }
@@ -686,6 +690,7 @@ fn run_response(
                         _ => result,
                     };
                     let result = agent_roster::with_terminals(reader, plan, result);
+                    let result = super::closed_hint::mark_closed_read(plan, reader, result);
                     return super::agent_input_hint::print_result(global, plan, reader, result);
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {

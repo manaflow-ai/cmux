@@ -133,6 +133,21 @@ impl ResourceError {
         )
     }
 
+    /// Input to a terminal that lost its last tab and waits out the reap grace: the shell still
+    /// runs, but nothing shows it, so the input is refused and the answer names the way back.
+    pub fn terminal_tab_closed(terminal_id: &TerminalPublicId) -> Self {
+        Self::new(
+            "terminal.closed",
+            format!(
+                "terminal {terminal_id} is closed: its tab, pane, screen or workspace was closed, \
+                 so it takes no input and ends after the reap grace. `cmux closed list` shows \
+                 what was closed; `cmux closed <id> reopen` brings it back with this terminal"
+            ),
+            json!({"terminal_id":terminal_id}),
+            false,
+        )
+    }
+
     pub fn idempotency_conflict(idempotency_key: &str, committed_operation: &str) -> Self {
         Self::new(
             "idempotency.conflict",
