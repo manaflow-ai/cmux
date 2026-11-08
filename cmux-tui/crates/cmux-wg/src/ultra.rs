@@ -816,7 +816,6 @@ impl UltraUnderlay {
         self.decoding |= matches!(mode, UltraMode::Fec { .. } | UltraMode::Rs { .. });
     }
 
-
     fn on_parity(&mut self, datagram: &[u8], origin: Origin) {
         // Parity is not authenticated: from anyone else it could make this
         // side buffer datagrams or spend bytes on parity of its own.
