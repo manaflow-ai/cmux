@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-07: a group drawn as its one row folds like any group. Leo, verbatim: "when you're collapsing a group, the
+  text needs to fade faster". A group of one member titled as the group draws that row in the header's place
+  (`standsForGroup`) and no header, so its collapse found no open header: the row faded over the whole `.move` spring and
+  its slot shut to nothing. `SidebarRowTransition.foldingHeader` takes the row's `standingHeader` as the open header: the
+  row fades on `fadeOut` under the collapsed header, and an expand brings it out at full height in place (F1 of #36457).
+  Regression: `SidebarSingleMemberGroupTests/collapsingASameNameGroupFoldsItsOneRowUnderTheHeader`.
 - 2026-11-07: the Updated card hidden mid-drag, review of #38020. Hiding the card mid-drag lays it out at its rest,
   so it comes back there, and taking the card away (its page goes too) stops dropping drag messages, so the next
   drag's first move is not lost. Leo, verbatim: "what if you could, like, drag around the updated to nightly, and
@@ -702,7 +708,7 @@ density; a pill too tall to center under the window's top stops 1 pt below it. T
 alone, centers on the trailing column (`SidebarStyle.trailingColumnFrame`) that the rows' status marks, unread dots
 and footer Search share; with the chooser segment shown the pair keeps the row's trailing inset. Debug
 `chrome.topRowLine`: `lights` (default), `tabs`, `titlebar`, `off`. Regression: `TopRowAlignmentTests`,
-`TopRowSidebarColumnTests`; live lines: `debug.top_alignment`, tour `top-alignment`.
+`TopRowSidebarColumnTests`; live lines: `debug.top_alignment`, tours `top-alignment`, `top-alignment-cozy` and `top-alignment-spacious` (one tour holds 30 steps).
 
 ## The notice card's rows share one leading edge and show whole (2026-11-05)
 

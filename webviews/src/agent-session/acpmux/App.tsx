@@ -49,6 +49,7 @@ import {
   UNKNOWN_AUTH,
 } from "./sessionAuth";
 import { hasNativeHost, postNative } from "./native";
+import { reportToastAvoidance, resendToastAvoidance } from "./toastAvoidance";
 import { OpenAppCard, afterLatestFooter } from "./OpenAppCard";
 import { setCloudPreviewContext, useCloudPreviewPorts } from "./cloudPreviewPorts";
 import { CloudEnvironmentEditor } from "./CloudEnvironmentEditor";
@@ -520,7 +521,7 @@ import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
 import { isCurrentMenuCommand, parseMenuCommand } from "./header/menuCommands";
 import { errorRecovery, lastFailedTurn } from "./conversation/errorRecovery";
-import { NewestSteerContext, takeBackSteer, takesSteersBack } from "./conversation/PendingSteer";
+import { NewestSteerContext, takeBackSteer, takesSteersBack } from "./conversation/pendingSteerModel";
 import { type WorkingCounts, WorkingCountsContext } from "./conversation/WorkingFor";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
 import { useTranscriptView, type TranscriptView } from "./conversation/transcriptView";
@@ -608,7 +609,7 @@ import { chiefDock } from "./chiefDock.experiment";
 import { contextAttachment, floatingStatus, type QuickFloating } from "./FloatingChat";
 import { designSelectionChips, designSelectionRemovals } from "./designSelection";
 import { setFloatingState, useFloatingState } from "./floatingState";
-import { FailedSendsContext, type FailedSends } from "./conversation/PromptDelivery";
+import { FailedSendsContext, type FailedSends } from "./conversation/promptDeliveryModel";
 import { failedRuns, failedSendText, type FailedRun } from "./sendFailure";
 import { clientWaiter, lostPrompt, resentAfterLoss } from "./lostPrompt";
 import { ReplayScreen } from "./replay/ReplayScreen";
@@ -2992,6 +2993,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [shell, setShell] = useState<HTMLElement | null>(null);
   /// The chat's bottom stack (bottomStack.css): the transcript runs under it and keeps its end above it.
   const [dock, setDock] = useState<HTMLElement | null>(null);
+  // The app's toasts lift above this stack; they never move it (toastAvoidance.ts).
+  useEffect(() => (dock ? reportToastAvoidance(dock) : undefined), [dock]);
   // A chat whose agent started others has something to show too: their rows under Subagents.
   const summaryCard = useSummaryCard(
     // The side panel and Background tasks take the right column: the Summary stays a popover then.
@@ -6068,10 +6071,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     ]);
     if (snapshot.summary) enabledCmuxActions.add("status");
     if (!quick) enabledCmuxActions.add("cd");
-    if (forkable && forkSeq !== undefined) {
-      enabledCmuxActions.add("fork");
-      if (localCwd !== undefined && !quick) enabledCmuxActions.add("side");
-    }
+    if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
+    // A working chat offers /side too: its fork is of the chat as it is now (#38042).
+    if (forkRefusal(snapshot) === undefined && localCwd !== undefined && !quick) enabledCmuxActions.add("side");
     if (continueAvailable) enabledCmuxActions.add("continue");
     // Reserve /btw even with the kill switch off: it must never become a steer or queued prompt.
     if (snapshot.sessionId && !isSideSession && !quick) enabledCmuxActions.add("btw");
@@ -6614,6 +6616,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       rowCount: () => rowsRef.current.length,
       rowIds: () => rowsRef.current.map((row) => row.id),
       sessionId: () => directClient.current?.selectedSession,
+      toast: (text) => notices.transient(text),
       automation: {
         snapshot: () => automationView.current!.snapshot,
         // The chat's own actions only, once it connects: never the native host (automation.ts pageAction).
@@ -6738,7 +6741,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           sandboxState?: unknown;
           /// The tab this page is (AgentPaneHandshake `tab`); an older app sends none.
           tab?: unknown;
-        }>("ready", reconnect ? { reconnect } : {});
+        }>("ready", reconnect ? { reconnect } : {})
+          // The host cleared its toast box for this handshake: it hears the mounted composer's again.
+          .finally(resendToastAvoidance);
         if (cancelled) return;
         // Before anything draws the chat: its Session Info is this tab's, not another tab's of the chat.
         if (typeof host.tab === "string" && host.tab) setSessionInfoTab(host.tab);
@@ -7762,14 +7767,33 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           },
           // `/btw <question>`: acpmux starts the side session; the composer then opens it.
           "chat.btw": ({ question }) => client.btw(String(question ?? "")),
-          "chat.side": async ({ throughSeq }) => {
+          // New side chat and `/side [prompt]`: `live` forks a working chat as it is now, its own
+          // turn going on; `prompt` goes to the side chat once the app opened it (#38042).
+          // Resolves once the side chat is open, not when its prompt's turn ends; rejects when no
+          // side chat opened (the composer keeps `/side <prompt>` and says why).
+          // `splitRight`: `/side`'s, always a new split right of the chat (the menu's keeps the right
+          // column's placement, AgentSidePanes).
+          "chat.side": async ({ throughSeq, live, prompt, splitRight }) => {
             // The chat it is beside, read before the fork (the reader may open another chat meanwhile).
             const chat = client.selectedSession;
-            const sessionId = await client.forkAside(Number(throughSeq));
-            if (!sessionId || !chat) return;
-            // acpmux marks it the chat's side chat; the app only opens it beside the chat.
-            await client.markSide(sessionId, chat);
-            await postNative("chat.sideChat", { sessionId });
+            const sessionId = await client.forkAside(live === true ? "live" : Number(throughSeq));
+            if (!sessionId || !chat) throw new Error("");
+            try {
+              // acpmux marks it the chat's side chat; the app only opens it beside the chat.
+              await client.markSide(sessionId, chat);
+              await postNative("chat.sideChat", { sessionId, ...(splitRight === true ? { split: "right" } : {}) });
+            } catch (error) {
+              client.takeBackSide(sessionId);
+              throw error;
+            }
+            const text = typeof prompt === "string" ? prompt.trim() : "";
+            if (!text) return;
+            void client.promptSide(sessionId, text).catch((error: unknown) => {
+              // acpmux's own refusal shows in the side chat; one the host made never reached it.
+              const code = (error as { code?: unknown } | null)?.code;
+              if (typeof code === "string" && code.startsWith("transport."))
+                notices.transient(translate("prompt.notSent", { reason: errorMessage(error) || code }));
+            });
           },
           // An offer's Start (cx-807da): the offered chat starts beside this one, which stays shown.
           // `worktree`: the task's Options > Worktree, else the agent's ask; `harness`, `model`,
@@ -8262,6 +8286,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const refusal = cmuxCommandRefusal(command, args, {
       summary: !fresh && !!snapshot.summary,
       forkable: !fresh && forkable && forkSeq !== undefined,
+      sideFork: forkRefusal(snapshot),
       sideAvailable: !fresh && localCwd !== undefined && !quick,
       canContinue: !fresh && canContinue,
       sideSessions: opensSideSessions,
@@ -8380,8 +8405,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // The pending aside keeps the whole question; typing and the main turn continue.
       return true;
     }
-    if (command.action === "fork" || command.action === "side") {
-      ignoreFailure(callNative(command.action === "side" ? "chat.side" : "chat.fork", { throughSeq: forkSeq }));
+    if (command.action === "side") {
+      // A working chat forks as it is now and keeps its turn (forkToTarget); `/side <prompt>` sends
+      // the prompt to the side chat once it is open beside this one (#38042).
+      const target = forkToTarget(snapshot);
+      if (!target) return t("notice.forkNothingYet");
+      const prompt = args?.trim();
+      return callNative("chat.side", { ...target, splitRight: true, ...(prompt ? { prompt } : {}) }).catch(
+        (error: unknown) => {
+          const reason = errorMessage(error);
+          throw new CmuxCommandRefused(
+            reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"),
+          );
+        },
+      );
+    }
+    if (command.action === "fork") {
+      ignoreFailure(callNative("chat.fork", { throughSeq: forkSeq }));
       return true;
     }
     if (command.action === "continue") {

@@ -41,10 +41,9 @@
   --cv-ui-scale: var(--cmux-ui-scale, 1);
   --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 62.5%, calc(800px / var(--cv-ui-scale)));
   --cv-edge: var(--grid-icon-box);
-  /* Resolved where it is used: 100% is the pane's width there. Rounded down to the 4 grid
-     (design/grid.md 5.5: max(16, 4 * floor((pane - column) / 8))), so both column edges sit on it
-     and the column takes the 0-7 px left over. */
-  --cv-inset: max(var(--cv-edge), round(down, (100% - var(--cv-column)) / 2, 4px));
+  /* Resolved where it is used: 100% is the pane's width there. Rounded to a whole pixel only, so the
+     default column stays --cv-column's width. */
+  --cv-inset: max(var(--cv-edge), round(nearest, (100% - var(--cv-column)) / 2, 1px));
   --cv-font: var(--font-ui);
   /* Code follows the terminal font; a chat or Markdown viewer code font (chatDisplay.ts) sets
      --cv-mono in front of it. */
@@ -2004,9 +2003,10 @@ pre.cv-math-source {
   display: flex;
   flex: none;
 }
+/* The verb reads in its row's tone, as a tool row's verb does: never brighter than what it asks to
+   run (Leo, 2026-11-07, on the live line's verb: "don't make it white"). */
 .acpmux-ask-verb {
   flex: none;
-  color: var(--cv-text);
 }
 .acpmux-ask-subject {
   min-inline-size: 0;
@@ -2414,10 +2414,12 @@ pre.cv-math-source {
 .cv-status-verb__size::before {
   content: attr(data-text);
 }
-/* The live line's action in full ink, the rest of its words at the line's muted tone, as Claude Code
-   desktop draws "Using repo: repo grep" (Thinking.tsx `liveLead`). */
+/* The live line's action (Thinking.tsx `liveLead`: "Writing", "Using repo", "Running") reads in the
+   line's own muted tone, as the words after it do; the shimmer is its only lift (Leo, 2026-11-07:
+   "The, like, white text, the verb ... why is it white? ... don't make it white"). Takes back
+   #33241's full-ink lead. The span stays: the roll-out copy and the gallery's looks name it. */
 .cv-worked__lead {
-  color: var(--cv-text);
+  color: inherit;
 }
 .cv-shimmer__band {
   display: none;
@@ -2472,12 +2474,12 @@ pre.cv-math-source {
 
 /* The live line rolls its words when they change (Thinking.tsx `useRoll`; Leo, 2026-11-05: "this is
    quite good too how it animates the changing text!!! we need to have that!!! for changing tool
-   calls at the bottom"): the old words (`cv-roll-out`, their action in full ink as the line drew
-   them) rise, soften and fade out above while the new rise in from below. Transform, opacity and a
-   small blur only, on the agent motion token, so nothing reflows and ui.animationSpeed scales it.
-   Reduce Motion, cmux motion off or reduced, the pane's agent motion off (ui.animationSpeed) and the
-   static status look change the words at once; the old words never show. Two keyframes of one
-   roll, swapped each change, restart it on the same element, so the line's live region is never
+   calls at the bottom"): the old words (`cv-roll-out`, in the line's one tone as it drew them)
+   rise, soften and fade out above while the new rise in from below. Transform, opacity and a small
+   blur only, on the agent motion token, so nothing reflows and ui.animationSpeed scales it. Reduce
+   Motion, cmux motion off or reduced, the pane's agent motion off (ui.animationSpeed) and the
+   static status look change the words at once; the old words never show. Two keyframes of one roll,
+   swapped each change, restart it on the same element, so the line's live region is never
    remounted. The new words fill backwards only, so no filter stays on the shimmer once they land. */
 .cv-roll-out {
   display: none;
@@ -2498,7 +2500,6 @@ pre.cv-math-source {
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out::before {
     content: attr(data-lead);
-    color: var(--cv-text);
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out::after {
     content: attr(data-text);
@@ -6969,6 +6970,11 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   height: calc(var(--cv-tool-row-height) + var(--grid-gap-foot));
   padding-bottom: var(--grid-gap-foot);
   margin-bottom: var(--grid-gap-inner);
+}
+/* The command line after a named action, in the dim tone (commandLabel.experiment.ts
+   "verbs-command"): what ran, under what it did. */
+.cv-command__dim {
+  color: var(--cv-text-dim);
 }
 
 /* Where a prompt was sent from (SentFromLine.tsx): the sender chip, then "self-reported" when acpmux
