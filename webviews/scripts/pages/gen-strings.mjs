@@ -243,6 +243,29 @@ export const PAGES = {
       },
     ],
   },
+  // The server cards (cmux-page://cmux.server-cards/) share the tables of the Swift they replaced:
+  // Pair Another Machine's own, and the Add Server words, name and buttons it reuses.
+  "server-cards": {
+    out: "webviews/src/pages/server-cards/generated/strings.json",
+    catalogs: [
+      { file: `${sources}/CmuxNextServer/Resources/PairInvite.xcstrings` },
+      {
+        file: `${sources}/CmuxNextServer/Resources/Localizable.xcstrings`,
+        keys: (all) =>
+          all.filter((key) =>
+            [
+              "approver.wordsQuestion",
+              "approver.wordsWarning",
+              "approver.retry",
+              "approver.done",
+              "approver.name",
+              "approver.cancel",
+              "approver.runChief",
+            ].includes(key),
+          ),
+      },
+    ],
+  },
   // The right sidebar's Machines section (cmux-page://cmux.machines/) shares the Swift card's table:
   // the section's `machines.` keys and the check steps its status mark names (`addMachine.step.`).
   machines: {

@@ -12,6 +12,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/mode
 import { layoutConversation } from "../src/agent-session/acpmux/model";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { hiddenRowFolds, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { toolGroups } from "../src/agent-session/acpmux/conversation/toolGroups";
 
 // Claude's in-place runs (claudeTurnFold.experiment.ts arm "runs"): these tests cover that arm. The
 // default folds a Claude turn under "Worked for", as Codex does (turnFoldStyle.test.ts).
@@ -38,6 +39,27 @@ const tool = (title: string, kind: string, fields: Record<string, unknown> = {})
 });
 const send = (to: string, message: string) =>
   tool("SendMessage", "other", { inputSummary: JSON.stringify({ to, message }) });
+
+test("a 1024-recipient MCP batch keeps its full summary count and its closed group's height", () => {
+  const batch = (count: number) =>
+    activity([
+      tool("mcp__cmux__acpmux_send", "other", {
+        inputSummary: JSON.stringify({ tag: "area=docs", text: "hello" }),
+        output: JSON.stringify({
+          results: Array.from({ length: count }, (_, index) => ({ index: 0, to: `recipient-${index}`, ok: true })),
+        }),
+      }),
+    ]);
+  const small = { ...batch(32), foldRun: true };
+  const large = { ...batch(1024), foldRun: true };
+  // With another send beside it, every message is one group of sends that counts each recipient.
+  const companion = send("recipient-companion", "hello");
+  const groups = toolGroups([...large.items!, companion]);
+  expect(groups.map((group) => group.type)).toEqual(["sendGroup"]);
+  expect(groups[0]?.type === "sendGroup" && groups[0].entries.length).toBe(1025);
+  // Both start as one closed "Sent N messages" line: the estimate does not grow with the receipt.
+  expect(layoutConversation([large], 720).heights[0]).toBe(layoutConversation([small], 720).heights[0]);
+});
 const read = (path: string) => tool(`Read ${path}`, "read", { locations: [{ path }] });
 const run = (command: string) => tool(command, "execute", { command, output: "ok\n" });
 const activity = (items: AcpmuxActivity[], id?: string) =>

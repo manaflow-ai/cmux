@@ -387,8 +387,9 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         return Err(SendFailure::local(
             "agent.waiting_for_input",
             format!(
-                "the {} agent in {id} waits on a dialog; typed text would answer it. Answer the \
-                 dialog (agents_dialog_list), or pass --force to type anyway",
+                "the {} agent in {id} waits on a dialog; typed text would answer it. Read it \
+                 (cmux terminal {id} screen read) and answer with keys (cmux terminal {id} keys \
+                 escape), or pass --force to type anyway",
                 agent.harness
             ),
             json!({"terminal": id, "harness": agent.harness, "state": agent.state.as_str()}),
