@@ -67,6 +67,7 @@ import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLo
 import { composerDeeplinkLook } from "../agent-session/acpmux/composer/deeplinkLook.experiment";
 import { cmuxLinkLook } from "../agent-session/acpmux/chips/cmuxLinkLook.experiment";
 import { pastedAgentLook } from "../agent-session/acpmux/conversation/pastedAgentLook.experiment";
+import { sentPasteLook } from "../agent-session/acpmux/conversation/sentPasteLook.experiment";
 import { sentMessageLook } from "../agent-session/acpmux/conversation/sentMessageLook.experiment";
 import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experiment";
 import { contextRingMotion } from "../agent-session/acpmux/contextRingMotion.experiment";
@@ -76,6 +77,7 @@ import { sendStopMorph } from "../agent-session/acpmux/composer/sendStopMorph.ex
 import { fileKindIcon } from "../agent-session/acpmux/chips/fileKindIcon.experiment";
 import { timeHoverWording } from "../agent-session/acpmux/conversation/timeHoverWording.experiment";
 import { timeHoverDate } from "../agent-session/acpmux/conversation/timeHoverDate.experiment";
+import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -151,6 +153,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerDeeplinkLook,
   cmuxLinkLook,
   pastedAgentLook,
+  sentPasteLook,
   sentMessageLook,
   contextRingLook,
   contextRingMotion,
@@ -158,6 +161,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   emojiShortcodeLook,
   pastePlaceholderLook,
   sendStopMorph,
+  fieldGrowthMotion,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

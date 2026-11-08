@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """nightly.yml: the published build that the post-publication jobs describe.
 
-nightly-next is one loop (Leo, 2026-11-06): one run at a time builds, signs, publishes and then runs
-what follows the feed (GitHub release, deltas, dSYMs, release notes, reel, PR comments), and the push
-group's newest head runs next. A separately dispatched tail run (cmux#37030) took the nightly mini beside
-the next push run, so every track now runs those jobs in the run that published, from the record of
-that run's own jobs. An older push run's post-publication dispatch (nightly_next_post_publish) is still
-read from its checked artifact.
+nightly-next is one loop (Leo, 2026-11-06): one run at a time builds, signs, publishes and writes the
+GitHub release, whose body and tag the next run's decide reads, and the push group's newest head runs
+next. Then the loop run's dispatch-published-in uploads this record and dispatches nightly.yml
+(nightly_next_post_publish), whose published-build checks it and hands it to the deltas, notes, reel and
+PR comments, outside the push group. Main's nightly, RC and manual nightly-next runs run the whole tail
+in their own run, from the same record of that run's own jobs.
 
     nightly_published_build.py pack
         NEEDS (toJSON(needs)), RUN_ID, RUN_ATTEMPT, SHA: writes the record to RECORD_FILE, for this run's

@@ -23,6 +23,9 @@ public protocol AgentShareHost: AnyObject {
     /// A fresh cmux install token of the signed-in owner (`/v1/auth/token`, ES256) from `api`, the API the
     /// daemon's share room takes tokens from (nil: the daemon did not say, the build's default); nil signed out.
     func shareOwnerToken(api: URL?) async -> String?
+    /// The signed-in person's cmux (Stack) access token, for a share room's one-time hand-off when the app opens
+    /// a share link (``AgentShareLinks``); nil signed out.
+    func shareSignInToken() async -> String?
     /// Puts `text` on the general pasteboard.
     func shareCopy(_ text: String)
     /// Shows a person's run `message` as a notice in the active window.
@@ -36,6 +39,8 @@ public protocol AgentShareHost: AnyObject {
     func shareShowInvites(_ model: AgentShareInviteSheetModel)
     /// Opens Settings on the page `route` (the Share dialog's Manage links…).
     func shareOpenSettings(route: String)
+    /// The name `tab` shows in the tab strip (an agent chat's title, never the `about:blank` its record carries).
+    func shareTitle(of tab: TabModel) -> String
 }
 
 public extension AgentShareHost {
@@ -45,6 +50,16 @@ public extension AgentShareHost {
     func shareShowInvites(_ model: AgentShareInviteSheetModel) {}
     /// A host with no Settings opens nothing.
     func shareOpenSettings(route: String) {}
+    /// A host with no title resolver: the tab's own name, else its record's title.
+    func shareTitle(of tab: TabModel) -> String { tab.displayTitle }
+
+    /// The tab showing a share's chat: the one on its session (surface numbers change across a
+    /// restart), else the one on its stored surface (Leo, 2026-11-07, on Shared Links rows titled
+    /// about:blank: "the manage links is just about blank").
+    func shareChatTab(session: String?, surface: SurfaceID) -> TabModel? {
+        if let session, let id = shareTabID(showing: session), let tab = shareTab(id: id) { return tab }
+        return shareTab(surface: surface)
+    }
 }
 
 /// What the owner is asked before a run they did not start makes a guest link, or invites an account:
@@ -89,4 +104,9 @@ public struct AgentShareConsentAsk: Sendable, Hashable {
     public var declineTitle: String { invite == nil ? AgentShareStrings.consentDecline : AgentShareStrings.inviteConsentDecline }
     /// The Feed request's button that brings this Mac's sheet forward (it never allows a link).
     public var showOnMacTitle: String { AgentShareStrings.consentShowOnMac }
+}
+
+public extension AgentShareHost {
+    /// No sign-in to hand a share page: a link opens signed out.
+    func shareSignInToken() async -> String? { nil }
 }

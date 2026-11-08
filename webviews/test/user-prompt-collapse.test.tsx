@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture prompts, not shipped UI.
-// Leo 2026-10-21: a long prompt collapses as Claude's does. A sent prompt longer than ten lines
-// shows its first ten, the last ones fading out, with a Show more / Show less toggle under them; the hover
+// Leo 2026-10-21: a long prompt collapses as Claude's does. A sent prompt longer than twenty lines
+// shows its first twenty (Leo 2026-11-07: "show more than we are showing right now"), the last ones fading out, with a Show more / Show less toggle under them; the hover
 // row stays, and Copy copies the whole prompt. The choice is kept by the row's id (the transcript
 // disclosure store), so a prompt scrolled out and back, or drawn again from history, stays as the
 // reader left it. A block the composer marked as pasted (`user_message.pasted`, UTF-16 ranges into
@@ -50,6 +50,9 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+// The paste tests below cover the paste card (sentPasteLook `card`); the default draws a paste as the
+// bubble's own text, which "a paste drawn as text ..." covers with the arm set for its run.
+globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "sent-paste-look": "card" };
 
 const { act, Profiler } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -57,7 +60,8 @@ const { UserBubble } = await import("../src/agent-session/acpmux/conversation/Us
 const { PromptText } = await import("../src/agent-session/acpmux/conversation/PromptText");
 const { foldMotion } = await import("../src/agent-session/acpmux/conversation/fold");
 const { FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
-const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+const { resetTranscriptDisclosure } =
+  await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
 const { pasteRanges, COLLAPSED_PROMPT_LINES } = await import("../src/agent-session/acpmux/conversation/promptCollapse");
 const { paintFindHighlights } = await import("../src/agent-session/acpmux/conversation/chatFind");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
@@ -195,8 +199,8 @@ try {
   });
 
   test("measuring a long prompt confirms its initial clamp without a second commit", () => {
-    measuredPrompt(240, ({ render, commits, measurements }) => {
-      const text = lines(12);
+    measuredPrompt(480, ({ render, commits, measurements }) => {
+      const text = lines(22);
       render(text);
       expect(measurements()).toBeGreaterThan(0);
       expect(body().textContent).toBe(text);
@@ -206,11 +210,11 @@ try {
     });
   });
 
-  test("a measured prompt folds and unfolds when its width crosses ten lines", () => {
+  test("a measured prompt folds and unfolds when its width crosses twenty lines", () => {
     measuredPrompt(20, ({ render, resize }) => {
       const text = "word ".repeat(12).trim();
       render(text);
-      resize(240);
+      resize(480);
       expect(body().classList.contains("is-clamped")).toBe(true);
       expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
       resize(40);
@@ -221,15 +225,15 @@ try {
   });
 
   test("new content ignores the previous prompt measurement and still follows later resize", () => {
-    measuredPrompt(240, ({ render, resize }) => {
+    measuredPrompt(480, ({ render, resize }) => {
       render("A short guess that wraps in a narrow bubble");
       expect(body().classList.contains("is-clamped")).toBe(true);
       // Same mounted component, different text: the old short guess must not override a new
       // long guess, and the new measurement must be able to correct that guess either way.
       resize(40);
-      render(lines(12));
+      render(lines(22));
       expect(toggle()).toBeNull();
-      resize(240);
+      resize(480);
       expect(body().classList.contains("is-clamped")).toBe(true);
       render("Replacement short text");
       expect(body().classList.contains("is-clamped")).toBe(true);
@@ -243,7 +247,7 @@ try {
     resetTranscriptDisclosure();
     const text = lines(2000);
     render(prompt("user-1", text));
-    expect(COLLAPSED_PROMPT_LINES).toBe(10);
+    expect(COLLAPSED_PROMPT_LINES).toBe(20);
     expect(body().classList.contains("is-clamped")).toBe(true);
     expect(body().classList.contains("is-faded")).toBe(true);
     // The whole prompt stays in the bubble: select and Find read all of it; only its height is clamped.
@@ -454,6 +458,32 @@ try {
     }
   });
 
+  // Leo, 2026-11-07: "we do not want to have this card thing going on, this double card thing ...
+  // We want to show the actual characters." The default draws a paste as the bubble's own text:
+  // no card, no label, its characters under the prompt's one fold, which Find opens.
+  test("a paste drawn as text is the bubble's own characters under one fold, which Find opens", () => {
+    const before = globalThis.cmuxExperiments;
+    globalThis.cmuxExperiments = { ...before, "sent-paste-look": "text" };
+    try {
+      resetTranscriptDisclosure();
+      const typed = "See the log";
+      const paste = lines(50, "frame");
+      const start = typed.length + 1;
+      const row = prompt("user-text-paste", `${typed}\n${paste}`, { pasted: [{ start, end: start + paste.length }] });
+      remount(row);
+      expect(host.querySelector(".cv-user__paste, .cv-user__paste-card")).toBeNull();
+      expect(host.querySelector(".cv-user__pasted")?.textContent).toBe(paste);
+      expect(body().textContent).toBe(`${typed}${paste}`);
+      // Fifty lines fold under the prompt's one Show more.
+      expect(body().classList.contains("is-clamped")).toBe(true);
+      expect(toggle()?.textContent).toBe(MORE);
+      render(row, { rowId: "user-text-paste", card: false, needle: "frame 42", repaint: () => {} });
+      expect(body().classList.contains("is-clamped")).toBe(false);
+    } finally {
+      globalThis.cmuxExperiments = before;
+    }
+  });
+
   test("Find opens the closed paste chip that holds the match", () => {
     resetTranscriptDisclosure();
     const typed = "See the log";
@@ -551,7 +581,7 @@ try {
     try {
       act(() => root.unmount());
       root = createRoot(host);
-      render(prompt("user-fold-style", lines(20)));
+      render(prompt("user-fold-style", lines(30)));
       expect(durationReads).toBe(0);
       click(toggle()!);
       expect(body().classList.contains("is-clamped")).toBe(false);
@@ -594,8 +624,8 @@ try {
       render(prompt("user-short-geometry", "word ".repeat(12).trim()));
       expect(toggle()).toBeNull();
       expect(observers.size).toBeGreaterThan(0);
-      // A later font load or narrower pane wraps the same mounted prompt past ten lines.
-      drawnHeight = 240;
+      // A later font load or narrower pane wraps the same mounted prompt past twenty lines.
+      drawnHeight = 480;
       act(() => {
         for (const changed of observers) changed();
       });

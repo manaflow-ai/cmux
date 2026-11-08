@@ -142,7 +142,37 @@ test("while the host reads, placeholder rows hold the card at its full size; the
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(pullRequestAnswer(PR_URL)?.pullRequest?.number).toBe(37155);
+    // A crossfade in place (Leo 2026-11-08: "a bit too discontinuous and jumpy"): each row the
+    // answer fills shares one grid cell with the placeholder it replaces, the row first, the
+    // placeholder over it fading out; a row the answer leaves empty (none here) drops its
+    // placeholder in the same frame.
+    const slots = [...card.querySelectorAll<HTMLElement>(".acpmux-pr-card__slot")].filter((slot) =>
+      slot.lastElementChild?.hasAttribute("data-placeholder"),
+    );
+    expect(slots.map((slot) => slot.lastElementChild?.getAttribute("data-placeholder"))).toEqual([
+      "status",
+      "who",
+      "changes",
+      "branches",
+    ]);
+    for (const slot of slots) expect(slot.firstElementChild?.hasAttribute("data-placeholder")).toBe(false);
+    expect(card.querySelector(".acpmux-pr-card__body")?.hasAttribute("data-load-fade")).toBe(true);
+    // Each placeholder goes on its own fade's end, no timer: one ending leaves the others to finish
+    // theirs (review of #38163, F1), and its row stays the same element, so its fade never restarts.
+    const who = card.querySelector(".acpmux-pr-card__who:not([data-placeholder])");
+    const end = async (row: string) =>
+      opened.act(async () => {
+        const ended = card.querySelector(`.acpmux-pr-card__slot > [data-placeholder="${row}"]`)!;
+        ended.dispatchEvent(new dom.window.Event("animationend", { bubbles: true }));
+      });
+    await end("who");
+    expect([...card.querySelectorAll<HTMLElement>("[data-placeholder]")].map((row) => row.dataset.placeholder)).toEqual(
+      ["status", "changes", "branches"],
+    );
+    expect(card.querySelector(".acpmux-pr-card__who:not([data-placeholder])")).toBe(who);
+    for (const row of ["status", "changes", "branches"]) await end(row);
     expect(card.querySelector("[data-placeholder]")).toBeNull();
+    expect(card.querySelector(".acpmux-pr-card__who:not([data-placeholder])")).toBe(who);
     expect(card.querySelector(".acpmux-pr-card__who")?.textContent).toContain("teamleaderleo");
     expect(card.querySelector(".acpmux-pr-card__branches")?.textContent).toContain("feat-cmux-next");
   } finally {
@@ -195,4 +225,47 @@ test("the placeholder bars are static: no shimmer animation, no transition", asy
   expect(bar).toBeDefined();
   expect(bar).not.toContain("animation");
   expect(bar).not.toContain("transition");
+});
+
+// Leo 2026-11-08: "we're almost, like, streaming in the first hover preview". The pointer reaching
+// the link asks the host at once, a second before the card's dwell ends, so the read runs during
+// the dwell and the card opens with its answer in hand.
+test("the pointer reaching a pull request link asks the host before the card opens", async () => {
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { UiProvider } = await import("../src/ui/UiProvider");
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  const { resetPullRequestStore, pullRequestAnswer } =
+    await import("../src/agent-session/acpmux/chips/pullRequestStore");
+  const { UrlChip } = await import("../src/agent-session/acpmux/chips/LinkChips");
+  resetPullRequestStore();
+  const asked: Record<string, unknown>[] = [];
+  setChipHost(async (method, params) => {
+    if (method !== "pr.inspect") return undefined;
+    asked.push(params);
+    return full;
+  });
+  const element = dom.window.document.getElementById("root")!;
+  const root = createRoot(element);
+  try {
+    await act(async () =>
+      root.render(
+        <UiProvider container={element}>
+          <UrlChip href={PR_URL}>manaflow-ai/cmux#37155</UrlChip>
+        </UiProvider>,
+      ),
+    );
+    const link = element.querySelector<HTMLElement>("a.cv-chip")!;
+    await act(async () => {
+      link.dispatchEvent(new dom.window.MouseEvent("pointerover", { bubbles: true, clientX: 4, clientY: 4 }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    // The card is not open yet (its dwell runs), and the full read was asked for.
+    expect(element.querySelector(".cv-link-preview")).toBeNull();
+    expect(asked.some((params) => params.url === PR_URL && params.cached === undefined)).toBe(true);
+    expect(pullRequestAnswer(PR_URL)?.pullRequest?.number).toBe(37155);
+  } finally {
+    await act(async () => root.unmount());
+    setChipHost(undefined);
+  }
 });

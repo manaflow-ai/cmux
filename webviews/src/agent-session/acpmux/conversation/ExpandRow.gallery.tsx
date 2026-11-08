@@ -187,12 +187,25 @@ const hovered =
     await ctx.hover({ selector: ROW[block] });
   };
 
+// A sent prompt folds at twenty lines (promptCollapse.ts COLLAPSED_PROMPT_LINES), so its Show more
+// row sits about 500px down: its stage is tall enough to show the row and take a click on it.
+const PROMPT_STAGE_HEIGHT = 640;
+
 const variants = Object.fromEntries(
-  BLOCKS.flatMap((block) => [
-    [block, { note: `${block}: collapsed.`, props: { block }, play: ready(block) }],
-    [`${block}-expanded`, { note: `${block}: expanded with Show less.`, props: { block }, play: expanded(block) }],
-    [`${block}-hover`, { note: `${block}: the pointer on its bottom row.`, props: { block }, play: hovered(block) }],
-  ]),
+  BLOCKS.flatMap((block) => {
+    const height = block === "prompt" ? { height: PROMPT_STAGE_HEIGHT } : {};
+    return [
+      [block, { note: `${block}: collapsed.`, props: { block }, play: ready(block), ...height }],
+      [
+        `${block}-expanded`,
+        { note: `${block}: expanded with Show less.`, props: { block }, play: expanded(block), ...height },
+      ],
+      [
+        `${block}-hover`,
+        { note: `${block}: the pointer on its bottom row.`, props: { block }, play: hovered(block), ...height },
+      ],
+    ];
+  }),
 );
 
 export default componentEntry<Props>({

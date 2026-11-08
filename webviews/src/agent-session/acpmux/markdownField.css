@@ -347,15 +347,19 @@
   pointer-events: auto;
 }
 /* The room is the chip's margin inside the node, so the node's content ends where its box does:
-   WebKit paints the caret after an atom at one or the other, and they are then the same place. */
-.acpmux-md-inline > .acpmux-md-inline-chip {
+   WebKit paints the caret after an atom at one or the other, and they are then the same place. A
+   pasted text card's chip sits in its right-click menu's wrapper (composer/inlineAttachments.tsx);
+   the room and the ring reach it there too. */
+.acpmux-md-inline > .acpmux-md-inline-chip,
+.acpmux-md-inline > .acpmux-attachment-menu > .acpmux-md-inline-chip {
   margin-inline-end: var(--acpmux-inline-room, 8px);
 }
 /* A selected chip's ring is the chip's own, not its room's. */
 .acpmux-md .acpmux-md-inline.ProseMirror-selectednode {
   outline: none;
 }
-.acpmux-md .acpmux-md-inline.ProseMirror-selectednode > .acpmux-md-inline-chip {
+.acpmux-md .acpmux-md-inline.ProseMirror-selectednode > .acpmux-md-inline-chip,
+.acpmux-md .acpmux-md-inline.ProseMirror-selectednode > .acpmux-attachment-menu > .acpmux-md-inline-chip {
   outline: 2px solid var(--agent-accent);
 }
 /* Inside a selection (Select All, a drag across it) the chip wears the selection's tint, as the text

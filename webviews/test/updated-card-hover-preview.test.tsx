@@ -10,6 +10,7 @@
 // over the page's (WebKit sends no pointer moves while a Chromium window has the key). The page asks
 // the host for the room above the card while the preview is open and hands it back once it has
 // closed. What's New on the title line, and every row, open the full page.
+import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -670,7 +671,7 @@ async function withSurface(
   body: (surface: {
     dom: JSDOM;
     host: HTMLElement;
-    sizes: { height: number; overlay?: number }[];
+    sizes: { height: number; overlay?: number; preview?: number }[];
     ops: string[];
     pointer: (event: unknown) => void;
     state: () => string | null | undefined;
@@ -701,7 +702,7 @@ async function withSurface(
   };
   const saved = Object.keys(globals).map((key) => [key, key in scope, scope[key]] as const);
   Object.assign(scope, globals);
-  const sizes: { height: number; overlay?: number }[] = [];
+  const sizes: { height: number; overlay?: number; preview?: number }[] = [];
   const ops: string[] = [];
   let pointer: ((event: unknown) => void) | undefined;
   const client = {
@@ -709,7 +710,7 @@ async function withSurface(
       ops.push(op);
       if (op === "cmux.changelog.surface.get") return Promise.resolve(data);
       if (op === "cmux.changelog.surface.size") {
-        sizes.push(params as { height: number; overlay?: number });
+        sizes.push(params as { height: number; overlay?: number; preview?: number });
         return Promise.resolve(null);
       }
       if (op === "cmux.changelog.list") return Promise.resolve({ builds: [], current: data.version });
@@ -753,6 +754,42 @@ test("the sidebar's surface reports the preview's room with the card's height, a
     await until(() => sizes.at(-1)?.overlay === 0);
     expect(sizes.at(-1)?.overlay).toBe(0);
   });
+});
+
+// Leo 2026-11-08: "it turns from glass when it's unhovered into opaque when it does get hovered". The
+// host draws the card's glass behind the page; the page says the open preview's height as its motion
+// starts and 0 as its close starts, before the room goes back, so the glass runs the same motion.
+test("the sidebar's surface says the open preview's height for the host's glass as the motion starts", async () => {
+  await withSurface(async ({ sizes, pointer, state }) => {
+    expect(sizes.at(-1)?.preview).toBe(0);
+    await act(async () => pointer({ inside: true }));
+    await until(() => state() === "open");
+    expect(sizes.at(-1)).toMatchObject({ overlay: 100, preview: 100 });
+    await act(async () => pointer({ inside: false }));
+    await until(() => state() === "closed");
+    // The glass starts closing with the page; the room is still there until the close has run.
+    expect(sizes.at(-1)).toMatchObject({ overlay: 100, preview: 0 });
+    await until(() => sizes.at(-1)?.overlay === 0);
+    expect(sizes.at(-1)?.preview).toBe(0);
+  });
+});
+
+// Leo 2026-11-08: "the animation also seems like it's a little bit slow". The preview opens on the
+// card's own curve, a fast start that settles long, the native glass's twin (Motion+AppKit.swift
+// cardCurve and cardDuration), and the room goes back once that motion has run.
+test("the preview opens on the card's curve, 265ms, the native glass's twin", () => {
+  const css = readFileSync(new URL("../src/pages/changelog/updateSurfaces.css", import.meta.url), "utf8");
+  expect(css).toContain("--wn-preview-motion: 265ms;");
+  expect(css).toContain("--wn-preview-ease: cubic-bezier(0.16, 1, 0.3, 1);");
+  expect(css).toMatch(/\.wn-preview \{\s*transition: height var\(--wn-preview-motion\) var\(--wn-preview-ease\);/);
+  const tsx = readFileSync(new URL("../src/pages/changelog/UpdateSurfaces.tsx", import.meta.url), "utf8");
+  expect(tsx).toContain("const PREVIEW_CLOSE_MS = 265;");
+  const swift = readFileSync(
+    new URL("../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+AppKit.swift", import.meta.url),
+    "utf8",
+  );
+  expect(swift).toContain("CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)");
+  expect(swift).toContain("cardDuration: TimeInterval = 0.265");
 });
 
 // Review F2 of #37615: a preview the host's hover opened has no focus inside the card, so Escape

@@ -13,7 +13,7 @@ import type { SettingsStore } from "./store";
  * it in the background (stale-while-revalidate: the cached value shows at once). */
 export const SECTION_READ_FRESH_MS = 5_000;
 
-type SectionAction = { id: string; title: string; enabled: boolean };
+type SectionAction = { id: string; title: string; enabled: boolean; hint?: string | null };
 
 /** The section's registry buttons (Reload Configuration, Import from Browser, ...). */
 export function sectionActionsQuery(store: SettingsStore, section: string) {

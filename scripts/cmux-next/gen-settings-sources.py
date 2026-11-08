@@ -243,6 +243,13 @@ SECTIONS = [
         "lists": {"agentRetry": ("descriptors", "AgentRetrySettings")},
     },
     {
+        "source": "schemas/settings/source/agent-cache.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentCache.generated.swift",
+        "type": "AgentCacheSettingsSchema",
+        "lists": {"agentCache": ("descriptors", "AgentCacheSettings")},
+        "enums": {},
+    },
+    {
         "source": "schemas/settings/source/subsessions.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Subsessions.generated.swift",
         "type": "SubsessionSettingsSchema",
@@ -314,7 +321,7 @@ SECTIONS = [
         "source": "schemas/settings/source/sidebar.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Sidebar.generated.swift",
         "type": "SidebarSettingsSchema",
-        "lists": {"sidebar": ("sidebar", None), "sidebar2": ("sidebar2", None), "sidebar3": ("sidebar3", None),
+        "lists": {"sidebar": ("sidebar", None),
                   "workspaceRows": ("workspaceRows", None), "terminalWorkspaceRows": ("terminalWorkspaceRows", None),
                   "agentWorkspaceRows": ("agentWorkspaceRows", None), "browserWorkspaceRows": ("browserWorkspaceRows", None),
                   "mixedWorkspaceRows": ("mixedWorkspaceRows", None)},

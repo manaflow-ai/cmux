@@ -1,6 +1,138 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "browserImportOffer.syncStopped": {
+      "comment": "Toast when keeping cookies in sync stops because the source browser's cookies can no longer be read (its Keychain key was denied or its profile is gone). %@: the browser's name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped keeping cookies in sync with %@: cmux could not read them. Import again to turn it back on."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توقّف إبقاء ملفات تعريف الارتباط متزامنة مع %@: تعذّر على cmux قراءتها. استورد مرة أخرى لإعادة تشغيله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usklađivanje kolačića s %@ je zaustavljeno: cmux ih nije mogao pročitati. Uvezite ponovo da ga ponovo uključite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Holder ikke længere cookies synkroniseret med %@: cmux kunne ikke læse dem. Importér igen for at slå det til igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookies werden nicht mehr mit %@ synchron gehalten: cmux konnte sie nicht lesen. Importiere erneut, um es wieder einzuschalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se dejó de sincronizar las cookies con %@: cmux no pudo leerlas. Vuelve a importar para activarlo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les cookies ne sont plus synchronisés avec %@ : cmux n’a pas pu les lire. Importez à nouveau pour le réactiver."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizzazione dei cookie con %@ interrotta: cmux non è riuscito a leggerli. Importa di nuovo per riattivarla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ との Cookie の同期を停止しました：cmux が読み取れませんでした。もう一度インポートすると再開します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានឈប់ធ្វើសមកាលកម្មខូគីជាមួយ %@៖ cmux មិនអាចអានវាបានទេ។ នាំចូលម្ដងទៀតដើម្បីបើកវាឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@와(과)의 쿠키 동기화를 중지했습니다. cmux가 쿠키를 읽을 수 없습니다. 다시 켜려면 다시 가져오세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slutter å holde informasjonskapsler synkronisert med %@: cmux kunne ikke lese dem. Importer på nytt for å slå det på igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatrzymano synchronizację plików cookie z %@: cmux nie mógł ich odczytać. Zaimportuj ponownie, aby ją włączyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A sincronização de cookies com %@ parou: o cmux não conseguiu lê-los. Importe novamente para reativá-la."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Синхронизация файлов cookie с %@ остановлена: cmux не смог их прочитать. Импортируйте снова, чтобы включить её."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุดซิงค์คุกกี้กับ %@ แล้ว: cmux อ่านคุกกี้ไม่ได้ นำเข้าอีกครั้งเพื่อเปิดใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çerezler artık %@ ile eşitlenmiyor: cmux onları okuyamadı. Yeniden açmak için tekrar içe aktarın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Синхронізацію файлів cookie з %@ зупинено: cmux не зміг їх прочитати. Імпортуйте знову, щоб увімкнути її."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã ngừng đồng bộ cookie với %@: cmux không đọc được chúng. Hãy nhập lại để bật lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停止与 %@ 同步 Cookie：cmux 无法读取它们。再次导入即可重新开启。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停止與 %@ 同步 Cookie：cmux 無法讀取它們。再次匯入即可重新開啟。"
+          }
+        }
+      }
+    },
     "browserImportOffer.turnedOff": {
       "comment": "Refusal shown when an Import from Browser action runs while browser.import.enabled is off.",
       "extractionState": "manual",
@@ -261,6 +393,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "匯入…"
+          }
+        }
+      }
+    },
+    "browserImportOffer.keepInSync": {
+      "comment": "Import Cookies card: checkbox under the detail, on by default: after the import, keep the cmux browser's cookies in sync with the source browser.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep in sync"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إبقاؤها متزامنة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drži usklađeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold synkroniseret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synchron halten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantener sincronizado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garder synchronisé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantieni sincronizzato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同期し続ける"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រក្សាឱ្យធ្វើសមកាលកម្ម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "동기화 유지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold synkronisert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synchronizuj na bieżąco"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manter sincronizado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Синхронизировать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซิงค์ไว้เสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşitlenmiş tut"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Синхронізувати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giữ đồng bộ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持同步"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持同步"
           }
         }
       }

@@ -5,8 +5,9 @@
 // the list for the folder explainer; with passwords checked, Import first swaps it for the Keychain
 // explainer. The list keeps four row slots mounted while browsers are looked for, and the explainers
 // take the same body area, so the status line and the links never move.
-import type { MouseEvent } from "react";
+import type { InputHTMLAttributes, MouseEvent } from "react";
 import { Button } from "../../ui/Button";
+import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
 import { Select } from "../../ui/Select";
 import { StatusGlyph } from "../../ui/StatusGlyph";
 import { ViewSwap } from "../../ui/motion/ViewSwap";
@@ -16,6 +17,14 @@ import { OPS, type ImportRow, type ImportState } from "./ops";
 import { HostIcon, useOnboarding } from "./parts";
 import { importRowDetail, importStatus, keychainLine, kindLabel } from "./text";
 
+/** How the step draws (the gallery's variant switch): `plain` is the first cut (rows on the glass, the
+ * kinds as one line of checkboxes, the other sources as links under the list); `grouped` puts the
+ * browsers and the kinds in two cards, as Settings' lists; `chips` keeps compact rows on the glass
+ * and makes the kinds toggle pills; `tiles` draws a browser per tile, two to a line. Every look but
+ * `plain` moves the other sources to the footer, beside Skip and Import. */
+export type ImportLook = "plain" | "grouped" | "chips" | "tiles";
+export const DEFAULT_IMPORT_LOOK: ImportLook = "grouped";
+
 /** Row slots kept mounted, so detection fills them in place. */
 export const IMPORT_ROW_SLOTS = 4;
 /** The target menu's value for the row's own new matching profile. */
@@ -24,7 +33,32 @@ const NEW_PROFILE = "";
 const ROW_CONTROLS =
   "input, button, select, a, [role='button'], [role='combobox'], [role='menu'], [role='listbox'], .onb-import-target";
 
-function ProfileRow({ row, importer }: { row: Extract<ImportRow, { kind: "profile" }>; importer: ImportState }) {
+/** A checkbox with its drawn mark: the looks but plain draw the box and the check (in the accent's
+ * text color) instead of WebKit's, so every row's box is the same shape; plain hides the mark. */
+function Check({
+  className,
+  "data-shown": shown,
+  ...input
+}: InputHTMLAttributes<HTMLInputElement> & { "data-shown"?: string }) {
+  return (
+    <span className={cx("onb-box", className)} data-shown={shown}>
+      <input type="checkbox" {...input} />
+      <svg className="onb-box-mark" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M4 8.4 6.8 11 12 5.2" />
+      </svg>
+    </span>
+  );
+}
+
+function ProfileRow({
+  row,
+  importer,
+  look,
+}: {
+  row: Extract<ImportRow, { kind: "profile" }>;
+  importer: ImportState;
+  look: ImportLook;
+}) {
   const { strings, store } = useOnboarding();
   const idle = row.state.kind === "idle";
   const showsAccess = row.needsFullDiskAccess && idle;
@@ -38,11 +72,13 @@ function ProfileRow({ row, importer }: { row: Extract<ImportRow, { kind: "profil
   const toggle = () => {
     if (editable) store.call(OPS.toggleProfile, { id: row.id });
   };
-  // A click on the row's own surface checks it; its controls (the checkbox, the target menu, Open
-  // System Settings) act alone, so picking a target never also unchecks the profile.
+  // A click on the row's own surface checks it, or on a row that needs Full Disk Access opens that
+  // pane; its controls (the checkbox, the target menu, Open System Settings) act alone, so picking a
+  // target never also unchecks the profile.
   const rowClick = (event: MouseEvent<HTMLDivElement>) => {
-    if (!showsBox || (event.target as Element).closest(ROW_CONTROLS)) return;
-    toggle();
+    if ((event.target as Element).closest(ROW_CONTROLS)) return;
+    if (showsAccess) store.call(OPS.openFullDiskAccess);
+    else if (showsBox) toggle();
   };
   const glyph = row.state.kind === "done" ? "done" : row.state.kind === "failed" ? "error" : null;
   return (
@@ -52,7 +88,8 @@ function ProfileRow({ row, importer }: { row: Extract<ImportRow, { kind: "profil
       onClick={rowClick}
       data-row={row.id}
       data-state={row.state.kind}
-      data-editable={editable && showsBox ? "" : undefined}
+      data-editable={(editable && showsBox) || showsAccess ? "" : undefined}
+      data-access={showsAccess ? "" : undefined}
       data-dimmed={showsBox && !row.checked ? "" : undefined}
     >
       <span className="onb-import-icons">
@@ -87,7 +124,7 @@ function ProfileRow({ row, importer }: { row: Extract<ImportRow, { kind: "profil
         )}
         {showsAccess && (
           <Button
-            variant="ghost"
+            variant={look === "plain" ? "ghost" : "subtle"}
             size="sm"
             className="onb-import-access"
             onClick={() => store.call(OPS.openFullDiskAccess)}
@@ -96,8 +133,7 @@ function ProfileRow({ row, importer }: { row: Extract<ImportRow, { kind: "profil
           </Button>
         )}
         <span className="onb-slot onb-import-state">
-          <input
-            type="checkbox"
+          <Check
             className="onb-import-box"
             data-shown={showsBox ? "" : undefined}
             aria-hidden={showsBox ? undefined : true}
@@ -119,7 +155,7 @@ function ProfileRow({ row, importer }: { row: Extract<ImportRow, { kind: "profil
   );
 }
 
-function AwaitingRow({ row }: { row: Extract<ImportRow, { kind: "awaiting" }> }) {
+function AwaitingRow({ row, look }: { row: Extract<ImportRow, { kind: "awaiting" }>; look: ImportLook }) {
   const { strings, store } = useOnboarding();
   return (
     <div className="onb-import-row" data-row={`awaiting:${row.browser}`} data-state="awaiting">
@@ -132,7 +168,7 @@ function AwaitingRow({ row }: { row: Extract<ImportRow, { kind: "awaiting" }> })
       </span>
       <span className="onb-import-trailing">
         <Button
-          variant="ghost"
+          variant={look === "plain" ? "ghost" : "subtle"}
           size="sm"
           className="onb-import-access"
           onClick={() => store.call(OPS.askAccess, { browser: row.browser })}
@@ -145,54 +181,134 @@ function AwaitingRow({ row }: { row: Extract<ImportRow, { kind: "awaiting" }> })
   );
 }
 
-function ImportList({ importer }: { importer: ImportState }) {
+function KindChoices({ importer, look }: { importer: ImportState; look: ImportLook }) {
   const { strings, store } = useOnboarding();
-  const empty = Math.max(0, IMPORT_ROW_SLOTS - importer.rows.length);
+  if (look === "chips") {
+    // A pill per kind: one press toggles it, and the pressed state is the checked state.
+    return (
+      <fieldset className="onb-kinds" data-look={look}>
+        {importer.kindChoices.map((kind) => {
+          const on = importer.kinds.includes(kind);
+          return (
+            <button
+              key={kind}
+              type="button"
+              className="onb-chip"
+              data-kind={kind}
+              aria-pressed={on}
+              disabled={!importer.editable}
+              onClick={() => store.call(OPS.toggleKind, { kind })}
+            >
+              <span className="onb-chip-mark" aria-hidden="true" />
+              {kindLabel(strings, kind)}
+            </button>
+          );
+        })}
+      </fieldset>
+    );
+  }
+  return (
+    <div className="onb-kinds" data-look={look}>
+      {importer.kindChoices.map((kind) => (
+        <label key={kind} className="onb-check" data-kind={kind}>
+          <Check
+            aria-label={kindLabel(strings, kind)}
+            checked={importer.kinds.includes(kind)}
+            disabled={!importer.editable}
+            onChange={() => store.call(OPS.toggleKind, { kind })}
+          />
+          {kindLabel(strings, kind)}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+function ImportList({ importer, look }: { importer: ImportState; look: ImportLook }) {
+  const { strings, store } = useOnboarding();
+  // The plain look keeps four slots mounted; the others draw what was found, and keep the slots only
+  // while browsers are looked for (as placeholders), so a card never shows empty rows.
+  const slots =
+    look === "plain" || importer.phase === "detecting" ? Math.max(0, IMPORT_ROW_SLOTS - importer.rows.length) : 0;
   const history = importer.kinds.includes("history");
   return (
     <div className="onb-import-main">
-      <div className="onb-import-list onb-scroll" data-phase={importer.phase}>
-        {importer.rows.map((row) =>
-          row.kind === "profile" ? (
-            <ProfileRow key={row.id} row={row} importer={importer} />
-          ) : (
-            <AwaitingRow key={`awaiting:${row.browser}`} row={row} />
-          ),
-        )}
-        {Array.from({ length: empty }, (_, index) => (
-          <div key={`slot-${index}`} className="onb-import-row" data-state="slot" aria-hidden="true" />
-        ))}
+      <div className="onb-import-shelf">
+        <div
+          className="onb-import-list onb-scroll"
+          data-phase={importer.phase}
+          data-empty={importer.rows.length === 0 && slots === 0 ? "" : undefined}
+        >
+          {importer.rows.map((row) =>
+            row.kind === "profile" ? (
+              <ProfileRow key={row.id} row={row} importer={importer} look={look} />
+            ) : (
+              <AwaitingRow key={`awaiting:${row.browser}`} row={row} look={look} />
+            ),
+          )}
+          {Array.from({ length: slots }, (_, index) => (
+            <div key={`slot-${index}`} className="onb-import-row" data-state="slot" aria-hidden="true">
+              <span className="onb-slot-icon" />
+              <span className="onb-slot-bar" />
+            </div>
+          ))}
+        </div>
       </div>
-      <hr className="onb-separator" />
-      <div className="onb-kinds">
-        {importer.kindChoices.map((kind) => (
-          <label key={kind} className="onb-check" data-kind={kind}>
-            <input
-              type="checkbox"
-              aria-label={kindLabel(strings, kind)}
-              checked={importer.kinds.includes(kind)}
-              disabled={!importer.editable}
-              onChange={() => store.call(OPS.toggleKind, { kind })}
-            />
-            {kindLabel(strings, kind)}
-          </label>
-        ))}
+      {look === "plain" && <hr className="onb-separator" />}
+      <div className="onb-import-options">
+        <KindChoices importer={importer} look={look} />
+        {/* Plain hides Keep in Sync without History; the other looks keep it shown and dimmed, so the
+            kinds card never holds an empty line. */}
+        <label
+          className="onb-check onb-sync"
+          data-shown={history || look !== "plain" ? "" : undefined}
+          data-off={history ? undefined : ""}
+          inert={!history}
+          title={strings.t("onboarding.import.keepInSync.help")}
+        >
+          <Check
+            aria-label={strings.t("onboarding.import.keepInSync")}
+            checked={importer.keepsHistoryInSync}
+            disabled={!importer.editable || !history}
+            onChange={() => store.call(OPS.toggleKeepInSync)}
+          />
+          {strings.t("onboarding.import.keepInSync")}
+        </label>
       </div>
-      <label
-        className="onb-check onb-sync"
-        data-shown={history ? "" : undefined}
-        inert={!history}
-        title={strings.t("onboarding.import.keepInSync.help")}
-      >
-        <input
-          type="checkbox"
-          aria-label={strings.t("onboarding.import.keepInSync")}
-          checked={importer.keepsHistoryInSync}
-          disabled={!importer.editable}
-          onChange={() => store.call(OPS.toggleKeepInSync)}
-        />
-        {strings.t("onboarding.import.keepInSync")}
-      </label>
+    </div>
+  );
+}
+
+/** The other ways in (another browser's export files, a passwords CSV). In the footer for every look
+ * but `plain`: one button when only the files are offered, else a menu of both. Hidden in place while
+ * an explainer shows, so the footer never moves. */
+export function ImportSources({ importer }: { importer: ImportState }) {
+  const { strings, store } = useOnboarding();
+  const explaining = importer.phase === "confirmingPasswords" || importer.phase === "explainingAccess";
+  const fromFiles = strings.t("onboarding.import.fromFiles");
+  return (
+    <div className={cx("onb-footer-sources", explaining && "is-hidden")} inert={explaining}>
+      {importer.offersPasswordCSV ? (
+        <Menu>
+          <MenuButton
+            className="ui-btn onb-link-button onb-sources-button"
+            label={strings.t("onboarding.import.otherSources")}
+          >
+            <span>{strings.t("onboarding.import.otherSources")}</span>
+            <span className="onb-sources-chevron" aria-hidden="true" />
+          </MenuButton>
+          <MenuPopup side="top" align="start">
+            <MenuItem onSelect={() => store.call(OPS.fromFiles)}>{fromFiles}</MenuItem>
+            <MenuItem onSelect={() => store.call(OPS.passwordsCSV)}>
+              {strings.t("onboarding.import.passwordsCSV")}
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
+      ) : (
+        <Button variant="ghost" size="sm" className="onb-link-button" onClick={() => store.call(OPS.fromFiles)}>
+          {fromFiles}
+        </Button>
+      )}
     </div>
   );
 }
@@ -274,7 +390,15 @@ function ConsentExplainer({
   );
 }
 
-export function ImportStep({ importer, progress }: { importer: ImportState; progress: number | null }) {
+export function ImportStep({
+  importer,
+  progress,
+  look = DEFAULT_IMPORT_LOOK,
+}: {
+  importer: ImportState;
+  progress: number | null;
+  look?: ImportLook;
+}) {
   const { strings, store } = useOnboarding();
   const consent = importer.phase === "confirmingPasswords" ? importer.consent : null;
   const access = consent == null && importer.phase === "explainingAccess" ? importer.access : null;
@@ -282,29 +406,31 @@ export function ImportStep({ importer, progress }: { importer: ImportState; prog
   const status = importStatus(strings, importer);
   const explaining = mode !== "list";
   return (
-    <div className="onb-import" data-mode={mode}>
+    <div className="onb-import" data-mode={mode} data-look={look}>
       <ViewSwap swapKey={mode} look="fade" className="onb-import-body">
         {consent != null ? (
           <ConsentExplainer consent={consent} progress={progress} offersPasswordCSV={importer.offersPasswordCSV} />
         ) : access != null ? (
           <AccessExplainer access={access} progress={progress} />
         ) : (
-          <ImportList importer={importer} />
+          <ImportList importer={importer} look={look} />
         )}
       </ViewSwap>
       <output className="onb-status" aria-live="polite" title={status || undefined}>
         {status}
       </output>
-      <div className={cx("onb-links", explaining && "is-hidden")} inert={explaining}>
-        <Button variant="ghost" size="sm" className="onb-link-button" onClick={() => store.call(OPS.fromFiles)}>
-          {strings.t("onboarding.import.fromFiles")}
-        </Button>
-        {importer.offersPasswordCSV && (
-          <Button variant="ghost" size="sm" className="onb-link-button" onClick={() => store.call(OPS.passwordsCSV)}>
-            {strings.t("onboarding.import.passwordsCSV")}
+      {look === "plain" && (
+        <div className={cx("onb-links", explaining && "is-hidden")} inert={explaining}>
+          <Button variant="ghost" size="sm" className="onb-link-button" onClick={() => store.call(OPS.fromFiles)}>
+            {strings.t("onboarding.import.fromFiles")}
           </Button>
-        )}
-      </div>
+          {importer.offersPasswordCSV && (
+            <Button variant="ghost" size="sm" className="onb-link-button" onClick={() => store.call(OPS.passwordsCSV)}>
+              {strings.t("onboarding.import.passwordsCSV")}
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -1048,6 +1048,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/uploads_keep",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/dispatch",
       "params": true,
       "result": true
@@ -2051,6 +2057,8 @@
         "requireFullAccess": true,
         "resend": true,
         "route": true,
+        "senderHarness": true,
+        "senderHarnessChecked": true,
         "spawnToolCallId": true,
         "startLater": true,
         "steer": true,
@@ -4476,8 +4484,15 @@
     "QueuedAuthor": {
       "description": "The person who queued a prompt in a shared chat.",
       "properties": {
+        "avatar": {
+          "description": "Their profile picture (`_meta.provenance` `fromAvatar`, an `https://` URL), left out when\nthey have none (and from an older acpmux).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "id": {
-          "description": "`tailnet:<login>` or `user_…`.",
+          "description": "`tailnet:<login>`, `user_…` or `guest:<share>.<guest>`.",
           "type": "string"
         },
         "name": {

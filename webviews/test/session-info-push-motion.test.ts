@@ -117,7 +117,7 @@ await requireBrowserLane("session-info-push-motion.test.ts", async () => {
   for (const name of browsers.keys())
     test(`${name}: pushing, the column slides with the panel, the chat keeps its width, and neither end jumps`, async () => {
       current = browsers.get(name)!;
-      const page = await pane!.open({ width: 1100, height: 600 });
+      const page = await pane!.open({ width: 1200, height: 600 });
       try {
         const toggle = await ready(page);
         const shell = await page.evaluate(() => document.querySelector(".acpmux-shell")!.clientWidth);

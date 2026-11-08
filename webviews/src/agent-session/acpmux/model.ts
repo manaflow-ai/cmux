@@ -1,6 +1,7 @@
 import { experimentArm } from "../../experiments/experiment";
 import { backgroundReactionLook, reactsOnCall } from "./conversation/backgroundReaction.experiment";
 import { permissionCardHeight } from "./permissions/cardHeight";
+import type { SentFrom } from "./conversation/sentFromHarness";
 import { BUBBLE } from "./transcriptSpacing";
 import {
   footerAfter,
@@ -60,6 +61,8 @@ import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
 import {
   pasteChipHeight,
+  PASTE_FROM_HEIGHT,
+  PASTE_ROW_HEIGHT,
   type PasteRange,
   HUGE_PROMPT_HEAD_CHARS,
   collapsedPromptHeight,
@@ -68,6 +71,8 @@ import {
   promptHead,
   promptParts,
 } from "./conversation/promptCollapse";
+import { sentPasteLook } from "./conversation/sentPasteLook.experiment";
+import { agentText } from "./agentText";
 import { mcpCall } from "./conversation/mcpCalls";
 import { hidesEveryCall, visibleToolItems } from "./conversation/mcpPresentation";
 import { subsessionCall } from "./conversation/subsessionCalls";
@@ -479,6 +484,10 @@ export type AcpmuxRow = {
   tasks?: StartedTask[];
   toolCount?: number;
   durationMs?: number;
+  /// When a footer's `durationMs` ended, if not at its own `at`: a stretch the person came in on
+  /// (turns.ts `supersededFooters`) worked until his steer, while its time is its last reply's. Its
+  /// Timeline (conversation/waterfallSpans.ts `waterfall`) starts at this less `durationMs`.
+  workEndedAt?: number;
   /// A turn summary's tokens, when its harness reported them on the `turn_result` (Claude Code:
   /// its main loop's, acpmux hub/turn_usage.rs).
   tokens?: TurnTokenSplit;
@@ -501,6 +510,9 @@ export type AcpmuxRow = {
   /// The machine the person's own `acpmux send` ran on (acpmux records it on the client, as
   /// `acpmux-cli#…@big-red`): "via CLI on big-red" under their prompt.
   viaCli?: string;
+  /// The harness or app the prompt was sent from with `acpmux send` (acpmux's `sender_claim`
+  /// record, conversation/sentFromHarness.ts): a sender chip under it, which never says who sent it.
+  sentFrom?: SentFrom;
   /// Part of the person's typed text reads as another agent's output (acpmux `agentText`, a paste
   /// from a client that marks none): the agent it names, if any. One quiet line under the prompt.
   agentText?: { from?: string };
@@ -1663,15 +1675,14 @@ const TABLE_ROW_HEIGHT = 40;
 const SCROLLBAR_HEIGHT = 15;
 /// Where text can't be measured (no canvas), a generous character width.
 const FALLBACK_CHAR_WIDTH = 8;
-/// The chat's one column (`--cv-column` and `--cv-inset` in conversation/conversation.css): 720px,
-/// 62.5% of a wider pane up to 800px (or the cap Debug Settings' `agent.chatWidth` picks, chatWidth.ts),
-/// centered, at least the page edge from each side. `endReserve` is room a card keeps at the
+/// The chat's one column (`--cv-column` and `--cv-inset` in conversation/conversation.css): the pane's
+/// width up to Chat Text Width (chatWidth.ts, 800px by default), at least 720px or that width, centered, at least the page edge from each side. `endReserve` is room a card keeps at the
 /// column's right (the computer use live preview, `--cv-inset-end`): the column's end moves in to
 /// leave it, its start stays.
 const PAGE_EDGE = gridLength("icon-box");
 /// The column's own width (`--cv-column`), before its inset rounds to a whole pixel.
-export const transcriptColumnSpan = (paneWidth: number, { min, max, share }: ChatColumn = chatColumn()) =>
-  Math.min(max, Math.max(min, paneWidth * share));
+export const transcriptColumnSpan = (paneWidth: number, { min, max }: ChatColumn = chatColumn()) =>
+  Math.min(max, Math.max(min, paneWidth));
 export function transcriptColumn(paneWidth: number, chat: ChatColumn = chatColumn(), endReserve = 0) {
   const column = transcriptColumnSpan(paneWidth, chat);
   // A whole pixel, as `round(nearest, ..., 1px)` in conversation.css.
@@ -2277,13 +2288,12 @@ function blockHeight(
   used?: Set<string>,
 ): number {
   switch (block.type) {
-    // Prose (lists, quotes, paragraphs, headings) keeps its measure in a wide column (chatWidth.ts).
     case "list":
-      return listHeight(block as Tokens.List, Math.min(width, chatColumn().prose), prepared, used);
+      return listHeight(block as Tokens.List, width, prepared, used);
     case "blockquote":
       return textHeight(
         measuredText((block as Tokens.Blockquote).tokens, (block as Tokens.Blockquote).text),
-        Math.min(width, chatColumn().prose) - QUOTE_INDENT,
+        width - QUOTE_INDENT,
         prepared,
         used,
       );
@@ -2298,7 +2308,7 @@ function blockHeight(
     case "heading":
       return textHeight(
         measuredText("tokens" in block ? block.tokens : undefined, (block as Tokens.Text).text),
-        Math.min(width, chatColumn().prose),
+        width,
         prepared,
         used,
       );
@@ -2527,7 +2537,7 @@ function measuredRowHeight(
   let contentHeight: number;
   if (plainUser) {
     // UserBubble -> PromptText draws this as literal spans, so avoid preparing Markdown tokens.
-    const plainWidth = Math.min(contentWidth, chatColumn().prose);
+    const plainWidth = contentWidth;
     const { measureFont, lineHeight } = metrics();
     const plainKey = `${measureFont}\n${lineHeight}\n${plainWidth}\n${row.text}`;
     if (entry.plainHeight?.key === plainKey) contentHeight = entry.plainHeight.height;
@@ -2543,11 +2553,24 @@ function measuredRowHeight(
       // A prompt with pasted blocks: its typed parts, each a line or more, and a chip per paste
       // however long it is (conversation/UserBubble.tsx).
       const { lineHeight } = metrics();
+      // As the bubble draws each paste (conversation/sentPasteLook.experiment.ts): its own text, a
+      // label row, or a card.
+      const look = experimentArm(sentPasteLook);
       contentHeight = 0;
       for (const part of promptParts(row.text, row.pasted!))
         contentHeight +=
           part.kind === "paste"
-            ? pasteChipHeight(lineHeight)
+            ? look === "text"
+              ? (agentText(part.text).signals.length ? PASTE_FROM_HEIGHT : 0) +
+                Math.max(
+                  lineHeight,
+                  // Folded, it draws only its head (conversation/PromptText.tsx PastedText), more
+                  // than the fold holds; the fold below caps the height.
+                  textHeight(promptHead(part.text, HUGE_PROMPT_HEAD_CHARS), contentWidth, entry.prepared, usedPrepared),
+                )
+              : look === "row"
+                ? PASTE_ROW_HEIGHT
+                : pasteChipHeight(lineHeight)
             : Math.max(
                 lineHeight,
                 // A huge typed part draws collapsed to its head (conversation/PromptText.tsx), so its
