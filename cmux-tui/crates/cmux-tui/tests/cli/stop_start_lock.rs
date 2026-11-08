@@ -46,7 +46,7 @@ fn w3h_stop_of_an_unreaped_owner_is_fast_and_removes_the_start_lock() {
     assert_success(&stopped);
     let result = json_output(&stopped);
     assert_eq!(result["status"], "stopped");
-    assert_eq!(result["removed"], serde_json::json!([lock.clone()]));
+    assert_eq!(result["removed"], serde_json::json!([lock]));
     assert!(!std::path::Path::new(&lock).exists(), "the start lock is left behind");
     assert!(elapsed < Duration::from_secs(3), "stop took {elapsed:?}");
 }

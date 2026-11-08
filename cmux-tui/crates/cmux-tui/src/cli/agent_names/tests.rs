@@ -216,7 +216,7 @@ fn w3h_a_terminal_title_wins_over_a_tab_name() {
     assert_eq!(found, Some(json!(BETA)));
     // Two terminals with the title stay ambiguous, as before.
     snapshot["terminals"][3]["title"] = json!("alpha");
-    let error = super::send::find_terminal(&snapshot, "alpha").err().expect("ambiguous title");
+    let error = super::send::find_terminal(&snapshot, "alpha").expect_err("ambiguous title");
     assert!(format!("{error:?}").contains("selector.ambiguous"), "{error:?}");
     // With no title, the name still selects its terminal.
     let found =
