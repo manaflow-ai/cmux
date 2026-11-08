@@ -45,7 +45,11 @@ static HEADER: LazyLock<Option<Regex>> = LazyLock::new(|| {
 static TRACE_ID: LazyLock<Option<Regex>> =
     LazyLock::new(|| Regex::new(r"(?i)^\s*trace-id:\s*\S+").ok());
 static GENERATED: LazyLock<Option<Regex>> = LazyLock::new(|| {
-    Regex::new(r"(?i)generated (?:with|by) \[?([A-Za-z][\w .-]{0,31}?)\]?(?:\(|\s*$)").ok()
+    // A footer line of its own (`🤖 Generated with [Codex](…)`), never prose that says it.
+    Regex::new(
+        r"(?i)^\s*(?:\W{1,4}\s*)?generated (?:with|by) \[?([A-Za-z][\w .-]{0,31}?)\]?(?:\(|\s*$)",
+    )
+    .ok()
 });
 static CO_AUTHOR: LazyLock<Option<Regex>> =
     LazyLock::new(|| Regex::new(r"(?i)^\s*co-authored-by:\s*\S").ok());

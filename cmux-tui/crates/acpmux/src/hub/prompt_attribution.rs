@@ -140,10 +140,15 @@ pub(super) fn mark(params: &mut Value, sender: Option<&str>, provenance: Option<
     if let Some(p) =
         provenance.filter(|p| p.get("kind").and_then(Value::as_str) == Some("offer_result"))
     {
-        let title = p.get("title").and_then(Value::as_str).filter(|t| !t.trim().is_empty());
+        // One line however the title breaks, so it never splits the attribution line.
+        let title = p
+            .get("title")
+            .and_then(Value::as_str)
+            .map(|t| t.split_whitespace().collect::<Vec<_>>().join(" "))
+            .filter(|t| !t.is_empty());
         let name = title.map_or_else(
             || "a suggested task".to_owned(),
-            |t| format!("the suggested task \"{}\"", t.trim()),
+            |t| format!("the suggested task \"{t}\""),
         );
         blocks.insert(first, text_block(agent_line(&name)));
         return;
