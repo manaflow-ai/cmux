@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42470568994",
+  "recorded_at": "2026-11-08T10:19:00Z",
+  "reason": "cmux-tui 4a1a45a09a92 changes the image's cmux-tui (pinned 92877863ee0a)",
+  "dry_run": false,
+  "cmux_tui": "4a1a45a09a9261f01294cbccb1ff946f72faf990",
+  "fixes": [
+    {
+      "sha": "4a1a45a09a9261f01294cbccb1ff946f72faf990",
+      "mergedAt": "2026-11-08T01:57:16-08:00",
+      "subject": "customize: a threads template, the agent chats as a thread list in the sidebar"
+    },
+    {
+      "sha": "a86215b4fa25d9eb5b2433983870026e50278890",
+      "mergedAt": "2026-11-08T01:57:15-08:00",
+      "subject": "apps: a customize script reads the sidebar's agent chats (agent_chat.list)"
+    },
+    {
+      "sha": "3d2fb998cd267d34153b84b078a58c208ad2366c",
+      "mergedAt": "2026-11-08T01:57:14-08:00",
+      "subject": "apps: red test, a customize script reads the sidebar's agent chats (agent_chat.list)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-08T10:19:00Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
