@@ -1,7 +1,8 @@
 import { env } from "cloudflare:workers"
-import { runInDurableObject } from "cloudflare:test"
+import { createExecutionContext, runInDurableObject } from "cloudflare:test"
 import { describe, expect, it } from "vitest"
 import { agentKeyProblem, resolveTeamSharedKey } from "../src/team-agent-keys.ts"
+import { ModelKeys, modelKeyForTeam } from "../src/model-keys.ts"
 import { deliver, call } from "./team-stack-support.ts"
 import { codeOf, op, read, rolesTeam, STACK_MEMBER } from "./team-roles-support.ts"
 
@@ -101,5 +102,20 @@ describe("team shared agent keys (C4)", { timeout: 60_000 }, () => {
     expect(agentKeyProblem("oauth", '{"tokens":{"refresh_token":"r"}}')).toBeUndefined()
     expect(agentKeyProblem("oauth", "{not json")).toBeTruthy()
     expect(agentKeyProblem("api_key", ` ${KEY}`)).toBeTruthy()
+  })
+})
+
+describe("the platform's MODEL_KEYS store (C2/C4 seam)", { timeout: 60_000 }, () => {
+  it("answers the team's shared key, null for anything else, and null for an owner key", async () => {
+    const t = await rolesTeam()
+    expect((await op(t.creator.token, "team.agent_key.set", { agent: "claude", kind: "api_key", secret: KEY }, t.team)).body.ok).toBe(true)
+    const store = new ModelKeys(createExecutionContext(), testEnv as never)
+    expect(await store.resolveTeamSharedKey(t.team, "claude")).toEqual({ kind: "api_key", secret: KEY })
+    expect(await store.resolveTeamSharedKey(t.team, "codex")).toBeNull()
+    expect(await store.resolveTeamSharedKey(t.team, "gemini")).toBeNull()
+    expect(await store.resolveTeamSharedKey("not-a-team", "claude")).toBeNull()
+    expect(await modelKeyForTeam(testEnv as never, 42, "claude")).toBeNull()
+    // Answered, not missing: over a service binding a missing method throws, which the platform reads as unreachable.
+    expect(await store.resolveOwnerProviderKey(t.creator.user, "claude")).toBeNull()
   })
 })

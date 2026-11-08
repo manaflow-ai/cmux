@@ -82,11 +82,12 @@ impl World {
     }
 
     fn fetch(&self, local: &Path, name: &str, adopt: bool) -> (bool, Value) {
+        self.fetch_with(local, &self.folder(name), if adopt { &["--adopt"] } else { &[] })
+    }
+
+    fn fetch_with(&self, local: &Path, remote: &Path, flags: &[&str]) -> (bool, Value) {
         let mut command = self.mac.command();
-        command.args(["link", "seed", "fetch", "--socket"]).arg(&self.vm.socket).arg(local).arg(self.folder(name));
-        if adopt {
-            command.arg("--adopt");
-        }
+        command.args(["link", "seed", "fetch", "--socket"]).arg(&self.vm.socket).arg(local).arg(remote).args(flags);
         run_json(&mut command)
     }
 }
@@ -166,7 +167,7 @@ fn a_whole_repository_the_machine_made_comes_over_with_its_history() {
     git(&vm, &["init", "-q", "-b", "main"]);
     git(&vm, &["config", "user.email", "vm@example.com"]);
     git(&vm, &["config", "user.name", "vm"]);
-    for (path, text) in [("a", "a\n"), ("b", "b\n"), ("d/c", "c\n"), (".gitignore", "node_modules/\n")] {
+    for (path, text) in [("a", "a\n"), ("b", "b\n"), ("d/c", "c\n"), ("src/main.rs", "fn main() {}\n"), (".gitignore", "node_modules/\n")] {
         write(&vm.join(path), text);
     }
     git(&vm, &["add", "-A"]);
@@ -180,6 +181,16 @@ fn a_whole_repository_the_machine_made_comes_over_with_its_history() {
     assert_eq!(git(&local, &["rev-list", "--count", "HEAD"]).trim(), "2", "the whole history");
     // A copy: the machine's own sync record is not touched.
     assert!(!vm.join(".git/cmux-sync.json").exists());
+    assert_eq!(fetched["remote_root"], vm.display().to_string());
+
+    // A chat in a subfolder of the project: --find-root takes the whole repository.
+    let other = world.mac.home().join("transferred/made-from-src");
+    let (ok, rooted) = world.fetch_with(&other, &vm.join("src"), &["--find-root"]);
+    assert!(ok, "fetch --find-root: {rooted}");
+    assert_eq!(rooted["mode"], "git", "{rooted}");
+    assert_eq!(rooted["remote_root"], vm.display().to_string());
+    same_as_vm(&other, &vm);
+    assert_eq!(read(&other.join("src/main.rs")), "fn main() {}\n");
 }
 
 #[test]
