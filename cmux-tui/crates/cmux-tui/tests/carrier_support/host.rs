@@ -116,7 +116,7 @@ pub fn host_world(restart: Restart, mux: Mux) -> HostWorld {
         }));
         match (mux, restart) {
             (Mux::Echo, Restart::AfterMuxOpen) => {
-                restarting_mux(&mux_path, host.clone(), starts.clone())
+                restarting_mux(&mux_path, host.clone(), starts.clone());
             }
             (Mux::Echo, _) => fake_mux(&mux_path).await,
             (Mux::Events, _) => events.clone().serve(&mux_path),
