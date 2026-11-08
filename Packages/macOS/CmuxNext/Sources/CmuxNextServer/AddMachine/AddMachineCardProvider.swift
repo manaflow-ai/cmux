@@ -13,7 +13,7 @@ public import CmuxNextSettings
 /// - `add {destination, name, peer?}` → Add and Try Again, only from the person's own click or key
 ///   in the card: a destination from outside the app (the CLI, MCP) only fills the field;
 /// - `fix` → `doctor --fix` for the checked machine, only from the person's own click or key;
-/// - `cancel`, `openWorkspace`, `copy {text}` (the person's own click);
+/// - `openWorkspace` and `copy {text}`, only from the person's own click or key; `cancel`;
 /// - stream `changes` → one empty event whenever `status` may have changed.
 @MainActor
 public final class AddMachineCardProvider: WebCard {
@@ -68,6 +68,7 @@ public final class AddMachineCardProvider: WebCard {
         case Self.cancelOp:
             runs.cancel()
         case Self.openWorkspaceOp:
+            try personOnly(context)
             runs.openWorkspace()
         case Self.copyOp:
             try personOnly(context)
@@ -93,7 +94,8 @@ public final class AddMachineCardProvider: WebCard {
         for listener in listeners.values { listener(.object([:])) }
     }
 
-    /// The person's own click or key in the card; a script, MCP or the CLI never adds or fixes a machine.
+    /// The person's own click or key in the card; a script, MCP or the CLI never adds, fixes, copies
+    /// from or opens a workspace on a machine.
     private func personOnly(_ context: PageCallContext) throws {
         guard context.userGesture else {
             throw PageError(code: PageNativeOp.userOnlyCode, message: AddMachineStrings.personOnly)
