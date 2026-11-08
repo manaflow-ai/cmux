@@ -314,12 +314,13 @@ enum TabMoves {
         return title == HomeStrings.title ? nil : title
     }
 
-    /// The other tabs of a multi-tab move follow the first into the workspace its move made (`key`), in order.
+    /// The other tabs of a multi-tab move follow the first into the workspace its move made (`key`), in order: one move at a time,
+    /// each after the one before finished, and the join returns (its caller docks or opens the window) once the last has.
     static func join(_ tabs: ArraySlice<TabModel>, workspace key: WorkspaceKey, services: AppServices) async {
         guard let daemon = tabs.first.map(services.machines.daemon(forTab:)) else { return }
         if services.workspace(id: key.rawValue) == nil { await daemon.store.refresh() }
         guard let target = services.workspace(id: key.rawValue) else { return }
-        for tab in tabs { toWorkspace(tab, workspace: target, services: services) }
+        for tab in tabs { _ = await withCheckedContinuation { done in toWorkspace(tab, workspace: target, services: services) { done.resume(returning: $0) } } }
     }
 
     /// `WorkspaceModel.id` of the workspace that holds `pane` (Move Pane to Dock); nil with no pane.
