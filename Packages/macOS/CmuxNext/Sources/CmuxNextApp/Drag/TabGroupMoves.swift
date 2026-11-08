@@ -16,7 +16,7 @@ enum TabGroupMoves {
               !refusesIncognitoCrossing(group, to: pane, services: services),
               !ChatDockRules.refusesGroupMove(to: pane, services: services) else { return completion(false) }
         let target = pane.handle
-        run("move-tab-group", daemon: daemon, completion: depart(group, services: services, then: completion)) { connection in
+        run("move-tab-group", daemon: daemon, completion: depart(group, into: pane, services: services, then: completion)) { connection in
             _ = try await connection.moveTabGroup(group, to: target, index: index, transaction: transaction)
         }
     }
@@ -80,11 +80,11 @@ enum TabGroupMoves {
         return key ?? nil
     }
 
-    /// The group's tabs leave their panes by this move, not a close (`TabMoves.depart`): their
-    /// strips drop them and the group's chip with no close. Returns `completion` behind the outcome.
-    @MainActor private static func depart(_ group: TabGroupID, services: AppServices, then completion: @escaping Completion) -> Completion {
+    /// The group's tabs leave their panes by this move into `target` (nil: one it makes), not a close (`TabMoves.depart`; none
+    /// stays in it): their strips drop them and the group's chip with no close. Returns `completion` behind the outcome.
+    @MainActor private static func depart(_ group: TabGroupID, into target: PaneModel? = nil, services: AppServices, then completion: @escaping Completion) -> Completion {
         guard let store = GroupOwnership.daemon(holdingTabGroup: group, machines: services.machines)?.store else { return completion }
-        return tabs(of: group, in: store).reduce(completion) { next, tab in TabMoves.depart(tab, services: services)(false, next) }
+        return tabs(of: group, in: store).reduce(completion) { next, tab in TabMoves.depart(tab, into: target, services: services)(false, next) }
     }
 
     private static func tabs(of group: TabGroupID, in store: DaemonStore) -> [TabModel] {

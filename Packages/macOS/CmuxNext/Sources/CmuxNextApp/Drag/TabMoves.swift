@@ -373,7 +373,7 @@ enum TabMoves {
             })
             return
         }
-        let completion = depart(tab, services: services)(false, completion)
+        let stays = services.locateTab(model: tab).map { daemon.store.workspace(containing: $0.1.handle) === workspace } ?? false, completion = stays ? completion : depart(tab, services: services)(false, completion)
         services.registry.track(Task {
             let ok = await daemon.request("move-tab-to-workspace") { connection -> Void in
                 _ = try await connection.moveTab(surface, toWorkspace: handle, transaction: echoes ? transaction : nil)
