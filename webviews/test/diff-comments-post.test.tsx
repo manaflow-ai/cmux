@@ -249,6 +249,23 @@ test("a retry the host says never reached GitHub posts the edited drafts as a ne
   );
 });
 
+test("a page reopened after a lost reply posts the same drafts under the same opid", async () => {
+  await withHost(
+    () => {
+      throw new Error("the session host did not answer");
+    },
+    async (calls) => {
+      const first = await mountHook([comment("c1", "a.ts", 1), comment("c2", "a.ts", 2)]);
+      await act(async () => first.hook().post());
+      first.unmount();
+      const reopened = await mountHook([comment("c2", "a.ts", 2), comment("c1", "a.ts", 1)]);
+      await act(async () => reopened.hook().post());
+      expect(calls[1]!.opid).toBe(calls[0]!.opid!);
+      reopened.unmount();
+    },
+  );
+});
+
 test("an ordinary worktree cannot post", async () => {
   await withHost(
     () => ({}),

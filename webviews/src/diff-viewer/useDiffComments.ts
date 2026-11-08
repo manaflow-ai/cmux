@@ -81,6 +81,7 @@ export function useDiffComments({
   const pendingSends = useRef(new Map<string, SendBatch>());
   // The same for Post: a post GitHub took whose reply was lost is posted again under its opid, which
   // the host answers with the first post's review instead of a second review on the pull request.
+  // A reopened page has no batch, but makes the same opid from the same drafts (`postOpid`).
   const pendingPosts = useRef(new Map<string, PostBatch>());
   // The draft save on its way, by draft and message: pressing Comment again on the same text reuses
   // its opid, so the host stores the comment once.
@@ -236,7 +237,7 @@ export function useDiffComments({
         : nextBatch(undefined, comments, (ids, versions) => ({
             ids,
             versions,
-            opid: `diff-review-${crypto.randomUUID()}`,
+            opid: postOpid(targetRepoRoot, ids, versions),
           }));
     pendingPosts.current.set(targetRepoRoot, batch);
     setPostState("posting");
@@ -288,6 +289,25 @@ export function useDiffComments({
     send,
     sendState,
   };
+}
+
+/**
+ * A post's opid, from what it posts: the same drafts at the same versions get the same one, so a
+ * page reopened after a post whose reply was lost retries under its key, and the host finds the
+ * review it may have posted instead of posting it again. Drafts posted are cleared, so the same
+ * drafts never go out as a second review on purpose.
+ */
+function postOpid(repoRoot: string, ids: readonly string[], versions: Record<string, string>): string {
+  const text = [repoRoot, ...[...ids].sort().map((id) => `${id}@${versions[id] ?? ""}`)].join("\n");
+  // Two FNV-1a hashes of the text, 64 bits together: a key, not a secret.
+  const hash = (seed: number) => {
+    let value = seed;
+    for (let index = 0; index < text.length; index += 1) {
+      value = Math.imul(value ^ text.charCodeAt(index), 16777619) >>> 0;
+    }
+    return value.toString(16).padStart(8, "0");
+  };
+  return `diff-review-${hash(2166136261)}${hash(84696351)}`;
 }
 
 function localCommentRecord(input: Omit<DiffCommentRecord, "id" | "createdAt" | "updatedAt">): DiffCommentRecord {

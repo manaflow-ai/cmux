@@ -243,7 +243,9 @@ fn worktree(
     }
     let fields = Map::from_iter([("name".into(), json!(name)), ("base".into(), json!(head))]);
     let attempt = worktree::plan(&target.repository, target.common_dir(), &fields)?;
-    worktree::create(&target.repository, git, &attempt)?;
+    // No hook runs: a `post-checkout` hook would run the pull request's code
+    // in its checkout before anyone read it.
+    worktree::create(&target.repository, git, &attempt, false)?;
     Ok((attempt.root, attempt.branch, false))
 }
 
@@ -395,6 +397,10 @@ fn hunks(
         // A textconv driver can name a script the pull request itself
         // changes: reading its diff must never run its code.
         "--no-textconv",
+        // The hunk reader needs `a/` and `b/`, whatever `diff.noprefix` or
+        // `diff.mnemonicPrefix` the person set.
+        "--src-prefix=a/",
+        "--dst-prefix=b/",
         "-M",
         github::CONTEXT_LINES,
         base,

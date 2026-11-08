@@ -120,6 +120,16 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     git(&checkout, &["remote", "set-url", "origin", "https://github.com/o/r.git"]);
     let rewrite = format!("url.{}.insteadOf", upstream.display());
     git(&checkout, &["config", &rewrite, "https://github.com/o/r.git"]);
+    // The person's own settings: a hook that would run the checked-out code,
+    // and diffs with no `a/` `b/` prefixes.
+    let hook_ran = root.join("hook-ran");
+    fs::create_dir_all(checkout.join(".git/hooks")).unwrap();
+    let hook = checkout.join(".git/hooks/post-checkout");
+    fs::write(&hook, format!("#!/bin/sh
+touch '{}'
+", hook_ran.display())).unwrap();
+    fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+    git(&checkout, &["config", "diff.noprefix", "true"]);
 
     // gh: `pr view` answers the pull request; a POST keeps what it was sent and
     // counts itself; a read of the reviews answers existing.txt, if any.
@@ -168,8 +178,10 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     assert_eq!(value["head"], head.as_str(), "{value}");
     assert_eq!(value["base"], merge_base.as_str(), "the base is the merge-base, not main's tip");
     assert_eq!(value["reused"], false, "{value}");
-    // The pull request's own setup script never runs before anyone read it.
+    // The pull request's own setup script never runs before anyone read it,
+    // and no git hook runs in its checkout either.
     assert_eq!(value["setup"]["state"], "none", "{value}");
+    assert!(!hook_ran.exists(), "a post-checkout hook ran in the review's checkout");
     assert_eq!(git(&worktree, &["rev-parse", "HEAD"]), head);
     assert_eq!(git(&checkout, &["config", "--get", "branch.cmux/review-7.cmuxBase"]), merge_base);
     // The person's checkout stays on its branch.
