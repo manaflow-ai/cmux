@@ -158,6 +158,7 @@ extension TabStripView {
     /// clips that only that motion needed come off.
     func moveEnded(_ generation: Int) {
         movesInFlight.remove(generation)
+        if movesInFlight.isEmpty { landPinFlights() }
         if movesInFlight.isEmpty, !stillWaiters.isEmpty {
             let waiting = stillWaiters
             stillWaiters.removeAll()
@@ -330,11 +331,12 @@ extension TabStripView {
             move.addScroll(scrollPart(isPinned: false), to: scrollProbe)
         }
         var trailing: CGFloat = 0
+        let flying = flyPinnedTabs(move: move, mapping: mapping, scrollFrom: scrollFrom)
         for (id, cell) in cells {
             guard let place = placed[id] else { continue }
             let isPinned = cell.item.isPinned
-            // A tab pinned or unpinned since it was made moves to its region's layer.
-            if let parent = tabsLayer(isPinned: isPinned), cell.layer.superlayer !== parent { parent.addSublayer(cell.layer) }
+            // A tab pinned or unpinned since it was made moves to its region's layer (one that flies, after its move).
+            if !pinFlights.contains(id), let parent = tabsLayer(isPinned: isPinned), cell.layer.superlayer !== parent { parent.addSublayer(cell.layer) }
             let frame = cellFrame(place, isPinned: isPinned)
             let opacity = Float(min(max(place.alpha, 0), 1))
             var moved = false
@@ -351,6 +353,8 @@ extension TabStripView {
                 cell.frame = frame
                 cell.layer.opacity = opacity
             }
+            // A pin's start look serves only the move this change made (`TabCell.retimePin`).
+            cell.pinStartForm = nil
             // The dragged tab and a dragged group's members sit exactly under the pointer (their width still moves).
             if drag?.id == id || groups.isDragged(id) { TabStripMove.cancelPosition(cell.layer) }
             if let move { noteClosing(id, moved: moved, move: move) }
@@ -358,7 +362,8 @@ extension TabStripView {
             trailing = max(trailing, place.maxX)
         }
         updateOcclusion()
-        layoutPinnedDivider(mapping: mapping, tabY: tabY, tabHeight: tabHeight, pixel: pixel, move: move, scroll: scrollPart(isPinned: true))
+        layoutPinnedDivider(mapping: mapping, tabY: tabY, tabHeight: tabHeight, pixel: pixel, move: move, scroll: scrollPart(isPinned: true),
+                            crossing: flying)
         for group in groups.chips.keys {
             guard let place = placed[.groupChip(group)] else { continue }
             trailing = max(trailing, place.maxX)

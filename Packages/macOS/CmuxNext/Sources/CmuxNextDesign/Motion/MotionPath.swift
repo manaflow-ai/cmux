@@ -97,6 +97,9 @@ public struct MotionPath {
     /// The latest media time an animation of the path ends; nil when nothing moves it.
     public var end: CFTimeInterval? { segments.map(\.end).max() }
 
+    /// The latest media time an animation of the path begins (the newest move on it); nil when nothing moves it.
+    public var lastBegin: CFTimeInterval? { segments.map(\.begin).max() }
+
     /// Whether anything moves the path after `time`.
     public func moves(after time: CFTimeInterval) -> Bool { (end ?? -.infinity) > time }
 
