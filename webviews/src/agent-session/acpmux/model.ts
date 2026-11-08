@@ -753,6 +753,8 @@ export type AcpmuxRow = {
     promptIds: readonly string[];
     fromSession?: string;
     fromHarness?: string;
+    /// acpmux could not verify its sender (conversation/senderIdentity.ts).
+    unverified?: true;
   };
   laneNoticeBatch?: {
     kind: "report" | "inbox";
