@@ -121,6 +121,7 @@ pub mod peer_states;
 pub mod placement;
 #[cfg(not(unix))]
 mod platform;
+pub mod pricing;
 pub mod probe_cleanup;
 pub mod probe_prompt;
 pub mod prompt_cache_env;
@@ -157,6 +158,7 @@ pub mod session_search;
 pub mod session_status;
 pub mod sha256;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
+pub mod memory_inbox;
 pub mod shadow_admission;
 pub mod shell_words;
 #[cfg(feature = "sim")]

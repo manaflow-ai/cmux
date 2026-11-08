@@ -103,6 +103,14 @@ extension CloudService {
         return try await appServerFlow(team: team, run: appOps).approvedCall(op, args: args, confirm: confirm)
     }
 
+    /// A machine's resize and snapshot ops (`cloud.machine.resize`, `cloud.snapshot.*`) to cmux-platform's op of the same name
+    /// (never `/api/vm`), as the person's own: the approval loop (one key, same-key retries), once `allow` says yes. The id of the answer's `record`.
+    @discardableResult
+    func machineChange(_ op: String, _ args: [String: JSONValue], answers record: String? = nil, allow: @MainActor () async -> Bool) async throws -> String? {
+        guard await allow() else { throw CloudMachineCreateFlow.Failure.declined }
+        return try await appServerApprovedCall(op, args: .object(args), confirm: { true }).recordID(record, op: op)
+    }
+
     /// The team's Cloud environments; throws when the list fails (`cloud new-machine --environment NAME` refuses it).
     func appServerEnvironmentOptions() async throws -> [CloudWorkspaceSetupWizard.EnvironmentOption] {
         let answer = try await appOps("cloud.environment.list", .object([:]), nil, .script)

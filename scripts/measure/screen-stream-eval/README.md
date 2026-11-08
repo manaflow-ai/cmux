@@ -18,6 +18,29 @@ main's `screen-stream-eval-dispatch.yml` (scheduled workflows run only from the 
 uploads `results.json` and a `summary.md` that shows each number's change against the last daily
 run (the last successful one that dispatcher started).
 
+## Prebuilt tools
+
+A Mac that must not build (a laptop cleared for benches only) runs the harness from a copy of
+`scripts/measure` with `prebuilt=DIR`, where DIR holds tools built elsewhere for that Mac: `cmux-rd`
+(`cargo build --release` in `cmux-tui/crates/cmux-rd-host`), `screen-eval-preflight`,
+`screen-eval-scene`, `screen-eval-ocr` (`swiftc -O` of the `.swift` files here) and `cmux-rd-marker`
+(`swiftc -O` of `cmux-tui/crates/cmux-rd-host/scripts/mac-marker/main.swift`), plus an optional `rev`
+file naming the commit they were built from (`run.rev`). A fleet step builds them all at one commit,
+with no console or grant needed:
+
+```
+cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/screen-stream-eval.sh \
+  --ref SHA --arg=tools-only=1 --artifact artifacts/screen-stream-eval/tools.tar.gz
+```
+
+The archive holds one folder, `tools/`. Nothing is compiled: only the `rd` target
+has this mode, and a Mac without the grants and without `CmuxScreenEvalLauncher.app` stops with exit 3
+instead of compiling the launcher.
+
+```
+bash scripts/measure/screen-stream-eval.sh prebuilt=DIR targets=rd [repeats=3] [samples=200]
+```
+
 ## Scenarios (fixed)
 
 | Scenario | What runs on the host | What is measured |

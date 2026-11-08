@@ -680,6 +680,11 @@ pub(super) fn normalize_ssh_machine_port(id: &str, port: Option<u16>) -> Option<
     }
 }
 
+/// The config file's `agents` section alone (`daemon status`).
+pub(crate) fn load_raw_agents() -> crate::agent_plugin_config::RawAgents {
+    load_raw_config().agents
+}
+
 pub(super) fn load_raw_config() -> RawConfig {
     // A config that exists but cannot be read leaves the user's agents choice
     // unknown, so the bundled screen detector stays off (agent_plugin_config).
