@@ -226,8 +226,8 @@ pub fn remove(dir: &Path, chat: &str, id: &str) -> Result<bool, RpcError> {
 
 /// Moves `from`'s stack onto `to`'s: one write of `to` with `from`'s drafts on top in their order
 /// (as pushing each would put them) and `to`'s own below, the oldest past [`STASH_LIMIT`] let go,
-/// then `from`'s file removed. A draft `to` already holds whole (a move a failed removal left
-/// behind) is not added again; one whose id `to` uses for another draft (ids start over with the
+/// then `from`'s file removed. A draft `to` already holds (the same time, text and chips: a move a
+/// failed removal left behind, renumbered or not) is not added again; one whose id `to` uses for another draft (ids start over with the
 /// daemon) gets a new id. How many drafts moved.
 pub fn move_stack(dir: &Path, from: &str, to: &str) -> Result<usize, RpcError> {
     if from == to {
@@ -243,7 +243,11 @@ pub fn move_stack(dir: &Path, from: &str, to: &str) -> Result<usize, RpcError> {
     let own = load(&to_path).map_err(unreadable)?;
     let mut drafts: Vec<Draft> = Vec::with_capacity(moving.len() + own.len());
     for mut draft in moving {
-        if own.contains(&draft) {
+        // The same draft whatever its id: a retry after a move that renumbered it adds it once.
+        let same = |d: &Draft| {
+            d.at == draft.at && d.text == draft.text && d.attachments == draft.attachments
+        };
+        if own.iter().any(same) {
             continue;
         }
         while own.iter().chain(&drafts).any(|d| d.id == draft.id) {
@@ -591,5 +595,16 @@ mod tests {
         assert_eq!(texts, ["written after", "the session's own"]);
         assert_ne!(kept[0].id, kept[1].id);
         assert!(!chat_path(&dir, "new").exists());
+        // The source stayed (a removal that failed): tried again, the renumbered draft is not
+        // added twice.
+        let again = Draft {
+            id: own.id.clone(),
+            text: "written after".into(),
+            attachments: Vec::new(),
+            at: 6,
+        };
+        write(&chat_path(&dir, "new"), "new", &[again]).unwrap();
+        assert_eq!(move_stack(&dir, "new", "session").unwrap(), 0);
+        assert_eq!(load(&chat_path(&dir, "session")).unwrap(), kept);
     }
 }
