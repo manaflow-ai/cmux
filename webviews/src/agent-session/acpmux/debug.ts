@@ -6,15 +6,17 @@ import type { PermissionDecision } from "./permissions/protocol";
 import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "./perf";
 import { openPicker, pickerLabels } from "./pickerOpeners";
 import type { StreamOptions } from "./streamDebug";
-import type { LoadRunOptions } from "./loadDebug";
-import { shownPresence } from "./multiplayer/LivePresence";
+import type { LoadRunOptions, LoadTickOptions } from "./loadDebug";
+import { shownPresence } from "./multiplayer/livePresenceModel";
 import { acpWire, type AcpWireLog } from "./wire";
+import { tickWatch } from "./tickWatch";
 import { followTrace } from "./followTrace";
 import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
 import type { IdleProbeOptions } from "./idleProbe";
 import { queuedRowsState } from "./queuedRowsState";
 import { composerAttachmentsState } from "./composerAttachmentsState";
 import { cloudSignedInForDebug } from "./cloudMachines";
+import type { SeedSnapshotFields } from "./waitingSteersFixture";
 
 // `window.cmuxAcpmuxDebug`, called by the DEBUG `debug.agent_pane` socket
 // method. The first measurement call turns on measurement (acpmuxPerf.enabled);
@@ -29,14 +31,20 @@ export type AcpmuxDebug = {
   /// workedTurn.ts when `fixture` is "worked-turn", or with received agent messages
   /// (incomingFixture.ts) when it is "incoming", or with a turn linking a synthetic pull request page
   /// (linkFixture.ts) when it is "link", or with a turn organized as Claude Code desktop
-  /// draws one (organizationFixture.ts) when it is "organization", or with a shared chat (teammates' prompts, who
+  /// draws one (organizationFixture.ts) when it is "organization", or with a run of shell calls
+  /// summarized as Claude Code desktop summarizes one (toolSummaryFixture.ts) when it is
+  /// "tool-summary", or with a shared chat (teammates' prompts, who
   /// answered an ask, who else is here and typing; multiplayer/sharedFixture.ts) when it is "shared",
   /// or with step `count` (0-5, else 0) of the subagent tray's life (subagentsFixture.ts) when it is
-  /// "subagents".
+  /// "subagents", or with three steers waiting under a running turn (waitingSteersFixture.ts) when it is
+  /// "waiting-steers".
   seedRows(count?: number, fixture?: string, agents?: number): Promise<Record<string, unknown>>;
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
   perfStats(options?: { raw?: boolean }): Record<string, unknown>;
+  /// The transcript's frames while real wheel input scrolls it (tickWatch.ts): starts a watch, or with
+  /// `stop` ends it and returns its frames, work, wheel events and the page's own offset writes.
+  tickWatch(options?: { stop?: boolean; nominal_ms?: number }): Record<string, unknown>;
   agentLatency(): Record<string, unknown>;
   typingStats(): Record<string, unknown>;
   resetTyping(): Record<string, unknown>;
@@ -46,6 +54,8 @@ export type AcpmuxDebug = {
   acpLog(options?: { limit?: number }): Record<string, unknown>;
   /** The wire log as JSON Lines. */
   acpLogExport(): string;
+  /** Shows `text` as a pane toast, as a refusal or a click's feedback does (captures drive the toasts with it). */
+  toast(text: string): Record<string, unknown>;
   /** Automation (automation.ts): the chat state a script reads, and the verbs it drives. */
   chatState(): Record<string, unknown>;
   sendPrompt(text: string): Promise<Record<string, unknown>>;
@@ -68,10 +78,12 @@ export type AcpmuxDebug = {
   idleProbe(options?: IdleProbeOptions): Promise<Record<string, unknown>>;
   /** Streams a scripted reply into a long synthetic transcript and reports the frames (streamDebug.ts). */
   stream(options?: StreamOptions): Promise<Record<string, unknown>>;
-  /** Opens a mock session of `turns` heavy turns through the real client (loadDebug.ts). */
-  loadSeed(turns?: number): Promise<Record<string, unknown>>;
+  /** Opens a mock session of `turns` heavy turns (or `light` ones, two rows each, opened whole) through the real client (loadDebug.ts). */
+  loadSeed(turns?: number, options?: { light?: boolean }): Promise<Record<string, unknown>>;
   /** Streams a turn at full speed into it while scrolling, and reports every frame (loadDebug.ts). */
   loadRun(options?: LoadRunOptions): Promise<Record<string, unknown>>;
+  /** Scrolls it while a tool call runs and another chat changes, and counts row renders (loadDebug.ts). */
+  loadTick(options?: LoadTickOptions): Promise<Record<string, unknown>>;
 };
 
 const NO_AUTOMATION = { error: "the page has no automation host" };
@@ -108,9 +120,14 @@ function nextFrame(): Promise<number> {
 
 export function createAcpmuxDebug(
   host: {
-    replaceRows(rows: AcpmuxRow[]): void;
+    /// `fields`: the snapshot fields a fixture's rows need beside them (a waiting steer's `newestOwnSteer`).
+    replaceRows(rows: AcpmuxRow[], fields?: SeedSnapshotFields): void;
     rowCount(): number;
+    /// The shown transcript's row ids (loadDebug.ts `loadTick` tells the history from the new turn).
+    rowIds?(): string[];
     sessionId?(): string | undefined;
+    /// The pane's toasts (paneNotices `transient`).
+    toast?(text: string): void;
     automation?: automation.AutomationHost;
   },
   wire: AcpWireLog = acpWire,
@@ -148,10 +165,13 @@ export function createAcpmuxDebug(
         incomingRows,
         linkRows,
         organizationRows,
+        toolSummaryRows,
         SUBAGENT_TRAY_STEPS,
         subagentTrayRows,
         SHARED_PRESENCE,
         sharedRows,
+        WAITING_STEERS_SNAPSHOT,
+        waitingSteersRows,
       } = await import("./debugFixtures");
       const trayStep = (count: number) =>
         Number.isInteger(count) && count > 0 && count < SUBAGENT_TRAY_STEPS ? count : 0;
@@ -171,12 +191,16 @@ export function createAcpmuxDebug(
                 ? linkRows(Date.now() - 30_000)
                 : fixture === "organization"
                   ? organizationRows(Date.now() - 120_000)
-                  : fixture === "shared"
-                    ? sharedRows(Date.now() - 1_020_000)
-                    : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
+                  : fixture === "tool-summary"
+                    ? toolSummaryRows(Date.now() - 60_000)
+                    : fixture === "shared"
+                      ? sharedRows(Date.now() - 1_020_000)
+                      : fixture === "waiting-steers"
+                        ? waitingSteersRows(Date.now() - 90_000)
+                        : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
-      host.replaceRows(rows);
+      host.replaceRows(rows, fixture === "waiting-steers" ? WAITING_STEERS_SNAPSHOT : undefined);
       if (fixture === "shared") {
         // The presence to restore on leaving: kept across uninterrupted repeat seeds of this chat,
         // taken again once live presence or a switch displaced the fixture. The fixture's own
@@ -260,12 +284,16 @@ export function createAcpmuxDebug(
 
     flingStats,
 
+    tickWatch,
+
     perfStats(options = {}) {
       acpmuxPerf.enable();
       return {
         running,
         ...acpmuxPerf.stats(options.raw === true),
         agent: acpmuxPerf.agentLatency(),
+        start_state_shown: acpmuxPerf.startStateShown() ?? null,
+        launch: acpmuxPerf.launchTimeline(),
       };
     },
 
@@ -323,6 +351,11 @@ export function createAcpmuxDebug(
 
     acpLogExport() {
       return wire.exportJsonl({ sessionId: host.sessionId?.() });
+    },
+
+    toast(text) {
+      host.toast?.(text);
+      return { shown: host.toast != null, text };
     },
 
     chatState() {
@@ -392,15 +425,19 @@ export function createAcpmuxDebug(
       const { runStream } = await import("./streamDebug");
       return runStream(host.replaceRows, options);
     },
-    async loadSeed(turns = 5000) {
+    async loadSeed(turns = 5000, options = {}) {
       const automationHost = host.automation;
       if (!automationHost) return NO_AUTOMATION;
       const { loadSeed } = await import("./loadDebug");
-      return loadSeed({ selectSession: automationHost.selectSession, rowCount: host.rowCount }, turns);
+      return loadSeed({ selectSession: automationHost.selectSession, rowCount: host.rowCount }, turns, options);
     },
     async loadRun(options = {}) {
       const { loadRun } = await import("./loadDebug");
       return loadRun({ sessionId: () => host.sessionId?.(), rowCount: host.rowCount }, options);
+    },
+    async loadTick(options = {}) {
+      const { loadTick } = await import("./loadDebug");
+      return loadTick({ sessionId: () => host.sessionId?.(), rowIds: () => host.rowIds?.() ?? [] }, options);
     },
   };
 }

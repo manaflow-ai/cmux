@@ -1,4 +1,4 @@
-import type { TabKind } from "./NewTabPage";
+import type { TabKind } from "./newTabModel";
 
 /// What the omnibar can suggest besides the typed text: the window's open tabs and
 /// workspaces (jumping to one beats opening a duplicate), recent sessions, folders,
@@ -14,7 +14,37 @@ export type OmnibarContext = {
   /// Every Commands palette (Cmd-Shift-P) action the host can run here (`app.action`), in the
   /// palette's order: `detail` is its palette section, `keycaps` its shortcut.
   actions?: OmnibarAction[];
+  /// The Commands palette's pick history (its FrecencyStore) by usage key (`tab:ID`, `workspace:ID`,
+  /// `action:ID`): each key's decayed use count. The bar orders matches of one kind by it, as the
+  /// palette does (cmuxterm-hq lenses slack-firefox-frecency.md).
+  uses?: Record<string, number>;
+  /// This Mac's browser profiles, in their order (Default first), when the host opens an address in
+  /// a profile the page names (`tab.open` `profile` / `newProfile`). Unset: the page offers no
+  /// profile rows.
+  profiles?: OmnibarProfile[];
 };
+
+/// The most pick-history keys accepted from the host (AgentPaneOmnibar.maximumUses).
+export const MAX_NEW_TAB_USES = 200;
+
+/// Reads the host's pick history, keeping finite positive counts only.
+export function omnibarUses(value: unknown): Record<string, number> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(
+      (entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] > 0,
+    )
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, MAX_NEW_TAB_USES);
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+/// One browser profile the page can open an address in: its id (`default` or a UUID), the name the
+/// person gave it and its color name (`blue`), if any.
+export type OmnibarProfile = { id: string; name: string; color?: string };
+
+/// The most browser profiles accepted from the host.
+export const MAX_NEW_TAB_PROFILES = 200;
 
 /// One Commands palette action the host offers the bar (CmuxNextPalette PaletteCommandEntry).
 export type OmnibarAction = { id: string; title: string; detail?: string; keywords: string[]; keycaps?: string[] };
@@ -96,7 +126,24 @@ export function omnibarContext(value: unknown): OmnibarContext | undefined {
       })
       .slice(0, MAX_NEW_TAB_ENTRIES),
     actions: omnibarActions(object.actions),
+    ...(omnibarUses(object.uses) ? { uses: omnibarUses(object.uses) } : {}),
+    ...(Array.isArray(object.profiles) ? { profiles: omnibarProfiles(object.profiles) } : {}),
   };
+}
+
+/// Reads the host's browser profiles, dropping one without an id or a name.
+export function omnibarProfiles(value: unknown): OmnibarProfile[] {
+  const seen = new Set<string>();
+  return records(value)
+    .flatMap((profile): OmnibarProfile[] => {
+      const id = string(profile.id);
+      const name = string(profile.name);
+      if (!id || !name || seen.has(id)) return [];
+      seen.add(id);
+      const color = string(profile.color);
+      return [{ id, name, ...(color ? { color } : {}) }];
+    })
+    .slice(0, MAX_NEW_TAB_PROFILES);
 }
 
 /// Reads the host's palette actions, dropping one without an id or a title.

@@ -306,7 +306,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             head: {
               title: rect(".acpmux-running-tray__title", head),
               time: rect(".acpmux-running-tray__time", head),
-              chevron: rect(".acpmux-running-tray__status > svg", head),
+              chevron: rect(".acpmux-running-tray__status svg", head),
             },
           };
         });
@@ -403,7 +403,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                 return {
                   title: rect(".acpmux-running-tray__title", head),
                   time: { ...rect(".acpmux-running-tray__time", head), ...textRect(time) },
-                  chevron: rect(".acpmux-running-tray__status > svg", head),
+                  chevron: rect(".acpmux-running-tray__status svg", head),
                 };
               })(),
             };
@@ -488,7 +488,17 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           expect(narrowRest.every((row) => row.stop.left === narrowFirst!.stop.left)).toBe(true);
           expect(narrow.rows.every((row) => row.stateToNext >= -0.5 && row.stateToNext <= 8)).toBe(true);
           expect(narrow.rows.every((row) => row.summary.width >= 60)).toBe(true);
-          expect(narrow.rows.every((row) => row.summary.bottom <= row.time.top + 0.5)).toBe(true);
+          // One row while the title keeps room beside the columns (Leo, 2026-11-04: "how Claude code
+          // just has one lines too"); a tray of 260px or less puts the title above them.
+          if (narrow.tray.width <= 260)
+            expect(narrow.rows.every((row) => row.summary.bottom <= row.time.top + 0.5)).toBe(true);
+          else
+            expect(
+              narrow.rows.every(
+                (row) =>
+                  Math.abs((row.summary.top + row.summary.bottom) / 2 - (row.time.top + row.time.bottom) / 2) <= 1,
+              ),
+            ).toBe(true);
           expect(narrow.rows.every((row) => row.time.lineCount <= 1)).toBe(true);
           expect(
             narrow.rows.every((row) => row.time.lineCount === 0 || row.time.textRight! <= row.time.boxRight + 0.5),
@@ -523,7 +533,8 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           expect(
             ticked.rows.every(
               (row) =>
-                row.summary.bottom <= row.time.top + 0.5 && (!row.hasStop || row.status.left >= row.time.right - 0.5),
+                (narrow.tray.width > 260 || row.summary.bottom <= row.time.top + 0.5) &&
+                (!row.hasStop || row.status.left >= row.time.right - 0.5),
             ),
           ).toBe(true);
           expect(
@@ -683,6 +694,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                   stats: row.querySelector(".acpmux-summary-text > .acpmux-agent-line__stats")?.textContent ?? null,
                   state: row.querySelector(".acpmux-summary-agent__state")?.textContent ?? null,
                   timed: row.hasAttribute("data-timed"),
+                  done: Boolean(row.querySelector("[data-hat-done]")),
                   statsBelow: Boolean(row.querySelector(".acpmux-summary-text > .acpmux-agent-line__progress")),
                   timeLeft,
                   metaRight: meta?.right,
@@ -700,6 +712,8 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             expect(row.words).not.toContain("Explore");
             // A running line with its time shows no state word (Leo, 2026-11-03); every other says it.
             if (row.timed) expect(row.state).toBeNull();
+            // A done line ends in a check; its word is for screen readers (DoneMark.tsx).
+            else if (row.done) expect(row.state).toBeNull();
             else {
               expect(row.state).not.toBeNull();
               expect(row.words).toContain(row.state!);

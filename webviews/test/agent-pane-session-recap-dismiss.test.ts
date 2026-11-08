@@ -121,7 +121,7 @@ test("dismissing a recap drops its row, and it stays dismissed when the chat att
   const first = await connect(fakeDaemon(history(), "claude", "claude"));
   try {
     expect(first.recaps()).toEqual([RECAP]);
-    first.client.dismissRecap("recap-2");
+    first.client.dismissRecap("recap-2", `${CHAT}:2`);
     expect(first.recaps()).toEqual([]);
   } finally {
     first.client.close();
@@ -148,6 +148,29 @@ test("a recap another chat's dismissal names by the same seq still shows", async
   );
   try {
     expect(recaps()).toEqual([RECAP]);
+  } finally {
+    client.close();
+  }
+});
+
+test("a press on another chat's recap with the same seq leaves this chat's recap in place", async () => {
+  const { client, recaps } = await connect(
+    fakeDaemon(
+      record([
+        ["mux", "user_message", { text: "hi" }],
+        ["mux", "recap", { text: RECAP }],
+      ]),
+      "claude",
+      "claude",
+    ),
+  );
+  try {
+    // The chat a switch still showed: its key names the other chat.
+    client.dismissRecap("recap-2", "the-chat-switched-from:2");
+    expect(recaps()).toEqual([RECAP]);
+    expect(JSON.parse(localStorage.getItem("cmux.agentPane.recapDismissed") ?? "[]")).toEqual([
+      "the-chat-switched-from:2",
+    ]);
   } finally {
     client.close();
   }

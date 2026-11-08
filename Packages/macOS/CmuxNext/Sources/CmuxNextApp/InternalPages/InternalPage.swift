@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextIcons
+import CmuxNextPages
 
 /// Internal pages: cmux's own surfaces (Settings, Debug Settings, the App
 /// Store) shown as tabs in a pane instead of windows of their own.

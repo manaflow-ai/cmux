@@ -57,6 +57,7 @@ for (const key of domClasses) globals[key] = (dom.window as unknown as Record<st
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+const { liveToolOutput } = await import("../src/agent-session/acpmux/liveToolOutput");
 
 function fakeViewport(size: { width: number; height: number }) {
   const prototype = dom.window.HTMLElement.prototype;
@@ -199,6 +200,68 @@ test("keyboard transcript selection copies source without a floating button", as
     else delete (globalThis.navigator as unknown as Record<string, unknown>).clipboard;
     if (execCommand) Object.defineProperty(dom.window.document, "execCommand", execCommand);
     else delete (dom.window.document as unknown as Record<string, unknown>).execCommand;
+    restore();
+  }
+});
+
+// A running command's output update draws its row alone, not the pane (liveToolOutput.ts): the
+// transcript's rows keep the output the pane drew. Keyboard copy reads the newer output (review of
+// #37907: "keyboard-copying a running command ... omits output that arrived since the last full draw").
+test("keyboard copy of a running command holds the output it took without the pane", async () => {
+  const restore = fakeViewport({ width: 760, height: 600 });
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const copied: string[] = [];
+  const clipboard = Object.getOwnPropertyDescriptor(globalThis.navigator, "clipboard");
+  Object.defineProperty(globalThis.navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (text: string) => void copied.push(text) },
+  });
+  const running: AcpmuxRow = {
+    id: "running-1",
+    version: 1,
+    at: 4,
+    kind: "activity",
+    items: [
+      {
+        kind: "tool",
+        text: "Run bun test",
+        tool: {
+          id: "running-call",
+          title: "Run bun test",
+          kind: "execute",
+          status: "in_progress",
+          command: "bun test",
+          output: "pass 1\n",
+        },
+      },
+    ],
+  };
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={[...conversation, running]}
+          sessionId="session-one"
+          onToggleActivity={() => {}}
+          expanded={new Set<string>()}
+        />,
+      ),
+    );
+    await act(async () => liveToolOutput.set("running-call", "pass 1\npass 2\n", "pass 1\n"));
+    const row = dom.window.document.querySelector<HTMLElement>('[data-row-id="running-1"]')!;
+    row.focus();
+    await act(async () => {
+      row.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "c", ctrlKey: true }),
+      );
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(copied).toEqual(["Run bun test\npass 1\npass 2"]);
+  } finally {
+    liveToolOutput.settle(liveToolOutput.redraw());
+    await act(async () => root.unmount());
+    if (clipboard) Object.defineProperty(globalThis.navigator, "clipboard", clipboard);
+    else delete (globalThis.navigator as unknown as Record<string, unknown>).clipboard;
     restore();
   }
 });

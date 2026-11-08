@@ -194,6 +194,7 @@ async fn a_purged_chat_loses_its_files_and_takes_no_more() {
 async fn transfer(src: &mut Client, dst: &mut Client, id: &str) {
     let begin = src.call("_acpmux/transfer_begin", json!({"sessionId": id})).await;
     let begin = begin["result"].clone();
+    let epoch = begin["epoch"].as_u64().unwrap_or(0);
     let received = dst.call("_acpmux/transfer_receive", json!({"manifest": begin})).await;
     let receive_id =
         received["result"]["receiveId"].as_str().unwrap_or_else(|| panic!("{received}"));
@@ -204,14 +205,14 @@ async fn transfer(src: &mut Client, dst: &mut Client, id: &str) {
             let part = src
                 .call(
                     "_acpmux/transfer_read",
-                    json!({"transferId": begin["transferId"], "path": path, "offset": offset, "limit": 1 << 16}),
+                    json!({"transferId": begin["transferId"], "path": path, "offset": offset, "limit": 1 << 16, "epoch": epoch}),
                 )
                 .await;
             let part = &part["result"];
             let wrote = dst
                 .call(
                     "_acpmux/transfer_write",
-                    json!({"receiveId": receive_id, "path": path, "offset": offset, "data": part["data"]}),
+                    json!({"receiveId": receive_id, "path": path, "offset": offset, "data": part["data"], "epoch": epoch}),
                 )
                 .await;
             assert!(wrote.get("error").is_none(), "{wrote}");
@@ -221,12 +222,13 @@ async fn transfer(src: &mut Client, dst: &mut Client, id: &str) {
             }
         }
     }
-    let finished = dst.call("_acpmux/transfer_finish", json!({"receiveId": receive_id})).await;
+    let finished =
+        dst.call("_acpmux/transfer_finish", json!({"receiveId": receive_id, "epoch": epoch})).await;
     assert_eq!(finished["result"]["sessionId"], id, "{finished}");
     let committed = src
         .call(
             "_acpmux/transfer_commit",
-            json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}}),
+            json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}, "epoch": epoch}),
         )
         .await;
     assert_eq!(committed["result"]["committed"], true, "{committed}");

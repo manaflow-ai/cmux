@@ -73,6 +73,8 @@ extension WebUpdates {
             // What held the pending update at the last safe point look (WebSwapGate): app input,
             // a sheet, or a page's own reason (`composer.sending`, `selection`, `page.no-answer`).
             "waiting_for": web.pending == nil ? .null : web.heldBy.map { .string($0) } ?? .null,
+            // Open pages that still read an older update than `pending` (each reloads at its own safe point).
+            "pages_behind": JSONValue(web.pending.map { WebBundleServedViews.shared.behind($0).count } ?? 0),
             "app_abi": JSONValue(updater.app.abi),
             "app_web_built_at": JSONValue(updater.app.webBuiltAt),
             "last_check": updater.lastCheck.map { .string(ISO8601DateFormatter().string(from: $0)) } ?? .null,

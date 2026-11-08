@@ -138,6 +138,7 @@ name = "cmux-git"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "serde_json",
  "sha2",
  "wait-timeout",
 ]

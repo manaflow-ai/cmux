@@ -1092,7 +1092,13 @@ esac
 fn a_chief_moving_to_a_mini_takes_its_working_subagents_and_rollback_brings_them_back() {
     let dir = tempfile::tempdir().unwrap();
     let src = new_home(dir.path(), "default");
-    drop(chief_home(&src));
+    // The Chief's records of its subagents (host/spawns): the working one and an idle one.
+    chief_home(&src)
+        .execute(
+            "INSERT INTO state VALUES ('host/spawns', ?1)",
+            [r#"{"sp1":{"subs":[{"id":"a1","session_id":"s-work","title":"worker"},{"id":"a2","session_id":"s-idle"}]}}"#],
+        )
+        .unwrap();
     let remote = dir.path().join("remote-user");
     std::fs::create_dir_all(&remote).unwrap();
     let remote = std::fs::canonicalize(remote).unwrap();
@@ -1150,6 +1156,31 @@ fn a_chief_moving_to_a_mini_takes_its_working_subagents_and_rollback_brings_them
             .exists(),
         "the record stays with the Mac that handed them over"
     );
+    // The moved Chief knows where its subagent runs now: the same session, the new place
+    // and a higher epoch, in one write (home-agent-pills-DESIGN.md "Identity").
+    let sub = |home: &Path, id: &str| -> Value {
+        let spawns: Value = serde_json::from_str(
+            &state_value(&home.join("optchat/memory.sqlite3"), "host/spawns").unwrap(),
+        )
+        .unwrap();
+        spawns["sp1"]["subs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["id"] == id)
+            .cloned()
+            .unwrap()
+    };
+    let moved_home = remote.join(".cmux/chief/default");
+    let a1 = sub(&moved_home, "a1");
+    assert_eq!(a1["session_id"], "s-work", "{a1}");
+    assert_eq!(a1["place"], "mini-peer", "{a1}");
+    assert_eq!(a1["epoch"], 1, "{a1}");
+    let a2 = sub(&moved_home, "a2");
+    assert!(
+        a2["place"].is_null() && a2["epoch"].is_null(),
+        "an idle subagent stays: {a2}"
+    );
 
     let back = run_move(&["move", "rollback", "--remote-bin", BIN, "--home", home]);
     assert!(
@@ -1163,6 +1194,13 @@ fn a_chief_moving_to_a_mini_takes_its_working_subagents_and_rollback_brings_them
         "{calls}"
     );
     assert!(!src.join("state/subagents-moved.json").exists());
+    let a1 = sub(&src, "a1");
+    assert_eq!(a1["session_id"], "s-work", "{a1}");
+    assert!(
+        a1["place"].is_null(),
+        "back on the Chief's own machine: {a1}"
+    );
+    assert_eq!(a1["epoch"], 2, "every move raises the epoch: {a1}");
 }
 
 #[test]
@@ -1205,4 +1243,121 @@ fn a_mini_the_chiefs_daemon_does_not_know_stops_the_move_before_the_checkpoint()
     );
     let calls = std::fs::read_to_string(&log).unwrap();
     assert!(!calls.contains("session move"), "{calls}");
+}
+
+/// A 0600 session token file for the fake cloud.
+fn cloud_token(dir: &Path) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let token = dir.join("session");
+    std::fs::write(&token, "test-session\n").unwrap();
+    std::fs::set_permissions(&token, std::fs::Permissions::from_mode(0o600)).unwrap();
+    token
+}
+
+#[test]
+fn a_fork_copies_the_chief_into_a_new_cloud_chief_while_this_home_keeps_answering() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = cloud_ready_home(dir.path());
+    write(&src.join("optchat/person.md"), "- Replies: short.\n");
+    // The home's host runs and stays running: a fork never stops it.
+    let held = optchat_chief::lock::HostLock::take(&src.join("state/host.lock"), 1).unwrap();
+    let (base, seen) = fake_cloud();
+    let token = cloud_token(dir.path());
+    let out = Command::new(BIN)
+        .args([
+            "move",
+            "--fork",
+            "--to",
+            &format!("cloud:{base}"),
+            "--session-token-file",
+            token.to_str().unwrap(),
+            "--home",
+            src.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    let report = ok_json(&out);
+    assert_eq!(report["forked"], true, "{report}");
+    assert_eq!(report["moved"], false, "a fork is not a move: {report}");
+    assert_eq!(report["cloud"]["chief"], "agent_01TEST");
+    assert_eq!(report["cloud"]["history_imported"], 2);
+    assert_eq!(report["cloud"]["memory_messages"], 2);
+    assert!(
+        report["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|s| s["step"] != "drain"),
+        "a fork drains nothing: {report}"
+    );
+    // This home is untouched: no moved mark, no start hold, its host still holds the lock.
+    assert!(!src.join("state/moved.json").exists());
+    assert!(!src.join("state/shutdown").exists());
+    assert!(optchat_chief::lock::held(&src.join("state/host.lock")));
+    drop(held);
+    let calls = seen.lock().unwrap().clone();
+    let create = calls.iter().find(|c| c.2["op"] == "chief.create").unwrap();
+    assert_eq!(
+        create.2["params"]["is_default"], false,
+        "the fork never replaces the default Chief"
+    );
+    assert_eq!(create.2["params"]["display_name"], "Chief fork");
+    assert!(
+        calls.iter().any(|c| c.0 == "PUT"
+            && c.1.contains("/brain")
+            && c.2["instructions"] == "- Replies: short.\n"),
+        "the person's profile goes with the fork"
+    );
+    let fork: Value =
+        serde_json::from_str(&std::fs::read_to_string(src.join("state/fork.json")).unwrap())
+            .unwrap();
+    assert_eq!(fork["chief"], "agent_01TEST");
+    assert_eq!(fork["conversation"], "conv_MAIN");
+    // The fork answers: `move ask --fork`.
+    let asked = Command::new(BIN)
+        .args([
+            "move",
+            "ask",
+            "--fork",
+            "--text",
+            "the code word?",
+            "--session-token-file",
+            token.to_str().unwrap(),
+            "--home",
+            src.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        asked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&asked.stderr)
+    );
+    assert!(String::from_utf8_lossy(&asked.stdout).contains("MARIGOLD-77"));
+}
+
+/// The Nov 5 split brain: the move's drain stopped the host, and opening Home
+/// (an ask, which takes the app's start-no-brain marker away) started a new
+/// one 0.6 s later, which answered here for the whole move while the cloud
+/// copy diverged. A live move's hold makes the host itself refuse.
+#[test]
+fn a_host_does_not_start_while_a_move_holds_its_home_even_with_no_start_marker() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = new_home(dir.path(), "src");
+    drop(chief_home(&src));
+    // A live mover (a child that sleeps), the start marker already taken away.
+    let mut mover = Command::new("/bin/sleep").arg("30").spawn().unwrap();
+    write(
+        &src.join("state/moving.json"),
+        &format!("{{\"pid\": {}}}", mover.id()),
+    );
+    assert!(!src.join("state/shutdown").exists());
+    let (code, err) = host_exit(&src);
+    assert_eq!(code, Some(3), "the host refuses while the move runs: {err}");
+    assert!(err.contains("a move of this Chief runs"), "{err}");
+    // A mover that is gone holds nothing.
+    mover.kill().unwrap();
+    mover.wait().unwrap();
+    let (code, err) = host_exit(&src);
+    assert_ne!(code, Some(3), "a dead mover's hold is void: {err}");
 }

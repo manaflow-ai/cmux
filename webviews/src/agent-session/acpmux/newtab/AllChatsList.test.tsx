@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { resetSettledChatsForTests } from "./settledCache";
 import { setDeviceChats } from "./deviceChats";
-import { useChatPages, type AllChatsPage, type LoadChatsPage } from "./AllChatsList";
+import { useChatPages, type AllChatsPage, type LoadChatsPage } from "./allChatsListModel";
 
 type Request = {
   params: Parameters<LoadChatsPage>[0];

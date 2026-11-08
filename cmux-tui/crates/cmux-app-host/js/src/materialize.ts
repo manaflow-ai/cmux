@@ -22,6 +22,8 @@ interface MenuEntry {
 
 interface NodeRecord {
   mount: Mount
+  /** The node type, for typing event payloads (`change` of a Toggle is a boolean). */
+  kind?: string
   handlers: Record<string, Handler>
   menu: MenuEntry[] | null
   /** Current child ids, so a removal releases the whole subtree from the budget. */
@@ -116,7 +118,7 @@ function build(m: Mount, view: ViewNode, depth: number): string {
   for (const [key, v] of firstValues) staticProps[key] = v
   if (view.menu) staticProps.menu = null
   const id = newNode(m, view.type, staticProps)
-  const record: NodeRecord = { mount: m, handlers: { ...view.handlers }, menu: null, children: [] }
+  const record: NodeRecord = { mount: m, kind: view.type, handlers: { ...view.handlers }, menu: null, children: [] }
   nodes.set(id, record)
 
   for (const [key, fn] of live) {

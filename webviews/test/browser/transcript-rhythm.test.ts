@@ -121,7 +121,7 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
               chevron,
               copy,
               gaps: [message.top - header.bottom, group.top - message.bottom],
-              // The live line is one more line of the tool run over it: flush (#29965).
+              // The live state keeps the scaled run gap below completed activity.
               liveUnderRun: live.top - group.bottom,
               inner: paragraphs[1]!.top - paragraphs[0]!.bottom,
               composerGap: composer.top - live.bottom,
@@ -150,7 +150,9 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
           // A run and the prose by it: the run gap (design/transcript-spacing.md rule 4).
           for (const gap of state.gaps)
             expect(Math.abs(gap - gridLength("gap-run") * scale), "run gap").toBeLessThanOrEqual(0.5);
-          expect(Math.abs(state.liveUnderRun), "live line flush under its run").toBeLessThanOrEqual(0.5);
+          expect(Math.abs(state.liveUnderRun - gridLength("gap-run") * scale), "live line run gap").toBeLessThanOrEqual(
+            0.5,
+          );
           expect(Math.abs(state.inner - 12 * scale), "paragraph gap").toBeLessThanOrEqual(0.5);
           // Over a floating stack the newest line rests the rest gap over it (model.ts REST_GAP, Leo
           // 2026-11-01: "more space between composer and latest messages"); docked in flow, the

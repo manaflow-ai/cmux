@@ -197,14 +197,18 @@ def samples_launch(doc):
 
 def samples_resize(doc):
     """bench-terminal-resize.py: one replicate per drag round (frame intervals, missed, main-thread time); the idle
-    cursor layout's frame count."""
+    cursor layout's frame count. A round of an --ab run (its `arm`: the tunable off or on in the same launch) goes to its
+    arm's series, `<layout>/off` or `<layout>/on`: the two arms are never one series."""
     out = {}
     for r in doc.get("layouts") or []:
         key = str(r.get("layout") or "?")
         for rnd in r.get("rounds") or []:
+            series = key
+            if "arm" in rnd:
+                series = f"{key}/{'build' if rnd['arm'] is None else ('on' if rnd['arm'] else 'off')}"
             fr = rnd.get("frames") or {}
             for m in ("p95_ms", "p99_ms", "max_ms", "missed", "main_p95_ms", "main_max_ms"):
-                _add(out, key, "frames." + m, fr.get(m))
+                _add(out, series, "frames." + m, fr.get(m))
         if not isinstance(r.get("frames"), dict):
             _add(out, key, "ghostty_frames", r.get("frames"))
     return out

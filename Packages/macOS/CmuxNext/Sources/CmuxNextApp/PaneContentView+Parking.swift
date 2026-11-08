@@ -92,9 +92,7 @@ extension PaneContentView {
         // The keyboard never stays in a view that does not show: the window
         // takes it, and the focus model re-applies its target (the content
         // shown now), as when a view leaves the window.
-        if let window, let responder = window.firstResponder as? NSView, responder.isDescendant(of: view) {
-            window.makeFirstResponder(nil)
-        }
+        view.handKeyboardToWindow()
         (view as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
         view.isHidden = true
         // A hidden agent or internal page stays sized with the pane, so showing it again needs no redraw at a new
@@ -138,7 +136,7 @@ extension PaneContentView {
     func parkedFrame(of view: NSView) -> NSRect? {
         guard view is PaneParkableContent, let row = view as? PaneTabRowSharing else { return nil }
         let strip = stripHeight
-        let room = bounds.width - toolbarWidth(shown: strip)
+        let room = bounds.width - (strip > 0 ? toolbar?.view.paneWidthBesideChat(in: bounds.width) ?? 0 : 0)
         let shares = barPosition == .top && !hidesStrip && strip > 0 && row.drawsInTabRow(room: room)
         let shown = shares ? bounds : NSRect(x: 0, y: barPosition == .top ? strip : 0, width: bounds.width,
                                              height: max(0, bounds.height - strip))

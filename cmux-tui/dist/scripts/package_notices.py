@@ -204,12 +204,16 @@ def data_problems(inputs: Inputs) -> list[str]:
         except (OSError, NoticeError) as error:
             problems.append(str(error))
     darwin = inputs.data["darwin"]
-    zig_versions = [zig.version for zig in inputs.toolchains.zig]
-    if darwin["zig"] not in zig_versions:
+    try:
+        shipped_zig = inputs.toolchains.zig_for("ghostty-next").version
+    except toolchain_notices.ManifestError as error:
+        problems.append(str(error))
+        shipped_zig = None
+    if shipped_zig is not None and darwin["zig"] != shipped_zig:
         problems.append(
-            f"package-notices.json darwin reviews the Darwin link for Zig {darwin['zig']}, but the toolchain is Zig "
-            f"{', '.join(zig_versions)}: review the new Zig's musl-ported compiler_rt and std code in the real "
-            "Darwin binaries, then update darwin"
+            f"package-notices.json darwin reviews the Darwin link for Zig {darwin['zig']}, but libghostty-vt builds "
+            f"with Zig {shipped_zig} (toolchains.json ghostty-next): review the new Zig's musl-ported compiler_rt "
+            "and std code in the real Darwin binaries, then update darwin"
         )
     problems += toolchain_notices.text_problems(inputs.toolchains)
     return problems
@@ -337,7 +341,7 @@ def compose(kind: str, rust_target: str, crates_markdown: str, inputs: Inputs) -
     rust = next((r for r in inputs.toolchains.rust if r.version == inputs.rust_version), None)
     if rust is None:
         raise NoticeError(f"toolchains.json has no Rust {inputs.rust_version} (cmux-tui/rust-toolchain.toml)")
-    [zig] = inputs.toolchains.zig
+    zig = inputs.toolchains.zig_for("ghostty-next")
     graph = inputs.graph["targets"].get(zig_target)
     if graph is None:
         raise NoticeError(f"vt-link-graph.json has no {zig_target}")

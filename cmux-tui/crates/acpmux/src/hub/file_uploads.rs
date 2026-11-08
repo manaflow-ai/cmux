@@ -922,7 +922,7 @@ pub(crate) async fn forward_put(
 /// takes no uploads.
 pub fn peer_unsupported(peer: &crate::peer::Peer) -> RpcError {
     RpcError::method_not_found(&format!(
-        "{} (peer {} runs acpmux build {}; run `acpmux host update {}`)",
+        "{} (peer {} runs acpmux build {}; run `acpmux machine update {}`)",
         crate::rpc::method::MUX_FILE_PUT,
         peer.name,
         peer.remote_build().unwrap_or_else(|| "unknown".into()),

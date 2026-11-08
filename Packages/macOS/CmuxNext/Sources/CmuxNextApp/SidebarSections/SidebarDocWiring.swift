@@ -26,10 +26,13 @@ extension SidebarDocument {
         let serves: @MainActor () -> Bool = { local.supports(DaemonCapabilities.sidebarDoc) }
         let store = SidebarDocStore(remote: wrapping(DaemonSidebarDocRemote(connection: { local.connection }, serves: serves)))
         self.store = store
-        // Under `top` a new workspace lists at the daemon's slot for it until its item comes (sidebar-ordering-DESIGN.md);
-        // `afterCurrent` keeps its row at the window's slot (PendingWorkspaceRows), `bottom` lists it last.
-        docSections.placesNewRowsFirst = { [weak services] in
-            (services?.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback) == .top
+        // A new workspace lists at the daemon's slot until its item comes: below the active window's current one (none on Home: first).
+        docSections.newRowsPlace = { [weak services] in
+            switch services?.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementDefault {
+            case .top: .first
+            case .bottom: .last
+            case .afterCurrent: services?.windows.active.flatMap { $0.state.page == nil ? $0.state.workspaceID : nil }.map(SidebarDocSections.NewRowsPlace.below) ?? .first
+            }
         }
         store.onRefused = { [weak services] in services?.registry.refuse($0) }
         store.newItemRoom = { [weak services, weak self] in self?.room(services?.windows.active?.state.profileID.rawValue) }
@@ -42,9 +45,9 @@ extension SidebarDocument {
         }
         store.onUndoRefused = { origin in (origin as? PinUndoStep)?.abandon() }
         DaemonSidebarDocRemote.follow(local.store.session, into: store)
-        if let data = local.launchSnapshotSidebarDoc {
-            local.launchSnapshotSidebarDoc = nil // read once: the daemon owns the document from here on
-            docMachines.showLaunchSnapshot(data, in: store, connected: { local.connection != nil }, serves: serves) { layout.docLayout = $0 }
+        // Read once (the daemon owns the document from here on): now, or when the daemon applies its snapshot after this start.
+        local.whenLaunchSnapshotSidebarDoc { [weak self, weak store, weak layout] data in
+            if let self, let store { self.docMachines.showLaunchSnapshot(data, in: store, connected: { local.connection != nil }, serves: serves) { layout?.docLayout = $0 } }
         }
         // An open tab's favicon address is stored on its link item (each window's rows draw it, `SidebarModel.itemFavicon`).
         SidebarDocMachines.followFavicons(store, revision: { [weak services] in services?.favicons.revision },
