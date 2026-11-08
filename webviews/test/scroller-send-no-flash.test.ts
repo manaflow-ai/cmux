@@ -107,3 +107,19 @@ test("a button inside a scroller's shadow root shows that scroller's thumb", () 
   press("inner");
   expect(scroll("host")).toBe(true);
 });
+
+test("Tab moves focus to an item off screen: the scroll that brings it in shows the thumb", () => {
+  for (const from of ["outside", "composer"]) {
+    const { scroll, key } = page();
+    key(from, "Tab");
+    expect(scroll("transcript"), from).toBe(true);
+  }
+});
+
+test("a script scroll of the page itself, whose thumb is shown by script, does not flash it", () => {
+  const dom = new JSDOM(`<!doctype html><html ${SHOWN_SCROLLER_ATTRIBUTE}><body></body></html>`);
+  const document = dom.window.document;
+  installScrollingMarks(document as unknown as Document, timers);
+  document.dispatchEvent(new dom.window.Event("scroll"));
+  expect(document.documentElement.hasAttribute(SCROLLING_ATTRIBUTE)).toBe(false);
+});
