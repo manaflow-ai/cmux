@@ -11,8 +11,9 @@
 //! from settings files run once; plugin hooks are never merged with them. It
 //! then runs `SessionStart`, `UserPromptSubmit` and `Stop` and records the
 //! hook output. Like Claude Code it gives the commands it starts
-//! `CLAUDE_PID` (its process id), and on request it starts another Claude the
-//! way a Bash tool call would. The hook helper is the real one, so the
+//! `CLAUDE_PID` (its process id) and its `SessionStart` hooks a
+//! `CLAUDE_ENV_FILE`, and on request it starts another Claude the way a Bash
+//! tool call would (after sourcing that file). The hook helper is the real one, so the
 //! daemon's agent roster and message inbox show whether the events arrived.
 
 #![cfg(unix)]
@@ -85,6 +86,10 @@ def commands(event):
 
 session = os.environ["FAKE_SESSION_ID"]
 record = {"session_id": session, "outputs": {}}
+# The session's env file: SessionStart hooks may append `export` lines, and
+# Claude Code sources it before each Bash tool command.
+env_file = os.path.join(os.environ["FAKE_RECORD_DIR"], "env-" + os.environ["OB_TAG"] + ".sh")
+open(env_file, "w").close()
 payloads = [
     ("SessionStart", {"source": "startup"}),
     ("UserPromptSubmit", {"prompt": "hello"}),
@@ -100,6 +105,8 @@ for event, extra in payloads:
         # What Claude Code sets for the commands it starts, hooks and tools.
         env = dict(os.environ, CLAUDECODE="1", CLAUDE_PID=str(os.getpid()),
                    CLAUDE_CODE_SESSION_ID=session)
+        if event == "SessionStart":
+            env["CLAUDE_ENV_FILE"] = env_file
         if root:
             env["CLAUDE_PLUGIN_ROOT"] = root
         done = subprocess.run(["/bin/sh", "-c", command], input=json.dumps(payload).encode(),
@@ -122,7 +129,8 @@ if go:
                   FAKE_EXIT="1", CLAUDECODE="1", CLAUDE_PID=str(os.getpid()),
                   CLAUDE_CODE_SESSION_ID=session)
     del nested["FAKE_NESTED_GO"]
-    subprocess.run([os.path.realpath(sys.argv[0]), "-p", "hi"], env=nested, timeout=120)
+    subprocess.run(["/bin/sh", "-c", '. "$1" && exec "$2" -p hi', "sh", env_file,
+                    os.path.realpath(sys.argv[0])], env=nested, timeout=120)
 if os.environ.get("FAKE_EXIT"):
     sys.exit(0)
 time.sleep(600)
@@ -457,25 +465,13 @@ fn any_launcher_claude_reports_to_the_pane_session() {
                 claude.display()
             ),
         ),
-        // Full path with the hooks installed in its config, but started with
-        // setting sources that leave the user settings (the install) out.
-        (
-            "no-user-settings",
-            format!(
-                "{}CLAUDE_CONFIG_DIR='{}' SR2_CLAUDE2_HOOK_SOCKET=/nonexistent/sr2.sock \
-                 '{}' --setting-sources project,local; sleep 600",
-                common("no-user-settings", 4),
-                installed_config.display(),
-                claude.display()
-            ),
-        ),
         // Plain `claude` through the shim on PATH.
         (
             "shim",
             format!(
                 "{}CLAUDE_CONFIG_DIR='{}' SR2_CLAUDE2_HOOK_SOCKET=/nonexistent/sr2.sock \
                  claude; sleep 600",
-                common("shim", 5),
+                common("shim", 4),
                 root.join("config-shim").display()
             ),
         ),
@@ -524,6 +520,28 @@ fn any_launcher_claude_reports_to_the_pane_session() {
         fs::read_to_string(&launcher_log).unwrap_or_default().lines().count(),
         1,
         "the launcher's own Stop hook must run once"
+    );
+    // A documented limit (docs/agent-hooks.md): with the hooks installed but
+    // `--setting-sources` leaving the user settings out, the installed copy
+    // does not load and the plugin copy stands down beside it. The terminal
+    // then shows no hook state: never two copies, never another session's.
+    let limited = daemon.run(
+        "no-user-settings",
+        &format!(
+            "{}CLAUDE_CONFIG_DIR='{}' SR2_CLAUDE2_HOOK_SOCKET=/nonexistent/sr2.sock \
+             '{}' --setting-sources project,local; sleep 600",
+            common("no-user-settings", 5),
+            installed_config.display(),
+            claude.display()
+        ),
+    );
+    let record = launch_record(&root, &daemon, "no-user-settings");
+    assert!(session_start_outputs_with(&record, "systemMessage") <= 1, "{record}");
+    let row = daemon.agent_row(&daemon_exe, &cli_env, &limited);
+    assert!(
+        row["source"] != "hook"
+            || row["extra"]["agent_session_id"] == "00000000-0000-4000-8000-000000000005",
+        "no-user-settings: a wrong hook state: {row}"
     );
     drop(daemon);
     let _ = fs::remove_dir_all(&root);
