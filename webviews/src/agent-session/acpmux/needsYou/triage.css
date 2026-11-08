@@ -1,0 +1,60 @@
+/* The triage strip (TriageStrip.tsx): one line over the waiting ask's card, in the stack's own
+   flow and inset like the card, so it enters and leaves with the card and never draws over it.
+   One line always (the facts truncate first), so a count that changes never changes its height. */
+.acpmux-triage {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+  min-width: 0;
+  min-height: 24px;
+  padding: 0 var(--ds-space-1);
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: 16px;
+  letter-spacing: var(--text-caption--letter-spacing);
+  white-space: nowrap;
+}
+.acpmux-triage-facts {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acpmux-triage-keys {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--ds-space-3);
+  min-width: 0;
+  margin-left: auto;
+}
+.acpmux-triage-key {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+.acpmux-triage-key-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acpmux-triage-key[data-key="answer"] {
+  color: var(--agent-soft);
+}
+/* `keys`: only the keys, at the strip's start. */
+.acpmux-triage[data-look="keys"] .acpmux-triage-keys {
+  margin-left: 0;
+}
+/* `chip`: the count and the answer key as one small capsule at the card's end. */
+.acpmux-triage[data-look="chip"] {
+  justify-content: flex-end;
+}
+.acpmux-triage[data-look="chip"] .acpmux-triage-facts,
+.acpmux-triage[data-look="chip"] .acpmux-triage-keys {
+  flex: none;
+  margin-left: 0;
+}
+.acpmux-triage[data-look="chip"] .acpmux-triage-keys {
+  padding: var(--grid-half-step) var(--ds-space-2) var(--grid-half-step) var(--grid-half-step);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+}

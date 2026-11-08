@@ -55,9 +55,11 @@ extension AgentPaneView {
     /// Runs a grouped-permission action from the app shortcut registry. The
     /// page keeps the decision scoped to its selected session and refuses
     /// stale, collecting, or unavailable groups before sending anything.
+    /// `triageAnswer` (AgentTriage's Ctrl-Cmd-Y) answers the chat's ask as
+    /// its card's Allow once does, or a question with its first choice.
     public func runPermissionAction(_ command: String, byPerson: Bool) {
         let allowed = ["permissionAllowOnce", "permissionAllowChat", "permissionDeny", "permissionExpand",
-                       "permissionRetry", "permissionRevoke", "permissionRefresh"]
+                       "permissionRetry", "permissionRevoke", "permissionRefresh", "triageAnswer"]
         guard allowed.contains(command) else { return }
         // The person's shortcut is the gesture its answer uses; a posted key or script grants nothing.
         AgentPanePersonInput.record(model.transport.gestures, sources: eventSources, if: byPerson, answer: true)

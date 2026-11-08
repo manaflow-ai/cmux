@@ -50,6 +50,37 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "agent.triage.next",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agent.triage.next", "Go to Longest-Waiting Agent"),
+        keywords: &["agent", "triage", "blocked", "waiting", "oldest", "approval", "question", "plan", "needs input", "next"],
+        default_shortcut: Some(Shortcut { key: ";", modifiers: CTRL | CMD }),
+        category: "notifications",
+        symbol: "hourglass",
+        surfaces: PALETTE | KEYBOARD | MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("focusMove")), context_menu_exemption: Some("focusMove"), ..SurfacePlan::DEFAULT },
+        cli_name: "action agent-triage-next",
+        main_menu: Some("window"),
+        focuses: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "agent.triage.answer",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agent.triage.answer", "Allow and Go to Next Waiting Agent"),
+        keywords: &["agent", "triage", "allow", "approve", "answer", "permission", "plan", "question", "waiting", "next"],
+        default_shortcut: Some(Shortcut { key: "y", modifiers: CTRL | CMD }),
+        category: "notifications",
+        symbol: "checkmark.bubble",
+        surfaces: PALETTE | KEYBOARD | MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        cli_name: "action agent-triage-answer",
+        main_menu: Some("window"),
+        focuses: true,
+        is_person_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
         id: "jumpToUnread",
         group: GROUP,
         title: t("ActionCatalog", "action.jumpToUnread", "Jump to Latest Unread"),

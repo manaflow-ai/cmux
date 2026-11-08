@@ -12,6 +12,9 @@ export const SHORTCUT_ACTIONS = {
   permissionRevoke: "agentPane.permission.revoke",
   permissionRefresh: "agentPane.permission.refresh",
   permissionExpand: "agentPane.permission.expand",
+  /// Triage (AgentTriage): Allow and Go to Next Waiting Agent, Go to Longest-Waiting Agent.
+  triageAnswer: "agent.triage.answer",
+  triageNext: "agent.triage.next",
   /// Copy Tab Link: on an agent tab it copies the chat's link, as the header's Copy chat link does.
   copyTabLink: "palette.copySurfaceLink",
 } as const;

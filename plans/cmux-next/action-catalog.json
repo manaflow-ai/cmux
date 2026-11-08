@@ -61109,6 +61109,164 @@
 
       ],
       "category" : "notifications",
+      "cliName" : "action agent-triage-next",
+      "computed" : {
+        "canonical_action_id" : "agent.triage.next",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : ";",
+        "modifiers" : [
+          "ctrl",
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : true,
+      "group" : "NotificationActionCatalog",
+      "hint" : null,
+      "id" : "agent.triage.next",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "agent",
+        "triage",
+        "blocked",
+        "waiting",
+        "oldest",
+        "approval",
+        "question",
+        "plan",
+        "needs input",
+        "next"
+      ],
+      "mainMenu" : "window",
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "focusMove"
+        },
+        "contextMenuExemption" : "focusMove",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard",
+        "menu"
+      ],
+      "symbol" : "hourglass",
+      "targets" : [
+
+      ],
+      "title" : "Go to Longest-Waiting Agent",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "notifications",
+      "cliName" : "action agent-triage-answer",
+      "computed" : {
+        "canonical_action_id" : "agent.triage.answer",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "y",
+        "modifiers" : [
+          "ctrl",
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : true,
+      "group" : "NotificationActionCatalog",
+      "hint" : null,
+      "id" : "agent.triage.answer",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : true,
+      "keywords" : [
+        "agent",
+        "triage",
+        "allow",
+        "approve",
+        "answer",
+        "permission",
+        "plan",
+        "question",
+        "waiting",
+        "next"
+      ],
+      "mainMenu" : "window",
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard",
+        "menu"
+      ],
+      "symbol" : "checkmark.bubble",
+      "targets" : [
+
+      ],
+      "title" : "Allow and Go to Next Waiting Agent",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "notifications",
       "cliName" : "notification jump-to-latest-unread",
       "computed" : {
         "canonical_action_id" : "jumpToUnread",

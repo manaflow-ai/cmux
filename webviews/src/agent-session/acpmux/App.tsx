@@ -438,6 +438,8 @@ import {
 } from "./links";
 import { NeedsYouButton } from "./needsYou/NeedsYou";
 import { useNeedsYou } from "./needsYou/useNeedsYou";
+import { TriageStrip } from "./needsYou/TriageStrip";
+import { askedAt, othersWaiting, triageMove } from "./needsYou/triage";
 import { copyText } from "./conversation/clipboard";
 import { lastCodeBlock } from "./conversation/lastCodeBlock";
 import { transcriptSelectionAttachment } from "./transcriptSelection";
@@ -5370,6 +5372,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The chat menu shows New side chat: the right-click menu then opens one from any turn that forks.
   const opensSideChat = useRef(false);
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
+  /// The app's triage key (Ctrl-Cmd-Y, AgentTriage) on this chat: answers its ask (needsYou/triage.ts).
+  const triageAnswerRef = useRef<(() => void) | undefined>(undefined);
   const recheckCloudChat = useCallback(async () => {
     // A machine woken while the pane's link was down: connect again now, not at the backoff's turn.
     if (!directClient.current) retryHost.current?.();
@@ -6512,6 +6516,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // Archive Chat (Ctrl-Cmd-A), as in the Codex app: the chat menu's row, so it does nothing where
         // the menu has none or the chat is archived.
         if (name === "archiveChat") archiveChatRef.current?.();
+        if (name === "triageAnswer") triageAnswerRef.current?.();
         // Commit and Push live in the diff tab beside the chat (its Commit form and Push button).
         if (name === "gitCommit" || name === "gitPush") openChangesTab.current();
         if (
@@ -8880,6 +8885,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       await postNative("chat.sideChat", { sessionId: await client.btw(question, sessionId) });
     },
   });
+  // Triage (needsYou/triage.ts): what Ctrl-Cmd-Y does to this chat's ask, said on the strip above it.
+  const triage = snapshot.permission?.pending ? triageMove(snapshot.permission, needsYou.items) : undefined;
+  triageAnswerRef.current = () => {
+    if (triage?.kind === "allow") window.dispatchEvent(new CustomEvent("cmux-acpmux-permissionAllowOnce"));
+    else if (triage?.kind === "choice") void needsYou.actions.answer(triage.item, triage.answer).catch(() => undefined);
+  };
   const lastForkSeq = latestForkSeq(snapshot.rows);
   const sideChat = sideChatRow(
     // Quick Chat's panel is not a tab: there is no split to open beside it.
@@ -9925,6 +9936,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         />
       )}
 
+      {triage && (
+        <TriageStrip
+          move={triage}
+          others={othersWaiting(needsYou.items, snapshot.sessionId)}
+          at={askedAt(snapshot.permission, needsYou.items)}
+        />
+      )}
       {hasPermissionGroups && snapshot.permissionGroups && (
         <PermissionPanel
           state={snapshot.permissionGroups}

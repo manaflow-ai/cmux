@@ -258,6 +258,7 @@ enum AgentHandlers {
                 view.runGitAction(action)
             })
         }
+        AgentTriage(chats: .app).bind(into: registry, chat: { selectedChat(context, $0) }, open: { SidebarPriorityFeed.open($0, services: context.services) })
         TerminalChatHandler.bind(into: registry, context: context)
         AgentShareActions(host: context.services).bind(into: registry)
         AgentTeamsLaunch.bind(into: registry, context: context)
