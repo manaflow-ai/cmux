@@ -751,6 +751,90 @@ test("a turn of several agents' messages shows each under its sender, signatures
   });
 });
 
+/// A turn of messages as acpmux writes it (hub/digest.rs `digest_blocks`), each `[sender, text]`.
+function digestTurn(parts: readonly (readonly [string, string])[]) {
+  const text = [
+    `${parts.length} messages from other agents arrived while you were busy. Each follows as it was sent, oldest first.`,
+    ...parts.flatMap(([from, body], index) => ["", `[agent message ${index + 1} of ${parts.length}] from ${from}`, "", body]),
+  ].join("\n");
+  const msg = { _meta: { provenance: { kind: "agent_digest", messages: parts.map(([from]) => ({ from })) } } };
+  return incomingPrompt(text, msg);
+}
+
+// Leo, 2026-11-07, on a closed line that read "acpmux acpmux": "why was this blank?" The turn's
+// text starts with its first sender's bold name, which the line previewed.
+test("a turn of notices alone is one notice row: its most severe title, every notice under it", () => {
+  const turn = digestTurn([
+    ["acpmux", "[notice from acpmux] Background command finished: wt new cmux lane/x (exit 0)\nwt: new: /tmp/x"],
+    ["acpmux", "[notice from acpmux · WARN] Background command failed: bun test (exit 1)\n3 fail"],
+    [
+      "acpmux",
+      "[notice from acpmux] Background command finished: gh pr view 1 (exit 0)\nLinks: https://github.com/manaflow-ai/cmux/pull/1 (#1)",
+    ],
+  ]);
+  expect(turn?.kind).toBe("message");
+  if (turn?.kind !== "message") return;
+  expect(turn.message.name).toBe("acpmux");
+  expect(turn.message.notice).toEqual({
+    sender: "acpmux",
+    severity: "warn",
+    title: "Background command failed: bun test (exit 1)",
+    links: [{ url: "https://github.com/manaflow-ai/cmux/pull/1", label: "#1" }],
+  });
+  // One sender: each notice's title heads its part, its severity first; no rendered head or Links line.
+  expect(turn.message.text).toBe(
+    [
+      "**Background command finished: wt new cmux lane/x (exit 0)**\nwt: new: /tmp/x",
+      "**WARN · Background command failed: bun test (exit 1)**\n3 fail",
+      "**Background command finished: gh pr view 1 (exit 0)**",
+    ].join("\n\n"),
+  );
+  expect(turn.message.preview).toBeUndefined();
+});
+
+test("a turn of notices from several senders names each sender before its title", () => {
+  const turn = digestTurn([
+    ["base-red-watch", "[notice from base-red-watch on ci-mini-3 · FIRE] fast tier failed on 3 PRs\nsee runs"],
+    ["acpmux", "[notice from acpmux] Background command finished: ls (exit 0)"],
+  ]);
+  if (turn?.kind !== "message") throw new Error("not a message");
+  expect(turn.message.notice).toMatchObject({ sender: "base-red-watch", severity: "fire", title: "fast tier failed on 3 PRs" });
+  // The machines differ (one names none): the row names none.
+  expect(turn.message.notice?.host).toBeUndefined();
+  expect(turn.message.text).toBe(
+    "**base-red-watch** · FIRE · fast tier failed on 3 PRs\nsee runs\n\n**acpmux** · Background command finished: ls (exit 0)",
+  );
+});
+
+test("a mixed turn previews its first message, never its first sender's name", () => {
+  const turn = digestTurn([
+    ["acpmux", "[notice from acpmux · WARN] Background command failed: bun test (exit 1)\n3 fail"],
+    ["lane-a", "[lane-a] Merged #1"],
+  ]);
+  if (turn?.kind !== "message") throw new Error("not a message");
+  expect(turn.message.notice).toBeUndefined();
+  expect(turn.message.preview).toBe("Background command failed: bun test (exit 1)");
+  expect(turn.message.text).toBe(
+    "**acpmux**\nWARN · Background command failed: bun test (exit 1)\n3 fail\n\n**lane-a**\nMerged #1",
+  );
+  expect(messagePreview(turn.message.text)).toBe("acpmux");
+  // Messages alone: the first one's first line.
+  const plain = digestTurn([
+    ["lane-a", "**Merged** #1\nnext: the iOS half"],
+    ["lane-b", "tests pass"],
+  ]);
+  expect(plain).toMatchObject({ message: { preview: "Merged #1", text: "**lane-a**\n**Merged** #1\nnext: the iOS half\n\n**lane-b**\ntests pass" } });
+});
+
+test("a turn of one message is its text, a notice read as one", () => {
+  expect(digestTurn([["lane-a", "[lane-a] Merged #1"]])).toMatchObject({ message: { name: "lane-a", text: "Merged #1" } });
+  const one = digestTurn([["acpmux", "[notice from acpmux] Background command finished: ls (exit 0)\nok"]]);
+  if (one?.kind !== "message") throw new Error("not a message");
+  expect(one.message.notice).toMatchObject({ sender: "acpmux", severity: "info", title: "Background command finished: ls (exit 0)" });
+  expect(one.message.text).toBe("ok");
+  expect(one.message.preview).toBeUndefined();
+});
+
 test("a card drops a signature naming its sender that a record still has", () => {
   expect(unsigned("[agent-message-style] MERGED", "agent-message-style")).toBe("MERGED");
   expect(unsigned("[huge-blue/agent-message-style] MERGED", "agent-message-style")).toBe("MERGED");
