@@ -9,6 +9,10 @@
 //! named in `peersOmitted`. A peer's request, or one that says `localOnly`, is answered from this
 //! daemon alone, so two daemons that list each other ask each other once and never in a cycle
 //! (the `_acpmux/models` rule, `models_fanout.rs`).
+//!
+//! A queue reply's `total` counts the items before the `limit` cut, so a page can say more wait.
+//! A verdict of `changes` may carry a `comment`: kept in the audit entry and sent to the chat as a
+//! prompt (`commentDelivered` in the reply).
 
 use cmux_json::JsonSet as _;
 use std::sync::Arc;
@@ -112,8 +116,10 @@ async fn queue(
             }
         }
     }
+    // How many there were before the cut, so a page showing `limit` can say more wait.
+    let total = items.len();
     sort_items(&mut items, limit);
-    let mut out = json!({"items": items, "now": now});
+    let mut out = json!({"items": items, "now": now, "total": total});
     if !omitted.is_empty() {
         omitted.sort();
         out.set(PEERS_OMITTED, json!(omitted));
