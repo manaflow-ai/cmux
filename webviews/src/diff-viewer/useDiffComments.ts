@@ -4,6 +4,7 @@ import type { SelectedLineRange } from "@pierre/diffs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { lineTextFor, type CommentFileDiff } from "../comments/anchor";
 import {
+  DiffCommentsBridgeError,
   deleteComment as bridgeDeleteComment,
   postComments as bridgePostComments,
   saveComment as bridgeSaveComment,
@@ -215,7 +216,10 @@ export function useDiffComments({
   };
 
   /** Posts every saved comment to the worktree's pull request as one review, as `send` sends. */
-  const post = () => {
+  const post = () => postBatch(false);
+
+  /** `post`; `fresh` skips the unfinished batch, which the host said never reached GitHub. */
+  const postBatch = (fresh: boolean): Promise<void> | undefined => {
     const comments = latestState.current.comments;
     if (review == null || !bridgeAvailable || repoRoot == null || comments.length === 0 || postState === "posting") {
       return;
@@ -224,7 +228,7 @@ export function useDiffComments({
     // A post that may have reached GitHub is retried under its own opid while any of its drafts is
     // still listed, edited or not: the host finds the review that opid posted (its marker) instead of
     // posting the same drafts again under a new one; a draft edited since stays for the next post.
-    const pending = pendingPosts.current.get(targetRepoRoot);
+    const pending = fresh ? undefined : pendingPosts.current.get(targetRepoRoot);
     const listed = new Set(comments.map((comment) => comment.id));
     const batch =
       pending != null && pending.ids.some((id) => listed.has(id))
@@ -237,7 +241,8 @@ export function useDiffComments({
     pendingPosts.current.set(targetRepoRoot, batch);
     setPostState("posting");
     setPostError(undefined);
-    bridgePostComments(targetRepoRoot, batch.ids, batch.versions, batch.opid)
+    // Answered for tests, which wait for the post to settle; a click ignores it.
+    return bridgePostComments(targetRepoRoot, batch.ids, batch.versions, batch.opid)
       .then(({ cleared, ...result }) => {
         pendingPosts.current.delete(targetRepoRoot);
         if (activeRepoRoot.current !== targetRepoRoot) return setPostState("idle");
@@ -249,6 +254,13 @@ export function useDiffComments({
       .catch((error: unknown) => {
         console.warn("cmux diff review post failed", error);
         if (activeRepoRoot.current !== targetRepoRoot) return setPostState("idle");
+        // The host found no review under this opid and none of its drafts unchanged: nothing of it
+        // reached GitHub, so the drafts as they are now go as a new review.
+        if (!fresh && batch === pending && error instanceof DiffCommentsBridgeError && error.reason === "nothing_to_post") {
+          pendingPosts.current.delete(targetRepoRoot);
+          setPostState("idle");
+          return postBatch(true);
+        }
         // gh's own words say what to fix (a login, a moved head); the drafts stay for the retry.
         setPostError(error instanceof Error && error.message !== "" ? error.message : undefined);
         setPostState("failed");

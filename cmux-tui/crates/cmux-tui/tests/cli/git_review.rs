@@ -168,6 +168,8 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     assert_eq!(value["head"], head.as_str(), "{value}");
     assert_eq!(value["base"], merge_base.as_str(), "the base is the merge-base, not main's tip");
     assert_eq!(value["reused"], false, "{value}");
+    // The pull request's own setup script never runs before anyone read it.
+    assert_eq!(value["setup"]["state"], "none", "{value}");
     assert_eq!(git(&worktree, &["rev-parse", "HEAD"]), head);
     assert_eq!(git(&checkout, &["config", "--get", "branch.cmux/review-7.cmuxBase"]), merge_base);
     // The person's checkout stays on its branch.
@@ -276,6 +278,23 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
         "https://github.com/o/r/pull/7#pullrequestreview-2"
     );
     assert_eq!(fs::read_to_string(&posts).unwrap().lines().count(), 1, "the retry posted again");
+
+    // A worktree on the review's branch name that no review recorded is not
+    // taken over: a new one is made, and its comments stay.
+    git(&checkout, &["config", "--unset", "branch.cmux/review-7.cmuxReview"]);
+    let note = serde_json::json!({"root": review_root, "comment": {
+        "filePath": "a.txt", "side": "additions", "startLine": 2, "endLine": 2,
+        "lineText": "line 2", "message": "Mine, not the review's",
+    }});
+    v2(&server, "diff.comments.save", note, Some("dc-note"));
+    let other =
+        git_cli(&server, &checkout, &["review", "start", url, "--idempotency-key", "rv-three"]);
+    assert_success(&other);
+    let other = json_output(&other)["value"].clone();
+    assert_eq!(other["reused"], false, "{other}");
+    assert_ne!(other["root"], review_root.as_str(), "{other}");
+    let listed = v2(&server, "diff.comments.list", serde_json::json!({"root": review_root}), None);
+    assert_eq!(listed["result"]["comments"].as_array().unwrap().len(), 1, "{listed}");
 
     // A comment outside a review worktree is refused.
     let plain = git_cli(&server, &checkout, &draft);

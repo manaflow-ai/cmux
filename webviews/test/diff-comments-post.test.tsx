@@ -214,6 +214,39 @@ test("a draft edited after an uncertain post is retried under that post's opid a
   );
 });
 
+test("a retry the host says never reached GitHub posts the edited drafts as a new review", async () => {
+  const refusal = (reason: string, message: string) =>
+    Object.assign(new Error("operation.failed"), {
+      code: "operation.failed",
+      details: { operation: "git.review.post", reason, extra: { message } },
+    });
+  let answers = 0;
+  await withHost(
+    () => {
+      answers += 1;
+      if (answers === 1) throw refusal("gh_failed", "gh: HTTP 401: Bad credentials");
+      if (answers === 2) throw refusal("nothing_to_post", "none of the named drafts is still listed unchanged");
+      return { url: `${REVIEW.url}#pullrequestreview-3`, posted: 1, in_body: 0, cleared: ["c1"] };
+    },
+    async (calls) => {
+      const probe = await mountHook([comment("c1", "a.ts", 1)]);
+      await act(async () => probe.hook().post());
+      // The session host's own words, not its code.
+      expect(probe.hook().postError).toBe("gh: HTTP 401: Bad credentials");
+      const edited = { ...comment("c1", "a.ts", 1), updatedAt: "2026-11-07T00:05:00.000Z" };
+      probe.state.current.comments = [edited];
+      await act(async () => probe.hook().post());
+      expect(calls).toHaveLength(3);
+      expect(calls[1]!.opid).toBe(calls[0]!.opid!);
+      expect(calls[2]!.opid).not.toBe(calls[0]!.opid!);
+      expect(calls[2]!.params.versions).toEqual({ c1: edited.updatedAt });
+      expect(probe.hook().postState).toBe("posted");
+      expect(probe.dispatched).toEqual([{ type: "remove-comments", ids: ["c1"] }]);
+      probe.unmount();
+    },
+  );
+});
+
 test("an ordinary worktree cannot post", async () => {
   await withHost(
     () => ({}),

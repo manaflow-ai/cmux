@@ -11,12 +11,25 @@ type DiffCommentsMessageHandler = {
 
 export class DiffCommentsBridgeError extends Error {
   readonly code?: string;
+  /** The session host's reason for a refusal (`nothing_to_post`, `gh_failed`, …), when it gave one. */
+  readonly reason?: string;
 
-  constructor(message: string, code?: string) {
+  constructor(message: string, code?: string, reason?: string) {
     super(message);
     this.name = "DiffCommentsBridgeError";
     this.code = code;
+    this.reason = reason;
   }
+}
+
+/** A session host refusal's `details`: `{reason, extra: {message}}`. */
+function refusal(details: unknown): { reason?: string; message?: string } {
+  if (details == null || typeof details !== "object") return {};
+  const { reason, extra } = details as { reason?: unknown; extra?: { message?: unknown } };
+  return {
+    reason: typeof reason === "string" ? reason : undefined,
+    message: typeof extra?.message === "string" ? extra.message : undefined,
+  };
 }
 
 function diffCommentsHandler(): DiffCommentsMessageHandler | null {
@@ -72,8 +85,11 @@ async function callPageDiffComments<T>(
     // Decision 31: a write carries its intent's opid, so the host applies a resend once.
     return await page.call<T>(DIFF_PAGE_COMMENTS_OP, { method, params }, opid === undefined ? undefined : { opid });
   } catch (error) {
-    if (isPageError(error))
-      throw new DiffCommentsBridgeError(error.message || "Diff comments request failed.", error.code);
+    if (isPageError(error)) {
+      // The session host's own words (gh's error, a moved head) say more than its code.
+      const { reason, message } = refusal(error.details);
+      throw new DiffCommentsBridgeError(message || error.message || "Diff comments request failed.", error.code, reason);
+    }
     throw new DiffCommentsBridgeError(error instanceof Error ? error.message : String(error));
   }
 }

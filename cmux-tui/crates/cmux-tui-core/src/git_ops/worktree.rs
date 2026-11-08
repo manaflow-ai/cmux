@@ -211,7 +211,7 @@ pub(super) fn create(
 
 /// Starts the new worktree's setup from the project's recipe; what the
 /// reply says of it.
-pub(super) fn setup(mux: &Mux, attempt: &Attempt, common_dir: &Path) -> Value {
+fn setup(mux: &Mux, attempt: &Attempt, common_dir: &Path) -> Value {
     let main = main_root(common_dir).map(Path::to_path_buf);
     let Some(git_dir) = admin_dir(&attempt.root) else { return json!({"state": "none"}) };
     let resolved =

@@ -114,7 +114,7 @@ fn start(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resou
             return Err(refused(START, "pull_request_moved", message, Value::Null));
         }
         let base = merge_base(repository, &view.base, &view.head)?;
-        let (folder, branch, setup, reused) = worktree(mux, &target, &git, &pull, &view.head)?;
+        let (folder, branch, reused) = worktree(&target, &git, &pull, &view.head)?;
         for (setting, value) in [("cmuxBase", base.as_str()), ("cmuxReview", &pull.url())] {
             let setting = format!("branch.{branch}.{setting}");
             let run = git
@@ -150,7 +150,10 @@ fn start(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resou
             "head": view.head,
             "base": base,
             "diff": format!("git diff {base} HEAD"),
-            "setup": setup,
+            // A review never runs the worktree's setup recipe: the recipe
+            // (or a script it names) is the pull request's code, run with
+            // the person's environment before anyone read it.
+            "setup": {"state": "none"},
             "reused": reused,
         });
         ledger::commit(mux, &key, START, &fingerprint, &value, false, &request.actor)
@@ -227,27 +230,27 @@ fn merge_base(repository: &Repository, base: &str, head: &str) -> Result<String,
 
 /// The review's worktree: one already on `head` from an earlier review of
 /// this pull request (its drafts kept), else a new one at `head`. Answers
-/// its folder, branch, setup and whether it was reused.
+/// its folder, branch and whether it was reused.
 fn worktree(
-    mux: &Mux,
     target: &Target,
     git: &UserGit<'_>,
     pull: &PullRef,
     head: &str,
-) -> Result<(PathBuf, String, Value, bool), ResourceError> {
+) -> Result<(PathBuf, String, bool), ResourceError> {
     let name = format!("review-{}", pull.number);
-    if let Some((folder, branch)) = existing(&target.repository, &name, head) {
-        return Ok((folder, branch, json!({"state": "none"}), true));
+    if let Some((folder, branch)) = existing(&target.repository, &name, &pull.url(), head) {
+        return Ok((folder, branch, true));
     }
     let fields = Map::from_iter([("name".into(), json!(name)), ("base".into(), json!(head))]);
     let attempt = worktree::plan(&target.repository, target.common_dir(), &fields)?;
     worktree::create(&target.repository, git, &attempt)?;
-    let setup = worktree::setup(mux, &attempt, target.common_dir());
-    Ok((attempt.root, attempt.branch, setup, false))
+    Ok((attempt.root, attempt.branch, false))
 }
 
-/// A worktree on `cmux/<name>` or `cmux/<name>-<k>` whose HEAD is `head`.
-fn existing(repository: &Repository, name: &str, head: &str) -> Option<(PathBuf, String)> {
+/// A worktree on `cmux/<name>` or `cmux/<name>-<k>` whose HEAD is `head`
+/// and whose branch an earlier review of `url` recorded (`cmuxReview`): an
+/// ordinary worktree that happens to have the name keeps its comments.
+fn existing(repository: &Repository, name: &str, url: &str, head: &str) -> Option<(PathBuf, String)> {
     let output = repository.run(&["worktree", "list", "--porcelain"], 1024 * 1024).ok()?;
     let listing = String::from_utf8_lossy(&output.stdout).into_owned();
     let prefix = format!("refs/heads/{}{name}", worktree::BRANCH_PREFIX);
@@ -257,8 +260,14 @@ fn existing(repository: &Repository, name: &str, head: &str) -> Option<(PathBuf,
         let suffix = branch.strip_prefix(&prefix)?;
         let ours = suffix.is_empty()
             || suffix.strip_prefix('-').is_some_and(|k| k.bytes().all(|b| b.is_ascii_digit()));
-        (ours && at == head && Path::new(folder).is_dir())
-            .then(|| (PathBuf::from(folder), branch.trim_start_matches("refs/heads/").to_string()))
+        let branch = branch.trim_start_matches("refs/heads/");
+        let setting = format!("branch.{branch}.cmuxReview");
+        let reviews = || {
+            let output = repository.run(&["config", "--get", setting.as_str()], 4096).ok()?;
+            (String::from_utf8_lossy(&output.stdout).trim() == url).then_some(())
+        };
+        (ours && at == head && Path::new(folder).is_dir() && reviews().is_some())
+            .then(|| (PathBuf::from(folder), branch.to_string()))
     })
 }
 

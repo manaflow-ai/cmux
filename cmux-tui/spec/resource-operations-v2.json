@@ -9960,7 +9960,7 @@
             "kind": "ref",
             "name": "GitWorktreeSetupStart"
           },
-          "description": "The worktree's setup as git.worktree.create starts it; state none for a reused worktree."
+          "description": "Always state none: a review runs no setup recipe, which would run the pull request's code before anyone read it."
         },
         "reused": {
           "required": true,
