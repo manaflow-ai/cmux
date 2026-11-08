@@ -74,7 +74,7 @@ export function setStashTransport(next: StashTransport | undefined): void {
     emit();
   }
   if (!next) return;
-  for (const chat of wanted) void refreshStash(chat);
+  for (const chat of wanted) void refreshStash(chat).then(() => retryMoves(chat));
 }
 
 /// Pushes and drops begun or ended, per chat: a list read while one was out may not hold it.
@@ -83,18 +83,19 @@ const changed = (chat: string) => changes.set(chat, (changes.get(chat) ?? 0) + 1
 
 /// Reads `chat`'s stack from acpmux. A failed read keeps what the page had; an answer read while a
 /// push or drop was out is dropped and the stack read again, so it never takes back a stash the
-/// page already shows.
-export function refreshStash(chat: string): Promise<void> {
+/// page already shows. Whether the page now holds what acpmux answered.
+export function refreshStash(chat: string): Promise<boolean> {
   const link = transport;
-  if (!link) return Promise.resolve();
+  if (!link) return Promise.resolve(false);
   const at = changes.get(chat) ?? 0;
   return link.list(chat).then(
     (answer) => {
-      if (link !== transport) return;
+      if (link !== transport) return false;
       if (at !== (changes.get(chat) ?? 0)) return refreshStash(chat);
       setStack(chat, draftsFrom(answer));
+      return true;
     },
-    () => undefined,
+    () => false,
   );
 }
 
@@ -143,33 +144,67 @@ export async function readStashed(chat: string, id: string): Promise<StashedDraf
   }
 }
 
-/// Removes draft `id` from `chat`'s stack, at once in the page.
-export async function dropStashed(chat: string, id: string): Promise<void> {
+/// Removes draft `id` from `chat`'s stack, at once in the page. A drop acpmux does not take reads
+/// the stack again, so the draft it still keeps shows again. Whether acpmux dropped it.
+export async function dropStashed(chat: string, id: string): Promise<boolean> {
   const link = transport;
-  if (!link) return;
+  if (!link) return false;
   setStack(
     chat,
     (stacks.get(chat) ?? NONE).filter((entry) => entry.id !== id),
   );
   changed(chat);
-  await link
-    .drop(chat, id)
-    .catch(() => undefined)
-    .finally(() => changed(chat));
+  const dropped = await link.drop(chat, id).then(
+    () => true,
+    () => false,
+  );
+  changed(chat);
+  if (!dropped) void refreshStash(chat);
+  return dropped;
 }
+
+/// Moves not yet whole, by the chat they go to: tried again when that chat shows or acpmux
+/// connects again, so a push that failed midway leaves no draft where no composer looks.
+const moves = new Map<string, Set<string>>();
+const moving = new Set<string>();
 
 /// A new chat's stack follows it once it has a session. Every draft is read whole first, so a push
 /// under the session that lets acpmux trim old chats (the new chat's own file among them) loses
 /// none; each leaves the new chat's stack only once it is stashed under the session.
 export async function moveStash(from: string, to: string): Promise<void> {
-  if (from === to || !transport) return;
-  await refreshStash(from);
-  const whole: StashedDraft[] = [];
-  for (const row of [...(stacks.get(from) ?? NONE)].reverse()) {
-    const entry = await readStashed(from, row.id);
-    if (entry) whole.push(entry);
+  if (from === to) return;
+  moves.set(to, (moves.get(to) ?? new Set()).add(from));
+  await moveNow(from, to);
+}
+
+async function moveNow(from: string, to: string): Promise<void> {
+  if (!transport || moving.has(from)) return;
+  moving.add(from);
+  try {
+    let whole = await refreshStash(from);
+    const read: StashedDraft[] = [];
+    for (const row of [...(stacks.get(from) ?? NONE)].reverse()) {
+      const entry = await readStashed(from, row.id);
+      if (entry) read.push(entry);
+      else whole = false;
+    }
+    for (const entry of read) {
+      if (!(await stashDraft(to, entry.text, entry.attachments)) || !(await dropStashed(from, entry.id))) whole = false;
+    }
+    if (whole) {
+      const sources = moves.get(to);
+      sources?.delete(from);
+      if (!sources?.size) moves.delete(to);
+    }
+  } finally {
+    moving.delete(from);
   }
-  for (const entry of whole) if (await stashDraft(to, entry.text, entry.attachments)) await dropStashed(from, entry.id);
+}
+
+/// The moves into `chat` a failure left unfinished, tried again (as `chat` shows, and as acpmux
+/// connects again).
+export function retryMoves(chat: string): Promise<void> {
+  return Promise.all([...(moves.get(chat) ?? [])].map((from) => moveNow(from, chat))).then(() => undefined);
 }
 
 const subscribe = (listener: () => void) => {
@@ -181,7 +216,7 @@ const subscribe = (listener: () => void) => {
 export function useStash(chat: string): readonly StashedDraft[] {
   useEffect(() => {
     wanted.add(chat);
-    void refreshStash(chat);
+    void refreshStash(chat).then(() => retryMoves(chat));
     return () => void wanted.delete(chat);
   }, [chat]);
   return useSyncExternalStore(
@@ -230,6 +265,8 @@ export function resetStashForTests(next?: StashTransport): void {
   stacks.clear();
   wanted.clear();
   changes.clear();
+  moves.clear();
+  moving.clear();
   transport = next;
 }
 

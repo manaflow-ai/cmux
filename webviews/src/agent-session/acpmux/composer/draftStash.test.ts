@@ -7,6 +7,7 @@ import {
   readStashed,
   refreshStash,
   resetStashForTests,
+  retryMoves,
   setStashTransport,
   stashDraft,
   stashedNow,
@@ -168,6 +169,36 @@ describe("draft stash", () => {
     answers.shift()!(await fake.list("chat"));
     await read;
     expect(texts("chat")).toEqual(["fresh"]);
+  });
+
+  test("a move a failed push left midway is tried again, and a failed drop shows the draft again", async () => {
+    await stashDraft("new-a", "kept", []);
+    let failing = true;
+    setStashTransport({
+      ...fake,
+      push: async (chat, text, attachments, replaces) => {
+        if (failing && chat === "session-1") throw new Error("lost the connection");
+        return fake.push(chat, text, attachments, replaces);
+      },
+    });
+    await moveStash("new-a", "session-1");
+    expect(daemon.get("new-a")?.map((row) => row.text)).toEqual(["kept"]);
+    failing = false;
+    await retryMoves("session-1");
+    expect(texts("session-1")).toEqual(["kept"]);
+    expect(daemon.get("new-a")).toEqual([]);
+    // A drop acpmux does not take: the page reads the stack again and shows the draft.
+    setStashTransport({
+      ...fake,
+      drop: async () => {
+        throw new Error("refused");
+      },
+    });
+    await refreshStash("session-1");
+    const id = stashedNow("session-1")[0]!.id;
+    expect(await dropStashed("session-1", id)).toBe(false);
+    for (let turn = 0; turn < 5 && !texts("session-1").length; turn++) await Promise.resolve();
+    expect(texts("session-1")).toEqual(["kept"]);
   });
 
   test("an answer that is not a stack reads as none", () => {
