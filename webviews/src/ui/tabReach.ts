@@ -14,7 +14,9 @@ const TAB_STOPS =
 
 function isTabStop(element: HTMLElement): boolean {
   if (element.tabIndex < 0 || element.closest("[inert]")) return false;
-  if ("disabled" in element && (element as HTMLButtonElement).disabled) return false;
+  // `:disabled`, not `.disabled`: a control inside a disabled fieldset (outside its first legend)
+  // is disabled too, and the browser neither tabs to it nor lets it take focus.
+  if (element.matches(":disabled")) return false;
   return !(element.tagName === "INPUT" && (element as HTMLInputElement).type === "hidden");
 }
 

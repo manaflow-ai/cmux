@@ -44,8 +44,9 @@ afterEach(() => {
 const VIEW = { width: 800, height: 600 };
 
 /// A pane: transcript rows (one in view, one rendered below the viewport's edge), a control with no
-/// box, then the toast deck, then the composer.
-function renderPane(): Document {
+/// box, then the toast deck, then the composer. With `disabledFieldsets`, a disabled fieldset whose
+/// button is in view sits on each side of the deck: the browser never tabs to those buttons.
+function renderPane({ disabledFieldsets = false }: { disabledFieldsets?: boolean } = {}): Document {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
     url: "http://localhost/",
     pretendToBeVisual: true,
@@ -72,6 +73,8 @@ function renderPane(): Document {
     "row-in-view": { top: 100, height: 24 },
     "row-below-view": { top: 1400, height: 24 },
     "no-box": { top: 0, height: 0 },
+    "fieldset-above": { top: 300, height: 24 },
+    "fieldset-below": { top: 560, height: 24 },
   };
   const proto = win.HTMLElement.prototype;
   proto.getBoundingClientRect = function (this: HTMLElement) {
@@ -108,8 +111,22 @@ function renderPane(): Document {
         <button id="no-box" type="button">
           Hidden
         </button>
+        {disabledFieldsets ? (
+          <fieldset disabled>
+            <button id="fieldset-above" type="button">
+              Retry
+            </button>
+          </fieldset>
+        ) : null}
         <div className="dock">
           <NoticeStack queue={queue} dismissLabel="Dismiss" layout="stacked" />
+          {disabledFieldsets ? (
+            <fieldset disabled>
+              <button id="fieldset-below" type="button">
+                Attach
+              </button>
+            </fieldset>
+          ) : null}
           <textarea id="composer" aria-label="Message" />
         </div>
       </>,
@@ -118,7 +135,7 @@ function renderPane(): Document {
   return win.document;
 }
 
-const TABBABLE = "button:not([disabled]), textarea:not([disabled]), input:not([disabled]), a[href], [tabindex]";
+const TABBABLE = "button:not(:disabled), textarea:not(:disabled), input:not(:disabled), a[href], [tabindex]";
 
 function tabbables(doc: Document): HTMLElement[] {
   return [...doc.querySelectorAll<HTMLElement>(TABBABLE)].filter(
@@ -191,6 +208,22 @@ test("Shift-Tab out of the deck lands on a control in view, never one with no bo
 
 test("Tab from the newest toast goes on to the composer", () => {
   const doc = renderPane();
+  focusFrontClose(doc);
+  press(doc, false);
+  expect(focusedName(doc)).toBe("composer");
+});
+
+test("leaving the deck skips buttons in a disabled fieldset, as the browser does", () => {
+  const doc = renderPane({ disabledFieldsets: true });
+  focusFrontClose(doc);
+  const walked: string[] = [];
+  for (let step = 0; step < 3; step += 1) {
+    press(doc, true);
+    walked.push(focusedName(doc));
+  }
+  // A disabled control can't take focus, so sending focus to one leaves it on the oldest toast.
+  expect(walked).toEqual(["Second ×", "First ×", "row-in-view"]);
+
   focusFrontClose(doc);
   press(doc, false);
   expect(focusedName(doc)).toBe("composer");

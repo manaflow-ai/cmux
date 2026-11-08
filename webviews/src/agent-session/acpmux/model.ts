@@ -7,6 +7,7 @@ import {
   gridLength,
   MARK_FOOTER,
   MARK_INDICATOR,
+  MARK_CARD,
   MARK_STATUS,
   MARK_STEP,
   MARK_WORKED,
@@ -1434,13 +1435,15 @@ export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
 export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
   row.kind === WORKED
     ? MARK_WORKED
-    : isStepRow(row)
-      ? MARK_STEP
-      : isLiveStep(row, prev)
-        ? MARK_INDICATOR
-        : isStatusRow(row)
-          ? MARK_STATUS
-          : rowMark(row);
+    : isEditCard(row)
+      ? MARK_CARD
+      : isStepRow(row)
+        ? MARK_STEP
+        : isLiveStep(row, prev)
+          ? MARK_INDICATOR
+          : isStatusRow(row)
+            ? MARK_STATUS
+            : rowMark(row);
 const LIVE_STEP_EDGE = "+step";
 /// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
 /// #29965), `--cv-tool-row-height`.
@@ -1802,6 +1805,14 @@ const isStatusKind = (row: AcpmuxRow) =>
   row.kind === TASK_LINE ||
   row.kind === MESSAGE_RUN ||
   (row.kind === "activity" && isToolRun(row));
+/// A row the transcript draws as an edited-files card (turnChanges/sessionRows.ts `isEditRow`, which
+/// reads this): a run of its own, not shaped (`foldRun`) or a folded copy, with an edit that ran.
+export function isEditCard(row: AcpmuxRow): boolean {
+  if (row.kind !== "activity" || row.foldRun !== undefined || isFoldedCopy(row)) return false;
+  for (const item of row.items ?? [])
+    if ((item.tool?.kind === "edit" || item.tool?.kind === "fileChange") && item.tool.status !== "pending") return true;
+  return false;
+}
 /// A tool run with at least one call, not an edited-files card (turnChanges/sessionRows.ts
 /// `isEditRow`): a run of thoughts alone may draw nothing, so it keeps its own spacing. One pass
 /// over the row's items.

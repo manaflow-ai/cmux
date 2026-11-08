@@ -22,7 +22,7 @@ import { usePromptFocus } from "./promptFocus";
 import { currentLanguage, translate, usePaneLanguage, useT } from "./i18n";
 import { BoltIcon } from "./BoltIcon";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
-import { useUpdateOffer } from "./HarnessHealthNotice";
+import { useUpdateOffer } from "./harnessHealthNoticeModel";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, type ModelPickerProps } from "./modelPickerLayout";
 import { curatedSections, modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery, type ParsedQuery } from "./modelQuery";

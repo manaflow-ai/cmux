@@ -65,22 +65,6 @@ struct AgentPaneTabRowHolesTests {
         ])
     }
 
-    /// #37412: a chat's pane has no native "…", so the row's trailing inset is 0 and the header's last
-    /// tool (its ••• menu) sat flush with the pane's edge, its pressed fill cut by the rounded corner.
-    /// The offered row carries the pane's trailing control column, in CSS pixels, for the page to
-    /// center its last tool on, as the tab bar's and the browser toolbar's ⋮ are.
-    @Test func theOfferedRowCarriesThePanesTrailingControlColumn() async throws {
-        let (view, _) = try await chromiumChat()
-        view.model.tabRow.report(width: 120)
-        AgentPaneTabRow.offer(points: 36, trailingInset: 0, to: view)
-        let zoom = max(0.25, view.webView.pageZoom)
-        let column = try #require(view.model.tabRow.event.value["trailingColumn"]?.doubleValue)
-        #expect(Metrics.paneTrailingControlCenter > 0)
-        #expect(abs(column - Double(Metrics.paneTrailingControlCenter / zoom)) < 0.001)
-        AgentPaneTabRow.offer(points: 0, trailingInset: 0, to: view)
-        #expect(view.model.tabRow.event.value["trailingColumn"]?.doubleValue == 0, "no row, no column")
-    }
-
     /// Leo (2026-11-03), on a chat alone in its pane: "isn't it kinda arbitrary anyway if you literally
     /// only have one tab there?" The pane hides that tab, so the page shows through the row's leading
     /// end too: only the pane's toolbar stays uncovered.

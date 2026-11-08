@@ -213532,6 +213532,402 @@
         }
       }
     },
+    "message.unverifiedSender": {
+      "comment": "Agent pane: the sender's name on a message acpmux could not attribute to anyone (not the person, not a named agent)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مرسل غير موثّق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neprovjereni pošiljalac"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ubekræftet afsender"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unbestätigter Absender"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unverified sender"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remitente no verificado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expéditeur non vérifié"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mittente non verificato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未確認の送信者"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អ្នកផ្ញើមិនបានផ្ទៀងផ្ទាត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "확인되지 않은 보낸 사람"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ubekreftet avsender"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Niezweryfikowany nadawca"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remetente não verificado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Непроверенный отправитель"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ผู้ส่งที่ยังไม่ยืนยัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Doğrulanmamış gönderen"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Неперевірений відправник"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Người gửi chưa xác minh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未验证的发送者"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未驗證的傳送者"
+          }
+        }
+      }
+    },
+    "message.unverified": {
+      "comment": "Agent pane: a short mark on a message whose sender acpmux could not verify (a name it gave itself, or an older record that names no one)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "غير موثّق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neprovjereno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ubekræftet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unbestätigt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unverified"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No verificado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non vérifié"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non verificato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未確認"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនបានផ្ទៀងផ្ទាត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "확인되지 않음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ubekreftet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Niezweryfikowane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não verificado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не проверено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังไม่ยืนยัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Doğrulanmadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не перевірено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa xác minh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未验证"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未驗證"
+          }
+        }
+      }
+    },
+    "message.edited": {
+      "comment": "Agent pane: a short mark on another agent's message that a person edited while it waited; the words are still that agent's message",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "معدّلة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uređeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Redigeret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bearbeitet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edited"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modifié"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modificato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "編集済み"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានកែ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "편집됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Redigert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Edytowane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Изменено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แก้ไขแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düzenlendi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Змінено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã sửa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已编辑"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已編輯"
+          }
+        }
+      }
+    },
     "message.reply": {
       "comment": "Agent pane: the button on another agent's message that answers it in place",
       "extractionState": "manual",
@@ -247801,6 +248197,9 @@
     },
     "goal.loop": {"comment":"Agent pane: the goal strip's state for a Claude Code /loop that keeps re-running its prompt","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تكرار"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ponavlja se"}},"da":{"stringUnit":{"state":"needs_review","value":"Gentages"}},"de":{"stringUnit":{"state":"needs_review","value":"Wiederholt sich"}},"en":{"stringUnit":{"state":"translated","value":"Looping"}},"es":{"stringUnit":{"state":"needs_review","value":"En bucle"}},"fr":{"stringUnit":{"state":"needs_review","value":"En boucle"}},"it":{"stringUnit":{"state":"needs_review","value":"In loop"}},"ja":{"stringUnit":{"state":"needs_review","value":"ループ中"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងធ្វើម្តងទៀត"}},"ko":{"stringUnit":{"state":"needs_review","value":"반복 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Gjentas"}},"pl":{"stringUnit":{"state":"needs_review","value":"W pętli"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Em loop"}},"ru":{"stringUnit":{"state":"needs_review","value":"Повторяется"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังวนซ้ำ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Döngüde"}},"uk":{"stringUnit":{"state":"needs_review","value":"Повторюється"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang lặp"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"循环中"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"循環中"}}}},
     "goal.loopAutonomous": {"comment":"Agent pane: the goal strip's text for a Claude Code /loop the agent runs on its own, with no prompt from the person","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تكرار ذاتي"}},"bs":{"stringUnit":{"state":"needs_review","value":"Samostalna petlja"}},"da":{"stringUnit":{"state":"needs_review","value":"Selvstændig løkke"}},"de":{"stringUnit":{"state":"needs_review","value":"Selbstständige Schleife"}},"en":{"stringUnit":{"state":"translated","value":"Autonomous loop"}},"es":{"stringUnit":{"state":"needs_review","value":"Bucle autónomo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Boucle autonome"}},"it":{"stringUnit":{"state":"needs_review","value":"Loop autonomo"}},"ja":{"stringUnit":{"state":"needs_review","value":"自律ループ"}},"km":{"stringUnit":{"state":"needs_review","value":"រង្វិលជុំស្វ័យប្រវត្តិ"}},"ko":{"stringUnit":{"state":"needs_review","value":"자율 반복"}},"nb":{"stringUnit":{"state":"needs_review","value":"Selvstendig løkke"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pętla autonomiczna"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Loop autônomo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Автономный цикл"}},"th":{"stringUnit":{"state":"needs_review","value":"การวนซ้ำอัตโนมัติ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Otonom döngü"}},"uk":{"stringUnit":{"state":"needs_review","value":"Автономний цикл"}},"vi":{"stringUnit":{"state":"needs_review","value":"Vòng lặp tự động"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"自主循环"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"自主循環"}}}},
+    "goal.loopNext": {"comment":"Agent pane: the loop chip over the composer while a Claude Code /loop waits for its next run; {when} is a short relative time such as \"in 15 min.\"","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Checking back {when}"}},"ar":{"stringUnit":{"state":"needs_review","value":"سيعود للتحقق {when}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ponovna provjera {when}"}},"da":{"stringUnit":{"state":"needs_review","value":"Tjekker igen {when}"}},"de":{"stringUnit":{"state":"needs_review","value":"Schaut {when} wieder nach"}},"es":{"stringUnit":{"state":"needs_review","value":"Volverá a comprobar {when}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Revérifie {when}"}},"it":{"stringUnit":{"state":"needs_review","value":"Ricontrolla {when}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{when}に再確認"}},"km":{"stringUnit":{"state":"needs_review","value":"នឹងពិនិត្យម្តងទៀត {when}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{when} 다시 확인"}},"nb":{"stringUnit":{"state":"needs_review","value":"Sjekker igjen {when}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ponowne sprawdzenie {when}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Verificando de novo {when}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Проверит снова {when}"}},"th":{"stringUnit":{"state":"needs_review","value":"จะกลับมาตรวจ {when}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{when} yeniden bakacak"}},"uk":{"stringUnit":{"state":"needs_review","value":"Перевірить знову {when}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Kiểm tra lại {when}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{when}再次检查"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{when}再次檢查"}}}},
+    "goal.loopSchedule": {"comment":"Agent pane: the loop chip over the composer for an interval Claude Code /loop; {schedule} is Claude Code's own wording such as \"every 5 minutes\"","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Repeats {schedule}"}},"ar":{"stringUnit":{"state":"needs_review","value":"يتكرر {schedule}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ponavlja se {schedule}"}},"da":{"stringUnit":{"state":"needs_review","value":"Gentages {schedule}"}},"de":{"stringUnit":{"state":"needs_review","value":"Wiederholt sich {schedule}"}},"es":{"stringUnit":{"state":"needs_review","value":"Se repite {schedule}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Se répète {schedule}"}},"it":{"stringUnit":{"state":"needs_review","value":"Si ripete {schedule}"}},"ja":{"stringUnit":{"state":"needs_review","value":"繰り返し: {schedule}"}},"km":{"stringUnit":{"state":"needs_review","value":"ធ្វើម្តងទៀត {schedule}"}},"ko":{"stringUnit":{"state":"needs_review","value":"반복: {schedule}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Gjentas {schedule}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Powtarza się {schedule}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Repete {schedule}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Повторяется {schedule}"}},"th":{"stringUnit":{"state":"needs_review","value":"ทำซ้ำ {schedule}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tekrarlanır: {schedule}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Повторюється {schedule}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Lặp lại {schedule}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"重复：{schedule}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"重複：{schedule}"}}}},
+    "goal.loopPrompt": {"comment":"Agent pane: the loop chip's button that reveals the prompt a Claude Code /loop re-runs, hidden by default","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Loop prompt"}},"ar":{"stringUnit":{"state":"needs_review","value":"موجّه التكرار"}},"bs":{"stringUnit":{"state":"needs_review","value":"Upit petlje"}},"da":{"stringUnit":{"state":"needs_review","value":"Løkkeprompt"}},"de":{"stringUnit":{"state":"needs_review","value":"Schleifen-Prompt"}},"es":{"stringUnit":{"state":"needs_review","value":"Prompt del bucle"}},"fr":{"stringUnit":{"state":"needs_review","value":"Prompt de la boucle"}},"it":{"stringUnit":{"state":"needs_review","value":"Prompt del loop"}},"ja":{"stringUnit":{"state":"needs_review","value":"ループのプロンプト"}},"km":{"stringUnit":{"state":"needs_review","value":"ប្រអប់បញ្ចូលនៃរង្វិលជុំ"}},"ko":{"stringUnit":{"state":"needs_review","value":"루프 프롬프트"}},"nb":{"stringUnit":{"state":"needs_review","value":"Løkkeprompt"}},"pl":{"stringUnit":{"state":"needs_review","value":"Prompt pętli"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Prompt do loop"}},"ru":{"stringUnit":{"state":"needs_review","value":"Промпт цикла"}},"th":{"stringUnit":{"state":"needs_review","value":"พรอมต์ของลูป"}},"tr":{"stringUnit":{"state":"needs_review","value":"Döngü istemi"}},"uk":{"stringUnit":{"state":"needs_review","value":"Промпт циклу"}},"vi":{"stringUnit":{"state":"needs_review","value":"Lời nhắc vòng lặp"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"循环提示词"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"循環提示詞"}}}},
     "goal.label": {
       "comment": "Agent pane: persisted task goal state",
       "extractionState": "manual",
@@ -257065,7 +257464,13 @@
     "share.error.copy": {"comment":"Agent pane: Share dialog status when the link could not be copied","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"تعذّر نسخ الرابط."}},"bs":{"stringUnit":{"state":"needs_review","value":"Link nije moguće kopirati."}},"da":{"stringUnit":{"state":"needs_review","value":"Linket kunne ikke kopieres."}},"de":{"stringUnit":{"state":"translated","value":"Der Link konnte nicht kopiert werden."}},"en":{"stringUnit":{"state":"translated","value":"Couldn't copy the link."}},"es":{"stringUnit":{"state":"translated","value":"No se pudo copiar el enlace."}},"fr":{"stringUnit":{"state":"translated","value":"Impossible de copier le lien."}},"it":{"stringUnit":{"state":"needs_review","value":"Impossibile copiare il link."}},"ja":{"stringUnit":{"state":"translated","value":"リンクをコピーできませんでした。"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចចម្លងតំណបានទេ។"}},"ko":{"stringUnit":{"state":"translated","value":"링크를 복사할 수 없습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Kunne ikke kopiere lenken."}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie udało się skopiować linku."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não foi possível copiar o link."}},"ru":{"stringUnit":{"state":"needs_review","value":"Не удалось скопировать ссылку."}},"th":{"stringUnit":{"state":"needs_review","value":"คัดลอกลิงก์ไม่ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bağlantı kopyalanamadı."}},"uk":{"stringUnit":{"state":"needs_review","value":"Не вдалося скопіювати посилання."}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thể sao chép liên kết."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"无法复制链接。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"無法拷貝連結。"}}}},
     "share.error.generic": {"comment":"Agent pane: Share dialog status when a step failed for a reason the daemon did not name","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"لم يكتمل ذلك. حاول مرة أخرى."}},"bs":{"stringUnit":{"state":"needs_review","value":"Nije završeno. Pokušaj ponovo."}},"da":{"stringUnit":{"state":"needs_review","value":"Det blev ikke fuldført. Prøv igen."}},"de":{"stringUnit":{"state":"translated","value":"Das hat nicht geklappt. Versuche es erneut."}},"en":{"stringUnit":{"state":"translated","value":"That didn't finish. Try again."}},"es":{"stringUnit":{"state":"translated","value":"No se completó. Inténtalo de nuevo."}},"fr":{"stringUnit":{"state":"translated","value":"L’opération n’a pas abouti. Réessayez."}},"it":{"stringUnit":{"state":"needs_review","value":"Non è stato completato. Riprova."}},"ja":{"stringUnit":{"state":"translated","value":"完了しませんでした。もう一度お試しください。"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនបានបញ្ចប់ទេ។ សូមព្យាយាមម្ដងទៀត។"}},"ko":{"stringUnit":{"state":"translated","value":"완료되지 않았습니다. 다시 시도하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Det ble ikke fullført. Prøv igjen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie udało się. Spróbuj ponownie."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não foi concluído. Tente de novo."}},"ru":{"stringUnit":{"state":"needs_review","value":"Не получилось. Попробуйте ещё раз."}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่สำเร็จ ลองอีกครั้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tamamlanamadı. Yeniden dene."}},"uk":{"stringUnit":{"state":"needs_review","value":"Не вдалося. Спробуйте ще раз."}},"vi":{"stringUnit":{"state":"needs_review","value":"Chưa hoàn tất. Hãy thử lại."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"未完成，请重试。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"未完成，請再試一次。"}}}},
     "dictation.outside": {"comment":"Agent pane: the dictation mic's tooltip line while another app holds the microphone; {name} is that app's name","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"{name} is using the microphone"}},"de":{"stringUnit":{"state":"needs_review","value":"{name} verwendet das Mikrofon"}},"fr":{"stringUnit":{"state":"needs_review","value":"{name} utilise le micro"}},"ar":{"stringUnit":{"state":"needs_review","value":"يستخدم {name} الميكروفون"}},"es":{"stringUnit":{"state":"needs_review","value":"{name} está usando el micrófono"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{name} 正在使用麥克風"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{name} 正在使用麦克风"}},"ko":{"stringUnit":{"state":"needs_review","value":"{name}에서 마이크를 사용 중입니다"}},"ja":{"stringUnit":{"state":"needs_review","value":"{name} がマイクを使用中です"}},"bs":{"stringUnit":{"state":"needs_review","value":"{name} koristi mikrofon"}},"da":{"stringUnit":{"state":"needs_review","value":"{name} bruger mikrofonen"}},"it":{"stringUnit":{"state":"needs_review","value":"{name} sta usando il microfono"}},"km":{"stringUnit":{"state":"needs_review","value":"{name} កំពុងប្រើមីក្រូហ្វូន"}},"nb":{"stringUnit":{"state":"needs_review","value":"{name} bruker mikrofonen"}},"pl":{"stringUnit":{"state":"needs_review","value":"{name} używa mikrofonu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{name} está usando o microfone"}},"ru":{"stringUnit":{"state":"needs_review","value":"{name} использует микрофон"}},"th":{"stringUnit":{"state":"needs_review","value":"{name} กำลังใช้ไมโครโฟน"}},"tr":{"stringUnit":{"state":"needs_review","value":"{name} mikrofonu kullanıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"{name} використовує мікрофон"}},"vi":{"stringUnit":{"state":"needs_review","value":"{name} đang dùng micrô"}}}},
-    "dictation.outsideUnknown": {"comment":"Agent pane: the dictation mic's tooltip line while another app, whose name macOS does not give, holds the microphone","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Another app is using the microphone"}},"de":{"stringUnit":{"state":"needs_review","value":"Eine andere App verwendet das Mikrofon"}},"fr":{"stringUnit":{"state":"needs_review","value":"Une autre app utilise le micro"}},"ar":{"stringUnit":{"state":"needs_review","value":"يستخدم تطبيق آخر الميكروفون"}},"es":{"stringUnit":{"state":"needs_review","value":"Otra app está usando el micrófono"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"另一個 App 正在使用麥克風"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"另一个 App 正在使用麦克风"}},"ko":{"stringUnit":{"state":"needs_review","value":"다른 앱에서 마이크를 사용 중입니다"}},"ja":{"stringUnit":{"state":"needs_review","value":"別の App がマイクを使用中です"}},"bs":{"stringUnit":{"state":"needs_review","value":"Druga aplikacija koristi mikrofon"}},"da":{"stringUnit":{"state":"needs_review","value":"En anden app bruger mikrofonen"}},"it":{"stringUnit":{"state":"needs_review","value":"Un'altra app sta usando il microfono"}},"km":{"stringUnit":{"state":"needs_review","value":"កម្មវិធីផ្សេងកំពុងប្រើមីក្រូហ្វូន"}},"nb":{"stringUnit":{"state":"needs_review","value":"En annen app bruker mikrofonen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Inna aplikacja używa mikrofonu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Outro app está usando o microfone"}},"ru":{"stringUnit":{"state":"needs_review","value":"Другое приложение использует микрофон"}},"th":{"stringUnit":{"state":"needs_review","value":"แอปอื่นกำลังใช้ไมโครโฟน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Başka bir uygulama mikrofonu kullanıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Інша програма використовує мікрофон"}},"vi":{"stringUnit":{"state":"needs_review","value":"Một ứng dụng khác đang dùng micrô"}}}}
+    "dictation.outsideUnknown": {"comment":"Agent pane: the dictation mic's tooltip line while another app, whose name macOS does not give, holds the microphone","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Another app is using the microphone"}},"de":{"stringUnit":{"state":"needs_review","value":"Eine andere App verwendet das Mikrofon"}},"fr":{"stringUnit":{"state":"needs_review","value":"Une autre app utilise le micro"}},"ar":{"stringUnit":{"state":"needs_review","value":"يستخدم تطبيق آخر الميكروفون"}},"es":{"stringUnit":{"state":"needs_review","value":"Otra app está usando el micrófono"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"另一個 App 正在使用麥克風"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"另一个 App 正在使用麦克风"}},"ko":{"stringUnit":{"state":"needs_review","value":"다른 앱에서 마이크를 사용 중입니다"}},"ja":{"stringUnit":{"state":"needs_review","value":"別の App がマイクを使用中です"}},"bs":{"stringUnit":{"state":"needs_review","value":"Druga aplikacija koristi mikrofon"}},"da":{"stringUnit":{"state":"needs_review","value":"En anden app bruger mikrofonen"}},"it":{"stringUnit":{"state":"needs_review","value":"Un'altra app sta usando il microfono"}},"km":{"stringUnit":{"state":"needs_review","value":"កម្មវិធីផ្សេងកំពុងប្រើមីក្រូហ្វូន"}},"nb":{"stringUnit":{"state":"needs_review","value":"En annen app bruker mikrofonen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Inna aplikacja używa mikrofonu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Outro app está usando o microfone"}},"ru":{"stringUnit":{"state":"needs_review","value":"Другое приложение использует микрофон"}},"th":{"stringUnit":{"state":"needs_review","value":"แอปอื่นกำลังใช้ไมโครโฟน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Başka bir uygulama mikrofonu kullanıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Інша програма використовує мікрофон"}},"vi":{"stringUnit":{"state":"needs_review","value":"Một ứng dụng khác đang dùng micrô"}}}},
+    "command.git.deleteRemoteBranch": {"comment":"Agent pane: a command row's label (conversation/commandActions.ts); {branch} is the remote branch a git push deleted","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Deleted remote branch {branch}"}},"ar":{"stringUnit":{"state":"needs_review","value":"تم حذف الفرع البعيد {branch}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Obrisana udaljena grana {branch}"}},"da":{"stringUnit":{"state":"needs_review","value":"Slettede fjerngrenen {branch}"}},"de":{"stringUnit":{"state":"needs_review","value":"Remote-Branch {branch} gelöscht"}},"es":{"stringUnit":{"state":"needs_review","value":"Se eliminó la rama remota {branch}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Branche distante {branch} supprimée"}},"it":{"stringUnit":{"state":"needs_review","value":"Eliminato il branch remoto {branch}"}},"ja":{"stringUnit":{"state":"needs_review","value":"リモートブランチ {branch} を削除しました"}},"km":{"stringUnit":{"state":"needs_review","value":"បានលុបសាខាពីចម្ងាយ {branch}"}},"ko":{"stringUnit":{"state":"needs_review","value":"원격 브랜치 {branch} 삭제함"}},"nb":{"stringUnit":{"state":"needs_review","value":"Slettet den eksterne grenen {branch}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Usunięto zdalną gałąź {branch}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Excluiu a branch remota {branch}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Удалена удалённая ветка {branch}"}},"th":{"stringUnit":{"state":"needs_review","value":"ลบสาขาระยะไกล {branch}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{branch} uzak dalı silindi"}},"uk":{"stringUnit":{"state":"needs_review","value":"Видалено віддалену гілку {branch}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã xóa nhánh từ xa {branch}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"删除了远程分支 {branch}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"刪除了遠端分支 {branch}"}}}},
+    "command.git.forcePushBranch": {"comment":"Agent pane: a command row's label (conversation/commandActions.ts); {branch} is the branch a git push overwrote with --force","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Force-pushed {branch}"}},"ar":{"stringUnit":{"state":"needs_review","value":"تم دفع {branch} بالقوة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prisilno poslano: {branch}"}},"da":{"stringUnit":{"state":"needs_review","value":"Force-pushede {branch}"}},"de":{"stringUnit":{"state":"needs_review","value":"{branch} mit Force gepusht"}},"es":{"stringUnit":{"state":"needs_review","value":"Se forzó el envío de {branch}"}},"fr":{"stringUnit":{"state":"needs_review","value":"{branch} poussée de force"}},"it":{"stringUnit":{"state":"needs_review","value":"Push forzato di {branch}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{branch} を強制プッシュしました"}},"km":{"stringUnit":{"state":"needs_review","value":"បាន push ដោយបង្ខំ {branch}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{branch} 강제 푸시함"}},"nb":{"stringUnit":{"state":"needs_review","value":"Tvangspushet {branch}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wypchnięto siłowo {branch}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Enviou {branch} à força"}},"ru":{"stringUnit":{"state":"needs_review","value":"Принудительно отправлена ветка {branch}"}},"th":{"stringUnit":{"state":"needs_review","value":"บังคับพุช {branch}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{branch} zorla gönderildi"}},"uk":{"stringUnit":{"state":"needs_review","value":"Примусово надіслано гілку {branch}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã force-push {branch}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"强制推送了 {branch}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"強制推送了 {branch}"}}}},
+    "command.git.forcePush": {"comment":"Agent pane: a command row's label (conversation/commandActions.ts); git push --force without a named branch","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Force-pushed commits"}},"ar":{"stringUnit":{"state":"needs_review","value":"تم دفع الإيداعات بالقوة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prisilno poslani komitovi"}},"da":{"stringUnit":{"state":"needs_review","value":"Force-pushede commits"}},"de":{"stringUnit":{"state":"needs_review","value":"Commits mit Force gepusht"}},"es":{"stringUnit":{"state":"needs_review","value":"Se forzó el envío de los commits"}},"fr":{"stringUnit":{"state":"needs_review","value":"Commits poussés de force"}},"it":{"stringUnit":{"state":"needs_review","value":"Push forzato dei commit"}},"ja":{"stringUnit":{"state":"needs_review","value":"コミットを強制プッシュしました"}},"km":{"stringUnit":{"state":"needs_review","value":"បាន push commit ដោយបង្ខំ"}},"ko":{"stringUnit":{"state":"needs_review","value":"커밋 강제 푸시함"}},"nb":{"stringUnit":{"state":"needs_review","value":"Tvangspushet commits"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wypchnięto siłowo commity"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Enviou os commits à força"}},"ru":{"stringUnit":{"state":"needs_review","value":"Коммиты отправлены принудительно"}},"th":{"stringUnit":{"state":"needs_review","value":"บังคับพุชคอมมิต"}},"tr":{"stringUnit":{"state":"needs_review","value":"Commit’ler zorla gönderildi"}},"uk":{"stringUnit":{"state":"needs_review","value":"Коміти надіслано примусово"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã force-push commit"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"强制推送了提交"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"強制推送了提交"}}}},
+    "command.ranOn": {"comment":"Agent pane: a command row's label (conversation/commandActions.ts); {command} is the programs of a pipeline the row cannot name, such as 'ffmpeg → python3'; {target} is the files they ran on, such as '*.mov'","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Ran {command} on {target}"}},"ar":{"stringUnit":{"state":"needs_review","value":"تم تشغيل {command} على {target}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokrenuto: {command} na {target}"}},"da":{"stringUnit":{"state":"needs_review","value":"Kørte {command} på {target}"}},"de":{"stringUnit":{"state":"needs_review","value":"{command} auf {target} ausgeführt"}},"es":{"stringUnit":{"state":"needs_review","value":"Se ejecutó {command} en {target}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Commande {command} exécutée sur {target}"}},"it":{"stringUnit":{"state":"needs_review","value":"Eseguito {command} su {target}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{target} に対して {command} を実行しました"}},"km":{"stringUnit":{"state":"needs_review","value":"បានដំណើរការ {command} លើ {target}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{target}에 {command} 실행함"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kjørte {command} på {target}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Uruchomiono: {command} na {target}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{command} executado em {target}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Выполнено: {command} для {target}"}},"th":{"stringUnit":{"state":"needs_review","value":"รัน {command} กับ {target} แล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"{command}, {target} üzerinde çalıştırıldı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Виконано: {command} для {target}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã chạy {command} trên {target}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"对 {target} 运行了 {command}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"對 {target} 執行了 {command}"}}}},
+    "command.script": {"comment":"Agent pane: a command row's words for a script an interpreter ran from a heredoc or inline code (conversation/commandActions.ts), placed into 'Ran {command}' / 'Running {command}'; {language} is a language name such as Python or Bash","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"a {language} script"}},"ar":{"stringUnit":{"state":"needs_review","value":"سكربت {language}"}},"bs":{"stringUnit":{"state":"needs_review","value":"{language} skripta"}},"da":{"stringUnit":{"state":"needs_review","value":"et {language}-script"}},"de":{"stringUnit":{"state":"needs_review","value":"{language}-Skript"}},"es":{"stringUnit":{"state":"needs_review","value":"un script de {language}"}},"fr":{"stringUnit":{"state":"needs_review","value":"un script {language}"}},"it":{"stringUnit":{"state":"needs_review","value":"uno script {language}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{language} スクリプト"}},"km":{"stringUnit":{"state":"needs_review","value":"ស្គ្រីប {language}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{language} 스크립트"}},"nb":{"stringUnit":{"state":"needs_review","value":"et {language}-skript"}},"pl":{"stringUnit":{"state":"needs_review","value":"skrypt {language}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"um script {language}"}},"ru":{"stringUnit":{"state":"needs_review","value":"скрипт {language}"}},"th":{"stringUnit":{"state":"needs_review","value":"สคริปต์ {language}"}},"tr":{"stringUnit":{"state":"needs_review","value":"bir {language} betiği"}},"uk":{"stringUnit":{"state":"needs_review","value":"скрипт {language}"}},"vi":{"stringUnit":{"state":"needs_review","value":"một script {language}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"一个 {language} 脚本"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"一個 {language} 指令碼"}}}},
+    "command.scriptOn": {"comment":"Agent pane: as command.script, with the first file the script names; {language} is a language name such as Python, {file} a file name such as als.json","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"a {language} script on {file}"}},"ar":{"stringUnit":{"state":"needs_review","value":"سكربت {language} على {file}"}},"bs":{"stringUnit":{"state":"needs_review","value":"{language} skripta na {file}"}},"da":{"stringUnit":{"state":"needs_review","value":"et {language}-script på {file}"}},"de":{"stringUnit":{"state":"needs_review","value":"{language}-Skript auf {file}"}},"es":{"stringUnit":{"state":"needs_review","value":"un script de {language} en {file}"}},"fr":{"stringUnit":{"state":"needs_review","value":"un script {language} sur {file}"}},"it":{"stringUnit":{"state":"needs_review","value":"uno script {language} su {file}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{file} に対する {language} スクリプト"}},"km":{"stringUnit":{"state":"needs_review","value":"ស្គ្រីប {language} លើ {file}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{file}에 대한 {language} 스크립트"}},"nb":{"stringUnit":{"state":"needs_review","value":"et {language}-skript på {file}"}},"pl":{"stringUnit":{"state":"needs_review","value":"skrypt {language} na {file}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"um script {language} em {file}"}},"ru":{"stringUnit":{"state":"needs_review","value":"скрипт {language} для {file}"}},"th":{"stringUnit":{"state":"needs_review","value":"สคริปต์ {language} กับ {file}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{file} üzerinde bir {language} betiği"}},"uk":{"stringUnit":{"state":"needs_review","value":"скрипт {language} для {file}"}},"vi":{"stringUnit":{"state":"needs_review","value":"một script {language} trên {file}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"针对 {file} 的 {language} 脚本"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"針對 {file} 的 {language} 指令碼"}}}}
   },
   "version": "1.0"
 }

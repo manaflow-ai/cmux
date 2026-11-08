@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import { useT } from "./i18n";
-import { useNoticeTurn } from "./NoticeSlot";
+import { useNoticeTurn } from "./noticeSlotModel";
 import { useScrollEdges } from "../../ui/scrollEdges";
 import { type ForumRule } from "./rulesNoticeModel";
 /// The forum's current rules, pinned above the composer: one line with the newest rule, and
