@@ -92,7 +92,8 @@ fn keys(plan: &Value) -> Vec<String> {
 }
 
 /// Runs a whole confirmed run the way the app does, each workspace made as `next-<n>`.
-fn run(mux: &Arc<Mux>, home: &Home, plan: &Value, prefix: &str) {
+/// The `begin` step the app sends for `plan`.
+fn begin(plan: &Value) -> Value {
     let cloud_vms: Vec<Value> = plan["plan"]["skipped"]
         .as_object()
         .unwrap()
@@ -100,13 +101,12 @@ fn run(mux: &Arc<Mux>, home: &Home, plan: &Value, prefix: &str) {
         .filter(|(_, skip)| *skip == "cloud_vm")
         .map(|(key, _)| json!(key))
         .collect();
-    record(
-        mux,
-        home,
-        json!({"event": "begin", "source": plan["source"], "backups": plan["backups"],
-               "cloud_vm_keys": cloud_vms, "app_version": "1.2.3"}),
-        &format!("{prefix}-begin"),
-    );
+    json!({"event": "begin", "source": plan["source"], "backups": plan["backups"],
+           "cloud_vm_keys": cloud_vms, "app_version": "1.2.3"})
+}
+
+fn run(mux: &Arc<Mux>, home: &Home, plan: &Value, prefix: &str) {
+    record(mux, home, begin(plan), &format!("{prefix}-begin"));
     for (index, key) in keys(plan).iter().enumerate() {
         let made = format!("next-{index}");
         record(
@@ -176,12 +176,7 @@ fn a_first_launch_plans_records_and_a_relaunch_makes_nothing() {
 
     // The same step's key replays its first result and changes nothing.
     let before = std::fs::read(home.ledger()).unwrap();
-    let replay = record(
-        &mux,
-        &home,
-        json!({"event": "begin", "source": first["source"], "backups": first["backups"]}),
-        "first-begin",
-    );
+    let replay = record(&mux, &home, begin(&first), "first-begin");
     assert_eq!(replay["replayed"], true);
     assert_eq!(std::fs::read(home.ledger()).unwrap(), before);
 
