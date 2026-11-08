@@ -1277,6 +1277,11 @@ impl Hub {
                 })
             })?
         };
+        // An agent with no host ends with this run, so no earlier run's token is its own
+        // (`caller_registry.rs`).
+        if !self.agent_hosts_enabled() {
+            self.caller_registry.forget(&session.id);
+        }
         // A direct start records the format its command was pinned to (a host's: hosts.rs).
         if let Some(format) = child.preview_format {
             self.record_preview_format(session, format);

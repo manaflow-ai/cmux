@@ -507,6 +507,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/memory_resolve",
+      "params": {
+        "$ref": "#/types/MemoryResolveParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/prompt_withdraw",
       "params": true,
       "result": true
@@ -3753,6 +3761,20 @@
         "decisionNonce",
         "approverDecision"
       ],
+      "type": "object"
+    },
+    "MemoryResolveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "accept": true,
+        "dismiss": true,
+        "file": true,
+        "offerId": true,
+        "sessionId": true
+      },
       "type": "object"
     },
     "MessageEvent": {
