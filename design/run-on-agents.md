@@ -21,7 +21,8 @@ to this, I'm out." Row #8 of the agent-workflow gaps (cmuxterm-hq
   and Send in side chat, when the draft is text alone.
 - ⌘⌥Return with a prompt typed: Command and Option together, the one Return form no app binding takes
   in a chat. Not ⌘⇧Return, which is Ghostty's Toggle Pane Zoom and reserved in every pane.
-- Only in a chat that exists on this Mac: not on New Tab, the Quick Composer, Cloud or Sandboxed.
+- Only in a chat that exists on this Mac: not on New Tab, the Quick Composer, Cloud or Sandboxed,
+  and not in a chat on another machine (SSH, a Cloud machine), whose runs acpmux refuses.
 
 ## The panel
 
@@ -50,6 +51,9 @@ to this, I'm out." Row #8 of the agent-workflow gaps (cmuxterm-hq
   acpmux's reason on hover, and the heading says not every worktree was removed.
 - Only what the daemon recorded at the start counts: the runs it started as this build and the
   worktree it made for each, kept in each run's lineage, never the tags, which an agent can write.
+  A worktree goes only while the folder at its path is still the one made: the same device and
+  inode, on the branch it was made on. A folder made again at that path, or a run whose agent moved
+  its worktree to another branch, stays and says why.
   The plan approval's own compare keeps its old Keep, where the others are archived and their
   worktrees stay until worktree care's quiet time.
 

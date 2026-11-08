@@ -427,7 +427,7 @@ impl Hub {
             let tagged_root = m
                 .subsession
                 .as_ref()
-                .and_then(|l| l.worktree.clone())
+                .and_then(|l| l.worktree.as_ref().map(|w| w.root.clone()))
                 .or_else(|| m.tags.get(ROOT_TAG).map(|t| PathBuf::from(&t.value)));
             let (root, branch) = match &m.worktree {
                 Some(w) => (tagged_root.unwrap_or_else(|| w.root.clone()), w.branch.clone()),
@@ -531,14 +531,27 @@ impl Hub {
             // and never one the tags name (an agent may write those).
             let m = s.meta();
             let link = m.subsession.as_ref();
-            let root = link
+            // And only while the folder at its path is still that worktree: one made again there
+            // after it went (its inode reused, or another branch) stays.
+            let made = link
                 .filter(|l| l.plan_build.as_deref() == Some(build_id))
                 .and_then(|l| l.worktree.clone());
-            match root {
-                Some(root) => left.push((s.id.clone(), root)),
-                None => rows.push(
+            let Some(made) = made else {
+                rows.push(
                     json!({"sessionId": s.id, "removed": false, "error": "no worktree of its own"}),
-                ),
+                );
+                continue;
+            };
+            let checked = made.clone();
+            match tokio::task::spawn_blocking(move || still_made(&checked)).await {
+                Ok(Ok(())) => left.push((s.id.clone(), made.root)),
+                Ok(Err(why)) => {
+                    tracing::warn!(session = %s.id, root = %made.root.display(), why, "plan build worktree kept");
+                    rows.push(json!({"sessionId": s.id, "removed": false, "error": why}));
+                }
+                Err(e) => {
+                    rows.push(json!({"sessionId": s.id, "removed": false, "error": e.to_string()}))
+                }
             }
         }
         let by = Instant::now() + DISCARD_LIMIT;
@@ -601,6 +614,28 @@ impl Hub {
         }
         rows
     }
+}
+
+/// Whether the folder at `made.root` is still the worktree a run's start made: the same device,
+/// inode and creation time, and on the branch it was made on (read from its git files, running nothing). A
+/// folder that fails either is not removed for the run.
+pub(crate) fn still_made(made: &crate::store::MadeWorktree) -> Result<(), &'static str> {
+    let born = || {
+        std::fs::File::open(&made.root).ok().and_then(|f| crate::store::MadeWorktree::born_of(&f))
+    };
+    if made.pin.is_none()
+        || crate::cwd_pin::CwdPin::of(&made.root) != made.pin
+        || made.born.is_some_and(|at| born() != Some(at))
+    {
+        return Err("the folder at its path is no longer the worktree it was made in");
+    }
+    let dot_git = std::fs::read_to_string(made.root.join(".git")).unwrap_or_default();
+    let admin = dot_git.trim().strip_prefix("gitdir: ").map(|at| made.root.join(at));
+    let head = admin.and_then(|admin| std::fs::read_to_string(admin.join("HEAD")).ok());
+    if head.as_deref().map(str::trim) != Some(&format!("ref: refs/heads/{}", made.branch)) {
+        return Err("its worktree is no longer on the branch it was made on");
+    }
+    Ok(())
 }
 
 #[cfg(test)]

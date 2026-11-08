@@ -84,3 +84,41 @@ fn a_prompt_run_is_sent_as_typed_and_named_by_its_variant() {
     assert_eq!(Variant::harness("codex").chat_name(Target::Compare), "build-codex");
     assert_eq!(Variant::harness("codex").chat_name(Target::Worktree), "build-plan");
 }
+
+#[cfg(unix)]
+#[test]
+fn a_worktree_is_still_made_only_with_its_folder_and_branch() {
+    let dir = std::env::temp_dir().join(format!("acpmux-still-made-{}", uuid::Uuid::now_v7()));
+    let (root, admin) = (dir.join("wt"), dir.join("repo/.git/worktrees/wt"));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(&admin).unwrap();
+    std::fs::write(root.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
+    std::fs::write(admin.join("HEAD"), "ref: refs/heads/cmux/run-1\n").unwrap();
+    let made = crate::store::MadeWorktree {
+        root: root.clone(),
+        pin: crate::cwd_pin::CwdPin::of(&root),
+        born: crate::store::MadeWorktree::born_of(&std::fs::File::open(&root).unwrap()),
+        branch: "cmux/run-1".to_owned(),
+    };
+    assert_eq!(still_made(&made), Ok(()));
+    // Its agent moved it to another branch: no longer the worktree made for the run.
+    std::fs::write(admin.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+    assert!(still_made(&made).is_err());
+    std::fs::write(admin.join("HEAD"), "ref: refs/heads/cmux/run-1\n").unwrap();
+    // No identity recorded: nothing proves the folder is the one made.
+    assert!(still_made(&crate::store::MadeWorktree { pin: None, ..made.clone() }).is_err());
+    // Another folder at its path, with the same git files: not the one made.
+    std::fs::rename(&root, dir.join("away")).unwrap();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::copy(dir.join("away/.git"), root.join(".git")).unwrap();
+    assert!(still_made(&made).is_err());
+    // Made again after the first went, even where the file system gives it the same inode.
+    std::fs::remove_dir_all(&root).unwrap();
+    std::fs::remove_dir_all(dir.join("away")).unwrap();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
+    let same_inode =
+        crate::store::MadeWorktree { pin: crate::cwd_pin::CwdPin::of(&root), ..made.clone() };
+    assert!(still_made(&same_inode).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}

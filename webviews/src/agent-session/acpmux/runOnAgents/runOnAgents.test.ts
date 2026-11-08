@@ -1,7 +1,15 @@
 import { sendChoiceForKey, sendMenuChoices } from "../composer/sendMenuModel";
 import { expect, test } from "bun:test";
 import type { PickerCatalog, PickerHarness } from "../modelCatalogData";
-import { MAX_RUNS, defaultVariants, fanoutVariants, nextVariant, variantLabel, withModel } from "./runOnAgents";
+import {
+  MAX_RUNS,
+  defaultVariants,
+  fanoutVariants,
+  nextVariant,
+  runOnOffered,
+  variantLabel,
+  withModel,
+} from "./runOnAgents";
 
 const model = (id: string, shortName: string, efforts: string[] = []) =>
   ({ id, name: shortName, shortName, efforts, fast: false, searchText: id }) as PickerHarness["models"][number];
@@ -89,4 +97,15 @@ test("Send's menu offers Run on several agents for a typed draft, on ⌘⌥Retur
   // A run's prompt is text alone, and a chat that cannot start runs has no row.
   expect(sendMenuChoices({ draft: true, sendSteers: false, side: false, files: true, runOn: true })).toEqual([]);
   expect(sendMenuChoices({ draft: true, sendSteers: false, side: false, files: false })).toEqual([]);
+});
+
+test("Run on several agents is offered only in a chat on this Mac: acpmux refuses it from SSH and Cloud chats", () => {
+  const here = { quick: false, sessionId: "s1", cloudPicked: false, sandboxing: false, onOtherMachine: false };
+  expect(runOnOffered(here)).toBe(true);
+  // An existing chat on a Cloud machine or an SSH peer: the daemon's plan methods refuse a peer.
+  expect(runOnOffered({ ...here, onOtherMachine: true })).toBe(false);
+  expect(runOnOffered({ ...here, sessionId: undefined })).toBe(false);
+  expect(runOnOffered({ ...here, quick: true })).toBe(false);
+  expect(runOnOffered({ ...here, cloudPicked: true })).toBe(false);
+  expect(runOnOffered({ ...here, sandboxing: true })).toBe(false);
 });

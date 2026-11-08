@@ -659,7 +659,12 @@ impl Hub {
             short_name: short.clone(),
             depth,
             offered: false,
-            worktree: worktree.as_ref().map(|kept| kept.made.root.clone()),
+            worktree: worktree.as_ref().map(|kept| crate::store::MadeWorktree {
+                root: kept.made.root.clone(),
+                pin: kept.made.root_pin,
+                born: kept.made.root_held.as_deref().and_then(crate::store::MadeWorktree::born_of),
+                branch: kept.made.branch.clone(),
+            }),
             plan_build: None,
             plan_build_kept: false,
         };

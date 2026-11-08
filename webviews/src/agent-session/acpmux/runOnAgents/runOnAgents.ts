@@ -94,3 +94,16 @@ export function fanoutVariants(variants: readonly RunVariant[]): RunVariant[] | 
     ...(v.effort ? { effort: v.effort } : {}),
   }));
 }
+
+/// Whether a chat offers Run on N agents: only one that exists on this Mac. A new chat, the Quick
+/// Composer, Cloud or Sandboxed picked for a new chat have no chat to start runs from, and acpmux
+/// refuses the runs from a chat on another machine (SSH, Cloud: server/plan_build.rs).
+export function runOnOffered(chat: {
+  quick: boolean;
+  sessionId: string | undefined;
+  cloudPicked: boolean;
+  sandboxing: boolean;
+  onOtherMachine: boolean;
+}): boolean {
+  return !chat.quick && Boolean(chat.sessionId) && !chat.cloudPicked && !chat.sandboxing && !chat.onOtherMachine;
+}

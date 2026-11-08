@@ -321,16 +321,16 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
         )
         .await;
     assert!(many.get("error").is_some(), "at most four: {many}");
-    let three: Vec<Value> = (0..3).map(|_| json!({"harness": "fake"})).collect();
+    let four: Vec<Value> = (0..4).map(|_| json!({"harness": "fake"})).collect();
     let ran = app
         .ok(
             "_acpmux/plan/fanout",
-            json!({"sessionId": chat, "prompt": "Add a NOTICE", "variants": three}),
+            json!({"sessionId": chat, "prompt": "Add a NOTICE", "variants": four}),
         )
         .await;
     assert_eq!(ran["target"], json!("prompt"), "{ran}");
     let runs = ran["builds"].as_array().unwrap();
-    assert_eq!(runs.len(), 3, "{ran}");
+    assert_eq!(runs.len(), 4, "{ran}");
     let run_id = ran["buildId"].as_str().unwrap().to_owned();
     let run_roots: Vec<String> =
         runs.iter().map(|b| b["worktree"]["root"].as_str().unwrap().to_owned()).collect();
@@ -359,6 +359,12 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
     let plain_id = plain["sessionId"].clone();
     let plain_root = plain["worktree"]["root"].as_str().unwrap().to_owned();
     agent.ok("_acpmux/tag", json!({"sessionId": plain_id, "set": {"planBuild": run_id}})).await;
+    // The fourth run's worktree went, and git made another worktree at its path, on that branch
+    // again: a folder with someone's work, not the worktree that run was made in, so it stays.
+    let branch3 = runs[3]["worktree"]["branch"].as_str().unwrap().to_owned();
+    git(&repo, &["worktree", "remove", "--force", &run_roots[3]]);
+    git(&repo, &["worktree", "add", "-q", &run_roots[3], &branch3]);
+    std::fs::write(Path::new(&run_roots[3]).join("MINE"), "someone else's\n").unwrap();
     // Keep the second and drop the rest: their chats close and their worktrees go, archived.
     let keep = runs[1]["sessionId"].as_str().unwrap().to_owned();
     let kept = app
@@ -385,10 +391,18 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
     let status = plain_session.meta().status;
     assert_ne!(status, acpmux::store::SessionStatus::Closed, "the ordinary sub-session stays open");
     assert!(!plain_session.meta().tags.contains_key("archived"), "and unarchived");
-    assert_eq!(removed.len(), 2, "{kept}");
-    assert!(removed.iter().all(|r| r["removed"] == json!(true)), "{kept}");
+    assert_eq!(removed.len(), 3, "{kept}");
+    let (gone, stayed): (Vec<&Value>, Vec<&Value>) =
+        removed.iter().partition(|r| r["sessionId"] != runs[3]["sessionId"]);
+    assert!(gone.iter().all(|r| r["removed"] == json!(true)), "{kept}");
     // Each went through worktree care's archive first; its branch stays to restore it from.
-    assert!(removed.iter().all(|r| r["archive"].as_str().is_some_and(|a| !a.is_empty())), "{kept}");
+    assert!(gone.iter().all(|r| r["archive"].as_str().is_some_and(|a| !a.is_empty())), "{kept}");
+    assert_eq!(stayed.len(), 1, "{kept}");
+    assert_eq!(stayed[0]["removed"], json!(false), "{kept}");
+    assert!(
+        Path::new(&run_roots[3]).join("MINE").is_file(),
+        "the folder at its path stays: {kept}"
+    );
     for (i, b) in runs.iter().enumerate().filter(|(i, _)| *i != 1) {
         let branch = b["worktree"]["branch"].as_str().unwrap();
         let out = std::process::Command::new("git")

@@ -615,6 +615,7 @@ import { groupAskedCalls, withoutAskedCalls } from "./permissions/askRows";
 import { withoutQuietThoughts } from "./conversation/thoughts";
 import type { PermissionDecision } from "./permissions/protocol";
 import { planBuildTarget, planFanoutVariants } from "./permissions/planBuild";
+import { runOnOffered } from "./runOnAgents/runOnAgents";
 import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
@@ -10725,9 +10726,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             onEmptyCommandReturn={hasBottomAsk ? undefined : nextStepFire?.fire}
             // Run on N agents: the prompt on 2 to 4 agents, each a sub-session of this chat in its
             // own worktree (`_acpmux/plan/fanout`); the chat's builds card compares them. Only from
-            // a chat that exists here: a new chat, the Quick Composer, Cloud and Sandboxed have none.
+            // a chat that exists on this Mac (runOnOffered).
             runOnAgents={
-              !quick && snapshot.sessionId && !cloudPicked && !sandboxing
+              runOnOffered({ quick, sessionId: snapshot.sessionId, cloudPicked, sandboxing, onOtherMachine })
                 ? {
                     catalog: pickerCatalog,
                     run: (text, variants) =>
