@@ -60,7 +60,7 @@ final class CloudUploads {
         for chat in services.cloud.movedChats.all() where chat.broughtBack == nil {
             guard let machine = services.machines.session(chat.machineID), machine.daemon.connection != nil,
                   CloudAccessAsks.tab(of: chat, on: machine, services: services) == tab,
-                  let root = CloudAccessAsks.remoteRoot(chat.remoteFolder, roots: services.cloud.move.workRoots) else { continue }
+                  let root = services.cloud.move.workRoot(of: chat.remoteFolder) else { continue }
             return Target(chat: chat, machine: machine, remoteRoot: root, binary: binary)
         }
         return nil
