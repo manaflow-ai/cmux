@@ -43,6 +43,7 @@ extension ScreenContentView {
         guard frameInput.snapWaitsForContent else { return }
         frameInput.snapWaitsForContent = false
         applyPresentation()
+        for host in context.hosts.values where host.superview === self { host.snapDidShow() }
     }
 
     /// In the presentation that shows the held snap: the panes it took out go, unless a later change took them back.
