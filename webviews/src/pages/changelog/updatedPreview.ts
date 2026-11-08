@@ -6,7 +6,7 @@
 //
 // This file holds the parts with no DOM: the rows the preview lists, and the hover intent that
 // decides when it opens and closes.
-import { changeItems, mergedView, readableChanges, readableUpdate } from "./model";
+import { changeItems, echoKey, mergedView, readableChanges, readableUpdate } from "./model";
 import type { ReleaseNotes, WhatsNewCategory } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
 import { GENERIC_ENTRY_ID, hasCuratedChanges, isGenericEntry, isGenericWhatsNewEntry } from "./updateSummary";
@@ -41,7 +41,7 @@ export function previewEntries(
     const key = entry.title.trim().toLowerCase();
     if (!key || seen.has(key) || isGenericEntry(entry.id, entry.title)) return;
     seen.add(key);
-    rows.push(entry);
+    rows.push(entry.detail && repeatsTitle(entry.title, entry.detail) ? { ...entry, detail: undefined } : entry);
   };
   if (span && span.length > 0) {
     // The generic entry leaves by its source identity before mergedView localizes its title: in
@@ -68,6 +68,29 @@ export function previewEntries(
     add({ id: item.id, title: item.title, detail: item.summary ?? undefined, category: item.category });
   }
   return rows;
+}
+
+/** How many leading characters two lines share before they read as the same line: about what
+    one cut row of the preview shows ("Show in Mini points the fl…"). */
+const ECHO_PREFIX = 20;
+
+/** Whether `detail` says `title` again, so the row would show the same words twice: each line is
+    cut to one line, and a pull request's changelog sentence often restates its title ("Show in
+    Mini points the floating mini at any chat, …" / "Show in Mini points the floating mini at any
+    agent chat (…)"). Case, punctuation and spacing aside, the two lines repeat each other when one
+    starts with the other or they open with the same ECHO_PREFIX characters. A leading article does
+    not count, as in the notes' own comparison (``echoKey``). */
+export function repeatsTitle(title: string, detail: string): boolean {
+  const plain = (text: string) =>
+    echoKey(text)
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .trim();
+  const a = plain(title);
+  const b = plain(detail);
+  if (!a || !b) return false;
+  let shared = 0;
+  while (shared < a.length && shared < b.length && a[shared] === b[shared]) shared++;
+  return shared >= Math.min(ECHO_PREFIX, a.length, b.length);
 }
 
 /** A build's notes without the generic What's New entry (``isGenericWhatsNewEntry``). */
