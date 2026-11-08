@@ -758,7 +758,7 @@ jobs:
       fail-fast: false
       matrix:
         # Linux only, as on feat-cmux-next: no Playwright, Puppeteer or downloaded Chromium on
-        # Macs (Lawrence, 2026-11-02); the macOS lane ran on a self-hosted fleet Mac.
+        # Mac runners (Lawrence, 2026-11-02); the old Mac lane ran on a self-hosted fleet Mac.
         include:
           - os: linux
             runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
