@@ -113,4 +113,37 @@ struct ClosedPaneHiddenTabTests {
         #expect(store.tab(surface: chat) != nil)
         #expect(store.mirrorViolations.isEmpty, "\(store.mirrorViolations)")
     }
+
+    /// The same refusal before the daemon's dock lands: the stand-in pane is a provisional record the confirmed records
+    /// never held, so it is never a pane the daemon closed. Before, the lift found no confirmed pane for it, the refused
+    /// close took the chat out of it, and the refused pane close could not undo the dock (the docked surface was missing).
+    @Test func aRefusedCloseInAPendingStandInPaneKeepsItsTabBeforeTheDockLands() throws {
+        let source = PaneID(rawValue: 3)
+        let chat = SurfaceID(rawValue: 4)
+        let key = WorkspaceKey(rawValue: "00000000-0000-4000-8000-000000000003")
+        let dock = DockSnapshot(edge: .left, mode: .docked, role: .agentChat)
+        let store = DaemonStore()
+        store.apply(snapshot: DaemonTree(workspaceRevision: 1, workspaces: [WorkspaceSnapshot(
+            id: Self.workspace, key: key, name: "1",
+            screens: [ScreenSnapshot(id: Self.screen, active: true, activePane: source, layout: .leaf(source),
+                                     panes: [PaneSnapshot(id: source, tabs: [TabSnapshot(surface: chat)])])])]))
+        let provisional = ProvisionalPane(columnWidth: 0.5, left: true)
+        let standIn = ProvisionalTab().terminal(TerminalID.generate(), cwd: nil)
+        store.intend(.dockTab(surface: chat, pane: source, provisional: provisional, dock: dock, standIn: standIn),
+                     transaction: ClientTransactionID.generate())
+        let pane = try #require(store.panesByHandle[provisional.handle], "the dock shows no stand-in pane")
+        try #require(pane.tabs.map(\.surface) == [chat], "the stand-in pane does not show the chat")
+        let close = try #require(store.intendClose([chat]))
+        let paneClose = try #require(store.intendStandInPaneClose(provisional.handle), "no close intent for the dock's stand-in")
+        try #require(store.panesByHandle[provisional.handle] == nil, "the stand-in's close does not hide the stand-in pane")
+
+        store.rejectIntent(close)
+        #expect(pane.tabs.map(\.surface) == [chat], "the refused close took the tab out of the hidden stand-in pane")
+        #expect(store.mirrorViolations.isEmpty, "\(store.mirrorViolations)")
+        store.rejectIntent(paneClose)
+        #expect(store.panesByHandle[provisional.handle]?.tabs.map(\.surface) == [chat],
+                "the refused pane close brought the stand-in pane back without its tab")
+        #expect(store.tab(surface: chat) != nil)
+        #expect(store.mirrorViolations.isEmpty, "\(store.mirrorViolations)")
+    }
 }
