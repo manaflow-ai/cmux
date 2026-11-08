@@ -844,7 +844,7 @@ export function chatNamedBy(id: string, sessions: readonly Session[]): { session
 /// cut inside the broker's label; a record's text is the whole message.
 export function queuedMessage(msg: any, context?: IncomingContext, preview = false): IncomingMessage | undefined {
   const text = String(msg?.text ?? "");
-  const incoming = incomingPrompt(text, msg, context);
+  const incoming = incomingPrompt(text, msg, context, preview);
   if (incoming?.kind === "message") return incoming.message;
   // The list's `fromAgent` is the name acpmux shows the agent, an unverified one with its suffix
   // (conversation/senderIdentity.ts): the line names it bare and marks it.
