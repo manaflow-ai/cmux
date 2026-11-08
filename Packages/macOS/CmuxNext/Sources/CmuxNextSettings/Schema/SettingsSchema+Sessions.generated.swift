@@ -14,7 +14,7 @@ extension SessionSettings {
     /// `sessions.promptSuggestions`: Agents get the cmux-sessions MCP tools (ACPMUX_OFFER_TOOLS=1, read at each acpmux daemon start) and the pages show their suggested tasks (AgentPaneSuggestedTasks). On by default, as the Debug toggle agent.suggestedTasks was (Leo 2026-10-19); off here turns them off. That toggle is now off by default and only forces them on.
     public nonisolated static let promptSuggestionsPath = ["sessions", "promptSuggestions"]
     public nonisolated static let promptSuggestionsDefault = true
-    /// `agents.promptSuggestions`: Claude Code's own prompt suggestion: after a turn the next prompt shows as ghost text in an empty composer (Tab or Right Arrow takes it). Not sessions.promptSuggestions, which is suggested child tasks. The acpmux daemon reads this key (nested or flat) at each Claude process start (cmux-tui/crates/acpmux/src/claude_stdio/prompt_suggestions.rs); off: no suggestions and no per-chat switch. Each suggestion is one extra model call that counts toward usage.
+    /// `agents.promptSuggestions`: Claude Code's own prompt suggestion, and the same switch for Codex chats: after a turn the next prompt shows as ghost text in an empty composer (Tab or Right Arrow takes it). Not sessions.promptSuggestions, which is suggested child tasks. The acpmux daemon reads this key (nested or flat) at each Claude or Codex process start (cmux-tui/crates/acpmux/src/claude_stdio/prompt_suggestions.rs, codex_app_server.rs); off: no suggestions and no per-chat switch. Each suggestion is one extra model call that counts toward usage.
     public nonisolated static let claudePromptSuggestionsPath = ["agents", "promptSuggestions"]
     public nonisolated static let claudePromptSuggestionsDefault = true
 }
@@ -92,10 +92,10 @@ nonisolated enum SessionSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agents.promptSuggestions", "Suggest Next Prompt"),
-                help: SettingsText.keyed("settings.agents.promptSuggestions.help", "After a turn, Claude suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change."),
+                help: SettingsText.keyed("settings.agents.promptSuggestions.help", "After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change."),
                 kind: .toggle,
                 default: .bool(SessionSettings.claudePromptSuggestionsDefault),
-                keywords: ["suggestions", "prompt", "next prompt", "ghost text", "autocomplete", "claude", "usage"]
+                keywords: ["suggestions", "prompt", "next prompt", "ghost text", "autocomplete", "claude", "codex", "usage"]
             ),
         ]
     }

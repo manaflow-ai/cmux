@@ -136,14 +136,14 @@
         {
           "key": "agents.promptSuggestions",
           "name": "claudePromptSuggestions",
-          "note": "Claude Code's own prompt suggestion: after a turn the next prompt shows as ghost text in an empty composer (Tab or Right Arrow takes it). Not sessions.promptSuggestions, which is suggested child tasks. The acpmux daemon reads this key (nested or flat) at each Claude process start (cmux-tui/crates/acpmux/src/claude_stdio/prompt_suggestions.rs); off: no suggestions and no per-chat switch. Each suggestion is one extra model call that counts toward usage.",
+          "note": "Claude Code's own prompt suggestion, and the same switch for Codex chats: after a turn the next prompt shows as ghost text in an empty composer (Tab or Right Arrow takes it). Not sessions.promptSuggestions, which is suggested child tasks. The acpmux daemon reads this key (nested or flat) at each Claude or Codex process start (cmux-tui/crates/acpmux/src/claude_stdio/prompt_suggestions.rs, codex_app_server.rs); off: no suggestions and no per-chat switch. Each suggestion is one extra model call that counts toward usage.",
           "title": {
             "key": "settings.agents.promptSuggestions",
             "text": "Suggest Next Prompt"
           },
           "help": {
             "key": "settings.agents.promptSuggestions.help",
-            "text": "After a turn, Claude suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change."
+            "text": "After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change."
           },
           "kind": "toggle",
           "default": true,
@@ -154,6 +154,7 @@
             "ghost text",
             "autocomplete",
             "claude",
+            "codex",
             "usage"
           ]
         }
