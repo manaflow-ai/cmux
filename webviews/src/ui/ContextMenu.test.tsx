@@ -321,3 +321,27 @@ test("asChild puts the menu on the child itself: no wrapper, its siblings stay i
   act(() => document.querySelector<HTMLElement>('[role="menuitem"]')!.click());
   expect(ran).toEqual(["rename"]);
 });
+
+test("a right-click on the page's own menu stays in the menu, also under asChild", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  act(() =>
+    root!.render(
+      <div id="row">
+        <ContextMenu asChild items={items([])}>
+          <button type="button" id="target">
+            Send
+          </button>
+        </ContextMenu>
+      </div>,
+    ),
+  );
+  await rightClick(container.querySelector<HTMLElement>("#target")!);
+  for (const at of [document.querySelector('[role="menuitem"]'), document.querySelector(".ui-context-menu-backdrop")]) {
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    act(() => void at!.dispatchEvent(event));
+    // The browser's own menu would open over the page's.
+    expect(event.defaultPrevented).toBe(true);
+  }
+  expect(document.querySelector(".ui-context-menu")).not.toBeNull();
+});

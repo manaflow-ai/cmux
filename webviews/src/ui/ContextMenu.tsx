@@ -355,6 +355,12 @@ export function ContextMenu({
               className="ui-context-menu-backdrop"
               style={{ position: "fixed", inset: 0, zIndex: "var(--layer-dropdown)" }}
               onPointerDown={() => close(true)}
+              // A right-click on the open menu or its backdrop stays here: the browser's own menu
+              // would open over it, and under `asChild` no host above the portal takes the event.
+              onContextMenu={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
             >
               <div
                 ref={attach}
