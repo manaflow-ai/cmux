@@ -62,8 +62,7 @@ fn chat_action(rest: &[String]) -> Option<Result<(String, Vec<String>), String>>
     if view_only == 0 {
         return None;
     }
-    if view_only > 1
-        || argument_keys(rest).iter().any(|key| key == "role" || key == "signedInRole")
+    if view_only > 1 || argument_keys(rest).iter().any(|key| key == "role" || key == "signedInRole")
     {
         return Some(Err(
             "share chat: give --view-only, or --role and --signed-in-role, once".to_owned()
