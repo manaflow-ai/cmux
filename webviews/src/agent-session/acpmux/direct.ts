@@ -2158,6 +2158,9 @@ export class AcpmuxDirectClient {
   /// A prompt's transcript row id survives replay after acpmux accepts it, so an echo never
   /// becomes a different `user-${seq}` row when a live rebuild happens.
   private promptRowKeys = new Map<string, string>();
+  /// The held events' prompt rows while an older page folds (`foldOlder` swaps `promptRowKeys`
+  /// for the page's own), so a `sender_claim` on that page still reaches a row already drawn.
+  private heldPromptRowKeys: Map<string, string> | undefined;
   private optimisticPromptTexts = new Map<string, string>();
   /// Prompts of this pane that wait in acpmux's queue: their bubble went when they were queued,
   /// and comes back (failed, with Retry) if acpmux refuses them when their turn comes.
@@ -7117,7 +7120,7 @@ export class AcpmuxDirectClient {
         const from = sentFrom(msg);
         if (from) {
           this.sentFromPrompts.set(from.promptId, from);
-          const rowId = this.promptRowKeys.get(from.promptId);
+          const rowId = this.promptRowKeys.get(from.promptId) ?? this.heldPromptRowKeys?.get(from.promptId);
           const row = rowId === undefined ? undefined : this.rows.get(rowId);
           if (
             row?.kind === "user" &&
@@ -11510,6 +11513,7 @@ export class AcpmuxDirectClient {
     this.interrupting = undefined;
     this.awaiting = undefined;
     this.foldingBelow = this.firstSeq ?? Infinity;
+    this.heldPromptRowKeys = live.promptRowKeys;
     try {
       for (const event of [...older].sort((a, b) => a.seq - b.seq)) {
         this.firstSeq = Math.min(this.firstSeq ?? event.seq, event.seq);
@@ -11517,6 +11521,7 @@ export class AcpmuxDirectClient {
       }
     } finally {
       this.foldingBelow = undefined;
+      this.heldPromptRowKeys = undefined;
     }
     // The held events' compactions take up the ones the page left open, in order, as reading the
     // whole record does (`compaction` above). One whose first record is a running note continues a
