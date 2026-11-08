@@ -22,7 +22,8 @@ struct SidebarPinFlightTests {
 
     /// Home's block, Pinned (`p`, then each of `pins`) and the machine's rows (every listed workspace not pinned).
     /// `anchored` false: no `p`, and with no pins no Pinned section at all (the first pin creates it).
-    static func state(_ pins: [WorkspaceID], anchored: Bool = true) -> (sections: [SidebarSection], blocks: SidebarListBlocks) {
+    static func state(_ pins: [WorkspaceID], anchored: Bool = true,
+                      listed: [WorkspaceID] = SidebarPinFlightTests.listed) -> (sections: [SidebarSection], blocks: SidebarListBlocks) {
         let pinned = (anchored ? [anchor] : []) + pins
         let items = pinned.map { LayoutItem(id: LayoutItemID("itm_pin_\($0.rawValue)"), ref: .workspace($0.rawValue)) }
         let top = LayoutSection(id: SidebarLayoutDocument.topSectionID, region: .top, look: .builtIn, arrangement: .list, items: [home])
@@ -47,8 +48,9 @@ struct SidebarPinFlightTests {
     }
 
     /// The list shows `pins` pinned (the sidebar's blocks and rows change together, as the app's pin does).
-    static func show(_ pins: [WorkspaceID], anchored: Bool = true, on list: SidebarListView) {
-        let (sections, blocks) = state(pins, anchored: anchored)
+    static func show(_ pins: [WorkspaceID], anchored: Bool = true, listed: [WorkspaceID] = SidebarPinFlightTests.listed,
+                     on list: SidebarListView) {
+        let (sections, blocks) = state(pins, anchored: anchored, listed: listed)
         list.blocks = blocks
         list.model.sections = sections
     }
@@ -470,6 +472,85 @@ struct SidebarPinFlightTests {
         }
         let probes = Self.probes(Self.moved, list, now: now)
         Self.checkPath("unpin over a pin", probes: probes, now: now, start: drawn,
+                       end: list.convert(arrived.bounds, from: arrived), failures: &failures)
+        #expect(failures.isEmpty, "\(failures.prefix(16).joined(separator: "\n"))")
+    }
+
+    // MARK: - A target out of view (the contract: "Target off-screen: the scroll follows, or the row slides out of view")
+
+    /// `a`, `b`, `c`, 30 more, then `d` and `e`: `d`'s list slot is far below a 300 pt clip.
+    static let long = Array(listed.prefix(3)) + (0..<30).map { WorkspaceID("f\($0)") } + [moved, WorkspaceID("e")]
+
+    /// The list in a 300 pt scroll view (as the sidebar has it): only the rows near the clip have views.
+    static func scrolledList(pins: [WorkspaceID]) -> (SidebarListView, NSScrollView, NSWindow) {
+        _ = NSApplication.shared
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        let (sections, blocks) = state(pins, listed: long)
+        let list = SidebarListView(model: SidebarModel(sections: sections))
+        list.blocks = blocks
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: 300), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 260, height: 300))
+        scroll.automaticallyAdjustsContentInsets = false
+        scroll.documentView = list
+        window.contentView = scroll
+        list.leftButtonIsDown = { false }
+        window.orderFrontRegardless()
+        list.fitToClip()
+        list.reload(animated: false)
+        list.layoutSubtreeIfNeeded()
+        return (list, scroll, window)
+    }
+
+    /// Unpin `d` while its list slot is out of view: the item still moves from where it is drawn toward that slot and
+    /// slides out of view, one copy on every tick. It must not vanish because its row has no view yet.
+    @Test func anUnpinToASlotOutOfViewSlidesOutOfView() throws {
+        let (list, scroll, window) = Self.scrolledList(pins: [Self.moved])
+        defer { window.close() }
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let start = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
+        let startFrame = list.convert(start.bounds, from: start)
+        Self.show([], listed: Self.long, on: list)
+        list.reload(animated: true)
+        let now = CACurrentMediaTime()
+        let probes = Self.probes(Self.moved, list, now: now)
+        let slot = try #require(list.displayed.row(for: .workspace(Self.moved)).map { list.frame(for: $0) })
+        #expect(!slot.intersects(scroll.contentView.bounds), "the fixture's slot \(slot) is in view")
+        let arrived = try #require(list.rowViews[.workspace(Self.moved)], "the unpinned row has no view: the item vanished")
+        var failures: [String] = []
+        Self.checkOpaque("unpinned d (out of view)", arrived, failures: &failures)
+        Self.checkPath("unpinned d (out of view)", probes: probes, now: now, start: startFrame, end: slot, failures: &failures)
+        #expect(failures.isEmpty, "\(failures.prefix(16).joined(separator: "\n"))")
+    }
+
+    /// Pin `d` while the Pinned block is scrolled out of view: the row moves from its slot toward the block and slides
+    /// out of view, one copy on every tick. It must not vanish because the block has no view.
+    @Test func aPinToABlockOutOfViewSlidesOutOfView() throws {
+        let (list, scroll, window) = Self.scrolledList(pins: [])
+        defer { window.close() }
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let row = try #require(list.displayed.row(for: .workspace(Self.moved)).map { list.frame(for: $0) })
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: row.minY - 100))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        list.realizeVisibleRows()
+        list.layoutSubtreeIfNeeded()
+        let start = try #require(list.rowViews[.workspace(Self.moved)], "d's row has no view after the scroll")
+        let startFrame = list.convert(start.bounds, from: start)
+        let blockRow = try #require(list.displayed.row(for: .block(SidebarLayoutDocument.pinnedSectionID.rawValue)))
+        #expect(!list.frame(for: blockRow).intersects(scroll.contentView.bounds), "the fixture's Pinned block is in view")
+        Self.show([Self.moved], listed: Self.long, on: list)
+        list.reload(animated: true)
+        let now = CACurrentMediaTime()
+        let probes = Self.probes(Self.moved, list, now: now)
+        let arrived = try #require(Self.copies(of: Self.moved, in: list).first { $0 is SidebarItemRowView && !$0.isHiddenOrHasHiddenAncestor },
+                                   "the pinned item has no view: the row vanished")
+        var failures: [String] = []
+        Self.checkOpaque("pinned d (block out of view)", arrived, failures: &failures)
+        Self.checkPath("pinned d (block out of view)", probes: probes, now: now, start: startFrame,
                        end: list.convert(arrived.bounds, from: arrived), failures: &failures)
         #expect(failures.isEmpty, "\(failures.prefix(16).joined(separator: "\n"))")
     }
