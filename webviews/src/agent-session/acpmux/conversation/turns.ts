@@ -28,7 +28,8 @@ import { chosenAnswer, nextStepAsk, pickedAnswer } from "./nextStepAsk";
 import { lastWrapUp, withoutWrapUp } from "./wrapUp";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
-import { shortCommand } from "./shortCommand";
+import { ROW_WIDTH, shortCommand } from "./shortCommand";
+import { scriptNoun } from "./commandActions";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups } from "./toolGroups";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls } from "./acpmuxSends";
@@ -36,6 +37,7 @@ import { subsessionCall } from "./subsessionCalls";
 import { experimentArm } from "../../../experiments/experiment";
 import { finishedTaskLook } from "./taskLine.experiment";
 import { turnFoldReplies } from "./turnFoldReplies.experiment";
+import { turnFoldSteered } from "./turnFoldSteered.experiment";
 import { workedForMessages } from "./workedForMessages.experiment";
 import { inboxCounts } from "./inboxNotice";
 import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
@@ -61,7 +63,7 @@ import { turnFoldStyle, type TurnFoldStyle } from "./turnFoldStyle";
 import { answerClaim, askKey, CLAIM_SLACK_MS } from "./waitingAskStore";
 import { canonicalCall } from "../toolNames";
 import { currentLanguage, translatorFor } from "../i18n";
-import { writeCall } from "./WriteLabel";
+import { writeCall } from "./writeLabelModel";
 import { oneRowPerCall } from "./oneRowPerCall.experiment";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
@@ -786,6 +788,8 @@ type ShapedTurn = {
   foldStyle: TurnFoldStyle;
   /// How its closed fold draws the work around the replies it keeps (turnFoldReplies.experiment.ts).
   repliesArm: string;
+  /// How a turn the person steered folds (turnFoldSteered.experiment.ts).
+  steeredArm: string;
   /// How its "Worked for" counts the messages it folds (workedForMessages.experiment.ts).
   messagesArm: string;
   /// The person's own prompt opened the next turn (`supersededFooters`).
@@ -863,6 +867,7 @@ function shapedTurn(
   const endedByPerson = !live && !last && opener?.kind === "user" && !opener.incoming && !opener.received;
   const foldStyle = turnFoldStyle(agentFamily);
   const repliesArm = experimentArm(turnFoldReplies);
+  const steeredArm = experimentArm(turnFoldSteered);
   const messagesArm = experimentArm(workedForMessages);
   const cached = live ? undefined : shapedTurns.get(user);
   if (
@@ -878,6 +883,7 @@ function shapedTurn(
     cached.agentFamily === agentFamily &&
     cached.foldStyle === foldStyle &&
     cached.repliesArm === repliesArm &&
+    cached.steeredArm === steeredArm &&
     cached.messagesArm === messagesArm &&
     cached.endedByPerson === endedByPerson &&
     cached.source.length === source.length
@@ -1012,6 +1018,7 @@ function shapedTurn(
       agentFamily,
       foldStyle,
       repliesArm,
+      steeredArm,
       messagesArm,
       endedByPerson,
       rows: shaped,
@@ -1327,6 +1334,15 @@ function shapeTurn(
   const edits: AcpmuxRow[] = [];
   const replies = repliesIn(body);
   const steerDialogue = steerDialogueIn(body);
+  // A turn the person steered still has one fold (Leo, 2026-11-07, on a closed "Worked for 5m 15s"
+  // with "Finished 2 background tasks and ran 8 commands" beside it: "this could have been, like,
+  // tucked inside the worked for"). The reply before the steer and the steer stay in sight, as every
+  // reply does, but the work around them stays under Worked for rather than drawing as run lines
+  // beside it; opened, those run lines draw open, "as if you just expanded the whole worked for
+  // entirely" (turnFoldSteered.experiment.ts).
+  const steeredArm = style.conclusion && steerDialogue.size ? experimentArm(turnFoldSteered) : undefined;
+  const nested = steeredArm !== undefined && steeredArm !== "split";
+  const runsOpen = nested && steeredArm !== "nested";
   let folded = false;
   // Where the sub-sessions a folded turn started stay in sight (taskLine.experiment.ts).
   const taskLook = style.conclusion ? experimentArm(finishedTaskLook) : undefined;
@@ -1377,6 +1393,14 @@ function shapeTurn(
       // Other agents' messages that started the turn fold in too, as its first entries (`foldsPrompt`).
       const hidden = [...(foldsPrompt ? [user] : []), ...work.filter((row) => !replies.has(row.id))];
       const previous = style.countsMessages && foldMixesMessages(hidden) ? foldedMessages(hidden) : undefined;
+      // The `header` arm names the work on the line itself ("Worked for 5m 15s · Finished 2 background
+      // tasks and ran 8 commands").
+      const workedRuns =
+        steeredArm === "header"
+          ? hidden
+              .flatMap(withoutDrafts)
+              .flatMap((row) => (isRun(row) ? (row.items ?? []).filter((item) => item.tool) : []))
+          : [];
       // The messages between agents it folds count as calls by default (workedForMessages.experiment.ts).
       const messages = foldedAgentMessages(hidden);
       const messagesArm = experimentArm(workedForMessages);
@@ -1385,13 +1409,14 @@ function shapeTurn(
           ? summary.toolCount + messages.received
           : summary.toolCount;
       const named = messagesArm === "messages" && messages.sent + messages.received > 0;
+      const labelVersion = mixVersion(
+        (version * 2 + (open ? 1 : 0)) * PREVIOUS_SPAN + Math.min(PREVIOUS_SPAN - 1, previous ?? 0),
+        named ? messages.sent * 1_000 + messages.received + 1 : 0,
+      );
       const worked: AcpmuxRow = {
         id,
-        // What its label names (`named`) is part of the version too.
-        version: mixVersion(
-          (version * 2 + (open ? 1 : 0)) * PREVIOUS_SPAN + Math.min(PREVIOUS_SPAN - 1, previous ?? 0),
-          named ? messages.sent * 1_000 + messages.received + 1 : 0,
-        ),
+        // What its label names (`named`, and the `header` arm's work, `workKey`) is part of the version too.
+        version: workedRuns.length ? mixVersion(labelVersion, workKey(workedRuns)) : labelVersion,
         at: from,
         kind: WORKED,
         foldOpen: open,
@@ -1408,6 +1433,7 @@ function shapeTurn(
         // agent's own messages between it reads "N previous messages", one stretch of work alone
         // "Worked for".
         ...(previous !== undefined && { previous }),
+        ...(workedRuns.length && { workedRuns }),
       };
       if (style.conclusion) shaped.push(worked);
       if (taskLine && taskLook === "after-fold") shaped.push(taskLine);
@@ -1428,6 +1454,13 @@ function shapeTurn(
               ...(replies.has(row.id) && { foldedReply: true }),
               // A folded run draws otherwise, so its version moves (memos compare versions).
               ...(row.kind === "activity" && { foldRun: true, version: row.version * RUN_STATES + 3 }),
+              // A steered turn's run lines open with its Worked for (`runsOpen`): the open fold's state,
+              // doubled, so the run redraws without a sixth `RUN_STATES` (`OPEN_RUN_STATES`).
+              ...(runsOpen &&
+                row.kind === "activity" && {
+                  runOpen: true as const,
+                  version: (row.version * RUN_STATES + 3) * OPEN_RUN_STATES + 1,
+                }),
             })),
         );
     }
@@ -1442,7 +1475,8 @@ function shapeTurn(
     // Closed over a turn that said something before its answer, the work around each reply folds
     // into its own line before and after it (turnFoldReplies.experiment.ts), so the replies read in
     // order with the work between them one click away.
-    const around = open ? undefined : experimentArm(turnFoldReplies);
+    // A steered turn's one fold keeps every run under Worked for (`nested`): its replies alone draw.
+    const around = open ? undefined : nested ? "replies" : experimentArm(turnFoldReplies);
     const between =
       around !== undefined && around !== "replies" && before.some((row) => replies.has(row.id) && out(row))
         ? (rows: readonly AcpmuxRow[]) => aroundReplies(rows, out, outside, around, steerDialogue, style.runs)
@@ -1673,6 +1707,33 @@ function backgroundFooters(tail: AcpmuxRow[], endedBackground: ReadonlySet<strin
 const VERSION_SPAN = 1_000_000;
 /// Room in a Worked for row's version for its fold's message count (`previous`).
 const PREVIOUS_SPAN = 4096;
+/// The range of the key a Worked for row's version mixes in for the work its `header` arm names (`workKey`).
+const WORK_SPAN = 256;
+
+/// What the `header` arm's line says of the work it holds (toolRunSummary.ts reads each call's kind,
+/// title, state, background state and files), as one number in 1..WORK_SPAN-1, 0 for no work: a
+/// late background end or a call's path or category changes the line's text, so it changes the
+/// version too and the memoized row (WorkedRow.tsx) draws again (review of cmux#37710).
+function workKey(runs: readonly AcpmuxActivity[]): number {
+  if (!runs.length) return 0;
+  // FNV-1a over the fields the summary reads.
+  let hash = 0x811c9dc5;
+  const mix = (text: string) => {
+    for (let at = 0; at < text.length; at += 1) hash = Math.imul(hash ^ text.charCodeAt(at), 0x01000193);
+    hash = Math.imul(hash ^ 0x1f, 0x01000193);
+  };
+  for (const { tool } of runs) {
+    if (!tool) continue;
+    mix(tool.id);
+    mix(tool.kind ?? "");
+    mix(tool.title ?? "");
+    mix(tool.status ?? "");
+    mix(tool.background?.state ?? "");
+    for (const location of tool.locations ?? []) mix(pathKey(location));
+    for (const diff of tool.diffs ?? []) mix(pathKey(diff));
+  }
+  return 1 + ((hash >>> 0) % (WORK_SPAN - 1));
+}
 
 /// One render card per render call in `body`, in call order.
 function renderRows(body: readonly AcpmuxRow[], version: number): AcpmuxRow[] {
@@ -1996,12 +2057,13 @@ function codexLiveTurn(
   const compactingRow = named ? undefined : liveCompaction(drawn);
   if (named) {
     const call = named.tool;
-    // A command reads its short line; one with no line yet reads its title ("Run make"). While
+    // A command reads its working step, whole: the line's CSS ellipsis cuts it at its edge, not a fixed
+    // count (Leo, 2026-11-07: "stretch across the line"). One with no line yet reads its title ("Run make"). While
     // Claude still writes its input (a pending "Bash" with no command, often 20s for a long
     // script) it reads "Writing a command", never "Running" a command that has not started.
     const shell =
       call.kind === "execute" && !call.description && (Boolean(call.command) || isBareShellName(call, call.title));
-    line.doing = shell ? (call.command ? shortCommand(call.command) : "") : runningLabel(call, "");
+    line.doing = shell ? (call.command ? liveCommand(call.command) : "") : runningLabel(call, "");
     line.doingShell = shell;
     if (shell && !call.command && call.status === "pending") line.doingDraft = true;
     // A started command shows "⌃B to run in background" on the line, never on a transcript row
@@ -2221,6 +2283,13 @@ function sendingTo(tool: NonNullable<AcpmuxActivity["tool"]>): Pick<AcpmuxRow, "
   return to ? { doingSendTo: short(to) } : {};
 }
 
+/// A command on the live line: its working step whole (the line's CSS ellipsis cuts it), or a
+/// script its interpreter reads from a heredoc as "a Python script on als.json", never its
+/// `<<'EOF'` marker (Leo, 2026-11-07: "it's just weird, um, that it just says EOF").
+function liveCommand(command: string): string {
+  return scriptNoun(translatorFor(currentLanguage()), command) ?? shortCommand(command, ROW_WIDTH);
+}
+
 /// A running call in one short line: a command as itself ("Ran …" would say it has finished), a
 /// file call by the file's name ("Edit ProductGrid.module.css").
 function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): string {
@@ -2250,6 +2319,9 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
 /// on every change between them (App.tsx compares versions): 1 the live latest run, 2 an earlier
 /// run, 3 an ended turn's open fold, 4 an earlier run whose running command the live line holds.
 const RUN_STATES = 5;
+/// A steered turn's open fold, whose run lines start open (`runOpen`), differs from the same fold
+/// closed. (Not a sixth `RUN_STATES`: the minimap's edit-card versions are pinned to five.)
+const OPEN_RUN_STATES = 2;
 
 /// A running turn's runs as the Codex desktop app draws them (cx-ncc.108): each run folds into its
 /// summary line between the paragraphs ("Read 6 files, ran 4 commands", or one group's "Ran 3

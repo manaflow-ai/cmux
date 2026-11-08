@@ -11,7 +11,8 @@ import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
 import { useScrollEdges } from "../../ui/scrollEdges";
 import { Listbox } from "../../ui/Listbox";
-import { ComposerListLayer, useComposerListBox } from "./backdropLayer";
+import { ComposerListLayer } from "./backdropLayer";
+import { useComposerListBox } from "./backdropLayerModel";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {
   bindMarks,

@@ -15,7 +15,7 @@ import { createContext, type ReactNode } from "react";
 import type { HunkReview } from "../changes/hunkReview";
 import type { AccessOffer } from "../accessOffer";
 import type { ChatAccount } from "../chatAccounts";
-import type { HarnessHealth } from "../HarnessHealthNotice";
+import type { HarnessHealth } from "../harnessHealthNoticeModel";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import type { Subagent } from "../subagents/subagentFold";
 import type { RetryNote, RetryTarget } from "../subagents/retryState";
