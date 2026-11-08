@@ -759,6 +759,9 @@ def main():
         REFUSED.append(refusal)
         print(f"REFUSED {refusal}", flush=True)
         return
+    # DIAG (bench-base-reds-2, not for merge): a real click (a mouse down/up at the HID tap) in the middle of
+    # the window activates the app, so the window is key with no other app frontmost.
+    activate_by_click(placed)
     # The bench conditions: the environment the app was really started with (mocked agent chats, the
     # isolated chief, no CMUX_NEXT_NO_ACTIVATE), the window's placement, and per layout whether the window
     # was key when it started (`layouts`).
@@ -850,6 +853,28 @@ def main():
     report["unmeasured"] = UNMEASURED
     if opts.json:
         json.dump(report, open(opts.json, "w"), indent=1)
+
+
+def activate_by_click(placed):
+    """DIAG: posts one left click at the middle of the window (AppKit frame, y up) and prints the key state."""
+    frame = placed.get("frame") if isinstance(placed, dict) else None
+    if not frame:
+        print("DIAG-KEY no window frame to click", flush=True)
+        return
+    clicker = os.path.join(tempfile.mkdtemp(prefix="pane-perf-click-"), "click.swift")
+    with open(clicker, "w") as f:
+        f.write("import AppKit\nlet a = CommandLine.arguments\n"
+                "let p = CGPoint(x: Double(a[1])!, y: NSScreen.screens[0].frame.height - Double(a[2])!)\n"
+                "for t in [CGEventType.leftMouseDown, .leftMouseUp] {\n"
+                "  CGEvent(mouseEventSource: nil, mouseType: t, mouseCursorPosition: p, mouseButton: .left)!.post(tap: .cghidEventTap)\n"
+                "  usleep(80_000)\n}\n")
+    x, y = frame[0] + frame[2] / 2, frame[1] + frame[3] / 2
+    before = window_state()
+    result = subprocess.run(["xcrun", "swift", clicker, str(x), str(y)], capture_output=True, text=True, timeout=180)
+    time.sleep(1.0)  # diag: activation lands
+    after = window_state()
+    print(f"DIAG-KEY click at {x:.0f},{y:.0f} rc={result.returncode} {result.stderr[-200:]!r} before {before} after {after}",
+          flush=True)
 
 
 def frontmost_app():
