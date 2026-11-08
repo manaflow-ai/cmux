@@ -27,6 +27,10 @@ pub(super) struct ScreenEvidence {
     /// the screen showed during that turn.
     #[serde(default)]
     observed_at_ms: u64,
+    /// The process the plugin saw (`source_session`, `pid:<n>`): a turn's
+    /// end or an exit counts only for the process whose screen showed it.
+    #[serde(default)]
+    source_session: Option<String>,
 }
 
 impl ScreenEvidence {
@@ -71,6 +75,7 @@ impl AgentRoster {
         &mut self,
         terminal_id: &str,
         producer: &str,
+        source_session: Option<&str>,
         state: AgentState,
         visible_idle: bool,
         observed_at_ms: u64,
@@ -89,20 +94,23 @@ impl AgentRoster {
                     producer: producer.to_string(),
                     state: state.as_str().to_string(),
                     observed_at_ms,
+                    source_session: source_session.map(str::to_owned),
                 },
             )
         };
         let Some(previous) = previous.filter(|previous| previous.producer == producer) else {
             return ScreenNote::default();
         };
+        let same_process = previous.source_session.as_deref() == source_session;
         ScreenNote {
             cleared_blocker: matches!(state, AgentState::Working | AgentState::Idle)
                 && previous.state == AgentState::Blocked.as_str(),
             ended_turn_seen_working_at: (state == AgentState::Idle
+                && same_process
                 && visible_idle
                 && previous.state == AgentState::Working.as_str())
             .then_some(previous.observed_at_ms),
-            saw_exit: state == AgentState::Done,
+            saw_exit: state == AgentState::Done && same_process,
         }
     }
 
@@ -115,7 +123,8 @@ impl AgentRoster {
     /// the hook's last report: the same plugin saw this turn run (`working`
     /// observed since the row became `working` and since the hook's latest
     /// turn start, `turn_started_at_ms`) and now sees the
-    /// agent's own idle prompt, or saw the agent and now
+    /// agent's own idle prompt, or saw this agent's process (since the hook
+    /// session took the terminal, `apply` drops older evidence) and now
     /// sees its process gone (`saw_exit`; the detector confirms an exit
     /// over six scans). A plain screen `idle`, or an exit another producer
     /// reports, proves nothing.

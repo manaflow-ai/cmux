@@ -59,6 +59,18 @@ impl Rig {
     /// One screen-detection report, committed when it was observed.
     /// `visible_idle`: the detector matched the agent's own idle prompt.
     fn screen_from(&mut self, producer: &str, at_ms: u64, state: &str, visible_idle: bool) {
+        self.screen_as(producer, "pid:4242", at_ms, state, visible_idle);
+    }
+
+    /// A report about the process `source_session` (`pid:<n>`).
+    fn screen_as(
+        &mut self,
+        producer: &str,
+        source_session: &str,
+        at_ms: u64,
+        state: &str,
+        visible_idle: bool,
+    ) {
         let sequence = self.next();
         let event = if state == "done" { "session.ended" } else { "state.changed" };
         let payload: Value = json!({
@@ -68,7 +80,7 @@ impl Rig {
             "event": event,
             "normalized": {
                 "state": state,
-                "source_session": "pid:4242",
+                "source_session": source_session,
                 "observed_at_ms": at_ms.to_string(),
                 "plugin_generation": "1",
             },
@@ -306,4 +318,40 @@ fn a_retired_terminal_forgets_its_turn_start() {
     let mut rig = Rig::running_turn("claude");
     assert!(rig.roster.retire_terminal(TERMINAL));
     assert!(rig.roster.hook_turn_started_at.is_empty());
+}
+
+/// The person kills Claude Code and starts it again in the same tab. The new
+/// session's hook row lands before the detector confirms the old process's
+/// exit (six scans): that late exit must not remove the new row (third
+/// review of #38417, F1).
+#[test]
+fn a_late_exit_of_the_previous_agent_does_not_remove_the_next_ones_row() {
+    let mut rig = Rig::running_turn("claude");
+    let sequence = rig.next();
+    let ingress = crate::agent_hook_journal_ingress(
+        "claude",
+        "SessionStart",
+        Some(TERMINAL),
+        json!({"session_id": "claude-session-2"}),
+    )
+    .unwrap();
+    rig.roster.apply(&RosterEvent {
+        producer_id: &ingress.producer_id,
+        kind: &ingress.kind,
+        subjects: &ingress.subjects,
+        payload: &ingress.payload,
+        sequence,
+        committed_at_ms: 14_200,
+    });
+    assert_eq!(rig.shown(), "idle");
+    rig.screen(14_600, "done");
+    assert_eq!(rig.shown(), "idle", "the new session's row stays");
+}
+
+/// An exit of another process than the one the plugin saw ends nothing.
+#[test]
+fn an_exit_of_another_process_does_not_remove_the_row() {
+    let mut rig = Rig::running_turn("claude");
+    rig.screen_as(PLUGIN, "pid:5151", 14_600, "done", false);
+    assert_eq!(rig.shown(), "working");
 }

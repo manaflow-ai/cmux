@@ -702,6 +702,7 @@ impl AgentRoster {
             screen_note = self.note_screen_evidence(
                 terminal_id,
                 event.producer_id,
+                session.as_deref(),
                 state,
                 visible_idle,
                 updated_at_ms,
@@ -790,6 +791,14 @@ impl AgentRoster {
                 state == AgentState::Done,
                 observed_at_ms,
             );
+            // Another agent session took the terminal (or an ended one came
+            // back): what the screen saw belongs to the agent before it, so a
+            // late exit of that process cannot remove this row
+            // ([`Self::screen_ends_hook_row`]). A `SessionStart` of the same
+            // session (Claude Code's compaction and `/clear`) keeps it.
+            if current.is_none_or(|fence| fence.ended || fence.session_id != next.session_id) {
+                self.screen_evidence.remove(terminal_id);
+            }
             self.hook_fences.insert(terminal_id.to_string(), next);
             if event.kind == "agent.turn.started" {
                 self.hook_turn_started_at.insert(terminal_id.to_string(), event.committed_at_ms);
