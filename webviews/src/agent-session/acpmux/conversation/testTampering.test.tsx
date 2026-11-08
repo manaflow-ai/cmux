@@ -14,7 +14,9 @@ const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
 function installDom(): HTMLElement {
-  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
+  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
+    url: "http://localhost/",
+  });
   for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
     saved.set(key, scope[key]);
   Object.assign(scope, {
@@ -57,7 +59,11 @@ const row = (tampering: AcpmuxTamperingReport, id = "turn"): AcpmuxRow => ({
   at: 1,
   kind: "activity",
   items: [
-    { kind: "tool", text: "Edit", tool: { id: "edit", title: "Edit", status: "completed", kind: "edit", tampering } },
+    {
+      kind: "tool",
+      text: "Edit",
+      tool: { id: "edit", title: "Edit", status: "completed", kind: "edit", tampering },
+    },
   ],
 });
 
@@ -91,7 +97,15 @@ test("formats a restore request as the exact removed and added hunk lines", () =
       files: [
         {
           path: "tests/auth.rs",
-          findings: [{ kind: "removed-test", line: 4, message: "removed", old: "#[test]\nfn test_auth() {}", new: "" }],
+          findings: [
+            {
+              kind: "removed-test",
+              line: 4,
+              message: "removed",
+              old: "#[test]\nfn test_auth() {}",
+              new: "",
+            },
+          ],
         },
       ],
     }),
@@ -180,10 +194,12 @@ test("persists disclosure and reports restore and Ask why action states", async 
   expect(restores).toEqual(["tests/auth.test.ts"]);
   const actions = [...container.querySelectorAll<HTMLButtonElement>(".acpmux-tampering-actions button")];
   expect(actions[0]?.disabled).toBe(true);
+  expect(actions[0]?.textContent).toBe("Restored");
   const ask = actions[1]!;
   await act(async () => ask.click());
   expect(prompts[0]).toContain("expect(x).toEqual(1)");
   expect(ask.disabled).toBe(true);
+  expect(ask.textContent).toBe("Asked");
   if (root) await act(async () => root!.unmount());
   root = undefined;
   const remounted = await render(<TestTampering rows={rows} sessionId="session-a" />);

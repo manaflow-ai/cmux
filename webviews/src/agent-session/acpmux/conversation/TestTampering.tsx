@@ -70,7 +70,7 @@ export function TestTampering({ rows, sessionId, turnId, onRestore }: TestTamper
   };
 
   return (
-    <section className="acpmux-tampering" aria-label={t("testTampering.title" as StringKey)}>
+    <section className="acpmux-tampering" aria-label={t("testTampering.title")}>
       <button
         type="button"
         className="acpmux-tampering-head"
@@ -81,7 +81,7 @@ export function TestTampering({ rows, sessionId, turnId, onRestore }: TestTamper
         <span className="acpmux-tampering-mark" aria-hidden="true">
           !
         </span>
-        <span className="acpmux-tampering-title">{t("testTampering.title" as StringKey)}</span>
+        <span className="acpmux-tampering-title">{t("testTampering.title")}</span>
         <span className="acpmux-tampering-chevron" aria-hidden="true">
           {state.open ? "⌃" : "⌄"}
         </span>
@@ -98,18 +98,22 @@ export function TestTampering({ rows, sessionId, turnId, onRestore }: TestTamper
               type="button"
               onClick={() => void restoreAll()}
               disabled={
-                !(restoreTestTampering ?? onRestore) || !canRestore || readOnly || state.restore === "pending" || allRestored
+                !(restoreTestTampering ?? onRestore) ||
+                !canRestore ||
+                readOnly ||
+                state.restore === "pending" ||
+                allRestored
               }
             >
               {!(restoreTestTampering ?? onRestore) || !canRestore || readOnly
-                ? t("testTampering.restoreUnavailable" as StringKey)
+                ? t("testTampering.restoreUnavailable")
                 : allRestored
-                  ? t("testTampering.restored" as StringKey)
+                  ? t("testTampering.restored")
                   : state.restore === "pending"
-                    ? t("testTampering.restoring" as StringKey)
+                    ? t("testTampering.restoring")
                     : state.restore === "failure"
-                      ? t("testTampering.retryRestore" as StringKey)
-                      : t("testTampering.restore" as StringKey)}
+                      ? t("testTampering.retryRestore")
+                      : t("testTampering.restore")}
             </button>
             {answer && (
               <button
@@ -118,14 +122,14 @@ export function TestTampering({ rows, sessionId, turnId, onRestore }: TestTamper
                 disabled={readOnly || state.askWhy === "pending" || state.askWhy === "sent"}
               >
                 {state.askWhy === "pending"
-                  ? t("testTampering.sending" as StringKey)
+                  ? t("testTampering.sending")
                   : state.askWhy === "sent"
-                    ? t("testTampering.asked" as StringKey)
-                    : t("testTampering.askWhy" as StringKey)}
+                    ? t("testTampering.asked")
+                    : t("testTampering.askWhy")}
               </button>
             )}
-            {state.restore === "failure" && <output>{t("testTampering.restoreFailure" as StringKey)}</output>}
-            {state.askWhy === "failure" && <output>{t("testTampering.askFailure" as StringKey)}</output>}
+            {state.restore === "failure" && <output>{t("testTampering.restoreFailure")}</output>}
+            {state.askWhy === "failure" && <output>{t("testTampering.askFailure")}</output>}
           </div>
         </div>
       )}
@@ -186,7 +190,7 @@ function Evidence({ finding, t }: { finding: TamperingEvidence; t: ReturnType<ty
         {finding.line !== null && (
           <span>
             {" "}
-            {t("testTampering.line" as StringKey)} {finding.line}
+            {t("testTampering.line")} {finding.line}
           </span>
         )}
       </div>

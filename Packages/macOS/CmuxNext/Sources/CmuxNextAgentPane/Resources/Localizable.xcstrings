@@ -38539,7 +38539,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "تحتاج تغييرات الاختبار إلى مراجعة"
           }
         },
@@ -38670,7 +38670,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "الاستعادة غير متاحة"
           }
         },
@@ -38801,7 +38801,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "استعادة"
           }
         },
@@ -38932,7 +38932,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "جارٍ الاستعادة…"
           }
         },
@@ -39063,7 +39063,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "تمت الاستعادة"
           }
         },
@@ -39194,7 +39194,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "إعادة محاولة الاستعادة"
           }
         },
@@ -39325,7 +39325,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "اسأل عن السبب"
           }
         },
@@ -39456,7 +39456,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "جارٍ الإرسال…"
           }
         },
@@ -39587,7 +39587,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "تم السؤال"
           }
         },
@@ -39718,7 +39718,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "تعذّر تطبيق الاستعادة."
           }
         },
@@ -39849,7 +39849,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "تعذّر إرسال السؤال."
           }
         },
@@ -40766,7 +40766,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "السطر"
           }
         },

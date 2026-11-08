@@ -463,7 +463,7 @@ async fn adopt_replays_a_failed_codex_patch_without_its_edits() {
     assert_eq!(applied["status"], "completed");
     assert_eq!(
         as_written(&applied["content"]),
-        json!([{"type": "diff", "path": cargo, "oldText": "version = \"1.2.0\"\n", "newText": "version = \"1.3.0\"\n", "_meta": {"acpmux": {"fragment": true}}}])
+        json!([{"type": "diff", "path": cargo, "line": 3, "oldText": "version = \"1.2.0\"\n", "newText": "version = \"1.3.0\"\n", "_meta": {"acpmux": {"fragment": true}}}])
     );
     assert_eq!(applied["content"][0]["_meta"]["acpmux"]["canonicalPath"], canonical_in(&cargo));
     assert_eq!(

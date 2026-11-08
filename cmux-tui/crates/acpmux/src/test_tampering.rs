@@ -112,10 +112,6 @@ fn payload(reports: Vec<FileReport>) -> Option<Value> {
     })
 }
 
-#[allow(
-    clippy::string_slice,
-    reason = "diff prefixes are ASCII bytes removed after first-byte validation"
-)]
 fn unified_edit(path: &str, patch: &str) -> Option<Edit> {
     let language = test_language(path)?;
     let (mut hunks, mut old, mut new) = (Vec::new(), Vec::new(), Vec::new());
@@ -135,11 +131,12 @@ fn unified_edit(path: &str, patch: &str) -> Option<Edit> {
             in_hunk = true;
         } else if in_hunk {
             match raw.as_bytes().first().copied() {
-                Some(b'-') => old.push(raw[1..].to_owned()),
-                Some(b'+') => new.push(raw[1..].to_owned()),
+                Some(b'-') => old.push(raw.strip_prefix('-').unwrap_or_default().to_owned()),
+                Some(b'+') => new.push(raw.strip_prefix('+').unwrap_or_default().to_owned()),
                 Some(b' ') => {
-                    old.push(raw[1..].to_owned());
-                    new.push(raw[1..].to_owned());
+                    let context = raw.strip_prefix(' ').unwrap_or_default().to_owned();
+                    old.push(context.clone());
+                    new.push(context);
                 }
                 _ => {}
             }
@@ -153,10 +150,6 @@ fn unified_edit(path: &str, patch: &str) -> Option<Edit> {
 
 /// Unique line anchors split whole-file payloads in linear space/time. Common
 /// edges become context; each reported block excludes distant unrelated changes.
-#[allow(
-    clippy::indexing_slicing,
-    reason = "slice bounds are established by the monotonic line cursors"
-)]
 fn split_hunks(old: &str, new: &str, line: Option<usize>, language: Language) -> Vec<Hunk> {
     let old_lines: Vec<&str> = old.lines().collect();
     let new_lines: Vec<&str> = new.lines().collect();
@@ -190,13 +183,13 @@ fn split_hunks(old: &str, new: &str, line: Option<usize>, language: Language) ->
     for (old_end, new_end) in anchors {
         while old_start < old_end
             && new_start < new_end
-            && old_lines[old_start] == new_lines[new_start]
+            && old_lines.get(old_start) == new_lines.get(new_start)
         {
             old_start += 1;
             new_start += 1;
         }
         let (mut oe, mut ne) = (old_end, new_end);
-        while oe > old_start && ne > new_start && old_lines[oe - 1] == new_lines[ne - 1] {
+        while oe > old_start && ne > new_start && old_lines.get(oe - 1) == new_lines.get(ne - 1) {
             oe -= 1;
             ne -= 1;
         }
@@ -204,14 +197,16 @@ fn split_hunks(old: &str, new: &str, line: Option<usize>, language: Language) ->
             let before = usize::from(
                 old_start > 0
                     && new_start > 0
-                    && old_lines[old_start - 1] == new_lines[new_start - 1],
+                    && old_lines.get(old_start - 1) == new_lines.get(new_start - 1),
             );
             let after = usize::from(
-                oe < old_lines.len() && ne < new_lines.len() && old_lines[oe] == new_lines[ne],
+                oe < old_lines.len()
+                    && ne < new_lines.len()
+                    && old_lines.get(oe) == new_lines.get(ne),
             );
             result.push(Hunk {
-                old: old_lines[old_start - before..oe + after].join("\n"),
-                new: new_lines[new_start - before..ne + after].join("\n"),
+                old: old_lines.get(old_start - before..oe + after).unwrap_or_default().join("\n"),
+                new: new_lines.get(new_start - before..ne + after).unwrap_or_default().join("\n"),
                 line: line.map(|line| line + old_start),
                 old_code: old_code_lines.get(old_start..oe).unwrap_or(&[]).join("\n"),
                 new_code: new_code_lines.get(new_start..ne).unwrap_or(&[]).join("\n"),
@@ -233,10 +228,6 @@ fn split_hunks(old: &str, new: &str, line: Option<usize>, language: Language) ->
     result
 }
 
-#[allow(
-    clippy::indexing_slicing,
-    reason = "language and hunk keys are populated from the same edit batch"
-)]
 fn detect_edits(edits: Vec<Edit>) -> Vec<FileReport> {
     let mut totals: HashMap<Language, (String, String)> = HashMap::new();
     for edit in &edits {
@@ -277,8 +268,11 @@ fn detect_edits(edits: Vec<Edit>) -> Vec<FileReport> {
         }
     }
     for edit in &edits {
-        let (fewer_assertions, more_skips, all_new_assertions, old_moves, new_moves) =
-            &summaries[&edit.language];
+        let Some((fewer_assertions, more_skips, all_new_assertions, old_moves, new_moves)) =
+            summaries.get(&edit.language)
+        else {
+            continue;
+        };
         let mut findings = Vec::new();
         for hunk in &edit.hunks {
             let old_assertions = assertions(edit.language, &hunk.old_code);
@@ -313,7 +307,7 @@ fn detect_edits(edits: Vec<Edit>) -> Vec<FileReport> {
                     && old_moves.contains(&move_signature(edit.language, &hunk.new_code)))
             {
                 Some(("introduced-skip", "This edit introduces a test skip or ignore."))
-            } else if allowlist_totals[&edit.language].1 > allowlist_totals[&edit.language].0
+            } else if allowlist_totals.get(&edit.language).is_some_and(|(old, new)| new > old)
                 && hunk.new_allowlist_entries > hunk.old_allowlist_entries
             {
                 Some(("allowlist-bypass", "This edit adds an entry to a failure allowlist."))
@@ -523,11 +517,6 @@ fn test_names(language: Language, code: &str) -> Vec<String> {
     }
     names
 }
-#[allow(
-    clippy::indexing_slicing,
-    clippy::string_slice,
-    reason = "call offsets come from the balanced-parenthesis scanner and ASCII matcher suffixes"
-)]
 fn assertions(language: Language, code: &str) -> Vec<Assertion> {
     if language == Language::Python {
         return code
@@ -567,7 +556,9 @@ fn assertions(language: Language, code: &str) -> Vec<Assertion> {
             let first = args.first().copied().unwrap_or("");
             let (subject, strength) = match language {
                 Language::TypeScript => {
-                    let matcher = code[end + 1..]
+                    let matcher = code
+                        .get(end + 1..)
+                        .unwrap_or_default()
                         .strip_prefix('.')
                         .unwrap_or("")
                         .split('(')
@@ -588,13 +579,13 @@ fn assertions(language: Language, code: &str) -> Vec<Assertion> {
                 Language::Rust if *name == "assert_eq!" => (first.to_owned(), "exact"),
                 Language::Rust if *name == "assert!" => predicate(first, "rust"),
                 Language::Go if name.ends_with(".Equal") && args.len() >= 3 => {
-                    (args[2].to_owned(), "exact")
+                    (args.get(2).copied().unwrap_or_default().to_owned(), "exact")
                 }
                 Language::Go if name.ends_with(".NotNil") && args.len() >= 2 => {
-                    (args[1].to_owned(), "weak")
+                    (args.get(1).copied().unwrap_or_default().to_owned(), "weak")
                 }
                 Language::Go if name.ends_with(".True") && args.len() >= 2 => {
-                    predicate(args[1], "go")
+                    predicate(args.get(1).copied().unwrap_or_default(), "go")
                 }
                 Language::Swift if *name == "XCTAssertEqual" => (first.to_owned(), "exact"),
                 Language::Swift if *name == "XCTAssertNotNil" => (first.to_owned(), "weak"),
@@ -604,9 +595,10 @@ fn assertions(language: Language, code: &str) -> Vec<Assertion> {
                 _ => (first.to_owned(), "other"),
             };
             let signature = if language == Language::TypeScript {
-                code[start..=end].to_owned() + code[end + 1..].split('(').next().unwrap_or("")
+                code.get(start..=end).unwrap_or_default().to_owned()
+                    + code.get(end + 1..).unwrap_or_default().split('(').next().unwrap_or("")
             } else {
-                code[start..=end].to_owned()
+                code.get(start..=end).unwrap_or_default().to_owned()
             };
             result.push(Assertion { subject, strength, signature });
         }
@@ -643,30 +635,29 @@ fn weakens(old: &Assertion, new: &Assertion) -> bool {
         && !old.subject.is_empty()
         && old.subject == new.subject
 }
-#[allow(
-    clippy::indexing_slicing,
-    clippy::string_slice,
-    reason = "byte offsets are checked by match_indices and the balanced scanner before slicing"
-)]
 fn calls<'a>(code: &'a str, name: &str) -> Vec<(usize, usize, &'a str)> {
     let mut result = Vec::new();
     for (start, _) in code.match_indices(&(name.to_owned() + "(")) {
         if start > 0
-            && (code.as_bytes()[start - 1].is_ascii_alphanumeric()
-                || code.as_bytes()[start - 1] == b'_')
+            && code
+                .as_bytes()
+                .get(start - 1)
+                .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
         {
             continue;
         }
         let open = start + name.len();
         let mut depth = 0;
-        for (offset, byte) in code.as_bytes()[open..].iter().enumerate() {
+        for (offset, byte) in code.as_bytes().get(open..).unwrap_or_default().iter().enumerate() {
             match byte {
                 b'(' => depth += 1,
                 b')' => {
                     depth -= 1;
                     if depth == 0 {
                         let end = open + offset;
-                        result.push((start, end, &code[open + 1..end]));
+                        if let Some(arguments) = code.get(open + 1..end) {
+                            result.push((start, end, arguments));
+                        }
                         break;
                     }
                 }
@@ -676,10 +667,6 @@ fn calls<'a>(code: &'a str, name: &str) -> Vec<(usize, usize, &'a str)> {
     }
     result
 }
-#[allow(
-    clippy::string_slice,
-    reason = "argument boundaries are byte offsets from ASCII delimiters"
-)]
 fn arguments(code: &str) -> Vec<&str> {
     let (mut result, mut depth, mut start) = (Vec::new(), 0, 0);
     for (index, byte) in code.bytes().enumerate() {
@@ -687,19 +674,22 @@ fn arguments(code: &str) -> Vec<&str> {
             b'(' | b'[' | b'{' => depth += 1,
             b')' | b']' | b'}' => depth -= 1,
             b',' if depth == 0 => {
-                result.push(&code[start..index]);
+                if let Some(argument) = code.get(start..index) {
+                    result.push(argument);
+                }
                 start = index + 1;
             }
             _ => {}
         }
     }
-    result.push(&code[start..]);
+    if let Some(argument) = code.get(start..) {
+        result.push(argument);
+    }
     result
 }
 
 /// Preserve byte offsets/newlines while blanking comments, quoted examples,
 /// Python docstrings, JS templates and Rust raw-string fixtures.
-#[allow(clippy::indexing_slicing, reason = "literal scanning maintains bounded byte cursors")]
 fn code_only(text: &str, language: Language) -> String {
     let input = text.as_bytes();
     let mut output = input.to_vec();
@@ -707,22 +697,27 @@ fn code_only(text: &str, language: Language) -> String {
     while index < input.len() {
         let mut end = None;
         let mut literal = false;
-        if (language == Language::Python && input[index] == b'#')
-            || (language != Language::Python && input[index..].starts_with(b"//"))
+        if (language == Language::Python && input.get(index) == Some(&b'#'))
+            || (language != Language::Python
+                && input.get(index..).is_some_and(|suffix| suffix.starts_with(b"//")))
         {
             end = Some(
-                input[index..]
+                input
+                    .get(index..)
+                    .unwrap_or_default()
                     .iter()
                     .position(|byte| *byte == b'\n')
                     .map_or(input.len(), |offset| index + offset),
             );
-        } else if language != Language::Python && input[index..].starts_with(b"/*") {
+        } else if language != Language::Python
+            && input.get(index..).is_some_and(|suffix| suffix.starts_with(b"/*"))
+        {
             let (mut cursor, mut depth) = (index + 2, 1);
             while cursor < input.len() && depth > 0 {
-                if input[cursor..].starts_with(b"/*") {
+                if input.get(cursor..).is_some_and(|suffix| suffix.starts_with(b"/*")) {
                     depth += 1;
                     cursor += 2;
-                } else if input[cursor..].starts_with(b"*/") {
+                } else if input.get(cursor..).is_some_and(|suffix| suffix.starts_with(b"*/")) {
                     depth -= 1;
                     cursor += 2;
                 } else {
@@ -730,16 +725,16 @@ fn code_only(text: &str, language: Language) -> String {
                 }
             }
             end = Some(cursor);
-        } else if language == Language::Rust && input[index] == b'r' {
+        } else if language == Language::Rust && input.get(index) == Some(&b'r') {
             let mut quote = index + 1;
-            while quote < input.len() && input[quote] == b'#' {
+            while quote < input.len() && input.get(quote) == Some(&b'#') {
                 quote += 1;
             }
-            if quote < input.len() && input[quote] == b'"' {
+            if quote < input.len() && input.get(quote) == Some(&b'"') {
                 let hashes = quote - index - 1;
                 let mut cursor = quote + 1;
                 while cursor < input.len() {
-                    if input[cursor] == b'"'
+                    if input.get(cursor) == Some(&b'"')
                         && input
                             .get(cursor + 1..cursor + 1 + hashes)
                             .is_some_and(|suffix| suffix.iter().all(|byte| *byte == b'#'))
@@ -753,8 +748,8 @@ fn code_only(text: &str, language: Language) -> String {
                 literal = true;
             }
         }
-        if end.is_none() && matches!(input[index], b'"' | b'\'' | b'`') {
-            let quote = input[index];
+        if end.is_none() && matches!(input.get(index).copied(), Some(b'"' | b'\'' | b'`')) {
+            let quote = input.get(index).copied().unwrap_or_default();
             // A Rust lifetime isn't a char/string literal.
             if !(language == Language::Rust
                 && quote == b'\''
@@ -768,7 +763,7 @@ fn code_only(text: &str, language: Language) -> String {
                     };
                 let mut cursor = index + width;
                 while cursor < input.len() {
-                    if input[cursor] == b'\\' {
+                    if input.get(cursor) == Some(&b'\\') {
                         cursor = (cursor + 2).min(input.len());
                     } else if input
                         .get(cursor..cursor + width)
@@ -785,14 +780,18 @@ fn code_only(text: &str, language: Language) -> String {
             }
         }
         if let Some(end) = end {
-            for byte in &mut output[index..end] {
+            for byte in output.get_mut(index..end).unwrap_or_default() {
                 if *byte != b'\n' && *byte != b'\r' {
                     *byte = b' ';
                 }
             }
             if literal && end > index + 1 {
-                output[index] = b'"';
-                output[end - 1] = b'"';
+                if let Some(byte) = output.get_mut(index) {
+                    *byte = b'"';
+                }
+                if let Some(byte) = output.get_mut(end - 1) {
+                    *byte = b'"';
+                }
             }
             index = end;
         } else {

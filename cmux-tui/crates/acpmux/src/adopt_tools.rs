@@ -407,7 +407,7 @@ fn codex_file_change(
         proposed: None,
     };
     if let Some(tampering) = tampering {
-        tool.done["tampering"] = tampering;
+        tool.done.set("tampering", tampering);
     }
     Some(tool)
 }

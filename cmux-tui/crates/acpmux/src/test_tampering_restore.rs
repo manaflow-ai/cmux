@@ -39,9 +39,10 @@ fn line_matches(current: &str, text: &str) -> Vec<usize> {
         .match_indices(text)
         .filter_map(|(at, _)| {
             let end = at + text.len();
-            let starts_line = at == 0 || current.as_bytes()[at - 1] == b'\n';
-            let ends_line =
-                text.ends_with('\n') || end == current.len() || current.as_bytes()[end] == b'\n';
+            let starts_line = at == 0 || current.as_bytes().get(at - 1) == Some(&b'\n');
+            let ends_line = text.ends_with('\n')
+                || end == current.len()
+                || current.as_bytes().get(end) == Some(&b'\n');
             (starts_line && ends_line).then_some(at)
         })
         .take(2)
