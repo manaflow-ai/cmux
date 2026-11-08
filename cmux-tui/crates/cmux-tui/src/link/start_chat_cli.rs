@@ -196,7 +196,7 @@ fn now_ms() -> u64 {
 }
 
 /// A start's wait on a warm's copy (`spare_warm::wait_copy`), on the wall clock, rechecking every 250 ms.
-fn wait_copy(ledger: &std::path::Path, machine: &str, provider: &str) -> Value {
+fn wait_copy(ledger: &Path, machine: &str, provider: &str) -> Value {
     let pause = || std::thread::sleep(std::time::Duration::from_millis(250));
     spare_warm::wait_copy(ledger.parent().unwrap_or(ledger), machine, provider, &now_ms, &pause)
 }

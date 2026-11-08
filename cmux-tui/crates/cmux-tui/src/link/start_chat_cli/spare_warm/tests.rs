@@ -296,7 +296,7 @@ fn a_team_switch_warms_the_active_teams_spare_with_its_own_record() {
     assert_eq!(warm("stack_a", 1_000_000)["copy"]["team"], json!(team_a));
     // A switch to another team warms that team's spare: its own record, not the first team's throttle.
     assert_eq!(warm("stack_b", 1_010_000)["copy"]["team"], json!(team_b));
-    assert_eq!(*seen.borrow(), vec![team_a.clone(), team_b.clone()]);
+    assert_eq!(*seen.borrow(), vec![team_a, team_b]);
     // Each team's record throttles only that team.
     assert_eq!(warm("stack_a", 1_020_000)["fresh"], json!(false));
     assert_eq!(warm("stack_b", 1_030_000)["fresh"], json!(false));
