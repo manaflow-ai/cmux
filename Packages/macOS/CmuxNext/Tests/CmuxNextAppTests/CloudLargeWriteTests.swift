@@ -44,6 +44,30 @@ import Testing
         #expect(sent.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == nil, "a Worker client never sends the refresh token")
     }
 
+    @Test func aReadTooLargeForOneDaemonAnswerGoesToTheRoute() async throws {
+        WriteRouteProtocol.reset()
+        let fake = FakeCloudAPI { _ in throw FakeCloudAPI.refusal(#"{"kind":"transport","message":"the answer is larger than the reply limit (16711680 bytes)"}"#) }
+        var api = fake.classic()
+        api.fileRoute = Self.session()
+        let contents = try await api.readFile("vm_abcdefghij0123456789", path: "/big file")
+        #expect(contents.dataBase64 == "aGk=")
+        #expect(fake.operations == ["cloud.machine.io"], "the daemon is asked first")
+        let sent = try #require(WriteRouteProtocol.requests.first)
+        #expect(sent.httpMethod == "GET")
+        #expect(sent.url?.path == "/api/vm/vm_abcdefghij0123456789/fs/read")
+        #expect(sent.url?.query == "path=/big%20file")
+        #expect(sent.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == "refresh")
+    }
+
+    @Test func anyOtherReadRefusalIsNotSentAgain() async {
+        WriteRouteProtocol.reset()
+        let fake = FakeCloudAPI { _ in throw FakeCloudAPI.refusal(#"{"kind":"transport","message":"offline"}"#) }
+        var api = fake.classic()
+        api.fileRoute = Self.session()
+        await #expect(throws: CloudAPIError.transport("offline")) { _ = try await api.readFile("vm_abcdefghij0123456789", path: "/a") }
+        #expect(WriteRouteProtocol.requests.isEmpty)
+    }
+
     @Test func aWriteThatFitsGoesThroughTheDaemon() async throws {
         WriteRouteProtocol.reset()
         let fake = FakeCloudAPI()
@@ -78,7 +102,7 @@ private nonisolated final class WriteRouteProtocol: URLProtocol, @unchecked Send
         guard let url = request.url,
               let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil) else { return }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data(#"{"ok":true}"#.utf8))
+        client?.urlProtocol(self, didLoad: Data(#"{"ok":true,"path":"/a","dataBase64":"aGk=","size":2}"#.utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
 }

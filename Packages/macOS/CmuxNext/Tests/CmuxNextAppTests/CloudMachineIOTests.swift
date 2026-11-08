@@ -85,12 +85,13 @@ struct CloudMachineIOTests {
     }
 
     @Test func noAnswerOrAnUnusableRequestTakesTheRoute() async throws {
-        for line in ["not json", #"{"route":"none","status":400,"code":"validation.invalid","body":null}"#] {
+        for (index, line) in ["not json", #"{"route":"none","status":400,"code":"validation.invalid","body":null}"#].enumerated() {
             let (binary, folder) = try fakeCLI(printing: line)
             defer { try? FileManager.default.removeItem(at: folder) }
             let stat = try await client(binary, folder).statFile("vm_abcdefghij0123456789", path: "/a")
             #expect(stat.kind == "file")
-            #expect(proxied == ["stat"])
+            // One more proxied stat per case: the fake keeps every case's calls.
+            #expect(proxied == Array(repeating: "stat", count: index + 1))
         }
     }
 

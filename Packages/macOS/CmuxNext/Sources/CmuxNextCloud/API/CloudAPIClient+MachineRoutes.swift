@@ -51,8 +51,20 @@ extension CloudAPIClient {
 
     /// Reads a guest file. The backend encodes bytes as base64 for this JSON API.
     public func readFile(_ id: String, path: String) async throws -> CloudFileContents {
-        try await machine("read", id, ["path": .string(path)], timeout: .seconds(120), as: CloudFileContents.self)
+        do {
+            return try await machine("read", id, ["path": .string(path)], timeout: .seconds(120), as: CloudFileContents.self)
+        } catch CloudAPIError.transport(let message) where message.contains(Self.tooLargeForTheDaemon) {
+            // A file whose base64 answer is past one daemon answer (cmux-cloud-api `MAX_ANSWER_BYTES`,
+            // cmux-tui `server/cloud_api.rs` `MAX_REPLY_BYTES`): a read changes nothing, so it goes
+            // again to the route itself, which takes every file it took before.
+            let data = try await fileRouteRequest("GET", id, op: "read", query: [URLQueryItem(name: "path", value: path)], body: nil)
+            return try CloudMachineRules().answer(data, as: CloudFileContents.self, context: "fs/read")
+        }
     }
+
+    /// The words cmux-cloud-api's refusal of an answer too large for one daemon reply carries
+    /// (`http.rs`, `machine.rs`, cmux-tui `server/cloud_api.rs`).
+    static let tooLargeForTheDaemon = "is larger than"
 
     /// Writes a guest file atomically through the backend wrapper.
     public func writeFile(_ id: String, path: String, data: Data, mode: Int? = nil) async throws {
@@ -63,7 +75,13 @@ extension CloudAPIClient {
         // still goes (`cmux cloud machine-io` reads stdin whole, so a Worker client's goes there first).
         var route: (@Sendable () async throws -> Ignored)?
         if encoded.utf8.count > Self.daemonWriteLimit {
-            route = { [self] in try await postWrite(id, path: path, encoded: encoded, mode: mode) }
+            var body: [String: Any] = ["path": path, "dataBase64": encoded]
+            if let mode { body["mode"] = mode }
+            let json = try JSONSerialization.data(withJSONObject: body)
+            route = { [self] in
+                _ = try await fileRouteRequest("POST", id, op: "write", query: [], body: json)
+                return Ignored()
+            }
         }
         _ = try await machine("write", id, request, timeout: .seconds(120), as: Ignored.self, route: route)
     }
@@ -72,31 +90,35 @@ extension CloudAPIClient {
     /// (cmux-tui `resource::MAX_MESSAGE_BYTES`), less room for the envelope and the credentials.
     static let daemonWriteLimit = (4 << 20) - (128 << 10)
 
-    /// `POST .../fs/write` straight to the route, with the headers the daemon's call would send.
-    private func postWrite(_ id: String, path: String, encoded: String, mode: Int?) async throws -> Ignored {
+    /// One file call straight to the route (`.../fs/<op>`), with the headers the daemon's call would
+    /// send: only a file too large for one daemon request or answer goes this way.
+    private func fileRouteRequest(_ method: String, _ id: String, op: String, query: [URLQueryItem],
+                                  body: Data?) async throws -> Data {
         let credentials = try await credentials()
-        let route = "\(sendsStackSession ? "/api/vm" : "/v1/cloud/machines")/\(id)/fs/write"
+        let route = "\(sendsStackSession ? "/api/vm" : "/v1/cloud/machines")/\(id)/fs/\(op)"
         guard id.range(of: #"^[A-Za-z0-9_-]+$"#, options: .regularExpression) != nil,
-              let url = URL(string: baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + route) else {
+              var components = URLComponents(string: baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + route) else {
             throw CloudAPIError.transport("not a Cloud machine id")
         }
+        if !query.isEmpty { components.queryItems = query }
+        guard let url = components.url else { throw CloudAPIError.transport("bad path \(route)") }
         var request = URLRequest(url: url, timeoutInterval: 120)
-        request.httpMethod = "POST"
+        request.httpMethod = method
         request.setValue("Bearer \(credentials.access)", forHTTPHeaderField: "Authorization")
         request.setValue("cmux-mac", forHTTPHeaderField: "X-Cmux-Client")
         request.setValue(appVersion, forHTTPHeaderField: "X-Cmux-App-Version")
         if let refresh = credentials.refresh { request.setValue(refresh, forHTTPHeaderField: "X-Stack-Refresh-Token") }
         if let team = credentials.team { request.setValue(team, forHTTPHeaderField: sendsStackSession ? "X-Cmux-Team-Id" : "x-cmux-team") }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        var body: [String: Any] = ["path": path, "dataBase64": encoded]
-        if let mode { body["mode"] = mode }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = body
+        }
         let data: Data
         let response: URLResponse
         do {
             // An absolute bound: the request's own timeout restarts while bytes still flow.
             let session = fileRoute, prepared = request
-            (data, response) = try await withDeadline(.seconds(120), label: "POST \(route)") { try await session.data(for: prepared) }
+            (data, response) = try await withDeadline(.seconds(120), label: "\(method) \(route)") { try await session.data(for: prepared) }
         } catch is DeadlineExceeded {
             throw CloudAPIError.timedOut(route)
         } catch let error as URLError where error.code == .timedOut {
@@ -110,7 +132,7 @@ extension CloudAPIClient {
         guard (200..<300).contains(http.statusCode) else {
             throw CloudAPIError.from(status: http.statusCode, data: data, headerCode: http.value(forHTTPHeaderField: "x-cmux-vm-error"))
         }
-        return Ignored()
+        return data
     }
 
     public func makeDirectory(_ id: String, path: String) async throws {
