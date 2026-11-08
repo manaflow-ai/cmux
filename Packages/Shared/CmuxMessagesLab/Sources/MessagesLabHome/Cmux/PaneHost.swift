@@ -79,6 +79,8 @@ final class HostView: NSView {
     var topFadeView: HomeTopFadeView?
     /// cmux: Reply to Selection's quote over the message box (HostView+QuoteCard.swift); nil when none shows.
     var quoteCard: ReplyQuoteCardView?
+    /// cmux: the Chief composer's `/` menu (HostView+SlashSkills.swift); nil when none shows.
+    var slashMenuView: SlashSkillMenuView?
     private(set) var demo: MessagesWindowView?
     /// cmux: the Chief chat's zoom (MessagesLabHomeView.zoom): this view is laid out at its pane's size over the
     /// zoom and drawn magnified by it; its bitmaps render at the window's scale times it (PaneHost+Scale.swift).
@@ -222,6 +224,7 @@ final class HostView: NSView {
         fieldChrome.place(field: demo.compose.fieldRect, plus: demo.compose.plusRect,
                           emoji: CGRect(x: bounds.width - Fixture.windowWidth + 586.5, y: demo.compose.plusRect.minY, width: 31, height: 30))
         placeQuoteCard(above: demo.compose.fieldRect)
+        placeSlashMenu(above: demo.compose.fieldRect)
     }
 
     /// Height of the header area over the content. cmux: the in-pane
@@ -438,6 +441,17 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// cmux: Reply to Selection's quote while the reply is written (ChatController+ReplyQuote.swift);
     /// nil: a reply answers the whole message.
     var replyQuote: ReplyQuote? { didSet { if replyQuote != oldValue { updateQuoteCard() } } }
+    /// cmux: the skills a Chief chat's `/` menu offers (ChatController+SlashSkills.swift); nil: no menu here.
+    var slashSkills: SlashSkillSource? {
+        didSet {
+            slashSkills?.onChange = { [weak self] in self?.updateSlashMenu() }
+            if slashSkills == nil { slashMenu = nil }
+        }
+    }
+    /// cmux: the `/` menu's state; nil while it is closed.
+    var slashMenu: SlashSkillMenu? { didSet { if slashMenu != oldValue { slashMenuChanged() } } }
+    /// cmux: the draft whose menu Esc closed (or a pick filled): it stays closed until the draft changes.
+    var slashMenuDismissed: String?
     /// Trackpad swipe-to-reply (SwipeReply.swift). cmux: installed only when
     /// the owner can honor `.reply` (`intents.canReply`).
     private(set) lazy var swipe = SwipeReply(controller: self)
@@ -563,7 +577,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
         let tv = demo.compose.textView
         tv.view.delegate = self
         // cmux: Return while dictating finishes it (the words stay to edit), it does not send.
-        tv.onSend = { [weak self] in if self?.voice.finish() != true { self?.send() } }
+        tv.onSend = { [weak self] in
+            guard let self else { return }
+            // cmux: Return in the `/` menu picks the skill (ChatController+SlashSkills.swift).
+            if voice.finish() != true { send() }
+        }
         // cmux: the send button sends as Return does, and follows the field and the draft.
         host.sendButton.onSend = { [weak self] in self?.send(); self?.focusCompose() }
         demo.compose.onSlotChange = { [weak self] in self?.placeSendButton(animated: true) }
@@ -674,6 +692,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if !selection.isEmpty { selection.refresh() }
         if let demo { host.fieldChrome.follow(field: demo.compose.fieldRect) }
         if replyQuote != nil { placeQuoteCard() }
+        if let demo, slashMenu != nil { host.placeSlashMenu(above: demo.compose.fieldRect) }
         scheduleWake()
     }
 

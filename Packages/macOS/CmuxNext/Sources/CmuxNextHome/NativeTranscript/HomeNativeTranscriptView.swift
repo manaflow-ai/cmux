@@ -345,6 +345,19 @@ public final class HomeNativeTranscriptView: NSView {
     /// text view. Hosts focus this view, not the transcript.
     public var primaryInput: NSView { transcript.primaryInput }
 
+    /// The home (`$MUX_HOME`) of the Chief that answers here, when its host runs on this Mac: `/` in the
+    /// message box then lists its skills, the person's Claude Code skills and their plugins' skills (the
+    /// folders its host reads, slash_skills.rs). Nil: no `/` menu.
+    public var slashSkillsHome: URL? {
+        didSet {
+            guard slashSkillsHome != oldValue else { return }
+            let configured = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"] ?? ""
+            let claude = configured.isEmpty
+                ? FileManager.default.homeDirectoryForCurrentUser.appending(path: ".claude") : URL(fileURLWithPath: configured)
+            transcript.slashSkillCatalog = slashSkillsHome.map { SlashSkillCatalog(chiefHome: $0, claudeHome: claude) }
+        }
+    }
+
     /// The host's opt-in system spell checking preference for the native composer.
     public var composerSpellCheckingEnabled: Bool {
         get { transcript.composerSpellCheckingEnabled }

@@ -176,6 +176,16 @@ public final class MessagesLabHomeView: NSView {
         set { projection.liveLine.style = newValue }
     }
 
+    /// The folders a Chief chat's `/` menu lists skills from (``SlashSkillCatalog``); nil: no menu
+    /// (a channel, a DM, a Chief whose host runs elsewhere).
+    public var slashSkillCatalog: SlashSkillCatalog? {
+        get { controller.slashSkills?.catalog }
+        set {
+            guard newValue != controller.slashSkills?.catalog else { return }
+            controller.slashSkills = newValue.map(SlashSkillSource.init(catalog:))
+        }
+    }
+
     /// The Chief works: the compose bar offers Stop (the button, Esc, Cmd-.).
     public var isWorking: Bool {
         get { controller.isWorking }
