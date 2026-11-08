@@ -163,6 +163,18 @@ impl Hub {
         if parent.read_meta(|m| m.status == SessionStatus::Closed) {
             return Err(RpcError::invalid_params("the parent session is closed"));
         }
+        // Every candidate and the reviewer take a child slot, and a finished candidate keeps
+        // its slot while its harness lives: the reviewer must fit beside them from the start.
+        let max = self.subsession_effective(&parent.meta()).max_children;
+        let used = self.subsessions.used(&parent.id, &self.waking_children(&parent.id));
+        let needed = targets.len() + 1;
+        if used as usize + needed > max as usize {
+            return Err(RpcError::invalid_params(format!(
+                "a race of {} candidates needs {needed} free sub-session slots (the candidates and the reviewer); this session has {} of {max}",
+                targets.len(),
+                max.saturating_sub(used)
+            )));
+        }
         let id = uuid::Uuid::now_v7().simple().to_string();
         let now = now_ms();
         let race = Race {
@@ -370,7 +382,8 @@ impl Hub {
                     race.candidates.iter().enumerate().filter(|(_, c)| c.state == "running")
                 {
                     let child = self.race_owned_child(parent, candidate.session_id.as_deref())?;
-                    if let Some((completed, error)) = outcome(&child, candidate.turn_id.as_deref())
+                    if let Some((completed, error)) =
+                        self.settled(&child, candidate.turn_id.as_deref())
                     {
                         finished.push((index, completed, error, self.last_reply_unbounded(&child)));
                     }
@@ -395,7 +408,9 @@ impl Hub {
                     break;
                 }
                 // Events are wakeups, never the source of truth. Lag rescans durable outcomes.
-                wait_transition(&mut events, &parent.id).await?;
+                let children: Vec<&str> =
+                    race.candidates.iter().filter_map(|c| c.session_id.as_deref()).collect();
+                wait_transition(&mut events, &parent.id, &children).await?;
             }
             let race = self.race_get(parent, id)?;
             if !race.active() {
@@ -464,7 +479,7 @@ impl Hub {
             if !race.active() {
                 return Ok(());
             }
-            if let Some((ok, error)) = outcome(&reviewer, race.reviewer_turn_id.as_deref()) {
+            if let Some((ok, error)) = self.settled(&reviewer, race.reviewer_turn_id.as_deref()) {
                 if !ok {
                     return Err(RpcError::internal(
                         error.unwrap_or_else(|| "review failed; candidates retained".into()),
@@ -487,7 +502,42 @@ impl Hub {
                 self.finish_review_cleanup(parent, id).await?;
                 return Ok(());
             }
-            wait_transition(&mut events, &parent.id).await?;
+            wait_transition(&mut events, &parent.id, &[reviewer.id.as_str()]).await?;
+        }
+    }
+
+    /// A race child's prompt outcome: its turn's end, or a prompt that left the queue unrun (a
+    /// stop with close:false, a refusal at dispatch), which no turn will ever end.
+    fn settled(&self, child: &Session, turn: Option<&str>) -> Option<(bool, Option<String>)> {
+        outcome(child, turn).or_else(|| self.withdrawn(child, turn).map(|e| (false, Some(e))))
+    }
+
+    /// Why `turn`'s prompt left `child`'s queue without running, from its `queue_removed` or
+    /// `prompt_refused` record; `None` while it waits, runs, or ran.
+    fn withdrawn(&self, child: &Session, turn: Option<&str>) -> Option<String> {
+        let turn = turn?;
+        if child.turn().is_some_and(|t| t.turn_id == turn)
+            || child.queue().iter().any(|q| q.turn_id == turn)
+        {
+            return None;
+        }
+        let after = child.meta().last_seq.saturating_sub(512);
+        let events = self.events(&child.id, after, 512).unwrap_or_default();
+        let last = events.iter().rev().find(|e| {
+            e.dir == "mux"
+                && e.msg.get("turnId").and_then(Value::as_str) == Some(turn)
+                && matches!(e.kind.as_str(), "turn_started" | "queue_removed" | "prompt_refused")
+        })?;
+        let why = |key| last.msg.get(key).and_then(Value::as_str).unwrap_or("withdrawn");
+        match last.kind.as_str() {
+            "queue_removed" => {
+                Some(format!("prompt left the queue before it ran ({})", why("reason")))
+            }
+            "prompt_refused" => Some(crate::secret_scan::mask(&format!(
+                "prompt refused before it ran: {}",
+                why("error")
+            ))),
+            _ => None,
         }
     }
 
@@ -608,6 +658,25 @@ fn fail_race(race: &mut Race, error: &str) {
 
 fn race_needs_resume(race: &Race) -> bool {
     race.active() || (race.state == "cancelled" && race.cleanup_pending)
+}
+
+/// A moved-in chat's races (`transfer.rs` `import_into`). Their authority was the person's on
+/// the daemon the chat left, and their children stayed there, so none resumes here: an
+/// unfinished one fails, and none keeps worktree authorization or a local origin. A race here
+/// needs a new start, with the authorization this daemon derives for it.
+pub(super) fn settle_imported(races: &mut Arc<Vec<Race>>) {
+    if races.is_empty() {
+        return;
+    }
+    for race in Arc::make_mut(races) {
+        race.owner_authorized = false;
+        race.local = false;
+        if race.active() {
+            race.state = "failed".into();
+            race.reason = Some("moved from another machine before it finished; not resumed".into());
+        }
+        race.cleanup_pending = false;
+    }
 }
 
 fn recovery_prompt_accepted(
@@ -746,16 +815,22 @@ fn statistics(races: &[Race]) -> Value {
 
 /// Streaming tokens never trigger an O(candidates) scan. Only this parent's family lifecycle
 /// and race transitions wake the supervisor; lag causes one rescan of durable child state.
+/// A child's own queue removal or refusal wakes it too: no parent record follows those.
 async fn wait_transition(
     events: &mut broadcast::Receiver<HubEvent>,
     parent: &str,
+    children: &[&str],
 ) -> Result<(), RpcError> {
     loop {
         match events.recv().await {
             Ok(e)
-                if e.session_id == parent
-                    && e.record.dir == "mux"
-                    && matches!(e.record.kind.as_str(), "subsession" | "race" | "status") =>
+                if e.record.dir == "mux"
+                    && ((e.session_id == parent
+                        && matches!(e.record.kind.as_str(), "subsession" | "race" | "status"))
+                        || (matches!(
+                            e.record.kind.as_str(),
+                            "queue_removed" | "prompt_refused"
+                        ) && children.contains(&e.session_id.as_str()))) =>
             {
                 return Ok(());
             }
@@ -769,235 +844,5 @@ async fn wait_transition(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn test_meta(id: &str, status: &str, parent: Option<&str>) -> SessionMeta {
-        let mut value = json!({
-            "schema": crate::store::META_SCHEMA,
-            "id": id,
-            "name": id,
-            "harness": "codex",
-            "cwd": "/tmp",
-            "status": status,
-            "createdAt": 1,
-            "updatedAt": 2
-        });
-        if let Some(parent) = parent {
-            value["subsession"] = json!({
-                "startedBy": parent,
-                "shortName": id,
-                "depth": 1,
-                "offered": false
-            });
-        }
-        serde_json::from_value(value).unwrap()
-    }
-
-    fn race() -> Race {
-        serde_json::from_value(json!({
-            "id": "019a0000000070008000000000000000", "parent": "parent", "prompt": "fix it",
-            "state": "reviewing", "reviewer": {"harness": "review"},
-            "reviewerSessionId": null, "winnerId": null, "reason": null,
-            "createdAt": 1, "updatedAt": 1,
-            "candidates": [
-                {"id": "c1", "target": {"harness": "codex", "model": "sol"}, "state": "completed",
-                 "sessionId": "one", "cwd": "/one", "reply": "done", "error": null, "base": "base", "turnId": "turn-1"},
-                {"id": "c2", "target": {"harness": "codex", "model": "astra"}, "state": "failed",
-                 "sessionId": "two", "cwd": "/two", "reply": null, "error": "failed", "base": "base", "turnId": "turn-2"}
-            ]
-        }))
-        .unwrap()
-    }
-
-    #[test]
-    fn reviewer_must_choose_an_existing_completed_candidate_with_evidence() {
-        let race = race();
-        assert_eq!(verdict(&race, r#"{"winnerId":"c1","reason":"tests passed"}"#).unwrap().0, "c1");
-        for text in [
-            r#"{"winnerId":"c2","reason":"failed"}"#,
-            r#"{"winnerId":"other","reason":"x"}"#,
-            r#"{"winnerId":null,"reason":"none adequate"}"#,
-            r#"{"winnerId":"c1","reason":" "}"#,
-            "winner: c1",
-        ] {
-            assert!(verdict(&race, text).is_err(), "{text}");
-        }
-        assert!(
-            verdict(&race, "```json\n{\"winnerId\":\"c1\",\"reason\":\"checked diff\"}\n```")
-                .is_ok()
-        );
-    }
-
-    #[test]
-    fn statistics_count_completed_races_once_per_model() {
-        let mut race = race();
-        assert_eq!(statistics(&[race.clone()])["models"], json!([]));
-        race.state = "completed".into();
-        race.winner_id = Some("c1".into());
-        let mut duplicate = race.candidates[0].clone();
-        duplicate.id = "c3".into();
-        race.candidates.push(duplicate);
-        let stats = statistics(&[race.clone()]);
-        assert_eq!(
-            stats["models"][0],
-            json!({"harness":"codex","model":"astra","wins":0,"races":1,"winRate":0.0})
-        );
-        assert_eq!(
-            stats["models"][1],
-            json!({"harness":"codex","model":"sol","wins":1,"races":1,"winRate":1.0})
-        );
-        for state in ["cancelled", "failed", "running"] {
-            race.state = state.into();
-            assert_eq!(statistics(&[race.clone()])["models"], json!([]));
-        }
-    }
-
-    #[test]
-    fn a_closed_child_is_terminal_even_when_last_turn_is_from_another_generation() {
-        let old = json!({"status":"completed", "turnId":"old", "reply":"done"});
-        assert_eq!(turn_outcome("completed", Some("old"), Some("new"), false, &old), None);
-        assert_eq!(
-            turn_outcome("completed", Some("old"), Some("new"), true, &old),
-            Some((false, None))
-        );
-        assert_eq!(
-            turn_outcome("failed", Some("new"), Some("new"), false, &old),
-            Some((false, None))
-        );
-        assert_eq!(
-            turn_outcome("completed", Some("new"), Some("new"), false, &old),
-            Some((true, None))
-        );
-    }
-
-    #[test]
-    fn durable_race_round_trip_keeps_ownership_and_distinct_recovery_names() {
-        let race = race();
-        let restored: Race = serde_json::from_value(serde_json::to_value(&race).unwrap()).unwrap();
-        assert_eq!(restored.parent, "parent");
-        assert!(!restored.local); // Old records never gain local authority.
-        assert!(!restored.owner_authorized); // Nor the new worktree authorization.
-        let mut authorized = race.clone();
-        authorized.owner_authorized = true;
-        let resumed: Race =
-            serde_json::from_value(serde_json::to_value(&authorized).unwrap()).unwrap();
-        assert!(resumed.owner_authorized);
-        assert_eq!(resumed.parent, authorized.parent);
-        let names: Vec<_> =
-            ["c1", "c2", "review"].into_iter().map(|c| child_name(&race.id, c)).collect();
-        assert!(names.iter().all(|n| n.len() <= 40));
-        assert_ne!(names[0], names[1]);
-        assert_ne!(names[0], names[2]);
-    }
-
-    #[test]
-    fn cancellation_wins_over_late_terminal_transitions() {
-        let mut cancelled = race();
-        cancelled.state = "cancelled".into();
-        complete_race(&mut cancelled, "c1", "reviewed");
-        assert_eq!(cancelled.state, "cancelled");
-        assert_eq!(cancelled.winner_id, None);
-
-        fail_race(&mut cancelled, "review failed");
-        assert_eq!(cancelled.state, "cancelled");
-        assert_eq!(cancelled.reason, None);
-    }
-
-    #[test]
-    fn restart_resumes_only_unfinished_cancellation_cleanup() {
-        let mut historical = race();
-        historical.state = "cancelled".into();
-        assert!(!race_needs_resume(&historical));
-        historical.cleanup_pending = true;
-        assert!(race_needs_resume(&historical));
-    }
-
-    #[test]
-    fn restart_requires_an_accepted_or_queued_prompt() {
-        assert!(!recovery_prompt_accepted(None, false, &[]));
-        assert!(recovery_prompt_accepted(Some("turn"), false, &[]));
-        assert!(recovery_prompt_accepted(None, true, &[]));
-        let queued = crate::store::EventRecord {
-            seq: 1,
-            at: 0,
-            dir: "mux".into(),
-            kind: "queued".into(),
-            msg: json!({}),
-            host_seq: None,
-        };
-        assert!(recovery_prompt_accepted(None, false, &[queued]));
-    }
-
-    #[tokio::test]
-    async fn recovery_finishes_persisted_verdict_after_reviewer_closed() {
-        let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
-        config.store.mode = crate::config::StoreMode::Memory;
-        let hub = Hub::new(config, Box::new(crate::store::MemoryStore::default()));
-        let parent = hub.insert_test_session(test_meta("parent", "idle", None));
-        let reviewer = hub.insert_test_session(test_meta("reviewer", "closed", Some("parent")));
-        hub.save_meta(&parent);
-        hub.save_meta(&reviewer);
-        let race: Race = serde_json::from_value(json!({
-            "id": "race-recovery",
-            "parent": "parent",
-            "prompt": "fix it",
-            "state": "reviewing",
-            "candidates": [
-                {"id":"c1","target":{"harness":"codex","model":"sol"},"state":"completed"},
-                {"id":"c2","target":{"harness":"codex","model":"astra"},"state":"completed"}
-            ],
-            "reviewer":{"harness":"codex"},
-            "reviewerSessionId":"reviewer",
-            "reviewerTurnId":"review-turn",
-            "winnerId":"c1",
-            "reason":"tests passed",
-            "createdAt":1,
-            "updatedAt":2,
-            "cleanupPending":true
-        }))
-        .unwrap();
-        parent.meta.lock().unwrap().races = Arc::new(vec![race]);
-        hub.save_meta(&parent);
-
-        hub.run_race(&parent, "race-recovery", true).await.unwrap();
-        let done = hub.race_get(&parent, "race-recovery").unwrap();
-        assert_eq!(done.state, "completed");
-        assert_eq!(done.winner_id.as_deref(), Some("c1"));
-        assert_eq!(done.reason.as_deref(), Some("tests passed"));
-        assert!(!done.cleanup_pending);
-        assert!(done.reviewer_cleanup_done);
-        assert_eq!(done.reviewer_session_id.as_deref(), Some("reviewer"));
-        assert_eq!(done.reviewer_turn_id.as_deref(), Some("review-turn"));
-        assert_eq!(done.candidates.iter().filter(|c| c.state == "discarded").count(), 1);
-        let stats = hub.race_stats(&parent);
-        let models = stats["models"].as_array().unwrap();
-        assert_eq!(models.len(), 2);
-        assert!(models.iter().all(|model| model["races"] == 1));
-        assert_eq!(models.iter().filter(|model| model["wins"] == 1).count(), 1);
-        hub.run_race(&parent, "race-recovery", true).await.unwrap();
-        assert_eq!(hub.race_stats(&parent), stats);
-    }
-
-    #[tokio::test]
-    async fn historical_cancelled_race_does_not_close_reopened_child() {
-        let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
-        config.store.mode = crate::config::StoreMode::Memory;
-        let hub = Hub::new(config, Box::new(crate::store::MemoryStore::default()));
-        let parent = hub.insert_test_session(test_meta("parent", "idle", None));
-        let child = hub.insert_test_session(test_meta("cancel-child", "idle", Some("parent")));
-        hub.save_meta(&parent);
-        hub.save_meta(&child);
-        let race: Race = serde_json::from_value(json!({
-            "id":"cancelled-old", "parent":"parent", "prompt":"fix", "state":"cancelled",
-            "candidates":[{"id":"c1","target":{"harness":"codex"},"state":"running","sessionId":"cancel-child"}],
-            "reviewer":{"harness":"codex"}, "winnerId":null, "reason":"cancelled",
-            "createdAt":1,"updatedAt":2,"cleanupPending":false
-        }))
-        .unwrap();
-        parent.meta.lock().unwrap().races = Arc::new(vec![race]);
-        hub.save_meta(&parent);
-        hub.run_race(&parent, "cancelled-old", true).await.unwrap();
-        assert_eq!(child.meta().status, SessionStatus::Idle);
-    }
-}
+#[path = "races_tests.rs"]
+mod tests;
