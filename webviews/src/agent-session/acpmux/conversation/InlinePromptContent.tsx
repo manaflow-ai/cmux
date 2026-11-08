@@ -13,7 +13,7 @@ import {
   hasHugeTypedPart,
   headParts,
 } from "./promptCollapse";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { experimentArm } from "../../../experiments/experiment";
 import { sentPasteJoin } from "./sentPasteJoin.experiment";
 

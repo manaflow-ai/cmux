@@ -220,6 +220,12 @@ export function cancelResize(node: HTMLElement): void {
   animation.cancel();
 }
 
+/// Lets an opened box take its own size again: no held height, no clip.
+function letGo(node: HTMLElement): void {
+  node.style.height = "";
+  clipFold(node, false);
+}
+
 /// Holds `node` shut (height and opacity 0, its body clipped), or with `undefined`, lets it take its
 /// own size again.
 function pin(node: HTMLElement, value: 0 | undefined): void {
@@ -274,7 +280,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
       if (running.current && foldMs(node) <= 0) {
         // Cancel removes Web Animation effects immediately, while its cancel event may be queued.
         // Settle the layout synchronously first so a closing body cannot flash back to natural height.
-        if (opening) clipFold(node, false);
+        if (opening) letGo(node);
         else {
           pin(node, 0);
           setClosing(false);
@@ -328,12 +334,19 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
     cancelRunning();
     const toHeight = open ? node.scrollHeight : 0;
     clipFold(node, true);
+    // The box holds its start height under the motion: a new animation is pending until a frame
+    // starts it, and a frame that painted before it applied drew the body at its full height for one
+    // frame, the whole list flashing open before it slid (Leo, 2026-11-08, on the composer hat:
+    // "sometimes ... there's, like, some elements in between"). It lets go when the fold ends.
+    node.style.height = `${fromHeight}px`;
     const animation = node.animate(
       [
         { height: `${fromHeight}px`, opacity: fromOpacity },
         { height: `${toHeight}px`, opacity: open ? 1 : 0 },
       ],
-      { duration: ms, easing: foldMotion.easing(node) },
+      // It holds its end until it lets go (`settled`), so the frame it ends on never draws the held
+      // start height.
+      { duration: ms, easing: foldMotion.easing(node), fill: "forwards" },
     );
     running.current = animation;
     watchMotion(node, open);
@@ -351,13 +364,14 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
         if (!playing || next <= target + 0.5 || now >= until) return;
         target = next;
         const drawn = node.getBoundingClientRect().height;
+        node.style.height = `${drawn}px`;
         const opacity = Number(styleOf(node)?.opacity ?? 1) || 0;
         const rest = node.animate(
           [
             { height: `${drawn}px`, opacity },
             { height: `${next}px`, opacity: 1 },
           ],
-          { duration: until - now, easing: foldMotion.easing(node) },
+          { duration: until - now, easing: foldMotion.easing(node), fill: "forwards" },
         );
         playing.onfinish = null;
         playing.oncancel = null;
@@ -369,7 +383,8 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
           settling.delete(node);
           stopWatching();
           unwatchMotion();
-          clipFold(node, false);
+          letGo(node);
+          rest.cancel();
         };
         rest.onfinish = settledRest;
         rest.oncancel = settledRest;
@@ -384,12 +399,14 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
       running.current = undefined;
       settling.delete(node);
       if (open) {
-        clipFold(node, false);
+        letGo(node);
+        animation.cancel();
         return;
       }
       // The animation lets go of the box as it ends, and React removes the body only on its next
       // commit, after that frame paints: pinned shut until then, the body never flashes open.
       pin(node, 0);
+      animation.cancel();
       setClosing(false);
     };
     animation.onfinish = settled;
@@ -406,7 +423,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
       stopWatching();
       unwatchMotion();
       playing.cancel();
-      if (open) clipFold(node, false);
+      if (open) letGo(node);
       else {
         pin(node, 0);
         setClosing(false);

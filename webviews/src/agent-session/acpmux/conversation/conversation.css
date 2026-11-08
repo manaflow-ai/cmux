@@ -5185,6 +5185,7 @@ a.cv-sha:focus-visible {
   margin-top: calc((18px - var(--grid-icon-box)) / 2);
 }
 .cv-turn-error__actions {
+  --cv-fold-duration: var(--cmux-motion-micro);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -5225,7 +5226,7 @@ a.cv-sha:focus-visible {
   opacity: 0.6;
 }
 /* A Cloud chat's sign-in on its machine (CloudSignIn.tsx): a step takes its own line in the card's
-   actions, with no animation on open; only its controls highlight. */
+   actions. Controls change immediately; the action row resizes over the shared micro duration. */
 .cv-turn-signin {
   display: flex;
   flex-direction: column;
@@ -5987,9 +5988,16 @@ a.cv-sha:focus-visible {
     color-mix(in srgb, var(--agent-text) 6%, transparent)
   );
 }
-.acpmux-jump-latest:focus-visible {
-  outline: 2px solid var(--agent-accent);
-  outline-offset: 2px;
+/* Keyboard focus: the pane's focus pill (agent-session/shared/styles.css) laid over the glass, with
+   the glass's rim and shadow kept. The button opts out of the shared rule (data-focus-ring="none"),
+   whose `box-shadow: none` stripped the rim, so the focused disc read as a flat blot with no ring
+   (#38090's capture after #38126). The Needs you pill keeps the shared rule. */
+.acpmux-jump-latest[data-focus-ring="none"]:focus-visible {
+  outline: none;
+  background-image: linear-gradient(
+    var(--acpmux-focus-pill, var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent))),
+    var(--acpmux-focus-pill, var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent)))
+  );
 }
 .acpmux-inspecting > .acpmux-jump-latest {
   visibility: hidden;
@@ -7089,4 +7097,15 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
    "verbs-command"): what ran, under what it did. */
 .cv-command__dim {
   color: var(--cv-text-dim);
+}
+
+/* Where a prompt was sent from (SentFromLine.tsx): the sender chip, then "self-reported" when acpmux
+   could not confirm it. */
+.cv-user__sent-from {
+  align-items: center;
+  min-width: 0;
+}
+.cv-user__sent-from-note {
+  color: var(--agent-muted);
+  white-space: nowrap;
 }

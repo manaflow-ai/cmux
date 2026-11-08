@@ -359,7 +359,9 @@ html[data-cmux-page="github"],
   border: 1px solid var(--page-text-3);
   border-radius: 4px;
 }
-.gh-md li[data-task=done] > .gh-md-task { border-color: var(--cmux-accent); background: var(--cmux-accent); }
+/* Only the item's own box: a box straight in the item, or in its paragraph (a loose list), never a subtask's. */
+.gh-md li[data-task=done] > .gh-md-task,
+.gh-md li[data-task=done] > p > .gh-md-task { border-color: var(--cmux-accent); background: var(--cmux-accent); }
 .gh-md li > p { margin: 0; }
 .gh-md blockquote { padding-inline-start: var(--ds-space-3); border-inline-start: 2px solid var(--page-separator); color: var(--page-text-2); }
 .gh-md code { padding: 0 var(--ds-space-1); border-radius: 4px; background: var(--page-hover); font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--text-caption); }
@@ -374,6 +376,25 @@ html[data-cmux-page="github"],
 .gh-md td { padding: var(--ds-space-1) var(--ds-space-2); border: 1px solid var(--page-separator); overflow-wrap: break-word; }
 .gh-md-link { color: var(--cmux-accent); text-decoration: none; cursor: default; }
 .gh-md-link:hover { text-decoration: underline; }
+/* GitHub's own rendering (githubHTML.tsx): a badge or screenshot keeps its size up to the column;
+   <details> folds, its summary a quiet line the person clicks; <sup> and <sub> leave the line's
+   height alone. */
+.gh-md-img { max-width: 100%; height: auto; vertical-align: middle; }
+.gh-md details { margin: var(--ds-space-2) 0; }
+.gh-md summary { color: var(--page-text-2); cursor: default; }
+.gh-md summary > :is(p, h3, h4, h5, h6) { display: inline; }
+.gh-md details[open] > summary { margin-bottom: var(--ds-space-1); }
+.gh-md dl { margin: var(--ds-space-2) 0; }
+.gh-md dt { font-weight: 600; }
+.gh-md dd { margin: 0 0 0 var(--ds-space-4); }
+.gh-md :is(sup, sub) { line-height: 0; }
+.gh-md kbd {
+  padding: 0 var(--ds-space-1);
+  border: 1px solid var(--page-separator);
+  border-radius: 4px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-caption);
+}
 .gh-md-html { color: var(--page-text-3); font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--text-caption); white-space: pre-wrap; }
 
 /* The CI dashboard (ChecksDashboard.tsx). On top it spans the page under the header; in the rail

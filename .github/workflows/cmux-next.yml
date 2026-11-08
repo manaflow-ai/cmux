@@ -1503,8 +1503,9 @@ jobs:
           # the cascade (GATEWAY_CASCADE) like swift-canary already does.
           GATEWAY_LABEL: ${{ vars.CI_COMPILE_CHECK_GATEWAY }}
           # The cascade jobs with a build-fleet client job (<job>-fleet, which runs only the cmux-ci client on
-          # gateway_runner): with every macOS label full or dead they are listed in fleet_jobs instead of
-          # waiting, and the job itself only reports its client's verdict. A job joins only with its client
+          # gateway_runner): with every macOS label full or dead, or when a Blacksmith macOS label took them
+          # (a cold build there ran the fast tier out of its 20 minutes, cmux#38130), they are listed in
+          # fleet_jobs instead, and the job itself only reports its client's verdict. A job joins only with its client
           # (GatewayRunsOnlyTheFleetClient). A listed job's client needs an idle gateway runner of its own
           # beyond GATEWAY_JOBS', or placement lists nothing (side_lane_placement.fleet_gateway()). swift-test
           # and daemon-test are not cascade jobs, so placement never lists them; daemon-test also needs the
@@ -3020,7 +3021,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # The fast tier as a thin build-fleet client, for when every owned and
-  # Blacksmith macOS label it could take is full or dead: macos-placement then
+  # Blacksmith macOS label it could take is full or dead, or only a Blacksmith
+  # macOS label (a cold build) took it: macos-placement then
   # lists it in fleet_jobs (next_macos_cascade.place(), FLEET_CLIENT_JOBS) and
   # this job hands the swift entries of scripts/cmux-next/fast-tier.json to the
   # fleet (`cmux-ci run` of package-test-lane.sh's suite mode, one step per
@@ -3196,7 +3198,7 @@ jobs:
     # it never bypasses Blacksmith outage/nightly exclusions or skips tests.
     # fast-tier-fleet replaces that deferred case when placement lists the tier for the fleet.
     # When fast-tier-fleet ran (macos-placement found every macOS label it could take full or
-    # dead), this job keeps its check name and exit code but runs on fleet Linux (vars.LINUX_RUNNER
+    # dead, or only a Blacksmith macOS label took the tier), this job keeps its check name and exit code but runs on fleet Linux (vars.LINUX_RUNNER
     # when it names our own runner, as portable-placement does), else a 2 vCPU Blacksmith Linux runner, and
     # only reports that job's verdict: every other step is off (CMUX_FAST_TIER_FLEET, or it reads a
     # step that is). fast_runner is empty then: placement lists only a tier no idle runner took.

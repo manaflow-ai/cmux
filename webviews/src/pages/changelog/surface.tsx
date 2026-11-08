@@ -88,6 +88,7 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
   // preview asks for above the card's slot (reported with the card's height).
   let hostPointer: boolean | undefined;
   let overlay = 0;
+  let glass = 0;
   // The card's drag (updatedCardDrag.ts): the host says where the card rests and moves its view.
   let place: CardPlace | undefined;
   const drop = (row: CardRow, offset: { x: number; y: number }) =>
@@ -101,6 +102,11 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
   const previewSize = (height: number) => {
     if (height === overlay) return;
     overlay = height;
+    report();
+  };
+  const previewGlass = (height: number) => {
+    if (height === glass) return;
+    glass = height;
     report();
   };
   const render = (data: UpdateHighlights | null) => {
@@ -123,6 +129,7 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
               glass={false}
               hostPointer={hostPointer}
               onPreviewSize={previewSize}
+              onPreviewGlass={previewGlass}
               anchor={place?.anchor}
               drag={place ? drag : undefined}
             />
@@ -147,13 +154,16 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
     if (!settled()) return;
     if (kind === "updated") {
       // The card's own height, without its hover preview (the slot keeps the card's room while the
-      // preview opens over the list), and the room the open preview asks for (`overlay`, 0 closed).
-      const preview = root.querySelector<HTMLElement>(".wn-preview")?.getBoundingClientRect().height ?? 0;
-      const height = Math.ceil(root.getBoundingClientRect().height - preview);
-      const key = `${height}x0x${overlay}`;
+      // preview opens over the list), the room the open preview asks for (`overlay`, 0 closed), and
+      // the preview's height once open (`preview`, 0 closing), the host's glass behind the page.
+      // Rounded, not ceiled: mid-motion the preview's height is fractional, and a ceiled difference
+      // read one pixel over the card's (49 for 48), so the slot grew a pixel and moved the list.
+      const open = root.querySelector<HTMLElement>(".wn-preview")?.getBoundingClientRect().height ?? 0;
+      const height = Math.round(root.getBoundingClientRect().height - open);
+      const key = `${height}x0x${overlay}x${glass}`;
       if (key === reported) return;
       reported = key;
-      call(SurfaceOps.size, { height, width: 0, overlay });
+      call(SurfaceOps.size, { height, width: 0, overlay, preview: glass });
       return;
     }
     const card = root.querySelector<HTMLElement>(`[${CARD_SCROLL_ATTRIBUTE}]`);
