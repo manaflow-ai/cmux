@@ -7,8 +7,9 @@ GitHub release, P = R. Splitting the run at the unsigned app makes P = max(B, S)
 
 - a push run (decide = pipeline) keeps the push group only through the unsigned-app build, then
   dispatch-nightly-next-sign dispatches the existing unsigned resume (nightly_next_unsigned_run/attempt) with
-  nightly_next_sign_stage set. The push run skips prepare, sign, verify, recovery, the tree-marker wait and
-  publish, so its group frees as soon as the build's artifacts are up.
+  nightly_next_sign_stage set. The push run skips prepare, sign, verify, recovery, the tree-marker wait,
+  publish, the webview checks and the daemon attestation (the sign run runs both) and the Sentry dSYM upload
+  (the tail runs it), so its group frees as soon as the build's artifacts are up and the sign run is dispatched.
 - that sign run takes its own workflow-level group (nightly-build-nightly-next-sign, cancel-in-progress false):
   one sign run at a time, and GitHub replaces a pending one with a newer dispatch, so nothing started is
   cancelled and the newest build signs next.
