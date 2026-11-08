@@ -738,6 +738,15 @@ and footer Search share; with the chooser segment shown the pair keeps the row's
 `chrome.topRowLine`: `lights` (default), `tabs`, `titlebar`, `off`. Regression: `TopRowAlignmentTests`,
 `TopRowSidebarColumnTests`; live lines: `debug.top_alignment`, tours `top-alignment`, `top-alignment-cozy` and `top-alignment-spacious` (one tour holds 30 steps).
 
+## New Workspace's + is the tab row's + (2026-11-07)
+
+Leo 2026-11-07, on the tab row's + beside the sidebar's: "decrease the size of the tab area plus button, or increase
+the size of the new workspace area button? Or I guess, like, probably do something in the middle". The sidebar's
+New Workspace drew the pack's `action.add` in a 14 pt box (an 8 pt + at 0.9 pt) and the tab row's + was 10 pt at
+1.4 pt. Both now draw the one + of `Metrics.addGlyphExtent` (9 pt at Compact) and `addGlyphLineWidth`
+(`SidebarIconButton.drawsAddGlyph`, `NSImage.addGlyph`); the button's frame and hover fill are unchanged, and the
+chooser's chevron keeps its smaller menu-indicator size. Regression: `TabHoverCardProportionsTests`.
+
 ## The notice card's rows share one leading edge and show whole (2026-11-05)
 
 Leo 2026-11-05, on the first-run "Help Make cmux Faster?" hang-reports card: "why is the text under it? Also giving
