@@ -41,8 +41,8 @@ public final class SidebarApprovals {
         self.init(answerer: environment.map { AcpmuxApprovalAnswerer(environment: $0) as any AgentApprovalAnswering })
     }
 
-    /// The sessions with buttons now.
-    var answerable: Set<String> { Set(approvals.keys) }
+    /// The sessions with buttons now, each with the id of the request they answer.
+    var answerable: [String: String] { approvals.mapValues(\.permission) }
 
     /// The chats of this Mac's acpmux (`store`) waiting for the person, while a sidebar surface that
     /// answers is on. Reads the store's waiting index, never every lane; the whole-map read only
@@ -95,11 +95,14 @@ public final class SidebarApprovals {
         }
     }
 
-    /// A row's Allow (once) or Deny. The buttons go at once; answered, the chat's next prompt (if
-    /// any) is read while it still waits. Not answered (the prompt ended or changed, no proof), the
-    /// row keeps no buttons and still opens the chat.
-    func answer(session: String, allow: Bool) {
-        guard let approval = approvals.removeValue(forKey: session), let answerer else { return }
+    /// A row's Allow (once) or Deny of `request`, the request its buttons showed. Only while that is
+    /// still the chat's prompt here: a press that began on an earlier request answers nothing. The
+    /// buttons go at once; answered, the chat's next prompt (if any) is read while it still waits.
+    /// Not answered (the prompt ended or changed, no proof), the row keeps no buttons and still opens
+    /// the chat.
+    func answer(session: String, request: String, allow: Bool) {
+        guard approvals[session]?.permission == request, let approval = approvals.removeValue(forKey: session),
+              let answerer else { return }
         // task-owner: SidebarApprovals.answer: one answer per press.
         Task { [weak self] in
             let answered = await answerer.answer(approval, allow: allow)
@@ -113,13 +116,16 @@ public final class SidebarApprovals {
     /// (``SidebarSessionTreeFeed/workspaces(showing:)``).
     func followTray(_ view: SidebarView,
                     locate: @escaping @MainActor (Set<String>) -> [SidebarWorkspaceID: String]) -> Task<Void, Never> {
-        view.onAnswer = { [weak self] workspace, allow in
-            guard let self, let session = locate(self.answerable)[workspace] else { return }
-            self.answer(session: session, allow: allow)
+        view.onAnswer = { [weak self] workspace, request, allow in
+            guard let self, let session = locate(Set(self.answerable.keys))[workspace] else { return }
+            self.answer(session: session, request: request, allow: allow)
         }
         // task-owner: the window's sidebar bridge (cancelled with the Priority feed); event-driven (Observation)
         return Task { [weak self, weak view] in
-            for await shown in ObservationStream({ Set(locate(self?.answerable ?? []).keys) }) {
+            for await shown in ObservationStream({ () -> [SidebarWorkspaceID: String] in
+                let answerable = self?.answerable ?? [:]
+                return locate(Set(answerable.keys)).compactMapValues { answerable[$0] }
+            }) {
                 view?.showAnswerable(shown)
             }
         }

@@ -113,10 +113,10 @@ public final class SidebarPriorityFeed {
         let visible = Set(built.lanes.filter {
             !$0.sidebarRequiresOpen || opened.contains($0.id) || state.pinned.contains($0.id)
         }.map(\.id))
-        let answerable = approvals?.answerable ?? []
+        let answerable = approvals?.answerable ?? [:]
         let entries = chats.entries(built, now: Date()).filter { visible.contains($0.id) }.map { entry in
             var entry = entry
-            entry.answerable = entry.state == .needsYou && answerable.contains(entry.id)
+            entry.answerRequest = entry.state == .needsYou ? answerable[entry.id] : nil
             return entry
         }
         return SidebarPriorityPanel(entries: shown ? entries : entries.filter(\.needsAttention), shown: shown,
@@ -129,7 +129,7 @@ public final class SidebarPriorityFeed {
         switch action {
         case .open(let id): if let lane = chats.lane(id) { hooks.open(lane) }
         case .markRead, .togglePin, .snooze, .archive: hooks.rowAction(action)
-        case .answer(let id, let allow): approvals?.answer(session: id, allow: allow)
+        case .answer(let id, let request, let allow): approvals?.answer(session: id, request: request, allow: allow)
         case .setCollapsed(let collapsed): marks.setCollapsed(collapsed)
         case .place(let id, let order): marks.place(id, in: order)
         case .toggleShown: hooks.toggleShown()

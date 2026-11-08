@@ -65,7 +65,7 @@ import Testing
         approvals.sync(wait)
         #expect(answerer.lookups == ["s1"], "a lane event on the same wait reads nothing again")
 
-        approvals.answer(session: "s1", allow: true)
+        approvals.answer(session: "s1", request: "perm-s1", allow: true)
         #expect(approvals.approvals["s1"] == nil, "the buttons go at once: a second press answers nothing")
         await settle { answerer.lookups.count == 2 }
         #expect(answerer.answered.map(\.allow) == [true])
@@ -84,7 +84,7 @@ import Testing
         let approvals = SidebarApprovals(answerer: answerer)
         approvals.sync(["s1": SidebarApprovals.Wait(since: nil, step: "Bash")])
         await settle { approvals.approvals["s1"] != nil }
-        approvals.answer(session: "s1", allow: false)
+        approvals.answer(session: "s1", request: "perm-s1", allow: false)
         await settle { !answerer.answered.isEmpty }
         for _ in 0..<20 { await Task.yield() }
         #expect(answerer.answered.map(\.allow) == [false])
@@ -119,15 +119,15 @@ import Testing
         await settle { approvals.approvals.count == 2 }
         let entries = try #require(feed.panel()?.entries)
         #expect(Set(entries.filter(\.answerable).map(\.id)) == ["s1"], "only a row that waits on the person answers")
-        feed.perform(.answer("s1", allow: false))
+        feed.perform(.answer("s1", request: "perm-s1", allow: false))
         await settle { !answerer.answered.isEmpty }
         #expect(answerer.answered.map(\.approval.session) == ["s1"])
         #expect(answerer.answered.map(\.allow) == [false])
-        #expect(SidebarPriorityRowActions.route(.answer("s1", allow: true)) == nil, "an answer is no registered row action")
+        #expect(SidebarPriorityRowActions.route(.answer("s1", request: "perm-s1", allow: true)) == nil, "an answer is no registered row action")
     }
 
     @Test func aPriorityRowsButtonsAndKeysAnswer() throws {
-        let entry = SidebarPriorityEntry(id: "s1", title: "Fix login", preview: "Run tests?", state: .needsYou, answerable: true)
+        let entry = SidebarPriorityEntry(id: "s1", title: "Fix login", preview: "Run tests?", state: .needsYou, answerRequest: "perm-s1")
         let row = SidebarPriorityRowView(entry: entry)
         var actions: [SidebarPriorityAction] = []
         row.onAction = { actions.append($0) }
@@ -139,11 +139,13 @@ import Testing
         row.keyDown(with: try Self.key("y"))
         row.keyDown(with: try Self.key("n"))
         row.keyDown(with: try Self.key("y", modifiers: .command))
-        #expect(actions == [.answer("s1", allow: true), .answer("s1", allow: false),
-                            .answer("s1", allow: true), .answer("s1", allow: false)])
+        row.keyDown(with: try Self.key("y", repeating: true))
+        let allow = SidebarPriorityAction.answer("s1", request: "perm-s1", allow: true)
+        let deny = SidebarPriorityAction.answer("s1", request: "perm-s1", allow: false)
+        #expect(actions == [allow, deny, allow, deny], "a held y's repeats answer nothing")
 
         var plain = entry
-        plain.answerable = false
+        plain.answerRequest = nil
         row.configure(plain)
         #expect(row.answers.isHidden)
         actions = []
@@ -157,19 +159,33 @@ import Testing
         needsYou.items = [SidebarNeedsYouItem(id: WorkspaceID("ws-1"), title: "Fix login", path: [], reason: .waiting, kind: .permission),
                           SidebarNeedsYouItem(id: WorkspaceID("ws-2"), title: "Docs", path: [], reason: .waiting, kind: .question)]
         tray.show(needsYou)
-        tray.setAnswerable([WorkspaceID("ws-1")])
-        var answers: [(WorkspaceID, Bool)] = []
-        tray.onAnswer = { answers.append(($0, $1)) }
+        tray.setAnswerable([WorkspaceID("ws-1"): "perm-1"])
+        var answers: [(WorkspaceID, String, Bool)] = []
+        tray.onAnswer = { answers.append(($0, $1, $2)) }
         #expect(!tray.rows[0].answers.isHidden)
         #expect(tray.rows[1].answers.isHidden, "a question is answered in its chat")
         #expect(tray.rows[0].acceptsFirstResponder)
         #expect(!tray.rows[1].acceptsFirstResponder)
         #expect(tray.rows[0].answers.deny.accessibilityPerformPress())
         tray.rows[0].keyDown(with: try Self.key("y"))
+        tray.rows[0].keyDown(with: try Self.key("y", repeating: true))
         #expect(answers.map(\.0) == [WorkspaceID("ws-1"), WorkspaceID("ws-1")])
-        #expect(answers.map(\.1) == [false, true])
+        #expect(answers.map(\.1) == ["perm-1", "perm-1"])
+        #expect(answers.map(\.2) == [false, true], "a held y's repeats answer nothing")
 
-        tray.setAnswerable([])
+        // The slot shows another chat, or the same chat's next request: its buttons answer that one.
+        let first = tray.rows[0].answers.target
+        tray.setAnswerable([WorkspaceID("ws-1"): "perm-2"])
+        #expect(tray.rows[0].answers.target != first)
+        needsYou.items.removeFirst()
+        needsYou.items.insert(SidebarNeedsYouItem(id: WorkspaceID("ws-3"), title: "Deploy", path: [], reason: .waiting,
+                                                  kind: .permission), at: 0)
+        tray.setAnswerable([WorkspaceID("ws-1"): "perm-2", WorkspaceID("ws-3"): "perm-3"])
+        let second = tray.rows[0].answers.target
+        tray.show(needsYou)
+        #expect(tray.rows[0].answers.target != second)
+
+        tray.setAnswerable([:])
         #expect(tray.rows[0].answers.isHidden)
         #expect(!tray.rows[0].acceptsFirstResponder)
     }
@@ -180,11 +196,48 @@ import Testing
         #expect(SidebarAnswerKey(characters: "y", modifiers: .command) == nil)
         #expect(SidebarAnswerKey(characters: "n", modifiers: .option) == nil)
         #expect(SidebarAnswerKey(characters: "a", modifiers: []) == nil)
+        #expect(SidebarAnswerKey(characters: "y", modifiers: [], repeating: true) == nil,
+                "holding y never answers the next prompt to arrive")
     }
 
-    static func key(_ character: String, modifiers: NSEvent.ModifierFlags = []) throws -> NSEvent {
+    @Test func aPressAnswersOnlyTheRequestItBeganOn() throws {
+        let answers = SidebarAnswerButtons(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        answers.layout()
+        var pressed: [Bool] = []
+        answers.onAnswer = { pressed.append($0) }
+        let button = answers.allow
+        let point = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
+        answers.target = "s1\u{1F}perm-1"
+        button.mouseDown(with: try Self.mouse(.leftMouseDown, at: point))
+        button.mouseUp(with: try Self.mouse(.leftMouseUp, at: point))
+        #expect(pressed == [true], "a press and release on one request answers it")
+
+        button.mouseDown(with: try Self.mouse(.leftMouseDown, at: point))
+        answers.target = "s1\u{1F}perm-2"
+        button.mouseUp(with: try Self.mouse(.leftMouseUp, at: point))
+        #expect(pressed == [true], "the request changed under the press: its release answers nothing")
+    }
+
+    @Test func anAnswerForAnEndedRequestAnswersNothing() async {
+        let answerer = Answerer()
+        answerer.pending = ["s1": Self.approval("s1")]
+        let approvals = SidebarApprovals(answerer: answerer)
+        approvals.sync(["s1": SidebarApprovals.Wait(since: nil, step: nil)])
+        await settle { approvals.approvals["s1"] != nil }
+        approvals.answer(session: "s1", request: "perm-earlier", allow: true)
+        for _ in 0..<20 { await Task.yield() }
+        #expect(answerer.answered.isEmpty, "a press that began on an earlier request never answers the next one")
+        #expect(approvals.approvals["s1"] == Self.approval("s1"), "the row keeps its buttons for the request it shows")
+    }
+
+    static func mouse(_ type: NSEvent.EventType, at point: NSPoint) throws -> NSEvent {
+        try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                        context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+    }
+
+    static func key(_ character: String, modifiers: NSEvent.ModifierFlags = [], repeating: Bool = false) throws -> NSEvent {
         try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0, windowNumber: 0,
                                       context: nil, characters: character, charactersIgnoringModifiers: character,
-                                      isARepeat: false, keyCode: character == "y" ? 16 : 45))
+                                      isARepeat: repeating, keyCode: character == "y" ? 16 : 45))
     }
 }

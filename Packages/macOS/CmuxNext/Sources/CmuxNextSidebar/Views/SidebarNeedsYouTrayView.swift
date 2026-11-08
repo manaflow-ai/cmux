@@ -12,11 +12,12 @@ final class SidebarNeedsYouTrayView: NSView {
     static let shownItems = 3
     /// Goes to a session: an item, or the first finished unread one.
     var onOpen: ((WorkspaceID) -> Void)?
-    /// Answers a waiting item's pending tool permission: allow once (true) or deny.
-    var onAnswer: ((WorkspaceID, Bool) -> Void)?
+    /// Answers a waiting item's pending tool permission (by its request id): allow once (true) or deny.
+    var onAnswer: ((WorkspaceID, String, Bool) -> Void)?
     private(set) var tray = SidebarNeedsYou()
-    /// The workspaces whose waiting session the App can answer from here (``SidebarView/showAnswerable(_:)``).
-    private(set) var answerable: Set<WorkspaceID> = []
+    /// The workspaces whose waiting session the App can answer from here, each with its pending
+    /// request's id (``SidebarView/showAnswerable(_:)``).
+    private(set) var answerable: [WorkspaceID: String] = [:]
     private let header = SidebarRowView.label(font: SidebarStyle.headerFont)
     private let count = SidebarRowView.label(font: SidebarStyle.badgeFont)
     private let countFill = CALayer()
@@ -53,7 +54,7 @@ final class SidebarNeedsYouTrayView: NSView {
     }
 
     /// Which items get Allow and Deny; only the shown items' rows change.
-    func setAnswerable(_ answerable: Set<WorkspaceID>) {
+    func setAnswerable(_ answerable: [WorkspaceID: String]) {
         guard answerable != self.answerable else { return }
         self.answerable = answerable
         configureAnswers()
@@ -93,11 +94,14 @@ final class SidebarNeedsYouTrayView: NSView {
     private func configureAnswers() {
         for (n, row) in rows.enumerated() {
             let item = n < tray.items.count ? tray.items[n] : nil
-            guard let item, item.reason == .waiting, answerable.contains(item.id) else {
+            guard let item, item.reason == .waiting, let request = answerable[item.id] else {
+                row.answers.target = nil
                 row.onAnswer = nil
                 continue
             }
-            row.onAnswer = { [weak self] allow in self?.onAnswer?(item.id, allow) }
+            // A press answers the request it began on, never the next one in this slot.
+            row.answers.target = "\(item.id)\u{1F}\(request)"
+            row.onAnswer = { [weak self] allow in self?.onAnswer?(item.id, request, allow) }
         }
     }
 

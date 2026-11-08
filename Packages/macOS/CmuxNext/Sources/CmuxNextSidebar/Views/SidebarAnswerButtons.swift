@@ -8,6 +8,11 @@ import CmuxNextDesign
 final class SidebarAnswerButtons: NSView {
     /// Allow (true) or Deny (false) pressed.
     var onAnswer: ((Bool) -> Void)?
+    /// The prompt the buttons answer (its chat and request). A press answers only the prompt it began
+    /// on: a new target (the prompt ended, the slot shows another chat) drops a press in flight.
+    var target: String? {
+        didSet { if target != oldValue { allow.cancelPress(); deny.cancelPress() } }
+    }
     let allow = SidebarAnswerButton(title: Strings.answerAllow, key: "Y", label: Strings.answerAllowLabel, prominent: true)
     let deny = SidebarAnswerButton(title: Strings.answerDeny, key: "N", label: Strings.answerDenyLabel, prominent: false)
 
@@ -95,9 +100,17 @@ final class SidebarAnswerButton: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        guard pressing else { return }
         pressing = false
         needsDisplay = true
         if bounds.contains(convert(event.locationInWindow, from: nil)) { onPress?() }
+    }
+
+    /// Drops a press in flight: its release answers nothing.
+    func cancelPress() {
+        guard pressing else { return }
+        pressing = false
+        needsDisplay = true
     }
 
     override func layout() {

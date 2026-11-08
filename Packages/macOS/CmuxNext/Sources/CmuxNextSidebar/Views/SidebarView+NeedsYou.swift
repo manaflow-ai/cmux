@@ -26,13 +26,14 @@ extension SidebarView {
     }
 
     /// The workspaces whose waiting session's one pending tool permission the App can answer: their
-    /// tray items get Allow and Deny, and y and n while focused. The App reads them (cmuxterm-hq#7794).
-    public func showAnswerable(_ workspaces: Set<WorkspaceID>) {
+    /// tray items get Allow and Deny, and y and n while focused, for that request (its id) only. The App
+    /// reads them (cmuxterm-hq#7794).
+    public func showAnswerable(_ workspaces: [WorkspaceID: String]) {
         needsYouTray.setAnswerable(workspaces)
     }
 
-    /// A tray item's Allow (true) or Deny. Nil drops them.
-    public var onAnswer: ((WorkspaceID, Bool) -> Void)? {
+    /// A tray item's Allow (true) or Deny of the request (its id) the item showed. Nil drops them.
+    public var onAnswer: ((WorkspaceID, String, Bool) -> Void)? {
         get { needsYouTray.onAnswer }
         set { needsYouTray.onAnswer = newValue }
     }
