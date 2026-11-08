@@ -461,3 +461,32 @@ fn only_a_saved_verdict_or_cancel_with_cleanup_left_is_retried() {
     assert!(!cleanup_unfinished(&no_winner), "no verdict saved: nothing to finish");
     assert!(!CLEANUP_RETRY_DELAYS.is_empty() && CLEANUP_RETRY_DELAYS.len() <= 5);
 }
+
+/// Review of #38759: a cancel that came while the verdict's cleanup ran, and whose own cleanup
+/// failed, is finished by that verdict cleanup instead of ending `Ok` with cleanup pending.
+#[tokio::test]
+async fn a_cancel_during_verdict_cleanup_is_finished_by_it() {
+    let hub = memory_hub();
+    let parent = hub.insert_test_session(test_meta("parent", "idle", None));
+    let child = hub.insert_test_session(test_meta("loser", "idle", Some("parent")));
+    hub.save_meta(&parent);
+    hub.save_meta(&child);
+    let race: Race = serde_json::from_value(json!({
+        "id": "cancelled-mid-cleanup", "parent": "parent", "prompt": "fix", "state": "cancelled",
+        "candidates": [
+            {"id": "c1", "target": {"harness": "codex"}, "state": "completed", "sessionId": "gone"},
+            {"id": "c2", "target": {"harness": "codex"}, "state": "completed", "sessionId": "loser"}
+        ],
+        "reviewer": {"harness": "codex"}, "winnerId": "c1",
+        "reason": "Cancelled; worktrees retained for recovery",
+        "createdAt": 1, "updatedAt": 2, "cleanupPending": true
+    }))
+    .unwrap();
+    parent.meta.lock().unwrap().races = Arc::new(vec![race]);
+    hub.finish_review_cleanup(&parent, "cancelled-mid-cleanup").await.unwrap();
+    let done = hub.race_get(&parent, "cancelled-mid-cleanup").unwrap();
+    assert_eq!(done.state, "cancelled");
+    assert!(!done.cleanup_pending, "the cancel's cleanup finished");
+    assert!(!cleanup_unfinished(&done));
+    assert_eq!(child.meta().status, SessionStatus::Closed, "its child was stopped");
+}

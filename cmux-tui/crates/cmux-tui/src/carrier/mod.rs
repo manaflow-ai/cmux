@@ -83,10 +83,21 @@
 //! flags and environment and serves the same stream on a Unix socket: one
 //! session per machine, dialed by the first accepted connection, and a mux
 //! control stream on it for each connection ([`serve`]).
+//!
+//! `cmux carrier capabilities [--json]` prints one JSON object on stdout and
+//! exits 0: the routes this build can carry a Cloud session over
+//! (`routes`), the faults a probe can inject (`faults`), and per carrier
+//! (`carriers.relay`, `carriers.ssh`) whether it is available (with a
+//! `reason` when not), can be probed, and which faults it takes
+//! ([`fault::capabilities`]). It needs no network, sign-in or app. The probe
+//! account's fault switch, `cmux cloud start-chat --carrier-fault`, is
+//! [`fault`]'s.
 
 mod answer;
 mod client;
 mod contract;
+pub(crate) mod drill;
+pub(crate) mod fault;
 mod held;
 mod noise_key;
 mod route_log;
@@ -310,10 +321,16 @@ async fn open_desktop(
     {
         Ok(Ok(stream)) => Ok(stream),
         Ok(Err(BridgeError::Rejected(why))) => Err(Failure::fatal(contract::Step::Service, why)),
-        Ok(Err(error)) => Err(Failure::fatal(
-            contract::Step::Relay,
-            format!("the session ended before the desktop opened: {error}"),
-        )),
+        Ok(Err(error)) => {
+            let detail = format!("the session ended before the desktop opened: {error}");
+            // The session host restarted after the session's first stream
+            // opened and no longer has it: the dial opens a fresh one.
+            Err(if multiplexer.session_unavailable() {
+                Failure::session_gone(contract::Step::Relay, detail)
+            } else {
+                Failure::fatal(contract::Step::Relay, detail)
+            })
+        }
         Err(_) => Err(Failure::fatal(
             contract::Step::Relay,
             "the desktop did not open before the deadline",
@@ -375,6 +392,27 @@ fn key(args: &[String]) -> i32 {
     }
 }
 
+/// `capabilities` or `capabilities --json`, exactly (the answer is JSON either way).
+pub(crate) fn parse_capabilities(args: &[String]) -> bool {
+    match args {
+        [verb] => verb == "capabilities",
+        [verb, flag] => verb == "capabilities" && flag == "--json",
+        _ => false,
+    }
+}
+
+/// `cmux carrier capabilities [--json]`: this build's carriers on stdout.
+fn capabilities(args: &[String]) -> i32 {
+    if !parse_capabilities(args) {
+        return usage("usage: cmux carrier capabilities [--json]");
+    }
+    let line = format!("{}\n", fault::capabilities(&fault::this_build()));
+    let mut stdout = std::io::stdout().lock();
+    let _ = stdout.write_all(line.as_bytes());
+    let _ = stdout.flush();
+    0
+}
+
 /// `cmux carrier …` from `main`: the exit code.
 pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().is_some_and(|verb| verb == "serve") {
@@ -385,6 +423,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
     if args.first().is_some_and(|verb| verb == "key") {
         return key(args);
+    }
+    if args.first().is_some_and(|verb| verb == "capabilities") {
+        return capabilities(args);
     }
     let Some(args) = parse(args) else {
         return usage(
@@ -425,23 +466,31 @@ pub(crate) fn run(args: &[String]) -> i32 {
                     route_log::append(path, &line);
                 }
             }),
+            fresh_sessions: contract::FreshSessions::default(),
         };
-        let dialed = client::dial(&plan, jitter).await;
         // The desktop opens its stream before the reply, so a refusal (not
         // the owner, no desktop on the machine) is the dial's answer. The
-        // open stays inside the dial's one deadline.
-        let (dialed, desktop) = match (dialed, args.service) {
-            (Ok(dialed), DialService::Desktop) => {
-                match open_desktop(&dialed.multiplexer, plan.deadline).await {
-                    Ok(stream) => (Ok(dialed), Some(stream)),
-                    Err(failure) => {
-                        dialed.multiplexer.shutdown().await;
-                        let _ = dialed.connection.close().await;
-                        (Err(failure), None)
+        // open stays inside the dial's one deadline. A session the host lost
+        // before the desktop opened is dialed fresh, from the same budget
+        // as the dial's own fresh sessions (`MAX_FRESH_SESSIONS` in all).
+        let (dialed, desktop) = loop {
+            let dialed = client::dial(&plan, jitter).await;
+            match (dialed, args.service) {
+                (Ok(dialed), DialService::Desktop) => {
+                    match open_desktop(&dialed.multiplexer, plan.deadline).await {
+                        Ok(stream) => break (Ok(dialed), Some(stream)),
+                        Err(failure) => {
+                            dialed.multiplexer.shutdown().await;
+                            let _ = dialed.connection.close().await;
+                            if failure.fresh_session && plan.fresh_sessions.take() {
+                                continue;
+                            }
+                            break (Err(failure), None);
+                        }
                     }
                 }
+                (dialed, _) => break (dialed, None),
             }
-            (dialed, _) => (dialed, None),
         };
         let code = match &dialed {
             Ok(dialed) => {
