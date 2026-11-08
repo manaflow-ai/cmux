@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42431368283",
+  "recorded_at": "2026-11-08T00:53:56Z",
+  "reason": "cmux-tui 295ad61e21e1 changes the image's cmux-tui (pinned e1c7127c5ad9)",
+  "dry_run": false,
+  "cmux_tui": "295ad61e21e1479a52c072d545c9aacf4c2d4302",
+  "fixes": [
+    {
+      "sha": "295ad61e21e1479a52c072d545c9aacf4c2d4302",
+      "mergedAt": "2026-11-07T16:32:24-08:00",
+      "subject": "acpmux: resolve and session stop find a name in another case like send does; loose sub-session short names (#36919)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T00:53:56Z",
+    "snapshot_id": "sh-bd9ab300ac604619b774dbe3c586cd8d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42431368283): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "018b077eccba5bfc07dc8baa3cd1e7427efd494d",
+    "image": "cloud-native-auto-295ad61e-42431368283-1",
+    "revision": "ci-42431368283-1",
+    "at": "2026-11-08T00:53:56Z"
+  },
+  "rolled_back": false
+}
