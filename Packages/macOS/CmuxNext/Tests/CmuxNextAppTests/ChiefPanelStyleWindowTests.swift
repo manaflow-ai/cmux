@@ -134,6 +134,20 @@ struct ChiefPanelStyleWindowTests {
         #expect(view.frame.width >= 200 && view.frame.height <= 60, "\(style) rests as \(view.frame)")
     }
 
+    /// A floating panel is a card inside the window, so its corners are concentric with the window's, like the main
+    /// pane's: the window's radius less the gutter (10 pt in a 16 pt window across 6 pt). A resting bar is no rounder (the pill and the bubble rest round).
+    @Test(arguments: ChiefPanelStyle.allCases)
+    func theFloatingPanelIsConcentricWithTheWindow(_ style: ChiefPanelStyle) async throws {
+        let (f, view, _) = try await Self.openPanel(style)
+        defer { f.close() }
+        let card = Metrics.windowConcentricCornerRadius(windowCornerRadius: Metrics.standardWindowCornerRadius,
+                                                        edgeInset: max(Metrics.mainPaneGutter, PaneTabRowRim.height), setting: nil)
+        if style != .pill && style != .bubble { #expect(view.shapeCornerRadius <= card, "\(style) rests with radius \(view.shapeCornerRadius), the card's is \(card)") }
+        f.controller.frameFocusChiefPanel()
+        f.frame()
+        #expect(view.shapeCornerRadius == card, "\(style) floats with radius \(view.shapeCornerRadius), not the window's concentric \(card)")
+    }
+
     /// The chat itself leaves its background clear in the see-through styles (the Home chat paints its theme's
     /// background, which hid the workspace behind it in the first see-through capture), and paints it again in the
     /// other styles and once it leaves the panel.

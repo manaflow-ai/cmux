@@ -83,10 +83,21 @@
 //! flags and environment and serves the same stream on a Unix socket: one
 //! session per machine, dialed by the first accepted connection, and a mux
 //! control stream on it for each connection ([`serve`]).
+//!
+//! `cmux carrier capabilities [--json]` prints one JSON object on stdout and
+//! exits 0: the routes this build can carry a Cloud session over
+//! (`routes`), the faults a probe can inject (`faults`), and per carrier
+//! (`carriers.relay`, `carriers.ssh`) whether it is available (with a
+//! `reason` when not), can be probed, and which faults it takes
+//! ([`fault::capabilities`]). It needs no network, sign-in or app. The probe
+//! account's fault switch, `cmux cloud start-chat --carrier-fault`, is
+//! [`fault`]'s.
 
 mod answer;
 mod client;
 mod contract;
+pub(crate) mod drill;
+pub(crate) mod fault;
 mod held;
 mod noise_key;
 mod route_log;
@@ -375,6 +386,27 @@ fn key(args: &[String]) -> i32 {
     }
 }
 
+/// `capabilities` or `capabilities --json`, exactly (the answer is JSON either way).
+pub(crate) fn parse_capabilities(args: &[String]) -> bool {
+    match args {
+        [verb] => verb == "capabilities",
+        [verb, flag] => verb == "capabilities" && flag == "--json",
+        _ => false,
+    }
+}
+
+/// `cmux carrier capabilities [--json]`: this build's carriers on stdout.
+fn capabilities(args: &[String]) -> i32 {
+    if !parse_capabilities(args) {
+        return usage("usage: cmux carrier capabilities [--json]");
+    }
+    let line = format!("{}\n", fault::capabilities(&fault::this_build()));
+    let mut stdout = std::io::stdout().lock();
+    let _ = stdout.write_all(line.as_bytes());
+    let _ = stdout.flush();
+    0
+}
+
 /// `cmux carrier …` from `main`: the exit code.
 pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().is_some_and(|verb| verb == "serve") {
@@ -385,6 +417,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
     if args.first().is_some_and(|verb| verb == "key") {
         return key(args);
+    }
+    if args.first().is_some_and(|verb| verb == "capabilities") {
+        return capabilities(args);
     }
     let Some(args) = parse(args) else {
         return usage(
