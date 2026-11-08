@@ -2160,6 +2160,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           run: true,
         }).catch(() => undefined);
       },
+      openLogIn: (_harness, login) => {
+        healthStale.current = true;
+        return callNative("tab.open", {
+          kind: "terminal",
+          text: login,
+          ...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {}),
+          run: true,
+        }).then(
+          () => true,
+          () => false,
+        );
+      },
     }),
     [
       signedOut,

@@ -204,6 +204,11 @@ const menu = () => doc().querySelector<HTMLElement>(".acpmux-cols");
 const nameOf = (row: Element) => row.querySelector(".acpmux-cols-name")?.textContent ?? "";
 const rows = () => [...(menu()?.querySelectorAll<HTMLElement>('[role="listbox"] [role="option"]') ?? [])];
 const rowNames = () => rows().map(nameOf);
+/// The search's headings: one per harness family, in the order the menu lists them.
+const groupNames = () =>
+  [...(menu()?.querySelectorAll<HTMLElement>(".acpmux-cols-group") ?? [])].map((group) => group.textContent ?? "");
+/// The search's top match.
+const topMatch = () => rows()[0]!;
 const chip = () => host.querySelector<HTMLElement>('[data-menu="Model"]')!;
 /// The menu's setup strip: what the pick of a model whose harness needs setting up is doing.
 const strip = () => menu()?.querySelector<HTMLElement>(".acpmux-cols-setup") ?? null;
@@ -222,10 +227,10 @@ async function search(text: string) {
   });
   await settle();
 }
-/// Waits (a bounded number of turns) until `ready` holds.
-async function until(ready: () => boolean, turns = 200) {
-  for (let turn = 0; turn < turns && !ready(); turn++)
-    await act(async () => await new Promise((resolve) => setTimeout(resolve, 2)));
+/// Yields to the page until `ready` holds, failing once `ms` have passed without it.
+async function until(ready: () => boolean, ms = 5000) {
+  const ends = Date.now() + ms;
+  while (!ready() && Date.now() < ends) await settle();
   expect(ready()).toBe(true);
 }
 
@@ -233,7 +238,10 @@ test("the search finds the models of a harness this Mac does not have", async ()
   await mount(() => ({}));
   await open();
   await search("gemini 3.8 flash");
-  expect(rowNames()).toContain("Gemini 3.8 Flash");
+  // Its vendor's own CLI leads: the harnesses a pick installs come before those that only serve the
+  // model (OpenCode), and those no pick installs come last.
+  expect(groupNames()[0]).toBe("Gemini CLI");
+  expect(rowNames()[0]).toBe("3.8 Flash");
   // OpenCode's probe names its models only once it runs: until then the feed's OpenCode Zen and Go
   // models stand in, so an open model such as DeepSeek is found too.
   await search("deepseek v4.1 flash");
@@ -259,8 +267,7 @@ test("picking a model of a harness that is not installed installs it in place, t
   });
   await open();
   await search("gemini 3.8 flash");
-  const row = rows().find((candidate) => nameOf(candidate) === "Gemini 3.8 Flash")!;
-  await click(row);
+  await click(topMatch());
   // The install runs in place (no terminal tab), and the menu and the chip say so.
   expect(calls.find((call) => call.method === "shell.run")?.params.command).toBe(INSTALL_COMMANDS.gemini);
   expect(calls.some((call) => call.method === "tab.open")).toBe(false);
@@ -292,7 +299,7 @@ test("a harness that installs signed out signs in through its login, then starts
   });
   await open();
   await search("gemini 3.8 flash");
-  await click(rows().find((candidate) => nameOf(candidate) === "Gemini 3.8 Flash")!);
+  await click(topMatch());
   // The install spent the click: the login's terminal waits for the person's own Sign In.
   await until(() => strip()?.querySelector("button") != null);
   expect(switched).toEqual([]);
@@ -314,7 +321,7 @@ test("a failed install says why in the menu and starts nothing", async () => {
   });
   await open();
   await search("gemini 3.8 flash");
-  await click(rows().find((candidate) => nameOf(candidate) === "Gemini 3.8 Flash")!);
+  await click(topMatch());
   await until(() => strip()?.textContent?.includes("npm ERR! network unreachable") === true);
   expect(switched).toEqual([]);
   expect(calls.some((call) => call.method === "harness.health")).toBe(false);

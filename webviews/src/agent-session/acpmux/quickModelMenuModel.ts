@@ -49,6 +49,10 @@ export type QuickMenu = {
   widthLook?: "fit" | "stable" | "snug" | "wide";
   /// Auth for the selected session/route only, as acpmux last verified it.
   auth?: { verdict: SessionAuth; onLogin?(): void; onRefresh?(): void };
+  /// A picked model's harness being set up (harnessSetup.ts): a strip over the lists says what it is
+  /// doing (`busy`: a spinner), with the last installer line under it and its actions (Sign In,
+  /// Try Again, Cancel). It shows whatever tab or search the menu shows.
+  setup?: QuickSetup;
   /// Fast mode: the menu's last checkbox row, its one place. Absent where the running model has
   /// none; the model button owns it for every harness.
   fast?: { checked: boolean; onChange(on: boolean): void };
@@ -132,7 +136,18 @@ export type QuickModel = {
   tag?: string;
   /// The provider the row lands, named at its trailing edge (a harness that routes to several).
   provider?: string;
+  /// Where a search lists the row's family: 0 (unset) its harness is set up here, 1 a pick sets it
+  /// up first (installs or signs it in), 2 that harness lists the feed's models until it runs.
+  rank?: number;
   offers?: (QuickModel & { provider: string })[];
+};
+
+/// The setup strip's text and its buttons (QuickMenuProps `setup`).
+export type QuickSetup = {
+  text: string;
+  detail?: string;
+  busy: boolean;
+  actions: { label: string; run(): void }[];
 };
 
 /// A rail tab: its harness's top models (numbered), the rest under More models, or a `note` in
@@ -268,9 +283,15 @@ export function searchGroups(
       group.rows.push(row);
     } else if (row.family === group.lead && group.rows[at]!.family !== group.lead) group.rows[at] = row;
   }
+  // A family whose harness a pick must set up first comes after the ready ones (QuickModel `rank`),
+  // each in rail order.
+  const rank = (group: QuickSearchGroup) => Math.min(...group.rows.map((row) => row.rank ?? 0));
   return [...groups.values()]
     .filter((group) => group.rows.length > 0)
-    .map(({ id, name, rows }) => ({ id, name, rows }));
+    .map(({ id, name, rows }) => ({ id, name, rows }))
+    .map((group, index) => ({ group, index, rank: rank(group) }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map(({ group }) => group);
 }
 
 /// The rows of a group that another row of it would read the same as (name and detail): they also
