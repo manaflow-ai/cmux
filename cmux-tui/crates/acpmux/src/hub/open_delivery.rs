@@ -485,7 +485,7 @@ impl Hub {
         } else {
             proof_images(d).into_iter().map(|(id, _)| id).collect()
         };
-        if !(files.is_empty() && images.is_empty()) && !self.at_4dcb() {
+        if (!files.is_empty() || !images.is_empty()) && !self.at_4dcb() {
             let files: Vec<Value> = files
                 .iter()
                 .map(|(path, bytes)| json!({"path": path, "sha256": crate::attach::sha256(bytes)}))

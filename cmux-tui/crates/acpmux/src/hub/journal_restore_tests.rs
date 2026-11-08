@@ -675,8 +675,8 @@ async fn edits_the_disk_refuses(rules: u8) -> (bool, Vec<(String, String)>) {
     assert!(hub.remove_queued(&session, "p2"));
     let second = hub.journal_restore(&params).await;
     fail.store(false, Ordering::SeqCst);
-    if second.is_err() {
-        let reason = second.as_ref().unwrap_err().data.as_ref().and_then(|d| d.get("reason"));
+    if let Err(e) = &second {
+        let reason = e.data.as_ref().and_then(|d| d.get("reason"));
         assert_eq!(reason, Some(&json!("append_failed")));
         hub.journal_restore(&params).await.unwrap();
     }
