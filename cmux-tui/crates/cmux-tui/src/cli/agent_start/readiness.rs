@@ -30,6 +30,7 @@ use super::Failure;
 /// How long the screen must stand still before `ready` or `blocked` counts.
 pub(in crate::cli) const DEFAULT_SETTLE: Duration = Duration::from_secs(1);
 /// How often the wait looks.
+// timeout: not a deadline: the poll interval; DEFAULT_TIMEOUT bounds the wait.
 pub(in crate::cli) const DEFAULT_POLL: Duration = Duration::from_millis(250);
 /// How long `agent start` waits by default.
 pub(in crate::cli) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(90);
