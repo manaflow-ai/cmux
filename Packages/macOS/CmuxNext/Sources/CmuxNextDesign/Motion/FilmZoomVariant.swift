@@ -37,6 +37,8 @@ public struct FilmZoomVariant: Sendable, Equatable {
         /// The current zoom spring (`MotionSpring.zoom`'s code default: response 0.2 s, critically damped).
         case cur = "CUR"
         case k1 = "K1", k2 = "K2", k3 = "K3", k4 = "K4", k5 = "K5", k6 = "K6", k7 = "K7", k8 = "K8", k9 = "K9", k10 = "K10"
+        /// m68 ("i dont want a bounce animation"): critically damped, 0.12 s and 0.2 s response.
+        case k11 = "K11", k12 = "K12"
 
         /// Bezier control points and seconds; nil for a spring.
         var bezier: (points: (Float, Float, Float, Float), seconds: Double)? {
@@ -47,7 +49,7 @@ public struct FilmZoomVariant: Sendable, Equatable {
             case .k4: ((0.22, 1, 0.36, 1), 0.10)
             case .k5: ((0.65, 0, 0.35, 1), 0.12)
             case .k10: ((0, 0, 1, 1), 0.10)
-            case .cur, .k6, .k7, .k8, .k9: nil
+            case .cur, .k6, .k7, .k8, .k9, .k11, .k12: nil
             }
         }
 
@@ -59,6 +61,8 @@ public struct FilmZoomVariant: Sendable, Equatable {
             case .k7: (0.9, 0.18)
             case .k8: (0.8, 0.20)
             case .k9: (0.7, 0.25)
+            case .k11: (1.0, 0.12)
+            case .k12: (1.0, 0.20)
             default: nil
             }
         }
@@ -100,7 +104,10 @@ public struct FilmZoomVariant: Sendable, Equatable {
         DesignSettings.shared.filmZoom = film
         var answer: [String: Any] = ["variant": film.kind.rawValue, "curve": film.curve.rawValue, "plays": film.active?.kind.rawValue ?? "V0",
                                      "duration_ms": film.duration * 1000]
-        if film.curve.spring != nil { answer["settle_ms"] = film.settleTime(travel: travel, within: 0.5) * 1000 }
+        if film.curve.spring != nil {
+            answer["settle_ms"] = film.settleTime(travel: travel, within: 0.5) * 1000
+            answer["overshoot_pt"] = film.driver.overshoot * travel // m68: must be < 0.5
+        }
         return answer
     }
 
