@@ -17,9 +17,11 @@ The validator continues to reject a pending baseline. This stage does not satisf
    retaining the snapshot HEAD expected by fast-checks. It builds production fixtures once and measures
    10 runs of each of the 16 trusted cases, including both 3,000-turn variants and real rail drag.
 
-2. Extract the base64 tarball between `WEB_PERF_EVIDENCE_BASE64_START` and
-   `WEB_PERF_EVIDENCE_BASE64_END` in the retained run log. Verify the printed tarball SHA256 before
-   extraction. It contains raw Chromium timeline JSON, raw samples and adapter observations, source
+2. Download the run's `fast-checks-output` artifact
+   (`gh run download RUN -R manaflow-ai/cmux -n fast-checks-output -D DIR`). It holds
+   `web-perf-evidence.tar.gz` and its `.sha256`; verify the SHA256 (also printed in the log) before
+   extraction. Run outside fast-checks, the script prints the tarball as base64 between
+   `WEB_PERF_EVIDENCE_BASE64_START` and `WEB_PERF_EVIDENCE_BASE64_END` in the log instead. It contains raw Chromium timeline JSON, raw samples and adapter observations, source
    provenance, the actual baseline candidate, and the sorted numeric report. Timelines include action
    preparation and control work; target paint proxies and cadence are not Event Timing INP.
    CPU is renderer main-thread `ThreadTime`; OS wakeups remain null with an unsupported reason.

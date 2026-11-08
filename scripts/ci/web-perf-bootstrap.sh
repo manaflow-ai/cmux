@@ -17,7 +17,10 @@ cleanup() {
   rm -rf "$task_root"
 }
 trap cleanup EXIT
-git fetch --no-tags --depth=1 origin "$head_sha" "$base_sha"
+# Bound the download only where the checkout is already shallow; never turn a full clone shallow.
+depth=()
+[[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
+git fetch --no-tags "${depth[@]}" origin "$head_sha" "$base_sha"
 git worktree add --detach "$measured" "$head_sha"
 cd "$measured/webviews"
 test "$(git rev-parse HEAD)" = "$head_sha"
@@ -38,12 +41,17 @@ fi
 set -e
 printf 'head=%s\nbase=%s\nharness_status=%s\nbootstrap_status=%s\n' \
   "$head_sha" "$base_sha" "$harness_status" "$bootstrap_status" > "$evidence/status.txt"
-# Existing fast-checks uploads its receipt only. Preserve the complete compressed
-# evidence in that run's retained log, without adding a second workflow dispatch.
 tar -C "$evidence" -czf "$task_root/evidence.tar.gz" .
-sha256sum "$task_root/evidence.tar.gz"
-printf '%s\n' WEB_PERF_EVIDENCE_BASE64_START
-base64 -w 76 "$task_root/evidence.tar.gz"
-printf '%s\n' WEB_PERF_EVIDENCE_BASE64_END
+if [[ -n "${FAST_CHECKS_OUT:-}" ]]; then
+  # fast-checks uploads FAST_CHECKS_OUT as its fast-checks-output artifact, which a long log can't truncate.
+  cp "$task_root/evidence.tar.gz" "$FAST_CHECKS_OUT/web-perf-evidence.tar.gz"
+  (cd "$FAST_CHECKS_OUT" && sha256sum web-perf-evidence.tar.gz | tee web-perf-evidence.tar.gz.sha256)
+else
+  # Outside fast-checks: keep the complete compressed evidence in the retained log.
+  sha256sum "$task_root/evidence.tar.gz"
+  printf '%s\n' WEB_PERF_EVIDENCE_BASE64_START
+  base64 -w 76 "$task_root/evidence.tar.gz"
+  printf '%s\n' WEB_PERF_EVIDENCE_BASE64_END
+fi
 test "$(git -C "$snapshot" rev-parse HEAD)" = "$snapshot_head"
 test "$harness_status" = 0 && test "$bootstrap_status" = 0
