@@ -100,6 +100,7 @@ fn the_login_copy_ops_are_gone() {
         (c"cloud_login_fingerprint", json!({"token": [97, 98, 99]})),
         (c"cloud_guest_kind", json!({"stdout": "vm-kind:owner\n"})),
         (c"cloud_guest_kind_probe", json!({})),
+        (c"cloud_recovery_refreshes", json!({"probe": {"exitCode": 0, "stdout": "cached\n"}})),
     ] {
         assert_eq!(call(op, &request).0, ERR_INVALID, "{op:?} still answers");
     }

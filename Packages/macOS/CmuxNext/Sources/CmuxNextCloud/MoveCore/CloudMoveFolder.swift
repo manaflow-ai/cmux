@@ -37,6 +37,23 @@ public nonisolated struct CloudMoveFolder: Sendable, Equatable, Decodable {
         CloudMoveFolder(chat: folder)
     }
 
+    /// `path` with its `.` and `..` parts resolved and no trailing slash, as written otherwise (standardizing
+    /// would also turn /private/tmp into /tmp): nil for a relative path or one whose `..` parts climb above
+    /// the disk's root. The same rule as Rust's `moves::folder::normalized`, which ``init(chat:)`` applies;
+    /// `cmux cloud start-session --from-folder` checks its words with it before any machine is touched.
+    public static func normalized(_ path: String) -> String? {
+        guard path.hasPrefix("/") else { return nil }
+        var parts: [Substring] = []
+        for part in path.split(separator: "/") {
+            switch part {
+            case ".": continue
+            case "..": if parts.popLast() == nil { return nil }
+            default: parts.append(part)
+            }
+        }
+        return "/" + parts.joined(separator: "/")
+    }
+
     /// A start's copy key (`cmux link start-chat copy` takes a UUID's spelling) made of `machine` and `folder` (canonical):
     /// the same start again on the same machine is the same copy, which its ledger reuses (`cmux cloud start-session
     /// --from-folder`).

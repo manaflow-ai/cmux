@@ -33,6 +33,9 @@ extension AppServices: AgentShareHost {
 /// decline before the caller's person deadline, so the waiting CLI or agent always gets an answer.
 @MainActor
 enum AgentShareConsentSheet {
+    /// The sheet's dialog id: the Debug dialog driver never answers it (``DebugDialog/userOnly``).
+    static let identifier = AgentShareActions.consentDialogIdentifier
+
     /// The Feed request while the sheet waits: its "Show on Mac" brings the app forward, never allows.
     static func feedRequest(_ ask: AgentShareConsentAsk) -> FeedPendingConfirm.Request {
         .init(title: ask.title, statement: ask.lines.joined(separator: " "), confirmLabel: ask.showOnMacTitle, cancelLabel: ask.declineTitle)
@@ -41,7 +44,7 @@ enum AgentShareConsentSheet {
     static func spec(_ ask: AgentShareConsentAsk) -> CmuxDialogSpec {
         CmuxDialogSpec(title: ask.title, lines: ask.lines,
                        buttons: [.cancel(ask.declineTitle), CmuxDialogButton(id: "allow", title: ask.allowTitle)],
-                       identifier: AgentShareActions.consentDialogIdentifier)
+                       identifier: identifier)
     }
 
     /// `feed`: while the sheet waits it is also an open Feed request (``FeedPendingConfirm``), which only
