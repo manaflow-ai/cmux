@@ -202,7 +202,7 @@ async function moveNow(from: string, to: string): Promise<void> {
   moving.add(from);
   try {
     // A stash into the new chat still on its way lands first, so the move takes it too.
-    await Promise.allSettled([...(pushes.get(from) ?? [])]);
+    await Promise.allSettled(pushes.get(from) ?? []);
     // The drafts this acpmux holds for the new chat now, read on this connection.
     const pending = moves.get(to)?.get(from);
     if (pending && (await refreshStash(from))) {
