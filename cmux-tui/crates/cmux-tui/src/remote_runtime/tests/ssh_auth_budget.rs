@@ -15,7 +15,7 @@ fn startup_deadline_waits_for_ssh_authentication() {
     write_executable(
         &script,
         format!(
-            "#!/bin/sh\nfor argument in \"$@\"; do\n  if [ \"$argument\" = ControlMaster=yes ]; then\n    echo master >> '{log}'\n    sleep 1.5\n    exit 255\n  fi\ndone\necho direct >> '{log}'\nexit 255\n",
+            "#!/bin/sh\nfor argument in \"$@\"; do\n  if [ \"$argument\" = ControlMaster=yes ]; then\n    echo master >> '{log}'\n    sleep 3\n    exit 255\n  fi\ndone\necho direct >> '{log}'\nexit 255\n",
             log = log.display()
         ),
     );
@@ -36,7 +36,7 @@ fn startup_deadline_waits_for_ssh_authentication() {
         )
         .unwrap(),
     ];
-    let startup_timeout = Duration::from_millis(300);
+    let startup_timeout = Duration::from_secs(1);
     let error = start_client_runtime(ClientRuntimeOptions {
         routes,
         providers,

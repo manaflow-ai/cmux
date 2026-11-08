@@ -23,11 +23,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 
-use crate::ssh_args::{background_ssh_arguments, caller_manages_connection_sharing};
+use crate::ssh_args::{caller_manages_connection_sharing, private_master_ssh_arguments};
 
 /// How long the master may take to connect and authenticate. A person types
 /// the password in this window, so it is far longer than a command timeout;
@@ -37,7 +37,7 @@ pub const SSH_MASTER_AUTH_TIMEOUT: Duration = Duration::from_secs(300);
 /// authentication and after the control socket listens (ssh.c
 /// `ssh_session2`), so the line is the signal that clients can attach.
 const READY_TOKEN: &str = "cmux-ssh-master-ready";
-const READY_OUTPUT_LIMIT: u64 = 4_096;
+const READY_OUTPUT_LIMIT: u64 = 64 * 1024;
 /// How long a failed ssh may take to exit after it closed stdout.
 const EXIT_REAP_TIMEOUT: Duration = Duration::from_secs(2);
 /// `sun_path` is 104 bytes on macOS. OpenSSH binds `<ControlPath>.<16
@@ -147,7 +147,7 @@ pub struct SshConnectionShare {
 }
 
 struct ShareInner {
-    masters: Mutex<HashMap<SshTarget, ControlMaster>>,
+    masters: Mutex<HashMap<SshTarget, Shared>>,
     clock: Arc<SshAuthClock>,
 }
 
@@ -201,22 +201,36 @@ impl SshConnectionShare {
         // Concurrent runs wait here for the first one's master instead of
         // each opening (and authenticating) their own.
         let mut masters = inner.masters.lock().await;
-        if let Some(master) = masters.get_mut(target)
-            && master.is_alive()
-        {
-            return Ok(master.client_arguments());
+        match masters.get_mut(target) {
+            Some(Shared::Master(master)) if master.is_alive() => {
+                return Ok(master.client_arguments());
+            }
+            Some(Shared::Unavailable) => return Ok(Vec::new()),
+            _ => {}
         }
         masters.remove(target);
         let _clock = inner.clock.begin();
         match ControlMaster::open(target).await? {
             Some(master) => {
                 let arguments = master.client_arguments();
-                masters.insert(target.clone(), master);
+                masters.insert(target.clone(), Shared::Master(master));
                 Ok(arguments)
             }
-            None => Ok(Vec::new()),
+            None => {
+                masters.insert(target.clone(), Shared::Unavailable);
+                Ok(Vec::new())
+            }
         }
     }
+}
+
+/// What the share holds for one target.
+enum Shared {
+    Master(ControlMaster),
+    /// ssh authenticated but could not listen on a control socket: runs
+    /// connect on their own instead of opening (and prompting for) another
+    /// master each time.
+    Unavailable,
 }
 
 /// One `ssh -N` control master, owned by the share. Dropping it ends ssh,
@@ -237,50 +251,39 @@ impl ControlMaster {
         let mut command = Command::new(&target.ssh_binary);
         command
             .args(master_arguments(&socket))
-            .args(background_ssh_arguments(target.port, &target.extra_args, &target.destination))
+            .args(private_master_ssh_arguments(
+                target.port,
+                &target.extra_args,
+                &target.destination,
+            ))
             // ssh prompts for a password on /dev/tty, never stdin.
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit());
-        // Not kill_on_drop: Drop ends a live master with SIGTERM so ssh
-        // closes the connection and unlinks its socket. Failures below stop
-        // it themselves.
-        let mut child = command.spawn().map_err(SshConnectionError::Io)?;
+        // Until ssh is ready, dropping this future (a timeout, a shutdown)
+        // must end it: a leftover ssh would keep prompting on the terminal.
+        let mut pending = PendingMaster(Some(command.spawn().map_err(SshConnectionError::Io)?));
+        let child = pending.child();
         let Some(stdout) = child.stdout.take() else {
-            stop(&mut child).await;
             return Err(SshConnectionError::Io(std::io::Error::other(
                 "ssh stdout pipe is unavailable",
             )));
         };
-        // ssh points its stdout at /dev/null right after LocalCommand, or
-        // exits on failure; either way the pipe reaches EOF.
-        let mut output = Vec::new();
-        let read = tokio::time::timeout(
-            SSH_MASTER_AUTH_TIMEOUT,
-            stdout.take(READY_OUTPUT_LIMIT).read_to_end(&mut output),
-        )
-        .await;
-        let failure = match read {
-            Err(_) => Some(SshConnectionError::Timeout),
-            Ok(Err(error)) => Some(SshConnectionError::Io(error)),
-            Ok(Ok(_)) => None,
-        };
-        if let Some(failure) = failure {
-            stop(&mut child).await;
-            return Err(failure);
-        }
-        let ready = String::from_utf8_lossy(&output).lines().any(|line| line.trim() == READY_TOKEN);
+        let ready =
+            match tokio::time::timeout(SSH_MASTER_AUTH_TIMEOUT, read_ready_line(stdout)).await {
+                Err(_) => return Err(SshConnectionError::Timeout),
+                Ok(Err(error)) => return Err(SshConnectionError::Io(error)),
+                Ok(Ok(ready)) => ready,
+            };
         if !ready || !matches!(child.try_wait(), Ok(None)) {
             // Without the ready line ssh closed stdout because it is exiting.
             let status = match tokio::time::timeout(EXIT_REAP_TIMEOUT, child.wait()).await {
                 Ok(Ok(status)) => status.code(),
-                _ => {
-                    stop(&mut child).await;
-                    None
-                }
+                _ => None,
             };
             return Err(SshConnectionError::Exited { status });
         }
+        let child = pending.disarm();
         let master = Self { child, socket, directory };
         if !socket_exists(&master.socket) {
             return Ok(None);
@@ -317,12 +320,42 @@ impl Drop for ControlMaster {
     }
 }
 
-/// Ends an ssh that failed to become a master and reaps it.
-async fn stop(child: &mut Child) {
-    if matches!(child.try_wait(), Ok(None)) {
-        let _ = child.start_kill();
+/// An ssh that is not yet a ready master. Dropping it kills ssh; tokio
+/// reaps the child.
+struct PendingMaster(Option<Child>);
+
+impl PendingMaster {
+    fn child(&mut self) -> &mut Child {
+        self.0.as_mut().expect("a pending master holds its child until disarmed")
     }
-    let _ = child.wait().await;
+
+    fn disarm(mut self) -> Child {
+        self.0.take().expect("a pending master holds its child until disarmed")
+    }
+}
+
+impl Drop for PendingMaster {
+    fn drop(&mut self) {
+        if let Some(child) = self.0.as_mut()
+            && matches!(child.try_wait(), Ok(None))
+        {
+            let _ = child.start_kill();
+        }
+    }
+}
+
+/// Reads ssh's stdout until the ready line (`true`) or EOF (`false`). It
+/// does not wait for EOF after the line: OpenSSH before 7.7 keeps stdout
+/// open after `LocalCommand`. Shell startup output before the line is
+/// skipped, up to a bound.
+async fn read_ready_line(stdout: tokio::process::ChildStdout) -> std::io::Result<bool> {
+    let mut lines = tokio::io::BufReader::new(stdout.take(READY_OUTPUT_LIMIT)).lines();
+    while let Some(line) = lines.next_line().await? {
+        if line.trim() == READY_TOKEN {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Options that make an `ssh -N` run this share's master: it authenticates,
@@ -336,6 +369,14 @@ fn master_arguments(socket: &Path) -> Vec<String> {
         format!("ControlPath={}", control_path_value(socket)),
         "-o".into(),
         "ControlPersist=no".into(),
+        // The master outlives single runs; without keepalives a connection
+        // whose path died silently (sleep, a network change) would look
+        // alive for the many minutes TCP takes to give up, and every link
+        // and reconnect attempt through it would hang.
+        "-o".into(),
+        "ServerAliveInterval=15".into(),
+        "-o".into(),
+        "ServerAliveCountMax=3".into(),
         "-o".into(),
         "PermitLocalCommand=yes".into(),
         "-o".into(),
@@ -369,9 +410,14 @@ impl PrivateDirectory {
     fn create() -> std::io::Result<Self> {
         let mut last_error = None;
         for base in [std::env::temp_dir(), PathBuf::from("/tmp")] {
+            // Unguessable, so another local user cannot take the name first
+            // in a shared /tmp; mkdir fails rather than reuse an existing one.
+            let mut random = [0_u8; 8];
+            getrandom::fill(&mut random)
+                .map_err(|error| std::io::Error::other(error.to_string()))?;
+            let random: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
             let name = format!(
-                "cmux-ssh-{}-{}",
-                std::process::id(),
+                "cmux-ssh-{random}-{}",
                 NEXT_DIRECTORY_NONCE.fetch_add(1, Ordering::Relaxed)
             );
             let path = base.join(name);

@@ -19,11 +19,37 @@ pub(crate) fn background_ssh_arguments(
     extra_args: &[String],
     destination: &str,
 ) -> Vec<String> {
+    ssh_arguments(port, extra_args, destination, forwarding_overrides(extra_args))
+}
+
+/// Arguments for cmux's private control master (`ssh_control`). Nothing
+/// but cmux's own runs attach to it, so agent and X11 forwarding (and port
+/// forwarding, unless the caller asked for a forward) stay off even when
+/// the person's ssh_config or `-A`/`-X`/`-Y` turn them on: the remote host
+/// never gets the local agent through a connection that lives all session.
+pub(crate) fn private_master_ssh_arguments(
+    port: Option<u16>,
+    extra_args: &[String],
+    destination: &str,
+) -> Vec<String> {
+    let overrides = if CallerOptions::parse(extra_args).forwards_ports {
+        AGENT_AND_X11_OFF
+    } else {
+        ALL_FORWARDING_OFF
+    };
+    ssh_arguments(port, extra_args, destination, overrides)
+}
+
+fn ssh_arguments(
+    port: Option<u16>,
+    extra_args: &[String],
+    destination: &str,
+    overrides: &[&str],
+) -> Vec<String> {
     let mut arguments = vec!["-T".to_owned()];
     if let Some(port) = port {
         arguments.extend(["-p".to_owned(), port.to_string()]);
     }
-    let overrides = forwarding_overrides(extra_args);
     arguments.extend(overrides.iter().map(|argument| (*argument).to_owned()));
     let (extra, has_separator) = normalized_caller_arguments(extra_args, !overrides.is_empty());
     arguments.extend(extra);
