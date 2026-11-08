@@ -35,7 +35,8 @@ public actor MobileTaskModelDiscovery {
     ///   - strategy: Provider-specific discovery implementation.
     ///   - now: Injected clock read.
     ///   - cacheTTL: Cache lifetime in seconds.
-    ///   - customClaudePath: Current host setting; `nil` uses login-shell `PATH`.
+    ///   - customClaudePath: Current host setting; an absent or invalid executable
+    ///     uses login-shell `PATH`.
     public init(
         strategy: MobileTaskModelProviderStrategy,
         now: @escaping Now = { Date() },
@@ -85,7 +86,17 @@ public actor MobileTaskModelDiscovery {
         let configuredPath = provider == .claude
             ? await customClaudePath()?.trimmingCharacters(in: .whitespacesAndNewlines)
             : nil
-        let claudeExecutable = configuredPath.flatMap { $0.isEmpty ? nil : $0 } ?? "claude"
+        let claudeExecutable: String
+        var isDirectory: ObjCBool = false
+        if let configuredPath,
+           !configuredPath.isEmpty,
+           FileManager.default.fileExists(atPath: configuredPath, isDirectory: &isDirectory),
+           !isDirectory.boolValue,
+           FileManager.default.isExecutableFile(atPath: configuredPath) {
+            claudeExecutable = configuredPath
+        } else {
+            claudeExecutable = "claude"
+        }
         let key = CacheKey(provider: provider, claudeExecutable: claudeExecutable)
         let currentTime = await now()
         if let cached = cache[key],

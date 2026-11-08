@@ -157,7 +157,7 @@ public struct MobileTaskModelProviderStrategy: Sendable {
     private static func claudeModelListCommand(executable: String) -> String {
         #"""
         set -o pipefail
-        /usr/bin/printf '%s\n' '{"type":"control_request","request_id":"cmux-list-options","request":{"subtype":"list_models"}}' | /usr/bin/env CLAUDE_CODE_ENTRYPOINT=cmux-task-models \#(executable) -p --input-format stream-json --output-format stream-json --include-partial-messages --verbose
+        /usr/bin/printf '%s\n' '{"type":"control_request","request_id":"cmux-list-options","request":{"subtype":"list_models"}}' | CLAUDE_CODE_ENTRYPOINT=cmux-task-models \#(executable) -p --input-format stream-json --output-format stream-json --include-partial-messages --verbose
         """#
     }
 }
