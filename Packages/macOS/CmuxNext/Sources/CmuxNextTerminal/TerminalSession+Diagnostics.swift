@@ -63,6 +63,18 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
 }
 
 extension TerminalSession {
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Native scroll readback for the bounded terminal flood probe.
+    public var debugScrollIntegrity: [String: Any] {
+        var value: [String: Any] = ["terminal_title": model.title]
+        if let bar = model.scrollbar {
+            value["scrollbar"] = ["total_rows": bar.totalRows, "offset_rows": bar.offsetRows,
+                                   "visible_rows": bar.visibleRows]
+        }
+        return value
+    }
+    #endif
+
     /// The grid Ghostty's last frame drew (``TerminalSurfaceDiagnostics/drawnGrid``) and the owner's
     /// locked grid, without the rest of ``diagnostics``: cheap enough to read every display frame.
     public var drawnAndOwnerGrid: (drawn: TerminalGridSize?, owner: TerminalGridSize?) {
