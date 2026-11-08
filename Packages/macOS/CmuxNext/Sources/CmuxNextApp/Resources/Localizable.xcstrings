@@ -11614,6 +11614,18 @@
         }
       }
     },
+    "classicImport.toast.inUseBefore": {
+      "comment": "A toast on the first launch when this app already had workspaces, so classic cmux's workspaces were recorded but not imported.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classic cmux workspaces weren’t imported because this app already had its own. Import them any time from Settings › Import."
+          }
+        }
+      }
+    },
     "classicImport.toast.declined": {
       "comment": "A toast after the person cancels the launch's classic import preview; later launches do not ask again.",
       "extractionState": "manual",

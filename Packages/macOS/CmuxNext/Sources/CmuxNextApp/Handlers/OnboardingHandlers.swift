@@ -168,6 +168,12 @@ enum ClassicImportStrings {
             : String(localized: "classicImport.preview.source", defaultValue: "%1$@ (classic), saved %2$@", bundle: .module)
         return String(format: format, plan.source.appName, saved)
     }
+    /// The first launch's toast when cmux-next already had workspaces, so classic's were only recorded.
+    static var inUseBefore: String {
+        String(localized: "classicImport.toast.inUseBefore",
+               defaultValue: "Classic cmux workspaces weren’t imported because this app already had its own. Import them any time from Settings › Import.",
+               bundle: .module)
+    }
     /// The launch's toast when the person cancelled its preview.
     static var declined: String {
         String(localized: "classicImport.toast.declined",

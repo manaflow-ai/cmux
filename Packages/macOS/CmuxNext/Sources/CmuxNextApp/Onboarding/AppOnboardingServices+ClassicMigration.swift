@@ -123,7 +123,13 @@ extension AppOnboardingServices {
                     ?? ClassicMigrationLedger(state: .completed)
                 ledger.source = read?.source
                 try await save(ledger, to: repository)
-                return ClassicMigrationOutcome(decision: .skip(.inUseBefore))
+                var seen = ClassicMigrationOutcome(decision: .skip(.inUseBefore))
+                // Classic's workspaces were only recorded: say so once, and where to bring them.
+                if read?.snapshot.workspaces.contains(where: { $0.cloudVM == nil }) == true {
+                    seen.notice = ClassicImportStrings.inUseBefore
+                    owner.classicImportNotice = seen.notice
+                }
+                return seen
             }
             decision = planner.decision(load, source: read?.source, classicRunning: classicRunning)
             if case .skip(let reason) = decision {
@@ -161,6 +167,8 @@ extension AppOnboardingServices {
         guard !plan.isEmpty else {
             ledger.state = .completed
             ledger.source = read.source
+            // Asking by hand with nothing left to bring still takes back a launch's No.
+            if mode == .manual { ledger.declinedAt = nil }
             try await save(ledger, to: repository)
             return outcome
         }
@@ -174,10 +182,9 @@ extension AppOnboardingServices {
             // The launch's No is kept: later launches stop asking. Import Workspaces from Classic cmux still runs.
             guard mode == .automatic else { return outcome }
             ledger.declinedAt = Date().timeIntervalSince1970
-            if case .ledger = load {} else {
-                ledger.state = .completed
-                ledger.source = read.source
-            }
+            // A declined resume ends too (its half-made workspaces close on the next manual run), so no launch asks again.
+            ledger.state = .completed
+            ledger.source = ledger.source ?? read.source
             try await save(ledger, to: repository)
             outcome.notice = ClassicImportStrings.declined
             owner.classicImportNotice = outcome.notice
