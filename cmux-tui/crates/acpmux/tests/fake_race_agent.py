@@ -21,7 +21,8 @@ def prompt(request):
     params = request["params"]
     text = "".join(block.get("text", "") for block in params.get("prompt", []))
     if model in ("review", "invalid"):
-        candidates = json.loads(text.split("\nCandidates:\n", 1)[1])
+        # Context acpmux embeds around a session's message may follow the list: read only the list.
+        candidates, _ = json.JSONDecoder().raw_decode(text.split("\nCandidates:\n", 1)[1])
         # Read the files, not the summaries. Model a writes the expected implementation.
         winner = next(c["id"] for c in candidates
                       if pathlib.Path(c["worktree"], "implementation.txt").read_text() == "a")
@@ -29,7 +30,9 @@ def prompt(request):
                             "reason": "Read implementation.txt in each candidate worktree"})
     else:
         pathlib.Path(cwd, "implementation.txt").write_text(model)
-        first = text.splitlines()[0]
+        # acpmux embeds the sending session's context around the task: find the task's own line.
+        lines = text.splitlines()
+        first = next((line for line in lines if line.startswith("barrier:") or line == "hold"), "")
         if first.startswith("barrier:"):
             with socket.socket(socket.AF_UNIX) as barrier:
                 barrier.settimeout(25)
