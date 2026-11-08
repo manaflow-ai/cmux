@@ -78,7 +78,8 @@ pub(super) fn dispatch(
                 let script =
                     worktree_recipe::resolve(mux, Some(&attempt.main_root), &attempt.main_root)
                         .recipe
-                        .teardown;
+                        .teardown
+                        .filter(|_| !reviews(&target.repository, attempt.branch.as_deref()));
                 attempt.teardown = script.is_some();
                 journal.start(&fingerprint, &attempt)?;
                 teardown = run_teardown(&attempt, target.git_dir(), script.as_deref());
@@ -108,6 +109,17 @@ pub(super) fn dispatch(
         }
         ledger::commit(mux, &key, OPERATION, &fingerprint, &value, false, &request.actor)
     })
+}
+
+/// Whether `branch` is a pull request review's (`git.review.start` records
+/// `cmuxReview` on it): its checkout is the pull request's code, so the
+/// project's teardown, which can name a script in it, never runs there.
+fn reviews(repository: &Repository, branch: Option<&str>) -> bool {
+    let Some(branch) = branch else { return false };
+    let setting = format!("branch.{branch}.cmuxReview");
+    repository
+        .run(&["config", "--get", setting.as_str()], 4096)
+        .is_ok_and(|output| !String::from_utf8_lossy(&output.stdout).trim().is_empty())
 }
 
 /// Stops the worktree's setup and runs the project's teardown in it; what
