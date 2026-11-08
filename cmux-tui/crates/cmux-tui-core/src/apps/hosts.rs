@@ -226,6 +226,7 @@ impl Supervisor {
             locale: Some("en".into()),
             strings: package.strings("en"),
             main,
+            main_name: package.main_name(),
         });
         // The package may have been saved since a mount (a local reload): its
         // interface may now name another export, or be gone, which fails the
