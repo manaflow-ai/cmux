@@ -449,7 +449,8 @@ fn compact(text: &str) -> String {
 fn move_signature(language: Language, code: &str) -> String {
     static NAME: OnceLock<Regex> = OnceLock::new();
     // Renaming a function doesn't change the behavior of a moved test.
-    let mut normalized = compact(&pattern(&NAME, r"\b(fn|def|func)\s+\w+").replace_all(code, "$1 _"));
+    let mut normalized =
+        compact(&pattern(&NAME, r"\b(fn|def|func)\s+\w+").replace_all(code, "$1 _"));
     // Assertion syntax can change while the test itself moves (for example,
     // Rust's assert_eq!(value, expected) to assert!(value == expected)).
     // Preserve the subject and strength so those equivalent moves remain quiet.
@@ -466,19 +467,30 @@ fn test_names(language: Language, code: &str) -> Vec<String> {
     static SWIFT_NAME: OnceLock<Regex> = OnceLock::new();
     static TS_NAME: OnceLock<Regex> = OnceLock::new();
     let mut names = match language {
-        Language::Rust => pattern(&RUST_NAME, r"#\[\s*test[^\]]*\]\s*fn\s+([A-Za-z_]\w*)"),
-        Language::Python => pattern(&PYTHON_NAME, r"(?m)^\s*def\s+(test_\w*)\s*\("),
+        Language::Rust => pattern(
+            &RUST_NAME,
+            r"#\[\s*(?:(?:[A-Za-z_][\w]*::)*test)[^\]]*\]\s*fn\s+([A-Za-z_]\w*)",
+        ),
+        Language::Python => pattern(&PYTHON_NAME, r"(?m)^\s*(?:async\s+)?def\s+(test_\w*)\s*\("),
         Language::Go => pattern(&GO_NAME, r"\bfunc\s+(Test\w+)\s*\("),
-        Language::Swift => pattern(&SWIFT_NAME, r"(?:@Test[^\n]*\s+)?\bfunc\s+(test\w*)\s*\("),
+        Language::Swift => pattern(
+            &SWIFT_NAME,
+            r"(?:@Test(?:\([^)]*\))?\s+func\s+([A-Za-z_]\w*)\s*\(|\bfunc\s+(test\w*)\s*\()",
+        ),
         Language::TypeScript => pattern(&TS_NAME, r"$^"),
     }
-        .captures_iter(code)
-        .filter_map(|capture| capture.get(1).map(|name| name.as_str().to_owned()))
-        .collect::<Vec<_>>();
+    .captures_iter(code)
+    .filter_map(|capture| {
+        capture.iter().skip(1).flatten().next().map(|name| name.as_str().to_owned())
+    })
+    .collect::<Vec<_>>();
     if language == Language::TypeScript {
         static JS_NAME: OnceLock<Regex> = OnceLock::new();
         names.extend(
-            pattern(&JS_NAME, r#"\b(?:test|it|xtest|xit)\s*\(\s*['\"]([^'\"]+)['\"]"#)
+            pattern(
+                &JS_NAME,
+                r#"\b(?:test|it|xtest|xit)(?:\.(?:only|skip|todo|each))?\s*\(\s*['"`\x60]([^'"`\x60]+)['"`\x60]"#,
+            )
                 .captures_iter(code)
                 .filter_map(|capture| capture.get(1).map(|name| name.as_str().to_owned())),
         );
@@ -1016,9 +1028,35 @@ mod tests {
         let old = "test('validates auth', () => expect(token).toEqual(1));";
         let new = "test('smoke', () => expect(ready).toEqual(1));";
         assert_eq!(
-            detect_text("tests/auth.test.ts", old, new, 1)
-                .first()
-                .map(|finding| finding.kind),
+            detect_text("tests/auth.test.ts", old, new, 1).first().map(|finding| finding.kind),
+            Some("removed-test")
+        );
+
+        let old = "#[tokio::test]\nfn validates_auth() { assert_eq!(token, 1); }";
+        let new = "#[tokio::test]\nfn smoke() { assert_eq!(ready, 1); }";
+        assert_eq!(
+            detect_text("tests/auth.rs", old, new, 1).first().map(|finding| finding.kind),
+            Some("removed-test")
+        );
+
+        let old = "async def test_validates_auth():\n    assert token == 1";
+        let new = "async def test_smoke():\n    assert ready == 1";
+        assert_eq!(
+            detect_text("tests/auth_test.py", old, new, 1).first().map(|finding| finding.kind),
+            Some("removed-test")
+        );
+
+        let old = "@Test func validates_auth() { #expect(token == 1) }";
+        let new = "@Test func smoke() { #expect(ready == 1) }";
+        assert_eq!(
+            detect_text("Tests/AuthTests.swift", old, new, 1).first().map(|finding| finding.kind),
+            Some("removed-test")
+        );
+
+        let old = "test.only(`validates auth`, () => expect(token).toEqual(1));";
+        let new = "test.only(`smoke`, () => expect(ready).toEqual(1));";
+        assert_eq!(
+            detect_text("tests/auth.test.ts", old, new, 1).first().map(|finding| finding.kind),
             Some("removed-test")
         );
     }
