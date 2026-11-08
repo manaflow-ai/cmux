@@ -532,6 +532,16 @@ pub const WORKSPACE_SIDEBAR_PLACEMENT_CAPABILITY: &str = "workspace-sidebar-plac
 /// creator `workspace`, the agent `session`): an agent or script workspace
 /// goes below its creator; workspaces carry it as `extra.created_by`.
 pub const WORKSPACE_CREATED_BY_CAPABILITY: &str = "workspace-created-by-v1";
+/// `terminal.screen.read` takes `unwrap` (soft wraps joined into logical
+/// lines) and `lines` (the last N lines of scrollback and screen), and
+/// `terminal.copy` takes `unwrap`.
+pub const TERMINAL_READ_UNWRAP_CAPABILITY: &str = "terminal-read-unwrap-v1";
+/// `terminal.wait` takes `new`: only text printed below the cursor's line as
+/// the wait starts can match, so a typed command's echo and older output never do.
+pub const TERMINAL_WAIT_NEW_CAPABILITY: &str = "terminal-wait-new-v1";
+/// Terminal records carry `extra.last_command` (`exit_code`, `finished_at_ms`,
+/// `started_at_ms`): the last command the shell finished (OSC 133 `D`).
+pub const TERMINAL_EXIT_STATUS_CAPABILITY: &str = "terminal-exit-status-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";

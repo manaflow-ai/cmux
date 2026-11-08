@@ -1180,10 +1180,12 @@ jobs:
 
       - name: Verify published GhosttyKit release and checksum
         env:
-          # A missing GitHub release should fail quickly rather than spending
-          # the helper's nightly retry budget on a known 404.
-          GHOSTTYKIT_DOWNLOAD_RETRIES: "0"
-          GHOSTTYKIT_DOWNLOAD_RETRY_DELAY: "1"
+          # A missing GitHub release still fails within a minute, not after the
+          # helper's nightly retry budget. Three resumed retries let a github.com
+          # 504 or stalled transfer pass: on 2026-11-08 a single slow or 504
+          # response turned this check red on every feat-cmux-next PR.
+          GHOSTTYKIT_DOWNLOAD_RETRIES: "3"
+          GHOSTTYKIT_DOWNLOAD_RETRY_DELAY: "5"
         run: ./scripts/download-prebuilt-ghosttykit.sh --verify-only
 
   browser:

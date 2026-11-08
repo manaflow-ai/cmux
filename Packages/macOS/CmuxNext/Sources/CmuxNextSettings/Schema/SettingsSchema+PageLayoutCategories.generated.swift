@@ -254,7 +254,7 @@ extension SettingsPageLayout {
     private static let serverCategory = CategorySpec(
         id: "server", title: SettingsText.keyed("settings.category.server", "Server"), symbol: "server.rack",
         groups: [],
-        lead: [.server]
+        lead: [.server, .tailnet]
     )
 
     /// Bring things over from other browsers, agents and terminals on this Mac.

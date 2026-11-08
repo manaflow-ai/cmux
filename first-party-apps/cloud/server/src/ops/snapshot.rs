@@ -4,20 +4,9 @@
 
 use super::machine::{deleted, machine_mutation, trimmed};
 use crate::api::args;
-use crate::api::models::Snapshot;
 use crate::api::{CloudError, ControlPlane, Ctx, codes, decode_answer};
-use serde::Deserialize;
+use cmux_cloud_wire::{CloudSnapshotCreateOp, CloudSnapshotListOp, Op};
 use serde_json::{Value, json};
-
-#[derive(Deserialize)]
-struct SnapshotList {
-    snapshots: Vec<Snapshot>,
-}
-
-#[derive(Deserialize)]
-struct SnapshotAnswer {
-    snapshot: Snapshot,
-}
 
 pub(super) fn run<C: ControlPlane>(
     ctx: &mut Ctx<'_, C>,
@@ -28,7 +17,7 @@ pub(super) fn run<C: ControlPlane>(
         "cloud.snapshot.list" => {
             let map = args::object(raw, &["machine"])?;
             args::opt_id(map, "machine")?;
-            let list: SnapshotList =
+            let list: <CloudSnapshotListOp as Op>::Result =
                 decode_answer(name, ctx.wire(name, args::params(map, &["machine"]))?.value)?;
             Ok(json!({ "snapshots": list.snapshots }))
         }
@@ -36,7 +25,7 @@ pub(super) fn run<C: ControlPlane>(
             let map = args::object(raw, &["machine", "name"])?;
             args::id(map, "machine")?;
             args::text(map, "name", 80)?;
-            let answer: SnapshotAnswer = decode_answer(
+            let answer: <CloudSnapshotCreateOp as Op>::Result = decode_answer(
                 name,
                 ctx.wire(name, args::params(map, &["machine", "name"]))?.value,
             )?;

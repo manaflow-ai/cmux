@@ -15123,13 +15123,6 @@
           "required" : false
         },
         {
-          "kind" : "int",
-          "max" : 6,
-          "min" : 0,
-          "name" : "open",
-          "required" : false
-        },
-        {
           "kind" : "string",
           "name" : "peer",
           "required" : false
@@ -27613,43 +27606,6 @@
       "palette_suggested" : null,
       "title" : "Disable Minimal Mode",
       "title_key" : "action.palette.disableMinimalMode",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "args" : [
-
-      ],
-      "cli" : "guiOnly",
-      "cli_name" : "feed show",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "i",
-        "modifiers" : [
-          "shift",
-          "cmd"
-        ]
-      },
-      "id" : "feed.show",
-      "main_menu" : "window",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.notifications",
-        "order" : 108,
-        "title" : "Notifications",
-        "title_key" : "category.notifications",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Show Feed",
-      "title_key" : "action.feed.show",
       "title_table" : "ActionCatalog"
     },
     {
@@ -43043,13 +42999,25 @@
             }
           ],
           "when" : "surfaceKind != page && !codeEditorFocused"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "-",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "surfaceKind != terminal"
         }
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "-",
+        "key" : ",",
         "modifiers" : [
-          "ctrl"
+          "opt",
+          "cmd"
         ]
       },
       "id" : "focusHistoryBack",
@@ -43089,14 +43057,26 @@
             }
           ],
           "when" : "surfaceKind != page && !codeEditorFocused"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "-",
+              "modifiers" : [
+                "ctrl",
+                "shift"
+              ]
+            }
+          ],
+          "when" : "surfaceKind != terminal"
         }
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "-",
+        "key" : ".",
         "modifiers" : [
-          "ctrl",
-          "shift"
+          "opt",
+          "cmd"
         ]
       },
       "id" : "focusHistoryForward",

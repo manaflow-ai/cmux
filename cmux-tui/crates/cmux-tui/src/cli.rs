@@ -96,6 +96,8 @@ mod launch_credential;
 mod lifecycle;
 #[cfg(unix)]
 mod live_code;
+#[cfg(unix)]
+mod repo_hold;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
 mod sandbox_run;
@@ -167,6 +169,8 @@ mod topology_help;
 mod wire;
 #[cfg(unix)]
 mod workflow;
+#[cfg(unix)]
+mod worktree_workspace;
 use surface::MACHINE_CATALOG_HELP;
 pub(super) use surface::{BIN, Surface};
 
