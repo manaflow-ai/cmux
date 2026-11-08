@@ -245,12 +245,12 @@ impl MachineAgent {
                     ) {
                         Ok(started) if started.generation == request.generation => {
                             if started.registered.pairing_code.is_some() {
-                                started.handle.close();
-                                // Report before the old worker tells its peer:
-                                // whoever sees the rejection can rely on it.
+                                // Report before either peer is told: whoever
+                                // sees the rejection or the close can rely on it.
                                 self.reporter
                                     .diagnostic(MachineAgentDiagnostic::MigrationPairingCode);
                                 self.reporter.migration_failed();
+                                started.handle.close();
                                 try_send_worker_command(
                                     &workers,
                                     worker_id,
@@ -275,10 +275,10 @@ impl MachineAgent {
                             workers.insert(started.worker_id, replacement);
                         }
                         Ok(started) => {
-                            started.handle.close();
                             self.reporter
                                 .diagnostic(MachineAgentDiagnostic::MigrationGenerationMismatch);
                             self.reporter.migration_failed();
+                            started.handle.close();
                             try_send_worker_command(
                                 &workers,
                                 worker_id,
@@ -490,7 +490,8 @@ fn commit_migration_replacement(
     {
         return Some(replacement);
     }
-    // Report before either peer sees its connection close.
+    // Report before this function closes either connection (a failed send
+    // above may already have closed the old one).
     reporter.diagnostic(MachineAgentDiagnostic::MigrationCommitDelivery);
     reporter.migration_failed();
     if let Some(worker) = workers.get(&worker_id) {
@@ -1461,7 +1462,7 @@ mod tests {
     /// How long a diagnostic waits to see whether the peer already has the
     /// rejection. The correct order sends the rejection only after the
     /// report, so this wait always runs out there.
-    const REJECTION_ORDER_WINDOW: Duration = Duration::from_millis(500);
+    const REJECTION_ORDER_WINDOW: Duration = Duration::from_millis(200);
 
     impl Reporter for TestReporter {
         fn pairing_code(&self, code: &str) -> io::Result<()> {
@@ -2606,8 +2607,14 @@ mod tests {
         assert_eq!(hello.migration.unwrap().generation, 5);
         // The old peer reads on its own thread, so a rejection that the
         // runtime sends before it reports reaches the reporter while it waits.
+        // The old generation keeps its heartbeat while the migration runs.
         let old_peer = thread::spawn(move || {
-            let message = old_server.read().message;
+            let message = loop {
+                match old_server.read().message {
+                    Message::Ping(_) => {}
+                    message => break message,
+                }
+            };
             let _ = peer_rejected.send(());
             (old_server, message)
         });
