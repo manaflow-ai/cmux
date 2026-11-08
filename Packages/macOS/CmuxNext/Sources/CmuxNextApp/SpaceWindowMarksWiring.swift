@@ -16,7 +16,7 @@ import CmuxNextSidebar
     /// Event-driven (Observation of the window registry and each window's space); ends with `marks` (the window's bar).
     func install(_ marks: SpaceWindowMarks) {
         guard let state else { return }
-        let windows = services.windows, registry = services.registry, id = state.id
+        let windows = services.windows, registry = services.registry
         marks.perform = { [weak state] action in
             guard let state else { return }
             switch action {
@@ -33,8 +33,13 @@ import CmuxNextSidebar
             }
         }
         // task-owner: ends with the marks (the window's switcher); event-driven (Observation)
-        Task { [weak marks] in
-            for await value in ObservationStream({ (SpaceSwitcherLogic.shownElsewhere(Self.shown(windows), here: id), windows.isIncognito(window: id)) }) {
+        // The id is read live: the window opened at launch takes a restored record's id later (WindowState.adopt), and a
+        // stale id would ring this window's own space as another window's.
+        Task { [weak marks, weak state] in
+            for await value in ObservationStream({
+                let id = state?.id ?? ""
+                return (SpaceSwitcherLogic.shownElsewhere(Self.shown(windows), here: id), windows.isIncognito(window: id))
+            }) {
                 guard let marks else { return }
                 if marks.elsewhere != value.0 { marks.elsewhere = value.0 }
                 if marks.windowIsIncognito != value.1 { marks.windowIsIncognito = value.1 }
