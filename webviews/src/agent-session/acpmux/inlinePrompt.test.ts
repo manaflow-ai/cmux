@@ -510,3 +510,25 @@ test("a mixed draft marks only the attachment it placed in the text", async () =
   ]);
   expect(placedBy(built.display)).toEqual(["one.png:true", "two.png:-"]);
 });
+// A prompt of only a document or a recording echoes with no text and no images: its recorded part
+// is what it says, so its row stays drawn with its footer, never hidden as a blank prompt.
+for (const kind of ["document", "audio"] as const) {
+  test(`a ${kind}-only echo keeps a drawn row with its recorded part`, async () => {
+    const io = await connect();
+    try {
+      await io.client.send("warm");
+      const sessionId = io.sent[0].sessionId;
+      const name = kind === "audio" ? "memo.mp3" : "spec.pdf";
+      io.emit(sessionId, {
+        mux: "user_message",
+        msg: { text: "", inlineParts: [{ kind, name, mimeType: "application/octet-stream", blockIndex: 0 }] },
+      });
+      await settle(() => io.rows().some((row) => row.inlineParts?.some((part) => part.kind === kind)));
+      const row = io.rows().find((row) => row.inlineParts?.some((part) => part.kind === kind))!;
+      expect(row.kind).toBe("user");
+      expect(row.incoming?.kind).not.toBe("hidden");
+    } finally {
+      io.client.close?.();
+    }
+  });
+}

@@ -66,6 +66,17 @@ test("an inline attachment-only prompt reserves its attachment strip", () => {
   expect(height).toBeGreaterThanOrEqual(128);
 });
 
+// Two wide screenshots draw 320px each and wrap to two rows in a 720px pane's 504px column.
+test("two wide images in an attachment-only prompt reserve two thumbnail rows", () => {
+  const images = [
+    { id: "a", mimeType: "image/png" },
+    { id: "b", mimeType: "image/png" },
+  ];
+  const [one] = heightsOf([{ id: "one", version: 1, at: 0, kind: "user", images: images.slice(0, 1) }]);
+  const [two] = heightsOf([{ id: "two", version: 1, at: 0, kind: "user", images }]);
+  expect(two! - one!).toBe(128);
+});
+
 test("an attachment-only send reserves its delivery anchor", () => {
   const row = {
     id: "sending-image",
