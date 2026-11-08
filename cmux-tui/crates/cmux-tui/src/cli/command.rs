@@ -4007,6 +4007,37 @@ mod tests {
     }
 
     #[test]
+    fn read_run_terminal_reads_take_unwrap_lines_and_new() {
+        const TERMINAL: &str = "term_00000000000000000000000000000008";
+        let plain = protocol(&["terminal", TERMINAL, "screen", "read"]);
+        assert!(plain.params.get("unwrap").is_none());
+        assert!(plain.params.get("lines").is_none());
+
+        let read = protocol(&["terminal", TERMINAL, "read", "--unwrap", "--lines", "50"]);
+        assert_eq!(operation(&read), "terminal.screen.read");
+        assert_eq!(read.params["unwrap"], true);
+        assert_eq!(read.params["lines"], 50);
+        for invalid in ["0", "10001", "-1"] {
+            assert!(
+                parse(&strings(&["terminal", TERMINAL, "screen", "read", "--lines", invalid]))
+                    .is_err(),
+                "accepted --lines {invalid}"
+            );
+        }
+
+        let copy = protocol(&["terminal", TERMINAL, "copy", "--mode", "scrollback", "--unwrap"]);
+        assert_eq!(operation(&copy), "terminal.copy");
+        assert_eq!(copy.params["unwrap"], true);
+
+        let wait =
+            protocol(&["terminal", TERMINAL, "screen", "wait", "--pattern", "ready", "--new"]);
+        assert_eq!(operation(&wait), "terminal.wait");
+        assert_eq!(wait.params["new"], true);
+        let old = protocol(&["terminal", TERMINAL, "screen", "wait", "--pattern", "ready"]);
+        assert!(old.params.get("new").is_none());
+    }
+
+    #[test]
     fn terminal_output_read_parses_cursor_and_bounded_window() {
         const TERMINAL: &str = "term_00000000000000000000000000000008";
         let plain = protocol(&["terminal", TERMINAL, "output", "read"]);

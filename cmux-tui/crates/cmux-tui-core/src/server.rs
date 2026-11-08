@@ -16168,6 +16168,61 @@ mod tests {
     }
 
     #[test]
+    fn read_run_connection_terminal_wait_new_matches_only_output_after_the_call() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-new-wait",
+            "workspace.create",
+            json!({"machine":"current", "session":"current", "initial_content":"terminal"}),
+            Some("create-for-new-wait"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        let surface = mux
+            .resource_surface_for_terminal(&terminal_id)
+            .and_then(|surface| mux.surface(surface))
+            .expect("created terminal surface");
+        // Older output and the typed command's echo, on the cursor's line, both
+        // match the pattern; a `new` wait must not.
+        surface.apply_stream_output_for_test(b"\r\nREADY\r\n$ echo READY").unwrap();
+        let wait = resource_request(
+            "new-wait",
+            "terminal.wait",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "pattern":"(?m)^READY$",
+                "timeout_ms":"2000",
+                "new":true,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while surface.terminal_stream_waiter_count_for_test() != Some(1) {
+            assert!(Instant::now() < waiting_deadline, "terminal wait did not subscribe");
+            std::thread::yield_now();
+        }
+        surface.apply_stream_output_for_test(b"\r\nREADY\r\n").unwrap();
+
+        let response = pop_json(&outbound);
+        assert_eq!(response["id"], "new-wait");
+        assert_eq!(response["result"]["matched"], true, "{response}");
+        let text = response["result"]["text"].as_str().unwrap();
+        assert!(text.lines().any(|line| line == "READY"), "{response}");
+        assert!(!text.contains("echo"), "the typed command's echo is not new output: {response}");
+        disconnect_client(&mux, client, false);
+    }
+
+    #[test]
     fn request_cancel_suppresses_target_response_and_reuses_request_id_and_capacity() {
         let mux = test_mux();
         let (writer, outbound) = captured_writer();
@@ -24690,6 +24745,9 @@ mod tests {
             CREATION_RECEIPTS_CAPABILITY,
             CREATION_SELECTOR_FALLBACKS_CAPABILITY,
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+            "terminal-read-unwrap-v1",
+            "terminal-wait-new-v1",
+            "terminal-exit-status-v1",
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }
