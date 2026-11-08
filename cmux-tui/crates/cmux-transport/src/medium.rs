@@ -179,10 +179,9 @@ mod tests {
         LocalNetwork { interface: interface.into(), address: address.parse().unwrap(), prefix }
     }
 
-    /// ultra1's table (fleet registry, 2026-11-03): wired en0 and Wi-Fi en1
-    /// on the office LAN, the Thunderbolt Bridge to ultra2 on bridge0, and a
-    /// tailnet utun.
-    fn ultra1() -> Vec<LocalNetwork> {
+    /// A Mac Studio's table: wired en0 and Wi-Fi en1 on the office LAN, a
+    /// Thunderbolt Bridge to a second Studio on bridge0, and a tailnet utun.
+    fn studio() -> Vec<LocalNetwork> {
         vec![
             net("lo0", "127.0.0.1", 8),
             net("en0", "172.20.22.22", 22),
@@ -194,7 +193,7 @@ mod tests {
     }
 
     fn medium(remote: &str) -> Medium {
-        medium_of(remote.parse().unwrap(), &ultra1())
+        medium_of(remote.parse().unwrap(), &studio())
     }
 
     #[test]
