@@ -22,6 +22,9 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Run a task on several models in separate worktrees and compare the reviewer's winner.
+    #[command(subcommand)]
+    Race(crate::cli::race::RaceCmd),
     /// Own one dedicated Codex sign-in over private stdin/stdout pipes.
     #[cfg(unix)]
     #[command(hide = true)]
@@ -60,6 +63,10 @@ pub enum Command {
     /// files, what the session this shell runs in edited lately.
     #[command(name = "who-else", alias = "whoelse", alias = "overlap")]
     WhoElse(crate::cli::who_else::WhoElseArgs),
+    /// What turns on this machine cost, whatever harness ran them: totals, then one line per
+    /// repository, pull request, day, person, workspace, vendor, model or account.
+    #[command(alias = "cost", alias = "spend")]
+    Ledger(crate::cli::ledger::LedgerArgs),
     /// Link a session to the tracker beads it works on (`bd` ids), unlink them, list them.
     #[command(subcommand)]
     Bead(crate::cli::beads::BeadCmd),
@@ -334,7 +341,7 @@ pub enum Command {
         preset: Option<String>,
         #[arg(long, short)]
         effort: Option<String>,
-        /// Permission policy: ask, approve-reads, approve-edits, approve-all, deny-all.
+        /// Permission policy: ask, approve-reads, approve-edits, approve-all, deny-all, review.
         #[arg(long)]
         policy: Option<String>,
     },
