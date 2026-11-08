@@ -61,7 +61,7 @@ import Testing
         }
         var downloads = 0
         updater.acceptAvailable = { downloads += 1 }
-        updater.send(.checkRequested)
+        updater.send(.attemptRequested)
         for phase: UpdateIndicatorPhase in [.checking, .downloading(.starting), Self.downloading] {
             updater.debugIndicatorPhase = phase
             updater.syncFlowPhase()
@@ -97,7 +97,7 @@ import Testing
         }
         var downloads = 0
         updater.acceptAvailable = { downloads += 1 }
-        updater.send(.checkRequested)
+        updater.send(.attemptRequested)
         updater.debugIndicatorPhase = Self.downloading
         updater.syncFlowPhase()
         updater.cancelDownloadClicked()

@@ -15,6 +15,7 @@ import subprocess
 import tempfile
 import time
 import unittest
+import urllib.request
 
 
 def _load_git_fixture_env():
@@ -211,6 +212,7 @@ class PrePushGateTests(unittest.TestCase):
             INSTALLER,
             "scripts/web_lint_prepush.py",
             "scripts/ci/base_merge_warning.py",
+            "scripts/ci/github_release_download.py",
             "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
@@ -2116,13 +2118,13 @@ class ToolDownloadFallbackTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             lock = Path(tmp) / "lint-tools.lock"
             lock.write_text(f"tool\t1.2.3\t{gate.platform_key()}\t{url}\t{hashlib.sha256(archive).hexdigest()}\ttool-bin\n")
-            old_dir, old_open = os.environ.get("CMUX_LINT_TOOLS_DIR"), gate.urllib.request.urlopen
+            old_dir, old_open = os.environ.get("CMUX_LINT_TOOLS_DIR"), urllib.request.urlopen
             os.environ["CMUX_LINT_TOOLS_DIR"] = str(Path(tmp) / "tools")
-            gate.urllib.request.urlopen = urlopen
+            urllib.request.urlopen = urlopen
             try:
                 path = gate.ensure_tool(lock, "tool")
             finally:
-                gate.urllib.request.urlopen = old_open
+                urllib.request.urlopen = old_open
                 if old_dir is None:
                     os.environ.pop("CMUX_LINT_TOOLS_DIR")
                 else:
@@ -2153,14 +2155,14 @@ class ToolDownloadFallbackTests(unittest.TestCase):
                 return io.BytesIO(jsonlib.dumps({"assets": [{"name": "tool-linux.zip", "url": asset}]}).encode())
             return io.BytesIO(b"archive")
 
-        old_open, old_token = gate.urllib.request.urlopen, os.environ.get("GH_TOKEN")
+        old_open, old_token = urllib.request.urlopen, os.environ.get("GH_TOKEN")
         os.environ["GH_TOKEN"] = "token-for-test"
-        gate.urllib.request.urlopen = urlopen
+        urllib.request.urlopen = urlopen
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 gate.download(url, Path(tmp) / "tool.zip")
         finally:
-            gate.urllib.request.urlopen = old_open
+            urllib.request.urlopen = old_open
             if old_token is None:
                 os.environ.pop("GH_TOKEN")
             else:
@@ -2170,9 +2172,46 @@ class ToolDownloadFallbackTests(unittest.TestCase):
             self.assertEqual(requests[api].unredirected_hdrs.get("Authorization"), "Bearer token-for-test")
             self.assertNotIn("Authorization", requests[api].headers)
         # The asset answers with a redirect to a signed storage URL: urllib's redirect copies only `headers`.
-        signed = gate.urllib.request.HTTPRedirectHandler().redirect_request(
+        signed = urllib.request.HTTPRedirectHandler().redirect_request(
             requests[asset], None, 302, "Found", {}, "https://objects.example/signed?sig=1")
         self.assertIsNone(signed.get_header("Authorization"))
+
+
+    def test_a_hook_copy_refreshed_without_the_helper_still_downloads_directly(self):
+        # An install from before github_release_download.py has the old refresh_checks.py, which rewrites the hook's
+        # cmux_next_prepush_gate.py from feat-cmux-next but copies nothing from scripts/ci. That gate must still fetch
+        # a tool (the direct download, as before #38349), not refuse every push that has no cached tool.
+        import io
+        url = "https://github.com/acme/tool/releases/download/1.2.3/tool-linux.zip"
+        asked = []
+
+        def urlopen(request, timeout=None):
+            asked.append(getattr(request, "full_url", request))
+            return io.BytesIO(b"archive")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            hook_dir = Path(tmp) / "hooks"
+            hook_dir.mkdir()
+            shutil.copyfile(SOURCE / GATE, hook_dir / "cmux_next_prepush_gate.py")
+            shutil.copyfile(SOURCE / "scripts/cmux-next/git_batch.py", hook_dir / "git_batch.py")
+            spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate_refreshed",
+                                                          hook_dir / "cmux_next_prepush_gate.py")
+            gate = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = gate
+            stashed = sys.modules.pop("cmux_github_release_download", None)
+            old_open = urllib.request.urlopen
+            urllib.request.urlopen = urlopen
+            try:
+                spec.loader.exec_module(gate)
+                gate.download(url, Path(tmp) / "tool.zip")
+            finally:
+                urllib.request.urlopen = old_open
+                sys.modules.pop(spec.name, None)
+                sys.modules.pop("cmux_github_release_download", None)
+                if stashed is not None:
+                    sys.modules["cmux_github_release_download"] = stashed
+            self.assertEqual((Path(tmp) / "tool.zip").read_bytes(), b"archive")
+        self.assertEqual(asked, [url])
 
 
 class StaleInstallTests(unittest.TestCase):

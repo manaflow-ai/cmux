@@ -200,6 +200,24 @@
 .cv-user__body {
   display: contents;
 }
+/* An attachment-only prompt has no text bubble. Keep a small positioned status anchor so its
+   delivery clock can sit beside the attachment row without inventing an empty glass surface. */
+.cv-user__bubble-wrap {
+  position: relative;
+}
+/* An attachment-only prompt's sending clock sits beside its last attachment band (UserBubble.tsx):
+   the band shrinks to its thumbnails and chips, so the clock is next to them. */
+.cv-user__images,
+.cv-user__files {
+  position: relative;
+}
+.cv-user__bubble-wrap.is-empty {
+  /* Attachment-only delivery has no bubble width to anchor against. Match the attachment band so
+     the clock sits beside its thumbnails instead of at the transcript edge. */
+  align-self: flex-end;
+  width: 70%;
+  min-height: var(--cv-line-height);
+}
 /* A prompt's bubble, as ChatGPT and Claude draw it (leo-workspace design/transcript-spacing.md
    "Prompt bubble"; transcriptSpacing.ts BUBBLE): one line is 44 tall (chatgpt.com 44, claude.ai 45),
    so the block padding is what the line leaves, (44 - line) / 2, at least the 4 base; 16 at the
@@ -1014,6 +1032,8 @@
   .cv-received:hover .cv-received-actions,
   .cv-received > .cv-disclosure__line:hover .cv-received__hover,
   .cv-received > .cv-disclosure__line:has([data-popup-open]) .cv-received__hover,
+  .cv-received > .cv-agentmsg__line:hover .cv-received__hover,
+  .cv-received > .cv-agentmsg__line:has([data-popup-open]) .cv-received__hover,
   .acpmux-assistant:hover .cv-reply-actions,
   .acpmux-assistant:has([data-popup-open]) .cv-reply-actions,
   .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
@@ -3262,7 +3282,7 @@ button.cv-tool:not(.cv-sent, .cv-agent-activity__control):is(:hover, :focus-visi
   display: contents;
 }
 .acpmux-row .cv-sent > .cv-sent__actions,
-.acpmux-row .cv-agentmsg__line > .cv-agentmsg__sentence > .cv-sent-actions {
+.acpmux-row .cv-agentmsg__line > .cv-agentmsg__sentence > :is(.cv-sent-actions, .cv-received__hover) {
   order: 4;
 }
 .acpmux-row .cv-tool > .cv-tool__trail {
@@ -4058,6 +4078,31 @@ button.cv-video-frames__frame:focus-visible {
     transition: none;
   }
 }
+/* A running background command's page (PreviewChip.tsx): the globe and its address in the accent,
+   as the running line's parts read, at the edge where a running row has no mark. Never wraps; a long
+   address gives way first. */
+.cv-preview-chip {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 24ch;
+  align-items: center;
+  gap: var(--ds-space-1);
+  border-radius: 4px;
+  color: var(--agent-accent);
+  cursor: default;
+}
+.cv-preview-chip__address {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-preview-chip:hover .cv-preview-chip__address {
+  text-decoration: underline;
+}
+.cv-preview-chip:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: 1px;
+}
 /* A lone shell row's background state (ToolRow.tsx, BackgroundMark.tsx) sits at its right edge. */
 .cv-tool__meta {
   margin-left: auto;
@@ -4215,7 +4260,7 @@ button.cv-video-frames__frame:focus-visible {
    the chevron ends at its right edge, as every tool row's do (design/chat-transcript.md "One icon
    column"; Leo, 2026-10-31: "the alignment i feel like we might as well"). The hover plate is the
    row's own box (the transcript row clips paint, so it can't bleed past the column). */
-.cv-received > .cv-disclosure__line {
+.cv-received > :is(.cv-disclosure__line, .cv-agentmsg__line) {
   position: relative;
   height: var(--cv-message-line);
   min-height: 0;
@@ -4230,7 +4275,7 @@ button.cv-video-frames__frame:focus-visible {
 /* No plate under the line on hover, as a sent message's and a tool's line have none (cmux#28113
    gave received lines one): pointing at it reveals its actions only, and pointing at the sender's
    name lights only the name (its own pill below). Keyboard focus keeps the plate, so focus shows. */
-.cv-received > .cv-disclosure__line:has(:focus-visible):not(:has(.cv-agent-tag.is-open:focus)) {
+.cv-received > :is(.cv-disclosure__line, .cv-agentmsg__line):has(:focus-visible):not(:has(.cv-agent-tag.is-open:focus)) {
   background: color-mix(in srgb, var(--cv-text) 6%, transparent);
 }
 .cv-received .cv-disclosure__toggle {
@@ -4276,13 +4321,17 @@ button.cv-video-frames__frame:focus-visible {
 }
 .cv-received > .cv-disclosure__line:hover .cv-received__hover,
 .cv-received > .cv-disclosure__line:has([data-popup-open]) .cv-received__hover,
+.cv-received > .cv-agentmsg__line:hover .cv-received__hover,
+.cv-received > .cv-agentmsg__line:has([data-popup-open]) .cv-received__hover,
 .cv-received__hover:focus-within,
 .cv-received__hover:has([aria-haspopup="menu"]:is([aria-expanded="true"], [data-popup-open])) {
   opacity: 1;
   pointer-events: auto;
 }
 /* Pointing at the sender's open chip is not pointing at the line: its actions stay hidden. */
-.cv-received > .cv-disclosure__line:has(.cv-agent-tag.is-open:hover):not(:has([data-popup-open])) .cv-received__hover {
+.cv-received
+  > :is(.cv-disclosure__line, .cv-agentmsg__line):has(.cv-agent-tag.is-open:hover):not(:has([data-popup-open]))
+  .cv-received__hover {
   opacity: 0;
   pointer-events: none;
 }
@@ -6974,6 +7023,32 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 }
 :root:is([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cv-needs-input-glyph.is-answered {
   display: none;
+}
+/* An ask that opens under a line already drawn: the dot grows in from nothing, its room opening with
+   it (the 8px gap too), so the pill's words slide over in the same motion rather than jump (Leo,
+   2026-11-08: "I mostly just meant the yellow circle thing"). The house settle curve and step
+   (265 ms); with motion off or reduced the dot is simply there. */
+.cv-needs-input-glyph.is-asked {
+  animation: cv-needs-input-asked var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle) both;
+}
+@keyframes cv-needs-input-asked {
+  from {
+    width: 0;
+    margin-inline-end: -8px;
+    transform: scale(0);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cv-needs-input-glyph.is-asked {
+    animation: none;
+  }
+}
+:root:is([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cv-needs-input-glyph.is-asked {
+  animation: none;
 }
 
 /* The live line while the harness retries a failed model request (Thinking.tsx `retryParts`):

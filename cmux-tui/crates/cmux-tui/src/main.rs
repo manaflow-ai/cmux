@@ -117,6 +117,7 @@ mod remote_runtime;
 mod session;
 mod sidebar_files;
 mod sidebar_projection;
+mod sidebar_status;
 #[cfg(unix)]
 mod staged_update;
 // The staged swap probes builds through cmux-remote, a unix-only dependency:
@@ -2189,8 +2190,9 @@ fn relay_daemon_options(
                 RelayCredentialArg::File(path) => {
                     cmux_remote::provider::RelayCredentialSource::file(path)
                 }
+                // The daemon's own Register: the ticket command's answer may take up to its 30 s read.
                 RelayCredentialArg::Command { program, args } => {
-                    cmux_remote::provider::RelayCredentialSource::command(program, args)
+                    cmux_remote::provider::RelayCredentialSource::daemon_command(program, args)
                 }
             };
             Ok(remote_runtime::RelayDaemonOptions {
