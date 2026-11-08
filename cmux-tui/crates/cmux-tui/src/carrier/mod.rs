@@ -319,17 +319,22 @@ async fn open_desktop(
 
 /// Why the desktop stream did not open: the daemon's refusal is the
 /// service's; a session the daemon no longer has (`session_unavailable`:
-/// the multiplexer's reader saw it) is dialed fresh; anything else ended
+/// the multiplexer's reader saw it, or the error itself says so) is dialed
+/// fresh; anything else ended
 /// the session, which is the carrier's.
 fn desktop_failure(error: cmux_remote::bridge::BridgeError, session_unavailable: bool) -> Failure {
     use cmux_remote::bridge::BridgeError;
     if let BridgeError::Rejected(why) = error {
         return Failure::fatal(contract::Step::Service, why);
     }
+    // The reader may not have marked the session yet when the open's own
+    // send (or a heartbeat) met its typed end first.
+    let gone = session_unavailable
+        || matches!(&error, BridgeError::Service(service) if service.is_session_unavailable());
     let detail = format!("the session ended before the desktop opened: {error}");
     // The session host restarted after the session's first stream opened
     // and no longer has it: the dial opens a fresh one.
-    if session_unavailable {
+    if gone {
         Failure::session_gone(contract::Step::Relay, detail)
     } else {
         Failure::fatal(contract::Step::Relay, detail)
