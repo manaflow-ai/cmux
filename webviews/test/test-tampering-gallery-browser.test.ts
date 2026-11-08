@@ -72,7 +72,7 @@ await requireBrowserLane("test-tampering-gallery-browser.test.ts", async () => {
             expect(await card.count()).toBe(1);
             const disclosure = card.locator(".acpmux-tampering-head");
             const expanded = await disclosure.getAttribute("aria-expanded");
-            expect(["true", "false"]).toContain(expanded);
+            expect(expanded === "true" || expanded === "false").toBe(true);
             if (variant === "compact") {
               expect(expanded).toBe("false");
               expect(await card.locator(".acpmux-tampering-body").count()).toBe(0);

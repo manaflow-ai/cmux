@@ -48,12 +48,7 @@ export function TestTampering({ rows, sessionId, turnId, onRestore }: TestTamper
     if (!restore || readOnly || state.restore === "pending" || allRestored) return;
     setTestTamperingState(key, { restore: "pending" });
     try {
-      for (const [index, finding] of evidence.entries()) {
-        const evidenceKey = tamperingEvidenceKey(finding);
-        if (state.restored.has(evidenceKey)) continue;
-        await restore(finding, index, evidence);
-        markTamperingRestored(key, evidenceKey);
-      }
+      await restoreFindings(restore, key, evidence, state.restored);
       setTestTamperingState(key, { restore: "sent" });
     } catch {
       setTestTamperingState(key, { restore: "failure" });
@@ -158,9 +153,23 @@ function tamperingReason(t: ReturnType<typeof useT>, kind: string): string {
         "allowlist-bypass": "testTampering.reason.allowlistBypass",
         "weakened-assertion": "testTampering.reason.weakenedAssertion",
         "removed-assertion": "testTampering.reason.removedAssertion",
-      } as Record<string, StringKey>
+      } as Partial<Record<string, StringKey>>
     )[kind] ?? "testTampering.reason.unknown";
   return t(key);
+}
+
+async function restoreFindings(
+  restore: TestTamperingRestore,
+  key: string,
+  evidence: readonly TamperingEvidence[],
+  restored: ReadonlySet<string>,
+): Promise<void> {
+  for (const [index, finding] of evidence.entries()) {
+    const evidenceKey = tamperingEvidenceKey(finding);
+    if (restored.has(evidenceKey)) continue;
+    await restore(finding, index, evidence);
+    markTamperingRestored(key, evidenceKey);
+  }
 }
 
 function Evidence({ finding, t }: { finding: TamperingEvidence; t: ReturnType<typeof useT> }) {

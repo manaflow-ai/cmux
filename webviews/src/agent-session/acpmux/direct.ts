@@ -4858,9 +4858,11 @@ export class AcpmuxDirectClient {
   }
 
   restoreTestTampering(target: TestTamperingRestoreTarget): Promise<void> {
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return Promise.reject(new Error("No active session for test restore"));
     return restoreTestTampering(
       (method, params, deadline) => this.request(method, params, deadline),
-      this.actingSessionId,
+      sessionId,
       target,
     );
   }
