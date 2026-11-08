@@ -228,6 +228,10 @@ import Testing
             let first = try #require(Self.ghosts(row).first)
             try h.patch(3) { $0.title = "Second name" }
             let second = try #require(Self.ghosts(row).first { $0 !== first }, "the second rename left its own snapshot")
+            // Stacked oldest first, so pruning from the front drops the oldest and the newest draws on top.
+            let stack = row.title.layer?.superlayer?.sublayers ?? []
+            let below = try #require(stack.firstIndex { $0 === first }), above = try #require(stack.firstIndex { $0 === second })
+            #expect(below < above, "the newer snapshot stacks above the older one")
             try h.patch(3) { $0.title = "Third name" }
             let ghosts = Self.ghosts(row)
             #expect(ghosts.count <= MotionScale.textSwapMaxGhosts, "at most \(MotionScale.textSwapMaxGhosts) snapshots: \(ghosts.count)")
