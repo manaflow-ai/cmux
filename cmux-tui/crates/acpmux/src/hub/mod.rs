@@ -16,6 +16,8 @@ pub(crate) mod agent_hold;
 mod agent_pairs;
 mod away_recap;
 mod memory_inbox;
+mod prompt_coach;
+pub use prompt_coach::CoachRewriter;
 mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
@@ -807,6 +809,8 @@ pub struct Hub {
     pub(super) recap_due: StdMutex<HashMap<String, u64>>,
     /// Wakes the recap loop when `recap_due` changes.
     pub(super) recap_wake: Arc<Notify>,
+    /// What writes prompt coach rewrites instead of the small model (tests; `prompt_coach.rs`).
+    pub(super) coach_rewriter: StdMutex<Option<prompt_coach::CoachRewriter>>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
     /// The caller tokens earlier daemon runs gave out, by session (`caller_registry.rs`).
@@ -1122,6 +1126,7 @@ impl Hub {
             session_recap: AtomicBool::new(away_recap::saved_setting()),
             recap_due: StdMutex::new(HashMap::new()),
             recap_wake: Arc::new(Notify::new()),
+            coach_rewriter: StdMutex::new(None),
             start_mode_state,
             caller_registry,
             full_access_pushes: tokio::sync::Mutex::new(()),
@@ -1504,6 +1509,7 @@ impl Hub {
             input_handoff: std::sync::Arc::new(Mutex::new(())),
             turn: StdMutex::new(None),
             away: StdMutex::new(Default::default()),
+            coach: StdMutex::new(Default::default()),
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
             prepared: StdMutex::new(std::collections::VecDeque::new()),

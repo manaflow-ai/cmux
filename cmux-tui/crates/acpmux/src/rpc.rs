@@ -558,6 +558,8 @@ pub mod method {
     pub const MUX_BOOKMARK_SET: &str = "_acpmux/bookmark_set";
     /// The person's Accept or Dismiss on a chat's memory offer (`server/memory_inbox.rs`).
     pub const MUX_MEMORY_RESOLVE: &str = "_acpmux/memory_resolve";
+    /// The rewrite of a chat's prompt coach offer, made once (`server/prompt_coach.rs`).
+    pub const MUX_PROMPT_COACH: &str = "_acpmux/prompt_coach";
     pub const MUX_ASK: &str = "_acpmux/ask";
     /// A side session about a chat (`/btw`, `hub/btw.rs`): read-only, on a
     /// cheap model, sent the question; answers with its session id at once.

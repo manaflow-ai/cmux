@@ -182,6 +182,8 @@ keyed! {
     BookmarkSetParams: ["sessionId", "seq", "bookmarked"];
     /// `_acpmux/memory_resolve`.
     MemoryResolveParams: ["sessionId", "offerId", "file", "accept", "dismiss"];
+    /// `_acpmux/prompt_coach`.
+    PromptCoachParams: ["sessionId", "coachId"];
     /// `_acpmux/btw`.
     BtwParams: ["sessionId", "question", "model", "inline"];
     /// `_acpmux/chat/route.set`.
