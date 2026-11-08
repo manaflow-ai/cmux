@@ -258,10 +258,16 @@ extension ScreenContentView {
         guard !frameInput.filmZoomFading.isEmpty else { return }
         let panes = frameInput.filmZoomFading
         frameInput.filmZoomFading = []
+        let fadingHosts = panes.compactMap { context.hosts[$0] } // before the retire takes them out of `hosts`
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        for pane in panes {
-            guard let host = context.hosts[pane] else { continue }
+        // Z4 pop fix (ZOOM VARIANTS 3, never merged): the covered panes go hidden in the same transaction that puts them
+        // back at full opacity, before it. A separate later hide let one or more frames show them at opacity 1 over the
+        // zoomed pane (the old layout "pop" ~5 frames after the zoom in lands).
+        if retiring {
+            for pane in panes where paneFrames[pane] == nil { context.retire(pane, from: screenID, until: .zoom) }
+        }
+        for host in fadingHosts {
             for layer in [host.layer, host.chrome.layer].compactMap({ $0 }) {
                 layer.removeAnimation(forKey: "opacity")
                 layer.opacity = 1
@@ -273,12 +279,10 @@ extension ScreenContentView {
         // at full opacity (still in `paneFrames`), as one span name.
         if MotionTrace.isEnabled {
             let kept = panes.filter { paneFrames[$0] != nil }.count
-            let hidden = panes.filter { context.hosts[$0]?.isHidden == true }.count
+            let hidden = fadingHosts.filter(\.isHidden).count
             MotionTrace.interval("zk.fade.stop.ret\(retiring ? 1 : 0).n\(panes.count).inframes\(kept).hidden\(hidden)") {}
         }
         #endif
-        guard retiring else { return }
-        for pane in panes where paneFrames[pane] == nil { context.retire(pane, from: screenID, until: .zoom) }
     }
 
     /// Z4 out: the zoomed pane's old full picture (`container`, over the final layout) shows through a frame that shrinks
