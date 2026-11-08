@@ -44,6 +44,18 @@ def film(name, closed, survivors):
             G.kit_record_stop(name, 0.3)] + texts("after")
 
 
+def film_mouse(name, closed, focus, survivors):
+    """A mouse close of CLOSED while FOCUS keeps the focus: a click on CLOSED's tab x (cp_click_close)."""
+    texts = lambda tag: [{"do": "cv_text", "pane": p, "film": name, "tag": f"{tag}{i}", "title": f"screen text of {p} ({tag})"}
+                         for i, p in enumerate(survivors)]
+    return [G.settle(1.0)] + texts("before") + [X.focus(focus), G.settle(0.8),
+            {"do": "video_start", "name": name, "seconds": 5.0, "mbps": 24, "rows": [], "columns": [], "require_hz": 120,
+             "lead": 0.8, "title": f"start the 120 Hz movie {name}"},
+            G.settle(0.4),
+            {"do": "cp_click_close", "film": name, "i": 0, "pane": closed, "rest": 1.4, "title": f"click the x of {closed} ({name})"},
+            G.kit_record_stop(name, 0.3)] + texts("after")
+
+
 def label(progs):
     progs = [p for p in progs if p]
     modes = []
@@ -108,6 +120,41 @@ def layout(key, ms):
         s += film(n1, x, (l, r, b)) + film(n2, b, (l, r))
         out.append((s, ("RC1", n1, p, m), 22))
         out.append(([], ("RC2", n2, p, m), 10))
+    elif key == "CC":    # columns mode (newColumn): close a middle column, then an end column; widths never change
+        a, c, x = "cc1-a", "cc1-c", "cc1-x"
+        n, p, m = nm("CC1", ["nvim", "zsh"])
+        s = new_ws(a, "nvim", "CC1") + split(a, "newColumn", x, None) + split(x, "newColumn", c, "zsh") + film(n, x, (a, c))
+        out.append((s, ("CC1", n, p, m), 20))
+        a, c, x = "cc2-a", "cc2-c", "cc2-x"
+        n, p, m = nm("CC2", ["nvim", "zsh"])
+        s = new_ws(a, "nvim", "CC2") + split(a, "newColumn", c, "zsh") + split(c, "newColumn", x, None) + film(n, x, (a, c))
+        out.append((s, ("CC2", n, p, m), 20))
+    elif key == "MOUSE":  # one mouse close of an unfocused pane per layout (m61)
+        def mouse(scen, steps, closed, focus, survivors, progs, sec):
+            n, p, m = nm(scen, progs)
+            out.append((steps + film_mouse(n, closed, focus, survivors), (scen, n, p, m), sec))
+        a, x = "m-r2-a", "m-r2-x"
+        mouse("R2-mouse", new_ws(a, "zsh", "R2 mouse") + split(a, "splitUp", x, None), x, a, (a,), ["zsh"], 16)
+        a, x = "m-r2b-a", "m-r2b-x"
+        mouse("R2b-mouse", new_ws(a, "zsh", "R2b mouse") + split(a, "splitDown", x, None), x, a, (a,), ["zsh"], 16)
+        t, b, x = "m-r3-t", "m-r3-b", "m-r3-x"
+        mouse("R3-mouse", new_ws(t, "nvim", "R3 mouse") + split(t, "splitDown", b, "zsh") + split(t, "splitDown", x, None),
+              x, b, (t, b), ["nvim", "zsh"], 20)
+        l, r, x = "m-c3-l", "m-c3-r", "m-c3-x"
+        mouse("C3M-mouse", new_ws(l, "nvim", "C3M mouse") + split(l, "splitRight", r, "zsh") + split(l, "splitRight", x, None),
+              x, r, (l, r), ["nvim", "zsh"], 20)
+        tr, br, bl, x = "m-g4-tr", "m-g4-br", "m-g4-bl", "m-g4-x"
+        mouse("G4-mouse", new_ws(tr, "nvim", "G4 mouse") + split(tr, "splitDown", br, "htop") + split(br, "splitLeft", bl, "zsh")
+              + split(tr, "splitLeft", x, None), x, br, (tr, bl, br), ["nvim", "htop", "zsh"], 24)
+        t, b, f, x = "m-cr-t", "m-cr-b", "m-cr-f", "m-cr-x"
+        mouse("CR-mouse", new_ws(t, "nvim", "CR mouse") + split(t, "splitRight", f, None) + split(t, "splitDown", b, "zsh")
+              + split(t, "splitDown", x, None), x, f, (t, b, f), ["nvim", "zsh"], 22)
+        l, r, b, x = "m-rc-l", "m-rc-r", "m-rc-b", "m-rc-x"
+        mouse("RC-mouse", new_ws(l, "nvim", "RC mouse") + split(l, "splitDown", b, None) + split(l, "splitRight", r, "zsh")
+              + split(l, "splitRight", x, None), x, b, (l, r, b), ["nvim", "zsh"], 22)
+        a, c, x = "m-cc-a", "m-cc-c", "m-cc-x"
+        mouse("CC-mouse", new_ws(a, "nvim", "CC mouse") + split(a, "newColumn", x, None) + split(x, "newColumn", c, "zsh"),
+              x, c, (a, c), ["nvim", "zsh"], 20)
     else:
         raise SystemExit(f"unknown layout {key}")
     return out
