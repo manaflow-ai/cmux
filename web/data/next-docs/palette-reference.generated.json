@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1373,
+    "entries": 1374,
     "shortcuts": 188
   },
   "sections": [
@@ -6486,6 +6486,12 @@
         {
           "id": "palette.newAgentChatOn",
           "title": "New Agent Chat on…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "palette.newCloudChat",
+          "title": "New Cloud Chat",
           "shortcut": null,
           "command": null
         },
