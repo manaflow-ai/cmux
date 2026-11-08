@@ -7,6 +7,7 @@ import React, {
   Activity,
   useCallback,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useReducer,
@@ -176,6 +177,9 @@ import { openPicker } from "./pickerOpeners";
 import { startRefusalRoute } from "./startRefusal";
 import { EmptyState, type EmptyStateProjects } from "./EmptyState";
 import { isNewChat, projectName } from "./emptyStateModel";
+import { TourStartContext } from "./repoTour/TourBlock";
+import type { TourOfferActions } from "./repoTour/TourOffer";
+import { dismissTour, isTourDismissed, offersTour, TOUR_PROMPT, type TourTask } from "./repoTour/tourModel";
 import { paneKnowsNewChat } from "./locationRow";
 import { ChatUnavailableState } from "./ChatUnavailableState";
 import { useCloudChatRecovery } from "./useCloudChatRecovery";
@@ -501,10 +505,10 @@ import {
 import { CloudStartView } from "./CloudStartView";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import {
-  useFeatureTipsOn,
   registerChatDisplayHost,
   useChatDisplay,
   useChatPinnedPlan,
+  useFeatureTipsOn,
   useTrayHandle,
   useTrayTucked,
 } from "./chatDisplay";
@@ -662,6 +666,8 @@ import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { SandboxTab, sandboxAgent, sandboxPageRefusal, sandboxRetryable, type RunMode } from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
+import { CloudChatHint } from "./CloudChatHint";
+import { cloudChatHintShown, useCloudChatHint } from "./cloudChatHintModel";
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
 import { flushHeldModePick, holdModePick } from "./heldModePick";
@@ -676,6 +682,8 @@ import { declineReply, isPending, reply as questionReply, replyParams, selection
 
 import { defaultRegistry } from "./rows/registry";
 import { ReadOnlyRecapRow } from "./rows/RecapRow";
+import { ReadOnlyMemoryOfferRow } from "./rows/MemoryOfferRow";
+import { MEMORY_OFFER } from "./conversation/memoryInbox";
 import { type ScrollAnchor, VirtualTranscript } from "./VirtualTranscript";
 import { NO_ROWS, rowKind } from "./virtualTranscriptModel";
 import { turnEndedBetween, saveSnapshot, emptySnapshot, cachedSnapshot } from "./snapshotCache";
@@ -4010,8 +4018,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   /// For a transcript that acts on nothing live (a replay, a read-only subagent's): its recaps draw
-  /// no × (ReadOnlyRecapRow).
-  const noDismissRegistry = useMemo(() => ({ ...registry, recap: ReadOnlyRecapRow }), [registry]);
+  /// no × (ReadOnlyRecapRow), and its memory offers no Accept or Dismiss.
+  const noDismissRegistry = useMemo(
+    () => ({ ...registry, recap: ReadOnlyRecapRow, [MEMORY_OFFER]: ReadOnlyMemoryOfferRow }),
+    [registry],
+  );
   const [newTab, setNewTab] = useState<NewTabHost | undefined>(injectedNewTabContext);
   const newTabStartGeneration = useRef(0);
   const [sessionSelection, setSessionSelection] = useState<
@@ -4236,6 +4247,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const runHereSend = useRef(false);
   /// Counts the Cloud starts that ended, so the folder default looks again once one has.
   const [cloudStartsEnded, setCloudStartsEnded] = useState(0);
+  /// The one-time Cloud hint over a new chat's composer (cloudChatHintModel.ts): its record is the app's.
+  /// A pick of Cloud by any path (the hint, the Where menu, New Cloud Chat) is its use.
+  const cloudHint = useCloudChatHint(paneTipHost, newTabGeneration);
+  const featureTipsOn = useFeatureTipsOn();
+  /// New Cloud Chat (the handshake's `pickCloud`), counted: the New Tab page or this composer picks
+  /// Cloud once Cloud is offered here.
+  const [cloudPickRequest, setCloudPickRequest] = useState(0);
+  const [cloudPicksDone, setCloudPicksDone] = useState(0);
   /// This new chat's Cloud environment (the Environment chip, CLOUD_ENVIRONMENTS_ENABLED): Auto until
   /// picked, and Auto again once its Cloud send goes, a chat starts here or another new chat shows.
   const cloudEnvironment = useChatCloudEnvironment(`${snapshot.sessionId ?? ""}:${newTabGeneration}`);
@@ -4243,6 +4262,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     mode: sandbox.mode,
     environment: cloudEnvironment.pick,
     onMode: (mode: RunMode) => {
+      if (mode === "cloud") cloudHint.used();
       // Run mode is a new destination (including a brand-new Cloud machine); an account-machine
       // picker target must not survive that choice and wake the old machine on the next edit.
       cloudDraftMachineID.current = null;
@@ -5432,6 +5452,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The started chat's folder: the session's, else the one picked before the first send.
   // A peer's (SSH, Cloud) folder is a path on that machine: the host's workspace gets none.
   const remoteChat = Boolean(snapshot.summary?.peer) || snapshot.summary?.hostKind === "cloud";
+  // The repo tour's offer and Start (repoTour/) only for a chat on this Mac: not a peer's or Cloud
+  // chat, and not one whose page talks to another machine's acpmux (chatMachine.ts `elsewhere`).
+  const tourHere = !remoteChat && snapshot.origin !== "remote" && snapshot.origin !== "peer";
   // The one-time share nudge (share/shareNudgeModel.ts): the first chat on this Mac, its first reply.
   const shareNudgeTipsOn = useFeatureTipsOn();
   const shareNudge = useShareNudge(
@@ -6885,6 +6908,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           cloudRepositoryAvailable?: unknown;
           githubRepository?: unknown;
           harnesses?: unknown;
+          /// New Cloud Chat opened this tab (AgentPaneHandshake `pickCloud`): it picks Cloud once offered.
+          pickCloud?: unknown;
           model?: unknown;
           sandboxState?: unknown;
           /// The tab this page is (AgentPaneHandshake `tab`); an older app sends none.
@@ -7009,6 +7034,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         if (seeded) setDraft(seeded);
         // Integrate a Harness… from the palette or the menu opened this tab (cx-uj5g8).
         if (host.harnesses === true) setHarnessesOpen(true);
+        // New Cloud Chat from the palette opened this tab: it picks Cloud, as the Where menu's Cloud row does.
+        if (host.pickCloud === true) setCloudPickRequest((count) => count + 1);
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
         pendingAttachments = host.promptAttachments ?? pendingAttachments;
         // A prompt a person's action seeded has a single-use host ticket bound to its promptId
@@ -7789,6 +7816,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             );
           },
           "chat.recap.dismiss": async ({ rowId, key }) => client.dismissRecap(String(rowId), String(key)),
+          // Accept or Dismiss on a memory offer's facts (conversation/MemoryOfferCard.tsx).
+          "chat.memory.resolve": async ({ offerId, accept, dismiss }) =>
+            client.resolveMemory(
+              String(offerId),
+              Array.isArray(accept) ? accept.map(String) : [],
+              Array.isArray(dismiss) ? dismiss.map(String) : [],
+            ),
           "chat.removeFailedPrompt": async ({ rowId, rowIds }) => {
             for (const id of failedRowIds(rowId, rowIds)) client.removeFailedPrompt(id);
           },
@@ -8995,8 +9029,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const newBrowser = () => runSplitAction(HEADER_ACTIONS.browser, undefined, "open");
   const chatMenu = (): ChatMenuItem[] => {
     const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
-    // Pause or Resume the chat's Cloud machine (cloudMachineMenu.ts), as the account's machines in
-    // the composer's machine list are.
+    // Pause, Resume or Delete the chat's Cloud machine (cloudMachineMenu.ts), as the account's
+    // machines in the composer's machine list are. A menu kept open across a chat switch runs none
+    // of them: the chat it was drawn for must still be the one selected.
+    const machineClient = directClient.current;
+    const machineSession = snapshot.sessionId;
+    const machineChatShown = () =>
+      machineClient !== undefined &&
+      machineClient === directClient.current &&
+      machineClient.selectedSession === machineSession;
     const machine = !quick
       ? cloudMachineRows(
           chatMachine,
@@ -9014,6 +9055,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               return client !== undefined && client.shownSession()?.sessionId === session && client.turnRunning();
             }),
           snapshot.sessionId,
+          undefined,
+          machineChatShown,
         )
       : [];
     const copy = copyRow(
@@ -9248,6 +9291,46 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ((sessionSelection?.state === "pending" || !snapshot.sessionId) && snapshot.rows.length === 0)) &&
     (handshaken || hostError === undefined);
   if (newTab !== undefined && !handshaken && hostError !== undefined) composerStoodIn.current = true;
+  /// The one-time Cloud hint shows on a new chat this Mac starts while Cloud is offered and is not
+  /// its mode (cloudChatHintModel.ts); never in a quick chat or a chat on another machine.
+  const cloudHintShown =
+    !quick &&
+    !onOtherMachine &&
+    cloudChatHintShown({
+      record: cloudHint.record,
+      tipsOn: featureTipsOn,
+      cloudOffered: sandboxOffered,
+      cloudPicked: sandbox.mode === "cloud",
+      started: Boolean(snapshot.sessionId),
+    });
+  /// New Cloud Chat, pending until taken: the New Tab page takes it (`cloudPick`) or this composer
+  /// picks Cloud once it is offered; a chat that already started drops it.
+  const cloudPickPending = cloudPickRequest > cloudPicksDone;
+  const takeCloudPick = useCallback(() => setCloudPicksDone(cloudPickRequest), [cloudPickRequest]);
+  const pickCloudInComposer = useEffectEvent(() => {
+    if (sandbox.mode !== "cloud") composerModeRows.onMode("cloud");
+  });
+  /// The classic page has no Where menu: New Cloud Chat leaves it for the chat composer (as a Cloud
+  /// send from a page does, `cloudLeftPage`), which then picks Cloud below.
+  const newTabWithoutCloud = showNewTab && !newTab.history && shownTemplate(newTab) === "classic";
+  useEffect(() => {
+    if (!cloudPickPending) return;
+    if (newTabWithoutCloud && sandboxOffered && !onOtherMachine) return setCloudLeftPage(newTabGeneration);
+    if (showNewTab) return;
+    if (snapshot.sessionId) return takeCloudPick();
+    if (!sandboxOffered || onOtherMachine) return;
+    takeCloudPick();
+    pickCloudInComposer();
+  }, [
+    cloudPickPending,
+    newTabWithoutCloud,
+    newTabGeneration,
+    showNewTab,
+    snapshot.sessionId,
+    sandboxOffered,
+    onOtherMachine,
+    takeCloudPick,
+  ]);
   // The handshake is done: the page that came back in that render took the draft (`takeDraft`
   // runs as it mounts, before this effect); an existing chat's recovery has no page to give it to.
   useEffect(() => {
@@ -9549,9 +9632,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     },
     [cloudChatIdentity, cloudTypingPrewarm, handshaken],
   );
-  const onCloudMachinePicked = useCallback((machine: CloudMachine | undefined) => {
-    cloudDraftMachineID.current = machine?.id ?? null;
-  }, []);
+  const cloudHintUsed = cloudHint.used;
+  const onCloudMachinePicked = useCallback(
+    (machine: CloudMachine | undefined) => {
+      cloudDraftMachineID.current = machine?.id ?? null;
+      // A Cloud machine picked is a pick of Cloud: the hint is done.
+      if (machine) cloudHintUsed();
+    },
+    [cloudHintUsed],
+  );
   const newTabSnapshot = useMemo(
     () =>
       newTabSessions === composerSnapshot.sessions
@@ -9657,6 +9746,69 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   useEffect(() => {
     if (heroShown !== undefined) acpmuxPerf.noteStartState(heroShown);
   });
+  // The repo tour (repoTour/): a new chat in a folder no chat on this Mac has used offers it under
+  // the hero's question; Take the tour sends the tour prompt as this chat's first message, and the
+  // × closes the offer for that folder.
+  const [tourDismissed, setTourDismissed] = useState<ReadonlySet<string>>(() => new Set());
+  const tourCwd = composerSnapshot.summary?.cwd;
+  const tourOffered = useMemo(
+    () =>
+      Boolean(heroPicker) &&
+      tourHere &&
+      !cloudPicked &&
+      sandbox.mode !== "sandboxed" &&
+      offersTour({
+        cwd: tourCwd,
+        local: !composerSnapshot.summary?.peer && composerSnapshot.summary?.hostKind !== "cloud",
+        listed: composerSnapshot.listedSessions === true,
+        sessions: newTabSessions,
+        sessionId: snapshot.sessionId,
+        dismissed: (folder) => tourDismissed.has(folder) || isTourDismissed(folder),
+      }),
+    [
+      heroPicker,
+      tourHere,
+      cloudPicked,
+      sandbox.mode,
+      tourCwd,
+      composerSnapshot.summary?.peer,
+      composerSnapshot.summary?.hostKind,
+      composerSnapshot.listedSessions,
+      newTabSessions,
+      snapshot.sessionId,
+      tourDismissed,
+    ],
+  );
+  const tourOffer = useMemo<TourOfferActions | undefined>(
+    () =>
+      tourOffered && tourCwd
+        ? {
+            onTake: () => void callNative("chat.send", { text: TOUR_PROMPT }).catch(() => undefined),
+            onDismiss: () => {
+              dismissTour(tourCwd);
+              setTourDismissed((folders) => new Set(folders).add(tourCwd.replace(/(.)\/+$/, "$1")));
+            },
+          }
+        : undefined,
+    [tourOffered, tourCwd],
+  );
+  // A tour task's Start (repoTour/TourCard.tsx): a new worktree of the chat's folder, then a chat
+  // there given the task, tagged and opened as this chat's side chat before its prompt goes. The
+  // task's prompt is the agent's words, so it never runs in the person's own checkout: no worktree
+  // (not a repository, the host refused) means no task, and the card says why.
+  const startTourTask = useCallback(async (task: TourTask) => {
+    const client = directClient.current;
+    const summary = snapshotRef.current?.summary;
+    const origin = snapshotRef.current?.origin;
+    if (!client || !summary?.cwd || origin === "remote" || origin === "peer")
+      throw new Error(translate("error.notOpen"));
+    const { root } = await newWorktree(callNative, summary.cwd, () => undefined);
+    return client.startTask(root, task.prompt, {
+      harness: summary.harness,
+      side: summary.sessionId,
+      opened: (sessionId) => postNative("chat.sideChat", { sessionId }),
+    });
+  }, []);
   // Stable: memoized transcript rows compare it.
   const toggleActivity = useCallback((id: string) => {
     const view = chatViewRef.current;
@@ -10180,6 +10332,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         <PaneNotices onAction={(id) => void callNative("pane.noticeAction", { id }).catch(() => undefined)} />
         <Notice id="dictation" tier="error" when={dictation.notice?.message}>
           <DictationNotice dictation={dictation} />
+        </Notice>
+        <Notice id="cloud-hint" tier="hint" when={cloudHintShown && !showNewTab}>
+          <CloudChatHint onUse={() => composerModeRows.onMode("cloud")} onClose={cloudHint.close} />
         </Notice>
         <Notice id="import-error" tier="error" when={importError}>
           <p className="acpmux-composer-remote-note" role="alert">
@@ -11191,6 +11346,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   environments
                   onLeaveDraft={leaveNewTabDraft}
                   takeDraft={takeNewTabDraft}
+                  {...(cloudPickPending ? { cloudPick: takeCloudPick } : {})}
+                  {...(cloudHintShown ? { cloudHint: { onClose: cloudHint.close } } : {})}
                   {...(sandboxOffered || sandboxPickedNotOffered || cloudPickedNotOffered
                     ? {
                         runMode: sandboxModeRows,
@@ -11716,13 +11873,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     {...(sandboxRetryable(sandboxView) ? { onPersistent: () => sandbox.setMode("persistent") } : {})}
                   />
                 ) : freshView ? (
-                  <EmptyState project={projectName(composerSnapshot.summary?.cwd)} picker={heroPicker} />
+                  <EmptyState
+                    project={projectName(composerSnapshot.summary?.cwd)}
+                    picker={heroPicker}
+                    tour={tourOffer}
+                  />
                 ) : (
                   <AgentTonesContext.Provider value={chatTones}>
                     <AgentNamesContext.Provider value={chatAgentNames}>
                       <AgentOpenContext.Provider value={chatAgentOpen}>
                         <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
-                          {transcript}
+                          <TourStartContext.Provider value={tourHere ? startTourTask : undefined}>
+                            {transcript}
+                          </TourStartContext.Provider>
                         </BackgroundTaskOutputContext.Provider>
                       </AgentOpenContext.Provider>
                     </AgentNamesContext.Provider>
