@@ -147,6 +147,26 @@ test("F1: a finished file's bytes are kept (the ones uploaded), and a relaunched
   });
 });
 
+test("round 7 F2: a file whose bytes the app refuses is not kept either, so no relaunch restores it empty", async () => {
+  const entries = new Map<string, HomeAttachment>();
+  const keeper = {
+    load: async (): Promise<KeptAttachments> => ({ attachments: {}, legacy: {} }),
+    put: (_conversation: string, kept: HomeAttachment) => void entries.set(kept.hash, kept),
+    remove: (_conversation: string, hash: string) => void entries.delete(hash),
+    release: () => {},
+    write: async () => false,
+  };
+  const drafts = new AttachmentDrafts(keeper);
+  await drafts.load();
+  drafts.add("a", new File(["notes"], "notes.txt"), async () => part("h1"), "failed");
+  await settle();
+  await settle();
+  expect(entries.has("h1")).toBe(false);
+  // It stays in this tray (it still sends now), and the page says it is not kept.
+  expect(drafts.files("a").map((item) => item.part?.hash)).toEqual(["h1"]);
+  expect(drafts.holdReason()).toBe("home.attachments");
+});
+
 test("F1: a restored file whose upload is older than the owner keeps it goes up again from its bytes", async () => {
   const { keeper, bytes } = book();
   bytes.set("h1", new Blob(["notes"]));
