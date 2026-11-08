@@ -122,3 +122,15 @@ async fn a_local_qualified_id_beats_a_session_named_like_it() {
     let found = hub.locate("local/local-a-1", false, true).unwrap();
     assert_eq!(found["session"]["sessionId"], "local-a-1", "{found}");
 }
+
+/// Review of #38112: with configured peer hb, `hb/ID` whose row is gone (a stale qualified id)
+/// stays in hb's namespace and is refused, never handed to a session here named `hb/ID`.
+#[tokio::test]
+async fn a_stale_peer_qualified_id_never_picks_a_local_session_named_like_it() {
+    let hub = setup_with(&[("local-d-1", "hb/peer-gone-1")]);
+    let (tx, _rx) = mpsc::channel(8);
+    let peer = crate::peer::Peer::new("hb", "ws://127.0.0.1:9", None, None, tx);
+    hub.peers.lock().unwrap().insert("hb".to_owned(), peer);
+    let reply = call(&hub, method::MUX_INFO, json!({"sessionId": "hb/peer-gone-1"})).await;
+    assert_ne!(reply["result"]["sessionId"], "local-d-1", "{reply}");
+}
