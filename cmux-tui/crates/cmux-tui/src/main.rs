@@ -54,6 +54,8 @@ mod private_mode;
 mod share_room;
 #[cfg(unix)]
 mod signal_sender;
+#[cfg(unix)]
+mod terminal_paste;
 mod websocket_credential;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
 #[cfg(unix)]
