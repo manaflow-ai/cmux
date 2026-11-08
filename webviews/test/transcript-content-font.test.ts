@@ -129,6 +129,16 @@ await requireBrowserLane("transcript-content-font.test.ts", async () => {
               await page.evaluate((zoom) => {
                 document.documentElement.style.zoom = String(zoom);
               }, zoom);
+              // A Shell body whose lines now run past its width gains its scrollbar lane (`--cv-lane`)
+              // only once sideways.ts has seen it: its ResizeObserver schedules a frame that sets
+              // data-cmux-sideways, so the box is measured after three frames, not in the one that
+              // drew the new width (webkit at 390px read 280 of 288 there).
+              await page.evaluate(
+                () =>
+                  new Promise<void>((done) =>
+                    requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
+                  ),
+              );
               if (size === 14 && width === 760) {
                 for (const [selector, height] of [
                   [".cv-codeblock__header", 45.5],
