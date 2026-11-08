@@ -192,11 +192,13 @@ function AccountRow({
             data-account-remove-confirm=""
             role="alertdialog"
             aria-labelledby={nameId}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") setConfirmingRemove(false);
-            }}
           >
-            <span className="row-help">{t("settingsWindow.harnesses.accounts.removeConfirm", account.name)}</span>
+            <span className="row-help">{t(
+                account.key
+                  ? "settingsWindow.harnesses.accounts.removeConfirmKey"
+                  : "settingsWindow.harnesses.accounts.removeConfirm",
+                account.name,
+              )}</span>
             <div className="accounts-buttons">
               <Button
                 danger
@@ -215,7 +217,6 @@ function AccountRow({
                 type="button"
                 className="button"
                 data-account-action="cancelRemove"
-                autoFocus
                 onClick={() => setConfirmingRemove(false)}
               >
                 {t("settingsWindow.cancel")}

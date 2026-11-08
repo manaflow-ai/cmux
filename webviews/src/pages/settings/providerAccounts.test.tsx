@@ -185,6 +185,11 @@ test("Claude's Add account takes an API key by its reference, with the name type
   expect(added.querySelector("[data-account-auth]")?.textContent).toBe("Authenticated · API key");
   expect(added.querySelector("[data-account-folder]")).toBeNull();
   expect(added.querySelector('[data-account-action="signOut"]')).toBeNull();
+  // Its Remove question speaks of the key, not a login folder it does not have.
+  await act(async () => added.querySelector<HTMLButtonElement>('[data-account-action="remove"]')!.click());
+  const ask = claude().querySelector<HTMLElement>('[data-account="claude-2"] [data-account-remove-confirm]')!;
+  expect(ask.textContent).toContain("The API key stays where it is stored.");
+  expect(ask.textContent).not.toContain("login folder");
   page.unmount();
 });
 
@@ -216,13 +221,14 @@ test("Make Default, Rename, Sign Out and Remove each ask the host for their acco
   await press("remove");
   expect(page.provider.harnessRuns.length).toBe(runs);
   expect(row().querySelector("[data-account-remove-confirm]")?.textContent).toContain("Remove “Work” from cmux?");
+  expect(row().querySelector("[data-account-remove-confirm]")?.textContent).toContain("login folder stays");
   await press("confirmRemove");
   expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountRemove", account: "codex-2" });
   expect(card(page.container).querySelector('[data-account="codex-2"]')).toBeNull();
   page.unmount();
 });
 
-test("Remove's confirm cancels with Cancel or Escape and sends nothing", async () => {
+test("Remove's confirm cancels with Cancel and sends nothing", async () => {
   const page = await withAccounts();
   const row = () => card(page.container).querySelector<HTMLElement>('[data-account="codex-2"]')!;
   const confirm = () => row().querySelector<HTMLElement>("[data-account-remove-confirm]");
@@ -232,11 +238,6 @@ test("Remove's confirm cancels with Cancel or Escape and sends nothing", async (
   // Remove gives way to the question while it is open.
   expect(row().querySelector('[data-account-action="remove"]')).toBeNull();
   await act(async () => row().querySelector<HTMLButtonElement>('[data-account-action="cancelRemove"]')!.click());
-  expect(confirm()).toBeNull();
-  await act(async () => row().querySelector<HTMLButtonElement>('[data-account-action="remove"]')!.click());
-  await act(async () => {
-    confirm()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-  });
   expect(confirm()).toBeNull();
   await settle();
   expect(page.provider.harnessRuns.length).toBe(runs);

@@ -350,7 +350,15 @@ const providerAccounts: ProviderAccount[] = [
 
 /** The Codex harness row alone, for the account variants. */
 const codexHarness: HarnessesState["harnesses"] = [
-  { id: "codex", name: null, kind: "acp", source: "path", problem: null, version: "0.164.0", checkedAt: minutesAgo(54) },
+  {
+    id: "codex",
+    name: null,
+    kind: "acp",
+    source: "path",
+    problem: null,
+    version: "0.164.0",
+    checkedAt: minutesAgo(54),
+  },
 ];
 
 Object.assign(variants, {
@@ -445,7 +453,7 @@ Object.assign(variants, {
     ],
   }),
   "agents-harnesses-account-remove-confirm-key": variant("agents", {
-    note: "Remove on a Claude API-key account asks the same question; its key stays where it is.",
+    note: "Remove on a Claude API-key account asks the same question; says the API key stays where it is stored.",
     harnesses: {
       loading: false,
       problem: null,
