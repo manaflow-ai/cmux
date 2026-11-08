@@ -96,19 +96,36 @@ impl PriceTable {
         Ok(Self { version: file.version, currency: file.currency, aliases: file.aliases, entries })
     }
 
-    /// The vendor and price for `model`, when the table lists it.
+    /// The vendor and price for `model`, when the table lists it. A `provider/` prefix picks
+    /// that vendor's entry when two vendors list the same id (`alibaba/kimi-k3`).
     pub fn lookup(&self, model: &str) -> Option<(&str, Price)> {
         let model = model.trim();
-        let bare = model.rsplit('/').next().unwrap_or(model);
+        let (provider, bare) = match model.rsplit_once('/') {
+            Some((p, b)) => (p.rsplit('/').next().filter(|p| !p.is_empty()), b),
+            None => (None, model),
+        };
         let bare = self.aliases.get(bare).map_or(bare, String::as_str);
-        self.entries
-            .iter()
-            .find(|(id, _, _)| matches_id(bare, id))
-            .map(|(_, vendor, price)| (vendor.as_str(), *price))
+        let mut matches = self.entries.iter().filter(|(id, _, _)| matches_id(bare, id));
+        let first = matches.next()?;
+        let chosen = match provider {
+            Some(p) if first.1 != p => {
+                std::iter::once(first).chain(matches).find(|e| e.1 == p).unwrap_or(first)
+            }
+            _ => first,
+        };
+        Some((chosen.1.as_str(), chosen.2))
     }
 
-    /// What `usage` costs at `model`'s price; None when the table does not list it.
+    /// What `usage` costs at `model`'s price; None when the table does not list it, or when the
+    /// harness reported no token counts at all (absent is not zero: such a turn is unpriced).
     pub fn cost(&self, model: &str, usage: &crate::store::TurnUsage) -> Option<f64> {
+        if usage.input_tokens.is_none()
+            && usage.output_tokens.is_none()
+            && usage.cache_read_tokens.is_none()
+            && usage.cache_write_tokens.is_none()
+        {
+            return None;
+        }
         let (_, p) = self.lookup(model)?;
         let per = |tokens: Option<u64>, price: f64| tokens.unwrap_or(0) as f64 * price / 1e6;
         Some(
@@ -175,5 +192,25 @@ mod tests {
         let cost = table().cost("claude-opus-5-5", &usage).unwrap();
         assert!((cost - 11.2).abs() < 1e-9, "{cost}");
         assert!(table().cost("no-such-model", &usage).is_none());
+        // A model with no reported counts is unpriced, not free; an explicit zero is free.
+        let none = TurnUsage::default();
+        assert!(table().cost("claude-opus-5-5", &none).is_none());
+        let zero = TurnUsage { input_tokens: Some(0), ..TurnUsage::default() };
+        assert_eq!(table().cost("claude-opus-5-5", &zero), Some(0.0));
+    }
+
+    #[test]
+    fn a_provider_prefix_picks_its_own_vendor_for_a_shared_id() {
+        let t = table();
+        for (model, vendor) in [
+            ("moonshotai/kimi-k3", "moonshotai"),
+            ("alibaba/kimi-k3", "alibaba"),
+            ("zai/glm-5.2", "zai"),
+            ("alibaba/glm-5.2", "alibaba"),
+        ] {
+            assert_eq!(t.lookup(model).unwrap().0, vendor, "{model}");
+        }
+        // An unknown provider still finds the id.
+        assert!(t.lookup("router/kimi-k3").is_some());
     }
 }
