@@ -38,6 +38,21 @@ use crate::underlay::DueProbes;
 /// carried data, then the one heard from longest ago).
 pub(crate) const MAX_PATHS: usize = 8;
 
+/// Path ids one selector hands out before the paths are renumbered on a
+/// fresh one. The selector never reuses a removed path's id and checks new
+/// ids against every removed one, so this bounds that list (and the work of
+/// adding a path) however often the peer's addresses churn.
+const MAX_PATH_IDS: u16 = 256;
+
+/// A random first probe id for one poll: a pong must echo an id that only
+/// the probed address was sent, so another address can't answer for it.
+/// Half the range, so the poll's few increments never overflow.
+fn random_probe_base() -> u64 {
+    let mut bytes = [0u8; 8];
+    let _ = getrandom::fill(&mut bytes);
+    u64::from_le_bytes(bytes) >> 1
+}
+
 /// An address the caller knows for a peer, with the kind of path it is
 /// when the caller knows better than this machine's interface table (a
 /// relay, a region).
@@ -70,6 +85,8 @@ pub struct MeshPathView {
 struct MeshPath {
     id: PathId,
     address: SocketAddr,
+    kind: PathKind,
+    medium: Medium,
     watch: PathWatch,
     /// Data may go here: the caller named it, the peer was heard from it,
     /// or a probe on it was answered.
@@ -123,7 +140,7 @@ impl MeshPaths {
             selector: Selector::new(SelectorConfig::default()),
             paths: Vec::new(),
             next_id: 0,
-            last_probe_id: 0,
+            last_probe_id: random_probe_base(),
             probes: ProbeConfig::default(),
             answered: false,
             latest: route.map(canonical),
@@ -167,21 +184,35 @@ impl MeshPaths {
         }
         let kind = kind.unwrap_or_else(|| direct_kind(address, networks));
         let medium = medium_for(networks, kind, Some(address));
-        for _ in 0..=u16::MAX {
-            let id = PathId(self.next_id);
-            self.next_id = self.next_id.wrapping_add(1);
-            if self.selector.add_path_on(id, kind, medium).is_ok() {
-                self.paths.push(MeshPath {
-                    id,
-                    address,
-                    watch: PathWatch::default(),
-                    proven,
-                    heard_at: proven.then_some(now),
-                });
-                return Some(self.paths.len() - 1);
-            }
+        if self.next_id >= MAX_PATH_IDS {
+            self.renumber();
         }
-        None
+        let id = PathId(self.next_id);
+        self.next_id += 1;
+        self.selector.add_path_on(id, kind, medium).ok()?;
+        self.paths.push(MeshPath {
+            id,
+            address,
+            kind,
+            medium,
+            watch: PathWatch::default(),
+            proven,
+            heard_at: proven.then_some(now),
+        });
+        Some(self.paths.len() - 1)
+    }
+
+    /// Move every path to a fresh selector with ids from zero. Each path
+    /// starts probing again (data goes on every proven path until one
+    /// answers), and a pong for a probe sent before is ignored.
+    fn renumber(&mut self) {
+        self.selector = Selector::new(SelectorConfig::default());
+        for (index, path) in self.paths.iter_mut().enumerate() {
+            path.id = PathId(index as u16);
+            path.watch = PathWatch::default();
+            let _ = self.selector.add_path_on(path.id, path.kind, path.medium);
+        }
+        self.next_id = self.paths.len() as u16;
     }
 
     /// Drop the least useful path that is not the chosen one, to make room
@@ -259,7 +290,19 @@ impl MeshPaths {
     /// selector's current path; every proven path while it has none (a
     /// dial, or the chosen path went quiet); or, until the peer answers a
     /// probe, its latest authenticated source.
-    pub(crate) fn send(&mut self, now: Instant, mut send: impl FnMut(SocketAddr)) {
+    pub(crate) fn send(&mut self, now: Instant, send: impl FnMut(SocketAddr)) {
+        self.send_datagram(now, false, send);
+    }
+
+    /// [`MeshPaths::send`] for a handshake initiation: until the peer
+    /// answers a probe, it goes to the latest source and every address the
+    /// caller named too, so a session can start on any of them when the
+    /// first is unreachable.
+    pub(crate) fn send_initiation(&mut self, now: Instant, send: impl FnMut(SocketAddr)) {
+        self.send_datagram(now, true, send);
+    }
+
+    fn send_datagram(&mut self, now: Instant, initiation: bool, mut send: impl FnMut(SocketAddr)) {
         if self.answered {
             let current = self.selector.current();
             let mut any = false;
@@ -274,11 +317,17 @@ impl MeshPaths {
                 return;
             }
         }
-        if let Some(latest) = self.latest.or_else(|| self.first_proven()) {
+        let latest = self.latest.or_else(|| self.first_proven());
+        if let Some(latest) = latest {
             if let Some(index) = self.find(latest) {
                 self.paths[index].watch.sent(now);
             }
             send(latest);
+        }
+        if initiation {
+            for path in self.paths.iter().filter(|path| path.proven && Some(path.address) != latest) {
+                send(path.address);
+            }
         }
     }
 
@@ -289,6 +338,7 @@ impl MeshPaths {
     /// The pings due now and when the paths next need anything, with the
     /// lost probes and quiet chosen paths already fed to the selector.
     pub(crate) fn poll(&mut self, now: Instant) -> DueProbes {
+        self.last_probe_id = random_probe_base();
         let watched = self.probes.watch(
             &self.selector,
             self.paths.iter_mut().map(|path| (path.id, &mut path.watch)),
@@ -309,9 +359,15 @@ impl MeshPaths {
         self.paths.iter().find(|path| path.id == id).map(|path| path.address)
     }
 
-    /// The pong for probe `probe` on path `id` arrived.
-    pub(crate) fn pong(&mut self, id: PathId, probe: u64, now: Instant) {
+    /// The pong for probe `probe` on path `id` arrived from `source`. It
+    /// counts only from the address the probe went to: the id is random, so
+    /// only that address could have read it.
+    pub(crate) fn pong(&mut self, id: PathId, probe: u64, source: SocketAddr, now: Instant) {
+        let source = canonical(source);
         let Some(path) = self.paths.iter_mut().find(|path| path.id == id) else { return };
+        if path.address != source {
+            return;
+        }
         let Some(rtt_us) = self.probes.answer(&mut path.watch.probe, probe, now) else { return };
         path.proven = true;
         self.answered = true;
@@ -356,8 +412,9 @@ mod tests {
     fn probe_round(paths: &mut MeshPaths, answering: &[SocketAddr], now: Instant) {
         let due = paths.poll(now);
         for (id, probe) in due.pings {
-            if answering.contains(&paths.address_of(id).unwrap()) {
-                paths.pong(id, probe, now + std::time::Duration::from_millis(1));
+            let address = paths.address_of(id).unwrap();
+            if answering.contains(&address) {
+                paths.pong(id, probe, address, now + std::time::Duration::from_millis(1));
             }
         }
     }
@@ -435,5 +492,67 @@ mod tests {
         let views = paths.views();
         assert_eq!(views.len(), MAX_PATHS);
         assert!(views.iter().any(|view| view.address == lan && view.current));
+    }
+
+    #[test]
+    fn a_pong_counts_only_from_the_address_its_probe_went_to() {
+        let now = Instant::now();
+        let lan = addr("192.168.1.20:4101");
+        let elsewhere = addr("198.51.100.7:4101");
+        let mut paths = MeshPaths::new(Some(lan), &[], &[], now);
+        paths.advertised(&[elsewhere], &[], now);
+        let due = paths.poll(now);
+        let later = now + std::time::Duration::from_millis(1);
+        for (id, probe) in due.pings {
+            // The peer answers every probe from its own address.
+            paths.pong(id, probe, lan, later);
+        }
+        assert_eq!(targets(&mut paths, later), vec![lan]);
+        let elsewhere_view = paths.views().into_iter().find(|view| view.address == elsewhere);
+        assert_ne!(elsewhere_view.map(|view| view.state), Some(PathState::Alive));
+    }
+
+    #[test]
+    fn probe_ids_are_not_sequential_across_polls() {
+        let now = Instant::now();
+        let lan = addr("192.168.1.20:4101");
+        let relay = addr("203.0.113.5:4101");
+        let mut paths = MeshPaths::new(Some(lan), &[relay.into()], &[], now);
+        let first: Vec<u64> = paths.poll(now).pings.iter().map(|(_, probe)| *probe).collect();
+        let later = now + std::time::Duration::from_secs(2);
+        let second: Vec<u64> = paths.poll(later).pings.iter().map(|(_, probe)| *probe).collect();
+        assert!(!first.is_empty() && !second.is_empty());
+        assert!(second.iter().all(|probe| first.iter().all(|before| probe.abs_diff(*before) > 1024)));
+    }
+
+    #[test]
+    fn address_churn_never_runs_out_of_path_ids() {
+        let now = Instant::now();
+        let lan = addr("192.168.1.20:4101");
+        let mut paths = MeshPaths::new(Some(lan), &[], &[], now);
+        probe_round(&mut paths, &[lan], now);
+        for round in 0..4_000u32 {
+            let port = 1 + (round % 60_000) as u16;
+            paths.advertised(&[SocketAddr::new([10, 0, 0, 1].into(), port)], &[], now);
+        }
+        assert!(paths.next_id <= MAX_PATH_IDS);
+        assert_eq!(paths.views().len(), MAX_PATHS);
+        assert!(paths.views().iter().any(|view| view.address == lan));
+        // A new address is still taken after all that churn.
+        let fresh = addr("10.9.9.9:4101");
+        paths.heard(fresh, true, &[], now);
+        assert!(paths.views().iter().any(|view| view.address == fresh));
+    }
+
+    #[test]
+    fn a_handshake_initiation_tries_every_named_address_before_any_answer() {
+        let now = Instant::now();
+        let down = addr("192.168.1.20:4101");
+        let up = addr("10.0.0.20:4101");
+        let mut paths = MeshPaths::new(Some(down), &[down.into(), up.into()], &[], now);
+        let mut sent = Vec::new();
+        paths.send_initiation(now, |address| sent.push(address));
+        assert_eq!(sent, vec![down, up]);
+        assert_eq!(targets(&mut paths, now), vec![down], "data still follows the route");
     }
 }

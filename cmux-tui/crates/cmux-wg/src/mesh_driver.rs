@@ -27,6 +27,7 @@ use crate::config::InterfaceAddress;
 use crate::error::WgError;
 use crate::mesh::{MeshCommand, WgMeshConfig, WgPeer};
 use crate::mesh_peers::PeerTable;
+use crate::mesh_paths::MeshPaths;
 use crate::mesh_route::{Outbound, PeerRoute};
 use crate::pacing::Pacer;
 use crate::probing;
@@ -102,6 +103,17 @@ fn local_candidates(socket: SocketAddr, networks: &[LocalNetwork]) -> Vec<Socket
         .take(MAX_CANDIDATES)
         .map(|ip| SocketAddr::new(ip, socket.port()))
         .collect()
+}
+
+/// Send one datagram of a peer's session where [`MeshPaths`] says: a
+/// handshake initiation also goes to every address the caller named while
+/// the peer has answered no probe, so a session can start on any of them.
+fn deliver(paths: &mut MeshPaths, out: &mut Outbound, now: Instant, datagram: &[u8]) {
+    if classify(datagram) == DatagramClass::WireGuardInitiation {
+        paths.send_initiation(now, |target| out.send_to(target, datagram));
+    } else {
+        paths.send(now, |target| out.send_to(target, datagram));
+    }
 }
 
 /// The overlay addresses probes and candidate lists travel between: this
@@ -337,7 +349,7 @@ impl MeshDriver {
                 peer.initiated = Some(now);
             }
             let out = &mut self.out;
-            peer.paths.send(now, |target| out.send_to(target, datagram));
+            deliver(&mut peer.paths, out, now, datagram);
             peer.schedule.on_activity(now);
         }
     }
@@ -409,7 +421,7 @@ impl MeshDriver {
                 // gives up; a keepalive alone does not.
                 let retry = classify(packet) == DatagramClass::WireGuardInitiation;
                 let out = &mut self.out;
-                peer.paths.send(now, |target| out.send_to(target, packet));
+                deliver(&mut peer.paths, out, now, packet);
                 if retry {
                     peer.initiated = Some(now);
                     peer.schedule.on_activity(now);
@@ -423,7 +435,7 @@ impl MeshDriver {
                     peer.tunn.format_handshake_initiation(&mut self.scratch, true)
             {
                 let out = &mut self.out;
-                peer.paths.send(now, |target| out.send_to(target, packet));
+                deliver(&mut peer.paths, out, now, packet);
                 peer.initiated = Some(now);
                 peer.schedule.on_activity(now);
             }
@@ -468,7 +480,7 @@ impl MeshDriver {
                 entry.tunn.format_handshake_initiation(&mut self.scratch, false)
         {
             let out = &mut self.out;
-            entry.paths.send(now, |target| out.send_to(target, packet));
+            deliver(&mut entry.paths, out, now, packet);
             entry.initiated = Some(now);
             entry.schedule.on_activity(now);
         }

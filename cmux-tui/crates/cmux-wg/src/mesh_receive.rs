@@ -139,7 +139,11 @@ impl MeshDriver {
                                     self.out.send(source, answer);
                                 }
                             }
-                            None => peer.paths.pong(probe.path, probe.id, now),
+                            None => {
+                                if let Some(source) = source {
+                                    peer.paths.pong(probe.path, probe.id, source.address(), now);
+                                }
+                            }
                         }
                     } else if let Some(list) = candidate_list(packet).filter(|_| allowed) {
                         peer.heard(source, networks, now);
