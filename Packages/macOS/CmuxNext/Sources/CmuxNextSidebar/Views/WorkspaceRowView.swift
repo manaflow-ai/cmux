@@ -27,6 +27,10 @@ final class WorkspaceRowView: SidebarRowView {
     var activityState = StatusIndicatorState.idle
     let badge = UnreadBadgeView(), rowBadge = RowBadgeView() // the count, and its replacement (WorkspaceRowView+Badges)
     var rowBadgeStyle = SidebarRowBadgeStyle.corner
+    /// The badge states this row last showed, and for which workspace: a done glyph settles in only
+    /// when the same workspace's work finishes (`configureBadges`), never on a first configure or a
+    /// row the pool hands to another workspace (cleared in `prepareForReuse`).
+    var shownBadges: (workspace: WorkspaceID, states: [StatusIndicatorState])?
     /// The agents acting in the workspace (`sidebar.presenceDots`, cx-gg84).
     let presenceDots = PresenceDotsView()
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
@@ -226,6 +230,7 @@ final class WorkspaceRowView: SidebarRowView {
         title.alphaValue = 1
         placeholderBar.layer?.removeAllAnimations()
         placeholderBar.alphaValue = 1
+        shownBadges = nil
     }
 
     private struct Content: Hashable {

@@ -73,6 +73,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .chiefFace: "chiefFace"
         case .harnessSymbol: "harnessSymbol"
         case .nowPlaying: "nowPlaying"
+        case .finishSound: "finishSound"
         case .readAloud(.speak): "readAloudSpeak"
         case .readAloud(.stop): "readAloudStop"
         case .openChat: "openChat"

@@ -400,6 +400,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.saveLog` (the ACP inspector's export) and `pane.saveFile` (a side panel document):
     /// text to save where the user picks (``AgentPaneSave``).
     case saveFile(AgentPaneSave)
+    /// `pane.finishSound {kind}`: a short system sound for a finish the page marks (a turn, CI, a merge),
+    /// fire and forget (``AgentPaneFinishSound``). The page sends it only when the person turned it on.
+    case finishSound(AgentPaneFinishSound.Kind)
     /// `pane.showContextUsage`, `pane.showDictation` or `pane.setScrollToBottomOnSend` with
     /// `{show}`: a composer setting which the host writes to cmux.json at `path`.
     case composerSetting(path: [String], show: Bool)

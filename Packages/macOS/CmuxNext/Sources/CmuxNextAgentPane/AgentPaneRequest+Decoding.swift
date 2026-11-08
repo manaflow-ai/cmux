@@ -145,6 +145,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.finishSound":
+            if let kind = (params?["kind"] as? String).flatMap(AgentPaneFinishSound.Kind.init(rawValue:)) {
+                self = .finishSound(kind)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.saveFile":
             // A document's kind only: the inspector's log has its own method.
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneSave.Kind.init(rawValue:)), kind != .log,
