@@ -4,6 +4,8 @@
 //! fake mux socket behind it. Every key is generated here.
 #![allow(dead_code)]
 
+pub mod host;
+
 use std::io::BufRead;
 use std::net::SocketAddr;
 use std::path::Path;
