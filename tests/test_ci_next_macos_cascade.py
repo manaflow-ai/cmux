@@ -2194,20 +2194,36 @@ class FleetClientJobs(unittest.TestCase):
         self.assertEqual(self.place().fleet_jobs, ())
         self.assertEqual(self.place(FLEET_CLIENT_JOBS="").fleet_jobs, ())
 
-    def test_nothing_is_listed_while_a_label_can_take_the_job(self):
-        # A Blacksmith label under its declared cap.
+    def listening(self) -> dict:
+        """The side label has a listener, by a fresh health record (a stale record or snapshot reads full)."""
+        fresh = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        shot = self.shot(listening=1, held_offline={"units": 0, "cpu": 0, "livelock": 0}, as_of=fresh)
+        shot["generated_at"] = fresh
+        return shot
+
+    def test_a_job_a_blacksmith_label_takes_is_listed_for_the_warm_fleet(self):
+        # cmux#38130 (run 42434830670): no idle mini, so fast-tier queued on Blacksmith 6 vCPU's moving queue,
+        # a cold build, and ran out its 20 minutes compiling on two attempts while the gateway had idle
+        # runners. The label still takes the job, and the job is listed too: side_lane_placement.fleet_gateway()
+        # moves it to the fleet only with an idle gateway runner for its client.
+        placed = self.place(shot=self.listening(), FLEET_CLIENT_JOBS="fast-tier")
+        self.assertIn("fast-tier", placed.jobs[SMALL])
+        self.assertEqual(placed.fleet_jobs, ("fast-tier",))
+        self.assertIn("a warm owned build before a cold Blacksmith macOS one", placed.why)
+        # A job without a fleet client keeps only its Blacksmith slot.
+        placed = self.place(shot=self.listening(), FLEET_CLIENT_JOBS="")
+        self.assertIn("fast-tier", placed.jobs[SMALL])
+        self.assertEqual(placed.fleet_jobs, ())
+
+    def test_nothing_is_listed_while_the_job_waits_on_an_owned_label(self):
+        # A Blacksmith label under its declared cap, but 6 vCPU stalled: the tier waits on the owned label.
         shot = self.shot()
         shot["pools"][LARGE].update(cap=5, running=1)
-        self.assertEqual(self.place(shot=shot, live={LARGE: 1, SMALL: 10}, FLEET_CLIENT_JOBS="fast-tier").fleet_jobs,
-                         ())
-        # The side label has a listener, by a fresh health record (a stale record or snapshot reads full).
-        fresh = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        listening = self.shot(listening=1, held_offline={"units": 0, "cpu": 0, "livelock": 0}, as_of=fresh)
-        listening["generated_at"] = fresh
-        self.assertEqual(self.place(shot=listening, FLEET_CLIENT_JOBS="fast-tier").fleet_jobs, ())
-        # No snapshot: nothing is known full.
-        self.assertEqual(cascade.place(env(FLEET_CLIENT_JOBS="fast-tier"), (), self.LIVE, self.WAITING, None,
-                                       saturated=True).fleet_jobs, ())
+        placed = self.place(shot=shot, live={LARGE: 1, SMALL: 10}, FLEET_CLIENT_JOBS="fast-tier")
+        self.assertEqual((placed.jobs[LARGE], placed.jobs[SMALL], placed.fleet_jobs), ((), (), ()))
+        # No snapshot: nothing is known full, so the tier is listed only because 6 vCPU's queue took it.
+        placed = cascade.place(env(FLEET_CLIENT_JOBS="fast-tier"), (), self.LIVE, self.WAITING, None, saturated=True)
+        self.assertEqual((placed.jobs[SMALL], placed.fleet_jobs), (("fast-tier", "swift-canary"), ("fast-tier",)))
 
     def test_the_output_is_space_delimited_like_the_blacksmith_lists(self):
         with tempfile.TemporaryDirectory() as tmp:
