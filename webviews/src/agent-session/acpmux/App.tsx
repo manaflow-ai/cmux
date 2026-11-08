@@ -3663,8 +3663,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                           owns: reaches,
                           restore: () => client.resendPrompt(rowId, prompt),
                           send: (draft) =>
-                            sendUntilTaken((accepted) =>
-                              callNative("chat.send", { text: draft.input, attachments: draft.attachments, accepted }),
+                            sendUntilTaken((taken) =>
+                              callNative("chat.send", { text: draft.input, attachments: draft.attachments, taken }),
                             ),
                         })
                     : undefined,
@@ -3674,11 +3674,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         }))(async (rowId: string, prompt: string) => {
           const draft = await directClient.current?.resendPrompt(rowId, prompt);
           // Settled once acpmux took it, not when its turn ends (turnRetry.ts `sendUntilTaken`).
-          return sendUntilTaken((accepted) =>
+          return sendUntilTaken((taken) =>
             callNative("chat.send", {
               text: draft?.input ?? prompt,
               attachments: draft?.attachments ?? [],
-              accepted,
+              taken,
             }),
           );
         })),
@@ -7112,6 +7112,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           fromTrust?: HeldSend,
           // The gesture the composer bound at this send's Enter or click while it held it.
           gesture?: SendGesture,
+          // Called once acpmux took the prompt (queued too), with no hold on it: a failed turn's
+          // Retry settles there, not when its turn ends (conversation/turnRetry.ts `sendUntilTaken`).
+          taken?: () => void,
         ) => {
           if (expectedSessionId && (directClient.current !== client || client.selectedSession !== expectedSessionId))
             throw startCancelled();
@@ -7140,6 +7143,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               seeded,
               fromTrust,
               gesture,
+              taken,
             );
           } finally {
             handedOn();
@@ -7193,6 +7197,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           seeded = false,
           fromTrust?: HeldSend,
           gesture?: SendGesture,
+          taken?: () => void,
         ) => {
           // The chat it is sent in; once a start made the chat's session, that session (trustHeld.ts).
           let sentFrom = shownFrom.current();
@@ -7336,7 +7341,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               accepted && (() => accepted(sessionId)),
               sendTicket,
               steer,
-              () => promptLanded.current(),
+              () => {
+                promptLanded.current();
+                taken?.();
+              },
             )
             .catch((error: unknown) => refused(error, Boolean(accepted)));
           // The client counts it from here (it registers the send before its first wait).
@@ -7347,7 +7355,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // `accepted` (in-page only): the composer holds the prompt until acpmux takes it.
           // `fromTrust` (in-page only): a prompt the folder's trust held, with its id and ticket.
           // `gesture` (in-page only): the gesture the composer bound at the Enter of a send it held.
-          "chat.send": ({ text, attachments, accepted, steer, expectedSessionId, fromTrust, gesture }) =>
+          // `taken` (in-page only): called once acpmux took the prompt; unlike `accepted` it holds
+          // nothing, so a refusal still fails or restores the prompt as any send's does.
+          "chat.send": ({ text, attachments, accepted, steer, expectedSessionId, fromTrust, gesture, taken }) =>
             send(
               String(text ?? ""),
               Array.isArray(attachments) ? attachments : [],
@@ -7358,6 +7368,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               false,
               heldPromptParams(fromTrust),
               sendGestureParam(gesture),
+              typeof taken === "function" ? (taken as () => void) : undefined,
             ),
           "chat.cancel": () => client.cancel(),
           "chat.typing": async ({ text, sessionId }) =>

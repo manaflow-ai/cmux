@@ -51,12 +51,14 @@ export type OwnedResendDeps<Client, Draft> = {
   send: (draft: Draft) => Promise<unknown>;
 };
 
-/// A prompt sent again through the composer's send (`chat.send`), settled once acpmux took it: that
-/// send resolves only when the turn it starts ends, and a Retry's card says Retrying… only until the
-/// attempt reaches the chat (cmux#34369). A send acpmux took whose turn then failed counts as sent
-/// (direct.ts marks its error `taken`): that failure is the transcript's, on the attempt's own card.
-/// Rejects when the send was refused before acpmux took it.
-export function sendUntilTaken(send: (accepted: () => void) => Promise<unknown>): Promise<void> {
+/// A prompt sent again through the composer's send (`chat.send`), settled once acpmux took it (its
+/// in-page `taken`, which holds nothing: a refused send still fails or comes back as any send's
+/// does). That send resolves only when the turn it starts ends, and a Retry's card says Retrying…
+/// only until the attempt reaches the chat (cmux#34369). A send acpmux took whose turn then failed
+/// counts as sent (direct.ts marks its error `taken`): that failure is the transcript's, on the
+/// attempt's own card. Rejects when the send was refused before acpmux took it. A send a harness
+/// switch holds is taken by the switch, so it settles when that send does.
+export function sendUntilTaken(send: (taken: () => void) => Promise<unknown>): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     send(() => resolve()).then(
       () => resolve(),
