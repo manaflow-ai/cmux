@@ -369,7 +369,8 @@ def self_test():
         # No dfl frame: the first sample is the process start.
         s2 = summarize(samples[:1] + samples[5:], {"main_start": 0.0, "first_window_frame_committed": 20.0})
         assert s2["clock"].startswith("the app's first"), s2
-        print_summary("self-test", s, out=open(os.devnull, "w"))
+        with open(os.devnull, "w") as sink:
+            print_summary("self-test", s, out=sink)
     print("launch_time_profile self-test: ok")
 
 
