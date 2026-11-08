@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42438597666",
+  "recorded_at": "2026-11-08T02:36:32Z",
+  "reason": "cmux-tui 3c2378ec3d2d changes the image's cmux-tui (pinned 78fffc30999f)",
+  "dry_run": false,
+  "cmux_tui": "3c2378ec3d2dc6836b776ccb5c2513189d2d1091",
+  "fixes": [
+    {
+      "sha": "3c2378ec3d2dc6836b776ccb5c2513189d2d1091",
+      "mergedAt": "2026-11-08T02:12:48Z",
+      "subject": "chore(next): base autofix at 0f84747ed7ea"
+    },
+    {
+      "sha": "f2fb5270ca2c46b997a2272a4ff3ef56b4bee5da",
+      "mergedAt": "2026-11-08T02:09:37Z",
+      "subject": "Shared chats: a signed-in link guest may send, with its name and picture (#38102)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T02:36:32Z",
+    "snapshot_id": "sh-1edbba2269cb4fc285e596edd678433a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42438597666): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d34ef1fbc4eb2745ceaaf561e191a9d11497ccd7",
+    "image": "cloud-native-auto-3c2378ec-42438597666-1",
+    "revision": "ci-42438597666-1",
+    "at": "2026-11-08T02:36:32Z"
+  },
+  "rolled_back": false
+}
