@@ -1084,6 +1084,73 @@ fn a_png_transmission_reaches_an_identity_attach_as_images() {
     mux.shutdown();
 }
 
+// ---- one owner of image transport --------------------------------------
+
+/// SNAPSHOT DOUBLE IMAGE: since the ghostty-next sync of #35478 (upstream
+/// c7f68a7f4), GHOSTSNP itself carries every Kitty image: a
+/// KITTY_IMAGE_STORAGE record (tag 8) before READY and a KITTY_IMAGE_PAYLOAD
+/// record (tag 9) with the pixels in the history. An attach that asks for
+/// images the way the Mac app does (`snapshot_images: true`) gets each image
+/// once: one payload record, no images phase after the history, and the READY
+/// plus its history alone restore the host's images and placements.
+#[test]
+fn an_attach_sends_each_kitty_image_once() {
+    use ghostty_vt::snapshot_tag::{KITTY_IMAGE_PAYLOAD, KITTY_IMAGE_STORAGE};
+    let (mux, surface) = quiet_surface_with_image("snapshot-image-once", 64, 64, false);
+    let (_writer, outbound, client) = attach_images_viewer(&mux, &surface, false);
+    let ready = next_event(&outbound, Duration::from_secs(10)).expect("ready");
+    assert_eq!(ready["phase"], "ready", "{ready}");
+    let ready_bytes = data(&ready);
+    let mut complete = ready_bytes.clone();
+    let (mut history_done, mut images_phase_bytes, mut snapshot_bytes) =
+        (false, 0usize, ready["data"].as_str().unwrap().len());
+    // Every snapshot event until 500 ms after the last history chunk.
+    loop {
+        let wait = if history_done { Duration::from_millis(500) } else { Duration::from_secs(10) };
+        let Some(event) = next_event(&outbound, wait) else { break };
+        if event["event"] != "snapshot" {
+            continue;
+        }
+        snapshot_bytes += event["data"].as_str().map_or(0, str::len);
+        match event["phase"].as_str() {
+            Some("history") => {
+                assert!(!history_done, "history after its last chunk: {event}");
+                complete.extend(history_bytes(&event));
+                history_done = event["done"] == true;
+            }
+            Some("images") => images_phase_bytes += data(&event).len(),
+            _ => panic!("unexpected snapshot event: {event}"),
+        }
+    }
+    assert!(history_done, "the READY's history arrived through its last chunk");
+    let tags = record_tags(&complete);
+    let count = |tag: u16| tags.iter().filter(|seen| **seen == tag).count();
+    println!(
+        "snapshot-image-once: base64 bytes on the attach {snapshot_bytes}, \
+         GHOSTSNP payload records {}, images phase bytes {images_phase_bytes}",
+        count(KITTY_IMAGE_PAYLOAD)
+    );
+    assert_eq!(count(KITTY_IMAGE_STORAGE), 1, "the primary screen's image storage: {tags:?}");
+    assert_eq!(count(KITTY_IMAGE_PAYLOAD), 1, "GHOSTSNP carries the pixels once: {tags:?}");
+    assert_eq!(
+        images_phase_bytes, 0,
+        "the attach sends the image a second time, in an images phase after the history"
+    );
+    // A decoder that reads GHOSTSNP only restores the image and its
+    // placement: re-encoding the restored terminal gives the host's storage
+    // record.
+    let storage = |snapshot: &[u8]| {
+        ghostty_vt::snapshot_records(snapshot)
+            .find(|record| record.tag == KITTY_IMAGE_STORAGE)
+            .map(|record| record.payload().to_vec())
+    };
+    let restored = ghostty_vt::reencode_ready(&complete).expect("the snapshot decodes");
+    assert!(storage(&ready_bytes).is_some(), "the READY names the image");
+    assert_eq!(storage(&restored), storage(&ready_bytes), "GHOSTSNP alone restores the image");
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
 // ---- golden contract fixture --------------------------------------------
 
 /// The checked-in host event lines that the Mac decoder test also reads.
