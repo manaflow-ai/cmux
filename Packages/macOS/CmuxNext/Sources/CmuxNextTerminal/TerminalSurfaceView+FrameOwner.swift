@@ -25,6 +25,12 @@ struct TerminalFrameOwnership {
     var ahead: CGSize?
     /// The draw-ahead size the presenter gives Ghostty after this turn's pass (``TerminalFramePresenter/drawAhead(_:)``).
     var pendingAhead: CGSize?
+    /// The presenter's refresh in which `ahead` and its grid went (``TerminalFramePresenter/currentEpoch``): the hold for
+    /// the program's redraw at that grid counts from it (RESIZE P0 12).
+    var aheadSentEpoch: UInt64?
+    /// The last frame of a size that waited for the program's redraw showed at the hold's bound without it: the next
+    /// sizes do not wait, until a frame the program drew at its grid shows again (``TerminalFramePresenter``).
+    var programMissedHold = false
 }
 
 /// FRAME OWNER REFACTOR S4, cmux-ad m18, m19 (no switch) and m26 (draw ahead): a terminal's bounds change only in the
@@ -49,8 +55,6 @@ extension TerminalSurfaceView {
                 applyHeldScale()
             }
             if self.frame != frame { self.frame = frame }
-            // After the bounds it takes: a drag grid that waited for the cancelled size goes as these bounds' grid.
-            if cancels { reportGridAfterCancel() }
             return
         }
         frameOwnership.wanted = frame
@@ -77,7 +81,7 @@ extension TerminalSurfaceView {
             if ahead == frame.size, let presenter = framePresenter {
                 frameOwnership.inFlight = ahead
                 keepOrigin()
-                presenter.request(self)
+                presenter.request(self, holdTicks: programHoldTicks, sentEpoch: frameOwnership.aheadSentEpoch)
                 return
             }
         }
@@ -102,7 +106,18 @@ extension TerminalSurfaceView {
         // `ghostty_surface_set_size` at the asked size, and the grid report as for any new size.
         updateSurfaceSize()
         keepOrigin()
-        presenter.request(self)
+        presenter.request(self, holdTicks: programHoldTicks)
+    }
+
+    /// Refreshes a new size of this view waits for the program's redraw at its grid (``TerminalFramePresenter``,
+    /// RESIZE P0 12): a key resize's or a divider drag's grid goes to the program with the size asked of Ghostty
+    /// (``followsKeyResize``, ``isFollowingResizeGesture``), so its frame waits for the program's, at most
+    /// ``TerminalFramePresenter/resizeHoldTicks``. Other sizes do not wait: a split's, close's or zoom's grid goes at its
+    /// landing, so no redraw can come before it. A program that missed a hold
+    /// (``TerminalFrameOwnership/programMissedHold``) does not hold the next sizes.
+    var programHoldTicks: UInt64 {
+        guard followsKeyResize || isFollowingResizeGesture, !frameOwnership.programMissedHold else { return 0 }
+        return TerminalFramePresenter.resizeHoldTicks
     }
 
     /// Its pane's spring gives this view `size` at the next refresh (``TerminalHostView`` `drawAhead(nextHostSize:)`): the
@@ -129,6 +144,7 @@ extension TerminalSurfaceView {
         // ahead again), and that size's frame will not show.
         let replacing = frameOwnership.ahead != nil
         frameOwnership.ahead = size
+        frameOwnership.aheadSentEpoch = framePresenter?.currentEpoch
         updateSurfaceSize(drawingAhead: true, replacingAhead: replacing)
     }
 
@@ -185,7 +201,7 @@ extension TerminalSurfaceView {
     /// The commit that changed the shown size is done: frames at that size go to the screen off the main thread again.
     func hostFrameCommitted() { if let surface, frameOwnership.embedderPresents { ghostty_surface_host_frame_committed(surface) } }
 
-    /// A window change: a size that waits takes its bounds now, through the usual path (its drag grid goes), and a held
+    /// A window change: a size that waits takes its bounds now, through the usual path, and a held
     /// scale goes to the layer.
     func releaseFrameOwnership() {
         guard frameOwnership.embedderPresents else { return }
@@ -193,18 +209,9 @@ extension TerminalSurfaceView {
         applyHeldScale()
         frameOwnership.ahead = nil
         frameOwnership.pendingAhead = nil
-        defer { reportGridAfterCancel() } // after the bounds it takes (below), a waiting drag grid goes as their grid
         guard frameOwnership.inFlight != nil, let wanted = frameOwnership.wanted else { return }
         frameOwnership.inFlight = nil
         if frame != wanted { frame = wanted }
-    }
-
-    /// The presenter cancelled a size in flight and the view took its new bounds: a drag grid that waited for that size
-    /// goes as the grid of these bounds (``TerminalGridReporter/shownCancelled(_:live:)``), never the stored grid. Not
-    /// shown: its grid is measured when it shows, and goes then unless the PTY has it (``cancelGridReport()``'s resend).
-    private func reportGridAfterCancel() {
-        let taken = isShown ? fittedGrid : nil
-        if gridReports.shownCancelled(taken, live: isFollowingResizeGesture), taken == nil { resendsShownGrid = true }
     }
 
     /// A new display scale `backing` while its window's commit owns this terminal's frame, and its layer shows a
@@ -242,12 +249,11 @@ extension TerminalSurfaceView {
 
     /// After the presenter landed this terminal's frame, outside the Core Animation lock: the copy-mode cursor box
     /// follows the new size (it reads Ghostty under the terminal's lock, so never inside the lock span), the grid that size
-    /// fits goes to the PTY owner unless it has it (`updateSurfaceSize`: a key spring's size drawn ahead reported its grid
-    /// when it went to Ghostty), and a drag's grid that waited for this size to show goes (``TerminalGridReporter/shown(_:live:)``).
+    /// fits goes to the PTY owner unless it has it (`updateSurfaceSize`: a key spring's or a drag's size reported its grid
+    /// when it went to Ghostty).
     func frameDidLand() {
         copyMode.syncCursor()
         updateSurfaceSize()
-        gridReports.shown(fittedGrid, live: isFollowingResizeGesture)
     }
 
     /// Shown again while Ghostty leaves new sizes to cmux: its commit is reported once its frame shows.
