@@ -90,8 +90,10 @@ pub(super) fn scrub(text: &str, home: Option<&str>) -> String {
     // A trailing slash (`HOME=/srv/alice/`) would keep the home from matching `/srv/alice/x`.
     let home = home.map(|home| home.trim_end_matches('/'));
     if let Some(home) = home.filter(|home| !users_dir(home)) {
-        // Only a whole path component: with `/Users/al`, `/Users/alice` must not become `~ice`.
-        let Some(bounded) = compile(&format!(r#"(?i){}([/\s"']|$)"#, regex::escape(home))) else {
+        // Only a whole name: with `/Users/al`, `/Users/alice` must not become `~ice`, so the home
+        // ends at any character that cannot continue a name (`/`, `:`, `)`, a space, the end).
+        let pattern = format!(r"(?i){}([^A-Za-z0-9._\-]|$)", regex::escape(home));
+        let Some(bounded) = compile(&pattern) else {
             return USER.to_string();
         };
         out = bounded.replace_all(&out, "~$1").into_owned();
