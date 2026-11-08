@@ -215,7 +215,8 @@ public final class HoverCardCoordinator {
             return
         }
         if let last, at > last.at, at - last.at <= HoverCardTiming.settleSample {
-            if hypot(point.x - last.point.x, point.y - last.point.y) / (at - last.at).hoverCardSeconds <= HoverCardTiming.settleSpeed {
+            let distance = Double(hypot(point.x - last.point.x, point.y - last.point.y))
+            if distance / (at - last.at).hoverCardSeconds <= HoverCardTiming.settleSpeed {
                 settled(token)
                 return
             }
