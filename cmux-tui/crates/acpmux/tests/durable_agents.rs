@@ -2031,6 +2031,11 @@ async fn a_queued_prompt_keeps_its_provenance_across_a_daemon_crash() {
     let queued = daemon.wait_event(&session, "queued record", |e| {
         e["kind"] == "queued" && e["msg"]["promptId"] == "q-prov"
     });
+    // The daemon says what it knows beside what the sender gave: a local process proved no
+    // sender (`prompt_provenance::observed`).
+    let mut provenance = provenance;
+    provenance["verified"] = json!(false);
+    provenance["transport"] = json!("unix");
     assert_eq!(queued["msg"]["_meta"]["provenance"], provenance, "{queued:#}");
 
     daemon.sigkill();

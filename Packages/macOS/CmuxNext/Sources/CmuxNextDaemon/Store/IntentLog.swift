@@ -244,10 +244,27 @@ struct IntentLog {
         if closedTabs.count > Self.replacedStandInLimit { closedTabs.removeFirst(closedTabs.count - Self.replacedStandInLimit) }
     }
 
-
     /// The tabs on `surfaces` are not closed after all (their close was rejected).
     mutating func forgetClosed(_ surfaces: Set<SurfaceID>) {
         closedTabs.removeAll { surfaces.contains($0.surface) }
+    }
+
+    /// Whether daemon surface `surface` took a recently created stand-in's place.
+    func replacedAStandIn(_ surface: SurfaceID) -> Bool { replacedStandIns.contains { $0.surface == surface } }
+
+    /// The terminal host id each recently settled stand-in tab minted (bounded), by the stand-in's tab id: a dock's fresh
+    /// tab, which no reply names, is still known as its stand-in's after the dock left the log in the step before a strip
+    /// shows it (review F1 on #38108).
+    private var settledTerminals: [(standIn: String, terminal: TerminalID)] = []
+
+    func settled(standIn id: String, minted terminal: TerminalID) -> Bool { settledTerminals.contains { $0.standIn == id && $0.terminal == terminal } }
+
+    /// `entry` left the log unrefused: a terminal stand-in the person kept is remembered by the host id it minted.
+    mutating func noteStandInSettled(_ entry: PendingIntent) {
+        guard !entry.closeWhenCreated, !entry.standInClosed, let tab = entry.kind.standInTab,
+              let id = tab.tabResourceID?.rawValue, let terminal = tab.terminalID else { return }
+        settledTerminals.append((id, terminal))
+        if settledTerminals.count > Self.replacedStandInLimit { settledTerminals.removeFirst(settledTerminals.count - Self.replacedStandInLimit) }
     }
 
     /// False when `transaction` is not pending.
@@ -295,8 +312,9 @@ struct IntentLog {
             if confirmed { $0.createdConfirmed = true }
         }
         guard confirmed else { return }
-        if case .createTab(_, let provisional)? = entries.first(where: { $0.transaction == transaction })?.kind,
-           let standIn = provisional.tabResourceID?.rawValue {
+        // A closed stand-in became nothing the person sees: its daemon tab is hidden and closed (``CancelledCreation``).
+        if let entry = entries.first(where: { $0.transaction == transaction }), !entry.closeWhenCreated, !entry.standInClosed,
+           let standIn = entry.kind.standInTab?.tabResourceID?.rawValue {
             replacedStandIns.removeAll { $0.standIn == standIn }
             replacedStandIns.append((standIn, surface))
             if replacedStandIns.count > Self.replacedStandInLimit { replacedStandIns.removeFirst(replacedStandIns.count - Self.replacedStandInLimit) }

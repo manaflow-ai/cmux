@@ -1,3 +1,4 @@
+import Observation
 import Testing
 @testable import CmuxNextDaemon
 
@@ -85,5 +86,27 @@ struct DaemonMoveIndexTests {
         #expect(store.pendingIntents.isEmpty, "the snapshot settled the close")
         #expect(store.closedLately(Self.surfaces[1]) && store.closedLately(tab.id))
         #expect(!store.closedLately(Self.surfaces[2]), "only the closed tab")
+    }
+
+    /// Review of #38105: the daemon's records drop the tab before the close's reply settles it (the overlay already hid it,
+    /// so nothing a reader sees changes then). The settlement alone still tells a reader of `closedLately` (a new tab's
+    /// move waiting for its tab) that it changed.
+    @Test func aCloseSettledAfterItsRecordsTellsClosedLatelyReaders() throws {
+        let store = Self.store()
+        let close = try #require(store.intendClose([Self.surfaces[1]]))
+        let workspace = WorkspaceSnapshot(
+            id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "00000000-0000-4000-8000-000000000001"), name: "1",
+            screens: [ScreenSnapshot(id: ScreenID(rawValue: 2), active: true, activePane: Self.pane, layout: .leaf(Self.pane),
+                                     panes: [PaneSnapshot(id: Self.pane, tabs: Self.surfaces.filter { $0 != Self.surfaces[1] }.map { TabSnapshot(surface: $0) })])])
+        store.apply(snapshot: DaemonTree(workspaceRevision: 2, workspaces: [workspace]))
+        try #require(!store.pendingIntents.isEmpty, "the close is not settled by the records alone")
+        #expect(!store.closedLately(Self.surfaces[1]))
+        @MainActor final class Told { var told = false }
+        let told = Told()
+        withObservationTracking { _ = store.closedLately(Self.surfaces[1]) } onChange: { MainActor.assumeIsolated { told.told = true } }
+        store.noteSettled(close, at: store.appliedSequence)
+        #expect(store.pendingIntents.isEmpty, "the reply settled the close")
+        #expect(told.told, "the settlement told the reader")
+        #expect(store.closedLately(Self.surfaces[1]))
     }
 }
