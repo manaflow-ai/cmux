@@ -133,11 +133,25 @@ public nonisolated struct CloudMoveCLI: Sendable {
         return read.object ?? Data(#"{"ok":false,"error_code":"bad_answer"}"#.utf8)
     }
 
+    /// A fresh spare warm (``startChatWarmSpare(platform:team:account:access:)``): the machine to copy the login onto.
+    public struct SpareWarm: Sendable, Equatable {
+        public var machineID: String
+        /// The platform's owner answer for the machine (vm_kind "owner"), as `callerOwnsVM` reads an attach's.
+        public var callerOwns: Bool
+    }
+
     /// `cmux link start-chat warm-spare --request JSON`, the session `access` token on stdin: the person's spare, warmed.
-    public func startChatWarmSpare(request: String, access: String) async throws -> Data {
+    /// Nil when Rust's policy answered from its record (not fresh), there is no spare, or the call failed.
+    public func startChatWarmSpare(platform: URL, team: String?, account: String, access: String) async -> SpareWarm? {
         struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
-        let read = try await run(Call(request: request), reading: "reservation", stdin: Data((access + "\n").utf8))
-        return read.object ?? Data(#"{"ok":false,"error_code":"bad_answer"}"#.utf8)
+        var request: [String: String] = ["platform": platform.absoluteString, "account": account]
+        request["team"] = team
+        guard let payload = try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]),
+              let read = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation",
+                                        stdin: Data((access + "\n").utf8)),
+              let object = read.object, let reply = try? JSONSerialization.jsonObject(with: object) as? [String: Any],
+              reply["fresh"] as? Bool == true, let machineID = reply["machine"] as? String else { return nil }
+        return SpareWarm(machineID: machineID, callerOwns: reply["vm_kind"] as? String == "owner")
     }
 
     /// `cmux link start-chat plan --request JSON`, the cmux `access` token on stdin.

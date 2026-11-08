@@ -112,6 +112,8 @@ final class CloudService {
     let creations = CloudCreations()
     /// Move to Cloud's CLI and machine folders.
     @ObservationIgnored var move = CloudMoveSetup()
+    /// The spare warm in flight (CloudStartChat+WarmSpare): a second intent waits on it instead of asking again.
+    @ObservationIgnored var spareWarm: Task<Void, Never>?
     /// What Retry does for each chat whose move stopped.
     @ObservationIgnored let moveRetries = CloudMoveRetries(key: "cmux.cloud.moveRetries")
     /// What Retry does for each machine chat whose Bring Back Local stopped, by its tab there.
