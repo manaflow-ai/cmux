@@ -3,8 +3,7 @@
 - 2026-11-07: the group editor follows its page's scale, review of #37274 (F1). The density change made the page's
   `--cmux-interface-scale` `Typography.pageScale` (the chrome body size over the Default density's 13 pt, never
   below 1), so the card is 240 x `pageScale` wide, not 240 x `userScale`: at Spacious and at Compact with Text Size
-  11 the swatch row and icon button were cut off. The task, verbatim: "Get https://github.com/manaflow-ai/cmux/pull/37274
-  (Lucas' density PR ...) ready to merge". Regression: `GroupEditorServiceTests/theCardMatchesItsPageScaleAtEveryDensity`,
+  11 the swatch row and icon button were cut off. Regression: `GroupEditorServiceTests/theCardMatchesItsPageScaleAtEveryDensity`,
   `theCardFollowsTheTextSizeLikeItsPage`.
 - 2026-11-07: a group drawn as its one row folds like any group. Leo, verbatim: "when you're collapsing a group, the
   text needs to fade faster". A group of one member titled as the group draws that row in the header's place
