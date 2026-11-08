@@ -26,6 +26,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 base64 = { workspace = true }
 png = { workspace = true }
+jpeg-encoder = { workspace = true }
 libc = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -87,3 +88,4 @@ features = [
 ]
 
 [dev-dependencies]
+jpeg-decoder = { version = "0.3", default-features = false }

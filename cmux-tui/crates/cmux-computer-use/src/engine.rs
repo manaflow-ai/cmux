@@ -26,7 +26,7 @@ use crate::desktop::{
     Button, CaptureTarget, ClickSpec, Delivery, Desktop, DesktopError, Element, Point,
     PointerTarget, Rect, TreeOptions, Window,
 };
-use crate::frame::{self, Geometry};
+use crate::frame::{self, Geometry, Image};
 use crate::keys::KeyCombo;
 use crate::policy::{
     self, Access, Decision, OriginKind, PolicyConfig, Refusal, Request, TargetApp,
@@ -55,12 +55,12 @@ pub struct ToolOutput {
     /// A refusal or failure code (`app_denied`, `person_in_control`, ...).
     pub code: Option<String>,
     pub body: Value,
-    pub png_base64: Option<String>,
+    pub image: Option<Image>,
 }
 
 impl ToolOutput {
     pub fn ok(body: Value) -> Self {
-        Self { is_error: false, code: None, body, png_base64: None }
+        Self { is_error: false, code: None, body, image: None }
     }
     pub fn error(code: &str, message: impl Into<String>) -> Self {
         let message = message.into();
@@ -68,7 +68,7 @@ impl ToolOutput {
             is_error: true,
             code: Some(code.to_string()),
             body: json!({"error": message, "code": code}),
-            png_base64: None,
+            image: None,
         }
     }
     fn refused(refusal: &Refusal, app: Option<&TargetApp>) -> Self {
@@ -81,22 +81,34 @@ impl ToolOutput {
     /// The MCP `tools/call` result.
     pub fn to_mcp(&self) -> Value {
         let mut content = vec![json!({"type": "text", "text": self.body.to_string()})];
-        if let Some(png) = &self.png_base64 {
-            content.push(json!({"type": "image", "data": png, "mimeType": "image/png"}));
+        if let Some(image) = &self.image {
+            content.push(json!({"type": "image", "data": image.base64, "mimeType": image.mime}));
         }
         json!({"content": content, "isError": self.is_error})
     }
 
     pub fn to_json(&self) -> Value {
-        json!({"is_error": self.is_error, "code": self.code, "body": self.body, "png": self.png_base64})
+        json!({
+            "is_error": self.is_error,
+            "code": self.code,
+            "body": self.body,
+            "image": self.image.as_ref().map(|i| &i.base64),
+            "mime": self.image.as_ref().map(|i| &i.mime),
+        })
     }
 
     pub fn from_json(v: &Value) -> Option<Self> {
+        let text = |key: &str| v.get(key).and_then(Value::as_str);
+        // A worker from before JPEG frames sends `png`.
+        let image = match text("image") {
+            Some(data) => Some((data, text("mime").unwrap_or(frame::MIME_PNG))),
+            None => text("png").map(|data| (data, frame::MIME_PNG)),
+        };
         Some(Self {
             is_error: v.get("is_error")?.as_bool()?,
-            code: v.get("code").and_then(Value::as_str).map(str::to_string),
+            code: text("code").map(str::to_string),
             body: v.get("body")?.clone(),
-            png_base64: v.get("png").and_then(Value::as_str).map(str::to_string),
+            image: image.map(|(data, mime)| Image { mime: mime.into(), base64: data.into() }),
         })
     }
 }
@@ -826,6 +838,8 @@ impl Engine {
         args: &Value,
     ) -> Result<(ToolOutput, Option<TargetApp>), ToolOutput> {
         let force = args.get("force").and_then(Value::as_bool).unwrap_or(false);
+        // `cmux computer-use screenshot --out` saves the exact pixels.
+        let lossless = args.get("lossless").and_then(Value::as_bool).unwrap_or(false);
         let windows = self.windows()?;
         let names = self.app_names();
         let (target, key, app, focus) = match args_str(args, "window_id") {
@@ -928,8 +942,9 @@ impl Engine {
             }
         }
         let previous = lock(&self.seen).get(&(ctx.session.clone(), key.clone())).map(|(_, d)| *d);
-        let encoded = frame::process(raw, &redact, frame::DEFAULT_MAX_EDGE, previous, force)
-            .map_err(|e| ToolOutput::error("failed", e))?;
+        let encoded =
+            frame::process(raw, &redact, frame::DEFAULT_MAX_EDGE, previous, force, lossless)
+                .map_err(|e| ToolOutput::error("failed", e))?;
         lock(&self.seen)
             .insert((ctx.session.clone(), key.clone()), (encoded.geometry, encoded.digest));
         if key.starts_with("d:") {
@@ -944,7 +959,7 @@ impl Engine {
             "left_out_apps": left_out.len(),
             "coordinates": "pass pixels of this image to click, scroll and drag",
         }));
-        out.png_base64 = encoded.png_base64;
+        out.image = encoded.image;
         Ok((out, app))
     }
 

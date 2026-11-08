@@ -7,7 +7,9 @@
 //!    ~1.2 MP image best; larger costs tokens and gains nothing).
 //! 3. Change detection: a frame equal to the one this session last saw of
 //!    the same target comes back as `unchanged` with no image.
-//! 4. PNG encode.
+//! 4. Encode: JPEG, or PNG when the agent asks for lossless pixels or when a
+//!    small frame is smaller as PNG. `tests/frame_formats.rs` measures every
+//!    choice here (bytes, encode time, SSIM and PSNR on text strokes).
 //!
 //! [`Geometry`] maps the agent's screenshot pixels back to desktop points.
 
@@ -16,6 +18,22 @@ use base64::Engine as _;
 use crate::desktop::{Point, RawFrame, Rect};
 
 pub const DEFAULT_MAX_EDGE: u32 = 1456;
+
+/// JPEG quality for screenshots, picked by `tests/frame_formats.rs`.
+pub const JPEG_QUALITY: u8 = 85;
+/// Frames up to this many pixels also try PNG and send the smaller.
+const SMALL_FRAME_PIXELS: u64 = 256 * 256;
+
+pub const MIME_JPEG: &str = "image/jpeg";
+pub const MIME_PNG: &str = "image/png";
+
+/// An encoded screenshot, as the agent receives it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Image {
+    /// [`MIME_JPEG`] or [`MIME_PNG`].
+    pub mime: String,
+    pub base64: String,
+}
 
 /// How a screenshot the agent saw maps to the desktop.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -50,7 +68,7 @@ impl Geometry {
 }
 
 pub struct Encoded {
-    pub png_base64: Option<String>,
+    pub image: Option<Image>,
     pub geometry: Geometry,
     /// FNV-1a of the downscaled pixels.
     pub digest: u64,
@@ -146,14 +164,50 @@ pub fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, Strin
     Ok(out)
 }
 
+pub fn encode_jpeg(width: u32, height: u32, rgba: &[u8], quality: u8) -> Result<Vec<u8>, String> {
+    let (w, h) = (u16::try_from(width), u16::try_from(height));
+    let (Ok(w), Ok(h)) = (w, h) else {
+        return Err(format!("a {width}x{height} frame is too large for JPEG"));
+    };
+    let mut out = Vec::new();
+    let mut encoder = jpeg_encoder::Encoder::new(&mut out, quality);
+    encoder.set_sampling_factor(jpeg_encoder::SamplingFactor::R_4_2_0);
+    encoder.encode(rgba, w, h, jpeg_encoder::ColorType::Rgba).map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+/// The bytes the agent receives and their MIME type: JPEG at
+/// [`JPEG_QUALITY`], except that a small frame goes out as PNG when that is
+/// smaller, and `lossless` always gets PNG.
+pub fn encode(
+    width: u32,
+    height: u32,
+    rgba: &[u8],
+    lossless: bool,
+) -> Result<(&'static str, Vec<u8>), String> {
+    if lossless {
+        return Ok((MIME_PNG, encode_png(width, height, rgba)?));
+    }
+    let jpeg = encode_jpeg(width, height, rgba, JPEG_QUALITY)?;
+    if (width as u64) * (height as u64) <= SMALL_FRAME_PIXELS {
+        let png = encode_png(width, height, rgba)?;
+        if png.len() <= jpeg.len() {
+            return Ok((MIME_PNG, png));
+        }
+    }
+    Ok((MIME_JPEG, jpeg))
+}
+
 /// Runs the pipeline. `previous`: the digest this session last saw of the
-/// same target; `force` sends the image even when unchanged.
+/// same target; `force` sends the image even when unchanged; `lossless`
+/// sends PNG.
 pub fn process(
     mut frame: RawFrame,
     redact_rects: &[Rect],
     max_edge: u32,
     previous: Option<u64>,
     force: bool,
+    lossless: bool,
 ) -> Result<Encoded, String> {
     if frame.rgba.len() != (frame.width as usize) * (frame.height as usize) * 4 {
         return Err(format!(
@@ -169,12 +223,14 @@ pub fn process(
     let points_per_pixel = (frame.width as f64 / w as f64) / frame.scale.max(0.01);
     let geometry = Geometry { width: w, height: h, points_per_pixel, origin: frame.origin };
     let unchanged = previous == Some(digest);
-    let png_base64 = if unchanged && !force {
+    let image = if unchanged && !force {
         None
     } else {
-        Some(base64::engine::general_purpose::STANDARD.encode(encode_png(w, h, &pixels)?))
+        let (mime, bytes) = encode(w, h, &pixels, lossless)?;
+        let base64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+        Some(Image { mime: mime.to_string(), base64 })
     };
-    Ok(Encoded { png_base64, geometry, digest, unchanged, redacted })
+    Ok(Encoded { image, geometry, digest, unchanged, redacted })
 }
 
 #[cfg(test)]
@@ -194,20 +250,20 @@ mod tests {
     #[test]
     fn downscales_and_maps_back_to_points() {
         let f = frame(2912, 1820, 2.0); // a 1456x910 pt display at 2x
-        let e = process(f, &[], DEFAULT_MAX_EDGE, None, false).unwrap();
+        let e = process(f, &[], DEFAULT_MAX_EDGE, None, false, false).unwrap();
         assert_eq!((e.geometry.width, e.geometry.height), (1456, 910));
         assert!((e.geometry.points_per_pixel - 1.0).abs() < 1e-9);
         assert_eq!(e.geometry.to_global(10.0, 20.0), Point { x: 110.0, y: 70.0 });
-        assert!(e.png_base64.is_some());
+        assert_eq!(e.image.unwrap().mime, MIME_JPEG);
     }
 
     #[test]
     fn unchanged_frames_send_no_image() {
-        let a = process(frame(40, 30, 1.0), &[], 100, None, false).unwrap();
-        let b = process(frame(40, 30, 1.0), &[], 100, Some(a.digest), false).unwrap();
-        assert!(b.unchanged && b.png_base64.is_none());
-        let c = process(frame(40, 30, 1.0), &[], 100, Some(a.digest), true).unwrap();
-        assert!(c.png_base64.is_some());
+        let a = process(frame(40, 30, 1.0), &[], 100, None, false, false).unwrap();
+        let b = process(frame(40, 30, 1.0), &[], 100, Some(a.digest), false, false).unwrap();
+        assert!(b.unchanged && b.image.is_none());
+        let c = process(frame(40, 30, 1.0), &[], 100, Some(a.digest), true, false).unwrap();
+        assert!(c.image.is_some());
     }
 
     #[test]
@@ -226,6 +282,20 @@ mod tests {
     fn rejects_short_buffers() {
         let mut f = frame(4, 4, 1.0);
         f.rgba.truncate(10);
-        assert!(process(f, &[], 100, None, false).is_err());
+        assert!(process(f, &[], 100, None, false, false).is_err());
+    }
+
+    #[test]
+    fn screens_go_out_as_jpeg_and_lossless_or_tiny_flat_frames_as_png() {
+        let f = frame(800, 600, 1.0);
+        let jpeg = process(f, &[], DEFAULT_MAX_EDGE, None, false, false).unwrap().image.unwrap();
+        assert_eq!(jpeg.mime, MIME_JPEG);
+        let bytes = base64::engine::general_purpose::STANDARD.decode(&jpeg.base64).unwrap();
+        assert_eq!(&bytes[..2], &[0xff, 0xd8]);
+        let png = process(frame(800, 600, 1.0), &[], DEFAULT_MAX_EDGE, None, false, true);
+        assert_eq!(png.unwrap().image.unwrap().mime, MIME_PNG);
+        // A flat 40x30 frame is a few dozen bytes as PNG, smaller than any JPEG.
+        let tiny = process(frame(40, 30, 1.0), &[], 100, None, false, false).unwrap();
+        assert_eq!(tiny.image.unwrap().mime, MIME_PNG);
     }
 }
