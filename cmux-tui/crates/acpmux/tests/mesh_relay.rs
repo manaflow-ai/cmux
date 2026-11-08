@@ -1168,7 +1168,8 @@ async fn the_heartbeat_comes_every_third_of_the_hubs_ttl() {
         let at = fake.with(|s| s.beat_at.clone());
         for gap in at[..3].windows(2).map(|w| w[1] - w[0]) {
             assert!(
-                gap >= Duration::from_secs(every) && gap < Duration::from_secs(every) + Duration::from_millis(500),
+                gap >= Duration::from_secs(every)
+                    && gap < Duration::from_secs(every) + Duration::from_millis(500),
                 "ttl {ttl}: heartbeats {gap:?} apart, not every {every} s"
             );
         }
