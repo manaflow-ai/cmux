@@ -22,6 +22,7 @@ mod selection_clicks;
 mod session_notices;
 mod shortcuts_menus;
 mod surface_attach;
+mod tab_close_selection;
 mod viewport_history;
 
 use super::{
@@ -584,6 +585,7 @@ fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
         machine_deleted_rail_index: None,
         machine_provider_reconnect_attempts: 0,
         machine_provider_reconnect_retry_at: None,
+        daemon_reconnect: Default::default(),
         pending_machine_replacement: None,
         machine_update_pump: None,
         machine_update_generation: 0,
