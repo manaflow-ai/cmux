@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42470988594",
+  "recorded_at": "2026-11-08T10:32:56Z",
+  "reason": "cmux-tui d2c8d7c3a364 changes the image's cmux-tui (pinned e3317482e11b)",
+  "dry_run": false,
+  "cmux_tui": "d2c8d7c3a36430287a4af3a616374b85dc7d9321",
+  "fixes": [
+    {
+      "sha": "d2c8d7c3a36430287a4af3a616374b85dc7d9321",
+      "mergedAt": "2026-11-08T02:03:54-08:00",
+      "subject": "Machines: acpmux owns the link state; the sidebar, pane and web only show it (#38358)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T10:32:56Z",
+    "snapshot_id": "sh-8ef4a957cbd24e4bbd19f99c1134fbb8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42470988594): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0bbd98c998726af6b1668b041ff54d87a6abaf7a",
+    "image": "cloud-native-auto-d2c8d7c3-42470988594-1",
+    "revision": "ci-42470988594-1",
+    "at": "2026-11-08T10:32:56Z"
+  },
+  "rolled_back": false
+}
