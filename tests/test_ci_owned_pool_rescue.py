@@ -3020,6 +3020,43 @@ class SideLanes(unittest.TestCase):
                 else:
                     self.assertIn("cancel", api.calls, result)
 
+    def test_a_branch_deleted_while_the_cancel_settles_is_not_re_run(self):
+        # The cancel already went out (this pass, or a resumed CANCEL_SENT); the re-run would fail to start.
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, path=".github/workflows/cmux-tui.yml", side=True,
+                               event="workflow_dispatch")
+        clock = Clock()
+        api = BranchAPI(clock, lambda seconds: [job("test (macos)", labels=[SIDE])], deleted=True)
+        api.cancel(RUN_ID)
+        result = rescue.settle_and_rerun(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None,
+                                         failed_only=False, keep_main=False)
+        self.assertNotIn("rerun", api.calls, result)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn("cancelled but not re-run", result)
+        self.assertIn("gone-branch was deleted", result)
+
+    def test_branch_exists_reads_the_branch_then_the_tag(self):
+        api = rescue.GitHub("t", "manaflow-ai/cmux")
+        for name, answers, want in [
+            ("a branch", {"/branches/feat%2Fx": 200}, True),
+            ("a tag, not a branch", {"/branches/feat%2Fx": 404, "/git/ref/tags/feat%2Fx": 200}, True),
+            ("neither", {"/branches/feat%2Fx": 404, "/git/ref/tags/feat%2Fx": 404}, False),
+        ]:
+            with self.subTest(name):
+                asked = []
+
+                def request(method, path, answers=answers, asked=asked, **_):
+                    asked.append(path)
+                    if answers[path] != 200:
+                        raise urllib.error.HTTPError(path, answers[path], "x", {}, None)
+                    return {}
+                api.request = request
+                self.assertIs(api.branch_exists("feat/x"), want)
+                self.assertEqual(asked, list(answers))
+        # Any other error is not an answer: it raises, so read() retries it.
+        api.request = lambda method, path, **_: (_ for _ in ()).throw(urllib.error.HTTPError(path, 502, "x", {}, None))
+        with self.assertRaises(urllib.error.HTTPError):
+            api.branch_exists("feat/x")
+
     def test_an_always_aggregator_failed_only_by_a_refused_leg_does_not_block_its_rerun(self):
         # cmux-tui.yml's hosted-verification (`if: always()`, needs every leg) fails when the macOS test
         # leg is refused, which made the refusal look like a real failure and left the run red. It needs
