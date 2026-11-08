@@ -62,6 +62,10 @@ pub(super) struct Process {
     session_id: String,
     /// The subagent whose tool call started it, if one did.
     subagent_session_id: Option<String>,
+    /// The workflow agent whose Bash call started it, by Claude's agent id
+    /// (`workflowAgentId`): its workflow is `subagent_session_id`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    workflow_agent_id: Option<String>,
     tool_call_id: String,
     task_id: String,
     harness: String,
@@ -128,6 +132,10 @@ mod process_active_tests;
 #[path = "processes_page_tests.rs"]
 mod process_page_tests;
 
+#[cfg(test)]
+#[path = "processes_workflow_tests.rs"]
+mod process_workflow_tests;
+
 impl ProcessTable {
     /// All appends go here, including records replayed from a logged process update.
     fn insert(&mut self, process: Process) -> usize {
@@ -185,6 +193,7 @@ impl ProcessTable {
                     id,
                     session_id: session.id.clone(),
                     subagent_session_id: subagent.map(str::to_owned),
+                    workflow_agent_id: text("workflowAgentId").map(str::to_owned),
                     tool_call_id: tool.to_owned(),
                     task_id: text("taskId").unwrap_or("").to_owned(),
                     harness: crate::web_modes::family_of(&meta),
@@ -217,6 +226,29 @@ impl ProcessTable {
             }
             _ => false,
         };
+        // A workflow agent's shell may be found to be its only after it was
+        // announced (`claude_stdio/workflows.rs` `shell_owner`): the first
+        // update that names its workflow or agent fills them in.
+        let mut owned = false;
+        if found.is_some() {
+            let subagent = params.pointer("/_meta/acpmux/subagent").and_then(Value::as_str);
+            if p.subagent_session_id.is_none()
+                && let Some(subagent) = subagent
+            {
+                p.subagent_session_id = Some(subagent.to_owned());
+                owned = true;
+            }
+            if p.workflow_agent_id.is_none()
+                && let Some(agent) = text("workflowAgentId")
+            {
+                p.workflow_agent_id = Some(agent.to_owned());
+                owned = true;
+            }
+            if owned {
+                p.logged = false;
+            }
+        }
+        let named = named || owned;
         if state == ProcessState::Running {
             return (found.is_none() || named).then_some(i);
         }
