@@ -22,7 +22,7 @@
 //!   `--drop-at 4:0` cuts path 0 (both directions) 4 s into the stream, as a
 //!   cable pulled or a Wi-Fi network left.
 //! - Two hosts: `--role host --listen 0.0.0.0:51830` on one machine and
-//!   `--role viewer --peer lan=172.20.22.22:51830 --peer tailnet=100.103.118.14:51830`
+//!   `--role viewer --peer lan=192.168.1.20:51830 --peer tailnet=100.64.0.20:51830`
 //!   on the other (any labels; `--seed` must match). The viewer dials every
 //!   peer address as a path and reports which one carried the stream. Only
 //!   viewer-clock numbers (input to photon, frame gaps, bulk) are reported.
@@ -30,7 +30,7 @@
 //! `longest_frame_gap_ms` is the longest wait between two frames at the
 //! viewer: a path that dropped shows up there as a stall.
 //!
-//! `CMUX_WG_ULTRA` (`dup`, `fec:8:2`, see `cmux_wg::UltraMode`) turns on
+//! `CMUX_WG_ULTRA` (`dup`, `fec:8:2`, `rs:8:4`, see `cmux_wg::UltraMode`) turns on
 //! ultra mode on both ends; the note says what it sent and rebuilt.
 //!
 //! `--rtt-ms` and `--loss-pct` put the WireGuard paths' UDP through an
@@ -832,15 +832,17 @@ async fn run_wg_dgram(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Res
 fn ultra_note(viewer: &WgNet, host: &WgNet) -> String {
     let (viewer, host) = (viewer.ultra_stats(), host.ultra_stats());
     format!(
-        "ultra {:?}: host parity {} copies {} overhead {} B rebuilt {}, viewer parity {} copies {} overhead {} B rebuilt {}",
+        "ultra {:?}: host parity {} copies {} overhead {} B of {} B rebuilt {}, viewer parity {} copies {} overhead {} B of {} B rebuilt {}",
         cmux_wg::UltraMode::from_env(),
         host.parity_sent,
         host.copies_sent,
         host.overhead_bytes,
+        host.data_bytes,
         host.recovered,
         viewer.parity_sent,
         viewer.copies_sent,
         viewer.overhead_bytes,
+        viewer.data_bytes,
         viewer.recovered,
     )
 }
