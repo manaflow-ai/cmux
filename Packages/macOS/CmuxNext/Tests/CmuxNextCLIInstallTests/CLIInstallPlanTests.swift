@@ -93,4 +93,21 @@ struct CLIInstallPlanTests {
         #expect(check.status == .missing)
         #expect(CLIInstallPlan(name: .cmux, replacing: false, check: check).destination == CLIPathInstaller.Name.cmux.destination)
     }
+
+    @Test func aPathFolderThatLinksIntoAnAppBundleIsProtectedToo() throws {
+        let scratch = try Scratch()
+        let bin = scratch.root.appendingPathComponent("Applications/Other.app/Contents/Resources/bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let alias = scratch.root.appendingPathComponent("home-bin")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: bin)
+        try scratch.link(bin, to: scratch.root.appendingPathComponent("Applications/Gone.app/Contents/Resources/bin/cmux").path)
+        let dangling = CLIPathCheck(path: alias.path, source: scratch.source)
+        #expect(dangling.status == .missing)
+        try FileManager.default.removeItem(at: bin.appendingPathComponent("cmux"))
+        try scratch.link(bin, to: scratch.classicCLI.path)
+        let live = CLIPathCheck(path: alias.path, source: scratch.source)
+        #expect(live.entryIsInsideApp)
+        #expect(live.replaceDestination == live.installDestination)
+        #expect(CLIInstallReport.launchOffer(live) == nil)
+    }
 }

@@ -71,7 +71,7 @@ public nonisolated struct CLIPathCheck: Equatable, Sendable {
                 // A link into a cmux app that is gone: ours to repoint. Any
                 // other broken link is left alone, as a shell skips it too,
                 // and so is one inside an app bundle (never modified).
-                if dangling == nil, Self.appBundle(containing: entry.path) == nil, let target = try? fileManager.destinationOfSymbolicLink(atPath: entry.path),
+                if dangling == nil, !Self.isInsideApp(entry), let target = try? fileManager.destinationOfSymbolicLink(atPath: entry.path),
                    Self.appBundle(containing: URL(fileURLWithPath: target, relativeTo: entry.deletingLastPathComponent())
                        .standardizedFileURL.path) != nil {
                     dangling = (entry, target)
@@ -127,7 +127,14 @@ public nonisolated struct CLIPathCheck: Equatable, Sendable {
     /// The entry is a file inside an `.app` (its PATH folder is in a bundle),
     /// not a link a person or an installer put in a bin folder.
     public var entryIsInsideApp: Bool {
-        entry.map { Self.appBundle(containing: $0.path) != nil } ?? false
+        entry.map(Self.isInsideApp) ?? false
+    }
+
+    /// Whether `entry`'s folder, its links resolved (a ~/bin that links into
+    /// an app's Contents), is inside an `.app`. The entry itself, perhaps a
+    /// link, is not resolved: only where it sits counts.
+    static func isInsideApp(_ entry: URL) -> Bool {
+        appBundle(containing: entry.deletingLastPathComponent().resolvingSymlinksInPath().path) != nil
     }
 
     /// What Uninstall removes: /usr/local/bin/cmux, as before, and the link
