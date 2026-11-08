@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42447517475",
+  "recorded_at": "2026-11-08T04:44:53Z",
+  "reason": "cmux-tui bf4ecfd3b3e3 changes the image's cmux-tui (pinned 443eda873736)",
+  "dry_run": false,
+  "cmux_tui": "bf4ecfd3b3e35951389e05a57ced13e1e87bf950",
+  "fixes": [],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T04:44:53Z",
+    "snapshot_id": "sh-1cdc538ddc3c47b1873b5252fa5db144",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42447517475): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6f3ae5da9a75bf327fad9da979092a9e1bb7a73e",
+    "image": "cloud-native-auto-bf4ecfd3-42447517475-1",
+    "revision": "ci-42447517475-1",
+    "at": "2026-11-08T04:44:53Z"
+  },
+  "rolled_back": false
+}
