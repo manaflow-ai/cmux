@@ -277,7 +277,8 @@ fn detect_edits(edits: Vec<Edit>) -> Vec<FileReport> {
             let new_move = move_signature(edit.language, &hunk.new_code);
             let old_block_move = move_signature(edit.language, &hunk.old);
             let new_block_move = move_signature(edit.language, &hunk.new);
-            let test_name_changed = test_names(&hunk.old) != test_names(&hunk.new);
+            let test_name_changed =
+                test_names(edit.language, &hunk.old) != test_names(edit.language, &hunk.new);
             let shared_assertion_subject = old_assertions.iter().any(|old| {
                 !old.subject.is_empty()
                     && new_assertions.iter().any(|new| new.subject == old.subject)
@@ -458,12 +459,31 @@ fn move_signature(language: Language, code: &str) -> String {
     }
     normalized
 }
-fn test_names(code: &str) -> Vec<String> {
-    static NAME: OnceLock<Regex> = OnceLock::new();
-    pattern(&NAME, r"\b(?:fn|def|func)\s+([A-Za-z_]\w*)")
+fn test_names(language: Language, code: &str) -> Vec<String> {
+    static RUST_NAME: OnceLock<Regex> = OnceLock::new();
+    static PYTHON_NAME: OnceLock<Regex> = OnceLock::new();
+    static GO_NAME: OnceLock<Regex> = OnceLock::new();
+    static SWIFT_NAME: OnceLock<Regex> = OnceLock::new();
+    static TS_NAME: OnceLock<Regex> = OnceLock::new();
+    let mut names = match language {
+        Language::Rust => pattern(&RUST_NAME, r"#\[\s*test[^\]]*\]\s*fn\s+([A-Za-z_]\w*)"),
+        Language::Python => pattern(&PYTHON_NAME, r"(?m)^\s*def\s+(test_\w*)\s*\("),
+        Language::Go => pattern(&GO_NAME, r"\bfunc\s+(Test\w+)\s*\("),
+        Language::Swift => pattern(&SWIFT_NAME, r"(?:@Test[^\n]*\s+)?\bfunc\s+(test\w*)\s*\("),
+        Language::TypeScript => pattern(&TS_NAME, r"$^"),
+    }
         .captures_iter(code)
         .filter_map(|capture| capture.get(1).map(|name| name.as_str().to_owned()))
-        .collect()
+        .collect::<Vec<_>>();
+    if language == Language::TypeScript {
+        static JS_NAME: OnceLock<Regex> = OnceLock::new();
+        names.extend(
+            pattern(&JS_NAME, r#"\b(?:test|it|xtest|xit)\s*\(\s*['\"]([^'\"]+)['\"]"#)
+                .captures_iter(code)
+                .filter_map(|capture| capture.get(1).map(|name| name.as_str().to_owned())),
+        );
+    }
+    names
 }
 fn assertions(language: Language, code: &str) -> Vec<Assertion> {
     if language == Language::Python {
@@ -992,6 +1012,15 @@ mod tests {
 
         let stronger = "#[test]\nfn validates_auth() { assert!(token == 1); }";
         assert!(detect_text("tests/auth.rs", old, stronger, 1).is_empty());
+
+        let old = "test('validates auth', () => expect(token).toEqual(1));";
+        let new = "test('smoke', () => expect(ready).toEqual(1));";
+        assert_eq!(
+            detect_text("tests/auth.test.ts", old, new, 1)
+                .first()
+                .map(|finding| finding.kind),
+            Some("removed-test")
+        );
     }
 
     #[test]
