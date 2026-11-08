@@ -49,6 +49,7 @@ export default componentEntry<ShareDemoProps>({
     "agent-session/acpmux/share/ShareDemo.tsx",
   ],
   load: () => import("./ShareDemo").then((module) => module.ShareDemo),
+  styles: () => import("./Share.gallery.css"),
   height: 560,
   variants: {
     unshared: {
@@ -64,8 +65,20 @@ export default componentEntry<ShareDemoProps>({
       props: { viewing: [], shares: [], open: true },
     },
     "dialog-shared": {
-      note: "Two people invited (one in the chat now) and Anyone with the link as a viewer.",
+      note: "Two people invited (one in the chat now) and Anyone with the link as a viewer. Shipped: the sheet role's glass, veil and 14 px corners; every control a 28 px shared button or field; Done the one solid button.",
       props: { viewing, shares: [people, link], open: true },
+    },
+    "look-two-primaries": {
+      note: "Compared, not shipped: Invite solid as well as Done. Two accent buttons compete for the one primary action.",
+      props: { viewing, shares: [people, link], open: true, look: "two-primaries" },
+    },
+    "look-popover": {
+      note: "Compared, not shipped: the popover level's glass (the theme surface at 70%) and the 12 px card radius instead of the sheet role.",
+      props: { viewing, shares: [people, link], open: true, look: "popover" },
+    },
+    "look-outline": {
+      note: "Compared, not shipped: hairline-outlined field, selects and buttons with no fill at rest.",
+      props: { viewing, shares: [people, link], open: true, look: "outline" },
     },
     toast: {
       note: "After Copy link with Anyone with the link: the toast and Manage links.",
