@@ -7,6 +7,6 @@ extension AgentTabStore {
     func harness(ofTab key: String) -> String? {
         let key = resolve(key)
         if let session = session(of: key), let reported = views[key]?.model.transport.sessions.harness(of: session) { return reported }
-        return lookup(key)?.record.harness
+        return record(for: tabKey(key))?.record.harness
     }
 }
