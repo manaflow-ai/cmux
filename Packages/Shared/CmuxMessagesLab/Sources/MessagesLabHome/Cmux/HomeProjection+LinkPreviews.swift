@@ -16,8 +16,13 @@ extension HomeProjection {
     /// Asks for the previews of the shown cards that may fetch and have none yet.
     func requestShownLinkPreviews() {
         guard let linkPreviews, !stopped, let store = controller.store else { return }
-        let urls = Self.previewableCardURLs(shown, summary: shownSummary, me: me, asked: askedLinkPreviews, limit: Self.previewsPerPass) {
-            store.state.message(HomeMapping.id($0, aliases: self.aliases))?.parts ?? []
+        let messages = store.state.conversation.messages
+        // One index per pass, built only when a candidate exists (no per-item linear search).
+        var byID: [ID: [Part]]?
+        let aliases = self.aliases
+        let urls = Self.previewableCardURLs(shown, summary: shownSummary, me: me, asked: askedLinkPreviews, limit: Self.previewsPerPass) { item in
+            if byID == nil { byID = Dictionary(messages.map { ($0.id, $0.parts) }, uniquingKeysWith: { first, _ in first }) }
+            return byID?[HomeMapping.id(item, aliases: aliases)] ?? []
         }
         for url in urls {
             askedLinkPreviews.insert(url)
@@ -29,10 +34,23 @@ extension HomeProjection {
         }
     }
 
-    /// Whether `author`'s cards may fetch their previews here: the person's own messages and their
-    /// Chief's replies, never another person's or another agent's.
-    static func fetchesPreviews(of author: ParticipantID, me: ParticipantID, summary: ConversationSummary?) -> Bool {
-        author == me || HomeMapping.isChief(author, summary)
+    /// Whether `item`'s cards may fetch their previews here: the person's own messages and their
+    /// Chief's replies, never another person's or another agent's, also not an agent's message
+    /// posted through the person's own CLI or MCP (`HomeAgentSender`: authored as the person).
+    static func fetchesPreviews(of item: TranscriptItem, me: ParticipantID, summary: ConversationSummary?) -> Bool {
+        if item.author == me { return HomeAgentSender(item, me: me) == nil }
+        return HomeMapping.isChief(item.author, summary)
+    }
+
+    /// Whether `item` has a web link to show a card for (a cheap test before its parts are looked up).
+    static func mayHaveWebLink(_ item: TranscriptItem) -> Bool {
+        item.parts.contains { part in
+            switch part {
+            case .text(let text, _): return text.range(of: "http", options: .caseInsensitive) != nil
+            case .linkPreview: return true
+            default: return false
+            }
+        }
     }
 
     /// The card URLs among `items` (newest first) that may fetch and still show the domain card (no
@@ -42,7 +60,7 @@ extension HomeProjection {
                                     asked: Set<String>, limit: Int, parts: (TranscriptItem) -> [Part]) -> [String] {
         var out: [String] = []
         var seen = asked
-        for item in items.reversed() where !item.isRetracted && fetchesPreviews(of: item.author, me: me, summary: summary) {
+        for item in items.reversed() where !item.isRetracted && mayHaveWebLink(item) && fetchesPreviews(of: item, me: me, summary: summary) {
             for case let .link(url, title, site, image, _) in parts(item) where image == nil && (title == nil || title == site) {
                 guard seen.insert(url).inserted else { continue }
                 out.append(url)

@@ -41,10 +41,13 @@ extension TranscriptDocumentView {
         set { objc_setAssociatedObject(self, overLinkKey.pointer, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
-    /// Whether `windowPoint` is over a link a click would open.
+    /// Whether `windowPoint` is over a link a click would open. The compose field and the header
+    /// float over the rows: a link scrolled under them is not hovered (the field keeps its I-beam).
     func isOverLink(_ windowPoint: CGPoint) -> Bool {
-        guard let controller else { return false }
-        return controller.linkURL(at: controller.host.convert(windowPoint, from: nil)) != nil
+        guard let controller, let demo = controller.demo else { return false }
+        let p = controller.host.convert(windowPoint, from: nil)
+        if demo.compose.fieldRect.contains(p) || p.y < max(0, demo.rowsTopInset - 8) { return false }
+        return controller.linkURL(at: p) != nil
     }
 
     /// Sets the hand over a link, else the arrow (`always`: on a cursor update, else only when the

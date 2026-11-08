@@ -101,7 +101,10 @@ struct HomeDiff: Equatable {
                 let st = HomeMapping.status(item, me: me, summary: newSummary)
                 if let st, st != .sending { d.actions.append(.status(id(item), st)) }
                 // Reply to Selection: the flying bubble has the quote's text; the stored reply adds its style.
-                if item.parts.contains(where: { if case let .text(t, _) = $0 { return ReplyQuote.split(t) != nil } else { return false } }) {
+                // A link in a sentence: the stored message adds its cards (HomeMapping+InlineCards.swift), so
+                // the flying bubble takes the stored parts and the part indices (tapbacks) match them.
+                if item.parts.contains(where: { if case let .text(t, _) = $0 { return ReplyQuote.split(t) != nil } else { return false } })
+                    || HomeMapping.addsInlineCards(item) {
                     d.actions.append(.cmuxSetParts(id(item), msg(item).parts))
                 }
                 if !item.reactions.isEmpty { react(from: [], to: item.reactions, id: id(item), owners: owners(item, newSummary), me: me, into: &d) }

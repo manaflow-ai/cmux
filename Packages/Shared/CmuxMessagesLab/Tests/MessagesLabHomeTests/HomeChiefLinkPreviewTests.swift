@@ -19,30 +19,37 @@ import Testing
     static let mine = "https://news.example.org/story", sole = "https://example.net/alone"
     static let friends = "https://friend.example.com/page", helpers = "https://helper.example.com/page"
     static let chiefText = "The fix is in [PR 2](\(pr)); the guide is at \(docs) if you want it."
+    static let gitHubPR = "https://github.com/manaflow-ai/cmux/pull/38178", bot = "https://bot.example.com/page"
+    static let people = [CmuxHomeCore.Participant(id: me, kind: .human, displayName: "Me"),
+                         CmuxHomeCore.Participant(id: chief, kind: .agent, displayName: "Chief", agentClass: .chief),
+                         CmuxHomeCore.Participant(id: friend, kind: .human, displayName: "Friend"),
+                         CmuxHomeCore.Participant(id: helper, kind: .agent, displayName: "Helper")]
+    static let base = Date(timeIntervalSince1970: 1_800_000_000)
+    static let summary = ConversationSummary(id: ConversationID("conv_link_cards"), title: "Chief", participants: people, lastSeq: 6,
+                                             createdAt: base, updatedAt: base, readCursors: [:], readCursorTimes: [:])
+
+    static func item(_ n: Int, _ author: ParticipantID, _ text: String, key: String? = nil) -> TranscriptItem {
+        TranscriptItem(key: IdempotencyKey(key ?? "k\(n)"), seq: Seq(UInt64(n)), author: author, parts: [.text(text)],
+                       createdAt: base.addingTimeInterval(Double(n)), delivery: .committed, messageID: MessageID("msg_\(n)"))
+    }
+
+    /// A friend's, another agent's, mine, the Chief's, mine with a file name and a GitHub link, and
+    /// an agent's message sent through my CLI (authored as me, marked `agent~`).
+    static let items = [item(1, friend, "Look at \(friends) later"),
+                        item(2, helper, "Helper read \(helpers) for you."),
+                        item(3, me, "Did you see \(mine) today?\n\(sole)"),
+                        item(4, chief, chiefText),
+                        item(5, me, "I updated README.md for \(gitHubPR) just now"),
+                        item(6, me, "[from Grok bot] I read \(bot) for you", key: "agent~grok-1")]
 
     struct Pane { let window: NSWindow; let controller: ChatController }
 
     private func pane(links: @escaping HomeMapping.Links = { _ in nil }) -> Pane {
         _ = NSApplication.shared
         HomeMarkdownPolicy.install()
-        let people = [CmuxHomeCore.Participant(id: Self.me, kind: .human, displayName: "Me"),
-                      CmuxHomeCore.Participant(id: Self.chief, kind: .agent, displayName: "Chief", agentClass: .chief),
-                      CmuxHomeCore.Participant(id: Self.friend, kind: .human, displayName: "Friend"),
-                      CmuxHomeCore.Participant(id: Self.helper, kind: .agent, displayName: "Helper")]
-        let base = Date(timeIntervalSince1970: 1_800_000_000)
-        func item(_ n: Int, _ author: ParticipantID, _ text: String) -> TranscriptItem {
-            TranscriptItem(key: IdempotencyKey("k\(n)"), seq: Seq(UInt64(n)), author: author, parts: [.text(text)],
-                           createdAt: base.addingTimeInterval(Double(n)), delivery: .committed, messageID: MessageID("msg_\(n)"))
-        }
-        let items = [item(1, Self.friend, "Look at \(Self.friends) later"),
-                     item(2, Self.helper, "Helper read \(Self.helpers) for you."),
-                     item(3, Self.me, "Did you see \(Self.mine) today?\n\(Self.sole)"),
-                     item(4, Self.chief, Self.chiefText)]
-        let summary = ConversationSummary(id: ConversationID("conv_link_cards"), title: "Chief", participants: people, lastSeq: 4,
-                                          createdAt: base, updatedAt: base, readCursors: [:], readCursorTimes: [:])
         var core = ProjectionCore(me: Self.me)
         core.links = links
-        let (conv, w) = core.install(ConversationID("conv_link_cards"), items: items, summary: summary)
+        let (conv, w) = core.install(ConversationID("conv_link_cards"), items: Self.items, summary: Self.summary)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 900), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         let controller = ChatController(host: HostView(frame: NSRect(x: 0, y: 0, width: 560, height: 900)), wake: NoWake())
@@ -55,7 +62,8 @@ import Testing
     }
 
     private func parts(_ pane: Pane, _ n: Int) -> [Part] {
-        pane.controller.store?.state.conversation.messages.first { $0.id == "k\(n)" }?.parts ?? []
+        let item = Self.items[n - 1]
+        return pane.controller.store?.state.conversation.messages.first { $0.id == HomeMapping.id(item, aliases: [:]) }?.parts ?? []
     }
 
     private func cardURLs(_ parts: [Part]) -> [String] {
@@ -73,6 +81,11 @@ import Testing
         if case let .link(_, title, site, _, _)? = chief.last { #expect(title == "docs.example.com" && site == "docs.example.com") }
         // My sentence's link gets a card; the URL-only line keeps its one card (no second card for it).
         #expect(cardURLs(parts(pane, 3)) == [Self.mine, Self.sole])
+        // A file name the detector reads as a domain ("README.md") is no card; a GitHub pull request's
+        // card is titled from its URL (a private repository's page needs sign-in, so it is never fetched).
+        let five = parts(pane, 5)
+        #expect(cardURLs(five) == [Self.gitHubPR])
+        if case let .link(_, title, site, _, _)? = five.last { #expect(title == "manaflow-ai/cmux#38178" && site == "github.com") }
         withExtendedLifetime(pane.window) {}
     }
 
@@ -88,24 +101,14 @@ import Testing
     @Test func myCardsAndTheChiefsFetchAndOthersDoNot() throws {
         let pane = pane()
         let store = try #require(pane.controller.store)
-        let items = (1 ... 4).map { n in
-            TranscriptItem(key: IdempotencyKey("k\(n)"), seq: Seq(UInt64(n)), author: [Self.friend, Self.helper, Self.me, Self.chief][n - 1],
-                           parts: [], createdAt: Date(timeIntervalSince1970: 1_800_000_000), delivery: .committed, messageID: MessageID("msg_\(n)"))
-        }
-        let summary = ConversationSummary(id: ConversationID("conv_link_cards"), title: "Chief", participants: [
-            CmuxHomeCore.Participant(id: Self.me, kind: .human, displayName: "Me"),
-            CmuxHomeCore.Participant(id: Self.chief, kind: .agent, displayName: "Chief", agentClass: .chief),
-            CmuxHomeCore.Participant(id: Self.friend, kind: .human, displayName: "Friend"),
-            CmuxHomeCore.Participant(id: Self.helper, kind: .agent, displayName: "Helper"),
-        ], lastSeq: 4, createdAt: .distantPast, updatedAt: .distantPast, readCursors: [:], readCursorTimes: [:])
-        let urls = HomeProjection.previewableCardURLs(items, summary: summary, me: Self.me, asked: [Self.docs], limit: 8) { item in
-            store.state.message(item.key.rawValue)?.parts ?? []
-        }
-        // Newest first; an asked URL is not asked again; a friend's and another agent's cards never fetch.
+        let items = Self.items, summary = Self.summary
+        func shown(_ item: TranscriptItem) -> [Part] { store.state.message(HomeMapping.id(item, aliases: [:]))?.parts ?? [] }
+        let urls = HomeProjection.previewableCardURLs(items, summary: summary, me: Self.me, asked: [Self.docs], limit: 8, parts: shown)
+        // Newest first; an asked URL is not asked again; a friend's, another agent's and an agent's
+        // message through my CLI never fetch; a GitHub card with its local title needs no fetch.
         #expect(urls == [Self.pr, Self.mine, Self.sole])
-        #expect(HomeProjection.previewableCardURLs(items, summary: summary, me: Self.me, asked: [], limit: 2) { item in
-            store.state.message(item.key.rawValue)?.parts ?? []
-        }.count == 2)
+        #expect(HomeProjection.previewableCardURLs(items, summary: summary, me: Self.me, asked: [], limit: 2, parts: shown).count == 2)
+        #expect(!cardURLs(shown(items[5])).isEmpty, "the agent's message shows its card, domain only")
 
         // The gate: a shown card the projection allowed fetches; any other URL is refused with no request.
         var loaded: [String] = []
