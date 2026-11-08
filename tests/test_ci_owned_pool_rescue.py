@@ -172,6 +172,21 @@ class FakeAPI:
         self.cancelled_at, self.rerun_at = None, self.clock.seconds
 
 
+class BranchAPI(FakeAPI):
+    """A FakeAPI whose run names its branch, gone-branch, which `deleted` says was deleted."""
+
+    def __init__(self, *args, deleted: bool, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.deleted = deleted
+
+    def run(self, run_id):
+        return {**super().run(run_id), "head_branch": "gone-branch"}
+
+    def branch_exists(self, branch):
+        self.calls.append(f"branch:{branch}?")
+        return not self.deleted
+
+
 def assert_left_at_open_head(case, api, text, number=42):
     """The rescue found the stuck job but cancelled nothing: the pull request is open at the run's head."""
     case.assertNotIn("cancel", api.calls)
@@ -2968,6 +2983,42 @@ class SideLanes(unittest.TestCase):
         outcome = rescue.follow(api, target, seconds=90, queue_rounds="0", now=clock.now, sleep=clock.sleep,
                                 log=lines.append)
         return api, outcome, "\n".join(lines)
+
+    def test_a_dispatch_whose_branch_was_deleted_is_not_re_run(self):
+        # Run 42502885663 (2026-11-08): a cmux-tui.yml dispatch on a pull request's branch; the pull request
+        # merged and its branch was deleted, then a re-run of the run failed to start (startup_failure: its
+        # local reusable workflow was not found). A refused leg of such a run is left as it is.
+        path = ".github/workflows/cmux-tui.yml"
+        target = rescue.target_from_event(side_event(path=path, event="workflow_dispatch", pull_requests=[]),
+                                          "manaflow-ai/cmux")
+        clock = Clock()
+        api = BranchAPI(clock, lambda seconds: self.cmux_tui_run(), finished=lambda seconds: True,
+                        conclusion="failure", rerun_jobs=lambda seconds: [],
+                        workflow=(ROOT / path).read_text(encoding="utf-8"), deleted=True)
+        lines: list[str] = []
+        outcome = rescue.follow(api, target, seconds=90, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                                log=lines.append)
+        self.assertNotIn("rerun-failed", api.calls, "\n".join(lines))
+        self.assertNotIn("rerun", api.calls)
+        self.assertIn("branch:gone-branch?", api.calls)
+        self.assertIn("gone-branch was deleted", outcome + "\n" + "\n".join(lines))
+
+    def test_an_unfinished_dispatch_whose_branch_was_deleted_is_never_cancelled(self):
+        # The queue rescue cancels a stuck dispatch and re-runs it on Blacksmith; with its branch gone the
+        # re-run cannot start, so the cancel alone would turn a queued run into a failure.
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, path=".github/workflows/cmux-tui.yml", side=True,
+                               event="workflow_dispatch")
+        for deleted in (True, False):
+            with self.subTest(deleted=deleted):
+                clock = Clock()
+                api = BranchAPI(clock, lambda seconds: [job("test (macos)", labels=[SIDE])], deleted=deleted)
+                result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None)
+                if deleted:
+                    self.assertNotIn("cancel", api.calls, result)
+                    self.assertNotIn("rerun", api.calls)
+                    self.assertIn("gone-branch was deleted", result)
+                else:
+                    self.assertIn("cancel", api.calls, result)
 
     def test_an_always_aggregator_failed_only_by_a_refused_leg_does_not_block_its_rerun(self):
         # cmux-tui.yml's hosted-verification (`if: always()`, needs every leg) fails when the macOS test
