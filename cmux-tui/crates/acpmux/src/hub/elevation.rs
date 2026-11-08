@@ -55,7 +55,7 @@ const MAX_REASON_CHARS: usize = 500;
 const MAX_OUTPUT_BYTES: usize = 512 * 1024;
 const SUDO: &str = "/usr/bin/sudo";
 
-const CARD: CardKind = CardKind {
+pub(super) const CARD: CardKind = CardKind {
     request: "elevation_request",
     decision: "elevation_decision",
     provided: "approved",
@@ -234,12 +234,12 @@ impl Hub {
 /// `sudo -k`. The password is zeroed when this returns.
 ///
 /// The password is never written where the command could read it. First `sudo -n -k -l`, which
-/// runs no command, says whether this account has any passwordless rule (sudoers' default
-/// `listpw=any` lists without a password only then). With one, the command runs as
-/// `sudo -n -k -- argv` with an empty stdin and the password is not used: a passwordless command
-/// that read stdin, or printed sudo's prompt, could otherwise take it. With none, sudo must ask
-/// before it runs anything, and the password goes to stdin only once sudo has printed `MARKER`, a
-/// prompt unique to this run, on stderr (`answer_prompt`).
+/// runs no command, says whether a passwordless rule could run this command
+/// ([`may_skip_password`]). If one could, the command runs as `sudo -n -k -- argv` with an empty
+/// stdin and the password is not used: a passwordless command that read stdin, or printed sudo's
+/// prompt, could otherwise take it. If none could, sudo must ask before it runs anything, and the
+/// password goes to stdin only once sudo has printed `MARKER`, a prompt unique to this run, on
+/// stderr (`answer_prompt`).
 async fn run(sudo: &Path, ask: &Ask, password: Zeroizing<String>) -> Value {
     let mut command = tokio::process::Command::new(sudo);
     command.env_clear();
@@ -250,7 +250,8 @@ async fn run(sudo: &Path, ask: &Ask, password: Zeroizing<String>) -> Value {
     }
     // A fixed PATH: sudo's own secure_path decides the command's; this one is only sudo's.
     command.env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
-    let passwordless = has_passwordless_rule(sudo).await;
+    let first = ask.argv.first().map(String::as_str).unwrap_or_default();
+    let passwordless = may_skip_password(sudo, first).await;
     let marker = prompt_marker();
     if passwordless {
         command.args(["-n", "-k", "--"]).stdin(std::process::Stdio::null());
@@ -293,8 +294,11 @@ async fn run(sudo: &Path, ask: &Ask, password: Zeroizing<String>) -> Value {
             let _ = tokio::time::timeout(TERM_GRACE, child.wait()).await;
             // Then SIGKILL to the whole group: sudo and every process of the group this daemon
             // may signal. A root process that ignored SIGTERM is past what a user's daemon can
-            // kill; the agent is told so.
-            signal_group(pid, SIG_KILL);
+            // kill; the agent is told so. Only while the group is there: a group id frees with
+            // its last process and could name another group by now.
+            if group_alive(pid) {
+                signal_group(pid, SIG_KILL);
+            }
             let _ = child.kill().await;
             left_running = group_left_after(pid, KILL_SETTLE).await;
             None
@@ -317,16 +321,16 @@ async fn run(sudo: &Path, ask: &Ask, password: Zeroizing<String>) -> Value {
         Some(Ok(s)) => json!(s.code()),
         _ => Value::Null,
     };
-    let mut stderr = mask_within(err, &password, MAX_OUTPUT_BYTES);
+    // What acpmux adds to stderr, kept inside the stream's cap with the command's own text.
+    let mut notes = String::new();
     if let Some(Err(e)) = &status {
-        stderr.push_str(&format!("\nwaiting for sudo: {e}"));
+        notes.push_str(&format!("\nwaiting for sudo: {e}"));
     }
     if passwordless {
-        stderr.push_str(
-            "\nacpmux: this account has passwordless sudo rules, so cmux ran the command with \
-             `sudo -n` and did not use the password (a passwordless command could read it). If \
-             sudo said a password is required, this command needs one: the person can run it \
-             in a terminal.",
+        notes.push_str(
+            "\nacpmux: a passwordless sudo rule of this account may cover this command, so cmux ran \
+             it with `sudo -n` and did not use the password (a passwordless command could read \
+             it). If sudo said a password is required, the person can run it in a terminal.",
         );
     }
     // A process that left sudo's group (`setsid`, a daemon) is out of sight, so a timeout never
@@ -337,16 +341,18 @@ async fn run(sudo: &Path, ask: &Ask, password: Zeroizing<String>) -> Value {
         (true, false) => "unknown",
     };
     if left_running {
-        stderr.push_str(
+        notes.push_str(
             "\nacpmux: the command ignored SIGTERM past its timeout and still runs as root; \
              this daemon cannot kill a root process. Tell the person.",
         );
     } else if status.is_none() {
-        stderr.push_str(
+        notes.push_str(
             "\nacpmux: the command was stopped at its timeout. A process it detached from its \
              group (setsid) would not be seen and may still run as root.",
         );
     }
+    let mut stderr = mask_within(err, &password, MAX_OUTPUT_BYTES.saturating_sub(notes.len()));
+    stderr.push_str(&notes);
     json!({
         "exitCode": exit,
         "timedOut": status.is_none(),
@@ -482,11 +488,13 @@ fn group_alive(_: Option<u32>) -> bool {
     false
 }
 
-/// `sudo -k`: no cached timestamp is left behind (`-k` on the run already made none).
-/// Whether this account has a sudo rule that asks for no password: `sudo -n -k -l` lists the
-/// rules without a password only then (sudoers' default `listpw=any`), and runs no command. Any
-/// failure (a password is required, sudo is missing, the probe hangs) reads as none.
-async fn has_passwordless_rule(sudo: &Path) -> bool {
+/// Whether a sudo rule of this account that asks for no password could run `command` (argv[0]).
+/// `sudo -n -k -l` lists the account's rules and runs no command; it lists without a password
+/// only when some rule asks for none (sudoers' default `listpw=any`), so a refused listing means
+/// sudo must ask for this command too. A listing is read by [`listing_may_skip_password`]. Any
+/// other failure (sudo missing, the probe hanging) reads as no passwordless rule: sudo then asks
+/// before it runs anything, and the prompt gate applies.
+async fn may_skip_password(sudo: &Path, command: &str) -> bool {
     let mut probe = tokio::process::Command::new(sudo);
     probe.env_clear();
     for key in KEPT_ENV {
@@ -496,18 +504,99 @@ async fn has_passwordless_rule(sudo: &Path) -> bool {
     }
     probe
         .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+        // sudo's own words, whatever the account's language.
+        .env("LC_ALL", "C")
         .args(["-n", "-k", "-l"])
         .current_dir("/")
         .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .kill_on_drop(true);
-    matches!(
-        tokio::time::timeout(Duration::from_secs(10), probe.status()).await,
-        Ok(Ok(status)) if status.success()
-    )
+    let Ok(mut child) = probe.spawn() else { return false };
+    let listing = read_capped(child.stdout.take(), LISTING_BYTES);
+    let Ok((status, (listing, cut))) = tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::join!(child.wait(), listing)
+    })
+    .await
+    else {
+        return false;
+    };
+    match status {
+        Ok(status) if status.success() => {
+            cut || listing_may_skip_password(&String::from_utf8_lossy(&listing), command)
+        }
+        _ => false,
+    }
 }
 
+/// The most of `sudo -l`'s listing read; a longer one counts as passwordless for any command.
+const LISTING_BYTES: usize = 64 * 1024;
+
+/// Whether some rule in `sudo -l`'s listing that asks for no password could match `command`. It
+/// errs toward yes, which only costs the password (the command runs with `sudo -n`); a no sends
+/// the password to sudo's prompt. Yes when: a `!authenticate` default; a `NOPASSWD` spec that is
+/// `ALL`, an alias, a glob, or a path whose file name is `command`'s; or a line it cannot read.
+fn listing_may_skip_password(listing: &str, command: &str) -> bool {
+    if listing.contains("!authenticate") {
+        return true;
+    }
+    let wanted = Path::new(command).file_name();
+    let mut rules = false;
+    for line in listing.lines() {
+        if line.contains("may run the following commands") {
+            rules = true;
+            continue;
+        }
+        let entry = line.trim();
+        if !rules || entry.is_empty() {
+            continue;
+        }
+        // `(runas) TAGS: cmd, TAGS: cmd, ...`; anything else is not read, so it counts.
+        let Some(after) = entry.strip_prefix('(').and_then(|e| e.split_once(')')).map(|(_, r)| r)
+        else {
+            return true;
+        };
+        if after.contains("\\,") {
+            return true;
+        }
+        let mut asks = true;
+        for spec in after.split(',') {
+            let mut spec = spec.trim();
+            while let Some((tag, rest)) = spec.split_once(':')
+                && !tag.is_empty()
+                && tag.bytes().all(|b| b.is_ascii_uppercase() || b == b'_')
+            {
+                match tag {
+                    "NOPASSWD" => asks = false,
+                    "PASSWD" => asks = true,
+                    _ => {}
+                }
+                spec = rest.trim_start();
+            }
+            // Options such as `TIMEOUT=1m` or `CWD=/` before the command.
+            while let Some((option, rest)) = spec.split_once(' ')
+                && option.contains('=')
+            {
+                spec = rest.trim_start();
+            }
+            if asks || spec.starts_with('!') {
+                continue;
+            }
+            let path = spec.split_whitespace().next().unwrap_or_default();
+            if path == "ALL"
+                || !path.starts_with('/')
+                || path.contains(['*', '?', '['])
+                || path.ends_with('/')
+                || Path::new(path).file_name() == wanted
+            {
+                return true;
+            }
+        }
+    }
+    !rules
+}
+
+/// `sudo -k`: no cached timestamp is left behind (`-k` on the run already made none).
 async fn forget_timestamp(sudo: &Path) {
     let forget = tokio::process::Command::new(sudo)
         .arg("-k")

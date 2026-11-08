@@ -40,11 +40,10 @@ import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
 import { CardCopy } from "./CardCopy";
-import { hasAgentMark, knownMark, MonogramMark } from "../../shared/AgentMark";
+import { hasAgentMark, MonogramMark } from "../../shared/AgentMark";
 import { useMachineChats, useSenderChat, useSenderIdentity, useSenderPlace } from "../subagents/subsessions";
 import { Menu, MenuButton, MenuGroup, MenuItem, MenuPopup, MenuSeparator } from "../../../ui/Menu";
 import { copyTextResult } from "./clipboard";
-import { harnessLabel, runModel } from "../subagents/agentRuns";
 import { AgentIdentity } from "../subagents/AgentIdentity";
 import { agentTone } from "../subagents/agentTones";
 import { useAgentAvatar } from "../agentAvatar";
@@ -59,20 +58,22 @@ import { laneNotice } from "./laneReport";
 import "./AgentMessageRow.css";
 import "./LaneNoticeBatch.css";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { useTranscriptReadOnly } from "./readOnly";
 import { Face } from "../multiplayer/Faces";
 import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 import { isGuest, type Participant } from "../multiplayer/participants";
 import { useMessageLineLook } from "./messageLineLook";
 import type { AgentNotice } from "./agentNotice";
-import { NoticeMark, SEVERITY_LABEL } from "./NoticeMark";
+import { NoticeMark } from "./NoticeMark";
+import { SEVERITY_LABEL } from "./noticeMarkModel";
 import { noticeMarkdown } from "./agentNotice";
 import { useNoticeLook, type NoticeLook } from "./noticeLook";
 import { openSessionAttributes } from "./menuParts";
-import { useSessionRef } from "./SessionRef";
+import { useSessionRef } from "./sessionRefModel";
 import { useSessionHover } from "../started/useSessionHover";
 import { resolveSessionRef, senderRef, sessionRefsResolve, whenIdle } from "./sessionRefs";
+import { senderHarness, senderAbout, senderLabel } from "./incomingMessageCardModel";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
 const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
@@ -84,15 +85,6 @@ const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
 
 /// A harness logo's size in the sender's glyph slot (see SenderName).
 const SENDER_LOGO_SIZE = 12;
-
-/// The harness whose mark a sender draws: the listed chat's, else the one the message names (acpmux's
-/// bound `fromHarness`), the first of them with a mark today, else that harness id itself, so a
-/// profile icon that arrives later still replaces the fallback. Never one guessed from the sender's
-/// name: a Codex lane called `claude-…` drew Claude's mark (cmux#30247). With neither, undefined,
-/// and the line draws the neutral agent glyph.
-export function senderHarness(listed: string | undefined, named: string | undefined): string | undefined {
-  return knownMark(listed, named, listed ?? named);
-}
 
 /// The sender's mark alone (a received line's, an inbox group's): its avatar, a Chief's face, else
 /// its harness's mark, else the neutral agent glyph in its own stable tone.
@@ -130,30 +122,6 @@ export function SenderMark({ message }: { message: IncomingMessage }) {
   );
 }
 
-/// What a sender runs on, for its line's hover: "Codex · gpt-6.1-sol high", its harness's name, then
-/// its model and effort (a listed chat's, else the ones the message names), each only when known
-/// (Leo, 2026-10-28: "when you hover over the button, it should be able to tell you, like, a bit
-/// more metadata. Like, at the very least tell you what model did it, what effort level").
-export function senderAbout(
-  harness: string | undefined,
-  listed: { model?: string; effort?: string } | undefined,
-  named: { model?: string; effort?: string },
-): string | undefined {
-  const model = runModel({ model: listed?.model ?? named.model, effort: listed?.effort ?? named.effort });
-  return [harness && harnessLabel(harness), model].filter(Boolean).join(" · ") || undefined;
-}
-
-/// A sender's name as its line shows it beside its machine: a peer's chat comes named
-/// `<machine>/<name>` (acpmux hub/peers.rs), and the line names the machine after the name already,
-/// so the name drops that prefix: "merge-timeout · lane-vm-01", never "lane-vm-01/merge-timeout ·
-/// lane-vm-01" (Leo, 2026-11-02, on that line: "wtf these tool call spacing things are still weird").
-export function senderLabel(name: string, host: string | undefined): string {
-  const prefix = host ? `${host}/` : "";
-  return prefix && name.toLowerCase().startsWith(prefix.toLowerCase()) && name.length > prefix.length
-    ? name.slice(prefix.length)
-    : name;
-}
-
 /// The name a received line gives its sender: the recorded session's own, from the session metadata
 /// (senderIdentity.ts), as its preview and session card name it, whatever name the message fell back
 /// to (a raw `acp:<id>` when its provenance carried no `fromName`). A Chief, an app's persona and a
@@ -185,7 +153,9 @@ export function SenderName({
   const chief = useChiefFace(message.chief);
   const sender = useSenderChat(message.chief ? "" : (message.lookup ?? message.name), message.sessionId);
   const recorded = useSenderSessionName(message, false);
-  const name = (message.chief && chief?.name) || senderLabel(recorded, sender.host);
+  const name =
+    (message.chief && chief?.name) ||
+    (message.unverified && !message.name.trim() ? t("message.unverifiedSender") : senderLabel(recorded, sender.host));
   // Read only (a guest): the sender's chat is not this reader's to open.
   const readOnly = useTranscriptReadOnly();
   const listed = message.chief || readOnly ? undefined : sender.sessionId;
@@ -274,6 +244,10 @@ export function SenderName({
           even if they're from another machine, what's going on here?"). This Mac's chats name none. */}
       {host &&
         (readOnly ? <span className="cv-received__host">{host}</span> : <MachineMenu host={host} onOpen={onOpen} />)}
+      {/* acpmux could not verify who sent it (Leo, 2026-11-05: "why is it sending it as if it were
+          me?"): never the person's, and the name it gives is only a claim. */}
+      {message.unverified && <span className="cv-received__host">{t("message.unverified")}</span>}
+      {message.edited && <span className="cv-received__host">{t("message.edited")}</span>}
       {sessionId && card}
     </span>
   );

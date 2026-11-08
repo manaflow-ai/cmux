@@ -17,7 +17,7 @@ import { SUBSESSION_STATE_LABEL } from "../subagents/subsessions";
 import type { AgentCall } from "./agentCalls";
 import { CardCopy } from "./CardCopy";
 import { useFindReveal } from "./chatFind";
-import { compactTokens } from "./CompactionNote";
+import { compactTokens } from "./compactionNoteModel";
 import { Spinner } from "./icons";
 import { Markdown } from "./Markdown";
 import { Cut } from "./SubsessionCallCard";

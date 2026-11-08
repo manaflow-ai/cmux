@@ -39,16 +39,16 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
         let provider = UpdateSurfaceProvider(kind: kind, services: services)
         self.provider = provider
         view = services.flatMap { PageFactory(services: $0).updateSurfacePage(kind: kind, provider: provider) } ?? NSView()
-        provider.onSize = { [weak self] height, width, overlay in
-            guard let self, size.take(height: height, width: width, overlay: overlay, zoom: zoom) else { return }
-            onHeightChange?()
-        }
+        provider.onSize = { [weak self] height, width, overlay in self?.resize { $0.take(height: height, width: width, overlay: overlay, zoom: $1) } }
+        (view as? PageWebView)?.onZoomChange = { [weak self] in self?.resize { $0.rezoom($1) } }
         provider.card.zoom = { [weak self] in self?.zoom ?? 1 }
         provider.card.onDrag = { [weak self] in self?.onDrag?(SidebarCardDrag(offset: $0, drop: $1.flatMap(SidebarCardAnchor.init(rawValue:)))) }
         provider.onAction = { [weak self] in self?.onAction?() }
         provider.onDismiss = { [weak self] in self?.onDismiss?() }
     }
 
+    /// Applies a size change at the page's zoom; the sidebar lays the card out again when it changed.
+    private func resize(_ change: (inout PageSurfaceSize, CGFloat) -> Bool) { if change(&size, zoom) { onHeightChange?() } }
     func close() { (view as? PageWebView)?.close() }
 
     func setPointerInside(_ inside: Bool) { provider.pointer.value = inside }

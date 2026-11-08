@@ -4,70 +4,9 @@
 public import CmuxNextDesign
 
 extension SidebarSettingsSchema {
-    static var sidebar2: [SettingDescriptor] {
+    static var sidebarPart2: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.sidebar", "Sidebar")
         return [
-            SettingDescriptor(
-                SidebarSectionsSetting.showLocalMachinePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.showLocalMachine", "Mark This Mac's Workspaces"),
-                help: SettingsText.keyed("settings.sidebar.showLocalMachine.help", "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too."),
-                kind: .toggle,
-                default: .bool(SidebarSectionsSetting.showLocalMachineDefault),
-                keywords: ["sidebar", "machine", "computer", "this mac", "local", "icon", "color", "remote", "identity"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupHeaderMemberCountPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupHeader.memberCount", "Show Group Member Count"),
-                help: SettingsText.keyed("settings.sidebar.groupHeader.memberCount.help", "A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner."),
-                kind: .toggle,
-                default: .bool(SidebarSectionsSetting.groupHeaderMemberCountDefault),
-                keywords: ["sidebar", "group", "groups", "count", "members", "workspaces", "number", "header"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupHeaderUnreadCountPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount", "Show Group Unread Count"),
-                help: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount.help", "A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner."),
-                kind: .toggle,
-                default: .bool(SidebarSectionsSetting.groupHeaderUnreadCountDefault),
-                keywords: ["sidebar", "group", "groups", "unread", "badge", "notifications", "count", "header"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupHeaderBackgroundPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupHeader.background", "Group Background"),
-                help: SettingsText.keyed("settings.sidebar.groupHeader.background.help", "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color."),
-                kind: .choice([
-                    SettingChoice(SidebarGroupBackgroundStyle.auto.rawValue, SettingsText.keyed("settings.choice.groupBackgroundAuto", "Automatic")),
-                    SettingChoice(SidebarGroupBackgroundStyle.glass.rawValue, SettingsText.keyed("settings.choice.groupBackgroundGlass", "Glass")),
-                    SettingChoice(SidebarGroupBackgroundStyle.solid.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSolid", "Solid")),
-                ]),
-                default: .string(SidebarSectionsSetting.groupHeaderBackgroundDefault.rawValue),
-                keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupPalettePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupPalette", "Group Colors"),
-                help: SettingsText.keyed("settings.sidebar.groupPalette.help", "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient."),
-                kind: .choice([
-                    SettingChoice(GroupPalette.glass.rawValue, SettingsText.keyed("settings.choice.groupPaletteGlass", "Glass")),
-                    SettingChoice(GroupPalette.theme.rawValue, SettingsText.keyed("settings.choice.groupPaletteTheme", "App Theme")),
-                    SettingChoice(GroupPalette.wallpaper.rawValue, SettingsText.keyed("settings.choice.groupPaletteWallpaper", "Wallpaper")),
-                    SettingChoice(GroupPalette.grayscale.rawValue, SettingsText.keyed("settings.choice.groupPaletteGrayscale", "Grayscale")),
-                    SettingChoice(GroupPalette.vibrant.rawValue, SettingsText.keyed("settings.choice.groupPaletteVibrant", "Vibrant")),
-                    SettingChoice(GroupPalette.gradient.rawValue, SettingsText.keyed("settings.choice.groupPaletteGradient", "Gradient")),
-                ]),
-                default: .string(SidebarSectionsSetting.groupPaletteDefault.rawValue),
-                keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic", "gradient"]
-            ),
             SettingDescriptor(
                 SidebarSectionsSetting.groupGradientPath,
                 section: .appearance,
@@ -130,14 +69,45 @@ extension SidebarSettingsSchema {
                 default: .bool(SidebarPriorityViewSetting.shownDefault),
                 keywords: ["sidebar", "priority", "activity", "bell", "show", "hide"]
             ),
-        ]
-    }
-}
-
-extension SidebarSettingsSchema {
-    static var sidebar3: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.sidebar", "Sidebar")
-        return [
+            SettingDescriptor(
+                ChromePlacementSetting.sidebarSidePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.side", "Sidebar Side"),
+                help: SettingsText.keyed("settings.sidebar.side.help", "The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar."),
+                kind: .choice([
+                    SettingChoice(SidebarSide.left.rawValue, SettingsText.keyed("settings.choice.left", "Left")),
+                    SettingChoice(SidebarSide.right.rawValue, SettingsText.keyed("settings.choice.right", "Right")),
+                ]),
+                default: .string(ChromePlacementSetting.sidebarSideDefault.rawValue),
+                keywords: ["sidebar", "side", "left", "right", "position", "edge", "layout"]
+            ),
+            SettingDescriptor(
+                ChromePlacementSetting.spacesPositionPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.spacesPosition", "Spaces Position"),
+                help: SettingsText.keyed("settings.sidebar.spacesPosition.help", "Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row."),
+                kind: .choice([
+                    SettingChoice(SpacesPosition.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
+                    SettingChoice(SpacesPosition.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
+                ]),
+                default: .string(ChromePlacementSetting.spacesPositionDefault.rawValue),
+                keywords: ["sidebar", "spaces", "rooms", "profiles", "dots", "top", "bottom", "position", "layout"]
+            ),
+            SettingDescriptor(
+                ChromePlacementSetting.spacesVisibilityPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.spacesVisibility", "Show Spaces"),
+                help: SettingsText.keyed("settings.sidebar.spacesVisibility.help", "Always keeps the spaces shown, also when the sidebar's controls show only on hover. On Hover lets them hide with the other controls then."),
+                kind: .choice([
+                    SettingChoice(SpacesVisibilityMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
+                    SettingChoice(SpacesVisibilityMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
+                ]),
+                default: .string(ChromePlacementSetting.spacesVisibilityDefault.rawValue),
+                keywords: ["sidebar", "spaces", "rooms", "profiles", "dots", "hover", "hide", "show", "always", "visibility"]
+            ),
             SettingDescriptor(
                 CommandDigitsSetting.configPath,
                 section: .appearance,

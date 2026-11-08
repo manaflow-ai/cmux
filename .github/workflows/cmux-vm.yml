@@ -630,6 +630,11 @@ jobs:
     concurrency:
       group: cmux-vm-deploy-production
       cancel-in-progress: false
+    # 'success' when the Worker deploy step ran and succeeded (it is skipped when CMUX_VM_DEPLOY_ENABLED is off) and
+    # the smoke did not fail (a red smoke may have rolled the Worker back), for journey-production. A rollback by the
+    # journey step fails the job, which journey-production also requires to succeed.
+    outputs:
+      deployed: ${{ steps.deploy.outcome == 'success' && steps.smoke.outcome != 'failure' && 'success' || 'no' }}
     defaults:
       run:
         working-directory: workers/cmux-vm
@@ -731,6 +736,7 @@ jobs:
           line="$(bun scripts/cmux-next/release/pin-host.ts --host "$host" --wait-seconds 300)"
           echo "$line" | sudo tee -a /etc/hosts
       - name: Smoke health and changed routes; roll back on red
+        id: smoke
         if: ${{ always() && steps.gate.outputs.enabled == 'true' && steps.deploy.outcome != 'skipped' }}
         # Runtime smoke is diagnostic only; a flaky endpoint must not gate a
         # feature branch or a nightly publication.
@@ -772,6 +778,44 @@ jobs:
           node_modules/.bin/wrangler rollback "$previous" --name cmux-vm-production -y --message "auto-rollback: Cloud journey red"
           echo "::error title=Cloud journey::the deploy turned journey steps red; rolled cmux-vm-production back to $previous"
           exit 1
+
+  # The Cloud journey on production right after a deploy, as the production agent test account. That pair is in
+  # cmux-next-cloud-journey (as in backend.yml's journey-production), not in cmux-vm-production, whose journey steps
+  # above say "not run" until it holds CMUX_JOURNEY_PROD_STACK_*. This job proves the deploy (its verdict
+  # annotation is what cmuxterm-hq's cloud_deploy_gate reads, within 5 min of the deploy); it does not roll back.
+  # It takes no deploy lock: a queued job in that concurrency group would cancel a queued deploy. Instead the gate
+  # proves no deploy with a journey that finished after a later production deploy.
+  journey-production:
+    needs: deploy-production
+    # Never after a rollback: a journey on the previous version would prove the deploy it replaced.
+    if: >-
+      (!cancelled() && needs.deploy-production.result == 'success' && needs.deploy-production.outputs.deployed == 'success') &&
+      !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # The full lifecycle journey's waits; cloud-journey-prod.yml allows the same.
+    timeout-minutes: 30
+    environment: cmux-next-cloud-journey
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/cmux-next
+            Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials
+            tests/fixtures/model-stub
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Cloud journey (prod, after the deploy)
+        env:
+          JOURNEY_MODEL: stub
+          TARGET: prod
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+        run: bash scripts/cmux-next/cloud-journey-ci.sh
 
   smoke-production:
     # After deploy-production, or alone (action smoke-production: the live version, no deploy, no rollback).

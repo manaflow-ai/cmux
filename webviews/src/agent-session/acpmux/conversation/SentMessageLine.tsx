@@ -22,7 +22,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import type { AcpmuxSendCallPart, SendState } from "./acpmuxSends";
-import { messagePreview } from "./AgentMessageRow";
+import { messagePreview } from "./agentMessageRowModel";
 import { messageDelivery } from "./agentMessages";
 import { activityText, FindReveal, foldFind, useFindReveal } from "./chatFind";
 import { plainText } from "./messageMenu";
@@ -30,7 +30,6 @@ import { AlertCircle, Envelope, ChevronRight } from "./icons";
 import { AgentMessageBody } from "./AgentMessageBody";
 import { AgentTag } from "./AgentTag";
 import { CardCopy } from "./CardCopy";
-import { senderLabel } from "./IncomingMessageCard";
 import { MessageGroupHead } from "./MessageGroupHead";
 import { messageRunSummary } from "./messageRuns";
 import { AgentNamesContext, recipientName, shortId } from "./agentNames";
@@ -38,54 +37,23 @@ import { isFailed, isRunning, type SentEntry } from "./toolGroups";
 import { acpmuxMcpSendCall } from "./acpmuxMcpSends";
 import { McpCallDetails } from "./McpCallRows";
 import { mcpCall, mcpRawName } from "./mcpCalls";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { ToolRow } from "./ToolRow";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useMessageLineLook } from "./messageLineLook";
 import { sentMessageLook } from "./sentMessageLook.experiment";
 import { DisclosureRow } from "../subagents/DisclosureRow";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 import "./AgentMessageRow.css";
 import "./SubsessionCallCard.css";
+import { look, listeners, recipientPlace, targetChat, sendKey } from "./sentMessageLineModel";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
-
-/// How the line reads. `sentence`, the default: "Sent to tests", then the first line muted
-/// (Leo 2026-10-24: "sending message or sent message to X or Y"). The others are gallery versions
-/// kept beside it (SentMessageLine.gallery.ts): `arrow`, "→ tests: <first line>" (#24977's line),
-/// and `quote`, "Sent to tests: “<first line>”". The native host sends no value.
-export type SentLook = "sentence" | "arrow" | "quote";
-
-const LOOKS: readonly SentLook[] = ["sentence", "arrow", "quote"];
-let look: SentLook = "sentence";
-const listeners = new Set<() => void>();
-
-/// The theme carried a look: the transcript follows at once. Anything else keeps the default.
-export function configureSentLook(value: unknown): void {
-  const next = LOOKS.find((one) => one === value) ?? "sentence";
-  if (next === look) return;
-  look = next;
-  for (const listener of listeners) listener();
-}
 
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => void listeners.delete(listener);
 };
 const snapshot = () => look;
-
-/// The listed chat a send's target names: its id when the call gives it, else the chat with that
-/// name, on that host for `host/name` or `host:name` (a basket such as `reports:leo` is no chat).
-export function targetChat(store: SubsessionStore, target: string, sessionId?: string): string | undefined {
-  if (sessionId) return store.has(sessionId) ? sessionId : undefined;
-  // A peer's chat is listed as `host/name` (acpmux hub/peers.rs); a send may name a chat by its id.
-  const listed = store.find(target);
-  if (listed) return listed;
-  if (store.has(target)) return target;
-  const split = /^([^/:]+)[/:](.+)$/.exec(target);
-  if (!split) return undefined;
-  const id = store.find(`${split[1]}/${split[2]}`) ?? store.find(split[2]!);
-  return id && (store.find(`${split[1]}/${split[2]}`) === id || store.host(id) === split[1]) ? id : undefined;
-}
 
 const NO_STORE = new SubsessionStore();
 /// Each state's sentence, the words every message row uses ("Sent to", "Sending to"); `ended`:
@@ -301,19 +269,6 @@ function occurrences(text: string, needle: string): number {
   return count;
 }
 
-/// A recipient's name and the machine it runs on, as a received message's sender reads
-/// (IncomingMessageCard.tsx `senderLabel`): `host/name` and `host:name` name a peer's chat, and the
-/// listed chat's own machine names it otherwise. A basket (`reports:leo`) is no machine's.
-export function recipientPlace(target: string, listedHost: string | undefined): { name: string; host?: string } {
-  const split = /^([^/:\s]+)[/:](.+)$/.exec(target.trim());
-  if (listedHost) {
-    const name = senderLabel(split && split[1] === listedHost ? split[2]! : target, listedHost);
-    return { name, host: listedHost };
-  }
-  if (split && target.includes("/")) return { name: split[2]!, host: split[1] };
-  return { name: target };
-}
-
 /// Raw under an opened sent message, closed until asked for: a quiet link as a received message's
 /// Details (the default arm), a bare chevron, or a link shown on hover (sentMessageLook.experiment.ts).
 function RawDetails({
@@ -400,12 +355,6 @@ export function RawToggle({
   );
 }
 
-/// A message's disclosure and React key: the call's id, and for one message of a batch its place
-/// in the batch, so each message of one call opens on its own.
-export function sendKey(id: string, index?: number): string {
-  return index === undefined ? id : `${id}#${index}`;
-}
-
 /// A message sent by a shell `acpmux send` (acpmuxSends.ts), one of a shell batch's, or one of an
 /// acpmux MCP send's batch (acpmuxMcpSends.ts), as the sent-message row; Raw holds the call as it
 /// was made: its Shell card, the whole command line for every message of a batch, or the MCP
@@ -472,10 +421,11 @@ function SendRaw({ tool, reveal }: { tool: Tool; reveal: number }) {
       />
     );
   // A shell call is the plain command row every other command draws (ToolRow.tsx), closed until
-  // opened, never a Shell card inside the message (ask-64e107ccf0).
+  // opened, never a Shell card inside the message (ask-64e107ccf0). It reads as its command line,
+  // not as what it did or its description: Raw is the call as it was made.
   return (
     <div className="cv-tools">
-      <ToolRow item={item} />
+      <ToolRow item={item} asRun />
     </div>
   );
 }

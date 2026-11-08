@@ -77,7 +77,8 @@ import { sessionSummary, type SessionSummary, type SummaryBackgroundTask } from 
 import { waitingSubagents } from "../summary/subagentStatusListModel";
 import type { Artifact } from "../conversation/artifactPreview";
 import type { StartedSession } from "../started/startedSessions";
-import { ChangesSection, headerStatus, visibleChanges, type SessionInfoPullRequestStatus } from "./ChangesSection";
+import { ChangesSection } from "./ChangesSection";
+import { headerStatus, visibleChanges, type SessionInfoPullRequestStatus } from "./changesSectionModel";
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
 import { summarizeConnectors } from "./connectorState";
@@ -111,7 +112,8 @@ import {
   type SessionInfoSectionId,
   type SessionInfoSections,
 } from "./sessionInfoState";
-import { OutputsSection, outputArtifacts, outputLinks, type OutputArtifact, type OutputLink } from "./OutputsSection";
+import { OutputsSection } from "./OutputsSection";
+import { outputArtifacts, outputLinks, type OutputArtifact, type OutputLink } from "./outputsSectionModel";
 import { sessionInfoLists, type SessionInfoProcess, type ProcessRegistry } from "./processes";
 import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
@@ -367,13 +369,17 @@ export const pushedRoom = (paneWidth: number, panel: number, column?: ChatColumn
   const end = paneWidth - panel - 2 * FLOAT_MARGIN - Math.max(0, overflow);
   if (columnEnd(paneWidth, column) <= end) return 0;
   if (paneWidth - all <= 0 || pinnedColumnEnd(paneWidth - all, pinned, edge) > end) return all;
-  // Else the least room, in steps of 8, whose column still ends by `end`. At most about 70 steps, run once
-  // per layout of the panel.
-  let room = 8;
-  while (room < all && pinnedColumnEnd(paneWidth - room, pinned, edge) > end) room += 8;
+  // Else the least room, in steps of 2, whose column still ends by `end`. The column's inset is a whole
+  // pixel (model.ts transcriptColumn), so a coarser step lets a 1 px wider panel flip between push and
+  // overlay during a drag. At most about 300 steps, run once per layout of the panel.
+  let room = 2;
+  while (room < all && pinnedColumnEnd(paneWidth - room, pinned, edge) > end) room += 2;
   // Once the chat would end under the panel itself (its page edge under the card), the whole room: the
   // chat's right edge, its scrollbar with it, is then the panel's left margin, as Push always draws it.
-  return room >= panel ? all : room;
+  // A room within the margin of the panel is the whole room too: the pinned column only clears the panel
+  // in less where it nearly fits beside the whole of it, and a chat a few pixels off center there is not
+  // the centered push (Lucas, 2026-11-06); the stage is the overlay instead, as at every narrower pane.
+  return room > panel - FLOAT_MARGIN ? all : room;
 };
 /// The chat's content Session Info must never float over: the transcript's rows and the composer.
 const CHAT_CONTENT = ".acpmux-main :is(.acpmux-row, .acpmux-composer-box)";
@@ -1264,7 +1270,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   // A column the display owns (its own width) or a zoomed page's is a new object on every call: kept
   // while its numbers are the same, so the placement effect below (the shell's column pin and its
   // CHAT_LAYOUT_EVENT) runs only when the column changes, never once per streamed token.
-  const column = useSameValue(chatColumnOf(sizing.width, display, sizing.scale));
+  const column = useSameValue(chatColumnOf(display, sizing.scale));
   // It slides in from the pane's right edge and back out (ui/presence.ts), keeping its sections
   // while it leaves.
   const presence = usePresence(shown && !native, "right");

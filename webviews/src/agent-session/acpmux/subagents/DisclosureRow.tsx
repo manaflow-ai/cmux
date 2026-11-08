@@ -15,7 +15,7 @@ import { useFindReveal } from "../conversation/chatFind";
 import { ChevronRight } from "../conversation/icons";
 import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "../conversation/headerToggle";
 import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRow";
-import { useTranscriptDisclosure } from "../conversation/transcriptDisclosure";
+import { useTranscriptDisclosure } from "../conversation/transcriptDisclosureModel";
 import { useT } from "../i18n";
 import { useAnchoredCollapse } from "../conversation/useAnchoredCollapse";
 import "./DisclosureRow.css";

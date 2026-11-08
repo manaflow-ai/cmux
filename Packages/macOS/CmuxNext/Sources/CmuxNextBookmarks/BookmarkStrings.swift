@@ -17,6 +17,7 @@ public nonisolated enum BookmarkStrings {
     public static var emptySearchHint: String { t("page.emptySearchHint", "Try a different search or clear the search field.") }
     public static var emptyFolder: String { t("folder.empty", "(empty)") }
     public static var moreBookmarks: String { t("bar.more", "More Bookmarks") }
+    public static var hideBar: String { t("bar.hide", "Hide Bookmarks Bar") }
     public static var barEmptyHint: String { t("bar.emptyHint", "Drag a link here or click the star to add bookmarks") }
     public static var added: String { t("bubble.added", "Bookmark Added") }
     public static var editTitle: String { t("bubble.edit", "Edit Bookmark") }

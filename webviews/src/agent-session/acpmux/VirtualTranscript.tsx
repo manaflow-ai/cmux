@@ -13,6 +13,7 @@ import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
 import { LayeredMap } from "./conversation/layeredMap";
 import { isAgentMotionOff } from "../shared/motion";
+import { LOAD_FADE_CLASS, LoadFadeWindow } from "../shared/loadFade";
 import { entranceAllowed } from "../shared/pageReveal";
 import {
   layoutConversation,
@@ -68,6 +69,7 @@ import { useCountedRender } from "./perfRender";
 import { drewStreamingRow, useStreamingRow } from "./streamingRow";
 import { rowsWithLiveOutput, useLiveToolRow } from "./liveToolOutput";
 import { followTrace } from "./followTrace";
+import { FIELD_GROWTH_EVENT, growthTranslate, type FieldGrowthEvent } from "./composer/fieldGrowthEvent";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { noteTranscriptMount } from "./flickerLog";
@@ -308,6 +310,8 @@ const RowFrame = React.memo(function RowFrame({
   queueDrawn,
   enter,
   onEntered,
+  loadFade,
+  onLoadFaded,
   older,
   onOlderShown,
   active,
@@ -359,6 +363,9 @@ const RowFrame = React.memo(function RowFrame({
   /// The row arrived live: it enters with the shared motion on this, its first mount.
   enter: boolean;
   onEntered: (id: string) => void;
+  /// The row arrived while the chat loaded and mounts now, its first time: it fades in once.
+  loadFade: boolean;
+  onLoadFaded: (id: string) => void;
   /// The row came in on a late page of older history and has never mounted: its first copy fades once.
   older: OlderRowFade | undefined;
   onOlderShown: (id: string) => void;
@@ -392,6 +399,7 @@ const RowFrame = React.memo(function RowFrame({
     (row.kind === "assistant" ||
       (row.kind === "user" && row.incoming?.kind !== "hidden" && row.incoming?.kind !== "notice"));
   const [olderFade] = useState(older);
+  const [loadFading] = useState(loadFade);
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLElement>) => onRowKeyDown(index, event),
     [index, onRowKeyDown],
@@ -412,6 +420,11 @@ const RowFrame = React.memo(function RowFrame({
     return () => acpmuxPerf.rowUnmounted(id);
     // The id the frame mounted with: a message run's line can take over its first row's frame
     // (model.ts `rowFrameKey`), so the count is closed under the id it opened with.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useLayoutEffect(() => {
+    if (loadFading) onLoadFaded(row.id);
+    // Only the first mount fades.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useLayoutEffect(() => {
@@ -462,7 +475,7 @@ const RowFrame = React.memo(function RowFrame({
       id={rowDomId(row.id)}
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${beforeIndicator ? " acpmux-row--before-indicator" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
+      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${beforeIndicator ? " acpmux-row--before-indicator" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}${loadFading ? ` ${LOAD_FADE_CLASS}` : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -1035,6 +1048,7 @@ function TranscriptView({
   onJumpShownChange,
   coldOpen,
   onColdOpenShown,
+  loading = false,
   afterLatest,
   showMinimap = true,
   endReserve = 0,
@@ -1123,6 +1137,11 @@ function TranscriptView({
   /// ("instant if cached"), for the first chat a page shows, which the host reveals
   /// (pane.painted), and once the open's rows have shown.
   coldOpen?: number;
+  /// The chat's rows are still being read (the pane's `chatRead` is not in yet). Rows that arrive
+  /// while it is, or just after it lands, after a first paint that was blank or partly blank, fade in
+  /// once on their first mount (shared/loadFade.ts) instead of popping in. Rows drawn at the first
+  /// paint, rows a scroll mounts and rows already on screen never fade.
+  loading?: boolean;
   /// The rows of open `coldOpen` have shown. The pane keeps that, not this transcript, so a
   /// transcript mounted again (back from New Tab or a replay) does not fade the same open twice.
   onColdOpenShown?: (open: number) => void;
@@ -1143,7 +1162,8 @@ function TranscriptView({
   /// above the composer. 0 for a scroller below its header.
   topInset?: number;
 }) {
-  // Debug measurement (acpmuxPerf): the transcript's committed renders (perf.ts `renders`).
+  // Debug measurement (acpmuxPerf): the transcript's committed renders (perf.ts `renders`); tests
+  // count them per key and per line (test/composer-smooth-grow.test.ts).
   useCountedRender("transcript");
   // The streaming reply's newer text, when the pane has not redrawn for it (streamingRow.ts): that
   // row only, in place, with its version moved on by the chunks it is ahead.
@@ -1492,12 +1512,32 @@ function TranscriptView({
       );
     };
     dock.addEventListener("click", toggled, { capture: true });
-    const observer = new ResizeObserver(() => {
+    // The prompt field's growth motion (composer/fieldGrowth.ts), while it runs: the field and the
+    // height it lands on, and the rows' own move on its curve. The stack is measured as it will be
+    // once the field lands (its drawn height plus what the field has yet to grow), so the motion's
+    // frames render nothing here: the room takes the end height once, as the motion starts, and the
+    // rows go home on the compositor with the field.
+    let growth: { field: HTMLElement; to: number } | undefined;
+    let rowsMove: Animation | undefined;
+    /// What the field has yet to grow (px), 0 once it rests (and the growth is over).
+    const toGrow = () => {
+      if (!growth) return 0;
+      if (growth.field.isConnected && growth.field.getAnimations().length > 0)
+        return growth.to - growth.field.getBoundingClientRect().height;
+      growth = undefined;
+      // A motion cut short (Reduce Motion turned on, the chat left) lands the rows with the field.
+      rowsMove?.cancel();
+      rowsMove = undefined;
+      return 0;
+    };
+    const take = () => {
       noteQueue();
-      const next = over();
-      const nextHeight = height();
-      const nextCard = card(next);
-      const nextTray = tray(next);
+      const rest = toGrow();
+      const drawn = over();
+      const next = drawn > 0 ? drawn + rest : 0;
+      const nextHeight = height() + rest;
+      const nextCard = card(drawn) + (drawn > 0 ? rest : 0);
+      const nextTray = tray(drawn);
       // A tray that went holds nothing: the room is the stack's again.
       if (nextTray <= 0) trayToggled.current = false;
       if (
@@ -1511,7 +1551,37 @@ function TranscriptView({
           setDockCard(nextCard);
           setDockTray(nextTray);
         });
-    });
+    };
+    const observer = new ResizeObserver(take);
+    // perf-hot: one render and two layout reads per growth (not per frame) composer-field-growth
+    const grew = (event: Event) => {
+      const { detail, target } = event as FieldGrowthEvent;
+      if (!(target instanceof HTMLElement)) return;
+      growth = { field: target, to: detail.to };
+      // After the edit's own task (ProseMirror's update, the composer's render), before the frame.
+      queueMicrotask(() => {
+        const rows = thread.current;
+        if (!rows || growth?.field !== target) return;
+        const before = rows.getBoundingClientRect().top;
+        rowsMove?.cancel();
+        rowsMove = undefined;
+        take();
+        // Where the rows now lie against where they were drawn: they start there and go home.
+        const delta = before - rows.getBoundingClientRect().top;
+        if (Math.abs(delta) < 0.5) return;
+        const move = rows.animate(growthTranslate(detail, delta), {
+          duration: detail.duration,
+          easing: detail.progress ? "linear" : detail.easing,
+          composite: "add",
+        });
+        if (detail.animation.startTime !== null) move.startTime = detail.animation.startTime;
+        rowsMove = move;
+        move.addEventListener("finish", () => {
+          if (rowsMove === move) rowsMove = undefined;
+        });
+      });
+    };
+    dock.addEventListener(FIELD_GROWTH_EVENT, grew);
     observer.observe(dock);
     noteQueue();
     const space = over();
@@ -1523,6 +1593,8 @@ function TranscriptView({
     return () => {
       observer.disconnect();
       dock.removeEventListener("click", toggled, { capture: true });
+      dock.removeEventListener(FIELD_GROWTH_EVENT, grew);
+      rowsMove?.cancel();
     };
   }, [dock, noteQueue]);
   // And each time the queue changes, in the commit that draws it. A change that leaves the stack's
@@ -1531,8 +1603,8 @@ function TranscriptView({
   // left then, and kept room above the stack for FLOOR_HOLD_MS that then glided away (#24182).
   useLayoutEffect(() => noteQueue(), [sessionId, queueIds, noteQueue]);
   const [width, setWidth] = useState(() => lastTranscriptBox.width);
-  // The column's cap (layout.json `chatWidth`): a new one measures every row again.
-  const { width: chatWidth, scale: chatScale } = useChatSizing();
+  // The page zoom the column's cap is divided by: a new one measures every row again.
+  const { scale: chatScale } = useChatSizing();
   // The user's chat look (font, sizes, width; chatDisplay.ts): a new one measures every row again.
   const chatLook = useChatDisplay();
   const measuredLook = useRef(chatLook);
@@ -1563,7 +1635,7 @@ function TranscriptView({
   }
   const drawnRef = useRef(drawn);
   drawnRef.current = drawn;
-  const scaledRowWidth = transcriptRowWidth(width, chatColumnOf(chatWidth, chatLook, chatScale), endReserve);
+  const scaledRowWidth = transcriptRowWidth(width, chatColumnOf(chatLook, chatScale), endReserve);
   const rowWidthRef = useRef(scaledRowWidth);
   rowWidthRef.current = scaledRowWidth;
   const rowsRef = useRef(rows);
@@ -1648,6 +1720,12 @@ function TranscriptView({
   if (sessionChanged) olderRows.current.clear();
   /// The room above the rows for history not loaded yet, and the row it is held against.
   const olderRoom = useRef<OlderReserve | undefined>(undefined);
+  /// Rows that arrived while the chat loaded (blank or partly blank, then text): their first mount
+  /// fades in once (Leo, 2026-11-07, ask-69299b9711: "blank to fast fade in to text").
+  const loadFade = useRef<LoadFadeWindow | undefined>(undefined);
+  loadFade.current ??= new LoadFadeWindow();
+  if (sessionChanged) loadFade.current.clear();
+  loadFade.current.phase(loading);
   // A switched chat starts over: its row ids are its own, and may repeat the last chat's.
   // Keyed by frame (model.ts `rowFrameKey`): a row drawn in a frame already on screen is not new.
   if (knownRows.current === null || sessionChanged) knownRows.current = new Set(rows.map(rowFrameKey));
@@ -1666,6 +1744,10 @@ function TranscriptView({
     const oldFirst = rows.findIndex((row) => knownRows.current!.has(rowFrameKey(row)));
     const arrived: AcpmuxRow[] = [];
     let olderLate: boolean | undefined;
+    // The chat still loads (or its read just landed): what arrives fills a blank or partly blank
+    // view, so it fades in rather than popping. A cold open's first rows fade with the whole
+    // transcript instead (fadeInOpenedChat), so they take no row fade on top of it.
+    const loadArrival = loadFade.current.open && coldOpen === undefined;
     for (let index = from; index < rows.length; index += 1) {
       const row = rows[index]!;
       const key = rowFrameKey(row);
@@ -1673,7 +1755,9 @@ function TranscriptView({
       if (index < oldFirst) {
         olderLate ??= readerAtLoadedTop(ref.current, olderRoom.current?.room ?? 0);
         if (olderLate) olderRows.current.add(row.id);
-      } else arrived.push(row);
+        else if (loadArrival) loadFade.current.arrive(row.id);
+      } else if (loadArrival) loadFade.current.arrive(row.id);
+      else arrived.push(row);
       knownRows.current.add(key);
     }
     // A row that arrived while the chat is hidden (another tab or workspace shows), or that lands
@@ -1685,6 +1769,7 @@ function TranscriptView({
   }
   knownFor.current = rows;
   const onEntered = useCallback((id: string) => void enteringRows.current.delete(id), []);
+  const onLoadFaded = useCallback((id: string) => loadFade.current?.shown(id), []);
   const onOlderShown = useCallback((id: string) => olderRows.current?.shown(id), []);
   useEffect(() => () => olderRows.current?.disconnect(), []);
   const reportDrawn = useCallback<ReportDrawn>(
@@ -4337,6 +4422,8 @@ function TranscriptView({
                         // this render, so gate it here as well to avoid a reused row id animating once.
                         enter={!sessionChanged && enteringRows.current.has(rowFrameKey(row))}
                         onEntered={onEntered}
+                        loadFade={!sessionChanged && loadFade.current!.fades(row.id)}
+                        onLoadFaded={onLoadFaded}
                         older={olderRows.current!.has(row.id) ? olderRows.current : undefined}
                         onOlderShown={onOlderShown}
                         active={effectiveActiveRowId === row.id}

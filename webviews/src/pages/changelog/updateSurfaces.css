@@ -370,6 +370,30 @@
   height: var(--wn-preview-h, 0px);
   box-shadow: inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 var(--composer-material-edge);
 }
+/* The card over the sidebar's rows: its open preview grows over them, and a held card is dragged
+   over them (and springs back over them after the drop). The page's glass cannot frost them: they
+   are native views under the WebKit view, outside the document a backdrop filter reads. The
+   translucent tint left every row legible through the card (Lawrence 2026-11-07: "this ui
+   transparency looks bad now"), so over the rows the card paints the composer's solid surface. It
+   turns solid at once, and back to the tint only once it has left the rows: after the preview's
+   close (the standard step) and the drop's settle, held for the motion scale's ceiling. At rest the
+   card has its own room in the sidebar, over no rows, and keeps the tint. A card with its own page
+   glass (data-glass: the gallery over a wallpaper) frosts what is under it and keeps the tint. */
+/* glass-opaque-allow: the card over native rows no page blur reaches (open preview, drag) */
+:is(.wn-card.wn-updated[data-preview="open"], .wn-card.wn-updated[data-dragging], .wn-card[data-decoration="doodle"][data-dragging]):not([data-glass]) {
+  background: var(--composer-material-solid);
+  /* Solid, it frosts nothing: no blur under it, so it is never opaque glass (accent-glass invariants).
+     Leaving these states, the blur returns at once under the still-solid fill, so nothing shows it. */
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"])
+  :is(.wn-card.wn-updated, .wn-card[data-decoration="doodle"]):not([data-preview="open"], [data-dragging], [data-glass]) {
+  transition: background-color 0s linear var(--cmux-motion-large, 240ms);
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.wn-card.wn-updated, .wn-card[data-decoration="doodle"]) { transition: none !important; }
+}
 /* The one structural move: the motion scale's standard step, on the shared gate (WebTheme's
    data-cmux-motion: "reduced" keeps only fades, so the preview is simply there). */
 :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .wn-preview {

@@ -18,8 +18,7 @@ import { useStripReorder } from "./stripReorder";
 
 import { SourceBadge } from "./SourceBadge";
 import { useSourceLabel, withSourceLabel } from "./sourceBadgeModel";
-
-import { FADE_BAND_PX } from "../MarkdownField";
+import { FADE_BAND_PX } from "../markdownFieldModel";
 import { useScrollEdges } from "../summary/scrollEdges";
 import { isVideoAttachment, useVideoReading } from "./videoAttachments";
 import { VideoAttachmentTile } from "./VideoAttachmentTile";
@@ -27,7 +26,7 @@ import { useAttachedVideoPlayer } from "./videoAttachmentTileModel";
 import { FileAttachment } from "../FileAttachment";
 import { TextAttachmentCard } from "./TextAttachmentCard";
 import { pastedSize } from "./textAttachmentCardModel";
-import { ATTACHMENT_LABELS, type PendingAttachment } from "./attachmentIntakeModel";
+import { ATTACHMENT_LABELS, imageShape, type PendingAttachment } from "./attachmentIntakeModel";
 import { RemoveGlyph } from "./RemoveGlyph";
 import { chipRef } from "../conversation/sendMorph";
 import { PasteLoadingMark } from "./pasteLoading";
@@ -185,6 +184,11 @@ function PendingChip({
   // video. ... Just do the square.").
   const square = chip.image || chip.video;
   const kind = square ? "acpmux-attachment-image" : "acpmux-attachment-file";
+  const shape = chip.image ? imageShape(chip.size) : undefined;
+  const style =
+    shape || (chip.preview && square)
+      ? { ...shape, ...(chip.preview && square ? { backgroundImage: `url("${chip.preview}")` } : {}) }
+      : undefined;
   // One that could not be attached keeps its shape: what it is (its kind's glyph, a file's name),
   // one small retry button, and its ×; why is in its tooltip (Leo, 2026-10-31: "video attachments
   // (big attachments?) still sucks", over a strip of empty tiles with only an underlined Retry).
@@ -215,9 +219,12 @@ function PendingChip({
       data-paste-look={look}
       aria-busy="true"
       aria-label={name}
-      // The image's own picture behind the spinner (a background, not an <img>: the strip's images
-      // are its ready chips).
-      {...(chip.preview && square ? { "data-instant": "", style: { backgroundImage: `url("${chip.preview}")` } } : {})}
+      // The image's shape from its header (the slot its thumbnail ends in), and its own picture
+      // behind the spinner (a background, not an <img>: the strip's images are its ready chips).
+      {...(chip.image && shape ? { "data-sized": "" } : {})}
+      {...(chip.sizing ? { "data-sizing": "" } : {})}
+      {...(chip.preview && square ? { "data-instant": "" } : {})}
+      {...(style ? { style } : {})}
     >
       <PasteLoadingMark
         look={look}
@@ -396,6 +403,8 @@ export function AttachmentChip({
         alt={name}
         // A drag moves the chip along the strip (stripReorder.ts), never the picture out as a file.
         draggable={false}
+        // Its thumbnail's shape before it decodes, so the chip is its final width from its first frame.
+        style={imageShape(thumb)}
         src={thumb?.url ?? source}
         onError={() => setBroken(true)}
         onLoad={(event) => {

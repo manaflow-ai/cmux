@@ -28,7 +28,7 @@ const { act } = React;
 const { createRoot } = await import("react-dom/client");
 const { useTurnCheckpoints } = await import("../src/agent-session/acpmux/changes/useTurnCheckpoints");
 const { useWorktree } = await import("../src/agent-session/acpmux/header/worktreePillModel");
-const { isNewChat } = await import("../src/agent-session/acpmux/EmptyState");
+const { isNewChat } = await import("../src/agent-session/acpmux/emptyStateModel");
 
 const root = createRoot(dom.window.document.getElementById("root")!);
 afterAll(() => {

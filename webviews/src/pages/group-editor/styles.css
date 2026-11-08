@@ -66,7 +66,7 @@ body {
 
 /* Gray selection, never the system accent. */
 .group-editor-name::selection {
-  background: var(--cmux-text-selection, var(--page-selection));
+  background: var(--cmux-selection-fill, var(--cmux-text-selection, var(--page-selection)));
 }
 
 /* The dots and the emoji button: one row, spread across the card. The radio group adds no box, so
