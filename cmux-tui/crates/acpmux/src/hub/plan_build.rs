@@ -135,7 +135,7 @@ pub fn claim(session_id: &str, permission_id: &str) -> Result<PlanClaim, RpcErro
     if !CLAIMS.lock().unwrap_or_else(|e| e.into_inner()).insert(key.clone()) {
         return Err(refused(
             "plan_build.in_progress",
-            "this plan is already being built: its builds are starting",
+            "another call is answering this plan build right now",
         ));
     }
     Ok(PlanClaim(key))
@@ -267,18 +267,25 @@ fn read_change(root: &Path, base: &str) -> Result<Change, String> {
 }
 
 /// The status a build shows: working while its harness runs a turn or waits on an answer, and
-/// before its first turn ended (its first prompt may wait for a run slot of the parent).
+/// before its first turn ended (its first prompt may wait for a run slot of the parent). Once idle,
+/// its last turn's own status (`last_turn.status`): done only for a completed turn, stopped
+/// ("closed") for a cancelled one, else failed.
 pub(crate) fn build_status(
     status: SessionStatus,
-    turn_ended: bool,
+    last_turn: Option<&str>,
     waits_for_slot: bool,
 ) -> &'static str {
     match status {
         SessionStatus::Running | SessionStatus::Waiting => "working",
         SessionStatus::Disconnected => "failed",
         SessionStatus::Closed => "closed",
-        SessionStatus::Idle | SessionStatus::Ready if waits_for_slot || !turn_ended => "working",
-        SessionStatus::Idle | SessionStatus::Ready => "done",
+        SessionStatus::Idle | SessionStatus::Ready if waits_for_slot => "working",
+        SessionStatus::Idle | SessionStatus::Ready => match last_turn {
+            None => "working",
+            Some("completed") => "done",
+            Some("cancelled") => "closed",
+            Some(_) => "failed",
+        },
     }
 }
 
@@ -443,7 +450,11 @@ impl Hub {
                 "name": m.name,
                 "shortName": m.subsession.as_ref().map(|l| l.short_name.clone()),
                 "harness": m.harness,
-                "status": build_status(m.status, m.last_turn.is_some(), self.waits_for_slot(&m)),
+                "status": build_status(
+                    m.status,
+                    m.last_turn.as_ref().map(|t| t.get("status").and_then(Value::as_str).unwrap_or("")),
+                    self.waits_for_slot(&m),
+                ),
                 "archived": archived,
                 "branch": branch,
                 "base": base,

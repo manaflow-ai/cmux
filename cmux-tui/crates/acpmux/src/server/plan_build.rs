@@ -188,6 +188,8 @@ async fn handle(
         method::MUX_PLAN_COMPARE => hub.plan_compare(&session, required(params, "buildId")?).await,
         _ => {
             let build_id = required(params, "buildId")?;
+            // One Keep per build at a time, so two never interleave their tag writes.
+            let _claim = plan_build::claim(&session.id, &format!("keep:{build_id}"))?;
             let (kept, others) =
                 hub.plan_keep_others(&session, build_id, required(params, "keep")?)?;
             let now = crate::store::now_ms().to_string();

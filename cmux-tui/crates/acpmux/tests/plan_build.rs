@@ -303,6 +303,15 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
         .call("_acpmux/plan/keep", json!({"sessionId": chat, "buildId": build_id, "keep": chat}))
         .await;
     assert!(r.get("error").is_some(), "only a build is kept: {r}");
+    // One winner: keeping the kept build again answers as before, keeping the other is refused.
+    let again = app
+        .ok("_acpmux/plan/keep", json!({"sessionId": chat, "buildId": build_id, "keep": second}))
+        .await;
+    assert_eq!(again["keptSessionId"], json!(second), "{again}");
+    let other = app
+        .call("_acpmux/plan/keep", json!({"sessionId": chat, "buildId": build_id, "keep": first}))
+        .await;
+    assert_eq!(reason(&other), "plan_build.already_kept", "{other}");
 
     let _ = std::fs::remove_dir_all(&root);
 }
