@@ -418,11 +418,41 @@ const carrierDials = new Set<ReturnType<typeof spawn>>();
  * line gets the daemon's answer. connectMs is the dial's own `cloud.connect ... ms=` (ticket, relay, Noise handshake);
  * replyMs runs from the spawn to the answer.
  */
-export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, machine: string, deadlineMs = 45_000): Promise<{ connectMs: number; replyMs: number; retries: number; failed: string[]; reply: string }> {
+/**
+ * The dial's `carrier.phases` lines (cmux-tui carrier/contract.rs phases_line, one per attempt, written only to the
+ * connect log) as `<phase> <outcome>: ticket N, relay N, parked N, handshake N, mux N ms, lanes N, N ms`, without the
+ * machine id. A key the line does not have is left out, so a later field (a detail) shows as `key value`.
+ */
+export function dialPhases(log: string): string[] {
+  const named = ["ticket_ms", "relay_ms", "parked_ms", "handshake_ms", "mux_ms"];
+  return log.split("\n").filter((l) => l.startsWith("carrier.phases ")).map((line) => {
+    const f = Object.fromEntries(line.split(" ").slice(1).map((kv) => kv.split("=")).filter((kv) => kv.length === 2));
+    const steps = named.filter((k) => k in f).map((k) => `${k.replace(/_ms$/, "")} ${f[k]}`);
+    const rest = Object.keys(f).filter((k) => ![...named, "machine", "phase", "carrier", "outcome", "lanes", "ms"].includes(k));
+    return `${f.phase} ${f.outcome}: ${steps.join(", ")} ms${"lanes" in f ? `, lanes ${f.lanes}` : ""}${rest.map((k) => `, ${k} ${f[k]}`).join("")}, ${f.ms} ms`;
+  });
+}
+
+/** A carrier dial step's detail: the connect and reply times, the failed attempts, and each attempt's phases. */
+export function dialDetail(d: { connectMs: number; replyMs: number; retries: number; failed: string[]; phases: string[]; reply: string }): string {
+  return `connect ${d.connectMs} ms, reply ${d.replyMs} ms, ${d.retries} retried attempts${d.failed.length ? ` (${d.failed.join(", ")})` : ""}`
+    + `${d.phases.length ? `; phases: ${d.phases.join("; ")}` : ""}: ${d.reply.slice(0, 160)}`;
+}
+
+export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, machine: string, deadlineMs = 45_000): Promise<{ connectMs: number; replyMs: number; retries: number; failed: string[]; phases: string[]; reply: string }> {
   const started = performance.now();
+  // The dial's own state dir, so its connect log holds only this dial's lines (the device key is not kept there).
+  const stateDir = mkdtempSync(path.join(tmpdir(), "cmux-carrier-"));
+  const phases = () => {
+    try {
+      return dialPhases(readFileSync(path.join(stateDir, "carrier", "connect.log"), "utf8"));
+    } catch {
+      return [];
+    }
+  };
   // The team is the journey's own or none: an inherited CMUX_CLOUD_TEAM would send a header its API calls do not.
   const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
-  const env = { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer };
+  const env = { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer, CMUX_TUI_STATE_DIR: stateDir };
   const args = ["carrier", "dial", "--machine", machine, "--deadline-ms", String(deadlineMs), ...(api.team ? ["--team", api.team] : [])];
   const child = spawn(cmux, args, { env, stdio: ["pipe", "pipe", "pipe"] });
   carrierDials.add(child);
@@ -467,7 +497,10 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
     let retries = 0;
     const failed: string[] = [];
     // A dial that gives up still says which attempts failed and how.
-    const attempts = (message: string) => new Error(failed.length ? `${message} (failed attempts: ${failed.join(", ")})` : message);
+    const attempts = (message: string) => {
+      const tried = phases();
+      return new Error(`${message}${failed.length ? ` (failed attempts: ${failed.join(", ")})` : ""}${tried.length ? ` (phases: ${tried.join("; ")})` : ""}`);
+    };
     while (status === undefined || !Number.isFinite(connectMs)) {
       const line = await within(status === undefined ? "status line" : "ok route line", err()).catch((e: Error) => {
         throw attempts(e.message);
@@ -514,11 +547,12 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
       }
       if (answer?.id !== 1) continue;
       if (answer.ok !== true || typeof answer.data?.app !== "string") throw new Error(`carrier dial: identify answered ${short(answer)}`);
-      return { connectMs, replyMs: Math.round(performance.now() - started), retries, failed, reply };
+      return { connectMs, replyMs: Math.round(performance.now() - started), retries, failed, phases: phases(), reply };
     }
   } finally {
     if (!failed) child.stdin!.end();
     child.kill("SIGTERM");
+    rmSync(stateDir, { recursive: true, force: true });
   }
 }
 
@@ -1570,7 +1604,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (cmux) {
       await J.step("connect (carrier dial)", async () => {
         const d = await carrierDial(cmux, api, created.id);
-        return { value: null, detail: `connect ${d.connectMs} ms, reply ${d.replyMs} ms, ${d.retries} retried attempts${d.failed.length ? ` (${d.failed.join(", ")})` : ""}: ${d.reply.slice(0, 160)}` };
+        return { value: null, detail: dialDetail(d) };
       });
     } else {
       // Without a cmux binary (the production journeys) the dial cannot run; its platform half still can: the
@@ -1624,7 +1658,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (cmux) {
         await J.step("carrier dial after resume", async () => {
           const d = await carrierDial(cmux, api, created.id);
-          return { value: null, detail: `connect ${d.connectMs} ms, reply ${d.replyMs} ms, ${d.retries} retried attempts${d.failed.length ? ` (${d.failed.join(", ")})` : ""}: ${d.reply.slice(0, 160)}` };
+          return { value: null, detail: dialDetail(d) };
         });
       } else {
         J.skip("carrier dial after resume", "--cmux is required for a carrier dial");
