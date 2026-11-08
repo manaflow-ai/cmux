@@ -3266,7 +3266,19 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "輸入"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "输入"}},
         "ko": {"stringUnit": {"state": "translated", "value": "입력"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "入力"}}
+        "ja": {"stringUnit": {"state": "translated", "value": "入力"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Kucanje"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Indtastning"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Digitazione"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការវាយបញ្ចូល"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Skriving"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pisanie"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Digitação"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Ввод"}},
+        "th": {"stringUnit": {"state": "translated", "value": "การพิมพ์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Yazma"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Введення"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Nhập liệu"}}
       }
     },
     "settings.terminal.predictiveLocalEcho": {
@@ -3281,7 +3293,19 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "預測性本機回顯"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "预测性本地回显"}},
         "ko": {"stringUnit": {"state": "translated", "value": "예측 로컬 에코"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "予測ローカルエコー"}}
+        "ja": {"stringUnit": {"state": "translated", "value": "予測ローカルエコー"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Prediktivni lokalni eho"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Forudsigende lokalt ekko"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Eco locale predittivo"}},
+        "km": {"stringUnit": {"state": "translated", "value": "អេកូមូលដ្ឋានព្យាករណ៍"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Prediktivt lokalt ekko"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Predykcyjne lokalne echo"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Eco local preditivo"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Прогнозирующее локальное эхо"}},
+        "th": {"stringUnit": {"state": "translated", "value": "เสียงสะท้อนในเครื่องแบบคาดการณ์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Tahmine dayalı yerel yankı"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Прогнозоване локальне відлуння"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Hiển thị cục bộ dự đoán"}}
       }
     },
     "settings.terminal.predictiveLocalEcho.help": {
@@ -3296,7 +3320,19 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "連線緩慢時，立即顯示你在另一台機器終端機中輸入的字元，並加上底線，直到遠端確認為止。本機終端機、密碼提示和全螢幕程式一律不預測。"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "连接较慢时，立即显示你在另一台机器终端中输入的字符，并加下划线，直到远程端确认为止。本地终端、密码提示和全屏程序从不预测。"}},
         "ko": {"stringUnit": {"state": "translated", "value": "연결이 느릴 때 다른 컴퓨터의 터미널에 입력한 문자를 바로 표시하고, 원격에서 확인할 때까지 밑줄을 긋습니다. 로컬 터미널, 암호 프롬프트, 전체 화면 프로그램은 예측하지 않습니다."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "回線が遅いとき、別のマシンのターミナルで入力した文字をすぐに表示し、リモートが確認するまで下線を付けます。ローカルのターミナル、パスワード入力、全画面プログラムでは予測しません。"}}
+        "ja": {"stringUnit": {"state": "translated", "value": "回線が遅いとき、別のマシンのターミナルで入力した文字をすぐに表示し、リモートが確認するまで下線を付けます。ローカルのターミナル、パスワード入力、全画面プログラムでは予測しません。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Odmah prikazuje znakove koje kucate u terminalu na drugom računaru kada je veza spora, podvučene dok ih udaljeni računar ne potvrdi. Lokalni terminali, upiti za lozinku i programi preko cijelog ekrana se nikad ne predviđaju."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Viser de tegn, du skriver i en terminal på en anden maskine, med det samme, når forbindelsen er langsom, understreget indtil fjernmaskinen bekræfter dem. Lokale terminaler, adgangskodeprompter og fuldskærmsprogrammer forudsiges aldrig."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Mostra subito i caratteri che digiti in un terminale su un'altra macchina quando il collegamento è lento, sottolineati finché la macchina remota non li conferma. Terminali locali, richieste di password e programmi a schermo intero non vengono mai previsti."}},
+        "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញតួអក្សរដែលអ្នកវាយក្នុងទែមីណាល់លើម៉ាស៊ីនផ្សេងភ្លាមៗ នៅពេលការតភ្ជាប់យឺត ដោយគូសបន្ទាត់ពីក្រោមរហូតដល់ម៉ាស៊ីនពីចម្ងាយបញ្ជាក់។ ទែមីណាល់មូលដ្ឋាន ប្រអប់សួរពាក្យសម្ងាត់ និងកម្មវិធីពេញអេក្រង់ មិនត្រូវបានព្យាករណ៍ទេ។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Viser tegnene du skriver i en terminal på en annen maskin med en gang når forbindelsen er treg, understreket til den eksterne maskinen bekrefter dem. Lokale terminaler, passordspørsmål og fullskjermprogrammer forutsies aldri."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Od razu pokazuje znaki wpisywane w terminalu na innym komputerze, gdy połączenie jest wolne, podkreślone do czasu potwierdzenia przez zdalny komputer. Lokalne terminale, monity o hasło i programy pełnoekranowe nigdy nie są przewidywane."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostra na hora os caracteres que você digita em um terminal em outra máquina quando a conexão está lenta, sublinhados até a máquina remota confirmá-los. Terminais locais, solicitações de senha e programas em tela cheia nunca são previstos."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Сразу показывает символы, которые вы вводите в терминале на другом компьютере при медленном соединении, с подчёркиванием, пока удалённая сторона их не подтвердит. Локальные терминалы, запросы пароля и полноэкранные программы никогда не прогнозируются."}},
+        "th": {"stringUnit": {"state": "translated", "value": "แสดงอักขระที่คุณพิมพ์ในเทอร์มินัลบนเครื่องอื่นทันทีเมื่อการเชื่อมต่อช้า โดยขีดเส้นใต้ไว้จนกว่าเครื่องปลายทางจะยืนยัน เทอร์มินัลในเครื่อง ช่องถามรหัสผ่าน และโปรแกรมแบบเต็มหน้าจอจะไม่ถูกคาดการณ์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bağlantı yavaş olduğunda başka bir makinedeki terminale yazdığınız karakterleri hemen gösterir; uzak makine onaylayana kadar altı çizili kalırlar. Yerel terminaller, parola istemleri ve tam ekran programlar asla tahmin edilmez."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Одразу показує символи, які ви вводите в терміналі на іншому комп'ютері при повільному з'єднанні, з підкресленням, доки віддалена сторона їх не підтвердить. Локальні термінали, запити пароля й повноекранні програми ніколи не прогнозуються."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Hiển thị ngay các ký tự bạn gõ trong terminal trên máy khác khi kết nối chậm, được gạch chân cho đến khi máy từ xa xác nhận. Terminal cục bộ, lời nhắc mật khẩu và chương trình toàn màn hình không bao giờ được dự đoán."}}
       }
     },
     "settings.group.terminalCompatibility": {
