@@ -1,0 +1,222 @@
+{
+  "caption": "Review the worktree import plan in Settings, then open the workspaces in their existing folders.",
+  "frameInterval": 1.0,
+  "steps": [
+    {
+      "title": "Open the fixture terminal",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Import fixture"
+      ]
+    },
+    {
+      "title": "Focus the fixture terminal",
+      "cmux": [
+        "workspace",
+        "name:Import fixture",
+        "focus"
+      ]
+    },
+    {
+      "title": "Resolve the fixture terminal",
+      "daemon": true,
+      "cmux": [
+        "--json",
+        "terminal",
+        "list",
+        "--workspace",
+        "name:Import fixture"
+      ],
+      "save": {
+        "fixture_terminal": "0.id"
+      }
+    },
+    {
+      "title": "Create isolated linked worktree and agent rollout",
+      "daemon": true,
+      "timeout": 150,
+      "cmux": [
+        "terminal",
+        "${saved:fixture_terminal}",
+        "run",
+        "--timeout",
+        "120s",
+        "--text",
+        "python3 -c 'import base64,zlib;_fixture_source=zlib.decompress(base64.b64decode('\"'\"'eNqtW/9y20hy/p9PMQeXa4FbEpLXe5uKNqyLVqZtXWRJJcmVu2hVLJAYUjiBABYAJfEUVeVp8mB5knzdPTP4QdryXbJVaxPATE9P//y6Z/zqd3vrqtybJdmezu5Vsalv8+ztwPO8i3Wm8izdqCSrklirKFNJladRrWM1X60f1Twq6nWpVa3LVZJF6c8q0/e6xCRV32qVRplWt3lVh4PBpzzW1YGqdL0uhmqeZ5XO6qEqSn2f6IehwrRksQnVYZqqUkdxhdVitVrXUZ1gsKqjcqlrIjuwq87TPNOhmmDqRuWFLnkoWMT6Ws3ydRYTo1EKvupbvK7mZVLUhsciT9MqHBydHKvR6K8VJhZlktUVc17qap3WKqkrnS6U/5CUOiwrGTFNc9CcVuv5XFdVMFRZXqunOKqjg//5r/9+Dklyg2RV5GWt8FbXyUrb59uouk2TmX2kZe3vvBosynyliqimIcq8PsejHVKkSVW3phcPsf1ZuiWq39Kk1m/dIwTofq9nRZkT1+7Nxv1cr5N4MBjEegFiv62xYx9aihOS6VCtMCla6uBgoPBfsuBNu+/ylv4ro6TSCoZDu56UZV76diqI3+YrPU2yYl2rMe/Mz6sQRpeUeXbtfTz7NPFugoFdvhkdJtU0msH01rX2A7YMWr87oNqs0iS786ERJgXjqWo1g9mamW5epMxYr1msqsvWgoEaj1XDWwjT872jT5//PD06PL/6fDGZXn6cnJxMmWW3IEyMyJMBWRtNdQR5yDDePjbeYht2lqf32FNn02EW0cCx8ujJY775PSnTD/DXFMoyLII1PPh9JuCr+UPG9i+cMKnuOup3RgswJKJTPBClFs0gLB6mcVIGDaNY5kIv1lWSLXmj0XwOR6vtFudpsku1LLpfPp++O5m8m8LlpueHVx+ha0cX4k/m9fiqXOuGRxALi6isq+vRjwc3tF8oIc9qRI7KY0aqfF3CnukB8Yv+orjEGiHHtrIoitEM0SDVMViUX+DSkCdq129v3KrynSyq1Ih1yb2e1rnoRUZb6oYQxZt1zQGSo0xH9VjvIalvlaGq9pTbwd5xtshD9mkvCBG/Mt8rZx7MG5GqRgxciVvJzCkp3EWAMM2j2JdRAcT7/hcedByDcLJIdOk1+0HoWqzTdBXV81u/9K4PR/8Rjf62P/rncHTz/a8h2PX/eEBR+j+rNK+v8eHm+wCidOvSfk/ZbezW5FPLmna6iuh7evzOY3dy9EDuyiQMuCeC+BJBN4fF5jCosiEOtU2rfH6nKVpsWdPl2dG/Ta6MIQ3iSK/yrBm+2wKvPh+bee0405nbDTVg9R1/VYayiymZ0o/Qxjypm/hCoRt8W3pwVnDSpS4e3Io6UR1eTo8viSu/NZF8fIWUKcGu92Gn8xs+y5w46QeBFFZstgAGiY6elnn+gqSuDq8m03fHFy86akOQxIeAYYJ0933fndrSpYGKOdIVrExXDdIwkcViDHGEnQxfTS4+HZ8enpDJNfbfmkjiRzghj/Q9ej/lUPE+eWSzZuWWAD1JBmOHb6VG8g7ggI9FDnwDAFGSw2Og7x0enRMHzCeFBno4nfz5amo+HF5dHR593Pnp4uzsymuSas+N7DJBK7+aTfW1Zoe2NBV8QeaO+e+V56RtPdsI2xgc4cGxerrTmwN1H6VrrWj3eByaR+y/xTNwx6qC6g08wLiOwHn3XvDcor7b2rAmpePGemBpYqyctRBDBbOMomwzqvM8HS1Eg96AsromA+EJGGk2NpIZHqxirgkENiPMm5DAmGcQ0DxfrWDAPkBnNVRgdHwKTNkoit5f73NK8hx6Xia112jqlTp0UmXDEtiZZIhxiQTTNNXldxV0WuRVUueEYktsMb9jL0aGDR21/19NfDi+YkW0qIfrgsCq/8Qfj85O3x9/mJ6eXf7l8mryyTtQ3hsy4Na3Dydnvxye4AuWjfV9hhQzdATb/7UnOXKtSTLA+e75xdmn8ytacd97DgZi9IzGxy0AG8JNW9rB/0Mr7SlkB2zFIWoIz310PwFJ8W389g9C9pV6l7N4EMkZQ0cPShNkRZ2CTLQBwYwwbh0lpp6hjA6FdQJ+OGj7pbAKHwQn2RwBnExkn1xfLEotogQwBLuD+7ETG1MKBPSRT/r6EQZCA8gLtigGNCjwrGjotZEQdBxjg8aGxcv839MCxnJfqYlNWqORyWgPKO6Q0WBOWmkupTA5AjWqBveObhMqCCSpZIoKoT2TysoqNETPsbwu73UH+crykJZ+jOZ1K8LbIhGllZ6TI6Byg+tRsJWFw/bOyCsZ7VS+dcprEgvAG4VuKd08/mXy25DF1km7GMliuBmqJvYEgS13ijmKFFS9QCZAeNGqant7lFUP4Hb893BCgNNx08CY3f7RdRaMZhiL4OBR2SVs8drxelVUvnBIkeLpObgJgo75kTUnwOaQdjbXvvCOTSNlBzRFQAG9FJzG5s458LAo1MX5kRE7QighHPoqpiqMdGxO6ECGCaPOekMxFaL0UFQi/ITyerFpwUQ7UhZ3gHAbHxI3xj6/hhBFfwRJMMLnQNjE6JYc+AvbRSuVbhKdxhI9+Z1Od05i2TWzKOxSdCVv4BEh/4lge9DRrlDnit7yR9OCry1F4P5rS33jCoPBK3X1kGNarFFVkMy5pcLhqjLJiIINlyvinnUDyDkSILMqk1RBbYGYJVpVD0hems0PkfivcOAwn4nz215NqK6oLoQGV/gD6tKrhNoqDQwjisQ2hYuKGOmhLEXIl5o29rm6zR+M2VXUlFFU0NhZyN95GYcg2owHJ+tKeld2GthdwnNG5pvMki5TnGvBy/OoRPxzVroLQpIyKlivFblYfBYV4LEmu/aCgAtEEwZJDo4+wLgIvYUnv2ENE8k9N2vYliYWI/nwus5APBfo43Zd0OOkidbEZospcawijTJr14IybDmDSjV6oDjl2m4ctPIsXs8BZKaCtkIiIBFRopYLkU/P3nbgEndqxyXWTt9PZASTDox7coGq1lU0S7Xgdtcxo1GdlVo0bqNq6njGalDM+yit4IkkPtg2wuBSZ8Brc0uQ8BMkqY6aaUzdOEMFCfEC18LgDf42X1CR0EAuwzWNu2bfXjSeRGp3dNrOb15eew95eVcVEXU8bvq5hCIKhV2RDleiLD4GGfTlWt62KwQKu4KYm3c3HWmlOvMNyzz6TVs2HDrgYtRu5UHUFDIInFitS6170vcIwTx6tKtWTmvphOD8tGnrIMeRds8hTJVG8ztpzx4RESWjukDIRFLDMnCVMWXK21OD9K1JN5hNCgCUSxToTO1q375UTnmfkoq7YVJpm6Bpp3e5a0GIhjwYI5DqOzxSRfe6k8zsWI69MrgvvCFH+6we/8Dw8NfMOTHQ5lKXADx1ufFFZNTTsYBQCvCTaJ3NKbUWUVVpibF93IYVkINtkJhIpbECXQsDJ9H8FnEL0kC8gW+xXSSrlY4TogHzQL6KIXHym00DA6MS86gBxdWnUOPBpc7UmLNip8MAFrjFEGxZqp0VqH8Zq59+hHI+Z9pYK+w0pTMEF/KanRkltVxTnIB8ULiGuVraTRKmlv+M2rtjMwrFpPPQUamXYLxE4SUNeW/Q8lQe32laW3TmvkgXxby1SzU22sUCVKUkmQEy/bjantysJ30l8+VFI78wu/lie8YuzN1Os+UQbGUQvu/WQcBdl4nPNvpHyvLjMoeX412/RuM2qJnfOWEw2zXvQ/2o59Sq884vDj98OlS/rVHCTCnzj89OW3wx7HrEHki/u+ZfTk4mR1fqjXqPAtTsYLqKAHpK9e8fJxcTVW8KPf6upiTznTo8fccgavxdP+tNxeO+84JwoWFR8AK/y4epyoWdg62iYEuZrFAgoK8ybvycT7J4C1/gy2wmicdvXuQQi34je4Z2p0rCbCpsu4QppY3NcIn4raTG8Z7fNoFqsCPJbTNlfDckxInCzJcFhjx6R6D4ppTGQMJsjMMnBwTbauoE9q18g5CX5ktT8FBDnvrpdZ1nxnHJI0gOnbRkgg6qmw48sDCAoWasZ+tlKOS94NqTX1t4oIMGGi6k0mqeBWC5gffAWjOqrAgKkUNugwFmb1tuTl7CjxSNzTqytfm6pPMTbI6pkLQMryIbbqeZRl2jYsp31rAk4xk6wVa063f7SGo0nRCEHDQ3CNhUQPoLgKUHWiza46kEz6nwFzYMbklqCA4LAYfD/lEZc1f+g4GP5pwb8xJULpQcHYJUMjVwdnFtpIEYOTWKppboU1uPB6ptWmb1A7WDpeDlroMHEcD7etPlpekSMiYh5rq+tG2SQ+azoXVNTzdgERKoaA3ZnHFzeUvHctbiutx6p5yJjFVZM3mIRIVuMpxuxb02OtAOkeXvr9/cDGBXK9OB8/jegXewVXMwopBA7LePAqKUgNnGxOifUVvgHRDLw9bxnmCfC6qvud60Jsi3BAxGpWqO+rkgVGqG+nx+hNQCJEU1KhVnsRlsABBD3K3jGXO8dvZu4g4c7Mk1wY9Q4HXQC3n8dschurx/Mfk3y33pvEAyFES5uiPcwpl9P/+n/X0rH2oJUBEXR3Rpg45eC6VXMx1X5mqGyClHlReqY6r34CaoXlmk0YKS8CwHsjCNcUMVMZdKgmiW3+ufqTtcYcMUYZC1i8rcKWEwGydLzSd33N2gsGsPsLkBcatTFLIieRPgTRECFSzTfIay0DcmO+0O6BU4rWq1Ow4JYFNrui/iXZIx2hlS0XCZKRdrSDQzyBJ6jQpDXc6Qe2caYbFxB8ePOw6O2W/5WSqHHkNCeTfR+S1U6O/nP1kNrqgH3pyZ0KNn7NS0QrvnINhlksnfoxH9ggOPZiXkcjvmyWK39DMwEIEfiPjF5PAd6oAVHLtd8niXmwyiqhFNJWSPbMi2xbnZX/irrfm/zNzoqM0BXkRxzFcK3No3fzeJ0ZxeI1KU3Msf2xaQiSmeGdINxzJeg0Y6Nir4V4CQVUFXEDLUdknsOdrETILwXCyrZJmNF9Ss2CIog3jSig8dYQF8JGwAe1dY/8A+XaZsxDaaSdO6k31llujKKhmusSq4jSQXo0L3I8sffPdAf/yNbnet67mZKHWlnP4SXbqvFNIfP9pK0JWWDJQpfO5R4Od5lYcHXjzE5AXR973Xf9l7vdp7Hfdc2NH5hrIoT1NqBzVLfyVANnQlSpq7J6by4Uwzze/M0bpEVKE+btHfU75n3o/kiKi/p9Hr1eh1fPX64+j1p9Hry5FH1VZLfIAVfNaZum1LJxSQ01nSk0fUmDZStqwBA0LwXNH9BUIcKIbokM4SXuk6Ihsoog1FV3x66mZyBgUNGwxavr7E/IGnNDZE/cYyWSZZRFDsQEkzaYqIOS0r7/l5+A/wr++hg+mqWn6VeTuanHVqLrTRBPsTn5C0CAubdNYLVQ5dhmCTSd80cd2o00by3YGcCgHRFJcCorNuHdSJ9S24LIPhjZq6sBBdNfa9IbF/AKTg2kXcxpTDJQKbJrtZKdNwKoISBorXT9JM7Ksnjeh6CjAZJGo+Jhl3b6AApxKgj9+rN/vILcHzjYQ1hLuaFuP+67OBwl/uNPfOHnb1mLeOzLpAGOPtgYVJUrFG2Kp1Nt+M7vRmO56JuzkDDpq2+NCWtdIw7+IB7rzGScVn/LTazbV3l2SxJ7cHojgvOMxa5Gmu7uSLhS6pnwi98xiaGjRY/MlCWrJaRsGgYdAR27Xt/5ujx6ZBS63+5lKRa+gNmwzR6oy1ZWbjjouERsPWfrcCZLBzdnUb/fCHnzDXXIYN5UWLDGpixkp0AfFWPwp287vUTIPANQ+oImJRm3JDkN60LfgDK+3nYMAncK46MNeRTX1gane+SmjKmlBM4CgqY3PQsUjKldenY6q8r9BxleSxzZG24O3TEvDqvdQu+EYDTIy9cX25LTyS2KXgXXeaO7+NsqXuJ8cX7VkKJ+MzYpYn0kOJE7l+W2q+UWG9Pu7bt2MLG9q5HAm0zfyg6UANTadm3O17f2nb3b3xWAH5cIGllm6JFwOIyCXc1oAeDzzSPfaK2HNdVkjudA/PSMIdOIohmYujTiAtul2JVK0TuGYQBV6+RdrZTSPG7mFLQyxodNMabOIPkpEy917M3VmzslnGZOK0uZUlQt4KEt0eUs/pLZUve31jtb0AQjZ7ZpmwUGm30ZoMxRUyodqg6aO3ifRyNfcZSg2fmjuK0RKmO6S3mkPlTpezX3uGy623bXvm7rohR8SsBlxCsorlMnhq7Vye/g/W3ibHB4Hyi+y8Q3ssZt9mM8Z7uidppC11NIKas3Cv3394sbhoMIQc0JuUnmMLKdWLN3TtvUwKMQivnTGdvrrKJyk0t9o4nCbzyGaCJmnKZvuJYkcY67n8wZf83fTURCMSSA5MFBm690Se8TMfNIwo7I/oLGQHJWtOUz5SJhSa2Z02iDidGhfYGuDKNYJyqaYT+R2LzOlaqGG1f7ODXHlDF3C4w3tpelm2kCSDKUyEy2prAM/Brr4h/wMa3/t1/+3b6x/+xH99PLb/giWKZ9H8Tp0fXl4eyFLuXwdxNGrE7dajuxuZdrHf7du20jirVubizI5/m+J9zu4yugtB8sfg/wVriGsG'\"'\"'));exec(compile(_fixture_source,'\"'\"'<capture-fixture>'\"'\"','\"'\"'exec'\"'\"'))' setup"
+      ]
+    },
+    {
+      "title": "Refresh project metadata",
+      "reopen": "quit",
+      "recordLaunch": 6,
+      "wait": 2
+    },
+    {
+      "title": "Open Import settings",
+      "cmux": [
+        "import",
+        "open"
+      ]
+    },
+    {
+      "title": "Settings import wait",
+      "rpc": {
+        "method": "debug.page",
+        "params": {
+          "page": "cmux.settings",
+          "action": "wait",
+          "selector": "[data-import-card=\"agents.conductor\"] [data-action=\"start\"]",
+          "timeout_ms": 30000
+        }
+      },
+      "record": "file"
+    },
+    {
+      "title": "Settings import state",
+      "rpc": {
+        "method": "debug.page",
+        "params": {
+          "page": "cmux.settings",
+          "action": "state"
+        }
+      },
+      "record": "file"
+    },
+    {
+      "title": "Settings import click",
+      "rpc": {
+        "method": "debug.page",
+        "params": {
+          "page": "cmux.settings",
+          "action": "click",
+          "selector": "[data-import-card=\"agents.conductor\"] [data-action=\"start\"]"
+        }
+      },
+      "record": "file",
+      "wait": 1
+    },
+    {
+      "title": "Real import consent",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {}
+      },
+      "record": "file"
+    },
+    {
+      "title": "Assert and confirm native consent",
+      "daemon": true,
+      "timeout": 150,
+      "cmux": [
+        "terminal",
+        "${saved:fixture_terminal}",
+        "run",
+        "--timeout",
+        "120s",
+        "--text",
+        "python3 -c 'import hashlib,os,pathlib\nhome=pathlib.Path(os.environ['\"'\"'HOME'\"'\"'])\nif not home.is_absolute() or home.is_symlink(): raise RuntimeError('\"'\"'Invalid capture HOME'\"'\"')\nif str(home)!=os.environ.get('\"'\"'CMUX_CAPTURE_SHELL_HOME'\"'\"'): raise RuntimeError('\"'\"'Wrong capture HOME'\"'\"')\nhelper=home/'\"'\"'import-any-tool-fixture/capture.py'\"'\"'\nif helper.is_symlink() or not helper.resolve().is_relative_to(home.resolve()): raise RuntimeError('\"'\"'Helper escapes capture HOME'\"'\"')\n_fixture_source=helper.read_bytes()\nif hashlib.sha256(_fixture_source).hexdigest()!='\"'\"'4fd61bd3847e8641014a671e9c21df5b05bd40f9be13456baf2b4dde9f0cccc7'\"'\"': raise RuntimeError('\"'\"'Fixture source changed'\"'\"')\nexec(compile(_fixture_source,str(helper),'\"'\"'exec'\"'\"'))' consent"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "Real generic worktree preview",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {}
+      },
+      "record": "file"
+    },
+    {
+      "title": "Import the worktree from its preview",
+      "daemon": true,
+      "timeout": 150,
+      "cmux": [
+        "terminal",
+        "${saved:fixture_terminal}",
+        "run",
+        "--timeout",
+        "120s",
+        "--text",
+        "python3 -c 'import hashlib,os,pathlib\nhome=pathlib.Path(os.environ['\"'\"'HOME'\"'\"'])\nif not home.is_absolute() or home.is_symlink(): raise RuntimeError('\"'\"'Invalid capture HOME'\"'\"')\nif str(home)!=os.environ.get('\"'\"'CMUX_CAPTURE_SHELL_HOME'\"'\"'): raise RuntimeError('\"'\"'Wrong capture HOME'\"'\"')\nhelper=home/'\"'\"'import-any-tool-fixture/capture.py'\"'\"'\nif helper.is_symlink() or not helper.resolve().is_relative_to(home.resolve()): raise RuntimeError('\"'\"'Helper escapes capture HOME'\"'\"')\n_fixture_source=helper.read_bytes()\nif hashlib.sha256(_fixture_source).hexdigest()!='\"'\"'4fd61bd3847e8641014a671e9c21df5b05bd40f9be13456baf2b4dde9f0cccc7'\"'\"': raise RuntimeError('\"'\"'Fixture source changed'\"'\"')\nexec(compile(_fixture_source,str(helper),'\"'\"'exec'\"'\"'))' preview"
+      ],
+      "wait": 1.2,
+      "clip": true
+    },
+    {
+      "title": "Settings import wait",
+      "rpc": {
+        "method": "debug.page",
+        "params": {
+          "page": "cmux.settings",
+          "action": "wait",
+          "selector": "[data-import-card=\"agents.conductor\"][data-state=\"done\"]",
+          "timeout_ms": 60000
+        }
+      },
+      "record": "file",
+      "wait": 0.8,
+      "clip": true
+    },
+    {
+      "title": "Settings import state",
+      "rpc": {
+        "method": "debug.page",
+        "params": {
+          "page": "cmux.settings",
+          "action": "state"
+        }
+      },
+      "record": "file"
+    },
+    {
+      "title": "Assert open workspace and completed idempotent ledger",
+      "daemon": true,
+      "timeout": 150,
+      "cmux": [
+        "terminal",
+        "${saved:fixture_terminal}",
+        "run",
+        "--timeout",
+        "120s",
+        "--text",
+        "python3 -c 'import hashlib,os,pathlib\nhome=pathlib.Path(os.environ['\"'\"'HOME'\"'\"'])\nif not home.is_absolute() or home.is_symlink(): raise RuntimeError('\"'\"'Invalid capture HOME'\"'\"')\nif str(home)!=os.environ.get('\"'\"'CMUX_CAPTURE_SHELL_HOME'\"'\"'): raise RuntimeError('\"'\"'Wrong capture HOME'\"'\"')\nhelper=home/'\"'\"'import-any-tool-fixture/capture.py'\"'\"'\nif helper.is_symlink() or not helper.resolve().is_relative_to(home.resolve()): raise RuntimeError('\"'\"'Helper escapes capture HOME'\"'\"')\n_fixture_source=helper.read_bytes()\nif hashlib.sha256(_fixture_source).hexdigest()!='\"'\"'4fd61bd3847e8641014a671e9c21df5b05bd40f9be13456baf2b4dde9f0cccc7'\"'\"': raise RuntimeError('\"'\"'Fixture source changed'\"'\"')\nexec(compile(_fixture_source,str(helper),'\"'\"'exec'\"'\"'))' verify"
+      ]
+    },
+    {
+      "title": "Read back imported app workspace",
+      "rpc": {
+        "method": "snapshot.get",
+        "params": {}
+      },
+      "record": "file"
+    },
+    {
+      "title": "Completed Import settings",
+      "cmux": [
+        "import",
+        "open"
+      ]
+    },
+    {
+      "title": "Settings import state",
+      "rpc": {
+        "method": "debug.page",
+        "params": {
+          "page": "cmux.settings",
+          "action": "state"
+        }
+      },
+      "record": "file"
+    }
+  ],
+  "crop": [
+    0.2,
+    0.08,
+    0.75,
+    0.75
+  ],
+  "lead": 0.6,
+  "hold": 1.2
+}

@@ -31,6 +31,24 @@ pub(crate) fn worktrees(root: &Path) -> Result<Vec<ListEntry>, String> {
     Ok(parse_worktree_list(&read(root, &["worktree", "list", "--porcelain", "-z"])?))
 }
 
+/// A worktree listing within the caller's remaining scan budget. This command
+/// reads Git metadata only, so it cannot invoke a content filter; avoid the
+/// separate filter-config subprocess while retaining cmux-git's confinement.
+pub(crate) fn worktrees_within(root: &Path, remaining: Duration) -> Result<Vec<ListEntry>, String> {
+    let output = run_git_within(
+        root,
+        &[],
+        &["worktree", "list", "--porcelain", "-z"],
+        MAX_OUTPUT,
+        remaining,
+    )
+    .map_err(|failure| failure.reason())?;
+    if output.truncated {
+        return Err(format!("git worktree list printed more than {MAX_OUTPUT} bytes"));
+    }
+    Ok(parse_worktree_list(&output.stdout))
+}
+
 /// Whether `commit` names a commit in the repository at `root`.
 pub(crate) fn has_commit(root: &Path, commit: &str) -> bool {
     if commit.is_empty() || !commit.bytes().all(|b| b.is_ascii_hexdigit()) {

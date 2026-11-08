@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCrashReporting
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextImportCards
 
 // Launch work no first frame needs: AppDelegate starts it once the first window's
 // frame is committed (FirstFrameGate), so it never delays that frame (perf-launch-memory).
@@ -16,6 +17,10 @@ extension AppServices {
         let acpmux = QuitAgents.environment(self)
         ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
         chatsFeed?.keepCurrent()
+        // The first import scan may begin before this post-frame relay. Re-scan once the
+        // project registry has its initial complete batch, so candidate worktrees do not wait
+        // for the foreground ten-minute rescan interval.
+        projectsImport.onInitialRelay = { ImportSuggestionsCenter.shared.initialProjectRelayFinished() }
         projectsImport.start(feed: chatsFeed)
         if let feed = chatsFeed { AgentPageChats.wire(agentTabs, to: feed, opener: chatsOpener) }
         NewTabPlacesFeed.wire(agentTabs, services: self)

@@ -45,6 +45,18 @@ const codex: ImportCardData = {
   dismissed: false,
 };
 
+const agentWorktrees: ImportCardData = {
+  id: "agents.conductor",
+  kind: "conductor",
+  title: "Agent worktrees",
+  facts: "Agent worktrees found",
+  benefit: "Open existing agent worktrees in cmux, on their branches.",
+  state: "ready",
+  primary: { action: "start", title: "Import Workspaces" },
+  secondary: [notNow],
+  dismissed: false,
+};
+
 const request: ImportCardData = {
   id: "request.cookies.chrome.github.com",
   kind: "browser",
@@ -168,17 +180,58 @@ const dismissOne: Play = async (ctx) => {
   await ctx.waitFor(() => !ctx.document.querySelector('[data-import-card="agents.codex"]'));
 };
 
+const importAgentWorktrees: Play = async (ctx) => {
+  await ctx.click({ selector: '[data-import-card="agents.conductor"] [data-action="start"]' });
+  await ctx.waitFor(
+    () => ctx.document.querySelector('[data-testid="import-cards-receipt"]')?.textContent === "agents.conductor start",
+  );
+};
+
 export default componentEntry<Props>({
   id: "ui.import-cards",
   title: "Import suggestion cards",
   area: "UI primitives",
   height: 300,
   widths: { narrow: 380, normal: 760, wide: 980 },
-  anchors: [{ selector: '[data-import-card="browser.chrome"]' }],
+  anchors: [{ selector: "[data-import-cards-fixture]" }],
   covers: ["ui/ImportCards.tsx#ImportCards"],
   load: async () => GalleryImportCards,
   styles: () => import("./ui.css"),
   variants: {
+    "agent-worktrees-ready": {
+      note: "Selected: reuse the existing import row and preview; candidate folders are not a verified workspace count.",
+      props: { list: settings([agentWorktrees]) },
+      play: importAgentWorktrees,
+    },
+    "agent-worktrees-running": {
+      note: "Same row during adoption: progress replaces the action without adding new motion or a source icon.",
+      props: {
+        list: settings([
+          {
+            ...agentWorktrees,
+            state: "running",
+            primary: undefined,
+            secondary: [],
+            progress: 0.5,
+            status: "Importing…",
+          },
+        ]),
+      },
+    },
+    "agent-worktrees-done": {
+      note: "The shared job ledger reports completion on the same row.",
+      props: {
+        list: settings([
+          {
+            ...agentWorktrees,
+            state: "done",
+            primary: undefined,
+            status: "2 workspaces opened",
+            secondary: [{ action: "hide", title: "Done" }],
+          },
+        ]),
+      },
+    },
     settings: {
       note: "Settings › Import lists everything found: done, failed, info cards and a dismissed one with Show Again.",
       props: { list: settings([done, failed, safari, ghostty, iterm]) },

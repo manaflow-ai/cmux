@@ -20,6 +20,15 @@ public struct ConductorImportClient: Sendable {
         }, as: ConductorImportReply.self)
     }
 
+    /// The cheap, read-only source probe used by the Import Suggestions scan. The daemon
+    /// returns candidate folders from its project index without building the full adoption plan.
+    public func detect() async throws -> ConductorImportDetection {
+        try await connection.resourceRequest({ id in
+            ResourceRequestEnvelope(id: id, operation: "conductor_import.plan",
+                                    params: ["detect_only": .bool(true)], idempotencyKey: nil)
+        }, as: ConductorImportDetection.self)
+    }
+
     /// `conductor_import.record`: Conductor workspace `workspace` is being made
     /// (`pending`, with the cmux workspace once there is one) or made (`done`).
     public func record(workspace: String, stage: ConductorImportStage, cmuxWorkspace: String?,
@@ -41,6 +50,40 @@ public enum ConductorImportStage: String, Sendable {
 public struct ConductorImportReply: Decodable, Sendable {
     public var plan: ConductorImportPlan?
     public var error: String?
+}
+
+/// Metadata returned by `conductor_import.plan { detect_only: true }`. The card is deliberately
+/// optional: a source scan may find no candidate folders, while `hasConductor` still tells the
+/// executor whether Conductor-specific copy and deadline language is valid.
+public struct ConductorImportDetection: Decodable, Sendable, Equatable {
+    public struct Card: Decodable, Sendable, Equatable {
+        public var id: String
+        public var kind: String
+        public var name: String
+        public var count: Int?
+    }
+
+    public var found: JSONValue
+    public var candidateFolders: [String: Int]
+    public var hasConductor: Bool
+    public var card: Card?
+
+    enum CodingKeys: String, CodingKey {
+        case found
+        case candidateFolders = "candidate_folders"
+        case hasConductor = "has_conductor"
+        case card
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        found = try container.decodeIfPresent(JSONValue.self, forKey: .found) ?? .null
+        candidateFolders = try container.decodeIfPresent([String: Int].self, forKey: .candidateFolders) ?? [:]
+        // Older daemons had no generic source bit; preserving true keeps their Conductor cards
+        // and executor previews unchanged while this app remains wire-compatible.
+        hasConductor = try container.decodeIfPresent(Bool.self, forKey: .hasConductor) ?? true
+        card = try container.decodeIfPresent(Card.self, forKey: .card)
+    }
 }
 
 /// The dry run, as `cmux_conductor_import::plan::Plan` serializes it.
@@ -118,13 +161,25 @@ public struct ConductorImportPlan: Decodable, Sendable, Equatable {
     }
 
     public var cloudShutdown: String
+    /// False when the plan came from generic agent worktree sources rather than Conductor.
+    /// Missing on older daemons, where the only source was Conductor.
+    public var hasConductor: Bool
     public var projects: [Project]
     /// cmux workspaces a cut-off run half made: closed before they are made again.
     public var cleanup: [String]
     public var warnings: [Warning]
 
     enum CodingKeys: String, CodingKey {
-        case cloudShutdown = "cloud_shutdown", projects, cleanup, warnings
+        case cloudShutdown = "cloud_shutdown", hasConductor = "has_conductor", projects, cleanup, warnings
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        cloudShutdown = try container.decode(String.self, forKey: .cloudShutdown)
+        hasConductor = try container.decodeIfPresent(Bool.self, forKey: .hasConductor) ?? true
+        projects = try container.decode([Project].self, forKey: .projects)
+        cleanup = try container.decode([String].self, forKey: .cleanup)
+        warnings = try container.decode([Warning].self, forKey: .warnings)
     }
 
     /// The workspaces this run adopts, with their project.

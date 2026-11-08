@@ -120,6 +120,113 @@ fn conductor_import_plan_without_conductor_has_no_plan() {
     assert!(wire["found"].is_object(), "{wire}");
 }
 
+fn registry_folder(mux: &Arc<Mux>, path: &Path, sources: &[&str], hidden: bool) {
+    let sources: serde_json::Map<String, Value> = sources
+        .iter()
+        .map(|source| (source.to_string(), json!({"first_seen_ms": 1, "last_used_ms": 2})))
+        .collect();
+    let project = json!({
+        "path": path, "sources": sources,
+        "overlay": {"hidden": hidden}, "state": "present"
+    });
+    mux.write_registry_meta(|transaction| {
+        transaction.execute(
+            "INSERT INTO projects(path, project_json) VALUES(?1, ?2)",
+            rusqlite::params![path.to_str().unwrap(), project.to_string()],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn conductor_import_agent_folders_use_shared_plan_and_ledger_without_conductor() {
+    let mux = Mux::new_for_test("agent-import-flow", SurfaceOptions::default());
+    let home = home();
+    let folder = home.0.join("conductor/workspaces/app/lima");
+    // Use a separate detection home so this is genuinely the no-Conductor path.
+    let empty_home = home.0.join("empty-home");
+    registry_folder(&mux, &folder, &["codex", "opencode"], false);
+    let detection = mux.agent_import_detect(Some(&empty_home)).unwrap();
+    assert_eq!(detection["candidate_folders"], json!({"codex": 1, "opencode": 1}));
+    assert_eq!(detection["has_conductor"], false);
+    assert_eq!(detection["card"]["id"], "agents.conductor");
+    assert_eq!(detection["card"]["name"], "Agent worktrees");
+    assert!(detection["card"]["count"].is_null(), "hints must not claim a worktree count");
+    assert!(detection["plan"].is_null());
+    assert!(stored_ledger(&mux).is_none(), "detection must not mutate the ledger");
+
+    let first = mux
+        .conductor_import_plan_with_policy(Some(&empty_home), &|path| path.is_absolute())
+        .unwrap();
+    assert_eq!(first["has_conductor"], false);
+    assert_eq!(first["plan"]["has_conductor"], false);
+    assert_eq!(first["plan"]["cloud_shutdown"], "");
+    let workspace = &first["plan"]["projects"][0]["workspaces"][0];
+    let id = workspace["id"].as_str().unwrap();
+    assert_eq!(workspace["disposition"], json!({"kind": "adopt"}));
+    assert_eq!(first["tool_sources"][id], json!(["codex", "opencode"]));
+    let cmux_workspace = open_workspace(&mux);
+    mutate(
+        &mux,
+        "conductor_import.record",
+        json!({"workspace": id, "stage": "done", "cmux_workspace": cmux_workspace}),
+        "agent-import-done",
+    );
+    let rerun = mux
+        .conductor_import_plan_with_policy(Some(&empty_home), &|path| path.is_absolute())
+        .unwrap();
+    assert_eq!(
+        rerun["plan"]["projects"][0]["workspaces"][0]["disposition"],
+        json!({"kind": "already-imported", "cmux_workspace": cmux_workspace})
+    );
+}
+
+#[test]
+fn conductor_import_detection_ignores_hidden_disabled_and_non_agent_sources() {
+    let mux = Mux::new_for_test("agent-import-filter", SurfaceOptions::default());
+    registry_folder(
+        &mux,
+        Path::new("/does-not-exist/visible"),
+        &["codex", "user", "unknown"],
+        false,
+    );
+    registry_folder(&mux, Path::new("/does-not-exist/hidden"), &["opencode"], true);
+    registry_folder(&mux, Path::new("/does-not-exist/disabled"), &["claude-code"], false);
+    mux.write_registry_meta(|transaction| {
+        transaction.execute("INSERT INTO project_sources_off(source) VALUES('claude-code')", [])?;
+        Ok(())
+    })
+    .unwrap();
+    let result = read(&mux, "conductor_import.plan", json!({"detect_only": true}));
+    assert_eq!(result["candidate_folders"], json!({"codex": 1}));
+    assert!(result["plan"].is_null());
+    assert_eq!(
+        error_code(send(&mux, "conductor_import.plan", json!({"detect_only": "true"}), None)),
+        "validation.invalid"
+    );
+}
+
+#[test]
+fn conductor_import_detection_has_no_card_without_sources() {
+    let mux = Mux::new_for_test("agent-import-detect-empty", SurfaceOptions::default());
+    let result = mux.agent_import_detect(None).unwrap();
+    assert!(result["card"].is_null());
+    assert_eq!(result["has_conductor"], false);
+    assert_eq!(result["candidate_folders"], json!({}));
+}
+
+#[test]
+fn conductor_import_agent_folders_recheck_project_path_refusals() {
+    let mux = Mux::new_for_test("agent-import-path-policy", SurfaceOptions::default());
+    let home = home();
+    let empty_home = home.0.join("empty-home");
+    registry_folder(&mux, &home.0.join("conductor/workspaces/app/lima"), &["codex"], false);
+    // Registry rows may predate a path rule. The daemon refuses temporary
+    // folders again when planning, even if an old row is still in storage.
+    assert!(mux.conductor_import_plan(Some(&empty_home)).unwrap()["plan"].is_null());
+}
+
 #[test]
 fn conductor_import_plan_adopts_then_records_pending_and_done() {
     let mux = Mux::new_for_test("conductor-import-flow", SurfaceOptions::default());
@@ -338,3 +445,6 @@ fn conductor_import_record_keeps_an_open_done_workspace() {
     );
     assert_eq!(again["cmux_workspace"], "ws-third");
 }
+
+#[path = "conductor_import_edge_tests.rs"]
+mod edge_tests;

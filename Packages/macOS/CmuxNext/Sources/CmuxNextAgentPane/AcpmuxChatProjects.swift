@@ -1,3 +1,4 @@
+public import CmuxNextDaemon
 public import Foundation
 
 /// acpmux's chat index grouped into each harness's project folders (`_acpmux/chat_projects`):
@@ -49,5 +50,49 @@ extension AcpmuxChatProjects {
         let result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/chat_projects", deadline: deadline,
                                                        limit: .max)
         return AcpmuxChatProjects(result: result)
+    }
+}
+
+extension AcpmuxChatProjects {
+    /// One harness's projects: each cwd with its newest chat.
+    public nonisolated struct Batch: Equatable, Sendable {
+        public nonisolated struct Entry: Equatable, Sendable {
+            public let path: String
+            public let lastUsedMs: Int64
+        }
+
+        public let source: String
+        public let entries: [Entry]
+
+        public var fingerprint: Int {
+            var hasher = Hasher()
+            for entry in entries {
+                hasher.combine(entry.path)
+                hasher.combine(entry.lastUsedMs)
+            }
+            return hasher.finalize()
+        }
+
+        public var entriesJSON: [JSONValue] {
+            entries.map { .object(["path": .string($0.path), "last_used_ms": .string(String($0.lastUsedMs))]) }
+        }
+    }
+
+    /// The batches for acpmux's grouped `projects`, leaving out each harness whose fingerprint is
+    /// already `sent`. A harness in `sent` with no project left gets an empty complete list. Sorted
+    /// by harness, entries by path. Nothing while the index is not ready or chats are off: a
+    /// partial list sent as complete would drop the harness from its projects.
+    public func batches(sent: [String: Int]) -> [Batch] {
+        guard ready, enabled else { return [] }
+        var bySource: [String: [Batch.Entry]] = [:]
+        for project in projects {
+            bySource[project.harness, default: []].append(Batch.Entry(path: project.path, lastUsedMs: project.lastUsedMs))
+        }
+        for source in sent.keys where bySource[source] == nil { bySource[source] = [] }
+        return bySource.keys.sorted().compactMap { source in
+            let entries = (bySource[source] ?? []).sorted { $0.path < $1.path }
+            let batch = Batch(source: source, entries: entries)
+            return sent[source] == batch.fingerprint ? nil : batch
+        }
     }
 }

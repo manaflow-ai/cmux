@@ -58,7 +58,7 @@ public struct ConductorImport {
         do {
             return try await importing(progress: progress)
         } catch {
-            Self.toast(ConductorImportStrings.failed)
+            Self.toast(ConductorImportStrings.agentFailed)
             throw error
         }
     }
@@ -68,7 +68,7 @@ public struct ConductorImport {
         let reply = try await daemon.plan()
         if let error = reply.error { throw ConductorImportFailure.plan(error) }
         guard let plan = reply.plan else {
-            Self.toast(ConductorImportStrings.allHere)
+            Self.toast(ConductorImportStrings.agentAllHere)
             return 0
         }
         // Which repositories are not listed yet. A failed listing counts every one as not listed:
@@ -79,8 +79,8 @@ public struct ConductorImport {
         }
         // Nothing to make, add, save or explain: the preview would say nothing new.
         guard !plan.adopting.isEmpty || !unlisted.isEmpty || !plan.recipes.isEmpty || !plan.recoverable.isEmpty
-            || !plan.cleanup.isEmpty else {
-            Self.toast(ConductorImportStrings.allHere)
+            || !plan.cleanup.isEmpty || plan.warnings.contains(where: { $0.code == "agent-source-scan-failed" }) else {
+            Self.toast(plan.hasConductor ? ConductorImportStrings.allHere : ConductorImportStrings.agentAllHere)
             return 0
         }
         guard await confirm(plan) else { return nil }
@@ -147,11 +147,11 @@ public struct ConductorImport {
         if !failedProjects.isEmpty { throw ConductorImportFailure.projects(failedProjects) }
         if !failedRecipes.isEmpty { throw ConductorImportFailure.recipes(failedRecipes) }
         if opened > 0 {
-            Self.toast(ConductorImportStrings.opened)
+            Self.toast(plan.hasConductor ? ConductorImportStrings.opened : ConductorImportStrings.agentOpened)
         } else if !plan.recoverable.isEmpty {
             Self.toast(ConductorImportStrings.recoverable(plan.recoverable.count))
         } else {
-            Self.toast(ConductorImportStrings.allHere)
+            Self.toast(plan.hasConductor ? ConductorImportStrings.allHere : ConductorImportStrings.agentAllHere)
         }
         return opened
     }
@@ -159,7 +159,7 @@ public struct ConductorImport {
     private static func showPreview(_ plan: ConductorImportPlan) async -> Bool {
         let window = NSApp.keyWindow ?? NSApp.mainWindow
         let spec = CmuxDialogSpec(
-            title: ConductorImportStrings.previewTitle,
+            title: plan.hasConductor ? ConductorImportStrings.previewTitle : ConductorImportStrings.agentPreviewTitle,
             lines: previewLines(plan),
             buttons: [.cancel(), CmuxDialogButton(id: importButton, title: ConductorImportStrings.previewButton, role: .default)],
             identifier: identifier
@@ -192,8 +192,13 @@ public struct ConductorImport {
             lines.append("• \(String(project.name.prefix(64))): \(recipeSummary(recipe))")
         }
         if recipes.count > listedWorkspaces { lines.append("• …") }
-        if plan.warnings.contains(where: { $0.code == "archive-deletes-folder" }) { lines.append(ConductorImportStrings.archiveWarning) }
-        lines.append(ConductorImportStrings.deadline)
+        if plan.warnings.contains(where: { $0.code == "agent-source-scan-failed" }) {
+            lines.append(contentsOf: plan.warnings.filter { $0.code == "agent-source-scan-failed" }.map(\.detail))
+        }
+        if plan.hasConductor {
+            if plan.warnings.contains(where: { $0.code == "archive-deletes-folder" }) { lines.append(ConductorImportStrings.archiveWarning) }
+            lines.append(ConductorImportStrings.deadline)
+        }
         return lines
     }
 

@@ -11,6 +11,9 @@ public nonisolated struct ConductorImportStrings: Sendable {
     public static var previewTitle: String {
         String(localized: "conductorImport.preview.title", defaultValue: "Import these Conductor workspaces?", table: "ImportSuggestions", bundle: .module)
     }
+    public static var agentPreviewTitle: String {
+        String(localized: "conductorImport.preview.agentTitle", defaultValue: "Import these agent workspaces?", table: "ImportSuggestions", bundle: .module)
+    }
     public static var previewButton: String {
         String(localized: "conductorImport.preview.button", defaultValue: "Import", table: "ImportSuggestions", bundle: .module)
     }
@@ -58,11 +61,20 @@ public nonisolated struct ConductorImportStrings: Sendable {
     public static var opened: String {
         String(localized: "conductorImport.toast.opened", defaultValue: "Your Conductor workspaces are open.", table: "ImportSuggestions", bundle: .module)
     }
+    public static var agentOpened: String {
+        String(localized: "conductorImport.toast.agentOpened", defaultValue: "Your agent workspaces are open.", table: "ImportSuggestions", bundle: .module)
+    }
     public static var allHere: String {
         String(localized: "conductorImport.toast.allHere", defaultValue: "Every Conductor workspace is already open here.", table: "ImportSuggestions", bundle: .module)
     }
+    public static var agentAllHere: String {
+        String(localized: "conductorImport.toast.agentAllHere", defaultValue: "Every agent workspace is already open here.", table: "ImportSuggestions", bundle: .module)
+    }
     public static var failed: String {
         String(localized: "conductorImport.toast.failed", defaultValue: "Couldn’t import from Conductor.", table: "ImportSuggestions", bundle: .module)
+    }
+    public static var agentFailed: String {
+        String(localized: "conductorImport.toast.agentFailed", defaultValue: "Couldn’t import the agent workspaces.", table: "ImportSuggestions", bundle: .module)
     }
     /// The sidebar's one-time note (``ImportSuggestionState/showsConductorNote(findings:jobs:now:)``).
     /// It names no other app and no date: the source is named only inside Settings › Import.

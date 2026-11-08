@@ -46,6 +46,7 @@ public nonisolated struct ImportCardDeck: Sendable {
     // MARK: Cards
 
     func app(_ finding: ImportFinding) -> String? {
+        if finding.kind == .conductor, !finding.hasConductor { return nil }
         if let browser = finding.browser { return apps[finding.id] ?? browser.bundleIDs.first }
         return apps[finding.id]
     }
@@ -62,7 +63,7 @@ public nonisolated struct ImportCardDeck: Sendable {
         case .codex: return ImportSuggestionStrings.threads(finding.count)
         case .cmuxClassic:
             return finding.offersNothingNew ? ImportSuggestionStrings.classicAllHere : ImportSuggestionStrings.workspaces(finding.count)
-        case .conductor: return ImportSuggestionStrings.workspaces(finding.count)
+        case .conductor: return finding.hasConductor && finding.count > 0 ? ImportSuggestionStrings.workspaces(finding.count) : ImportSuggestionStrings.agentWorktrees
         case .iterm2: return ImportSuggestionStrings.profiles(finding.count)
         case .ghostty: return ImportSuggestionStrings.inUse
         }
@@ -77,7 +78,7 @@ public nonisolated struct ImportCardDeck: Sendable {
         case .claudeCode: return ImportSuggestionStrings.claudeCode
         case .codex: return ImportSuggestionStrings.codex
         case .cmuxClassic: return finding.offersNothingNew ? ImportSuggestionStrings.classicAgain : ImportSuggestionStrings.classic
-        case .conductor: return ImportSuggestionStrings.conductor
+        case .conductor: return finding.hasConductor ? ImportSuggestionStrings.conductor : ImportSuggestionStrings.agentWorktreesBenefit
         case .iterm2: return ImportSuggestionStrings.iterm2
         case .ghostty: return ImportSuggestionStrings.ghostty
         }

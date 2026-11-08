@@ -4,6 +4,7 @@
 //! worktrees, whether its archive commit or branch still exists, and its
 //! linked chats. Read-only.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -52,11 +53,28 @@ pub struct Listed {
 }
 
 pub fn inspect(catalog: &Catalog, home: &Path) -> Facts {
+    inspect_cached(catalog, home, &BTreeMap::new())
+}
+
+/// Reuse listings verified during this import's discovery. Only the tool
+/// adapter can provide this cache; the public Conductor path remains uncached.
+pub(crate) fn inspect_cached(
+    catalog: &Catalog,
+    home: &Path,
+    verified: &BTreeMap<PathBuf, Vec<git::ListEntry>>,
+) -> Facts {
     let mut facts = Facts::default();
     let cloud_root = crate::detect::cloud_workspaces_path(home);
-    let mut listings: BTreeMap<&str, Vec<git::ListEntry>> = BTreeMap::new();
+    let mut listings: BTreeMap<&str, Cow<'_, [git::ListEntry]>> = BTreeMap::new();
+    let mut cached = BTreeMap::new();
     for repo in &catalog.repos {
-        let (repo_facts, listing) = inspect_repo(repo);
+        let listing = repo
+            .root_path
+            .as_deref()
+            .and_then(|root| std::fs::canonicalize(root).ok())
+            .and_then(|root| verified.get(&root));
+        cached.insert(repo.id.as_str(), listing.is_some());
+        let (repo_facts, listing) = inspect_repo(repo, listing.map(Vec::as_slice));
         listings.insert(&repo.id, listing);
         facts.repos.insert(repo.id.clone(), repo_facts);
     }
@@ -67,31 +85,47 @@ pub fn inspect(catalog: &Catalog, home: &Path) -> Facts {
             .find(|repo| repo.id == workspace.repo_id)
             .and_then(|repo| repo.root_path.as_deref())
             .filter(|_| facts.repos.get(&workspace.repo_id).is_some_and(|r| r.unusable.is_none()));
-        let listing = listings.get(workspace.repo_id.as_str()).map(Vec::as_slice).unwrap_or(&[]);
+        let listing =
+            listings.get(workspace.repo_id.as_str()).map(|rows| rows.as_ref()).unwrap_or(&[]);
         facts.workspaces.insert(
             workspace.id.clone(),
-            inspect_workspace(workspace, root, listing, home, &cloud_root),
+            inspect_workspace(
+                workspace,
+                root,
+                listing,
+                home,
+                &cloud_root,
+                cached.get(workspace.repo_id.as_str()).copied().unwrap_or(false),
+            ),
         );
     }
     facts
 }
 
-fn inspect_repo(repo: &Repo) -> (RepoFacts, Vec<git::ListEntry>) {
+fn inspect_repo<'a>(
+    repo: &Repo,
+    cached: Option<&'a [git::ListEntry]>,
+) -> (RepoFacts, Cow<'a, [git::ListEntry]>) {
     let Some(root) = repo.root_path.as_deref() else {
         return (
             RepoFacts { unusable: Some("no folder recorded".into()), ..RepoFacts::default() },
-            Vec::new(),
+            Cow::Borrowed(&[]),
         );
     };
     if !root.is_dir() {
         let reason = format!("{} no longer exists", root.display());
-        return (RepoFacts { unusable: Some(reason), ..RepoFacts::default() }, Vec::new());
+        return (RepoFacts { unusable: Some(reason), ..RepoFacts::default() }, Cow::Borrowed(&[]));
     }
-    let listing = match git::worktrees(root) {
+    let listing = match cached
+        .map_or_else(|| git::worktrees(root).map(Cow::Owned), |listing| Ok(Cow::Borrowed(listing)))
+    {
         Ok(listing) => listing,
         Err(reason) => {
             let reason = format!("{} is not a git repository ({reason})", root.display());
-            return (RepoFacts { unusable: Some(reason), ..RepoFacts::default() }, Vec::new());
+            return (
+                RepoFacts { unusable: Some(reason), ..RepoFacts::default() },
+                Cow::Borrowed(&[]),
+            );
         }
     };
     let worktreeinclude = std::fs::read_to_string(root.join(".worktreeinclude"))
@@ -107,6 +141,7 @@ fn inspect_workspace(
     listing: &[git::ListEntry],
     home: &Path,
     cloud_root: &Path,
+    cached: bool,
 ) -> WorkspaceFacts {
     let path = workspace.path.as_deref();
     let folder_exists = path.is_some_and(Path::is_dir);
@@ -123,6 +158,12 @@ fn inspect_workspace(
         _ => false,
     };
     let branch_exists = match (root, workspace.branch.as_deref()) {
+        (Some(_), Some(branch))
+            if cached
+                && listed.as_ref().is_some_and(|entry| entry.branch.as_deref() == Some(branch)) =>
+        {
+            true
+        }
         (Some(root), Some(branch)) => git::has_branch(root, branch),
         _ => false,
     };

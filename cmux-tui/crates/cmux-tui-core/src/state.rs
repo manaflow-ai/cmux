@@ -48,6 +48,7 @@ mod closed_screen_layout;
 mod closed_tab_groups;
 pub(crate) mod command_history_store;
 pub(crate) mod commit;
+mod conductor_import_open;
 pub(crate) mod conductor_import_router;
 pub(crate) mod conductor_import_store;
 #[cfg(test)]
