@@ -31,5 +31,12 @@ public nonisolated enum DevTools {
     }
 
     /// This process: decided once from its own bundle.
+    #if CMUX_BENCH_HOOKS
+    /// MOTION LAB (branch motion-lab-nomerge only, never merged): the lab's dogfood build (`--release` of a
+    /// `motion-lab-*` tag, the bench configuration, bundle `com.cmuxterm.app.debug.<tag>`) shows the Debug menu and its
+    /// Motion Lab window.
+    public static let isEnabled = true
+    #else
     public static let isEnabled = isAvailable(bundleID: Bundle.main.bundleIdentifier, isDebugBuild: isDebugBuild)
+    #endif
 }
