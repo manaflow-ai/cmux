@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42448762447",
+  "recorded_at": "2026-11-08T05:03:00Z",
+  "reason": "cmux-tui 8fbc64d4be04 changes the image's cmux-tui (pinned 4894aad168fd)",
+  "dry_run": false,
+  "cmux_tui": "8fbc64d4be04700da3dd627af100c527acecc3a5",
+  "fixes": [
+    {
+      "sha": "8fbc64d4be04700da3dd627af100c527acecc3a5",
+      "mergedAt": "2026-11-07T20:42:05-08:00",
+      "subject": "Cloud link: a broker reply slower than the dial no longer drops every machine connection (#38220)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T05:03:00Z",
+    "snapshot_id": "sh-1556e4e46979412db390d96439210d7a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42448762447): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c5778d6d19c8d93856e12fabc87ed5a1ecc5de97",
+    "image": "cloud-native-auto-8fbc64d4-42448762447-1",
+    "revision": "ci-42448762447-1",
+    "at": "2026-11-08T05:03:00Z"
+  },
+  "rolled_back": false
+}
