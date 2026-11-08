@@ -6,10 +6,13 @@
 
 use regex::Regex;
 use serde_json::Value;
+use std::sync::OnceLock;
 
 const MAX_FAILURES: usize = 32;
 const MAX_REASON_BYTES: usize = 240;
 const MAX_JSON_BYTES: usize = 128 * 1024;
+const MAX_SCAN_BYTES: usize = 256 * 1024;
+const MAX_NAME_BYTES: usize = 320;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestFailure {
@@ -27,6 +30,7 @@ pub struct TestResults {
     pub skipped: usize,
     pub failures: Vec<TestFailure>,
     pub failures_truncated: bool,
+    counts_reported: bool,
 }
 
 impl TestResults {
@@ -64,9 +68,11 @@ impl TestResults {
     }
 
     fn add_failure(&mut self, failure: TestFailure) {
-        self.failed = self.failed.max(1);
         if self.failures.iter().any(|old| old.name == failure.name) {
             return;
+        }
+        if !self.counts_reported {
+            self.failed += 1;
         }
         if self.failures.len() < MAX_FAILURES {
             self.failures.push(failure);
@@ -89,14 +95,10 @@ pub fn parse(command: &str, output: &str) -> Option<TestResults> {
         return None;
     }
 
-    let trimmed = output.trim_start();
-    let mut parsed = if trimmed.starts_with('{') || trimmed.starts_with('[') {
-        parse_json(output)
-    } else {
-        None
-    };
+    let text_output = bounded_tail(output);
+    let mut parsed = parse_json(output);
     if parsed.is_none() {
-        parsed = parse_text(output);
+        parsed = parse_text(text_output);
     }
     parsed.filter(|result| !result.is_empty()).map(|mut result| {
         result.normalize();
@@ -105,10 +107,9 @@ pub fn parse(command: &str, output: &str) -> Option<TestResults> {
 }
 
 fn parse_json(output: &str) -> Option<TestResults> {
-    if output.len() > MAX_JSON_BYTES {
-        return None;
-    }
-    if let Ok(value) = serde_json::from_str::<Value>(output.trim()) {
+    if output.len() <= MAX_JSON_BYTES
+        && let Ok(value) = serde_json::from_str::<Value>(output.trim())
+    {
         if let Some(object) = value.as_object() {
             let has_jest_counts = object.get("numTotalTests").is_some();
             let mut result = TestResults {
@@ -118,6 +119,7 @@ fn parse_json(output: &str) -> Option<TestResults> {
                 skipped: usize_value(
                     object.get("numPendingTests").or_else(|| object.get("numTodoTests")),
                 ),
+                counts_reported: has_jest_counts,
                 ..Default::default()
             };
             if let Some(suites) = object.get("testResults").and_then(Value::as_array) {
@@ -147,6 +149,7 @@ fn parse_json(output: &str) -> Option<TestResults> {
                 }
             }
             if let Some(summary) = object.get("summary").and_then(Value::as_object) {
+                result.counts_reported = true;
                 result.passed = result.passed.max(usize_value(summary.get("passed")));
                 result.failed = result.failed.max(usize_value(summary.get("failed")));
                 result.skipped = result.skipped.max(usize_value(summary.get("skipped")));
@@ -155,20 +158,18 @@ fn parse_json(output: &str) -> Option<TestResults> {
             if let Some(tests) = object.get("tests").and_then(Value::as_array) {
                 for test in tests {
                     match test.get("outcome").and_then(Value::as_str).unwrap_or("") {
-                        "passed" => result.passed += 1,
-                        "skipped" => result.skipped += 1,
+                        "passed" if !result.counts_reported => result.passed += 1,
+                        "skipped" if !result.counts_reported => result.skipped += 1,
                         "failed" => result.add_failure(TestFailure {
-                            name: test
-                                .get("nodeid")
-                                .and_then(Value::as_str)
-                                .unwrap_or("failed test")
-                                .to_owned(),
+                            name: cap_text(
+                                test.get("nodeid").and_then(Value::as_str).unwrap_or("failed test"),
+                            ),
                             reason: test
                                 .pointer("/call/longrepr")
                                 .and_then(Value::as_str)
                                 .map(cap_reason)
                                 .unwrap_or_default(),
-                            file: test.get("filename").and_then(Value::as_str).map(str::to_owned),
+                            file: test.get("filename").and_then(Value::as_str).map(cap_text),
                             line: test.get("lineno").and_then(Value::as_u64).map(|n| n as u32),
                         }),
                         _ => {}
@@ -182,6 +183,9 @@ fn parse_json(output: &str) -> Option<TestResults> {
     let mut result = TestResults::default();
     let mut saw = false;
     for line in output.lines() {
+        if line.len() > MAX_JSON_BYTES {
+            continue;
+        }
         let Ok(event) = serde_json::from_str::<Value>(line) else { continue };
         let action = event.get("Action").and_then(Value::as_str).unwrap_or("");
         if !matches!(action, "pass" | "fail" | "skip") || event.get("Test").is_none() {
@@ -192,7 +196,7 @@ fn parse_json(output: &str) -> Option<TestResults> {
             "pass" => result.passed += 1,
             "skip" => result.skipped += 1,
             "fail" => result.add_failure(TestFailure {
-                name: event.get("Test").and_then(Value::as_str).unwrap_or("failed test").to_owned(),
+                name: cap_text(event.get("Test").and_then(Value::as_str).unwrap_or("failed test")),
                 reason: String::new(),
                 file: None,
                 line: None,
@@ -213,35 +217,17 @@ fn parse_text(output: &str) -> Option<TestResults> {
             || (lower.contains(" passed")
                 && (lower.contains(" failed") || lower.contains(" skipped")))
     });
-    let summary = Regex::new(
-        r"(?i)(?:(\d+)\s+passed).*?(?:(\d+)\s+failed)?(?:.*?(\d+)\s+(?:skipped|ignored|pending))?",
-    )
-    .ok()?;
-    let summary_alt = Regex::new(
-        r"(?i)(\d+)\s+failed.*?(\d+)\s+passed(?:.*?(\d+)\s+(?:skipped|ignored|pending))?",
-    )
-    .ok()?;
-    let cargo_case = Regex::new(r"^\s*test\s+(.+?)\s+\.\.\.\s+(FAILED|ignored|ok)\s*$").ok()?;
-    let pytest_failure = Regex::new(r"^\s*FAILED\s+([^\s]+(?:::\S+)?)\s*-?\s*(.*)$").ok()?;
-    let go_failure = Regex::new(r"^\s*--- FAIL:\s*(\S+)").ok()?;
+    let patterns = text_patterns();
     for line in output.lines() {
-        if let Some(caps) = summary.captures(line).or_else(|| summary_alt.captures(line)) {
-            let nums: Vec<usize> = caps
-                .iter()
-                .skip(1)
-                .filter_map(|m| m.and_then(|m| m.as_str().parse().ok()))
-                .collect();
-            let lower = line.to_ascii_lowercase();
-            if lower.find("failed").unwrap_or(usize::MAX)
-                < lower.find("passed").unwrap_or(usize::MAX)
-            {
-                result.failed = nums.first().copied().unwrap_or(0);
-                result.passed = nums.get(1).copied().unwrap_or(0);
-            } else {
-                result.passed = nums.first().copied().unwrap_or(0);
-                result.failed = nums.get(1).copied().unwrap_or(0);
+        for caps in patterns.summary.captures_iter(line) {
+            let count = caps[1].parse().unwrap_or(0);
+            match caps[2].to_ascii_lowercase().as_str() {
+                "passed" => result.passed = result.passed.max(count),
+                "failed" => result.failed = result.failed.max(count),
+                "skipped" | "ignored" | "pending" => result.skipped = result.skipped.max(count),
+                _ => {}
             }
-            result.skipped = nums.get(2).copied().unwrap_or(0);
+            result.counts_reported = true;
             saw = true;
         }
         let lower = line.to_ascii_lowercase();
@@ -252,13 +238,13 @@ fn parse_text(output: &str) -> Option<TestResults> {
         {
             saw = true;
         }
-        if let Some(caps) = cargo_case.captures(line) {
+        if let Some(caps) = patterns.cargo_case.captures(line) {
             saw = true;
             match caps.get(2).map(|m| m.as_str()) {
                 Some("ok") if !summary_seen => result.passed += 1,
                 Some("ignored") if !summary_seen => result.skipped += 1,
                 Some("FAILED") => result.add_failure(TestFailure {
-                    name: caps[1].to_owned(),
+                    name: cap_text(&caps[1]),
                     reason: String::new(),
                     file: None,
                     line: None,
@@ -266,20 +252,20 @@ fn parse_text(output: &str) -> Option<TestResults> {
                 _ => {}
             }
         }
-        if let Some(caps) = pytest_failure.captures(line) {
+        if let Some(caps) = patterns.pytest_failure.captures(line) {
             saw = true;
             let (file, line_no) = split_location(&caps[1]);
             result.add_failure(TestFailure {
-                name: caps[1].to_owned(),
+                name: cap_text(&caps[1]),
                 reason: cap_reason(caps.get(2).map(|m| m.as_str()).unwrap_or("")),
                 file,
                 line: line_no,
             });
         }
-        if let Some(caps) = go_failure.captures(line) {
+        if let Some(caps) = patterns.go_failure.captures(line) {
             saw = true;
             result.add_failure(TestFailure {
-                name: caps[1].to_owned(),
+                name: cap_text(&caps[1]),
                 reason: String::new(),
                 file: None,
                 line: None,
@@ -299,33 +285,80 @@ fn assertion_name(value: &Value) -> String {
         .map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "))
         .unwrap_or_default();
     let title = value.get("title").and_then(Value::as_str).unwrap_or("failed test");
-    if ancestors.is_empty() { title.to_owned() } else { format!("{ancestors} {title}") }
+    if ancestors.is_empty() { cap_text(title) } else { cap_text(&format!("{ancestors} {title}")) }
 }
 fn reason_from_json(value: &Value) -> String {
     value
         .get("failureMessages")
         .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "))
-        .map(|s| cap_reason(&s))
+        .map(|a| cap_reason_parts(a.iter().filter_map(Value::as_str)))
         .unwrap_or_default()
 }
 fn file_from_json(value: &Value) -> Option<String> {
-    value.get("testFilePath").and_then(Value::as_str).map(str::to_owned)
+    value.get("testFilePath").and_then(Value::as_str).map(cap_text)
 }
 fn line_from_json(value: &Value) -> Option<u32> {
     value.get("location").and_then(|l| l.get("line")).and_then(Value::as_u64).map(|n| n as u32)
 }
 fn cap_reason(reason: &str) -> String {
-    let mut out: String = reason.split_whitespace().collect::<Vec<_>>().join(" ");
-    if out.len() > MAX_REASON_BYTES {
-        out.truncate(MAX_REASON_BYTES);
-        out.push('…');
+    cap_reason_parts(std::iter::once(reason))
+}
+fn cap_reason_parts<'a>(parts: impl IntoIterator<Item = &'a str>) -> String {
+    let mut out = String::new();
+    for part in parts {
+        for word in part.split_whitespace() {
+            let extra = usize::from(!out.is_empty()) + word.len();
+            if out.len() + extra > MAX_REASON_BYTES {
+                out.push('…');
+                return out;
+            }
+            if !out.is_empty() {
+                out.push(' ');
+            }
+            out.push_str(word);
+        }
     }
     out
 }
+fn cap_text(value: &str) -> String {
+    let mut out = String::new();
+    for ch in value.chars() {
+        if out.len() + ch.len_utf8() > MAX_NAME_BYTES {
+            out.push('…');
+            break;
+        }
+        out.push(ch);
+    }
+    out
+}
+fn bounded_tail(value: &str) -> &str {
+    if value.len() <= MAX_SCAN_BYTES {
+        return value;
+    }
+    let mut start = value.len() - MAX_SCAN_BYTES;
+    while start < value.len() && !value.is_char_boundary(start) {
+        start += 1;
+    }
+    &value[start..]
+}
+struct TextPatterns {
+    summary: Regex,
+    cargo_case: Regex,
+    pytest_failure: Regex,
+    go_failure: Regex,
+}
+fn text_patterns() -> &'static TextPatterns {
+    static PATTERNS: OnceLock<TextPatterns> = OnceLock::new();
+    PATTERNS.get_or_init(|| TextPatterns {
+        summary: Regex::new(r"(?i)(\d+)\s+(passed|failed|skipped|ignored|pending)").unwrap(),
+        cargo_case: Regex::new(r"^\s*test\s+(.+?)\s+\.\.\.\s+(FAILED|ignored|ok)\s*$").unwrap(),
+        pytest_failure: Regex::new(r"^\s*FAILED\s+([^\s]+(?:::\S+)?)\s*-?\s*(.*)$").unwrap(),
+        go_failure: Regex::new(r"^\s*--- FAIL:\s*(\S+)").unwrap(),
+    })
+}
 fn split_location(value: &str) -> (Option<String>, Option<u32>) {
     let Some((file, line)) = value.rsplit_once(':') else { return (None, None) };
-    (Some(file.to_owned()), line.parse().ok())
+    (Some(cap_text(file)), line.parse().ok())
 }
 
 #[cfg(test)]
@@ -361,6 +394,20 @@ mod tests {
     fn parses_go_json_lines() {
         let output = include_str!("../tests/fixtures/test-results/go.jsonl");
         let result = parse("go test -json ./...", output).unwrap();
+        assert_eq!((result.passed, result.failed, result.skipped), (2, 1, 1));
+    }
+
+    #[test]
+    fn caps_unicode_reasons_without_panicking() {
+        let reason = "é".repeat(200);
+        let result = parse("pytest", &format!("FAILED tests/test.py::bad - {reason}")).unwrap();
+        assert!(result.failures[0].reason.len() <= MAX_REASON_BYTES + 3);
+    }
+
+    #[test]
+    fn parses_pytest_json_without_double_counting_summary() {
+        let output = r#"{"summary":{"passed":2,"failed":1,"skipped":1,"total":4},"tests":[{"outcome":"passed"},{"outcome":"passed"},{"outcome":"skipped"},{"outcome":"failed","nodeid":"tests/test.py::bad"}]}"#;
+        let result = parse("pytest --json", output).unwrap();
         assert_eq!((result.passed, result.failed, result.skipped), (2, 1, 1));
     }
 }
