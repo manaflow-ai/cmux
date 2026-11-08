@@ -187,6 +187,37 @@ import Testing
         #expect(answers == ["second"], "the answer goes to the latest caller once")
     }
 
+    /// Review of #38375 (F1): the same offer shown again while another tab of the pane shows (Show
+    /// Import Cookies Banner on tab U) must not take over the card held, hidden, for tab T: U gets its
+    /// own card with U's answer, and T's held card never answers for U.
+    @Test func theSameOfferOnAnotherTabNeverReusesTheHeldCard() async throws {
+        let t = Self.tab("t.example"), u = Self.tab("u.example")
+        let stateT = BrowserChromeTabState(), stateU = BrowserChromeTabState()
+        stateT.hasKeyboard = true
+        stateU.hasKeyboard = true
+        let pane = BrowserPaneChrome()
+        let chrome = pane.bind(t, state: stateT)
+        let window = Self.window(chrome)
+        defer {
+            window.close()
+            pane.drop()
+            t.close()
+            u.close()
+        }
+        let offer = BrowserCookieImportOffer(icons: [], title: "Import", importTitle: "Import", notNowTitle: "Not now")
+        var answers: [String] = []
+        chrome.showCookieImportOffer(offer) { _ in answers.append("t") }
+        let held = try #require(chrome.currentCookieImportCard)
+        pane.bind(u, state: stateU)
+        #expect(held.isHidden && held.heldFor === stateT)
+        chrome.showCookieImportOffer(offer) { _ in answers.append("u") }
+        let shown = try #require(chrome.currentCookieImportCard)
+        #expect(shown !== held, "tab U's offer reused the card held for tab T")
+        #expect(chrome.showsCookieImportOffer, "tab U's offer did not show")
+        shown.onChoice?(.importCookies)
+        #expect(answers == ["u"])
+    }
+
     /// History is the tab's, not the toolbar's (Chrome's HistoryTabHelper): a tab that never shows, or loads while
     /// another tab of the pane shows, records its visits and finished loads then, and a later show records none again.
     @Test func aHiddenTabRecordsItsVisitsAndFinishedLoads() async {

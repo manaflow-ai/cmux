@@ -42,12 +42,13 @@ extension BrowserChromeView {
     /// shown. It floats on the window's overlay host (`PageFloatingOverlays`),
     /// so it shows above Chromium pages too.
     /// `aboveToast` lifts it over the window's toast stack (a toast shows now).
-    /// The same offer while its card is up keeps that card (and its fade, its page, its place): only
-    /// the answer goes to the new caller (Leo 2026-11-08: "the import cookies from google chrome card
-    /// flickers sometimes"; a second show faded the card out and a new one in).
+    /// The same offer while this tab's card is up keeps that card (and its fade, its page, its place):
+    /// only the answer goes to the new caller (Leo 2026-11-08: "the import cookies from google chrome
+    /// card flickers sometimes"; a second show faded the card out and a new one in). A card held,
+    /// hidden, for another tab of the pane is that tab's: it is never reused for this one.
     public func showCookieImportOffer(_ offer: BrowserCookieImportOffer, aboveToast: Bool = false,
                                       onChoice: @escaping (BrowserCookieImportChoice) -> Void) {
-        if let shown = currentCookieImportCard, shown.offer == offer {
+        if let shown = currentCookieImportCard, shown.offer == offer, !shown.isHidden, shown.heldFor == nil {
             shown.onChoice = { [weak self, weak shown] choice in
                 if let shown { self?.remove(shown) }
                 onChoice(choice)
