@@ -67,17 +67,7 @@ await requireBrowserLane("ime-composer-probes.browser.test.ts", async () => {
   }
 
   async function dispatchSubmitReturn(page: Page) {
-    await page.evaluate(() => {
-      const target = document.activeElement ?? document.body;
-      const event = new KeyboardEvent("keydown", {
-        key: "Enter",
-        code: "Enter",
-        bubbles: true,
-        cancelable: true,
-      });
-      if (event.keyCode !== 13) Object.defineProperty(event, "keyCode", { get: () => 13 });
-      target.dispatchEvent(event);
-    });
+    await page.locator(".acpmux-md").press("Enter");
   }
 
   async function compose(page: Page, preedit: string, committed: string, candidate = false) {
