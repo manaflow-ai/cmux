@@ -54,7 +54,7 @@ enum CLIInstallHandlers {
             guard name == .cmux else { return show(CLIInstallReport.installed(path: path).message, in: window) }
             let after = await pathCheck(source)
             if after.runsThisApp {
-                show((plan.repointedFrom.map { .repointed(path: path, from: $0) } ?? CLIInstallReport.installed(path: path)).message, in: window)
+                show((plan.repointedFrom.map { CLIInstallReport.repointed(path: path, from: $0) } ?? CLIInstallReport.installed(path: path)).message, in: window)
             } else if let entry = after.entry {
                 show(CLIInstallReport.shadowed(path: path, entry: entry.path, classic: after.status.isClassic).message,
                      action: replace, in: window, run: replaceCmux)

@@ -87,7 +87,7 @@ public nonisolated struct CLIPathCheck: Equatable, Sendable {
         }
         let standard = CLIPathInstaller.Name.cmux.destination
         let fallback = folders.contains(standard.deletingLastPathComponent().path) ? standard
-            : ["/opt/homebrew/bin", "/usr/local/bin"].first(where: folders.contains)
+            : ["/opt/homebrew/bin", "/usr/local/bin"].first(where: { folders.contains($0) })
                 .map { URL(fileURLWithPath: $0).appendingPathComponent("cmux") } ?? standard
         switch (found, dangling) {
         case let ((status, entry)?, _):
