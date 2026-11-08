@@ -61,9 +61,9 @@ enum TerminalTabContent {
         services.themes.catchUp(entry, fresh: true)
         TabRestart.offer(on: entry, tab: tab, daemon: daemon, registry: services.registry)
         // The Fix chip on a failed command runs `terminal.fixLastCommand` on this tab (TerminalToChatActions).
-        let fix = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id))
-        entry.session.view.onFixCommand = !daemon.supports(DaemonCapability.terminalCommandContext.rawValue) ? nil
-            : { [weak registry = services.registry] in _ = registry?.perform("terminal.fixLastCommand", invocation: fix) }
+        let fix: ActionID = "terminal.fixLastCommand", on = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id)), registry = services.registry
+        let run: (@MainActor () -> Void) = { [weak registry] in _ = registry?.perform(fix, invocation: on) }
+        entry.session.view.onFixCommand = daemon.supports(DaemonCapability.terminalCommandContext.rawValue) ? run : nil
         return .terminal(entry)
     }
 }
