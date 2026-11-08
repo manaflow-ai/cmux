@@ -239,6 +239,10 @@ pub struct Peer {
     /// take it away (`attach_hidden`).
     attached: StdMutex<HashMap<String, u64>>,
     marks: AtomicU64,
+    /// The attached chats whose latest attach sent on the link named a `kinds` filter: the
+    /// peer's one subscription for this link streams only those kinds of them (each attach
+    /// sets it anew, and a prompt keeps it), so a reader that needs every kind attaches again.
+    narrowed: StdMutex<HashSet<String>>,
     /// Per attached chat, the greatest event sequence local clients have already received: a
     /// reconnect asks the peer for records after it instead of attaching with `limit: 0` (which
     /// silently loses the gap between links). A chat marked in `attached` with no cursor has no
@@ -398,6 +402,7 @@ impl Peer {
             admitting: AtomicBool::new(false),
             attached: StdMutex::new(HashMap::new()),
             marks: AtomicU64::new(0),
+            narrowed: StdMutex::new(HashSet::new()),
             cursors: StdMutex::new(HashMap::new()),
             replay_highwater: StdMutex::new(HashMap::new()),
             replay_tail: StdMutex::new(HashMap::new()),
@@ -978,6 +983,25 @@ impl Peer {
         new
     }
 
+    /// True when the latest attach of chat `id` sent on the link named no `kinds` filter: the
+    /// peer streams this daemon every kind of record of it ([`Self::note_attach_sent`]).
+    pub fn streams_every_kind(&self, id: &str) -> bool {
+        !self.narrowed.lock_or_recover().contains(id)
+    }
+
+    /// An `_acpmux/attach` going out on the link sets the peer's subscription for its chat to
+    /// its own `kinds` filter: remember whether that filter narrows it.
+    fn note_attach_sent(&self, params: &Value) {
+        let Some(id) = params.get("sessionId").and_then(Value::as_str) else { return };
+        let every = crate::hub::EventFilter::parse(params.get("kinds")).is_ok_and(|f| f.is_all());
+        let mut narrowed = self.narrowed.lock_or_recover();
+        if every {
+            narrowed.remove(id);
+        } else {
+            narrowed.insert(id.to_owned());
+        }
+    }
+
     /// Forget the replay baseline of an attachment whose first baseline request failed. The
     /// mark stays (`attach_hidden`): the next link attaches it without history, which sets a
     /// fresh baseline.
@@ -1132,6 +1156,9 @@ impl Peer {
         // or a full queue ahead of it) times out on the schedule of one the peer is slow to
         // answer, never later.
         let started = tokio::time::Instant::now();
+        if m == method::MUX_ATTACH {
+            self.note_attach_sent(&params);
+        }
         let turn_wait = waits_on_turn(m)
             || (m == method::MUX_DISPATCH
                 && params.get("durable").and_then(Value::as_bool) == Some(true)

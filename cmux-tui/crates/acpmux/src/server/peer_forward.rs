@@ -646,13 +646,17 @@ async fn forward_inner(
                 super::view::subscribe_remote(hub, conn, &id, None);
             }
             first_attach = peer.mark_attached(&id);
-            // A subscription only (`limit: 0`) to a chat the link already streams here: this
-            // client is subscribed above, and the peer has nothing to add but its row.
+            // A subscription only (`limit: 0`) to a chat the link already streams here, every
+            // kind of record of it: this client is subscribed above, and the peer has nothing to
+            // add but its row. One another client here attached with a `kinds` filter streams
+            // only those kinds (the app's tool-call watch): this attach goes out and widens it,
+            // or a send would never hear the agent's reply.
             if m == method::MUX_ATTACH
                 && !first_attach
                 && row_will_do(params)
                 && peer.ready()
                 && subscribes_only(params)
+                && peer.streams_every_kind(&id)
             {
                 let mut reply =
                     json!({"session": from_row(&row, &peer.name), "events": [], "hasMore": false});
