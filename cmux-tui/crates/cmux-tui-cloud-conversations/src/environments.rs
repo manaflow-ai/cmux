@@ -162,13 +162,15 @@ fn redact(environment: &mut Value) {
                 None => *hosts = Value::Null,
             }
         }
+        // A header is forwarded only whole: its `name` and `format`, both strings, and nothing else.
         if let Some(header) = fields.get_mut("header") {
-            match header.as_object_mut() {
-                Some(header) => header.retain(|key, value| {
-                    matches!(key.as_str(), "name" | "format") && value.is_string()
-                }),
-                None => *header = Value::Null,
-            }
+            *header = match (
+                header.get("name").and_then(Value::as_str),
+                header.get("format").and_then(Value::as_str),
+            ) {
+                (Some(name), Some(format)) => json!({ "name": name, "format": format }),
+                _ => Value::Null,
+            };
         }
         fields.retain(|_, value| !value.is_null());
     }
@@ -213,11 +215,18 @@ mod tests {
     }
 
     #[test]
-    fn redact_drops_a_header_or_hosts_that_is_not_the_expected_shape() {
+    fn redact_drops_a_partial_header_or_hosts_that_is_not_the_expected_shape() {
         let mut environment = json!({
-            "secrets": [{"name": "TOKEN", "header": "Bearer hunter2", "hosts": "hunter2"}],
+            "secrets": [
+                {"name": "TOKEN", "header": "Bearer hunter2", "hosts": "hunter2"},
+                {"name": "PARTIAL", "header": {"name": "authorization"}},
+                {"name": "NOT_TEXT", "header": {"name": "authorization", "format": 7}},
+            ],
         });
         redact(&mut environment);
-        assert_eq!(environment, json!({"secrets": [{"name": "TOKEN"}]}));
+        assert_eq!(
+            environment,
+            json!({"secrets": [{"name": "TOKEN"}, {"name": "PARTIAL"}, {"name": "NOT_TEXT"}]})
+        );
     }
 }
