@@ -564,6 +564,7 @@ pub(super) async fn serve_cloud_dial<C, O, S>(
         );
         return refuse(&mut caller, host, service, error, &detail).await;
     };
+    let handshake_ms = began.elapsed().as_millis();
     // One fresh token per attempt, used once, never kept. A mint the broker
     // could not answer is asked again a few times before the dial is refused.
     let mut pauses = TOKEN_RETRY_PAUSES.iter();
@@ -600,7 +601,17 @@ pub(super) async fn serve_cloud_dial<C, O, S>(
     let mut stream = super::refusal_watch::RefusalWatch::new(stream, |refusal| {
         eprintln!("cmux link: {host} refused the {service:?} stream: {refusal}");
     });
-    let _ = tokio::io::copy_bidirectional(&mut caller, &mut stream).await;
+    let connected_ms = began.elapsed().as_millis();
+    let copied = tokio::io::copy_bidirectional(&mut caller, &mut stream).await;
+    // Where a dial's time went and what crossed it, in link.log: a caller that
+    // gave up before the machine answered shows here, not as an error.
+    let (sent, back) = copied.as_ref().map_or((0, 0), |(sent, back)| (*sent, *back));
+    eprintln!(
+        "cmux link: dial {host} {service:?}: handshake {handshake_ms} ms ({tries} failed tries first), \
+         connected {connected_ms} ms; ended after {} ms: {sent} bytes out, {back} back{}",
+        began.elapsed().as_millis(),
+        copied.err().map(|error| format!(" ({error})")).unwrap_or_default()
+    );
 }
 
 #[cfg(test)]

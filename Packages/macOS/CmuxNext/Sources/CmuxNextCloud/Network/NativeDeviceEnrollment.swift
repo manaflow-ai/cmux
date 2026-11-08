@@ -1,6 +1,7 @@
 public import CmuxInstallAuthCore
 import CryptoKit
 public import Foundation
+import os
 
 /// Enrolls a Mac device and confirms its backend host identity. No tunnel or serving role is started.
 /// Keep one instance per sign-in/mesh. On sign-out call `revoke` before ending the Stack session.
@@ -40,12 +41,14 @@ public actor NativeDeviceEnrollment {
     package func cloudBrokerReply(_ bytes: Data) async throws -> Data {
         let request = try NativeCloudBrokerRequest(bytes)
         try Task.checkCancellation()
+        let clock = ContinuousClock(), began = clock.now
         let epoch = generation
         if binding == nil { _ = try await enroll() }
         guard let saved, let binding else { throw NativeDeviceEnrollmentError.invalidState }
         try await check(saved.context, epoch)
         // Every request mints in the immutable backend team, never the personal overload.
         let context = try await identity.nativeContext(team: scope.team)
+        let contextAt = clock.now
         try await check(context, epoch)
         guard context.account == saved.context.account, context.user == saved.context.user,
               context.install == saved.context.install, context.point == saved.context.point,
@@ -63,6 +66,7 @@ public actor NativeDeviceEnrollment {
         }
         try await check(context, epoch)
         try Task.checkCancellation()
+        let proofAt = clock.now
         let call = NativeCloudBrokerCall(op: request.op.rawValue, params: .init(host: request.host, services: request.services, native_proof: authorization))
         let body = try JSONEncoder().encode(call)
         let response: (status: Int, body: Data)
@@ -70,9 +74,21 @@ public actor NativeDeviceEnrollment {
         case .connectInfo: response = try await identity.nativeOwnerRead(body, context: context)
         case .linkToken: response = try await identity.nativeOwnerPost(body, context: context)
         }
+        // Where a broker answer's time goes (the link waits on it for each dial).
+        Self.logger.info("""
+            broker \(request.op.rawValue, privacy: .public) \(response.status, privacy: .public): \
+            token \(Self.ms(contextAt - began), privacy: .public) ms, \
+            proof \(Self.ms(proofAt - contextAt), privacy: .public) ms, \
+            backend \(Self.ms(clock.now - proofAt), privacy: .public) ms
+            """)
         try await check(context, epoch)
         try Task.checkCancellation()
         return try NativeCloudBrokerReply.encode(response, request: request)
+    }
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.broker")
+    private static func ms(_ duration: Duration) -> Int64 {
+        duration.components.seconds * 1000 + duration.components.attoseconds / 1_000_000_000_000_000
     }
 
     private func currentRecord(_ store: NativeDeviceStore) throws -> NativeDeviceRecord {

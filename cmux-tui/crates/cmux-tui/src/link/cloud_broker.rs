@@ -201,6 +201,15 @@ impl ConnectInfoSource for BrokerSource {
     }
 }
 
+impl Request {
+    fn op(&self) -> &'static str {
+        match self {
+            Self::Fetch { .. } => "connect_info",
+            Self::Mint { .. } => "link_token",
+        }
+    }
+}
+
 impl Driver {
     pub(super) async fn run(mut self) -> io::Result<()> {
         let mut id = 0_u64;
@@ -228,6 +237,7 @@ impl Driver {
             // holds for a caller that gave up on a slow reply (its own DIAL_TIMEOUT):
             // the reply is waited for up to REPLY_LIMIT, never the dial's 5 s.
             let timed_out = || io::Error::new(io::ErrorKind::TimedOut, "cloud.broker.timeout");
+            let began = tokio::time::Instant::now();
             tokio::time::timeout(DIAL_TIMEOUT, async {
                 self.stream.write_all(&text).await?;
                 self.stream.write_all(b"\n").await
@@ -252,6 +262,13 @@ impl Driver {
                 }
                 _ => return Err(invalid()),
             };
+            // How long the parent took, in link.log: a dial's time goes mostly here.
+            eprintln!(
+                "cmux link: broker {} answered in {} ms{}",
+                call.request.op(),
+                began.elapsed().as_millis(),
+                if call.answer.is_closed() { ", after its caller gave up" } else { "" }
+            );
             let _ = call.answer.send(answer);
         }
     }
