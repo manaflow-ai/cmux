@@ -33,6 +33,7 @@ export function newTabScreenActions(deps: {
   startsHere?(): boolean;
   /// Captures the page/selection owning this attempt, before any asynchronous work.
   startScope?(allowReconnect: boolean): () => boolean;
+  showError?(error: unknown): void;
 }): NewTabScreenActions {
   const { callNative, cwd } = deps;
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
@@ -124,8 +125,19 @@ export function newTabScreenActions(deps: {
       });
     },
     onFixFromLink: (url) => {
-      deps.leave();
-      ignore(callNative("chat.fix_from_link", { url }));
+      ignore(
+        callNative("chat.fix_from_link", { url })
+          .then((result) => {
+            const sessionId =
+              result && typeof result === "object" && typeof (result as { sessionId?: unknown }).sessionId === "string"
+                ? (result as { sessionId: string }).sessionId
+                : undefined;
+            if (!sessionId) throw new Error("fix-from-link did not return a session");
+            deps.leave();
+            deps.selectSession(sessionId);
+          })
+          .catch((error) => deps.showError?.(error)),
+      );
     },
     savedEnvironments: savedEnvironmentHost(callNative),
     onOpen: (url) => {

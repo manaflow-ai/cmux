@@ -214,9 +214,12 @@ async fn find_checkout(
         if let Some(path) = requested.as_deref()
             && let Ok(root) = git_root(path)
         {
-            // An explicit folder pick is authoritative even when a local fixture
-            // has no configured remote yet.
-            return Ok(root);
+            // A picked folder is authoritative when it has no origin (for example a
+            // freshly-created fixture), but never lets an unrelated checkout receive
+            // another repository's issue.
+            if repo_matches(&root, &issue) || origin_remote(&root).is_none() {
+                return Ok(root);
+            }
         }
         let mut candidates = Vec::new();
         if let Some(path) = requested {
@@ -261,14 +264,49 @@ fn git_root(path: &Path) -> Result<PathBuf, ()> {
 }
 
 fn repo_matches(root: &Path, issue: &GithubIssueLink) -> bool {
+    origin_remote(root).and_then(|remote| parse_github_origin(&remote)).is_some_and(
+        |(owner, repo)| {
+            owner.eq_ignore_ascii_case(&issue.owner) && repo.eq_ignore_ascii_case(&issue.repo)
+        },
+    )
+}
+
+fn origin_remote(root: &Path) -> Option<String> {
     let output = std::process::Command::new("git")
         .args(["-C", root.to_str().unwrap_or_default(), "remote", "get-url", "origin"])
-        .output();
-    let Ok(output) = output else { return false };
-    let remote_text = String::from_utf8_lossy(&output.stdout);
-    let remote = remote_text.trim().trim_end_matches('/').trim_end_matches(".git");
-    remote.ends_with(&format!("/{}/{}", issue.owner, issue.repo))
-        || remote == format!("{}/{}", issue.owner, issue.repo)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let remote = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    (!remote.is_empty()).then_some(remote)
+}
+
+/// Extract the owner/repository from a GitHub HTTPS or scp-style SSH remote.
+/// Host matching is exact so `github.com.evil.example` cannot masquerade as GitHub.
+fn parse_github_origin(remote: &str) -> Option<(String, String)> {
+    let remote = remote.trim().trim_end_matches('/').trim_end_matches(".git");
+    let (host, path) = if let Some(rest) = remote.strip_prefix("git@") {
+        rest.split_once(':')?
+    } else {
+        let rest = remote
+            .strip_prefix("https://")
+            .or_else(|| remote.strip_prefix("http://"))
+            .or_else(|| remote.strip_prefix("ssh://"))?;
+        let (host, path) = rest.split_once('/')?;
+        (host.rsplit('@').next().unwrap_or(host), path)
+    };
+    if !host.eq_ignore_ascii_case("github.com") {
+        return None;
+    }
+    let mut parts = path.split('/');
+    let owner = parts.next()?.to_owned();
+    let repo = parts.next()?.to_owned();
+    if parts.next().is_some() || owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+    Some((owner, repo))
 }
 
 fn issue_prompt(issue: &GithubIssueLink, context: &IssueContext) -> String {
@@ -310,5 +348,19 @@ mod tests {
     fn names_fix_branches_from_number_and_title() {
         let issue = GithubIssueLink { owner: "acme".into(), repo: "widget".into(), number: 42 };
         assert_eq!(branch_name(&issue, "Fix flaky upload!"), "fix/42-fix-flaky-upload");
+    }
+
+    #[test]
+    fn matches_github_https_and_scp_origins_only() {
+        assert_eq!(
+            parse_github_origin("https://github.com/acme/widget.git"),
+            Some(("acme".into(), "widget".into()))
+        );
+        assert_eq!(
+            parse_github_origin("git@github.com:acme/widget.git"),
+            Some(("acme".into(), "widget".into()))
+        );
+        assert_eq!(parse_github_origin("https://github.com.evil.example/acme/widget.git"), None);
+        assert_eq!(parse_github_origin("https://gitlab.com/acme/widget.git"), None);
     }
 }
