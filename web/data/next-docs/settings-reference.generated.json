@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 615,
+  "count": 616,
   "sections": [
     {
       "id": "general",
@@ -1860,6 +1860,14 @@
             "right",
             "off"
           ]
+        },
+        {
+          "key": "agentPane.display.finishSound",
+          "title": "Play Sound When Work Finishes",
+          "help": "A soft sound when a long turn in the chat you're looking at ends, its checks pass or its pull request merges. Follows the Mac's Play user interface sound effects setting.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.font.lineHeight",
