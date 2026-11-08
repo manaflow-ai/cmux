@@ -19,7 +19,7 @@
 
 use crate::hub::{Control, Hub, Session};
 use crate::rpc::RpcError;
-use crate::server::{Conn, ConnAuth, Origin};
+use crate::server::{Conn, Origin};
 use serde_json::{Value, json};
 use std::sync::Arc;
 

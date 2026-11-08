@@ -428,11 +428,7 @@ where
     let reader = tokio::spawn(async move {
         while let Some(Ok(frame)) = source.next().await {
             match frame {
-                Frame::Text(t) => {
-                    if in_tx.send(t.to_string()).await.is_err() {
-                        break;
-                    }
-                }
+                Frame::Text(t) if in_tx.send(t.to_string()).await.is_err() => break,
                 Frame::Close(_) => break,
                 _ => {}
             }
