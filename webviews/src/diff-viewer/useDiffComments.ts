@@ -219,7 +219,7 @@ export function useDiffComments({
   const post = () => postBatch(false);
 
   /** `post`; `fresh` skips the unfinished batch, which the host said never reached GitHub. */
-  const postBatch = (fresh: boolean): Promise<void> | undefined => {
+  const postBatch = (fresh: boolean): void => {
     const comments = latestState.current.comments;
     if (review == null || !bridgeAvailable || repoRoot == null || comments.length === 0 || postState === "posting") {
       return;
@@ -241,8 +241,7 @@ export function useDiffComments({
     pendingPosts.current.set(targetRepoRoot, batch);
     setPostState("posting");
     setPostError(undefined);
-    // Answered for tests, which wait for the post to settle; a click ignores it.
-    return bridgePostComments(targetRepoRoot, batch.ids, batch.versions, batch.opid)
+    bridgePostComments(targetRepoRoot, batch.ids, batch.versions, batch.opid)
       .then(({ cleared, ...result }) => {
         pendingPosts.current.delete(targetRepoRoot);
         if (activeRepoRoot.current !== targetRepoRoot) return setPostState("idle");
@@ -264,7 +263,8 @@ export function useDiffComments({
         ) {
           pendingPosts.current.delete(targetRepoRoot);
           setPostState("idle");
-          return postBatch(true);
+          postBatch(true);
+          return;
         }
         // gh's own words say what to fix (a login, a moved head); the drafts stay for the retry.
         setPostError(error instanceof Error && error.message !== "" ? error.message : undefined);

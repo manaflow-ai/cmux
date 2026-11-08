@@ -236,6 +236,8 @@ test("a retry the host says never reached GitHub posts the edited drafts as a ne
       const edited = { ...comment("c1", "a.ts", 1), updatedAt: "2026-11-07T00:05:00.000Z" };
       probe.state.current.comments = [edited];
       await act(async () => probe.hook().post());
+      // The refusal, then the new review: two answers.
+      await act(async () => {});
       expect(calls).toHaveLength(3);
       expect(calls[1]!.opid).toBe(calls[0]!.opid!);
       expect(calls[2]!.opid).not.toBe(calls[0]!.opid!);
