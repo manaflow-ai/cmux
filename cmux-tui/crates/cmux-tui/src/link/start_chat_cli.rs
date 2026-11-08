@@ -187,6 +187,16 @@ pub(super) fn run(args: &[String]) -> i32 {
     if answer["ok"] == json!(true) { 0 } else { 1 }
 }
 
+/// The one team of a send's reservation, its bind and the spare warm: the install token's `team`
+/// claim, the backend team (`team_…`) the App's machine list, creates and billing send as
+/// `x-cmux-team` (#36037), so the spare warmed is the one the reservation claims and the list
+/// shows. None when the token names no backend team.
+pub(super) fn install_team(install_token: &str) -> Option<String> {
+    cmux_cloud_config::identity::claims(install_token.trim())
+        .team
+        .filter(|team| cmux_cloud_config::identity::is_team(team))
+}
+
 /// Milliseconds since 1970 by the wall clock.
 fn now_ms() -> u64 {
     SystemTime::now()
@@ -321,8 +331,6 @@ struct PlanRequest {
     reservation_key: Option<String>,
     #[serde(default)]
     platform: Option<String>,
-    #[serde(default)]
-    team: Option<String>,
 }
 
 /// How `plan` asks the cmux platform for a workspace's machine: `ensure` with a credential.
@@ -424,13 +432,18 @@ fn plan_with_calls(
         None
     };
     // Read the credential once: project ensure and reservation bind use the same human session.
-    let mut credential = String::new();
+    let (mut credential, mut install) = (String::new(), String::new());
     if request.credential_on_stdin
         && (request.reservation_key.is_some() || ensures(&request, project_key.as_deref()))
     {
         let _ = stdin.read_line(&mut credential);
+        // A reserved send's bind names the reservation's team: the install token on the next line.
+        if request.reservation_key.is_some() {
+            let _ = stdin.read_line(&mut install);
+        }
     }
     let credential = credential.trim();
+    let team = install_team(&install);
     let mut line = keys.json();
     let fields = match planned {
         Ok(Destination::Machine(id)) => {
@@ -493,9 +506,14 @@ fn plan_with_calls(
                 Err(error) => return ensure_answer(Err(error)),
             }
         }
-        Ok(Destination::New) => {
-            reservation_destination(ledger, &request, &send, workspace, credential, reservation)
-        }
+        Ok(Destination::New) => reservation_destination(
+            ledger,
+            &request,
+            &send,
+            workspace,
+            (credential, team.as_deref()),
+            reservation,
+        ),
         Err(error) => return refused("ledger_failed", format!("{error:#}")),
     };
     if let (Value::Object(line), Value::Object(fields)) = (&mut line, fields) {
@@ -514,7 +532,7 @@ fn reservation_destination(
     request: &PlanRequest,
     send: &Send,
     workspace: Option<&str>,
-    credential: &str,
+    (credential, team): (&str, Option<&str>),
     transport: reservations::Transport<'_>,
 ) -> Value {
     let cold = || {
@@ -532,7 +550,7 @@ fn reservation_destination(
             send_key: Some(request.key.to_lowercase()),
             environment: request.environment.clone(),
             platform: request.platform.clone(),
-            team: request.team.clone(),
+            team: team.map(str::to_string),
         },
         credential,
     );

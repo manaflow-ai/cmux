@@ -24,16 +24,16 @@ public import os
     /// reports finished, or abandoned when the account or team switched mid-copy (Rust then answers it again).
     public func start() {
         guard let userID = auth.user?.id else { return }
-        let teams = CloudMoveCLI.SpareWarmTeams(active: auth.teamID, managed: auth.managedTeamID, project: auth.configuration.stackProjectID)
+        let teamID = auth.teamID
         // task-owner: none; one bounded warm, its calls' own timeouts end it, and Rust's lock and throttle answer repeats.
         Task { @MainActor [self] in
             guard let token = try? await auth.tokens().access, let install = try? await installIdentity.installToken(),
-                  let copy = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, teams: teams) else { return }
-            let still: @MainActor @Sendable () async throws -> Bool = { [auth] in auth.user?.id == userID && auth.teamID == teams.active }
-            let installed = await copyLogin(onto: copy.machineID, userID: userID, teamID: teams.active, still: still)
+                  let copy = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install) else { return }
+            let still: @MainActor @Sendable () async throws -> Bool = { [auth] in auth.user?.id == userID && auth.teamID == teamID }
+            let installed = await copyLogin(onto: copy.machineID, userID: userID, teamID: teamID, still: still)
             let kept = installed ? true : (try? await still()) == true
             let end: CloudMoveCLI.SpareWarmEnd = kept ? .finished(copy.machineID) : .abandoned(copy.machineID)
-            _ = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, teams: teams, end: end)
+            _ = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, end: end)
         }
     }
 

@@ -1842,7 +1842,7 @@ fn a_reserved_machine_binds_once_before_the_send_is_pinned() {
     let send = key();
     let team = "team_0123456789abcdef0123";
     let request = json!({"key": send, "account": ACCOUNT, "workspace": "new-ws", "loaded": false,
-        "reservation_key": compose, "credential_on_stdin": true, "team": team,
+        "reservation_key": compose, "credential_on_stdin": true,
         "platform": "https://cmux-platform-development.debussy.workers.dev"})
     .to_string();
     let calls = RefCell::new(Vec::new());
@@ -1860,7 +1860,7 @@ fn a_reserved_machine_binds_once_before_the_send_is_pinned() {
     let first = super::plan_with_calls(
         &path,
         &request,
-        &mut "stack-session\n".as_bytes(),
+        &mut format!("stack-session\n{}\n", install_token(team)).as_bytes(),
         &never_ensure,
         &bind,
     );
@@ -2061,4 +2061,12 @@ fn reservation_bind_preserves_the_environment_authorization_input() {
     };
     assert_eq!(call.bind_payload()["environment"], "env_project");
     assert_eq!(call.bind_payload()["sendKey"], json!(call.send_key));
+}
+
+/// An install token whose `team` claim is `team`: the bind's team comes from it (`install_team`).
+fn install_token(team: &str) -> String {
+    use base64::Engine as _;
+    let claims = json!({"sub": "user_a", "team": team}).to_string();
+    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims);
+    format!("eyJhbGciOiJFUzI1NiJ9.{payload}.sig")
 }

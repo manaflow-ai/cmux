@@ -127,9 +127,10 @@ public nonisolated struct CloudMoveCLI: Sendable {
     public func machinePin() async -> Data? { try? await output(["verb": "machine-pin"]).stdout }
 
     /// Rust validates reservation fields; the native app supplies only its trusted origin/team.
-    public func startChatReservation(release: Bool, request: String, access: String) async throws -> Data {
+    /// `install`: the install token, whose team Rust names the reservation in (the spare warm's, `install_team`).
+    public func startChatReservation(release: Bool, request: String, access: String, install: String? = nil) async throws -> Data {
         struct Call: Encodable { var verb = "start-chat-reservation"; var release: Bool, request: String }
-        let read = try await run(Call(release: release, request: request), reading: "reservation", stdin: Data((access + "\n").utf8))
+        let read = try await run(Call(release: release, request: request), reading: "reservation", stdin: Data((access + "\n" + (install ?? "") + "\n").utf8))
         return read.object ?? Data(#"{"ok":false,"error_code":"bad_answer"}"#.utf8)
     }
 
@@ -146,24 +147,16 @@ public nonisolated struct CloudMoveCLI: Sendable {
         }
     }
 
-    /// The App's team state a warm is asked in (Stack ids); Rust turns it into the backend team (`identity::mint_team`).
-    public struct SpareWarmTeams: Sendable, Equatable {
-        public var active: String?, managed: String?, project: String
-        public init(active: String?, managed: String?, project: String) { (self.active, self.managed, self.project) = (active, managed, project) }
-    }
-
     /// How the App's login copy of a warm ended: done (or given up for good), or abandoned to an account or team switch.
     public enum SpareWarmEnd: Sendable, Equatable { case finished(String), abandoned(String) }
 
     /// `cmux link start-chat warm-spare --request JSON`, the session `access` token then the `install` token on stdin:
-    /// the person's spare, warmed in the team Rust picks from `teams`. Nil when there is nothing to copy: an answer from
+    /// the person's spare, warmed in the install token's team (Rust's `install_team`, the reservation's). Nil when there is nothing to copy: an answer from
     /// the record, no spare, a machine they do not own, or a refusal. With `end`, it reports the copy's end instead:
     /// a start waiting on it goes on, and an abandoned copy is answered again by Rust's next warm.
-    public func startChatWarmSpare(platform: URL, account: String, access: String, install: String, teams: SpareWarmTeams,
-                                   end: SpareWarmEnd? = nil) async -> SpareWarm? {
+    public func startChatWarmSpare(platform: URL, account: String, access: String, install: String, end: SpareWarmEnd? = nil) async -> SpareWarm? {
         struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
-        var request: [String: Any] = ["platform": platform.absoluteString, "account": account, "stackProjectId": teams.project]
-        (request["activeTeam"], request["managedTeam"]) = (teams.active, teams.managed)
+        var request: [String: Any] = ["platform": platform.absoluteString, "account": account]
         switch end {
         case .finished(let machine): request["finished"] = machine
         case .abandoned(let machine): request["abandoned"] = machine
@@ -188,8 +181,9 @@ public nonisolated struct CloudMoveCLI: Sendable {
     }
 
     /// `cmux link start-chat plan --request JSON`, the cmux `access` token on stdin.
-    public func startChatPlan(request: String, access: String? = nil) async throws -> (Answer, StartChatPlan) {
-        let read = try await run(["verb": "start-chat-plan", "request": request], reading: "start-chat-plan", stdin: access.map { Data(($0 + "\n").utf8) })
+    /// `install`: a reserved send's install token, whose team Rust binds the reservation in (`install_team`).
+    public func startChatPlan(request: String, access: String? = nil, install: String? = nil) async throws -> (Answer, StartChatPlan) {
+        let read = try await run(["verb": "start-chat-plan", "request": request], reading: "start-chat-plan", stdin: access.map { Data(($0 + "\n" + (install.map { $0 + "\n" } ?? "")).utf8) })
         return (read.answer, read.plan ?? StartChatPlan(createKey: "", tabKey: ""))
     }
 

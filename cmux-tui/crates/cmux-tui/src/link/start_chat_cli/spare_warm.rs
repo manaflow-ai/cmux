@@ -7,7 +7,6 @@
 
 use std::path::Path;
 
-use cmux_cloud_config::identity;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
@@ -46,14 +45,6 @@ pub(super) struct Request {
     /// flight, so a start onto it stops waiting.
     #[serde(default)]
     pub(super) finished: Option<String>,
-    /// The App's active Stack team, its managed team and the Stack project: the warm's backend team
-    /// (`identity::mint_team`). With neither team the warm is the install token's own (personal) team.
-    #[serde(default)]
-    pub(super) active_team: Option<String>,
-    #[serde(default)]
-    pub(super) managed_team: Option<String>,
-    #[serde(default)]
-    pub(super) stack_project_id: Option<String>,
     /// A start's question instead of a warm: wait for a warm's copy onto this machine.
     #[serde(default)]
     pub(super) wait_copy: Option<WaitCopy>,
@@ -133,32 +124,6 @@ pub(super) fn post(
         .post("/v1/cloud/spare/warm", json!({}))
 }
 
-/// The one team of a warm and its copy: the install token's `team` claim, the backend team id the
-/// App's reserve and machine routes send as `x-cmux-team`, so the platform warms the spare the
-/// reserve then claims, in the same id kind its answer and the copy's checks use. None when the
-/// token names no backend team: the warm is refused, never sent as personal.
-fn install_team(install_token: &str) -> Option<String> {
-    identity::claims(install_token.trim()).team.filter(|team| identity::is_team(team))
-}
-
-/// The warm's team, decided here: the active Stack team's backend id (`identity::mint_team`, the
-/// managed-device rule included), else, with no team active, the install token's own team. None
-/// when neither resolves (a managed device off its team, no project, no claim): the warm is refused.
-fn warm_team(request: &Request, install_token: &str) -> Option<String> {
-    if request.active_team.is_none() && request.managed_team.is_none() {
-        return install_team(install_token);
-    }
-    identity::mint_team(
-        None,
-        request.active_team.as_deref(),
-        request.managed_team.as_deref(),
-        request.stack_project_id.as_deref()?,
-    )
-    .ok()
-    .flatten()
-    .filter(|team| identity::is_team(team))
-}
-
 /// The throttle's lock (`spare-warm.lock`, an exclusive `flock`), held from the record's read to
 /// its write, the platform call included: a second warm at the same moment waits, then finds the
 /// first one's record and copies nothing. None when it cannot be taken: the warm is refused
@@ -197,11 +162,9 @@ pub(super) fn run(
         return Some(refused("unauthorized", "no session credential on stdin"));
     }
     let _ = stdin.read_line(&mut install);
-    let Some(team) = warm_team(&request, &install) else {
-        return Some(refused(
-            TEAM_UNRESOLVED,
-            "no backend team for the active team or the install token",
-        ));
+    // The reservation's team (`install_team`, #36037): the spare warmed is the one the reserve claims.
+    let Some(team) = super::install_team(&install) else {
+        return Some(refused(TEAM_UNRESOLVED, "the install token names no team"));
     };
     let Some(_held) = lock(state) else {
         return Some(refused(

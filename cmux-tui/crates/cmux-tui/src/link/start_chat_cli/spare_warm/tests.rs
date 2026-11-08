@@ -275,32 +275,61 @@ fn an_abandoned_copy_is_answered_again_within_the_gap() {
 }
 
 #[test]
-fn a_team_switch_warms_the_active_teams_spare_with_its_own_record() {
+fn the_warm_and_the_reservation_resolve_the_same_team() {
+    use super::super::reservations::{self, Action, Call};
+    // A team account's install token names its team; a personal one names the person's own team.
+    for team in [TEAM, "team_ffffffffffffffffffff"] {
+        let dir = tempfile::tempdir().unwrap();
+        let warmed = std::cell::RefCell::new(None::<String>);
+        let warm = |request: &Request, credential: &str, used: &str| {
+            *warmed.borrow_mut() = Some(used.to_string());
+            owner(request, credential, used)
+        };
+        let answer = run(
+            &flags(r#"{"account":"user_a"}"#),
+            dir.path(),
+            1_000_000,
+            &mut stdin(Some(team)).as_bytes(),
+            &warm,
+        )
+        .unwrap();
+        let reserved = std::cell::RefCell::new(None::<Option<String>>);
+        let reserve = |call: &Call, _: &str| {
+            *reserved.borrow_mut() = Some(call.team.clone());
+            Ok(json!({"leaseId": "lease-1", "machine": MACHINE, "expiresAt": 1}))
+        };
+        let compose = r#"{"composeKey":"0b6f4e2a-6d55-4c8e-9a43-1f2e3d4c5b6a"}"#;
+        let reply = reservations::run_with(
+            &flags(compose),
+            Action::Reserve,
+            &mut stdin(Some(team)).as_bytes(),
+            &reserve,
+        )
+        .unwrap();
+        assert_eq!(reply["ok"], json!(true), "{reply}");
+        // One rule, one team: the spare warmed is the one the reservation claims, and the copy targets it.
+        assert_eq!(warmed.borrow().as_deref(), Some(team));
+        assert_eq!(*reserved.borrow(), Some(Some(team.to_string())));
+        assert_eq!(answer["copy"]["team"], json!(team));
+    }
+    // The throttle record stays per account and team: another team's warm is its own.
     let dir = tempfile::tempdir().unwrap();
-    let seen = std::cell::RefCell::new(Vec::<String>::new());
+    let calls = Cell::new(0_usize);
     let transport = |request: &Request, credential: &str, team: &str| {
-        seen.borrow_mut().push(team.to_string());
+        calls.set(calls.get().saturating_add(1));
         owner(request, credential, team)
     };
-    // The install token is the person's own (personal team); the active Stack team picks the warm's team.
-    let warm = |active: &str, now| {
-        let request =
-            format!(r#"{{"account":"user_a","activeTeam":"{active}","stackProjectId":"proj"}}"#);
-        run(&flags(&request), dir.path(), now, &mut stdin(Some(TEAM)).as_bytes(), &transport)
-            .unwrap()
-    };
-    let (team_a, team_b) = (
-        identity::backend_team_id("proj", "stack_a"),
-        identity::backend_team_id("proj", "stack_b"),
-    );
-    assert_eq!(warm("stack_a", 1_000_000)["copy"]["team"], json!(team_a));
-    // A switch to another team warms that team's spare: its own record, not the first team's throttle.
-    assert_eq!(warm("stack_b", 1_010_000)["copy"]["team"], json!(team_b));
-    assert_eq!(*seen.borrow(), vec![team_a, team_b]);
-    // Each team's record throttles only that team.
-    assert_eq!(warm("stack_a", 1_020_000)["fresh"], json!(false));
-    assert_eq!(warm("stack_b", 1_030_000)["fresh"], json!(false));
-    assert_eq!(seen.borrow().len(), 2);
+    for team in [TEAM, "team_ffffffffffffffffffff", TEAM] {
+        run(
+            &flags(r#"{"account":"user_a"}"#),
+            dir.path(),
+            1_000_000,
+            &mut stdin(Some(team)).as_bytes(),
+            &transport,
+        )
+        .unwrap();
+    }
+    assert_eq!(calls.get(), 2);
 }
 
 #[test]
