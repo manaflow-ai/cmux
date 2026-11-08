@@ -26,6 +26,8 @@
 //!   remote entry (same user, and on macOS the cmux code signature).
 //! - [`app_caller`]: whether a local peer, named by its audit token, is the
 //!   signed cmux app that contains this binary (the daemon's `verified_app`).
+//! - [`key_holder`]: the one lock that decides which process holds this
+//!   machine's WireGuard key, and the only opener of its key files.
 
 pub mod app_caller;
 pub mod caller;
@@ -34,6 +36,7 @@ pub mod dial;
 pub mod elapsed;
 pub mod entry_path;
 mod jws;
+pub mod key_holder;
 pub mod keyset;
 pub mod overlay_addr;
 pub mod owner_session;
