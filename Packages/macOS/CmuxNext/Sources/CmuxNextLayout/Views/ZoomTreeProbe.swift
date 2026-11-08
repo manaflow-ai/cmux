@@ -1,5 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
-import AppKit
+public import AppKit
 import CmuxNextDesign
 
 // ZOOM VARIANTS 3 key-turn attribution (never merged): marks every view tree change (a subview added or removed, a
