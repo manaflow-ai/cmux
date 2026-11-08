@@ -59,6 +59,8 @@ public struct RemotePaneReducer {
             var status = state.status ?? RemoteViewStatus(state: .connecting)
             status.state = .connecting
             status.rttMs = nil
+            // The new session has not ended: the old one's reason goes with it.
+            status.endReason = nil
             next.status = status
             next.controlDespiteLatency = false
             next.reconnecting = state.hasFrame || state.reconnecting

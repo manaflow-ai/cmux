@@ -249,8 +249,6 @@ pub const EXPANDED: Argument = Argument { name: "expanded", title: t("HomeAction
 #[rustfmt::skip]
 pub const TEAM: Argument = Argument { name: "team", title: t("HomeActions", "argument.home.playgroundTeam", "Team Chat"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
-pub const OPEN: Argument = Argument { name: "open", title: t("HomeActions", "argument.home.playgroundOpen", "Pill Click"), kind: ArgKind::Int(Some((0, 6))), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
-#[rustfmt::skip]
 pub const PEER: Argument = Argument { name: "peer", title: t("HomeActions", "argument.home.playgroundPeer", "Agent"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
 pub const DARK: Argument = Argument { name: "dark", title: t("HomeActions", "argument.home.playgroundDark", "Dark Look"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
