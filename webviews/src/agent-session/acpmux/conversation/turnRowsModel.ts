@@ -43,3 +43,15 @@ export function runDisclosureKey(stretch: Pick<RunStretch, "items" | "from">, ro
   const first = stretch.items.find((item) => item.tool)?.tool?.id;
   return first ? `run:${first}` : `run:${rowId}:${stretch.from}`;
 }
+
+/// A row's groups and runs, in a word: each stretch's fold, and each group's kind and size. It changes
+/// when a call joins a group, groups two calls, splits a run or folds it, never as a call streams.
+export function runShape(stretches: readonly Pick<RunStretch, "fold" | "groups">[]): string {
+  let shape = "";
+  for (const stretch of stretches) {
+    shape += stretch.fold ? "F" : "|";
+    for (const group of stretch.groups)
+      shape += `${group.type}${"kind" in group ? group.kind : ""}${"items" in group ? group.items.length : 1},`;
+  }
+  return shape;
+}

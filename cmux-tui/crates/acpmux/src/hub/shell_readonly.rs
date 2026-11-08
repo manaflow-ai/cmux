@@ -18,7 +18,10 @@
 //! `post-index-change` hook. So a script with git passes only when the repository it reads, and
 //! every submodule checked out in it, names none (`repository_runs_nothing`). `cd` asks:
 //! Claude Code's shell keeps the directory for its next command, whose git reads would then
-//! look at a repository this never checked.
+//! look at a repository this never checked. A merge driver (`merge.<name>.driver`) passes: a
+//! read never merges, and `--remerge-diff`, which does, asks. A partial clone's promisor remote
+//! passes: a read may fetch an object the clone left out, as `git fetch` would (W5-L, review in
+//! the cmux checkout).
 //!
 //! The commands run with the harness's environment, not the daemon's, so they are judged in it
 //! (`permissions.rs` passes `login_env::effective_for` of the env its agent was started with:
@@ -743,6 +746,10 @@ fn git_read_ok(args: &[String]) -> bool {
             // Runs smudge filters (git-lfs can fetch) and textconv drivers.
             || long_is(a, "--filters")
             || long_is(a, "--textconv")
+            // Merges again to show a merge commit, which runs the repository's merge drivers.
+            || long_is(a, "--remerge-diff")
+            // `--diff-merges=remerge` (or `r`); any other value shows no remerge, but asks too.
+            || a.starts_with("--diff-merges")
     };
     if rest.iter().any(writes) {
         return false;
@@ -979,9 +986,17 @@ fn key_runs_nothing(key: &str, value: &str) -> bool {
                 | "excludesfile"
         ),
         ("extensions", None) => matches!(name, "worktreeconfig" | "objectformat" | "refstorage"),
+        // A partial clone's promisor (`promisor`, `partialclonefilter`): a read that needs an
+        // object the clone left out fetches it from that remote's `url`, as `git fetch` does with
+        // the person's credentials, and stores it with git's own objects. The transport runs no
+        // program the repository names: `uploadpack`, `core.sshCommand`, `credential.helper` and
+        // `protocol.*` here still ask. W5-L: the cmux checkout is a partial clone, and a review
+        // chat could not run `git diff` in it.
         ("remote", Some(_)) => matches!(
             name,
             "url"
+                | "promisor"
+                | "partialclonefilter"
                 | "pushurl"
                 | "fetch"
                 | "push"
@@ -1022,6 +1037,9 @@ fn key_runs_nothing(key: &str, value: &str) -> bool {
         ),
         ("log", None) => matches!(name, "decorate" | "date" | "follow" | "abbrevcommit"),
         ("merge", None) => matches!(name, "conflictstyle" | "ff"),
+        // A merge driver runs only when git merges file contents (merge, rebase, cherry-pick, a
+        // stash apply, a remerge diff, which asks: `git_read_ok`), never in an allowed read.
+        ("merge", Some(_)) => matches!(name, "name" | "driver" | "recursive"),
         ("rebase", None) => matches!(name, "autosquash" | "autostash" | "updaterefs"),
         ("rerere", None) => matches!(name, "enabled" | "autoupdate"),
         _ => false,

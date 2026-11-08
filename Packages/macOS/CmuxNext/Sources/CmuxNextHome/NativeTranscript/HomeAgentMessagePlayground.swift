@@ -29,12 +29,15 @@ public final class HomeAgentMessagePlayground: NSObject, NSWindowDelegate {
 
     /// Shows the playground (one window: a second call brings it front), switched to the given variant,
     /// folds, chat and look; with `peer` it then clicks that agent's pill.
-    /// nil keeps what it shows (a new window: the shipped look, collapsed, the Chief's chat).
-    public static func show(style: Int? = nil, expanded: Bool? = nil, team: Bool? = nil, peer: String? = nil, dark: Bool? = nil) {
+    /// nil keeps what it shows (a new window: the shipped look, collapsed, the Chief's chat). `startsOwnAgents`
+    /// gets each transcript it shows, for the queued pill menu's registered Start now row.
+    public static func show(style: Int? = nil, expanded: Bool? = nil, team: Bool? = nil, peer: String? = nil, dark: Bool? = nil,
+                            startsOwnAgents: ((HomeNativeTranscriptView) -> Void)? = nil) {
         let shown = NSApp.windows.first { $0.identifier == identifier }
         let playground = (shown?.contentView as? HomeAgentMessagePlaygroundView)?.owner
             ?? HomeAgentMessagePlayground(style: .current, expanded: false, team: false)
         let current = playground.state
+        if let startsOwnAgents { playground.fixture.onShow = startsOwnAgents }
         if let dark { playground.window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua) }
         playground.select(style.flatMap(HomeAgentFoldStyle.init(rawValue:)) ?? current.style,
                           expanded: expanded ?? current.expanded, team: team ?? current.team)

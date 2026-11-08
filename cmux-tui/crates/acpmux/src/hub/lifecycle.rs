@@ -169,6 +169,11 @@ impl Hub {
             }
             (None, None) => defaults.policy,
         };
+        // Deny-all or review, asked for (or a preset's or profile's), promises protection with no
+        // person to ask: a harness that cannot keep it fails the creation (`policy_mode.rs`
+        // `require_enforced`).
+        let must_hold = !inherits_policy
+            && matches!(policy, Some(PermissionPolicy::DenyAll | PermissionPolicy::Review));
         // `${model}` in argv or env: the model is a spawn parameter, not a set_model call.
         let spawn_model = profile_takes_model_at_spawn(&profile)
             || defaults.env.values().any(|v| v.contains("${model}"));
@@ -504,6 +509,9 @@ impl Hub {
                 .await?;
             // Every chat, eligible or not: a preset's or a pinned profile's policy holds too.
             let default = self.config.read().await.permission_policy;
+            if must_hold {
+                super::policy_mode::require_enforced(&session.meta(), default)?;
+            }
             self.note_unenforced_policy(&session, default);
             Ok(())
         })

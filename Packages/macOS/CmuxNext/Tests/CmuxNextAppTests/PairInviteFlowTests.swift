@@ -331,7 +331,7 @@ import Testing
         let invite = CountingCard(PairInviteCardProvider.route)
         let panel = try #require(WebCardPanel(descriptor: .serverCards, cards: [invite]))
         var made = 0
-        let menu = ServerMenuBarController(makeCards: { made += 1; return panel })
+        let menu = ServerMenuBarController(makeCards: { _ in made += 1; return panel })
         menu.openInvite()
         #expect(invite.opens == 1)
         menu.hide()
@@ -339,6 +339,26 @@ import Testing
         #expect(!panel.isVisible)
         menu.openInvite()
         #expect(made == 2, "a later opening makes a new card panel")
+    }
+
+    @Test func stoppingServingForgetsTheFoundServer() async throws {
+        let source = MockServerSource()
+        var served: [any WebCard] = []
+        let menu = ServerMenuBarController(makeSource: { source }, makeCards: { cards in
+            served = cards
+            return WebCardPanel(descriptor: .serverCards, cards: cards)
+        })
+        menu.openAddServer(code: MockServerScenario.offerCode)
+        await settle()
+        let model = try #require(served.first as? ServerPageProvider).model
+        guard case .review = model.addServerStep else { Issue.record("the code finds the server: \(model.addServerStep)"); return }
+        menu.hide()
+        menu.openAddServer()
+        await settle()
+        guard case .enterCode = model.addServerStep else {
+            Issue.record("a server found before Stop Serving never shows after it (its code may have expired): \(model.addServerStep)")
+            return
+        }
     }
 
     /// A panel showing `card` with an enabled native control in its footer, and a stand-in for the

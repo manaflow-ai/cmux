@@ -1,6 +1,7 @@
 import { sentFrom, type SentFrom } from "./conversation/sentFromHarness";
 import { externalAccessFromRequest } from "./permissions/externalAccess";
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
+import type { RaceRecord, RaceStart } from "./races/model";
 import { projectLiveProgress, type LiveProgress } from "./liveProgress";
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
 import { sameJson } from "./sameJson";
@@ -123,8 +124,8 @@ import {
 } from "./conversation/incomingMessage";
 import { noticeRowText } from "./conversation/agentNotice";
 import { inboxMessages, inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
-import { withoutRelayLabel } from "./conversation/relayEnvelope";
-import { bareSender } from "./conversation/senderIdentity";
+import { withoutRelayEnvelope, withoutRelayLabel, withoutRelayLabelOfMessage } from "./conversation/relayEnvelope";
+import { bareSender, provenanceAuthenticated } from "./conversation/senderIdentity";
 import { recapDismissed, rememberRecapDismissed } from "./conversation/recapDismissed";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
@@ -839,17 +840,18 @@ export function chatNamedBy(id: string, sessions: readonly Session[]): { session
 /// A `queued` record that is another agent's message, as its received line reads it once it runs
 /// (conversation/incomingMessage.ts), else as acpmux's `fromAgent` names it (`acpmux send --from`),
 /// its text without a leading "[name]" or "From name:" that only repeats the sender. Undefined for
-/// the person's own prompt.
-export function queuedMessage(msg: any, context?: IncomingContext): IncomingMessage | undefined {
+/// the person's own prompt. `preview`: the text is a queue list's one-line preview, which acpmux may
+/// cut inside the broker's label; a record's text is the whole message.
+export function queuedMessage(msg: any, context?: IncomingContext, preview = false): IncomingMessage | undefined {
   const text = String(msg?.text ?? "");
-  const incoming = incomingPrompt(text, msg, context);
+  const incoming = incomingPrompt(text, msg, context, preview);
   if (incoming?.kind === "message") return incoming.message;
   // The list's `fromAgent` is the name acpmux shows the agent, an unverified one with its suffix
   // (conversation/senderIdentity.ts): the line names it bare and marks it.
   const sender = bareSender(typeof msg?.fromAgent === "string" ? msg.fromAgent : "");
   const name = sender.name;
   if (!name) return undefined;
-  const lead = withoutRelayLabel(text).trimStart();
+  const lead = queuedText(text, msg, preview).trimStart();
   const named = [`[${name}]`, `From ${name}:`].find((prefix) => lead.toLowerCase().startsWith(prefix.toLowerCase()));
   const harness = typeof msg?.fromHarness === "string" && msg.fromHarness.trim() ? msg.fromHarness.trim() : undefined;
   return {
@@ -859,6 +861,24 @@ export function queuedMessage(msg: any, context?: IncomingContext): IncomingMess
     text: (named ? lead.slice(named.length) : lead).trim(),
     raw: text,
   };
+}
+
+/// A queued message's text without the broker's label (conversation/relayEnvelope.ts): a preview
+/// cut inside it reads as none of it; a whole message keeps words that only start like one, and
+/// loses a head with no closing line only when acpmux proved its sender (a relay record or a stamped
+/// session, senderIdentity.ts `provenanceAuthenticated`). Anyone can type a head, so a sender named
+/// in `fromAgent` alone gets only a whole closed label left out.
+function queuedText(text: string, msg: any, preview: boolean): string {
+  if (preview) return withoutRelayLabel(text);
+  const provenance = msg?._meta?.provenance;
+  const relayed = provenanceAuthenticated(
+    provenance && typeof provenance === "object"
+      ? provenance
+      : msg?.fromRelay
+        ? { fromRelay: msg.fromRelay }
+        : undefined,
+  );
+  return relayed ? withoutRelayLabelOfMessage(text) : withoutRelayEnvelope(text);
 }
 
 /// A `queued` record that is acpmux's inbox notice (provenance `inbox_notice`), as its threads.
@@ -1007,13 +1027,17 @@ export function mergeQueue(
     // but its provenance (acpmux `QueuedPromptSummary.provenance`): its card names that sender.
     const listedProvenance =
       entry?.provenance && typeof entry.provenance === "object" ? (entry.provenance as unknown) : undefined;
-    const listedMessage = queuedMessage({
-      ...entry,
-      text: preview,
-      fromAgent: listed,
-      fromHarness: entry?.fromHarness,
-      ...(listedProvenance ? { _meta: { ...entry?._meta, provenance: listedProvenance } } : {}),
-    });
+    const listedMessage = queuedMessage(
+      {
+        ...entry,
+        text: preview,
+        fromAgent: listed,
+        fromHarness: entry?.fromHarness,
+        ...(listedProvenance ? { _meta: { ...entry?._meta, provenance: listedProvenance } } : {}),
+      },
+      undefined,
+      true,
+    );
     const kept = whole ? had.message : undefined;
     // A queue listing may carry the full provenance even when its compatibility `fromAgent`
     // field is absent. Preserve that parsed agent message; only an explicit null says that the
@@ -2538,6 +2562,7 @@ export class AcpmuxDirectClient {
   onHarnessesChanged?: () => void;
   /// `_acpmux/process_update` listeners (session-info/processes.ts).
   private readonly processListeners = new Set<(process: unknown) => void>();
+  private readonly raceListeners = new Set<(race: RaceRecord) => void>();
   /// A prompt carrying the workspace context is on its way (send).
   private contextInFlight = false;
 
@@ -4571,6 +4596,32 @@ export class AcpmuxDirectClient {
       level,
       ...this.trustTarget(),
     });
+  }
+
+  startRace(request: RaceStart): Promise<RaceRecord> {
+    return this.request("_acpmux/race/start", request);
+  }
+
+  getRace(parent: string, raceId: string): Promise<RaceRecord> {
+    return this.request("_acpmux/race/get", { parent, raceId });
+  }
+
+  getRaceStats(parent: string): Promise<unknown> {
+    return this.request("_acpmux/race/stats", { parent });
+  }
+
+  async listRaces(parent: string): Promise<RaceRecord[]> {
+    const result = await this.request("_acpmux/race/list", { parent });
+    return result.races;
+  }
+
+  cancelRace(parent: string, raceId: string): Promise<RaceRecord> {
+    return this.request("_acpmux/race/cancel", { parent, raceId });
+  }
+
+  watchRaces(listener: (race: RaceRecord) => void): () => void {
+    this.raceListeners.add(listener);
+    return () => void this.raceListeners.delete(listener);
   }
 
   /// Chat `sessionId`'s background processes (acpmux docs/background-processes.md).
@@ -7016,7 +7067,9 @@ export class AcpmuxDirectClient {
       const left = subagentsLeft(event.kind, msg);
       this.subagents.cause = this.turnStopCause(event);
       if (left && this.subagents.stopRunning(left, event.at)) this.takeSubagentRows();
-      if (event.kind === BOOKMARKS_KIND) {
+      if (event.kind === "race" && msg.parent === this.selectedSessionId && typeof msg.id === "string") {
+        for (const listener of this.raceListeners) listener(msg as RaceRecord);
+      } else if (event.kind === BOOKMARKS_KIND) {
         // Another pane (or the TUI) marked a prompt: the minimap shows acpmux's marks.
         bookmarksHeard(event.sessionId ?? this.selectedSessionId, event.msg?.bookmarks);
       } else if (event.kind === "forked") {
@@ -8400,6 +8453,7 @@ export class AcpmuxDirectClient {
         : {}),
       secret: this.pendingSecret,
       asks: this.asks.list(),
+      groupedAsks: this.asks.listGrouped(),
       catalog: NO_CATALOG,
       commands: this.commands,
       canLoadOlder: this.seqHistoryLeft() || this.nativeBefore() !== undefined,
@@ -10234,6 +10288,66 @@ export class AcpmuxDirectClient {
       throw error;
     }
   }
+  /// Reserve the chip's gesture before preparing the checkout. Trust can hold preparation;
+  /// only the final launch spends the exact-parameter ticket, once.
+  async fixFromLink(url: string, cwd?: string, harness?: string, model?: string): Promise<string | undefined> {
+    this.cancelTrustStart?.();
+    const generation = this.selectionGeneration;
+    const trustCancellation = this.trustCancellation;
+    const params = { url, ...(cwd ? { cwd } : {}), ...(harness ? { harness } : {}), ...(model ? { model } : {}) };
+    const ticket = postNative<{ ticket?: string }>("transport.gesture", {
+      intent: { method: "chat.fix_from_link", params },
+    }).then(
+      (reply) => reply?.ticket,
+      () => undefined,
+    );
+    return new Promise<string>((resolve, reject) => {
+      let settled = false;
+      let running = false;
+      const finish = (id?: string, error?: unknown) => {
+        if (settled) return;
+        settled = true;
+        if (this.cancelTrustStart === cancel) this.cancelTrustStart = undefined;
+        if (id) resolve(id);
+        else reject(error ?? startCancelled());
+      };
+      const cancel = () => {
+        if (settled) return;
+        this.cancelTrustRefusals();
+        finish();
+      };
+      const current = () =>
+        !this.closed && generation === this.selectionGeneration && trustCancellation === this.trustCancellation;
+      const launch = async () => {
+        const proof = await ticket;
+        if (!current() || settled) return cancel();
+        const result = await this.request("chat.fix_from_link", { ...params, ...gestureMeta(proof) }, 120_000);
+        if (!current()) return cancel();
+        const sessionId = typeof result?.sessionId === "string" ? result.sessionId : undefined;
+        // l10n-allow: internal transport shape failure; the user sees the host error surface.
+        finish(sessionId, sessionId ? undefined : new Error("fix-from-link did not return a session"));
+      };
+      const run = () => {
+        if (settled || running) return;
+        if (!current()) return cancel();
+        running = true;
+        void this.request("chat.fix_from_link.prepare", params, 120_000).then(
+          () => void launch().catch((error: unknown) => finish(undefined, error)),
+          (error: unknown) => {
+            running = false;
+            if (settled) return;
+            if (!current()) return cancel();
+            // The daemon checks its canonical checkout root, whether auto-discovered or
+            // selected through a subfolder. Retrying preparation never launches an agent.
+            if (!this.routeTrustRefusal(error, run, cancel)) finish(undefined, error);
+          },
+        );
+      };
+      this.cancelTrustStart = cancel;
+      run();
+    });
+  }
+
   /// A new session, in `cwd` when given; otherwise in the inherited cwd, then where acpmux defaults.
   /// `noProject` starts it in no project: the host's agent-home folder, never the inherited cwd.
   /// `model`: the model to start on (a chat on another machine starts on the one the page showed).
@@ -11838,6 +11952,7 @@ export class AcpmuxDirectClient {
   }
   /// The socket's own onclose ignores a socket close() already let go of, so settle requests here.
   close(): void {
+    this.raceListeners.clear();
     this.pendingPeerTrust = undefined;
     this.refusedPeerTrust = undefined;
     this.presence.detached();
