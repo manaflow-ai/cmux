@@ -14,7 +14,8 @@
   appearance: none;
   -webkit-appearance: none;
   min-width: 4ch;
-  max-width: 220px;
+  /* As wide as the name (its `size`), up to the strip's room: the strip ellipsizes it only when full. */
+  max-width: 100%;
   margin: 0;
   padding: 0 4px;
   box-sizing: border-box;

@@ -68,6 +68,7 @@ export function projectNameFrom(prompt: string): string {
 /// What the chat is asked with: the person's words, then one line that says the folder is new and
 /// that the page it serves opens by itself once it says where.
 export function newProjectPrompt(prompt: string): string {
+  // l10n-allow: text for the agent, sent in the prompt, not UI.
   return `${prompt.trimEnd()}\n\n(This is a new, empty project folder with a git repository. Build it here, start its dev server in the background, and give me its local URL once it serves.)`;
 }
 

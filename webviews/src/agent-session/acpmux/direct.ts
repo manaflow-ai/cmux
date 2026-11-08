@@ -10468,7 +10468,7 @@ export class AcpmuxDirectClient {
   newProject(name: string): Promise<string> {
     return this.request(PROJECT_NEW_METHOD, { name }).then((reply: { cwd?: unknown } | undefined) => {
       if (typeof reply?.cwd !== "string" || !reply.cwd.startsWith("/"))
-        throw new Error("acpmux made no project folder");
+        throw new Error(translate("project.new.unavailable"));
       return reply.cwd;
     });
   }
