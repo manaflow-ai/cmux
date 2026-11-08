@@ -62,6 +62,7 @@ pub mod sender;
 pub mod session_folder;
 pub mod session_inbox;
 pub mod session_limits;
+pub(crate) mod session_move_carry;
 pub(crate) mod session_move_plan;
 pub mod session_queue;
 pub mod session_search;
