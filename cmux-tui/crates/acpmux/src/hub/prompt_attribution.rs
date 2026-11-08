@@ -245,6 +245,20 @@ mod tests {
 
     /// (c) Another session's message keeps its sender, now in the text the agent reads too, after
     /// acpmux's hidden context.
+    /// A suggested task's result (`offer_results.rs`) is its chat's reply, an agent's: a plain
+    /// reply with no agent signals still reaches the parent as that task's, never the person's.
+    #[test]
+    fn a_suggested_tasks_result_is_that_tasks() {
+        let provenance = crate::prompt_provenance::offer_result("offer-1", "child-1", "Fix login");
+        let reply = "Result from the suggested task \"Fix login\" (chat child-1):\nDone. Merge it.";
+        let mut params = json!({"sessionId": "s", "prompt": [{"type": "text", "text": reply}]});
+        mark(&mut params, None, Some(&provenance));
+        assert_eq!(
+            texts(&params),
+            vec!["From another agent (the suggested task \"Fix login\"), not the person:", reply]
+        );
+    }
+
     #[test]
     fn an_agents_message_names_its_sender() {
         let context = json!({"type": "text", "text": "<cmux-workspace-context/>",
