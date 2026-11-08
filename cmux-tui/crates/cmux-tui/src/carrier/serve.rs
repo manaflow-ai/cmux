@@ -259,7 +259,7 @@ async fn read_stdin(shared: &Shared) {
                 let after = super::answer::token_subject(&token);
                 shared.http.replace_credential(token);
                 if before.is_none() || before != after {
-                    shared.session.retire();
+                    shared.session.retire().await;
                 }
             }
             StdinLine::Answer(answer) => shared.prefetched.put(*answer),
@@ -296,19 +296,7 @@ async fn connection(
     };
     let held::Stream { mux, vmk, lease, dialed } = match opened {
         Ok(opened) => opened,
-        Err(held::Refused { failure, dialed }) => {
-            if !dialed {
-                // No dial attempt logged this one: the held session's.
-                let elapsed = accepted.elapsed();
-                let times = PhaseTimes { mux: elapsed, ..PhaseTimes::default() };
-                (shared.log)(contract::phases_line(
-                    &shared.machine,
-                    PhasesOf::Stream,
-                    Some(failure.step),
-                    times,
-                    elapsed,
-                ));
-            }
+        Err(failure) => {
             reply(&contract::failure_line(failure.step.error_code(), Some(&failure.detail)));
             return;
         }
