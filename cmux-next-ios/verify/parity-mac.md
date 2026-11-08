@@ -59,6 +59,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Move Pane to New Workspace (`pane.moveToNewWorkspace`) | `move-tab-to-new-workspace` for its first tab, `move-tab-to-workspace` for the rest | Panes page > a pane's ⋯ > **Move Pane to New Workspace** | works (live: `panes` pass) | Placed right below its workspace (`set-personal-workspace {index}`). The only pane is not offered (the Mac refuses it: "the pane is the only pane of its workspace"). |
 | New Row (`newRow`) | `new-row {pane, height}` (rows-v1) | — | not from a phone (yet) | `new-row` is not on the phone's daemon lane (DaemonLanePolicy, policy.rs); it starts a terminal, so adding it is a lane change for #13742. |
 | One concentric corner radius for panes and tabs: `layout.paneCornerRadius` (pane cards, the curved main pane, tab pills less the padding) and `layout.cornerPadding` (2026-11-04) | none: cmux-next.json keys the Mac's pane chrome reads | — | not from a phone | Mac-only chrome: they shape the Mac's pane cards and tab strips. The phone draws no pane cards or tab strips; the keys stay settable over `cmux settings` like any setting. |
+| Option- or Shift-drag selects text while a terminal program has the mouse, with a first-use hint (2026-11-08) | none: the Mac terminal view sends Ghostty the press with its Shift override | — | not from a phone | Mac-only chrome: a pointer drag with a held key. The phone has no pointer drag into a TUI and selects terminal text with its own touch selection. |
 
 ## Screens
 
@@ -471,7 +472,7 @@ test, fmt and clippy on rbx.
 | Mac action (wording) | Phone | State | Notes |
 | --- | --- | --- | --- |
 | "Allow once" | Feed **Allow once** (Face ID), chat bar **Allow once** | works (fixed wording) | Signed `approverDecision` after Face ID. Was "Allow" / acpmux's option name. code-checked; live pending |
-| "Allow for this chat" | — | not from a phone (fixed) | acpmux refuses every lasting grant from a paired device (`remote.lasting_grant_refused`). The phone offered "Always" / "Allow for this session", which cost a Face ID and then failed; it now offers only Allow once and Deny. Answering it from the phone is a #13742 decision. |
+| "Allow for this chat" | — | not from a phone (fixed) | acpmux refuses every lasting grant from a paired device (`remote.lasting_grant_refused`). The phone offered "Always" / "Allow for this session", which cost a Face ID and then failed; it now offers only Allow once and Deny. Answering it from the phone is a #13742 decision. The Mac's approval banner offers Always allow when the prompt does (the Mac is the person's own device, unlocked to answer); the phone's push stays Allow once and Deny for the same reason. |
 | "Deny" | **Deny**, full swipe | works | Unsigned, at once. code-checked; live pending |
 | Question "Submit" / "Skip" | QuestionCard **Answer**; **Decline** after an error | partial | Same `permissionId` from the Feed and the chat. Wording differs; the answer shows before Face ID (rolled back on failure). |
 | Answered on the Mac first | card closes "Already answered on your Mac" | works (fixed) | Was: the card reopened with "no pending permission perm_…". With two open asks, one answered on the Mac still shows live until tapped (the session's change notice carries no permission id). |
@@ -487,6 +488,7 @@ test, fmt and clippy on rbx.
 | Settings > Mobile "Status" | Settings > **Transport** | works | Phone-only setting. |
 | Notification kinds | Settings > **Notifications**: Questions and permissions, Finished tasks, Errors | works | Match the push kinds. |
 | Settings > General > "Retry After Errors" (`agents.autoRetry.enabled`, `intervalSeconds`, `attempts`) | (none) | partial | The loop runs in the Mac's acpmux, so a chat started or watched from the phone retries the same way, and the error card's Retry works there. The three keys are edited on the Mac (Settings, the palette, `cmux settings set`), like Sub-sessions; the phone has no editor for them. |
+| Settings > Agent Sessions > "Suggest Next Prompt" (`agents.promptSuggestions`: Claude's or Codex's next-prompt suggestion, an extra model call per turn) | (none) | partial | The Mac's acpmux reads the key at each Claude or Codex start, so the key covers every Claude and Codex chat that daemon starts, phone-started ones included. The key is edited on the Mac (Settings, the palette, `cmux settings set`), like Retry After Errors; the phone has no editor for it. |
 | Settings > General > "Prompt Cache" (`agents.cacheCompact.enabled`, `minContextPercent`) | (none) | partial | The timer runs in the Mac's acpmux, so a chat started or watched from the phone is compacted before its prompt cache expires the same way. The keys are edited on the Mac (Settings, the palette, `cmux settings set`), like Retry After Errors; the phone has no editor for them. |
 
 ### 6. Team switching

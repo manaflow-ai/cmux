@@ -13,7 +13,7 @@ import CmuxNextCompat
 /// replies, and the handoffs a click let the pane take from a session outside its scope.
 public nonisolated final class AcpmuxPaneSessions: Sendable {
     /// The requests whose reply names a session the pane started.
-    public static let starting: Set<String> = ["session/new", "acp.session.fork", "_acpmux/handoff_start", "_acpmux/btw"]
+    public static let starting: Set<String> = ["session/new", "chat.fix_from_link", "acp.session.fork", "_acpmux/handoff_start", "_acpmux/btw"]
 
     private struct State {
         var sessions: Set<String> = []

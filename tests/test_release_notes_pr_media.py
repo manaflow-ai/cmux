@@ -218,6 +218,31 @@ class GalleryPictureTests(HighlightRepo):
         self.set_highlight(f"gallery: {self.AFTER}\n")
         self.assertEqual(self.build(f"![a]({MEDIA})", {MEDIA: PNG})["media"][0]["url"], MEDIA)
 
+    def test_with_no_line_an_improvement_takes_the_picked_state_and_the_one_before_it(self):
+        auto = lambda role: release_notes.gallery_auto_url("group-colors", role)
+        before_png = PNG + b"before"
+        highlight = self.build(f"![a]({MEDIA})", {auto("after"): PNG, auto("before"): before_png, MEDIA: PNG})
+        self.assertEqual([(m["url"], m["role"]) for m in highlight["media"]],
+                         [(auto("after"), "after"), (auto("before"), "before")])
+        self.assertTrue(release_notes.public_pr_media_url(auto("after")))
+
+    def test_a_named_state_without_a_before_takes_the_one_at_the_commit_before(self):
+        self.set_highlight(f"gallery: {self.AFTER}\n")
+        auto_before = release_notes.gallery_auto_url("group-colors", "before")
+        highlight = self.build("", {self.url("after", self.AFTER): PNG, auto_before: PNG + b"before"})
+        self.assertEqual([(m["url"], m["role"]) for m in highlight["media"]],
+                         [(self.url("after", self.AFTER), "after"), (auto_before, "before")])
+
+    def test_only_an_improvement_gets_a_before_it_did_not_name(self):
+        urls = release_notes.gallery_urls
+        auto = lambda role: release_notes.gallery_auto_url("h", role)
+        self.assertEqual(urls({}, "h", "new"), {"after": auto("after")})
+        self.assertEqual(urls({}, "h", "improved"), {"after": auto("after"), "before": auto("before")})
+        self.assertEqual(urls({}, "h", "fixed"), {})
+        self.assertEqual(urls({"gallery": self.AFTER, "before": self.BEFORE}, "h", "improved"),
+                         {"after": release_notes.gallery_url("h", "after", self.AFTER),
+                          "before": release_notes.gallery_url("h", "before", self.BEFORE)})
+
     def test_states_parse_strictly(self):
         states = release_notes.gallery_states
         self.assertEqual(states({"gallery": self.AFTER, "before": self.BEFORE}),
@@ -226,6 +251,61 @@ class GalleryPictureTests(HighlightRepo):
         self.assertEqual(states({"gallery": "../x/y"}), {})
         self.assertEqual(states({"gallery": "no-variant"}), {})
         self.assertNotEqual(self.url("after", self.AFTER), self.url("after", self.BEFORE))
+
+
+class LatePictureTests(HighlightRepo):
+    """A highlight whose pictures were published after its nightly cut rides along with the next build that
+    finds them, once (release-notes.py late_pictures)."""
+
+    def setUp(self):
+        super().setUp()
+        self.shipped = self.head
+        git(self.repo, "commit", "-q", "--allow-empty", "-m", "later work (#124)")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        auto = lambda role: release_notes.gallery_auto_url("group-colors", role)
+        self.pictures = {auto("after"): PNG, auto("before"): PNG + b"before"}
+
+    def notes(self, shipped_media, pictures=True, feed=True):
+        """This span's highlights, with the feed's one earlier build showing group-colors with `shipped_media`."""
+        feed_base = release_notes.NOTES_FEED
+        published = {"highlights": [{"id": "group-colors", "category": "improved", "media": shipped_media}]}
+        files = dict(self.pictures) if pictures else {}
+        if feed:
+            files[feed_base + "index.json"] = json.dumps({"builds": [{"build": "1"}]}).encode()
+            files[feed_base + "1.json"] = json.dumps(published).encode()
+        fixture = os.path.join(self.repo, "fixture.json")
+        stored = {}
+        for url, data in files.items():
+            path = os.path.join(self.repo, hashlib.sha256(url.encode()).hexdigest())
+            with open(path, "wb") as f:
+                f.write(data)
+            stored[url] = path
+        with open(fixture, "w") as f:
+            json.dump({"bodies": {}, "files": stored}, f)
+        out = os.path.join(self.repo, "out")
+        subprocess.run([sys.executable, SCRIPT, "build", "--build", "2", "--short", "1.0.0-nightly.2", "--date",
+                        "2026-10-21", "--head", self.head, "--since", self.shipped, "--out", out, "--pr-media"],
+                       cwd=self.repo, capture_output=True, text=True, check=True,
+                       env={**os.environ, "CMUX_RELEASE_NOTES_PR_FIXTURE": fixture})
+        with open(os.path.join(out, "2.json")) as f:
+            return json.load(f)["highlights"]
+
+    def test_a_highlight_that_shipped_without_its_pictures_rides_along_with_them(self):
+        highlights = self.notes([])
+        self.assertEqual([h["id"] for h in highlights], ["group-colors"])
+        self.assertEqual([m["role"] for m in highlights[0]["media"]], ["after", "before"])
+
+    def test_an_improvement_that_shipped_without_its_before_rides_along(self):
+        shipped = [{"url": release_notes.gallery_auto_url("group-colors", "after"), "sha256": "0" * 64}]
+        self.assertEqual([h["id"] for h in self.notes(shipped)], ["group-colors"])
+
+    def test_once_it_shipped_with_its_pictures_it_rides_no_more(self):
+        roles = [{"url": f"https://x/{r}.png", "role": r} for r in ("after", "before")]
+        self.assertEqual(self.notes(roles), [])
+
+    def test_no_pictures_yet_or_no_feed_means_no_ride_along(self):
+        self.assertEqual(self.notes([], pictures=False), [])
+        self.assertEqual(self.notes([], feed=False), [])
 
 
 class GalleryRenderPlanTests(unittest.TestCase):
@@ -247,6 +327,44 @@ class GalleryRenderPlanTests(unittest.TestCase):
         out, missing = self.tool.manifest(rows, cases)
         self.assertEqual(out, [{**cases[1], "id": "h--after"}])
         self.assertEqual(missing, ["h: no gallery state a.b/gone"])
+
+    def case(self, entry, variant, source="src/a.gallery.tsx", scheme="dark"):
+        return {"id": f"{entry}--{variant}--{scheme}", "path_or_url": "frame.html",
+                "params": {"entry": entry, "variant": variant, "colorScheme": scheme, "source": source}}
+
+    def test_infer_takes_the_variant_the_commit_added(self):
+        cases = [self.case("a.b", "old"), self.case("a.b", "new"), self.case("a.b", "later")]
+        files = {"c^": 'variants: {\n  old: {},\n}\n', "c": 'variants: {\n  old: {},\n  "new": {},\n}\n'}
+        row = {"id": "h", "role": "after", "sources": ["src/a.gallery.tsx"], "commit": "c"}
+        text_at = lambda rev, path: files.get(rev)
+        self.assertEqual(self.tool.infer(row, cases, text_at, lambda c, p: set()), "a.b/new")
+
+    def test_infer_takes_the_variant_whose_lines_the_commit_changed_most(self):
+        cases = [self.case("a.b", v) for v in ("first", "picked", "picked-solid")]
+        text = "variants: {\n  first: {\n    x: 1,\n  },\n  picked: {\n    x: 2,\n    y: 3,\n  },\n  \"picked-solid\": {},\n}\n"
+        row = {"id": "h", "role": "after", "sources": ["src/a.gallery.tsx"], "commit": "c"}
+        self.assertEqual(self.tool.infer(row, cases, lambda rev, path: text, lambda c, p: {3, 6, 7}), "a.b/picked")
+        # Nothing changed in a variant: the first one, never one named for the old look.
+        cases = [self.case("a.b", "picked-solid"), self.case("a.b", "first")]
+        self.assertEqual(self.tool.infer(row, cases, lambda rev, path: text, lambda c, p: set()), "a.b/first")
+
+    def test_resolve_names_a_highlight_with_no_gallery_entry(self):
+        row = {"id": "h", "role": "after", "sources": ["src/none.gallery.ts"], "commit": "c"}
+        rows, missing = self.tool.resolve([row], [self.case("a.b", "x")], lambda rev, path: "")
+        self.assertEqual((rows, missing), ([], ["h: no gallery state in src/none.gallery.ts"]))
+
+    def test_a_before_at_the_parent_is_the_same_state_there_else_its_entry_first(self):
+        rows = [{"id": "h", "role": "before", "state": "a.b/new", "entry": "a.b", "variant": "new", "parent": "p"},
+                {"id": "g", "role": "before", "state": "a.c/x", "entry": "a.c", "variant": "x", "parent": "p"},
+                {"id": "h", "role": "after", "state": "a.b/new", "entry": "a.b", "variant": "new"}]
+        at_parent = [self.case("a.b", "first"), self.case("a.b", "new")]
+        out, missing = self.tool.manifest(rows, at_parent, "p")
+        self.assertEqual(out, [{**at_parent[1], "id": "h--before"}])
+        self.assertEqual(missing, ["g: no gallery state a.c/x at p"])
+        out, _ = self.tool.manifest(rows[:1], [self.case("a.b", "first")], "p")
+        self.assertEqual(out[0]["params"]["variant"], "first")
+        # Without --parent, the befores rendered there are left out.
+        self.assertEqual([c["id"] for c in self.tool.manifest(rows, at_parent)[0]], ["h--after"])
 
 
 if __name__ == "__main__":
