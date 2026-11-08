@@ -339,6 +339,7 @@ fn list_plan(view: AgentRosterView) -> RequestPlan {
         stream: false,
         resolve: Vec::new(),
         view: ResponseView::AgentRoster(view),
+        filter: Default::default(),
     }
 }
 

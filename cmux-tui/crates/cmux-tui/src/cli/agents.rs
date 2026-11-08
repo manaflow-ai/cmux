@@ -284,6 +284,7 @@ pub(super) fn snapshot_plan() -> RequestPlan {
         stream: false,
         resolve: Vec::new(),
         view: ResponseView::Full,
+        filter: Default::default(),
     }
 }
 

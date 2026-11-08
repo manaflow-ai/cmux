@@ -685,6 +685,10 @@ fn run_response(
                         ) => super::cloud_workspaces::merge(global, result),
                         _ => result,
                     };
+                    let result = match list_filter::apply(reader, plan, result) {
+                        Ok(result) => result,
+                        Err(error) => return print_operation_error(&error, global.output),
+                    };
                     let result = agent_roster::with_terminals(reader, plan, result);
                     return super::agent_input_hint::print_result(global, plan, reader, result);
                 }
@@ -1170,6 +1174,7 @@ mod agent_roster;
 mod closed_view;
 mod hints;
 mod human;
+mod list_filter;
 mod list_order;
 mod notify_desktop;
 mod retry;
