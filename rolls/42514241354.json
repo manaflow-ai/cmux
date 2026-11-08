@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42514241354",
+  "recorded_at": "2026-11-08T19:26:57Z",
+  "reason": "cmux-tui 82237298a2c8 changes the image's cmux-tui (pinned 68e1a1b7befe)",
+  "dry_run": false,
+  "cmux_tui": "82237298a2c8d02eb697643499d22361c1f37193",
+  "fixes": [
+    {
+      "sha": "82237298a2c8d02eb697643499d22361c1f37193",
+      "mergedAt": "2026-11-08T11:01:49-08:00",
+      "subject": "Terminal prediction: keep predicting while you type after Return or Backspace (#38653)"
+    },
+    {
+      "sha": "6b1894aa1ec918bbde20a9287069d7111871d775",
+      "mergedAt": "2026-11-08T18:54:53Z",
+      "subject": "fix(snapshot): send each Kitty image once, in GHOSTSNP only (#38776)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T19:26:57Z",
+    "snapshot_id": "sh-ae063d7395b14d4fa5232edd3f6400bd",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42514241354): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "41aa0a8668ec8f4fa178c3dce1301d1036e8273b",
+    "image": "cloud-native-auto-82237298-42514241354-1",
+    "revision": "ci-42514241354-1",
+    "at": "2026-11-08T19:26:57Z"
+  },
+  "rolled_back": false
+}
