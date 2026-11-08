@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42495105814",
+  "recorded_at": "2026-11-08T15:43:38Z",
+  "reason": "cmux-tui f428f84a8500 changes the image's cmux-tui (pinned 867a4205099d)",
+  "dry_run": false,
+  "cmux_tui": "f428f84a85006436e06f1d835d5015d7cd4835f6",
+  "fixes": [
+    {
+      "sha": "f428f84a85006436e06f1d835d5015d7cd4835f6",
+      "mergedAt": "2026-11-08T07:13:03-08:00",
+      "subject": "cmux-host updater: never restart under an attached carrier session or a claimed machine's first connect (#38326)"
+    },
+    {
+      "sha": "29b86fe37ca4a5b140d66cb15e3680a9e46d7b8b",
+      "mergedAt": "2026-11-08T07:12:04-08:00",
+      "subject": "link: forward acpmux streams only to the live acpmux listener (security fix for #38323) (#38371)"
+    },
+    {
+      "sha": "f37608dad9eb825e0a7d99d1d8cf6b1b1e532bea",
+      "mergedAt": "2026-11-08T15:10:56Z",
+      "subject": "Agent pane: a background dev server's address is a chip on its row; a click opens the page (#38459)"
+    },
+    {
+      "sha": "4b667bd25a8f489be086652055f3d1cdf4949940",
+      "mergedAt": "2026-11-08T15:10:19Z",
+      "subject": "acpmux inbox: an fyi-only batch waits for the next notice or the flush (#38603)"
+    },
+    {
+      "sha": "036e2a34c6e3b003e631a8711ce3efceed8900cc",
+      "mergedAt": "2026-11-08T15:10:06Z",
+      "subject": "relay: deploy the carrier relay from feat-cmux-next pushes, staging then production, with rollback (#38564)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T15:43:38Z",
+    "snapshot_id": "sh-11be505051fd46bfb6d31624459e5257",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42495105814): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "54288f67469f2f7e916e68d1586125e48e19321a",
+    "image": "cloud-native-auto-f428f84a-42495105814-1",
+    "revision": "ci-42495105814-1",
+    "at": "2026-11-08T15:43:38Z"
+  },
+  "rolled_back": false
+}
