@@ -99,13 +99,15 @@ impl WgNet {
 
     /// Start the tunnel on a caller-built underlay, for example a
     /// [`crate::Multipath`]. The configured endpoint is ignored: the underlay
-    /// owns addressing.
+    /// owns addressing. Ultra mode is `CMUX_WG_ULTRA` when set, else the
+    /// config's [`WgConfig::ultra`] ([`UltraMode::resolve`]).
     pub fn start_with_underlay(config: WgConfig, underlay: impl Underlay) -> Result<Self, WgError> {
-        Self::start_with_ultra(config, underlay, UltraMode::from_env())
+        let mode = UltraMode::resolve(config.ultra);
+        Self::start_with_ultra(config, underlay, mode)
     }
 
     /// [`WgNet::start_with_underlay`] with ultra mode set by the caller
-    /// instead of `CMUX_WG_ULTRA`.
+    /// instead of `CMUX_WG_ULTRA` and [`WgConfig::ultra`].
     pub fn start_with_ultra(
         config: WgConfig,
         underlay: impl Underlay,

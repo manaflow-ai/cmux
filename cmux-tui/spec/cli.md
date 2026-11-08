@@ -714,7 +714,8 @@ client <selector> metadata set
 client <selector> sizing set|release
 client <selector> cell pixels set
 
-workspace list|create
+workspace list [--order session|personal] [--name <name>] [--cwd <path>]
+workspace create
 workspace create --worktree <name> [--repo <path>] [--base <revision>] [workspace create options]
 workspace <selector> show|rename|move|focus|close|run
 workspace <selector> close --remove-worktree [--discard]
@@ -728,7 +729,8 @@ screen <selector> layout export|undo
 screen <selector> column <split_id> update
 screen <selector> pane ...
 
-pane list|create
+pane list [--name <name>] [--cwd <path>]
+pane create
 pane <selector> show|rename|focus|close|split|neighbor|swap|zoom|run
 pane <selector> move --to-pane <selector> [--split <dir>]|--to-tab <selector>|--to-workspace <selector>|--new-screen [--name <value>] [--focus]
 pane <selector> focus direction <left|right|up|down>
@@ -741,7 +743,7 @@ tab create terminal|browser [--engine chromium|webkit]
 tab <selector> show|rename|move|focus|close
 tab <selector> terminal|browser ...
 
-terminal list
+terminal list [--cwd <path>]
 terminal <selector> show|status|write|keys|mouse|copy|move|project|attach|close
 terminal <term_id> keep on|off
 terminal <selector> focus <in|out>
@@ -1218,6 +1220,47 @@ session host sets `createdAt` and `updatedAt`. `delete` names the ids to
 remove (at most 500); `--versions-json` maps an id to the `updatedAt` read, and
 a comment edited since is kept. Unknown ids are ignored.
 
+## Waiting for one event
+
+`cmux events` (the app's event stream) and `cmux agents events` (the
+daemon's journal and the app's dialogs and chat states) take the same three
+flags, so an agent waiting for one event needs no timeout wrapper or grep:
+
+```bash
+cmux events --until action.catalog.changed --timeout 30s --jsonl
+cmux events --until 'mobile.*' --timeout 5m --jsonl
+cmux agents events --until workspace.changed --match name=build --timeout 30s --json
+cmux agents events --until agent.state --match state=idle --match terminal_id=term_1 --timeout 10m --json
+```
+
+- `--until NAME` names the event: exactly, or by a prefix ending in `*`
+  (`mobile.*`). For `cmux events` it is the frame's `name` (what the app
+  publishes: `action.catalog.changed`, `mobile.rpc.ready`); for `agents
+  events` it is `KIND.CHANGE` (`workspace.changed`, `tab.closed`,
+  `notification.created`, `dialog.opened`, `agent.state`).
+- `--match PATH=VALUE`, repeatable, compares the field at a dotted path into
+  the event's JSON (`workspace_id`, `payload.state`; a number steps into an
+  array): a string by its text, any other value by its JSON (`true`, `3`,
+  `null`). Every condition must hold. Either flag alone starts a wait.
+- `--timeout DURATION` takes `30s`, `5m`, `2h`, `1500ms` or plain seconds.
+
+A wait prints only the matching event and exits 0. When the time runs out it
+exits 124: `cmux events` prints a last line `{"type": "timeout", "timed_out":
+true, "waited_ms": "30000", "until": {...}}` with `--json` or `--jsonl` (a
+person gets a line on stderr), and `agents events` answers `matched: false,
+timed_out: true`. If the app closes the stream before a match, `cmux events`
+fails with `events.closed` (exit 1); rerun it with `--after <last seq>`.
+
+`cmux events` keeps no default timeout (a plain `--timeout` ends a stream
+the same way, exit 124), so an agent passes one. Start the wait before the
+action it waits for, or pass `--after` so events already past count: a
+`cmux events --after <seq>` wait matches replayed events, and an `agents
+events --after <cursor>` wait matches events pending since the cursor. Its
+`next_after` continues right after the matched event. Without `--until` or
+`--match`, `agents events` stays the long-poll it was (at most 60 s, exit 0
+when empty); with one the CLI waits up to a day. The MCP tool `agents_events`
+takes `until` and `match` (an object of path to value) within its 60 s bound.
+
 ## Local sidebar plugins
 
 `sidebar plugin` commands read and write local plugin installation state. They
@@ -1453,7 +1496,21 @@ puts a group right before the personal workspace at placement index `<n>`;
 sets the group's icon (one emoji, an SF Symbol name, or a stored
 `image:sha256-<hex>` or `svg:sha256-<hex>` asset) and `--clear-icon`
 removes it (`workspace-group-icon-v1`); `--pinned true|false` pins (saves)
-or unpins it (`workspace-group-pin-v1`). `workspace list --order personal` lists the
+or unpins it (`workspace-group-pin-v1`). `workspace list --name <name>` keeps the workspaces whose name is exactly
+`<name>`, and `--cwd <path>` those with at least one terminal whose folder
+(`terminal.cwd`) is `<path>` or inside it; `pane list` takes the same two
+flags for panes, and `terminal list --cwd <path>` keeps the terminals in or
+under `<path>`. `<path>` is made absolute against the caller's folder (`.`
+and `..` resolved) and also matched with its links resolved. Filters combine
+with AND and keep the list's JSON shape and order; no match prints `[]` and
+exits 0. The CLI filters the rows it read: `--name` and `terminal list --cwd`
+add no request, and a workspace or pane `--cwd` adds one `session.snapshot`
+read on the same connection, joined in memory (a constant two requests, not
+one per row). A Cloud machine's workspaces (`--machine <Cloud machine> workspace
+list`, which the app answers) take `--name`; a `--cwd` there fails with
+`validation.invalid`, since those rows carry no terminals. A `name:<name>` selector that two workspaces share fails with
+`selector.ambiguous`; `workspace list --name <name> --json` lists both ids.
+`workspace list --order personal` lists the
 workspaces in the sidebar order. With the sidebar document (`sidebar-doc-v1`),
 `workspace list` without `--order` also lists the sidebar order (one order
 with the sidebar). `--order session` (and, without the
