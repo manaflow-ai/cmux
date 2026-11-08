@@ -90,6 +90,10 @@ export interface AcpmuxRequests {
   "_acpmux/goal/set": { params: unknown; result: unknown };
   "_acpmux/goal/update": { params: unknown; result: unknown };
   "_acpmux/goal/get": { params: unknown; result: unknown };
+  "_acpmux/schedule/set": { params: unknown; result: unknown };
+  "_acpmux/schedule/pause": { params: unknown; result: unknown };
+  "_acpmux/schedule/clear": { params: unknown; result: unknown };
+  "_acpmux/schedule/get": { params: unknown; result: unknown };
   "_acpmux/process/background": { params: ProcessBackgroundParams; result: ProcessBackgroundResult };
   "_acpmux/worktree/report": { params: unknown; result: unknown };
   "_acpmux/worktree/clean": { params: unknown; result: unknown };
@@ -412,6 +416,10 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/goal/set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/goal/update", kind: "request", acp: false, typed: false },
   { name: "_acpmux/goal/get", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/schedule/set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/schedule/pause", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/schedule/clear", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/schedule/get", kind: "request", acp: false, typed: false },
   { name: "_acpmux/process/background", kind: "request", acp: false, typed: true },
   { name: "_acpmux/worktree/report", kind: "request", acp: false, typed: false },
   { name: "_acpmux/worktree/clean", kind: "request", acp: false, typed: false },

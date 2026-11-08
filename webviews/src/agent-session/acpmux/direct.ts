@@ -152,6 +152,7 @@ import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
 import { AskTracker, pendingReader, SIDE_SESSION_METHOD } from "./needsYou/asks";
 import { chatTools, toolApplied, type ToolApplied } from "./summary/chatTools";
 import { taskGoal } from "./goal";
+import { chatSchedule, type ScheduleRequest } from "./schedule";
 import { shownPresence } from "./multiplayer/livePresenceModel";
 import { PresenceClient } from "./multiplayer/presenceClient";
 import { recordedConversationEvents } from "./conversation/exportEvents";
@@ -6984,6 +6985,15 @@ export class AcpmuxDirectClient {
     ) {
       this.summary = { ...this.summary, goal: taskGoal(update._meta.goal) };
     }
+    // cmux's own scheduled prompt (acpmux `prompt_schedule.rs`) arrives the same way.
+    if (
+      update?.sessionUpdate === SESSION_INFO_KIND &&
+      this.summary &&
+      event.seq >= this.goalSeq &&
+      Object.prototype.hasOwnProperty.call(update._meta ?? {}, "schedule")
+    ) {
+      this.summary = { ...this.summary, schedule: chatSchedule(update._meta.schedule) };
+    }
     // An update that carries only the breakdown has nothing more to draw.
     if (breakdown && update.title === undefined && Object.keys(update._meta ?? {}).every((key) => key === "acpmux"))
       return;
@@ -8173,6 +8183,7 @@ export class AcpmuxDirectClient {
           title: summary.title,
           name: summary.name,
           goal: taskGoal(summary.goal),
+          schedule: chatSchedule(summary.schedule),
           harness: summary.harness,
           family: typeof summary.family === "string" ? summary.family : undefined,
           agentInfo:
@@ -9467,6 +9478,24 @@ export class AcpmuxDirectClient {
       queuedMessage: { promptId, person: entry.author, declined: true },
       untyped: true,
     });
+  }
+  /// Sets the shown chat's scheduled prompt (`/loop`), replacing the one it had.
+  setSchedule(request: ScheduleRequest): Promise<unknown> {
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
+    return this.request("_acpmux/schedule/set", { sessionId, ...request });
+  }
+  /// Pauses or resumes the shown chat's scheduled prompt.
+  pauseSchedule(paused: boolean): Promise<unknown> {
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
+    return this.request("_acpmux/schedule/pause", { sessionId, paused });
+  }
+  /// Ends the shown chat's scheduled prompt.
+  clearSchedule(): Promise<unknown> {
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
+    return this.request("_acpmux/schedule/clear", { sessionId });
   }
   /// Withdraws a queued prompt before its turn starts; `removed` is false once it started.
   async removeQueued(promptId: string): Promise<{ removed: boolean }> {

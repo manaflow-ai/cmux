@@ -718,6 +718,10 @@ pub mod method {
     pub const MUX_GOAL_SET: &str = "_acpmux/goal/set";
     pub const MUX_GOAL_UPDATE: &str = "_acpmux/goal/update";
     pub const MUX_GOAL_GET: &str = "_acpmux/goal/get";
+    pub const MUX_SCHEDULE_SET: &str = "_acpmux/schedule/set";
+    pub const MUX_SCHEDULE_PAUSE: &str = "_acpmux/schedule/pause";
+    pub const MUX_SCHEDULE_CLEAR: &str = "_acpmux/schedule/clear";
+    pub const MUX_SCHEDULE_GET: &str = "_acpmux/schedule/get";
     /// Worktree cleanup (`server/worktrees.rs`).
     pub const MUX_WORKTREE_REPORT: &str = "_acpmux/worktree/report";
     pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";

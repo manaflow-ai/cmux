@@ -315,6 +315,10 @@ pub struct SessionMeta {
         skip_serializing_if = "Option::is_none"
     )]
     pub goal: Option<GoalState>,
+    /// The chat's cmux-owned scheduled prompt (`prompt_schedule.rs`, `hub/prompt_schedule.rs`):
+    /// kept here so it outlives a daemon restart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_schedule: Option<crate::prompt_schedule::PromptSchedule>,
     /// Per-session permission rules layered above the policy (see hub/rules.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_rules: Option<Value>,

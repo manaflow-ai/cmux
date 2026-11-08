@@ -141,6 +141,11 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/agent_login/finish": (["loginId", "code", "sessionId"], []),
         "_acpmux/agent_login/api_key": (["agent", "key", "sessionId"], []),
         "_acpmux/agent_login/cancel": (["loginId", "sessionId"], []),
+        // `/loop` and its strip (acpmux prompt_schedule.rs): the prompt and one of `everyMinutes`,
+        // `at` or `idle`, with an optional `maxRuns` and `until`; `paused` pauses or resumes it.
+        "_acpmux/schedule/set": (["sessionId", "prompt", "everyMinutes", "at", "idle", "maxRuns", "until"], []),
+        "_acpmux/schedule/pause": (["sessionId", "paused"], []),
+        "_acpmux/schedule/clear": (["sessionId"], []),
         // `live`: Fork Conversation's fork of the whole chat as it is now (acpmux `fork_through.rs`).
         // `cancelToken`: the name its Cancel stops it by (acpmux hub/fork_cancel.rs).
         "acp.session.fork": (["sessionId", "throughSeq", "live", "cancelToken"], []),
