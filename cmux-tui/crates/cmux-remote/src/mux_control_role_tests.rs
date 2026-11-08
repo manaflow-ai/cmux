@@ -29,7 +29,8 @@ async fn open(grant: Option<CarrierGrant>, reply: &'static str) -> (Value, Vec<S
         let mut lines = Vec::new();
         loop {
             let mut line = String::new();
-            match tokio::time::timeout(Duration::from_millis(300), socket.read_line(&mut line)).await
+            match tokio::time::timeout(Duration::from_millis(300), socket.read_line(&mut line))
+                .await
             {
                 Ok(Ok(n)) if n > 0 => {
                     if lines.is_empty() {
@@ -57,7 +58,7 @@ async fn open(grant: Option<CarrierGrant>, reply: &'static str) -> (Value, Vec<S
     // fake's lines are all this reads, then the pump is dropped.
     let serve = async {
         let _ = serve.await;
-        std::future::pending::<()>().await
+        std::future::pending::<()>().await;
     };
     let read = async {
         let chunk = stream.receive().await.unwrap().unwrap();
@@ -100,8 +101,5 @@ async fn a_teammates_stream_never_reaches_a_daemon_that_refused_the_role() {
 async fn a_session_without_a_grant_is_spliced_unchanged() {
     let (answer, lines) = open(None, TAKEN).await;
     assert_eq!(answer["type"], "opened", "{answer}");
-    assert!(
-        lines.iter().all(|line| !line.contains(cmux_link::carrier_role::COMMAND)),
-        "{lines:?}"
-    );
+    assert!(lines.iter().all(|line| !line.contains(cmux_link::carrier_role::COMMAND)), "{lines:?}");
 }
