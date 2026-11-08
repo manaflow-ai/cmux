@@ -47,6 +47,7 @@ case "$*" in
     fi
     echo __RUN_ID__ ;;
   "run list"*)
+    if [[ "${FAKE_LIST_FAILS:-0}" == 1 ]]; then echo "gh: Server Error (HTTP 503)" >&2; exit 1; fi
     # FAKE_LIST_FINDS=1: GitHub created the run despite the error, and lists it.
     if [[ "${FAKE_LIST_FINDS:-0}" == 1 ]]; then echo __RUN_ID__; fi ;;
   *headSha*) printf '%s\t%s\tworkflow_dispatch\n' "$(cat "$STUB_DIR/head")" "$(cat "$STUB_DIR/branch")" ;;
@@ -201,6 +202,14 @@ def dispatch_error_with_a_created_run_adopts_it(failures: list[str], name: str, 
     check(failures, name, box.count("gh api -X POST") == 1 and box.count("gh run download") >= 1, box, out)
 
 
+def dispatch_lookup_failure_does_not_dispatch_again(failures: list[str], name: str, box: Sandbox) -> None:
+    # The run list fails in the same incident: the run may exist, so no second dispatch, and say how to check.
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_DISPATCH_FAILS="9", FAKE_LIST_FAILS="1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, code == 1 and box.count("gh api -X POST") == 1 and "gh run list --repo" in out
+          and "HTTP 503" in out, box, out)
+
+
 def dispatch_client_error_is_not_retried(failures: list[str], name: str, box: Sandbox) -> None:
     code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_DISPATCH_FAILS="9",
                         FAKE_DISPATCH_CODE="422", CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
@@ -290,6 +299,7 @@ def main() -> int:
         ("three 5xx dispatches give up and say no run was created", dispatch_server_errors_give_up_and_say_no_run),
         ("a 5xx dispatch whose run GitHub did create is adopted, not dispatched twice",
          dispatch_error_with_a_created_run_adopts_it),
+        ("a failed run lookup after a 5xx does not dispatch again", dispatch_lookup_failure_does_not_dispatch_again),
         ("a 4xx dispatch is not tried again", dispatch_client_error_is_not_retried),
         ("at the deadline the run is not cancelled and the script exits 3", deadline_does_not_cancel),
         ("a waiter that returns before the run is done is started again", early_waiter_return_waits_again),
