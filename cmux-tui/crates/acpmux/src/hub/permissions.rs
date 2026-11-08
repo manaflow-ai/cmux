@@ -409,6 +409,11 @@ impl Hub {
                     if !title.is_empty() {
                         m.title = Some(title.to_owned());
                         m.title_source = Some(super::titles::HARNESS.to_owned());
+                        // The ledger's copy (one map entry; a line only when a field changed).
+                        self.ledger.note_session_info(
+                            &session.id,
+                            super::ledger::TurnContext::of(&m).info,
+                        );
                     }
                 }
                 // Claude Code's /context breakdown, sent after each turn (`claude_stdio`). It comes

@@ -210,6 +210,9 @@ pub(crate) struct State {
     pub sessions: HashMap<Arc<str>, SessionInfo>,
     open: HashMap<Arc<str>, Open>,
     suppressed: HashSet<String>,
+    /// Sessions purged this run: no writer adds anything about them again, so a late tool
+    /// update or turn result cannot put a purged session's title or pull request back.
+    purged: HashSet<String>,
     /// Sessions whose folder's origin remote was asked for already (`Work::Repo`).
     repo_asked: HashSet<Arc<str>>,
     /// Interned model and version strings.
@@ -229,6 +232,11 @@ impl State {
         let v: Arc<str> = Arc::from(s);
         self.strings.insert(v.clone());
         v
+    }
+
+    /// True when nothing about `session` may be recorded (a fork's copies, or purged).
+    fn blocked(&self, session: &str) -> bool {
+        self.suppressed.contains(session) || self.purged.contains(session)
     }
 
     fn session_key(&mut self, id: &str) -> Arc<str> {
@@ -463,7 +471,7 @@ impl Ledger {
             ("mux", "turn_started") => self.open_turn(id, record.at, true),
             ("in", "tool_call") => {
                 let mut s = self.lock();
-                if s.suppressed.contains(id) {
+                if s.blocked(id) {
                     return;
                 }
                 let key = s.session_key_open(id);
@@ -476,7 +484,7 @@ impl Ledger {
 
     fn open_turn(&self, session: &str, at: u64, started: bool) {
         let mut s = self.lock();
-        if s.suppressed.contains(session) {
+        if s.blocked(session) {
             return;
         }
         let key = s.session_key_open(session);
@@ -507,7 +515,7 @@ impl Ledger {
         let version = crate::pricing::table().version.clone();
         let cwd = ctx.info.cwd.clone();
         let mut s = self.lock();
-        if s.suppressed.contains(session) {
+        if s.blocked(session) {
             return;
         }
         let open = s.open.remove(session).unwrap_or_default();
@@ -537,6 +545,7 @@ impl Ledger {
     pub fn purge(&self, session: &str) {
         let mut s = self.lock();
         let known = s.sessions.contains_key(session) || s.open.contains_key(session);
+        s.purged.insert(session.to_owned());
         s.remove_session(session);
         if known {
             self.emit(&mut s, Line::Purge { sid: session.to_owned() });
@@ -546,10 +555,24 @@ impl Ledger {
     /// A pull request `session` opened (`hub/pull_requests.rs`).
     pub fn note_pull_request(&self, session: &str, url: &str) {
         let mut s = self.lock();
-        if s.suppressed.contains(session) {
+        if s.blocked(session) {
             return;
         }
         let info = SessionInfo { pull_requests: vec![url.to_owned()], ..Default::default() };
+        if s.merge_session(session, info) {
+            let info = s.sessions.get(session).cloned().unwrap_or_default();
+            self.emit(&mut s, Line::Session { sid: session.to_owned(), info });
+        }
+    }
+
+    /// `session`'s meta changed (`session_info_update`: title, branch, workspace, account).
+    /// Updates a session the ledger already holds and writes a line only when a ledgered field
+    /// changed; a session with no turn yet gets its fields at its first turn.
+    pub fn note_session_info(&self, session: &str, info: SessionInfo) {
+        let mut s = self.lock();
+        if s.blocked(session) || !s.sessions.contains_key(session) {
+            return;
+        }
         if s.merge_session(session, info) {
             let info = s.sessions.get(session).cloned().unwrap_or_default();
             self.emit(&mut s, Line::Session { sid: session.to_owned(), info });
@@ -574,7 +597,7 @@ impl Ledger {
         let mut repos = Vec::new();
         for seed in sessions {
             // A session with turns and no reported usage counts them as unpriced.
-            if s.sessions.contains_key(seed.id.as_str()) || seed.turns == 0 {
+            if s.sessions.contains_key(seed.id.as_str()) || seed.turns == 0 || s.blocked(&seed.id) {
                 continue;
             }
             let model = seed.ctx.model.clone().unwrap_or_else(|| "unknown".into());
