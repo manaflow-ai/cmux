@@ -6,7 +6,7 @@ public import QuartzCore
 /// progress value of a curve drives several layer properties at once, a frame and an opacity, so they move together
 /// ("the rest of it fade, in the same easing function"). A bezier curve: one Core Animation timing per property, all the
 /// same. A spring (damping ratio, response; mass 1, stiffness (2 pi / response)^2, damping 4 pi ratio / response): its
-/// step response sampled every 1/240 s until it rests within 0.5 pt of 900 pt, as key frames, so each property's value
+/// exact step response sampled every 1/240 s until it rests within 0.5 pt of 900 pt, as key frames, so each property's value
 /// at every sample is `value(p)` of the same p, and a property that must not overshoot clamps it there (an opacity).
 public struct FilmProgressDriver: Sendable, Equatable {
     public enum Curve: Sendable, Equatable {
@@ -30,28 +30,44 @@ public struct FilmProgressDriver: Sendable, Equatable {
         }
     }
 
-    /// A spring's progress (0 at the start, 1 at rest, past 1 on its overshoot) every 1/240 s, the last sample exactly
-    /// 1 at the settle time, with key times 0 ... 1. Nil for a bezier curve.
+    /// A spring's progress (0 at the start, 1 at rest, past 1 only on an under-damped overshoot) every 1/240 s, the last
+    /// sample exactly 1 at the settle time, with key times 0 ... 1. Nil for a bezier curve. The exact step response (no
+    /// numeric integration), so a critically damped spring (ratio 1, m68 "no bounce") never passes 1.
     public func progress() -> (times: [NSNumber], values: [Double], duration: Double)? {
-        guard case let .spring(ratio, response) = curve, response > 0 else { return nil }
-        let omega = 2 * Double.pi / response
-        let stiffness = omega * omega, damping = 2 * ratio * omega
-        let dt = 0.0005, every = 1.0 / 240, within = 0.5 / 900
-        var x = 1.0, v = 0.0, t = 0.0, settle = 0.0
-        var samples: [(Double, Double)] = [(0, 0)]
-        var next = every
+        guard case .spring = curve else { return nil }
+        let every = 1.0 / 240, within = 0.5 / 900
+        var settle = 0.0, t = 0.0
         while t < 2 {
-            let a = -stiffness * x - damping * v
-            v += a * dt
-            x += v * dt
-            t += dt
-            if abs(x) > within { settle = t }
-            if t >= next { samples.append((t, 1 - x)); next += every }
+            t += 0.0005
+            if let p = step(t), abs(1 - p) > within { settle = t }
         }
         let end = max(settle, 1.0 / 120)
-        samples = samples.filter { $0.0 < end } + [(end, 1)]
+        var samples: [(Double, Double)] = [(0, 0)]
+        var at = every
+        while at < end {
+            samples.append((at, step(at) ?? 1))
+            at += every
+        }
+        samples.append((end, 1))
         return (samples.map { NSNumber(value: $0.0 / end) }, samples.map(\.1), end)
     }
+
+    /// The spring's step response at `t` s (0 at rest at the start, 1 at the target), from rest. Nil for a bezier curve.
+    public func step(_ t: Double) -> Double? {
+        guard case let .spring(ratio, response) = curve, response > 0 else { return nil }
+        let omega = 2 * Double.pi / response
+        if abs(ratio - 1) < 1e-9 { return 1 - (1 + omega * t) * exp(-omega * t) }
+        if ratio < 1 {
+            let wd = omega * (1 - ratio * ratio).squareRoot()
+            return 1 - exp(-ratio * omega * t) * (cos(wd * t) + ratio * omega / wd * sin(wd * t))
+        }
+        let root = (ratio * ratio - 1).squareRoot()
+        let r1 = -omega * (ratio - root), r2 = -omega * (ratio + root)
+        return 1 - (r2 * exp(r1 * t) - r1 * exp(r2 * t)) / (r2 - r1)
+    }
+
+    /// The largest progress past 1 (0: no overshoot), times the travel gives the overshoot in points.
+    public var overshoot: Double { max(0, (progress()?.values.max() ?? 1) - 1) }
 
     /// `layer.keyPath` driven by the curve's progress: `value(p)` for each p (clamp inside `value` where the property
     /// must not overshoot). Every property driven this way in one turn moves on the same p at the same instant. Through
