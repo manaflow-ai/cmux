@@ -7,6 +7,18 @@ import { componentEntry } from "../../gallery/format";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { GitHubPage, type ChecksPlacement, type GitHubLayout, type PageWidth } from "./GitHubPage";
+import { mockBotDetails, mockBotDetailsBefore } from "./mockBotComments";
+import {
+  mockBlocked,
+  mockBlockedChecks,
+  mockBlockedDetails,
+  mockReady,
+  mockReadyChecks,
+  mockReadyDetails,
+} from "./mockReadiness";
+import type { ConversationFilter } from "./conversationFilter";
+import type { Blocker } from "./readiness";
+import type { ReadinessLayout } from "./ReadinessBlock";
 import { MockGitHubProvider, mockChecksPassed, mockDetails, mockPullRequest, MOCK_URL } from "./mockProvider";
 import { GitHubStore } from "./store";
 import type { DashboardChecks, PullRequestDetails, PullRequestReply } from "./types";
@@ -18,6 +30,9 @@ type Props = {
   checks?: DashboardChecks | null;
   checksPlacement?: ChecksPlacement;
   width?: PageWidth;
+  readinessLayout?: ReadinessLayout;
+  readinessShown?: Blocker["kind"];
+  conversationFilter?: ConversationFilter;
   /** Files opened inline once the page has its answer. */
   expand?: string[];
   /** The Merge button's first click, so its confirm shows. */
@@ -31,6 +46,9 @@ function GitHubGallery({
   checksPlacement,
   layout,
   width,
+  readinessLayout,
+  readinessShown,
+  conversationFilter,
   expand = [],
   confirmMerge = false,
 }: Props) {
@@ -55,6 +73,9 @@ function GitHubGallery({
       layout={layout}
       checksPlacement={checksPlacement}
       width={width}
+      readinessLayout={readinessLayout}
+      readinessShown={readinessShown}
+      conversationFilter={conversationFilter}
       now={() => Date.parse("2026-11-05T03:00:00Z")}
     />
   );
@@ -106,6 +127,48 @@ export default componentEntry<Props>({
       note: "Shipped layout (split): description, files and conversation in the main column; checks (reds first, greens folded), reviewers and linked issues in the rail. One column when narrow.",
       props: {},
     },
+    "ready-blocked": {
+      note: "Shipped merge readiness (list): Blocked, then each gate that refuses the merge, from merge_hold's own rules: a BLOCK at the head (an earlier SHIP does not clear it), no independent SHIP, the body's HOLD line, a red of its own (a red the base shares is not one), jobs still running.",
+      props: { answer: mockBlocked, details: mockBlockedDetails, checks: mockBlockedChecks },
+    },
+    "ready-blocked-open": {
+      note: "The list with the BLOCK opened: the receipt's findings and a link to it; a red opens to its step and log end the same way.",
+      props: { answer: mockBlocked, details: mockBlockedDetails, checks: mockBlockedChecks, readinessShown: "verdict" },
+    },
+    "ready-blocked-red-open": {
+      note: "The list with the red opened: the failing job, its step, its log end and a link to the job.",
+      props: { answer: mockBlocked, details: mockBlockedDetails, checks: mockBlockedChecks, readinessShown: "red" },
+    },
+    "ready-blocked-chips": {
+      note: "Candidate: the gates as a row of chips under the word; a chip opens its detail below the row.",
+      props: { answer: mockBlocked, details: mockBlockedDetails, checks: mockBlockedChecks, readinessLayout: "chips" },
+    },
+    "ready-blocked-line": {
+      note: "Candidate: one line, the gates inline after the word; densest, and it wraps when narrow.",
+      props: { answer: mockBlocked, details: mockBlockedDetails, checks: mockBlockedChecks, readinessLayout: "line" },
+    },
+    "ready-ready": {
+      note: "Ready: one line with the SHIP that counts (its model and the head), linked to its receipt.",
+      props: { answer: mockReady, details: mockReadyDetails, checks: mockReadyChecks },
+    },
+    "conversation-unresolved": {
+      note: "The conversation filtered to Unresolved: each review keeps only its open threads' comments; newest first.",
+      props: {
+        answer: mockBlocked,
+        details: mockBlockedDetails,
+        checks: mockBlockedChecks,
+        conversationFilter: "unresolved",
+      },
+    },
+    "conversation-mine": {
+      note: "The conversation filtered to Mine: only what the signed-in person wrote.",
+      props: {
+        answer: mockBlocked,
+        details: mockBlockedDetails,
+        checks: mockBlockedChecks,
+        conversationFilter: "mine",
+      },
+    },
     "width-fill": {
       note: "Shipped width: the whole pane less a 3% gutter (16-24px). The description's check table keeps Status on one line.",
       props: { details: checkTable },
@@ -117,6 +180,14 @@ export default componentEntry<Props>({
     "width-column": {
       note: "Before: What's New's width, 84% of the pane up to 1560px, centered; a wide pane gives up its sides.",
       props: { details: checkTable, width: "column" },
+    },
+    "bot-comments": {
+      note: "cmux#37993's bot comments from GitHub's own rendering: a badge is its picture (the scheme picks light or dark), the <sup> line is small, a review's Prompt for AI Agents folds in <details>, the check table is a table. A script and an image off GitHub's proxy are dropped.",
+      props: { details: mockBotDetails },
+    },
+    "bot-comments-before": {
+      note: "Before: the Markdown alone, so the same comments' HTML showed as text.",
+      props: { details: mockBotDetailsBefore },
     },
     "ci-failed-running": {
       note: "Shipped CI dashboard (top): tally, share done and ETA; failures with their step and log end; a matrix's shards as one row of pips; running with elapsed time; passed folded.",

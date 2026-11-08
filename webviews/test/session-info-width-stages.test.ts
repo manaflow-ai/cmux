@@ -20,15 +20,15 @@ import {
   sessionInfoPopover,
   sessionInfoStage,
   type SessionInfoPlacement,
-} from "../src/agent-session/acpmux/session-info/SessionInfo";
+} from "../src/agent-session/acpmux/session-info/sessionInfoModel";
 import { SESSION_INFO_WIDTH } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { transcriptColumn } from "../src/agent-session/acpmux/model";
 import type { ChatColumn } from "../src/agent-session/acpmux/chatWidth";
 
-// The standard column (chatWidth.ts COLUMNS.standard: 720px, 62.5% of a wider pane up to 800px), pinned
-// so the test does not read the page's width setting or scale.
-const STANDARD: ChatColumn = { min: 720, max: 800, share: 0.625, prose: Infinity };
-const WIDE: ChatColumn = { min: 720, max: 960, share: 0.625, prose: Infinity };
+// Chat Text Width's default column (chatWidth.ts displayColumn: the pane's width up to 800px, at least
+// 720px) and a 960px one, pinned so the test does not read the page's width setting or scale.
+const STANDARD: ChatColumn = { min: 720, max: 800 };
+const WIDE: ChatColumn = { min: 720, max: 960 };
 const WIDTH = SESSION_INFO_WIDTH.fallback;
 const TALL = 960;
 
@@ -71,7 +71,7 @@ test("where the gutter lacks a little, it pushes the column left at its own widt
 });
 
 test("where the column's share scales with the pane, it still pushes the pinned column left", () => {
-  // At 1240px the column is 62.5% of the pane; pushed, it keeps that width, pinned.
+  // At 1240px the column is Chat Text Width's 800px; pushed, it keeps that width, pinned.
   const { stage: at, room } = stage(1240);
   expect(at).toBe("push");
   expect(pinnedFits(1240, room)).toBe(true);
@@ -79,7 +79,7 @@ test("where the column's share scales with the pane, it still pushes the pinned 
 });
 
 test("where the pinned column cannot fit beside the panel, it lies over the chat instead", () => {
-  expect(stage(1060).stage).toBe("overlay");
+  expect(stage(1100).stage).toBe("overlay");
   expect(stage(900).stage).toBe("overlay");
 });
 
@@ -126,7 +126,7 @@ test("Settings Push always pushes wherever its whole room keeps the pinned colum
   expect(stage(2000, TALL, "push").room).toBe(WIDTH + 8);
   expect(stage(1300, TALL, "push").stage).toBe("push");
   expect(pinnedFits(1300, stage(1300, TALL, "push").room)).toBe(true);
-  expect(stage(1060, TALL, "push").stage).toBe("overlay");
+  expect(stage(1100, TALL, "push").stage).toBe("overlay");
 });
 
 test("Push always stays flush and keeps its pinned column across adjacent pane and panel widths", () => {
