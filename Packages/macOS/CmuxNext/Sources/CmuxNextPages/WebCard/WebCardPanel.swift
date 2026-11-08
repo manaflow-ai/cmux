@@ -193,7 +193,7 @@ public final class WebCardPanel: NSPanel {
     /// the event reaches the page, so it reads the card as the person saw it. Chromium has no such
     /// world here, so a card there takes no person-only action.
     private func hitTest(_ point: CGPoint, done: @escaping @MainActor (String?) -> Void) {
-        guard chromiumSession == nil else { return done(nil) }
+        guard page.chromiumSession == nil else { return done(nil) }
         let script = """
             const control = document.elementFromPoint(x, y)?.closest("[data-action]");
             return control && !control.matches(":disabled") ? control.getAttribute("data-action") : null;
