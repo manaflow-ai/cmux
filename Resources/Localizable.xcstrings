@@ -674206,6 +674206,18 @@
             "value": "ssh-tmux: يجب أن يتكون --socket-name من 1 إلى 64 حرفًا من أحرف ASCII أو أرقام أو '.' أو '_' أو '-'، ولا يمكن أن يبدأ بـ '-'"
           }
         },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --socket-name mora imati 1–64 ASCII slova, cifre, '.', '_' ili '-' i ne može počinjati sa '-'"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --socket-name skal bestå af 1–64 ASCII-bogstaver, cifre, '.', '_' eller '-' og må ikke begynde med '-'"
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -674224,16 +674236,70 @@
             "value": "ssh-tmux : --socket-name doit comporter de 1 à 64 lettres ASCII, chiffres, '.', '_' ou '-', et ne peut pas commencer par '-'"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --socket-name deve contenere da 1 a 64 lettere ASCII, cifre, '.', '_' o '-' e non può iniziare con '-'"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "ssh-tmux: --socket-name は 1〜64 文字の ASCII 英字、数字、'.'、'_'、'-' のみ使用でき、'-' で始めることはできません"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --socket-name ត្រូវតែមានអក្សរ ASCII លេខ '.' '_' ឬ '-' ចំនួន 1 ដល់ 64 តួ ហើយមិនអាចចាប់ផ្តើមដោយ '-' បានទេ"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "ssh-tmux: --socket-name은 1~64자의 ASCII 문자, 숫자, '.', '_' 또는 '-'여야 하며 '-'로 시작할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --socket-name må bestå av 1–64 ASCII-bokstaver, sifre, '.', '_' eller '-' og kan ikke begynne med '-'"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --socket-name musi mieć 1–64 znaki: litery ASCII, cyfry, '.', '_' lub '-', i nie może zaczynać się od '-'"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --socket-name deve ter de 1 a 64 letras ASCII, dígitos, '.', '_' ou '-', e não pode começar com '-'"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --socket-name должен состоять из 1–64 букв ASCII, цифр, '.', '_' или '-' и не может начинаться с '-'"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --socket-name ต้องเป็นตัวอักษร ASCII ตัวเลข '.' '_' หรือ '-' ความยาว 1–64 ตัว และขึ้นต้นด้วย '-' ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --socket-name 1–64 ASCII harf, rakam, '.', '_' veya '-' içermeli ve '-' ile başlamamalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --socket-name має складатися з 1–64 літер ASCII, цифр, '.', '_' або '-' і не може починатися з '-'"
           }
         },
         "zh-Hans": {
@@ -674265,6 +674331,18 @@
             "value": "ssh-tmux: يتطلب --socket-name اسم خادم tmux (قيمة tmux -L)"
           }
         },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --socket-name zahtijeva ime tmux servera (vrijednost tmux -L)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --socket-name kræver et tmux-servernavn (værdien af tmux -L)"
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -674283,16 +674361,70 @@
             "value": "ssh-tmux : --socket-name requiert un nom de serveur tmux (la valeur de tmux -L)"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --socket-name richiede un nome di server tmux (il valore di tmux -L)"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "ssh-tmux: --socket-name には tmux サーバー名（tmux -L の値）が必要です"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --socket-name ត្រូវការឈ្មោះម៉ាស៊ីនមេ tmux (តម្លៃនៃ tmux -L)"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "ssh-tmux: --socket-name에는 tmux 서버 이름(tmux -L의 값)이 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --socket-name krever et tmux-servernavn (verdien av tmux -L)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --socket-name wymaga nazwy serwera tmux (wartości tmux -L)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --socket-name exige um nome de servidor tmux (o valor de tmux -L)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: для --socket-name требуется имя сервера tmux (значение tmux -L)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --socket-name ต้องระบุชื่อเซิร์ฟเวอร์ tmux (ค่าของ tmux -L)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --socket-name bir tmux sunucu adı gerektirir (tmux -L değeri)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: для --socket-name потрібне ім'я сервера tmux (значення tmux -L)"
           }
         },
         "zh-Hans": {
@@ -674315,55 +674447,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "--socket-name <name>  Mirror the tmux server started with tmux -L <name> instead of the default server. Each socket name is its own connection, so two windows can mirror two servers on one host. Letters, digits, '.', '_' and '-' only.\n  cmux ssh-tmux dev@my-host --socket-name alpha"
+            "value": "--socket-name <name>  Mirror the tmux server started with tmux -L <name> instead of the default server. Each socket name is its own connection, so two windows can mirror two servers on one host. Names are 1-64 ASCII letters, digits, '.', '_' or '-', and cannot start with '-'.\n  cmux ssh-tmux dev@my-host --socket-name alpha"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "--socket-name <name>  يعكس خادم tmux الذي بدأ بالأمر tmux -L <name> بدلًا من الخادم الافتراضي. كل اسم مقبس هو اتصال مستقل، لذا يمكن لنافذتين عكس خادمين على مضيف واحد. الأحرف والأرقام و'.' و'_' و'-' فقط.\n  cmux ssh-tmux dev@my-host --socket-name alpha"
+            "value": "--socket-name <name>  يعكس خادم tmux الذي بدأ بالأمر tmux -L <name> بدلًا من الخادم الافتراضي. كل اسم مقبس هو اتصال مستقل، لذا يمكن لنافذتين عكس خادمين على مضيف واحد. تتكون الأسماء من 1 إلى 64 حرفًا من أحرف ASCII أو أرقام أو '.' أو '_' أو '-'، ولا يمكن أن تبدأ بـ '-'.\n  cmux ssh-tmux dev@my-host --socket-name alpha"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--socket-name <name>  Preslikava tmux server pokrenut sa tmux -L <name> umjesto zadanog servera. Svako ime socketa je zasebna veza, pa dva prozora mogu preslikavati dva servera na jednom hostu. Imena imaju 1–64 ASCII slova, cifre, '.', '_' ili '-' i ne mogu počinjati sa '-'.\n  cmux ssh-tmux dev@my-host --socket-name alpha"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--socket-name <name>  Spejler den tmux-server, der blev startet med tmux -L <name>, i stedet for standardserveren. Hvert socketnavn er sin egen forbindelse, så to vinduer kan spejle to servere på én vært. Navne består af 1–64 ASCII-bogstaver, cifre, '.', '_' eller '-' og må ikke begynde med '-'.\n  cmux ssh-tmux dev@my-host --socket-name alpha"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "--socket-name <name>  Spiegelt den mit tmux -L <name> gestarteten tmux-Server statt des Standardservers. Jeder Socket-Name ist eine eigene Verbindung, sodass zwei Fenster zwei Server auf einem Host spiegeln können. Nur Buchstaben, Ziffern, '.', '_' und '-'.\n  cmux ssh-tmux dev@my-host --socket-name alpha"
+            "value": "--socket-name <name>  Spiegelt den mit tmux -L <name> gestarteten tmux-Server statt des Standardservers. Jeder Socket-Name ist eine eigene Verbindung, sodass zwei Fenster zwei Server auf einem Host spiegeln können. Namen bestehen aus 1–64 ASCII-Buchstaben, Ziffern, '.', '_' oder '-' und dürfen nicht mit '-' beginnen.\n  cmux ssh-tmux dev@my-host --socket-name alpha"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "--socket-name <name>  Refleja el servidor tmux iniciado con tmux -L <name> en lugar del servidor predeterminado. Cada nombre de socket es una conexión propia, así que dos ventanas pueden reflejar dos servidores en un mismo host. Solo letras, dígitos, '.', '_' y '-'.\n  cmux ssh-tmux dev@my-host --socket-name alpha"
+            "value": "--socket-name <name>  Refleja el servidor tmux iniciado con tmux -L <name> en lugar del servidor predeterminado. Cada nombre de socket es una conexión propia, así que dos ventanas pueden reflejar dos servidores en un mismo host. Los nombres tienen de 1 a 64 letras ASCII, dígitos, '.', '_' o '-', y no pueden empezar por '-'.\n  cmux ssh-tmux dev@my-host --socket-name alpha"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "--socket-name <name>  Reflète le serveur tmux démarré avec tmux -L <name> au lieu du serveur par défaut. Chaque nom de socket est une connexion distincte, donc deux fenêtres peuvent refléter deux serveurs sur un même hôte. Lettres, chiffres, '.', '_' et '-' uniquement.\n  cmux ssh-tmux dev@my-host --socket-name alpha"
+            "value": "--socket-name <name>  Reflète le serveur tmux démarré avec tmux -L <name> au lieu du serveur par défaut. Chaque nom de socket est une connexion distincte, donc deux fenêtres peuvent refléter deux serveurs sur un même hôte. Les noms comportent de 1 à 64 lettres ASCII, chiffres, '.', '_' ou '-', et ne peuvent pas commencer par '-'.\n  cmux ssh-tmux dev@my-host --socket-name alpha"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--socket-name <name>  Rispecchia il server tmux avviato con tmux -L <name> invece del server predefinito. Ogni nome di socket è una connessione a sé, quindi due finestre possono rispecchiare due server sullo stesso host. I nomi sono composti da 1–64 lettere ASCII, cifre, '.', '_' o '-' e non possono iniziare con '-'.\n  cmux ssh-tmux dev@my-host --socket-name alpha"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "--socket-name <name>  デフォルトのサーバーではなく、tmux -L <name> で起動した tmux サーバーをミラーリングします。ソケット名ごとに別の接続になるため、2 つのウインドウで 1 台のホスト上の 2 つのサーバーをミラーリングできます。英字、数字、'.'、'_'、'-' のみ使用できます。\n  cmux ssh-tmux dev@my-host --socket-name alpha"
+            "value": "--socket-name <name>  デフォルトのサーバーではなく、tmux -L <name> で起動した tmux サーバーをミラーリングします。ソケット名ごとに別の接続になるため、2 つのウインドウで 1 台のホスト上の 2 つのサーバーをミラーリングできます。名前は 1〜64 文字の ASCII 英字、数字、'.'、'_'、'-' で、'-' で始めることはできません。\n  cmux ssh-tmux dev@my-host --socket-name alpha"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--socket-name <name>  ឆ្លុះបញ្ចាំងម៉ាស៊ីនមេ tmux ដែលបានចាប់ផ្តើមដោយ tmux -L <name> ជំនួសឱ្យម៉ាស៊ីនមេលំនាំដើម។ ឈ្មោះ socket នីមួយៗគឺជាការតភ្ជាប់ដាច់ដោយឡែក ដូច្នេះបង្អួចពីរអាចឆ្លុះបញ្ចាំងម៉ាស៊ីនមេពីរនៅលើម៉ាស៊ីនតែមួយ។ ឈ្មោះមានអក្សរ ASCII លេខ '.' '_' ឬ '-' ចំនួន 1 ដល់ 64 តួ ហើយមិនអាចចាប់ផ្តើមដោយ '-' បានទេ។\n  cmux ssh-tmux dev@my-host --socket-name alpha"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "--socket-name <name>  기본 서버 대신 tmux -L <name>으로 시작한 tmux 서버를 미러링합니다. 소켓 이름마다 별도의 연결이므로 두 창에서 한 호스트의 두 서버를 미러링할 수 있습니다. 문자, 숫자, '.', '_', '-'만 사용할 수 있습니다.\n  cmux ssh-tmux dev@my-host --socket-name alpha"
+            "value": "--socket-name <name>  기본 서버 대신 tmux -L <name>으로 시작한 tmux 서버를 미러링합니다. 소켓 이름마다 별도의 연결이므로 두 창에서 한 호스트의 두 서버를 미러링할 수 있습니다. 이름은 1~64자의 ASCII 문자, 숫자, '.', '_' 또는 '-'이며 '-'로 시작할 수 없습니다.\n  cmux ssh-tmux dev@my-host --socket-name alpha"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--socket-name <name>  Speiler tmux-serveren som ble startet med tmux -L <name> i stedet for standardserveren. Hvert socketnavn er sin egen tilkobling, så to vinduer kan speile to servere på én vert. Navn består av 1–64 ASCII-bokstaver, sifre, '.', '_' eller '-' og kan ikke begynne med '-'.\n  cmux ssh-tmux dev@my-host --socket-name alpha"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--socket-name <name>  Odzwierciedla serwer tmux uruchomiony poleceniem tmux -L <name> zamiast serwera domyślnego. Każda nazwa gniazda to osobne połączenie, więc dwa okna mogą odzwierciedlać dwa serwery na jednym hoście. Nazwy mają 1–64 znaki: litery ASCII, cyfry, '.', '_' lub '-', i nie mogą zaczynać się od '-'.\n  cmux ssh-tmux dev@my-host --socket-name alpha"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--socket-name <name>  Espelha o servidor tmux iniciado com tmux -L <name> em vez do servidor padrão. Cada nome de socket é uma conexão própria, então duas janelas podem espelhar dois servidores em um mesmo host. Os nomes têm de 1 a 64 letras ASCII, dígitos, '.', '_' ou '-', e não podem começar com '-'.\n  cmux ssh-tmux dev@my-host --socket-name alpha"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--socket-name <name>  Зеркалирует сервер tmux, запущенный командой tmux -L <name>, вместо сервера по умолчанию. Каждое имя сокета — отдельное подключение, поэтому два окна могут зеркалировать два сервера на одном хосте. Имена состоят из 1–64 букв ASCII, цифр, '.', '_' или '-' и не могут начинаться с '-'.\n  cmux ssh-tmux dev@my-host --socket-name alpha"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--socket-name <name>  มิเรอร์เซิร์ฟเวอร์ tmux ที่เริ่มด้วย tmux -L <name> แทนเซิร์ฟเวอร์เริ่มต้น ชื่อ socket แต่ละชื่อเป็นการเชื่อมต่อแยกกัน ดังนั้นสองหน้าต่างจึงมิเรอร์สองเซิร์ฟเวอร์บนโฮสต์เดียวกันได้ ชื่อต้องเป็นตัวอักษร ASCII ตัวเลข '.' '_' หรือ '-' ความยาว 1–64 ตัว และขึ้นต้นด้วย '-' ไม่ได้\n  cmux ssh-tmux dev@my-host --socket-name alpha"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--socket-name <name>  Varsayılan sunucu yerine tmux -L <name> ile başlatılan tmux sunucusunu yansıtır. Her soket adı ayrı bir bağlantıdır; böylece iki pencere tek bir ana makinedeki iki sunucuyu yansıtabilir. Adlar 1–64 ASCII harf, rakam, '.', '_' veya '-' içerir ve '-' ile başlayamaz.\n  cmux ssh-tmux dev@my-host --socket-name alpha"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--socket-name <name>  Віддзеркалює сервер tmux, запущений командою tmux -L <name>, замість сервера за замовчуванням. Кожне ім'я сокета — окреме підключення, тому два вікна можуть віддзеркалювати два сервери на одному хості. Імена складаються з 1–64 літер ASCII, цифр, '.', '_' або '-' і не можуть починатися з '-'.\n  cmux ssh-tmux dev@my-host --socket-name alpha"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "--socket-name <name>  镜像以 tmux -L <name> 启动的 tmux 服务器，而非默认服务器。每个 socket 名称都是独立的连接，因此两个窗口可以镜像同一主机上的两个服务器。仅限字母、数字、'.'、'_' 和 '-'。\n  cmux ssh-tmux dev@my-host --socket-name alpha"
+            "value": "--socket-name <name>  镜像以 tmux -L <name> 启动的 tmux 服务器，而非默认服务器。每个 socket 名称都是独立的连接，因此两个窗口可以镜像同一主机上的两个服务器。名称为 1 到 64 个 ASCII 字母、数字、'.'、'_' 或 '-'，且不能以 '-' 开头。\n  cmux ssh-tmux dev@my-host --socket-name alpha"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "--socket-name <name>  鏡像以 tmux -L <name> 啟動的 tmux 伺服器，而非預設伺服器。每個 socket 名稱都是獨立的連線，因此兩個視窗可以鏡像同一主機上的兩個伺服器。僅限字母、數字、'.'、'_' 和 '-'。\n  cmux ssh-tmux dev@my-host --socket-name alpha"
+            "value": "--socket-name <name>  鏡像以 tmux -L <name> 啟動的 tmux 伺服器，而非預設伺服器。每個 socket 名稱都是獨立的連線，因此兩個視窗可以鏡像同一主機上的兩個伺服器。名稱為 1 到 64 個 ASCII 字母、數字、'.'、'_' 或 '-'，且不能以 '-' 開頭。\n  cmux ssh-tmux dev@my-host --socket-name alpha"
           }
         }
       }
@@ -674381,6 +674579,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "يجب أن يتكون socket_name من 1 إلى 64 حرفًا من أحرف ASCII أو أرقام أو '.' أو '_' أو '-'، ولا يمكن أن يبدأ بـ '-'"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket_name mora imati 1–64 ASCII slova, cifre, '.', '_' ili '-' i ne može počinjati sa '-'"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket_name skal bestå af 1–64 ASCII-bogstaver, cifre, '.', '_' eller '-' og må ikke begynde med '-'"
           }
         },
         "de": {
@@ -674401,16 +674611,70 @@
             "value": "socket_name doit comporter de 1 à 64 lettres ASCII, chiffres, '.', '_' ou '-', et ne peut pas commencer par '-'"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket_name deve contenere da 1 a 64 lettere ASCII, cifre, '.', '_' o '-' e non può iniziare con '-'"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "socket_name は 1〜64 文字の ASCII 英字、数字、'.'、'_'、'-' のみ使用でき、'-' で始めることはできません"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket_name ត្រូវតែមានអក្សរ ASCII លេខ '.' '_' ឬ '-' ចំនួន 1 ដល់ 64 តួ ហើយមិនអាចចាប់ផ្តើមដោយ '-' បានទេ"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "socket_name은 1~64자의 ASCII 문자, 숫자, '.', '_' 또는 '-'여야 하며 '-'로 시작할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket_name må bestå av 1–64 ASCII-bokstaver, sifre, '.', '_' eller '-' og kan ikke begynne med '-'"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket_name musi mieć 1–64 znaki: litery ASCII, cyfry, '.', '_' lub '-', i nie może zaczynać się od '-'"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket_name deve ter de 1 a 64 letras ASCII, dígitos, '.', '_' ou '-', e não pode começar com '-'"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket_name должен состоять из 1–64 букв ASCII, цифр, '.', '_' или '-' и не может начинаться с '-'"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket_name ต้องเป็นตัวอักษร ASCII ตัวเลข '.' '_' หรือ '-' ความยาว 1–64 ตัว และขึ้นต้นด้วย '-' ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket_name 1–64 ASCII harf, rakam, '.', '_' veya '-' içermeli ve '-' ile başlamamalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket_name має складатися з 1–64 літер ASCII, цифр, '.', '_' або '-' і не може починатися з '-'"
           }
         },
         "zh-Hans": {

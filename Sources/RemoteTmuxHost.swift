@@ -84,7 +84,9 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// and two ControlMaster sockets. Every tmux command this host runs, the `-CC` control
     /// stream included, is prefixed with `-L <name>` (see ``tmuxRemoteCommand(arguments:)``).
     /// Validated at the CLI and socket boundaries against ``RemoteTmuxSocketName/isValid(_:)``
-    /// because the value is interpolated into a remote shell command.
+    /// because the value is interpolated into a remote shell command. `default`, tmux's name
+    /// for the server the flag's absence selects, is stored as `nil` so both spellings are
+    /// one endpoint (``RemoteTmuxSocketName/normalized(_:)``).
     let socketName: String?
 
     init(
@@ -104,7 +106,7 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         self.transportPort = transportPort
         self.transportBroker = transportBroker
         self.transportHelperPath = transportHelperPath
-        self.socketName = socketName
+        self.socketName = RemoteTmuxSocketName.normalized(socketName)
     }
 
     /// Resolve launch options together so dedicated and shared connections cannot

@@ -747,8 +747,14 @@ extension TerminalController {
         // name long enough to push the line past MAX_CANON is never delivered: the shell runs
         // nothing and the attach dies with nothing to explain it. tmux happily accepts names of
         // ~1000 bytes, so this is reachable with a real session rather than only by abuse.
+        // The socket name rides the same line (`tmux -L <name> -CC …`), so a named server
+        // leaves fewer bytes for the session. Normalized as the host is, so `default` costs
+        // nothing, matching the command the connection will actually build.
         if transport == .et,
-           session.utf8.count > RemoteTmuxETTransportProfile.maxSessionNameBytes(mode: mode) {
+           session.utf8.count > RemoteTmuxETTransportProfile.maxSessionNameBytes(
+               mode: mode,
+               socketName: RemoteTmuxSocketName.normalized(params["socket_name"] as? String)
+           ) {
             return nil
         }
         return session

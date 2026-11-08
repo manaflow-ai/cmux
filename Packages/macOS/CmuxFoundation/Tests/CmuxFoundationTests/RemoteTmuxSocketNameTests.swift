@@ -12,7 +12,8 @@ struct RemoteTmuxSocketNameTests {
 
     static let accepted: [String] = ["alpha", "proj.v2", "team_a", "a-b-c", "A1", "x", longestAllowed]
     static let rejected: [String] = [
-        "", " ", "-x", "-", "a b", "a/b", "a;b", "a'b", "a\"b", "a$b", "a`b", "a\nb", "名前", "é", oneTooLong,
+        "", " ", "-x", "-", ".", "..", "a b", "a/b", "a;b", "a'b", "a\"b", "a$b", "a`b", "a\nb", "名前", "é",
+        oneTooLong,
     ]
 
     @Test(arguments: accepted)
@@ -28,6 +29,17 @@ struct RemoteTmuxSocketNameTests {
     @Test func argumentsAreEmptyWithoutAName() {
         #expect(RemoteTmuxSocketName.arguments(for: nil) == [])
         #expect(RemoteTmuxSocketName.arguments(for: "alpha") == ["-L", "alpha"])
+    }
+
+    /// `tmux -L default` opens the same socket as no `-L` at all, so the two spellings must
+    /// collapse before they reach a hash or an argument vector.
+    @Test func defaultServerNameNormalizesToNil() {
+        #expect(RemoteTmuxSocketName.normalized(nil) == nil)
+        #expect(RemoteTmuxSocketName.normalized("default") == nil)
+        #expect(RemoteTmuxSocketName.normalized("alpha") == "alpha")
+        #expect(RemoteTmuxSocketName.normalized("Default") == "Default")
+        // Still a valid spelling: the CLI accepts it and the host folds it away.
+        #expect(RemoteTmuxSocketName.isValid("default"))
     }
 
     @Test("builder puts -L <name> before the tmux arguments")

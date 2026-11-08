@@ -22369,7 +22369,7 @@ struct CMUXCLI {
             let socketNameHelp = String(
                 localized: "cli.help.ssh-tmux.socketName",
                 defaultValue: """
-                --socket-name <name>  Mirror the tmux server started with tmux -L <name> instead of the default server. Each socket name is its own connection, so two windows can mirror two servers on one host. Letters, digits, '.', '_' and '-' only.
+                --socket-name <name>  Mirror the tmux server started with tmux -L <name> instead of the default server. Each socket name is its own connection, so two windows can mirror two servers on one host. Names are 1-64 ASCII letters, digits, '.', '_' or '-', and cannot start with '-'.
                   cmux ssh-tmux dev@my-host --socket-name alpha
                 """
             )
