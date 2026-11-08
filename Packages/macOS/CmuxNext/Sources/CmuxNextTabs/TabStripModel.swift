@@ -2,6 +2,7 @@ public import CoreGraphics
 public import Foundation
 public import Observation
 import CmuxNextDesign
+import CmuxNextDesignTokens
 
 /// Visual mode of a strip.
 public enum TabStripStyle: Hashable, Sendable {
@@ -39,9 +40,9 @@ public final class TabStripModel {
     /// Full Width Tab mode: the strip shows only the selected tab, across its whole width
     /// (``TabLayoutEngine/layout(items:availableWidth:style:metrics:closingModeWidth:fullWidthTab:)``).
     public var showsSelectedFullWidth = false
-    /// The strip's pane is zoomed: its selected tab shows the zoom indicator, whose click restores
-    /// the layout (`TabStripIntent.toggleZoom`; cmux classic's, #25624). Inside the tab, so a zoom
-    /// never changes the strip's width and moves no tab.
+    /// The strip's pane is zoomed: the pane shows ``PaneZoomIndicatorView`` at its top-right, whose
+    /// click restores the layout (`TabStripIntent.toggleZoom`), and VoiceOver reads the selected tab
+    /// as zoomed. The tabs draw nothing for it, so a zoom never changes the strip's width or moves a tab.
     public var zoomsSelected = false
 
     /// Receives every intent. Set by the App (or the demo).
@@ -106,14 +107,13 @@ public final class TabStripModel {
         tabs.filter(\.isPinned) + tabs.filter { !$0.isPinned }
     }
 
-    /// Closing the selected tab selects its right neighbor,
-    /// or the left one when it was last. Returns the current selection when
-    /// the closed tab was not selected.
-    public static func selectionAfterClosing(_ closed: TabID, in ordered: [TabID], selected: TabID?) -> TabID? {
-        guard selected == closed else { return selected }
-        guard let index = ordered.firstIndex(of: closed) else { return selected }
-        if index + 1 < ordered.count { return ordered[index + 1] }
-        if index > 0 { return ordered[index - 1] }
-        return nil
+    /// Closing the selected tab selects the tab before it, or the one after it when it was
+    /// first (``FocusAfterClose/tab(selected:old:surviving:shown:)``). Returns the current
+    /// selection when the closed tab was not selected.
+    /// `visible` are the tabs a collapsed group does not hide; the tab before is the nearest visible one.
+    public static func selectionAfterClosing(_ closed: TabID, in ordered: [TabID], visible: Set<TabID>, selected: TabID?) -> TabID? {
+        guard selected == closed, ordered.contains(closed) else { return selected }
+        let surviving = ordered.filter { $0 != closed }
+        return FocusAfterClose.tab(selected: closed, old: ordered, surviving: surviving, shown: visible.intersection(surviving))
     }
 }

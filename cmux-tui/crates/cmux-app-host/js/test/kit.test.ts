@@ -229,4 +229,71 @@ describe("the template folders (skills/cmux-customization/templates)", () => {
     const open = host.calls.find((c) => c.name === "action.run")!
     expect([open.params, open.options.gesture]).toEqual([{ id: "app.open", args: { app: "local/customize" } }, "g3"])
   })
+
+  test("threads: agent chats as cards, needs-you first, running ones shelved, a click shows the chat's workspace", async () => {
+    const host = new FakeHost(load("threads"), init)
+    const now = Date.now()
+    const chat = (id: string, title: string, state: string, minutes: number, extra: Record<string, unknown> = {}) => ({
+      id, title, state, unread: false, harness: "claude", project: "api", cwd: "/src/api", workspace: null, machine: null,
+      step: null, error: null, since_ms: now - minutes * 60_000, updated_ms: now - minutes * 60_000, created_ms: now - minutes * 60_000 - 1,
+      pull_requests: [], ...extra
+    })
+    let chats = [
+      chat("s1", "Old docs pass", "idle", 3 * 24 * 60),
+      chat("s2", "Approve the migration", "input", 2, { workspace: "ws_2" }),
+      chat("s3", "Run the suite", "working", 4),
+      chat("s4", "Fix the upload test", "idle", 7, { unread: true, pull_requests: ["https://github.com/o/r/pull/1"] })
+    ]
+    host.handlers["agent_chat.list"] = () => ({ ok: true, body: { value: { chats } } })
+    host.handlers["workspace.list"] = ok([{ id: "ws_1", name: "web", focused: true }])
+    host.handlers["workspace.focus"] = ok()
+    expect(host.mount("m", "renderThreads")).toBe("")
+    await host.settle()
+    const texts = () => liveTexts(host)
+    // Newest first; the running chat and the day-old one wait in closed shelves.
+    expect(texts()).toEqual(expect.arrayContaining(["Approve the migration", "Fix the upload test", "Input", "Done", "Working", "Earlier"]))
+    expect(texts()).not.toContain("Run the suite")
+    expect(texts()).not.toContain("Old docs pass")
+    expect(texts().indexOf("Approve the migration")).toBeLessThan(texts().indexOf("Fix the upload test"))
+    expect([...host.timers.values()]).toContainEqual({ ms: 2000, repeat: true })
+    // Opening the Working shelf shows its chat with a live duration.
+    host.dispatch("m", tappableAround(host, "Working"), "tap", { gesture: "g1" })
+    await host.settle()
+    expect(texts()).toEqual(expect.arrayContaining(["Run the suite", "Working 4m"]))
+    // A chat that leaves is gone on the next read.
+    chats = chats.filter((c) => c.id !== "s4")
+    host.emit("workspace.changed")
+    await host.settle()
+    expect(texts()).not.toContain("Fix the upload test")
+    // A click on a card shows the chat's workspace.
+    host.dispatch("m", tappableAround(host, "Approve the migration"), "tap", { gesture: "g5" })
+    await host.settle()
+    const focus = host.calls.find((c) => c.name === "workspace.focus")!
+    expect([focus.params, focus.options.gesture]).toEqual([{ workspace: "ws_2" }, "g5"])
+  })
 })
+
+/** The texts of the nodes reachable from the root, in order (detached nodes left out). */
+function liveTexts(host: FakeHost): string[] {
+  const tree = host.tree("m")
+  const out: string[] = []
+  const walk = (id: string) => {
+    const n = tree.nodes.get(id)
+    if (!n) return
+    if (n.type === "Text") out.push(String(n.props.text))
+    n.children.forEach(walk)
+  }
+  walk(tree.root)
+  return out
+}
+
+/** The nearest node with a tap handler around the Text that reads `text` (a card, a shelf header). */
+function tappableAround(host: FakeHost, text: string): string {
+  const tree = host.tree("m")
+  const parent = new Map<string, string>()
+  for (const [id, n] of tree.nodes) for (const child of n.children) parent.set(child, id)
+  let id = [...tree.nodes.entries()].find(([, n]) => n.type === "Text" && n.props.text === text)?.[0]
+  while (id && tree.nodes.get(id)!.props.onTap !== true) id = parent.get(id)
+  if (!id) throw new Error(`no tappable node around ${text}`)
+  return id
+}

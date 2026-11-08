@@ -39,7 +39,7 @@ extension UpdaterService {
         openChangelog = { [weak services] in services.map { ChangelogPageTab.open($0) } ?? false }
         // "See What's New" on the Updated card: the React changelog page
         // for the releases this update crossed (`#/?from=&to=`).
-        openChangelogSpan = { [weak services] from, to in services.map { ChangelogPageTab.open($0, from: from, to: to) } ?? false }
+        openChangelogSpan = { [weak services] from, to, target in services.map { ChangelogPageTab.open($0, from: from, to: to, at: target) } ?? false }
         openReleaseNotesURL = { [weak services] url in
             guard let services, url.scheme == "https" else { return false }
             SidebarCardFeed.openUpdateLink(url, services: services)
