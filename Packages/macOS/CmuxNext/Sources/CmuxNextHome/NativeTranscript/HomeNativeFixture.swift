@@ -26,8 +26,8 @@ public final class HomeNativeFixture {
     private let source = MockHomeSource(options: .init(chiefHistory: 300, latency: .zero, replyDelay: .milliseconds(1500)))
     private let store: HomeStore
     private var view: HomeNativeTranscriptView?
-    /// Each transcript this fixture shows (the one shown now too), once its `onStartAgent` is set: the Agent
-    /// Messages Playground hands it the pill menu's registered Start now row (HomeChiefHomes's `startsOwnAgents`).
+    /// Each transcript this fixture shows (the one shown now too), once its `onStartAgent` is set: the fixture page and
+    /// the Agent Messages Playground hand it the pill menu's registered Start now row (HomeChiefHomes's `startsOwnAgents`).
     public var onShow: ((HomeNativeTranscriptView) -> Void)? {
         didSet { if let view { onShow?(view) } }
     }

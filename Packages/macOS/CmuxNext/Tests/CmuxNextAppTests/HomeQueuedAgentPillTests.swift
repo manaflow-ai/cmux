@@ -153,7 +153,7 @@ import Testing
         let homes = HomeChiefHomes()
         let page = DebugHomeNativeFixture(openPanel: MadeAheadOpenPanel(), homes: homes)
         let container = page.makeView(for: "fixture", in: nil)
-        defer { page.tabClosed("fixture") }
+        defer { page.tabClosed("fixture"); withExtendedLifetime(homes) {} } // the page holds it weakly, as the app does
         func transcript(in view: NSView) -> HomeNativeTranscriptView? {
             view as? HomeNativeTranscriptView ?? view.subviews.lazy.compactMap(transcript(in:)).first
         }
