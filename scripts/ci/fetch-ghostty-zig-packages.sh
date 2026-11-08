@@ -75,11 +75,12 @@ progress() {
 }
 
 # Whether an archive is whole. An unknown kind, or no tool to check it, counts
-# as whole: only an archive shown to be cut short or not a tar is removed (a
-# gzipped error page passes gzip -t, and Zig fails on it every attempt).
+# as whole: only an archive shown to be cut short or not a tar with entries is
+# removed (a gzipped error page passes gzip -t, GNU tar lists it as an empty
+# archive, and Zig fails on it every attempt).
 archive_ok() {
   case "$1" in
-    *.tar.gz|*.tgz) tar -tzf "$1" >/dev/null 2>&1 ;;
+    *.tar.gz|*.tgz) local entries; entries="$(tar -tzf "$1" 2>/dev/null)" && [[ -n "$entries" ]] ;;
     *.tar.xz) ! command -v xz >/dev/null 2>&1 || xz -t "$1" 2>/dev/null ;;
     *.tar.zst) ! command -v zstd >/dev/null 2>&1 || zstd -tq "$1" 2>/dev/null ;;
     *.zip) ! command -v unzip >/dev/null 2>&1 || unzip -tqq "$1" >/dev/null 2>&1 ;;
