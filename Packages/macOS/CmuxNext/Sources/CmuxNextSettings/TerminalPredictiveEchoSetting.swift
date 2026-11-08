@@ -5,7 +5,9 @@
 /// slow measured echo and skips password prompts and full-screen programs.
 /// Running terminals follow a change at once. `configPath` and `fallback` are
 /// generated from schemas/settings/source/terminal.json.
-public nonisolated enum TerminalPredictiveEchoSetting {
+public nonisolated struct TerminalPredictiveEchoSetting {
+    public nonisolated init() {}
+
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.
     static func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
