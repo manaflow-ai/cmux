@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42499800954",
+  "recorded_at": "2026-11-08T16:37:13Z",
+  "reason": "cmux-tui e4954b7bcf64 changes the image's cmux-tui (pinned def9bc218ad2)",
+  "dry_run": false,
+  "cmux_tui": "e4954b7bcf6413a50209f0344f7d4c27f1c1c488",
+  "fixes": [
+    {
+      "sha": "e4954b7bcf6413a50209f0344f7d4c27f1c1c488",
+      "mergedAt": "2026-11-08T08:10:12-08:00",
+      "subject": "cmux-host, cmux-remote: a resume abandons a slow carrier ticket request; a long pause resets the relay backoff (#38593)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T16:37:13Z",
+    "snapshot_id": "sh-66486297703748f78ac25f7bee9c8604",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42499800954): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0e1ebd968ec02d77ae941535db90502bde5d4cba",
+    "image": "cloud-native-auto-e4954b7b-42499800954-1",
+    "revision": "ci-42499800954-1",
+    "at": "2026-11-08T16:37:13Z"
+  },
+  "rolled_back": false
+}
