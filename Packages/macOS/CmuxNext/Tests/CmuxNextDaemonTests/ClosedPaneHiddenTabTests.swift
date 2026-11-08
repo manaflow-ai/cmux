@@ -69,4 +69,48 @@ struct ClosedPaneHiddenTabTests {
         store.rejectIntent(close)
         #expect(pane.tabs.map(\.surface) == [Self.closedTab])
     }
+
+    /// Review of #38302 (Medium): a refused close of a tab whose pane a pending stand-in pane close hides (the dock's
+    /// daemon pane, closed while the dock's reply has not come) keeps its tab. The overlay's restore hides that pane
+    /// again, so after the restore it looks gone like a pane the daemon closed; only a pane the confirmed records
+    /// dropped may lose the closed tab. Before, the refused close took the tab out of the hidden pane's record, and the
+    /// refused pane close then brought the pane back without its tab.
+    @Test func aRefusedCloseUnderAPendingStandInPaneCloseKeepsItsTab() throws {
+        let source = PaneID(rawValue: 3), docked = PaneID(rawValue: 9)
+        let chat = SurfaceID(rawValue: 4), fresh = SurfaceID(rawValue: 8)
+        let key = WorkspaceKey(rawValue: "00000000-0000-4000-8000-000000000003")
+        let dock = DockSnapshot(edge: .left, mode: .docked, role: .agentChat)
+        let store = DaemonStore()
+        store.apply(snapshot: DaemonTree(workspaceRevision: 1, workspaces: [WorkspaceSnapshot(
+            id: Self.workspace, key: key, name: "1",
+            screens: [ScreenSnapshot(id: Self.screen, active: true, activePane: source, layout: .leaf(source),
+                                     panes: [PaneSnapshot(id: source, tabs: [TabSnapshot(surface: chat)])])])]))
+        let provisional = ProvisionalPane(columnWidth: 0.5, left: true)
+        let standIn = ProvisionalTab().terminal(TerminalID.generate(), cwd: nil)
+        store.intend(.dockTab(surface: chat, pane: source, provisional: provisional, dock: dock, standIn: standIn),
+                     transaction: ClientTransactionID.generate())
+        // The daemon's dock lands before the dock's reply: its pane holds the chat in the confirmed records.
+        let column = ColumnSnapshot(id: ColumnID(rawValue: 10), width: 0.5, layout: .leaf(docked), dock: dock)
+        let rest = ColumnSnapshot(id: ColumnID(rawValue: 11), width: 1, layout: .leaf(source))
+        store.apply(snapshot: DaemonTree(workspaceRevision: 2, workspaces: [WorkspaceSnapshot(
+            id: Self.workspace, key: key, name: "1",
+            screens: [ScreenSnapshot(id: Self.screen, active: true, activePane: source,
+                                     layout: .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(docked), b: .leaf(source)),
+                                     columns: [column, rest],
+                                     panes: [PaneSnapshot(id: docked, resourceID: ResourceID(rawValue: provisional.paneID),
+                                                          tabs: [TabSnapshot(surface: chat)]),
+                                             PaneSnapshot(id: source, tabs: [TabSnapshot(surface: fresh)])])])]))
+        let pane = try #require(store.panesByHandle[docked])
+        try #require(pane.tabs.map(\.surface) == [chat], "the daemon's dock pane does not show the chat")
+        let close = try #require(store.intendClose([chat]))
+        let paneClose = try #require(store.intendStandInPaneClose(provisional.handle), "no close intent for the dock's stand-in")
+        try #require(store.panesByHandle[docked] == nil, "the stand-in's close does not hide the daemon's dock pane")
+
+        store.rejectIntent(close)
+        #expect(pane.tabs.map(\.surface) == [chat], "the refused close took the tab out of the hidden pane's record")
+        store.rejectIntent(paneClose)
+        #expect(store.panesByHandle[docked]?.tabs.map(\.surface) == [chat], "the refused pane close brought the pane back without its tab")
+        #expect(store.tab(surface: chat) != nil)
+        #expect(store.mirrorViolations.isEmpty, "\(store.mirrorViolations)")
+    }
 }
