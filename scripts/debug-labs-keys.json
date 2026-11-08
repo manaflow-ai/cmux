@@ -12,7 +12,6 @@
   "labs.voiceRoomURL": {"case": "keep", "why": "Voice Room's server address, a value and not a switch."},
   "labs.machineJoin": {"case": "keep", "why": "Mints a line that joins any machine to the team: a network switch only the person turns on."},
   "labs.liveCode": {"case": "keep", "why": "Loads Swift patches into the running app: a switch only the person turns on."},
-  "agent.chatWidth": {"case": "keep", "why": "A look trial of three column widths; Leo has not picked a winner, and Standard stays the default until he does."},
   "agent.chromium": {"case": "keep", "why": "Kill switch for the agent chat in Chromium: off returns to WebKit, which shows window glass through the page and Chromium does not."},
   "agent.composerPlainFooter": {"case": "keep", "why": "A look comparison for the composer footer; the default plain look (Claude Code desktop's) is the chosen one."},
   "agent.escapeStopDoublePress": {"case": "delete", "why": "On by default, as in Claude Code; deleting the switch keeps the double-press Esc and drops the old single-press stop."},
