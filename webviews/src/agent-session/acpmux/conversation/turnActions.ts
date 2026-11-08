@@ -12,6 +12,7 @@ export type QueuedActions = { retry?: ReactNode; fork?: ReactNode };
 // client). A context, so a change in what acpmux serves, or in what the reader decided about a
 // turn's hunks, reaches memoized rows without changing their versions.
 import { createContext, type ReactNode } from "react";
+import type { TamperingEvidence } from "./testTamperingModel";
 import type { HunkReview } from "../changes/hunkReview";
 import type { AccessOffer } from "../accessOffer";
 import type { ChatAccount } from "../chatAccounts";
@@ -80,6 +81,7 @@ export type TurnActions = {
   /// path, so it shows as the reader's prompt and starts the next turn. Absent where the pane cannot
   /// send (View Only, a read-only pane); the card then draws no buttons.
   answer?: (text: string) => Promise<void>;
+  restoreTestTampering?: (finding: TamperingEvidence) => Promise<void>;
   /// Scrolls to call `toolCallId`'s row and opens it, opening the fold and run that hold it (App.tsx
   /// `showToolRow`): a turn waterfall's bar (TurnWaterfall.tsx). `startedAt` picks the call among
   /// several with a reused id. False when no loaded row holds it.

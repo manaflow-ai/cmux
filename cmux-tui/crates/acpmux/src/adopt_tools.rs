@@ -62,6 +62,17 @@ impl PastTool {
                 }
             }
         }
+        // Evidence belongs to the same settled event as its structured diff, so Restore can
+        // re-derive it from that durable event. Failed/cut-off proposals have no alarm.
+        if let Some(done) = self.done.as_object_mut() {
+            done.remove("tampering");
+        }
+        if !failed
+            && let Some(report) =
+                self.done.get("content").and_then(crate::test_tampering::detect_diffs)
+        {
+            self.done.set("tampering", report);
+        }
         // An edit that failed changed nothing: its files keep no +/- counts.
         if failed
             && let Some(changes) =
@@ -324,13 +335,15 @@ fn codex_file_change(
         let target = change.move_path.as_deref().unwrap_or(&change.path);
         let (additions, deletions) = match change.kind.as_str() {
             "add" => {
-                content.push(json!({"type": "diff", "path": target, "newText": change.text}));
+                content.push(
+                    json!({"type": "diff", "path": target, "line": 1, "newText": change.text}),
+                );
                 locations.push(json!({"path": target}));
                 (change.text.lines().count() as u64, 0)
             }
             "delete" => {
                 content.push(
-                    json!({"type": "diff", "path": target, "oldText": change.text, "newText": ""}),
+                    json!({"type": "diff", "path": target, "line": 1, "oldText": change.text, "newText": ""}),
                 );
                 locations.push(json!({"path": target}));
                 (0, change.text.lines().count() as u64)
@@ -341,7 +354,7 @@ fn codex_file_change(
                     content.push(text_content(&format!("{target}\n{}", change.text)));
                 }
                 for hunk in &parts {
-                    content.push(json!({"type": "diff", "path": target, "oldText": joined(&hunk.old), "newText": joined(&hunk.new), "_meta": {"acpmux": {"fragment": true}}}));
+                    content.push(json!({"type": "diff", "path": target, "line": hunk.old_start, "oldText": joined(&hunk.old), "newText": joined(&hunk.new), "_meta": {"acpmux": {"fragment": true}}}));
                 }
                 // A location's line numbers its file's diffs: only one hunk starts there.
                 locations.push(match parts.as_slice() {
@@ -373,6 +386,7 @@ fn codex_file_change(
             })
             .collect();
     }
+    let tampering = crate::test_tampering::detect_diffs(&content);
     let title = match files.as_slice() {
         [one] => {
             let verb = match one.kind.as_str() {
@@ -384,14 +398,18 @@ fn codex_file_change(
         }
         many => format!("Edit {} files", many.len()),
     };
-    Some(PastTool {
+    let mut tool = PastTool {
         id: id.to_owned(),
         call: json!({"kind": "edit", "title": title, "locations": locations, "rawInput": {"changes": summary}}),
         done: json!({"status": status, "content": content}),
         started_at: at,
         ended_at: at,
         proposed: None,
-    })
+    };
+    if let Some(tampering) = tampering {
+        tool.done["tampering"] = tampering;
+    }
+    Some(tool)
 }
 
 /// MCP or tool result blocks as ACP content: their text.
@@ -526,6 +544,9 @@ pub fn claude_tool_uses(content: &Value, at: Option<u64>) -> Vec<PastTool> {
             let input = block.get("input").cloned().unwrap_or(Value::Null);
             let mut call = crate::claude_stdio::tool_call_fields(name, &input);
             let diffs = call.as_object_mut().and_then(|c| c.remove("content"));
+            if let Some(call) = call.as_object_mut() {
+                call.remove("tampering");
+            }
             Some(PastTool {
                 id: id.to_owned(),
                 call,
@@ -575,6 +596,58 @@ pub fn claude_tool_results(content: &Value, structured: Option<&Value>) -> Vec<T
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adopted_test_update_keeps_reproducible_alarm_with_its_settled_diff() {
+        let changes = json!({"suite.test.ts":{"type":"update","unified_diff":"@@ -42,1 +42,1 @@\n-expect(count).toEqual(3);\n+expect(count).toBeTruthy();\n"}});
+        let tool = codex_file_change("edit-1", &changes, "completed", None, Some(9)).unwrap();
+        assert!(tool.call.get("tampering").is_none());
+        assert_eq!(tool.done["content"][0]["line"], 42);
+        let report = tool.done.get("tampering").expect("weakened assertion alarm");
+        assert_eq!(report, &crate::test_tampering::detect_diffs(&tool.done["content"]).unwrap());
+        assert_eq!(report["files"][0]["findings"][0]["line"], 42);
+        assert_eq!(report["files"][0]["findings"][0]["kind"], "weakened-assertion");
+    }
+
+    #[test]
+    fn adopted_test_deletion_is_detected_from_whole_file_content() {
+        let changes = json!({"tests/check.rs":{"type":"delete","content":"#[test]\nfn checks() { assert_eq!(count(), 3); }\n"}});
+        let tool = codex_file_change("delete-1", &changes, "completed", None, None).unwrap();
+        let report = tool.done.get("tampering").expect("removed test alarm");
+        assert_eq!(report, &crate::test_tampering::detect_diffs(&tool.done["content"]).unwrap());
+        assert_eq!(report["files"][0]["findings"][0]["kind"], "removed-test");
+        assert_eq!(tool.done["content"][0]["line"], 1);
+    }
+
+    #[test]
+    fn failed_or_normal_adopted_edits_have_no_alarm() {
+        let stronger = json!({"suite.test.ts":{"type":"update","unified_diff":"@@ -1 +1 @@\n-expect(count).toBeTruthy();\n+expect(count).toEqual(3);\n"}});
+        let normal = codex_file_change("stronger", &stronger, "completed", None, None).unwrap();
+        assert!(normal.done.get("tampering").is_none());
+        assert!(crate::test_tampering::detect_diffs(&normal.done["content"]).is_none());
+        let weakened = json!({"suite.test.ts":{"type":"update","unified_diff":"@@ -1 +1 @@\n-expect(count).toEqual(3);\n+expect(count).toBeTruthy();\n"}});
+        let failed =
+            codex_file_change("failed", &weakened, "failed", Some("not applied"), None).unwrap();
+        assert!(failed.call.get("tampering").is_none());
+        assert!(failed.done.get("tampering").is_none());
+        assert!(crate::test_tampering::detect_diffs(&failed.done["content"]).is_none());
+    }
+
+    #[test]
+    fn adopted_claude_alarm_waits_for_confirmed_edit_and_shares_its_evidence() {
+        let edit = json!([{"type":"tool_use", "id":"test-edit", "name":"Edit", "input":{
+            "file_path":"/p/suite.test.ts", "old_string":"expect(count).toEqual(3);", "new_string":"expect(count).toBeTruthy();"
+        }}]);
+        let mut tool = claude_tool_uses(&edit, Some(1)).remove(0);
+        assert!(tool.call.get("tampering").is_none());
+        assert!(tool.done.get("tampering").is_none());
+        tool.settle(&result("test-edit", false), Some(2));
+        let report = tool.done.get("tampering").expect("settled edit alarm");
+        assert_eq!(report, &crate::test_tampering::detect_diffs(&tool.done["content"]).unwrap());
+        let mut failed = claude_tool_uses(&edit, Some(1)).remove(0);
+        failed.settle(&result("test-edit", true), Some(2));
+        assert!(failed.done.get("tampering").is_none());
+    }
 
     fn edit(id: &str) -> Value {
         json!([{"type": "tool_use", "id": id, "name": "Edit",

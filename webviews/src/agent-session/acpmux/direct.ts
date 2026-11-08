@@ -1,4 +1,5 @@
 import { sentFrom, type SentFrom } from "./conversation/sentFromHarness";
+import { restoreTestTampering, type TestTamperingRestoreTarget } from "./testTamperingRestore";
 import { externalAccessFromRequest } from "./permissions/externalAccess";
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
 import { projectLiveProgress, type LiveProgress } from "./liveProgress";
@@ -1306,6 +1307,7 @@ export function mergeToolItem(
   callId: string,
   output: string,
   at?: number,
+  eventSeq?: number,
 ): AcpmuxActivity {
   const before = previous?.tool;
   const provenance =
@@ -1373,6 +1375,8 @@ export function mergeToolItem(
       ...(input ? { inputPath: input } : {}),
       images: update.content === undefined ? before?.images : imagesFromContent(update.content),
       diffs,
+      tampering: update.tampering ?? before?.tampering,
+      tamperingEventSeq: update.tampering ? eventSeq : before?.tamperingEventSeq,
       ...(provenance ? { provenance } : {}),
     },
   };
@@ -2324,6 +2328,7 @@ export class AcpmuxDirectClient {
   /// acpmux calls this connection local (`_meta.acpmux.origin: "local"`). Without that, a
   /// WebSocket connection is remote-origin to acpmux, which never pools for it.
   private localOrigin = false;
+  canRestoreTestTampering = false;
   /// The origin acpmux names for this connection; `unknown` until (or unless) it names one.
   private origin: NonNullable<AcpmuxSnapshot["origin"]> = "unknown";
   /// The app's wire says this chat runs on the person's own Cloud machine (`ownerCloud`).
@@ -2901,6 +2906,7 @@ export class AcpmuxDirectClient {
       const extensions = initialized?._meta?.acpmux?.extensions;
       this.extensions = Array.isArray(extensions) ? extensions.map(String) : [];
       this.localOrigin = initialized?._meta?.acpmux?.origin === "local";
+      this.canRestoreTestTampering = initialized?._meta?.acpmux?.testTamperingRestore === true;
       // The owner's Approve and Decline of a guest's prompt (`_acpmux/queue_approve`), and a held
       // prompt's record read whole (`_acpmux/queue_get`).
       this.queueApproval = Array.isArray(features) && features.includes("queueApproval");
@@ -4849,6 +4855,14 @@ export class AcpmuxDirectClient {
   /// Marks or unmarks the prompt logged at `seq`; acpmux answers with the session's marks.
   setBookmark(sessionId: string, seq: number, bookmarked: boolean): Promise<unknown> {
     return this.request("_acpmux/bookmark_set", { sessionId, seq, bookmarked });
+  }
+
+  restoreTestTampering(target: TestTamperingRestoreTarget): Promise<void> {
+    return restoreTestTampering(
+      (method, params, deadline) => this.request(method, params, deadline),
+      this.actingSessionId,
+      target,
+    );
   }
 
   /// Files under `path` (else the selected session's folder) whose path matches `query`, best
@@ -7619,7 +7633,7 @@ export class AcpmuxDirectClient {
       const items = [...(existing?.items ?? [])];
       const itemIndex = items.findIndex((item) => item.tool?.id === callId);
       const item = this.holdEdit(
-        mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text, event.at),
+        mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text, event.at, event.seq),
         itemIndex < 0 || items[itemIndex].tool?.status === "pending",
       );
       const priorTool = itemIndex >= 0 ? items[itemIndex].tool : undefined;

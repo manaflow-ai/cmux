@@ -1,0 +1,7 @@
+--- a/tests/upload_test.go
++++ b/tests/upload_test.go
+@@ -1,3 +1,3 @@
+ func TestUpload(t *testing.T) {
+-    require.NotNil(t, upload())
++    require.Equal(t, "ok", upload())
+ }
