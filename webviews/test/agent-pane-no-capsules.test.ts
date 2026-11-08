@@ -49,6 +49,9 @@ const SHAPES = new Set([
   ".acpmux-pr-card__barPart",
   ".acpmux-workflow-card__phases > span",
   ".acpmux-pdf-sheet-lines i",
+  // The dictation waveform's pill (DictationListening.tsx): Leo, 2026-11-08, asked for the
+  // waveform to sit in a black pill; it holds no text and takes no clicks.
+  ".acpmux-dictation-pill",
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-model .acpmux-picker-button",
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-effort .acpmux-picker-button",
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-access .acpmux-picker-button",

@@ -27,12 +27,15 @@ extension AgentPaneView {
         }
         if (!target) return JSON.stringify({ error: 'no visible element matches' });
         // What the page sees of the click (`page_events` in the result).
-        const seen = [];
+        // `__cmuxDebugClickButtons`: each pointer and mouse event's `buttons` (`pointerdown:1`), as the page read them.
+        const seen = [], buttons = [];
         window.__cmuxDebugClick = seen;
-        for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click']) {
+        window.__cmuxDebugClickButtons = buttons;
+        for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
             window.addEventListener(type, function note(e) {
                 if (window.__cmuxDebugClick !== seen) return window.removeEventListener(type, note, true);
-                seen.push(type + (e.isTrusted ? '' : '?'));
+                if (type !== 'click') buttons.push(type + ':' + e.buttons);
+                if (type !== 'pointerup') seen.push(type + (e.isTrusted ? '' : '?'));
             }, true);
         }
         target.scrollIntoView({ block: 'nearest', inline: 'nearest' });

@@ -11,7 +11,7 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { translatorFor } from "../i18n";
 import { ToolRows } from "./TurnRows";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { turnFoldStyle } from "./turnFoldStyle";
 import { workedLabel } from "./turns";
 

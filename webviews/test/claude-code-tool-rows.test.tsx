@@ -12,7 +12,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { mcpCall, mcpLabel } from "../src/agent-session/acpmux/conversation/mcpCalls";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
-import { WorkingCountsContext, type WorkingCounts } from "../src/agent-session/acpmux/conversation/WorkingFor";
+import { WorkingCountsContext, type WorkingCounts } from "../src/agent-session/acpmux/conversation/workingForModel";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { toolLabel } from "../src/agent-session/acpmux/toolPaths";
