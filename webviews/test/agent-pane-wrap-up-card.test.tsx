@@ -11,6 +11,7 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { NEXT_STEP, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { NextStepCard } from "../src/agent-session/acpmux/conversation/NextStepCard";
 import { execWrapUp, isWrapUp, wrapUpAsk } from "../src/agent-session/acpmux/conversation/wrapUp";
+import { nextStepText, shortLinks } from "../src/agent-session/acpmux/conversation/nextStepText";
 
 const RECAP = "The grid reserves a 4:5 box while images load, so it no longer shifts. All 14 tests pass.";
 const call = (input: Record<string, unknown>, title = "mcp__acpmux__wrap_up", status = "completed") =>
@@ -237,6 +238,20 @@ describe("NextStepCard with a recap", () => {
     expect(links.every((link) => !link.label.includes("://"))).toBe(true);
     // The buttons' labels stay plain text, so a click on one always answers.
     expect(html.match(/acpmux-next-step__answer\b[^>]*>(?:(?!<\/button>)[\s\S])*<a /g)).toBeNull();
+  });
+
+  test("an address in a mark, with parentheses or before punctuation keeps the mark and its whole address", () => {
+    expect(shortLinks("See **https://x.test/a/b** now.")).toBe("See **[x.test/…/b](https://x.test/a/b)** now.");
+    expect(shortLinks("~~https://x.test/a/b~~")).toBe("~~[x.test/…/b](https://x.test/a/b)~~");
+    expect(shortLinks("(https://en.wikipedia.org/wiki/Foo_(bar)).")).toBe(
+      "(" + "[en.wikipedia.org/…/Foo\\_(bar)](https://en.wikipedia.org/wiki/Foo_(bar))).",
+    );
+    expect(shortLinks("[docs](https://x.test/a) and `https://x.test/b` and <https://x.test/c>")).toBe(
+      "[docs](https://x.test/a) and `https://x.test/b` and <https://x.test/c>",
+    );
+    const html = renderToStaticMarkup(createElement("p", null, nextStepText("**https://x.test/a/b**")));
+    expect(html).toContain("<strong><a ");
+    expect(html).not.toContain("**");
   });
 
   test("a recap alone: the box with its text and no buttons", () => {

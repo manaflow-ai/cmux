@@ -9,10 +9,17 @@ import type { ReactNode } from "react";
 import { githubRefLabel } from "../chips/linkChipsModel";
 import { renderInline } from "./inlineMarkdown";
 
-// Code spans and Markdown links are kept as written (group 1); otherwise a bare http(s) address,
-// without the sentence punctuation after it.
-const ADDRESS =
-  /(`[^`\n]*`|!?\[[^\]\n]*\]\([^)\n]*\)|<https?:\/\/[^>\s]*>)|\bhttps?:\/\/[^\s<>()[\]`"]*[^\s<>()[\]`".,;:!?']/g;
+// Code spans and Markdown links are kept as written (group 1); otherwise a bare http(s) address. It
+// may hold one level of parentheses (`…/Foo_(bar)`) and never ends on sentence punctuation or on
+// the `*` / `~` of a bold or struck mark around it (`**https://x.test/a**`).
+const URL_CHAR = '[^\\s<>()[\\]`"]';
+const URL_PARENS = `\\(${URL_CHAR}*\\)`;
+const URL_END = "[^\\s<>()[\\]`\".,;:!?'*~]";
+const ADDRESS = new RegExp(
+  "(`[^`\\n]*`|!?\\[[^\\]\\n]*\\]\\((?:[^()\\n]|\\([^()\\n]*\\))*\\)|<https?:\\/\\/[^>\\s]*>)" +
+    `|\\bhttps?:\\/\\/(?:${URL_CHAR}|${URL_PARENS})*(?:${URL_END}|${URL_PARENS})`,
+  "g",
+);
 const MAX_TAIL = 32;
 
 /// A short label for a web address: its host (no `www.`) and the last part of its path, with `…`
@@ -40,7 +47,8 @@ export function shortLinks(text: string): string {
   return text.replace(ADDRESS, (whole, kept: string | undefined) => {
     if (kept || githubRefLabel(whole)) return whole;
     const label = shortLinkLabel(whole);
-    return label ? `[${label}](${whole})` : whole;
+    // The label is text: a `*` or `_` in a path is not a mark there.
+    return label ? `[${label.replace(/[\\`*_~]/g, "\\$&")}](${whole})` : whole;
   });
 }
 

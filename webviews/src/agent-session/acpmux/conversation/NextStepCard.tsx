@@ -107,6 +107,8 @@ export const NextStepCard = memo(function NextStepCard({
               className={index === 0 ? "acpmux-next-step__answer is-primary" : "acpmux-next-step__answer"}
               aria-keyshortcuts={index === 0 && registerKey ? "Meta+Enter" : undefined}
               disabled={sending !== undefined}
+              // The label is cut to one line: its whole text on hover.
+              title={option.key ? undefined : plainText(option.label)}
               onClick={() => send(option.label)}
             >
               <span className="acpmux-next-step__label">{option.key ? t(option.key) : inlineText(option.label)}</span>
