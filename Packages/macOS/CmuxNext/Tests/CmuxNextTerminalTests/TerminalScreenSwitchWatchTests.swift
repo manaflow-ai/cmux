@@ -21,27 +21,37 @@ import Testing
     func aScreenSwitchSplitAcrossChunksIsReadAfterTheChunkThatEndsIt(_ chunks: [String]) {
         var watch = TerminalScreenSwitchWatch()
         for chunk in chunks.dropLast() { _ = watch.needsRead(after: Data(chunk.utf8)) }
-        #expect(watch.needsRead(after: Data(chunks.last!.utf8)), "\(chunks.map(\.debugDescription)): the chunk that ends the switch is not read")
+        let read = watch.needsRead(after: Data(chunks.last!.utf8))
+        #expect(read, "\(chunks.map(\.debugDescription)): the chunk that ends the switch is not read")
     }
 
     /// A read Ghostty could not do (an unlocked grid's resize in flight) is done after the next chunk, whatever it holds;
     /// one read that works ends it. Before, the switch was lost until the program sent another ESC `[` `?`.
     @Test func aFailedReadIsDoneAgainAfterTheNextChunk() {
         var watch = TerminalScreenSwitchWatch()
-        #expect(watch.needsRead(after: Data("\u{1B}[?1049h".utf8)))
+        let first = watch.needsRead(after: Data("\u{1B}[?1049h".utf8))
+        #expect(first)
         watch.readFinished(false)
-        #expect(watch.needsRead(after: Data("plain".utf8)), "a failed read was not done again")
+        let again = watch.needsRead(after: Data("plain".utf8))
+        #expect(again, "a failed read was not done again")
         watch.readFinished(true)
-        #expect(!watch.needsRead(after: Data("plain".utf8)), "a read that worked still asks for reads")
+        let after = watch.needsRead(after: Data("plain".utf8))
+        #expect(!after, "a read that worked still asks for reads")
     }
 
     /// The cost rule: output that cannot switch the screen costs no read, also when an ordinary escape (SGR) is split.
     @Test func outputThatCannotSwitchTheScreenIsNotRead() {
         var watch = TerminalScreenSwitchWatch()
-        #expect(!watch.needsRead(after: Data("hello world 123".utf8)))
-        #expect(!watch.needsRead(after: Data("red \u{1B}[3".utf8)))
-        #expect(!watch.needsRead(after: Data("1mtext\u{1B}[0m".utf8)))
-        #expect(!watch.needsRead(after: Data("[?1049h is text here".utf8)))
-        #expect(watch.needsRead(after: nil), "a snapshot restore is always read")
+        // `needsRead` is mutating: #expect cannot call it on its captured copy, so each result is taken first.
+        let plain = watch.needsRead(after: Data("hello world 123".utf8))
+        let splitSGR = watch.needsRead(after: Data("red \u{1B}[3".utf8))
+        let sgrEnd = watch.needsRead(after: Data("1mtext\u{1B}[0m".utf8))
+        let text = watch.needsRead(after: Data("[?1049h is text here".utf8))
+        #expect(!plain)
+        #expect(!splitSGR)
+        #expect(!sgrEnd)
+        #expect(!text)
+        let restore = watch.needsRead(after: nil)
+        #expect(restore, "a snapshot restore is always read")
     }
 }
