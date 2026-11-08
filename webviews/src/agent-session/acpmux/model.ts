@@ -1068,6 +1068,8 @@ export type AcpmuxTimeSpan = {
   startAt: number;
   endAt: number;
   tokens?: number;
+  /** Measured usage for the whole turn; phase/category attribution may be unavailable. */
+  turnTokens?: number;
 };
 export type AcpmuxTimeBreakdown = {
   totalMs: number;

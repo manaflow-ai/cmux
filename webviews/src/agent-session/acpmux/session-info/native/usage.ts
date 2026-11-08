@@ -4,6 +4,7 @@ import type { Translate } from "../../i18n";
 import type { AcpmuxSessionEntry } from "../../sessionList";
 import { byUsage, cacheUsageRows, type SessionUsageStats, UNKNOWN, usageCost, usageTokens } from "../../usageStats";
 import type { AcpmuxTimeBreakdown, AcpmuxUsageLimits } from "../../model";
+import { hasUnknownCategoryTokens, normalizedTimeBreakdown } from "../timeBreakdownModel";
 import { planLimitRows } from "../../usageLimits";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
 
@@ -170,7 +171,9 @@ export function usageSection(
 ): NativeInfoSection | undefined {
   const hasSessionUsage = input.hasSessionUsage ?? input.sessions.some((entry) => Boolean(entry.usageStats));
   const planRows = planLimitRows(input.planLimits, t, Date.now(), input.locale);
-  if (!input.own && !input.timeBreakdown && !hasSessionUsage && !planRows.length) return undefined;
+  const time = normalizedTimeBreakdown(input.timeBreakdown);
+  const hasTime = time.totalMs > 0 || time.spans.length > 0;
+  if (!input.own && !hasTime && !hasSessionUsage && !planRows.length) return undefined;
   const ranked = input.ranked ?? (input.open ? byUsage(input.sessions, input.sort ?? "cost") : []);
   const expanded = input.expanded === true;
   const sort = input.sort ?? "cost";
@@ -178,22 +181,31 @@ export function usageSection(
   const shown = folds && !expanded ? ranked.slice(0, USAGE_SHOWN) : ranked;
   const rows: NativeInfoRow[] = [];
   if (input.own) rows.push(...ownRows(input.own, t, input.locale, actions, input.onCompact, input.onShowSubagents));
-  if (input.timeBreakdown) {
+  if (hasTime) {
     rows.push({
       id: "time:head",
       title: t("timeBreakdown.title"),
-      trailing: elapsed(input.timeBreakdown.totalMs),
+      trailing:
+        elapsed(time.totalMs) +
+        (time.totalTokens === undefined
+          ? ""
+          : ` · ${t(time.tokensComplete ? "timeBreakdown.totalTokens" : "timeBreakdown.partialTokens", { tokens: usageTokens(time.totalTokens, input.locale) })}`),
     });
-    for (const category of input.timeBreakdown.categories.filter((category) => category.wallMs > 0)) {
-      const turnId = input.timeBreakdown.spans.find((span) => span.category === category.id)?.turnId;
+    for (const category of time.categories) {
+      const turnId = time.spans.find((span) => span.category === category.id)?.turnId;
       rows.push({
         id: `time:${category.id}`,
         title: timeLabel(category.id, t),
-        trailing: `${elapsed(category.wallMs)}${category.tokens !== undefined ? ` · ${usageTokens(category.tokens, input.locale)} ${t("timeBreakdown.tokensSuffix")}` : ""}`,
+        // Category attribution is intentionally omitted: the journal measures the turn's tokens,
+        // but cannot prove which phase consumed them. The web chart shows the same explicit note.
+        trailing: elapsed(category.wallMs),
         ...(turnId && input.onShowTurn
           ? { action: actions.add(`time.show:${category.id}`, () => input.onShowTurn!(turnId)) }
           : {}),
       });
+    }
+    if (hasUnknownCategoryTokens(time)) {
+      rows.push({ id: "time:tokens-unknown", title: t("timeBreakdown.tokensUnavailable") });
     }
   }
   // The plan's limits, as the composer ring's plan usage popover shows them (PlanUsageCard.tsx).

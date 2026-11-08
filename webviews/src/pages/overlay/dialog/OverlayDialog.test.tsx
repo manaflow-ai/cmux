@@ -424,7 +424,7 @@ test("a dialog with no text field gives its card the keyboard, and the card draw
     });
   }
   const focused = dom!.window.document.activeElement as HTMLElement;
-  expect(focused).toBe(card);
+  expect(focused as Element | null).toBe(card);
   expect(focused.getAttribute("data-focus-ring")).toBe("none");
   // Its buttons keep the keyboard ring.
   expect(host.querySelector('[data-button="ok"]')!.hasAttribute("data-focus-ring")).toBe(false);

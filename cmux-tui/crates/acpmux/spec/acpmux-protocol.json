@@ -5643,6 +5643,18 @@
           "description": "Tags that have not expired.",
           "type": "object"
         },
+        "timeBreakdown": {
+          "anyOf": [
+            {
+              "$ref": "#/types/TimeBreakdown"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Incremental wall-time and token attribution for the chat. This is seeded by a detail or\nattach read and omitted from census rows until then (`hub/time_breakdown.rs`)."
+        },
         "title": {
           "type": [
             "string",
@@ -6264,6 +6276,18 @@
           "description": "Tags that have not expired.",
           "type": "object"
         },
+        "timeBreakdown": {
+          "anyOf": [
+            {
+              "$ref": "#/types/TimeBreakdown"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Incremental wall-time and token attribution for the chat. This is seeded by a detail or\nattach read and omitted from census rows until then (`hub/time_breakdown.rs`)."
+        },
         "title": {
           "type": [
             "string",
@@ -6611,6 +6635,127 @@
         "sessionId": true,
         "workspaceId": true
       },
+      "type": "object"
+    },
+    "TimeBreakdown": {
+      "properties": {
+        "categories": {
+          "items": {
+            "$ref": "#/types/TimeCategory"
+          },
+          "type": "array"
+        },
+        "spans": {
+          "items": {
+            "$ref": "#/types/TimeSpan"
+          },
+          "type": "array"
+        },
+        "tokensComplete": {
+          "type": "boolean"
+        },
+        "totalMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "totalTokens": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "categories",
+        "spans",
+        "tokensComplete",
+        "totalMs"
+      ],
+      "type": "object"
+    },
+    "TimeCategory": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "tokens": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "wallMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "wallMs"
+      ],
+      "type": "object"
+    },
+    "TimeSpan": {
+      "properties": {
+        "category": {
+          "type": "string"
+        },
+        "endAt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "startAt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tokens": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "turnId": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "turnSeq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "turnTokens": {
+          "default": null,
+          "description": "Whole-turn usage, not usage attributed to this interval.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "category",
+        "endAt",
+        "startAt",
+        "turnSeq"
+      ],
       "type": "object"
     },
     "ToolSummary": {

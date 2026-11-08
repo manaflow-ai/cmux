@@ -865,7 +865,7 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__head + .acpmux-running-tray__fold::before {
   content: "";
   flex: none;
-  height: var(--cmux-hairline, 0.5px);
+  height: var(--cmux-hairline);
   background: var(--acpmux-composer-edge, transparent);
 }
 /* The list, in the box the shared fold sizes (conversation/fold.ts `useFold`): it gives

@@ -5,9 +5,10 @@
 //! category totals remain complete for the lifetime of the chat.
 
 use crate::store::EventRecord;
+use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 
 const MAX_SPANS: usize = 512;
 
@@ -37,7 +38,7 @@ impl Category {
     }
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TimeCategory {
     pub id: String,
@@ -46,7 +47,7 @@ pub struct TimeCategory {
     pub tokens: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TimeSpan {
     pub turn_seq: u64,
@@ -57,9 +58,12 @@ pub struct TimeSpan {
     pub end_at: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tokens: Option<u64>,
+    /// Whole-turn usage, not usage attributed to this interval.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_tokens: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TimeBreakdown {
     pub total_ms: u64,
@@ -84,10 +88,11 @@ struct TurnState {
     start_at: u64,
     last_at: u64,
     phase: Category,
-    waiting_requests: u32,
+    waiting_requests: BTreeMap<String, Option<Value>>,
+    status_waiting: bool,
     end_marker: bool,
     tools: BTreeMap<String, Category>,
-    segments: Vec<Segment>,
+    segments: VecDeque<Segment>,
     /// Durations evicted from the bounded recent span window.
     segment_totals: BTreeMap<Category, u64>,
 }
@@ -100,39 +105,43 @@ impl TurnState {
             start_at: at,
             last_at: at,
             phase: Category::Model,
-            waiting_requests: 0,
+            waiting_requests: BTreeMap::new(),
+            status_waiting: false,
             end_marker: false,
             tools: BTreeMap::new(),
-            segments: Vec::new(),
+            segments: VecDeque::new(),
             segment_totals: BTreeMap::new(),
         }
     }
 
     fn category(&self) -> Category {
-        if self.waiting_requests > 0 {
+        if self.status_waiting || !self.waiting_requests.is_empty() {
             return Category::Person;
         }
+        // Concurrent tools share wall time. Attribute overlap to the lowest tool id
+        // deterministically rather than counting the same interval more than once.
         self.tools.values().next().copied().unwrap_or(self.phase)
     }
 
     fn advance(&mut self, at: u64) {
         let at = at.max(self.last_at);
-        if at <= self.last_at {
+        if self.end_marker || at <= self.last_at {
             return;
         }
         let category = self.category();
-        if let Some(last) = self.segments.last_mut()
+        if let Some(last) = self.segments.back_mut()
             && last.category == category
             && last.end_at == self.last_at
         {
             last.end_at = at;
         } else {
-            if self.segments.len() >= MAX_SPANS {
-                let evicted = self.segments.remove(0);
+            if self.segments.len() >= MAX_SPANS
+                && let Some(evicted) = self.segments.pop_front()
+            {
                 *self.segment_totals.entry(evicted.category).or_default() +=
                     evicted.end_at.saturating_sub(evicted.start_at);
             }
-            self.segments.push(Segment { category, start_at: self.last_at, end_at: at });
+            self.segments.push_back(Segment { category, start_at: self.last_at, end_at: at });
         }
         self.last_at = at;
     }
@@ -148,7 +157,6 @@ pub(crate) struct State {
 struct Reducer {
     turn: Option<TurnState>,
     totals: BTreeMap<Category, u64>,
-    token_totals: BTreeMap<Category, u64>,
     spans: Vec<TimeSpan>,
     total_ms: u64,
     total_tokens: u64,
@@ -178,9 +186,12 @@ impl State {
 impl Reducer {
     fn record(&mut self, record: &EventRecord) {
         let at = record.at;
+        if record.msg.get("params").is_some_and(crate::subagents::is_subagents) {
+            return;
+        }
         match record.kind.as_str() {
             "user_message" => {
-                if self.turn.is_none() {
+                if self.turn.as_ref().is_none_or(|turn| turn.end_marker) {
                     self.start_turn(
                         turn_seq(&record.msg).unwrap_or(record.seq),
                         turn_id(&record.msg),
@@ -191,7 +202,9 @@ impl Reducer {
             "turn_started" => {
                 let seq = turn_seq(&record.msg).unwrap_or(record.seq);
                 let id = turn_id(&record.msg);
-                if self.turn.as_ref().is_some_and(|turn| turn.end_marker) {
+                if self.turn.as_ref().is_some_and(|turn| {
+                    turn.end_marker || (turn.id.is_some() && id.is_some() && turn.id != id)
+                }) {
                     self.start_turn(seq, id, at);
                 } else if let Some(turn) = self.turn.as_mut() {
                     turn.seq = seq;
@@ -206,7 +219,9 @@ impl Reducer {
                 self.ensure_turn(record);
                 if let Some(turn) = self.turn.as_mut() {
                     turn.advance(at);
-                    if let Some(id) = tool_id(&record.msg) {
+                    if let Some(id) = tool_id(&record.msg)
+                        && !terminal_tool_update(&record.msg)
+                    {
                         turn.tools.insert(id, tool_category(&record.msg));
                     }
                     turn.phase = Category::Model;
@@ -219,34 +234,58 @@ impl Reducer {
                         && let Some(id) = tool_id(&record.msg)
                     {
                         turn.tools.remove(&id);
+                    } else if value(&record.msg, "kind").is_some()
+                        && let Some(id) = tool_id(&record.msg)
+                        && let Some(category) = turn.tools.get_mut(&id)
+                    {
+                        *category = tool_category(&record.msg);
                     }
                 }
             }
             "agent_thought_chunk" => {
                 self.ensure_turn(record);
                 if let Some(turn) = self.turn.as_mut() {
-                    turn.advance(at);
-                    turn.phase = Category::Think;
+                    if turn.phase != Category::Think {
+                        turn.advance(at);
+                        turn.phase = Category::Think;
+                    }
                 }
             }
             "agent_message_chunk" => {
                 self.ensure_turn(record);
                 if let Some(turn) = self.turn.as_mut() {
-                    turn.advance(at);
-                    turn.phase = Category::Model;
+                    if turn.phase != Category::Model {
+                        turn.advance(at);
+                        turn.phase = Category::Model;
+                    }
                 }
             }
-            "permission_request" => {
+            "permission_request" | "permission_reissued" => {
                 self.ensure_turn(record);
                 if let Some(turn) = self.turn.as_mut() {
                     turn.advance(at);
-                    turn.waiting_requests = turn.waiting_requests.saturating_add(1);
+                    turn.waiting_requests.insert(
+                        permission_id(&record.msg),
+                        record.msg.get("agentRequestId").cloned(),
+                    );
                 }
             }
-            "permission_decision" | "permission_auto" => {
+            "permission_decision"
+            | "permission_auto"
+            | "permission_resolved"
+            | "permission_withdrawn" => {
                 if let Some(turn) = self.turn.as_mut() {
                     turn.advance(at);
-                    turn.waiting_requests = turn.waiting_requests.saturating_sub(1);
+                    if record.kind == "permission_withdrawn"
+                        && let Some(request) = record.msg.get("agentRequestId")
+                    {
+                        turn.waiting_requests.retain(|_, agent| agent.as_ref() != Some(request));
+                    } else {
+                        turn.waiting_requests.remove(&permission_id(&record.msg));
+                    }
+                    if turn.waiting_requests.is_empty() {
+                        turn.status_waiting = false;
+                    }
                     turn.phase = Category::Model;
                 }
             }
@@ -255,7 +294,7 @@ impl Reducer {
                     && record.msg.get("status").and_then(Value::as_str) == Some("waiting")
                 {
                     turn.advance(at);
-                    turn.waiting_requests = turn.waiting_requests.saturating_add(1);
+                    turn.status_waiting = true;
                 } else if let Some(turn) = self.turn.as_mut()
                     && matches!(
                         record.msg.get("status").and_then(Value::as_str),
@@ -263,10 +302,24 @@ impl Reducer {
                     )
                 {
                     turn.advance(at);
-                    turn.waiting_requests = 0;
+                    turn.status_waiting = false;
+                } else if let Some(turn) = self.turn.as_mut()
+                    && matches!(
+                        record.msg.get("status").and_then(Value::as_str),
+                        Some("closed" | "idle")
+                    )
+                {
+                    turn.advance(at);
+                    turn.end_marker = true;
                 }
             }
             "turn_result" => {
+                if self.turn.as_ref().is_some_and(|turn| {
+                    let id = turn_id(&record.msg);
+                    turn.id.is_some() && id.is_some() && turn.id != id
+                }) {
+                    return;
+                }
                 if let Some(mut turn) = self.turn.take() {
                     turn.advance(at);
                     self.finish(turn, usage(&record.msg));
@@ -280,16 +333,13 @@ impl Reducer {
                     // the turn open so that result can close it and retain its token totals.
                 }
             }
-            _ => {
-                if let Some(turn) = self.turn.as_mut() {
-                    turn.advance(at);
-                }
-            }
+            _ => {}
         }
     }
 
     fn start_turn(&mut self, seq: u64, id: Option<String>, at: u64) {
-        if let Some(turn) = self.turn.take() {
+        if let Some(mut turn) = self.turn.take() {
+            turn.advance(at);
             self.finish(turn, None);
         }
         self.turn = Some(TurnState::new(seq, id, at));
@@ -318,6 +368,7 @@ impl Reducer {
                 start_at: segment.start_at,
                 end_at: segment.end_at,
                 tokens: None,
+                turn_tokens: usage,
             });
         }
         let duration = turn.last_at.saturating_sub(turn.start_at);
@@ -328,17 +379,8 @@ impl Reducer {
         if let Some(tokens) = usage {
             self.token_turns = self.token_turns.saturating_add(1);
             self.total_tokens = self.total_tokens.saturating_add(tokens);
-            // Usage is reported for the model call as a whole. Keep it in the model bucket
-            // instead of inventing a proportional split across wall-clock phases.
-            *self.token_totals.entry(Category::Model).or_default() += tokens;
-            if let Some(span) = self
-                .spans
-                .iter_mut()
-                .rev()
-                .find(|span| span.turn_seq == turn.seq && span.category == Category::Model.id())
-            {
-                span.tokens = Some(tokens);
-            }
+            // The journal reports whole-turn usage. Category attribution stays unknown:
+            // elapsed test/permission time is not evidence of tokens spent in that category.
         }
         if self.spans.len() > MAX_SPANS {
             let excess = self.spans.len() - MAX_SPANS;
@@ -368,6 +410,7 @@ impl Reducer {
                     start_at: segment.start_at,
                     end_at: segment.end_at,
                     tokens: None,
+                    turn_tokens: None,
                 });
             }
         }
@@ -375,17 +418,18 @@ impl Reducer {
             let excess = spans.len() - MAX_SPANS;
             spans.drain(..excess);
         }
-        let complete = self.ended_turns > 0 && self.token_turns == self.ended_turns;
+        let complete =
+            self.ended_turns > 0 && self.token_turns == self.ended_turns && self.turn.is_none();
         TimeBreakdown {
             total_ms,
-            total_tokens: complete.then_some(self.total_tokens),
+            total_tokens: (self.token_turns > 0).then_some(self.total_tokens),
             tokens_complete: complete,
             categories: Category::ALL
                 .into_iter()
                 .map(|id| TimeCategory {
                     id: id.id().to_owned(),
                     wall_ms: totals.get(&id).copied().unwrap_or(0),
-                    tokens: complete.then(|| self.token_totals.get(&id).copied().unwrap_or(0)),
+                    tokens: None,
                 })
                 .collect(),
             spans,
@@ -428,174 +472,50 @@ fn terminal_tool_update(msg: &Value) -> bool {
     )
 }
 
+fn permission_id(msg: &Value) -> String {
+    value(msg, "permissionId").and_then(Value::as_str).unwrap_or("legacy").to_owned()
+}
+
 fn usage(msg: &Value) -> Option<u64> {
-    let mut total = 0u64;
-    let mut found = false;
-    let mut sources = vec![msg];
-    if let Some(source) = msg.get("usage") {
-        sources.push(source);
-    }
-    if let Some(source) = msg.pointer("/result/usage") {
-        sources.push(source);
-    }
-    for source in sources {
-        let before = total;
-        for key in [
-            "inputTokens",
-            "outputTokens",
+    // Durable results are flat; imported provider results can carry `usage`. Pick one
+    // shape, never add aliases or a root and its nested copy twice.
+    for source in [Some(msg), msg.get("usage"), msg.pointer("/result/usage")].into_iter().flatten()
+    {
+        let number =
+            |keys: &[&str]| keys.iter().find_map(|key| source.get(*key).and_then(Value::as_u64));
+        if let Some(total) = number(&["totalTokens", "total_tokens"]) {
+            return Some(total);
+        }
+        let input = number(&["inputTokens", "input_tokens", "promptTokens"]);
+        let output = number(&["outputTokens", "output_tokens"]);
+        let read = number(&[
             "cacheReadTokens",
-            "cacheWriteTokens",
-            "input_tokens",
-            "output_tokens",
+            "cachedReadTokens",
+            "cache_read_input_tokens",
             "cache_read_tokens",
+        ]);
+        let write = number(&[
+            "cacheWriteTokens",
+            "cachedWriteTokens",
+            "cache_creation_input_tokens",
             "cache_write_tokens",
-        ] {
-            if let Some(value) = source.get(key).and_then(Value::as_u64) {
-                total = total.saturating_add(value);
-                found = true;
-            }
+        ]);
+        // Only a durable record marked by turn_usage guarantees fresh input. Older
+        // records without that marker may already include cache: leave unknown rather
+        // than double count cached input.
+        if (read.is_some() || write.is_some())
+            && source.get("inputExcludesCache") != Some(&Value::Bool(true))
+        {
+            return None;
         }
-        if total != before {
-            break;
+        if let Some(total) =
+            [input, output, read, write].into_iter().flatten().reduce(u64::saturating_add)
+        {
+            return Some(total);
         }
     }
-    found.then_some(total)
+    None
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn record(seq: u64, at: u64, kind: &str, msg: Value) -> EventRecord {
-        EventRecord { seq, at, dir: "mux".into(), kind: kind.into(), msg, host_seq: None }
-    }
-
-    #[test]
-    fn folds_fixture_journal_into_categories_and_tokens() {
-        let mut state = State::default();
-        for record in [
-            record(1, 1_000, "turn_started", serde_json::json!({"turnSeq": 1, "turnId": "t1"})),
-            record(2, 2_000, "agent_thought_chunk", serde_json::json!({})),
-            record(3, 5_000, "tool_call", serde_json::json!({"toolCallId": "r", "kind": "read"})),
-            record(
-                4,
-                9_000,
-                "tool_call_update",
-                serde_json::json!({"toolCallId": "r", "status": "completed"}),
-            ),
-            record(5, 10_000, "permission_request", serde_json::json!({})),
-            record(6, 13_000, "permission_decision", serde_json::json!({})),
-            record(
-                7,
-                15_000,
-                "turn_result",
-                serde_json::json!({"usage": {"inputTokens": 5, "outputTokens": 7}}),
-            ),
-        ] {
-            state.record(&record);
-        }
-        let result = state.snapshot(15_000);
-        assert_eq!(result.total_ms, 14_000);
-        assert_eq!(result.total_tokens, Some(12));
-        assert_eq!(result.categories.iter().find(|c| c.id == "model").unwrap().tokens, Some(12));
-        assert_eq!(result.categories.iter().find(|c| c.id == "think").unwrap().wall_ms, 3_000);
-        assert_eq!(result.categories.iter().find(|c| c.id == "read").unwrap().wall_ms, 4_000);
-        assert_eq!(result.categories.iter().find(|c| c.id == "person").unwrap().wall_ms, 3_000);
-        assert!(result.spans.iter().any(|span| span.category == "read" && span.turn_seq == 1));
-    }
-
-    #[test]
-    fn repeated_records_and_snapshots_do_not_replay() {
-        let mut state = State::default();
-        let started = record(1, 10, "turn_started", serde_json::json!({"turnSeq": 1}));
-        let ended = record(2, 20, "turn_result", serde_json::json!({}));
-        state.record(&started);
-        state.record(&ended);
-        state.record(&ended);
-        let first = state.snapshot(20);
-        let second = state.snapshot(20);
-        assert_eq!(first, second);
-        assert_eq!(first.total_ms, 10);
-    }
-
-    #[test]
-    fn end_marker_waits_for_result_usage() {
-        let mut state = State::default();
-        state.record(&record(1, 10, "turn_started", serde_json::json!({"turnSeq": 1})));
-        state.record(&record(2, 20, "turn_end", serde_json::json!({})));
-        state.record(&record(
-            3,
-            30,
-            "turn_result",
-            serde_json::json!({"usage": {"outputTokens": 4}}),
-        ));
-        let result = state.snapshot(30);
-        assert_eq!(result.total_ms, 20);
-        assert_eq!(result.total_tokens, Some(4));
-        assert!(result.tokens_complete);
-    }
-
-    #[test]
-    fn reads_flattened_turn_result_usage() {
-        let mut state = State::default();
-        state.record(&record(1, 10, "turn_started", serde_json::json!({"turnSeq": 1})));
-        state.record(&record(
-            2,
-            20,
-            "turn_result",
-            serde_json::json!({"inputTokens": 3, "outputTokens": 5, "cacheReadTokens": 2}),
-        ));
-        let result = state.snapshot(20);
-        assert_eq!(result.total_tokens, Some(10));
-        assert!(result.tokens_complete);
-        assert_eq!(result.categories.iter().find(|c| c.id == "model").unwrap().tokens, Some(10));
-    }
-
-    #[test]
-    fn updates_identity_when_user_message_precedes_turn_started() {
-        let mut state = State::default();
-        state.record(&record(1, 10, "user_message", serde_json::json!({"text": "hi"})));
-        state.record(&record(
-            2,
-            20,
-            "turn_started",
-            serde_json::json!({"turnSeq": 7, "turnId": "t7"}),
-        ));
-        state.record(&record(3, 30, "agent_message_chunk", serde_json::json!({})));
-        state.record(&record(4, 40, "turn_result", serde_json::json!({})));
-        assert!(
-            state
-                .snapshot(40)
-                .spans
-                .iter()
-                .all(|span| span.turn_seq == 7 && span.turn_id.as_deref() == Some("t7"))
-        );
-    }
-
-    #[test]
-    fn keeps_live_segments_bounded_while_totals_remain_complete() {
-        let mut state = State::default();
-        state.record(&record(1, 0, "turn_started", serde_json::json!({"turnSeq": 1})));
-        for i in 0..(MAX_SPANS as u64 + 40) {
-            let at = 10 + i * 2;
-            let kind = if i % 2 == 0 { "agent_thought_chunk" } else { "agent_message_chunk" };
-            state.record(&record(i + 2, at, kind, serde_json::json!({})));
-        }
-        state.record(&record(MAX_SPANS as u64 + 42, 2_000, "turn_result", serde_json::json!({})));
-        let result = state.snapshot(2_000);
-        assert!(result.spans.len() <= MAX_SPANS);
-        assert_eq!(result.total_ms, 2_000);
-        assert_eq!(result.categories.iter().map(|c| c.wall_ms).sum::<u64>(), result.total_ms);
-    }
-
-    #[test]
-    fn live_turn_is_included_without_becoming_durable_total() {
-        let mut state = State::default();
-        state.record(&record(1, 100, "turn_started", serde_json::json!({"turnSeq": 1})));
-        state.record(&record(2, 150, "agent_thought_chunk", serde_json::json!({})));
-        let result = state.snapshot(200);
-        assert_eq!(result.total_ms, 100);
-        assert_eq!(result.categories.iter().find(|c| c.id == "think").unwrap().wall_ms, 50);
-        assert_eq!(result.spans.len(), 2);
-    }
-}
+mod tests;

@@ -1,7 +1,14 @@
-import { memo } from "react";
+import { memo, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxTimeBreakdown, AcpmuxTimeSpan } from "../model";
 import "./TimeBreakdown.css";
+import {
+  hasUnknownCategoryTokens,
+  normalizedTimeBreakdown,
+  pageCount,
+  timeSpanPage,
+  turnTokenForSpan,
+} from "./timeBreakdownModel";
 
 const COLORS: Record<string, string> = {
   read: "color-mix(in srgb, var(--agent-text) 72%, var(--agent-muted))",
@@ -42,26 +49,27 @@ export const TimeBreakdown = memo(function TimeBreakdown({
   look?: TimeBreakdownLook;
 }) {
   const t = useT();
-  const spans = (Array.isArray(breakdown.spans) ? breakdown.spans : [])
-    .filter((span) => Number.isFinite(span.startAt) && Number.isFinite(span.endAt) && span.endAt >= span.startAt)
-    .slice(-128);
-  const categories = (Array.isArray(breakdown.categories) ? breakdown.categories : []).filter(
-    (category) => Number.isFinite(category.wallMs) && category.wallMs > 0,
-  );
+  const normalized = useMemo(() => normalizedTimeBreakdown(breakdown), [breakdown]);
+  const [page, setPage] = useState(0);
+  const pages = pageCount(normalized.spans.length);
+  const safePage = Math.min(page, pages - 1);
+  const spans = useMemo(() => timeSpanPage(normalized.spans, safePage), [normalized.spans, safePage]);
+  const categories = normalized.categories;
   if (!spans.length && !categories.length) return null;
-  const totalMs = Number.isFinite(breakdown.totalMs) ? Math.max(0, breakdown.totalMs) : 0;
-  const maxMs = Math.max(1, ...spans.map((span) => span.endAt - span.startAt));
+  const totalMs = normalized.totalMs;
   const label = (id: string) => (LABEL_KEYS[id] ? t(LABEL_KEYS[id]) : id);
   const spanButton = (span: AcpmuxTimeSpan, index: number) => {
     const ms = span.endAt - span.startAt;
-    const title = t("timeBreakdown.span", {
-      category: label(span.category),
-      duration: duration(ms),
-      turn: span.turnId ?? "—",
-    });
+    const turnTokens = turnTokenForSpan(span);
+    const title =
+      t("timeBreakdown.span", {
+        category: label(span.category),
+        duration: duration(ms),
+        turn: span.turnSeq,
+      }) + (turnTokens === undefined ? "" : ` · ${t("timeBreakdown.turnTokens", { tokens: tokens(turnTokens) })}`);
     return (
       <button
-        key={`${span.turnSeq}:${span.startAt}:${index}`}
+        key={`${span.turnSeq}:${span.turnId ?? ""}:${span.startAt}:${span.endAt}:${index}`}
         type="button"
         className="acpmux-time-breakdown__span"
         style={{
@@ -72,6 +80,7 @@ export const TimeBreakdown = memo(function TimeBreakdown({
         data-turn-seq={span.turnSeq}
         onClick={() => span.turnId && onShowTurn?.(span.turnId)}
         aria-label={title}
+        disabled={!span.turnId || !onShowTurn}
       />
     );
   };
@@ -81,10 +90,11 @@ export const TimeBreakdown = memo(function TimeBreakdown({
         <span>{t("timeBreakdown.title")}</span>
         <span className="acpmux-time-breakdown__total">
           {duration(totalMs)}
-          {breakdown.totalTokens !== undefined &&
-            ` · ${t("timeBreakdown.totalTokens", { tokens: tokens(breakdown.totalTokens) })}`}
+          {normalized.totalTokens !== undefined &&
+            ` · ${t(normalized.tokensComplete ? "timeBreakdown.totalTokens" : "timeBreakdown.partialTokens", { tokens: tokens(normalized.totalTokens) })}`}
         </span>
       </div>
+      <small className="acpmux-time-breakdown__hint">{t("timeBreakdown.recentTurns")}</small>
       {look === "stacked" && <div className="acpmux-time-breakdown__stack">{spans.map(spanButton)}</div>}
       {look === "lanes" && (
         <div className="acpmux-time-breakdown__lanes">
@@ -112,16 +122,11 @@ export const TimeBreakdown = memo(function TimeBreakdown({
               >
                 <span>{label(category.id)}</span>
                 <span>{duration(category.wallMs)}</span>
-                {category.tokens !== undefined && (
-                  <span>
-                    {tokens(category.tokens)} {t("timeBreakdown.tokensSuffix")}
-                  </span>
-                )}
                 <span
                   className="acpmux-time-breakdown__total-bar"
                   style={{
                     width: `${Math.max(4, totalMs ? (category.wallMs / totalMs) * 100 : 4)}%`,
-                    background: COLORS[category.id],
+                    background: COLORS[category.id] ?? COLORS.model,
                   }}
                 />
               </button>
@@ -134,16 +139,31 @@ export const TimeBreakdown = memo(function TimeBreakdown({
           <span key={category.id}>
             <i style={{ background: COLORS[category.id] }} />
             {label(category.id)} · {duration(category.wallMs)}
-            {category.tokens !== undefined && ` · ${tokens(category.tokens)} ${t("timeBreakdown.tokensSuffix")}`}
           </span>
         ))}
       </div>
-      {!breakdown.tokensComplete && (
-        <small className="acpmux-time-breakdown__hint">{t("timeBreakdown.tokensPending")}</small>
+      {hasUnknownCategoryTokens(normalized) && (
+        <small className="acpmux-time-breakdown__hint">{t("timeBreakdown.tokensUnavailable")}</small>
       )}
-      <span className="acpmux-time-breakdown__scale" aria-hidden="true">
-        {maxMs > 1 ? t("timeBreakdown.recentTurns") : ""}
-      </span>
+      {pages > 1 && (
+        <nav className="acpmux-time-breakdown__pager" aria-label={t("timeBreakdown.recentTurns")}>
+          <button
+            type="button"
+            onClick={() => setPage((current) => Math.min(current + 1, pages - 1))}
+            disabled={safePage >= pages - 1}
+          >
+            {t("timeBreakdown.previousPage")}
+          </button>
+          <span>{t("timeBreakdown.page", { page: safePage + 1, pages })}</span>
+          <button
+            type="button"
+            onClick={() => setPage((current) => Math.max(current - 1, 0))}
+            disabled={safePage === 0}
+          >
+            {t("timeBreakdown.nextPage")}
+          </button>
+        </nav>
+      )}
     </section>
   );
 });
