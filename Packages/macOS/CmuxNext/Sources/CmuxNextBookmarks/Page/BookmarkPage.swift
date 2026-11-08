@@ -56,7 +56,11 @@ public final class BookmarkPageHostProvider: PageProvider {
     private static let iconSide: CGFloat = 32
 
     private weak var host: (any BookmarkPageHost)?
-    public let tabKey: String
+    /// The tab the page serves; a bookmarks bar page moves between tabs (``BookmarksBarPages``),
+    /// and re-reads its state when the new tab's profile differs.
+    public var tabKey: String {
+        didSet { if tabKey != oldValue { pageShown() } }
+    }
     /// A top page names its profile (its window's workspace); a tab page uses the tab's.
     public var profileOverride: (@MainActor () -> String)?
     private var listeners: [UUID: @MainActor (JSONValue) -> Void] = [:]

@@ -128,6 +128,12 @@ final class PageWKWebView: WKWebView {
     /// owning ``PageWebView`` tells the page (`focusContent`), which focuses its primary input.
     var onBecameFirstResponder: (() -> Void)?
 
+    /// A page in a strip of chrome that never takes the keys (the bookmarks bar): a click acts in
+    /// the page while the browser page or the omnibar keeps the focus, as a native button's would.
+    var refusesKeyFocus = false
+
+    override var acceptsFirstResponder: Bool { refusesKeyFocus ? false : super.acceptsFirstResponder }
+
     override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
         if became { onBecameFirstResponder?() }
@@ -251,6 +257,10 @@ final class PageWKWebView: WKWebView {
     var onFilesDropped: (@MainActor ([URL]) -> Void)?
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        // A drop is the person's own act (page script cannot make an `NSDraggingInfo`), and the drag
+        // that led to it ran in AppKit's loop, past the page's mouse events: it backs the page call it
+        // causes (a link dropped on the bookmarks bar, a row dragged longer than the gesture window).
+        noteUserActivation(at: ProcessInfo.processInfo.systemUptime)
         let url = droppedFile(sender)
         dragAnswer = nil
         guard let url, let fileDrop else {

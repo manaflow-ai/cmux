@@ -113,6 +113,13 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// False for a page inside native chrome that lays it out in points (a browser chrome
     /// surface): its CSS pixel stays one point at every `uiScale`, so the sizes it reports and
     /// the metrics it is given match the native card around it.
+    /// The page never becomes first responder (``PageWKWebView/refusesKeyFocus``): a strip of chrome
+    /// such as the bookmarks bar, whose clicks leave the keys where they were.
+    public var refusesKeyFocus: Bool {
+        get { webView.refusesKeyFocus }
+        set { webView.refusesKeyFocus = newValue }
+    }
+
     public var followsUIScale = true {
         didSet { if followsUIScale != oldValue { applyUIScale() } }
     }
