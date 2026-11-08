@@ -46,6 +46,8 @@ pub const REPLY_SLACK: usize = 64 * 1024;
 
 /// Every read-modify-write holds this, so two pushes at once never lose one.
 static WRITES: Mutex<()> = Mutex::new(());
+/// The last part of a draft's id; it starts over with the daemon.
+static SERIAL: AtomicU64 = AtomicU64::new(0);
 
 /// One stashed draft.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -141,16 +143,11 @@ pub fn push(
     replaces: Option<&str>,
     now_ms: u64,
 ) -> Result<Draft, RpcError> {
-    static SERIAL: AtomicU64 = AtomicU64::new(0);
     if text.trim().is_empty() && attachments.is_empty() {
         return Err(RpcError::invalid_params("the draft is empty"));
     }
-    let draft = Draft {
-        id: format!("stash-{now_ms}-{}", SERIAL.fetch_add(1, Ordering::Relaxed)),
-        text: text.to_owned(),
-        attachments,
-        at: now_ms,
-    };
+    let next_id = || format!("stash-{now_ms}-{}", SERIAL.fetch_add(1, Ordering::Relaxed));
+    let mut draft = Draft { id: next_id(), text: text.to_owned(), attachments, at: now_ms };
     // Only a draft `stash_get` can answer whole is kept.
     let whole = serde_json::to_vec(&draft).map_err(|e| RpcError::internal(e.to_string()))?.len();
     if whole + REPLY_SLACK > crate::rpc::MAX_MESSAGE_BYTES {
@@ -162,6 +159,11 @@ pub fn push(
     let _held = WRITES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let path = chat_path(dir, chat);
     let mut drafts = load(&path).map_err(unreadable)?;
+    // The serial starts over with the daemon: a relaunch in the same millisecond as a kept draft's
+    // stash must not give the new one its id (a restore or drop would take the wrong draft).
+    while drafts.iter().any(|d| d.id == draft.id) {
+        draft.id = next_id();
+    }
     if let Some(replaces) = replaces {
         drafts.retain(|d| d.id != replaces);
     }
@@ -382,5 +384,28 @@ mod tests {
         let big = json!({"id": "a", "kind": "image", "name": "a.png", "mimeType": "image/png", "data": "A".repeat(size)});
         assert!(push(&dir, "chat", "large", vec![big], None, 0).is_err());
         assert!(!chat_path(&dir, "chat").exists());
+    }
+
+    #[test]
+    fn a_relaunched_daemon_never_gives_a_kept_draft_id_to_a_new_draft() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join(DIR);
+        // A stack written by an earlier daemon in the same millisecond, holding every id this
+        // daemon's serial would give next.
+        let next = SERIAL.load(Ordering::Relaxed);
+        let kept: Vec<Draft> = (next..next + 1000)
+            .map(|n| Draft {
+                id: format!("stash-7-{n}"),
+                text: format!("kept {n}"),
+                attachments: Vec::new(),
+                at: 7,
+            })
+            .collect();
+        write(&chat_path(&dir, "chat"), "chat", &kept).unwrap();
+        let draft = push(&dir, "chat", "new", Vec::new(), None, 7).unwrap();
+        assert!(kept.iter().all(|d| d.id != draft.id), "{}", draft.id);
+        let stack = load(&chat_path(&dir, "chat")).unwrap();
+        assert_eq!(stack[0], draft);
+        assert_eq!(stack[1].text, format!("kept {next}"));
     }
 }
