@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "build": "4242411240101",
+  "notes": "notes/4242411240101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 38040,
+      "title": "acpmux sudo card: per-command passwordless check, stale cards close, stderr cap",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36818,
+      "title": "cmux NEXT: Cmd-Q quits with no \"Quit cmux?\" alert and keeps sessions running",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36960,
+      "title": "cmux NEXT machine update: no toast, a plain row line, background retry; acpmux re-asks after a dropped ssh link",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37402,
+      "title": "cmux next: New Browser Tab always opens a blank tab (#37384)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37761,
+      "title": "Agent chat: text that lands after a blank first paint fades in fast instead of popping",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37255,
+      "title": "cmux NEXT Home: Chat Colors is a React page",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34578,
+      "title": "feat: show grouped tool calls as an iOS-style sheet",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38038,
+      "title": "Remote chat resync: drop the kept tail when its hold ends, hold the returning copy until missed records arrive",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38019,
+      "title": "agent pane: code, diagram, image, copy, render and reveal blocks export only components",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38039,
+      "title": "Updated card: keep the drag when the theme switches the card's decoration",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37682,
+      "title": "Hover controls follow the pointer's dwell: a pass stays faint, a look reaches full",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37624,
+      "title": "sidebar: group colors come from a palette; new groups take its next color",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37932,
+      "title": "agent pane: subagents modules export only components",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37839,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-62966ab0103b396662b8627c2eba55bfcd273025",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37949,
+      "title": "acpmux: agents ask to run one command as root; the person approves with a password on a card (Mac and phone)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37907,
+      "title": "Agent chat: a running command's output update renders no pane, header or Session Info",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37679,
+      "title": "Settings: the Notifications rows are data (schemas/settings/source/notifications.json)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38015,
+      "title": "acpmux: find a dead peer link in seconds and redial it at once",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
