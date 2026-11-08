@@ -9,7 +9,13 @@ import nightlySpan from "./fixtures/nightly-3913596493801-span.json";
 import table from "./generated/strings.json";
 import type { ReleaseNotes } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
-import { UpdatedCard, UpdateReadyHighlights, type BriefLayout, type ReadyLayout, type WhatsNewPlacement } from "./UpdateSurfaces";
+import {
+  UpdatedCard,
+  UpdateReadyHighlights,
+  type BriefLayout,
+  type ReadyLayout,
+  type WhatsNewPlacement,
+} from "./UpdateSurfaces";
 
 const base: UpdateHighlights = {
   version: "1.0.0-nightly.3845050428001",
@@ -388,6 +394,11 @@ export default componentEntry<Props>({
           const box = chip.getBoundingClientRect();
           if (!chip.textContent?.match(/#\d+/) || box.width <= 0 || box.height <= 0) {
             throw new Error("The update-ready PR chip must have a visible number and nonzero size");
+          }
+          // A long title is cut before the chip, never the chip past the row's edge.
+          const row = chip.closest(".wn-pop-text")?.getBoundingClientRect();
+          if (row && (box.left < row.left - 0.5 || box.right > row.right + 0.5)) {
+            throw new Error("The update-ready PR chip must show whole inside its row");
           }
         }
         await ctx.hover({ selector: ".wn-pop-list a.cl-pr" });

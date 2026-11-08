@@ -218,6 +218,22 @@
 }
 .wn-pop-item { color: var(--page-text); font-size: var(--text-body); line-height: var(--text-body--line-height); letter-spacing: var(--text-body--letter-spacing); }
 .wn-pop-line { color: var(--page-text-3); }
+/* A change with a pull request: the title link takes the cut, and its #N chip, the anchor of the
+   PR's hover card, always shows whole at the title's end. */
+.wn-pop-item:has(> .cl-pr) {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--ds-space-1);
+  max-width: 100%;
+  vertical-align: bottom;
+}
+.wn-pop-item > .cl-change-link {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wn-pop-item > .cl-pr { flex: none; }
 .wn-pop[data-layout="two-line"] .wn-pop-row { padding: var(--ds-space-1) 0; }
 .wn-pop[data-layout="two-line"] .wn-pop-text { white-space: normal; }
 .wn-pop[data-layout="two-line"] :is(.wn-pop-item, .wn-pop-line) {
@@ -226,6 +242,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.wn-pop[data-layout="two-line"] .wn-pop-item:has(> .cl-pr) { display: flex; }
 /* A change's picture: a thumbnail at the row's end; a click opens the change's notes, where it
    shows at the page's width. */
 .wn-pop-media {
