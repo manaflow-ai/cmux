@@ -3,7 +3,8 @@
 // pasted image drew a thumbnail two control rows tall and the composer grew well above one line).
 // Measured on the real layout, in both of the lane's engines (WebKit is the app's), at both
 // densities and the interface sizes: a one-line draft with a screenshot in it, two screenshots side
-// by side, and a file still loading in its tile, each stays one text line tall.
+// by side, a file still loading in its tile, and saved files' name chips beside a video, each stays
+// one text line tall.
 // cmux-web-test-timeout: 600
 import { expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -23,13 +24,21 @@ await requireBrowserLane("composer-inline-chip-height.browser.test.ts", async ()
     "zoom-1.5": { scale: 1.5 },
   };
   /// Each draft and the chips it waits for: a screenshot pasted mid-sentence, two pasted at the end,
-  /// and a pasted file whose upload never finishes (its loading tile stays in the text).
-  const CASES: { variant: string; ready: string }[] = [
-    { variant: "attachment-inline-caret", ready: ".acpmux-md [data-inline-attachment] img" },
-    { variant: "attachment-inline-reorder", ready: ".acpmux-md [data-inline-attachment] img" },
+  /// a pasted file whose upload never finishes (its loading tile stays in the text), and a zip and a
+  /// notes file saved by the host (their name chips) beside a video's tile. `count`: how many of
+  /// `ready` the draft shows once it is ready.
+  const CASES: { variant: string; ready: string; count: number }[] = [
+    { variant: "attachment-inline-caret", ready: ".acpmux-md [data-inline-attachment] img", count: 1 },
+    { variant: "attachment-inline-reorder", ready: ".acpmux-md [data-inline-attachment] img", count: 2 },
     {
       variant: "attachment-loading",
       ready: ".acpmux-md .acpmux-md-inline-chip[data-state='loading'] .acpmux-md-inline-spinner",
+      count: 1,
+    },
+    {
+      variant: "file-saved-as-path",
+      ready: ".acpmux-md :is(.acpmux-attachment-link[data-saved], .acpmux-attachment-video)",
+      count: 3,
     },
   ];
   /// Sub-pixel rounding of the line box at fractional interface sizes.
@@ -70,14 +79,17 @@ await requireBrowserLane("composer-inline-chip-height.browser.test.ts", async ()
         });
         const page = await context.newPage();
         try {
-          for (const { variant, ready } of CASES) {
+          for (const { variant, ready, count } of CASES) {
             await page.goto(
               `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: 1400, frame: "component", ...size })}`,
             );
             await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
               timeout: 90_000,
             });
-            await page.waitForSelector(ready);
+            await page.waitForFunction(
+              ([selector, n]) => document.querySelectorAll(selector as string).length >= (n as number),
+              [ready, count] as const,
+            );
             await page.waitForFunction(() =>
               [...document.querySelectorAll<HTMLImageElement>(".acpmux-md [data-inline-attachment] img")].every(
                 (img) => img.complete,
@@ -86,6 +98,8 @@ await requireBrowserLane("composer-inline-chip-height.browser.test.ts", async ()
             const seen = await measure(page);
             report.push(`${engine} ${name} ${variant}: ${JSON.stringify(seen)}`);
             const where = `${engine} ${name} ${variant}`;
+            // A line height that does not read as a number would pass every comparison below.
+            expect(Number.isFinite(seen.lineHeight)).toBe(true);
             if (!seen.chips.length) failures.push(`${where}: no chip in the text`);
             // The draft is one line of text with its chips: the line stays the text's own height.
             if (seen.paragraph > seen.lineHeight + TOLERANCE)
