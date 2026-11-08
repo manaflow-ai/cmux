@@ -1,7 +1,9 @@
 //! The link's `acpmux` service end to end: a dial on link B crosses two
 //! real WireGuard meshes (loopback UDP) and reaches a real acpmux WebSocket
 //! listener behind link A, which still checks its own token on the upgrade.
-//! Unknown services are refused on both sides.
+//! The link sends a peer's bytes only to the listener the live daemon
+//! recorded and proved (`acpmux::listener_record`). Unknown services are
+//! refused on both sides.
 
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
@@ -62,6 +64,18 @@ async fn acpmux_listener() -> (SocketAddr, String, JoinHandle<()>, tempfile::Tem
         let _ = acpmux::server::serve_ws_with(hub, listener, TOKEN.into(), auth).await;
     });
     (address, peer_token, task, dir)
+}
+
+/// An acpmux home whose `listener.json` names `listen` as this process's
+/// listener: this test process plays the daemon (its pid, start time and nonce).
+fn live_home(listen: SocketAddr) -> tempfile::TempDir {
+    let home = tempfile::tempdir().unwrap();
+    acpmux::listener_record::write(home.path(), listen).unwrap();
+    home
+}
+
+fn live(home: &tempfile::TempDir) -> AcpmuxTarget {
+    AcpmuxTarget::Live(home.path().to_path_buf())
 }
 
 fn record(install: &str, public: [u8; 32], endpoint: SocketAddr) -> PairingRecord {
@@ -191,7 +205,8 @@ const CONNECTED: &str = "{\"ok\":true,\"path_state\":\"direct\",\"relay_availabl
 fn an_acpmux_websocket_crosses_two_links_and_acpmux_still_checks_its_token() {
     run(async {
         let (address, peer_token, listener, _home) = acpmux_listener().await;
-        let links = links(AcpmuxTarget::Fixed(address)).await;
+        let record = live_home(address);
+        let links = links(live(&record)).await;
 
         // No token, then a wrong one: the link carried the upgrade, acpmux refused it.
         for token in [None, Some("wrong")] {
@@ -225,7 +240,8 @@ fn an_acpmux_dial_closes_when_no_listener_is_there() {
     run(async {
         // A loopback port with nothing listening.
         let free = TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap();
-        let links = links(AcpmuxTarget::Fixed(free)).await;
+        let record = live_home(free);
+        let links = links(live(&record)).await;
         let (reply, mut caller) = dial(&links, "acpmux").await;
         assert_eq!(reply, CONNECTED);
         let mut rest = Vec::new();
@@ -236,7 +252,7 @@ fn an_acpmux_dial_closes_when_no_listener_is_there() {
 }
 
 /// A paired peer's stream on link A, with `hello` as its first line.
-async fn inbound(hello: &str, target: SocketAddr) -> Result<(), InboundRefused> {
+async fn inbound(hello: &str, target: &AcpmuxTarget) -> Result<(), InboundRefused> {
     let mut pairings = Pairings::default();
     pairings.upsert(record("inst_b", [2; 32], "[::1]:1".parse().unwrap())).unwrap();
     let (mut peer, link_side) = tokio::io::duplex(1024);
@@ -248,7 +264,7 @@ async fn inbound(hello: &str, target: SocketAddr) -> Result<(), InboundRefused> 
         &pairings,
         None,
         None,
-        &AcpmuxTarget::Fixed(target),
+        target,
         None,
     ))
     .await
@@ -258,18 +274,19 @@ async fn inbound(hello: &str, target: SocketAddr) -> Result<(), InboundRefused> 
 fn an_unknown_service_is_refused_and_never_reaches_acpmux() {
     run(async {
         let acpmux = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let target = acpmux.local_addr().unwrap();
+        let record = live_home(acpmux.local_addr().unwrap());
+        let target = live(&record);
         // Inbound: an unknown service, and acpmux with a token a paired peer never sends.
         for hello in [
             "{\"service\":\"nonsense\"}\n",
             "{\"service\":\"acpmux\",\"link_token\":\"t\",\"epoch\":1}\n",
             "{\"service\":\"acpmux\",\"extra\":1}\n",
         ] {
-            assert_eq!(inbound(hello, target).await, Err(InboundRefused::BadHello), "{hello}");
+            assert_eq!(inbound(hello, &target).await, Err(InboundRefused::BadHello), "{hello}");
         }
         // Without a session socket, a daemon stream is refused too.
         assert_eq!(
-            inbound("{\"service\":\"daemon\"}\n", target).await,
+            inbound("{\"service\":\"daemon\"}\n", &target).await,
             Err(InboundRefused::EntryUnavailable)
         );
         assert!(
@@ -278,7 +295,7 @@ fn an_unknown_service_is_refused_and_never_reaches_acpmux() {
         );
 
         // Outbound: the dial line names a service the link does not know.
-        let links = links(AcpmuxTarget::Fixed(target)).await;
+        let links = links(target).await;
         let (reply, _) = dial(&links, "nonsense").await;
         assert_eq!(
             reply,
@@ -315,6 +332,120 @@ fn a_link_with_acpmux_off_serves_no_acpmux_stream() {
     });
 }
 
+/// A loopback listener that is not acpmux: it keeps every byte it is sent
+/// and closes each connection after a quiet moment, never answering.
+async fn unrelated_listener() -> (SocketAddr, Arc<std::sync::Mutex<Vec<Vec<u8>>>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let seen: Arc<std::sync::Mutex<Vec<Vec<u8>>>> = Arc::default();
+    let kept = seen.clone();
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            let mut bytes = Vec::new();
+            let _ =
+                tokio::time::timeout(Duration::from_millis(300), stream.read_to_end(&mut bytes))
+                    .await;
+            kept.lock().unwrap().push(bytes);
+        }
+    });
+    (address, seen)
+}
+
+/// What a paired peer sends: the hello, then bytes that must reach acpmux only.
+const PEER_BYTES: &str = "{\"service\":\"acpmux\"}\nGET /peer-secret HTTP/1.1\r\n\r\n";
+
+/// Serve one paired peer stream carrying [`PEER_BYTES`] on link A.
+async fn peer_stream(target: &AcpmuxTarget) -> Result<(), InboundRefused> {
+    inbound(PEER_BYTES, target).await
+}
+
+fn received(seen: &std::sync::Mutex<Vec<Vec<u8>>>) -> Vec<String> {
+    seen.lock().unwrap().iter().map(|bytes| String::from_utf8_lossy(bytes).into_owned()).collect()
+}
+
+#[test]
+fn an_unrelated_listener_on_a_stale_saved_port_gets_no_peer_bytes() {
+    use acpmux::listener_record::NotLive;
+    run(async {
+        let (stale, seen) = unrelated_listener().await;
+        // The daemon is gone; config.json still names its old port, now someone else's.
+        let home = tempfile::tempdir().unwrap();
+        let config = json!({"websocket": {"listen": stale.to_string(), "token": "t"}});
+        std::fs::write(home.path().join("config.json"), config.to_string()).unwrap();
+        assert_eq!(
+            peer_stream(&live(&home)).await,
+            Err(InboundRefused::AcpmuxNotLive(NotLive::NoRecord))
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(received(&seen).is_empty(), "config.json's port was dialed: {:?}", received(&seen));
+
+        // Even a record of a live process naming that port: the listener cannot echo the nonce,
+        // so it gets the probe and nothing of the peer's.
+        acpmux::listener_record::write(home.path(), stale).unwrap();
+        assert_eq!(
+            peer_stream(&live(&home)).await,
+            Err(InboundRefused::AcpmuxNotLive(NotLive::WrongListener))
+        );
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        let got = received(&seen);
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0].as_bytes(), acpmux::listener_record::PROBE, "{got:?}");
+    });
+}
+
+/// `listener.json` as this process would write it for `listen`, with `pid` in place of its own.
+fn record_with_pid(home: &std::path::Path, listen: SocketAddr, pid: u32) {
+    acpmux::listener_record::write(home, listen).unwrap();
+    let path = home.join(acpmux::listener_record::FILE_NAME);
+    let mut record: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    record["pid"] = json!(pid);
+    std::fs::write(&path, record.to_string()).unwrap();
+}
+
+#[test]
+fn a_record_whose_pid_is_dead_is_refused() {
+    use acpmux::listener_record::NotLive;
+    run(async {
+        let (address, seen) = unrelated_listener().await;
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let dead = child.id();
+        child.wait().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        record_with_pid(home.path(), address, dead);
+        assert_eq!(
+            peer_stream(&live(&home)).await,
+            Err(InboundRefused::AcpmuxNotLive(NotLive::Stale))
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(received(&seen).is_empty(), "{:?}", received(&seen));
+    });
+}
+
+#[test]
+fn a_record_whose_pid_now_names_another_process_is_refused() {
+    use acpmux::listener_record::NotLive;
+    run(async {
+        // The real acpmux listener is up; the record names it, but its pid is now an unrelated
+        // live process (a reused pid): its start time is not the recorded one.
+        let (address, _peer_token, listener, _acpmux_home) = acpmux_listener().await;
+        let (spy, seen) = unrelated_listener().await;
+        let mut other = std::process::Command::new("sleep").arg("30").spawn().unwrap();
+        for target in [address, spy] {
+            let home = tempfile::tempdir().unwrap();
+            record_with_pid(home.path(), target, other.id());
+            assert_eq!(
+                peer_stream(&live(&home)).await,
+                Err(InboundRefused::AcpmuxNotLive(NotLive::Stale))
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(received(&seen).is_empty(), "{:?}", received(&seen));
+        let _ = other.kill();
+        let _ = other.wait();
+        listener.abort();
+    });
+}
+
 /// The baseline for one-link slice 3: how long an acpmux peer connect takes
 /// (overlay stream open plus the WebSocket upgrade, to a real acpmux
 /// listener) over acpmux's own WireGuard transport and over the link, both on
@@ -328,6 +459,7 @@ fn acpmux_connect_baseline() {
     const DIALS: usize = 200;
     run(async {
         let (address, _peer_token, listener, _home) = acpmux_listener().await;
+        let record = live_home(address);
 
         // acpmux's own transport: two daemons' meshes, b bridging to the listener.
         let homes = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
@@ -380,7 +512,7 @@ fn acpmux_connect_baseline() {
         a.shutdown(tokio::time::Instant::now()).await;
         b.shutdown(tokio::time::Instant::now()).await;
 
-        let links = links(AcpmuxTarget::Fixed(address)).await;
+        let links = links(live(&record)).await;
         let over_link = measure(DIALS, || {
             let links = &links;
             async move {

@@ -405,10 +405,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     };
     // `--listen 127.0.0.1:0` asked for any free port; report the real one.
     let bound_addr = ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok());
-    // The cmux link carries paired peers' `acpmux` streams to this listener: it reads the port
-    // here, since a DEV build's free port never goes to config.json (`listener_handoff.rs`).
+    // The cmux link carries paired peers' `acpmux` streams only to the listener this record
+    // names while this daemon runs (`listener_record.rs`), never to config.json's port.
     if let Some(addr) = bound_addr
-        && let Err(e) = crate::listener_handoff::write(&home(), addr)
+        && let Err(e) = crate::listener_record::write(&home(), addr)
     {
         tracing::warn!("could not record the web listener for the cmux link: {e}");
     }
@@ -965,7 +965,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         home_watch::release_socket();
         let _ = std::fs::remove_file(socket_path());
     }
-    crate::listener_handoff::remove_if_owned(&home());
+    crate::listener_record::remove_if_owned(&home());
     // How many hosted agents this shutdown kept running for the next
     // daemon; unknown (a timeout) counts as kept.
     let kept = match tokio::time::timeout(SHUTDOWN_BUDGET, async {
@@ -1018,6 +1018,7 @@ fn remove_bound_socket(bound: Option<&home_watch::Owned>) {
     if bound.map_or(!cfg!(unix), |s| s.lost().is_none()) {
         let _ = std::fs::remove_file(socket_path());
     }
+    crate::listener_record::remove_if_owned(&home());
 }
 
 /// Read the person key (one line, at most 128 bytes) from an inherited
