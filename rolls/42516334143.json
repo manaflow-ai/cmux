@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42516334143",
+  "recorded_at": "2026-11-08T19:49:49Z",
+  "reason": "cmux-tui 98ce60b2a4ec changes the image's cmux-tui (pinned 90cf69fc2ec9)",
+  "dry_run": false,
+  "cmux_tui": "98ce60b2a4ec8d5316c10cea5c3ceacbfc36b140",
+  "fixes": [
+    {
+      "sha": "98ce60b2a4ec8d5316c10cea5c3ceacbfc36b140",
+      "mergedAt": "2026-11-08T11:25:34-08:00",
+      "subject": "acpmux: a stable launchd label per home, and stale daemon jobs booted out (#38702)"
+    },
+    {
+      "sha": "80440c02992fa13c5f671c1509e56c1ffd3aafc7",
+      "mergedAt": "2026-11-08T11:19:49-08:00",
+      "subject": "fix(tui): an error before an empty attach leaves a transcript that pages (#38794)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T19:49:49Z",
+    "snapshot_id": "sh-50fb26c382b64056970b92bc11d50739",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42516334143): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0f06719b5105dc9dde7c260ec2df44ce1291d18f",
+    "image": "cloud-native-auto-98ce60b2-42516334143-1",
+    "revision": "ci-42516334143-1",
+    "at": "2026-11-08T19:49:49Z"
+  },
+  "rolled_back": false
+}
