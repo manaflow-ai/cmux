@@ -180,8 +180,9 @@ fn words(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Whether `a` and `b` say the same thing: the same words, or one's words nearly all in the
-/// other's.
+/// Whether `a` and `b` say the same thing: the same words, or every word of the shorter one,
+/// at least three, in the other ("Use pnpm, not npm." in "Use pnpm, not npm, in every
+/// package."). One word apart ("port 4100" against "port 4200") is another fact.
 fn same_fact(a: &[String], b: &[String]) -> bool {
     if a.is_empty() || b.is_empty() {
         return false;
@@ -191,9 +192,7 @@ fn same_fact(a: &[String], b: &[String]) -> bool {
     }
     let (small, big) = if a.len() <= b.len() { (a, b) } else { (b, a) };
     let big: HashSet<&String> = big.iter().collect();
-    let shared = small.iter().filter(|w| big.contains(w)).count();
-    // At least four in five of the shorter one's words, and a long enough fact to judge by.
-    small.len() >= 3 && shared * 5 >= small.len() * 4
+    small.len() >= 3 && small.iter().all(|w| big.contains(w))
 }
 
 /// The facts not yet in `existing` (the file's text), not dismissed before (`dismissed`, each a

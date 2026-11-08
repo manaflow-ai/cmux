@@ -105,6 +105,12 @@ fn facts_the_file_already_says_or_were_dismissed_are_not_offered_again() {
     .to_vec();
     let dismissed = vec![key("Run make gen after a schema change.")];
     assert_eq!(fresh(&facts, file, &dismissed), vec!["Never edit generated/*.".to_owned()]);
+    // Facts one word apart are two facts.
+    let ports: Vec<String> =
+        ["The dev server runs on port 4100.", "The dev server runs on port 4200."]
+            .map(String::from)
+            .to_vec();
+    assert_eq!(fresh(&ports, "", &[]), ports);
     // A short fact is compared word for word, never as a subset of a long line.
     assert_eq!(
         fresh(&["Use bun.".into()], "Use bun for scripts, pnpm for packages.", &[]).len(),
