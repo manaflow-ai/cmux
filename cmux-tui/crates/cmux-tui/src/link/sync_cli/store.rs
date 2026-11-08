@@ -338,7 +338,7 @@ fn pieces_of(pending: &Pending<'_>) -> anyhow::Result<Vec<Piece>> {
 fn read_piece(file: &LocalFile, piece: &Piece) -> anyhow::Result<Vec<u8>> {
     let mut bytes = vec![0u8; usize::try_from(piece.size)?];
     match &file.source {
-        Source::File(path) => {
+        Source::File(path) | Source::Checked(path, _) => {
             let mut opened = std::fs::File::open(path)
                 .with_context(|| format!("cannot read {}", path.display()))?;
             opened.seek(SeekFrom::Start(piece.offset))?;

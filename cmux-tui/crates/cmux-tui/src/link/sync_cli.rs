@@ -625,6 +625,19 @@ pub(super) fn copy_folder_with_progress(
             skipped = skipped.saturating_add(1);
             continue;
         }
+        // Held to the file it is now: a folder on its way swapped for a
+        // symlink before it is read stops its read ([`open`]).
+        let Ok(meta) = std::fs::symlink_metadata(&path) else {
+            skipped = skipped.saturating_add(1);
+            continue;
+        };
+        let file = {
+            use std::os::unix::fs::MetadataExt as _;
+            LocalFile {
+                source: Source::Checked(path.clone(), (meta.dev(), meta.ino())),
+                permissions: file.permissions,
+            }
+        };
         let at = format!("{target}/{relative}");
         let (parent, _) = remote::split(&at)?;
         if through_link(&mut remote, target, parent, &mut seen)? {
@@ -1537,14 +1550,11 @@ impl Listings {
 /// in since it was listed; anything but a regular file is refused.
 fn open(file: &LocalFile) -> anyhow::Result<Box<dyn std::io::Read>> {
     Ok(match &file.source {
-        Source::File(path) => {
-            let opened = std::fs::OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-                .open(path)
-                .with_context(|| format!("cannot read {}", path.display()))?;
-            if !opened.metadata()?.is_file() {
-                anyhow::bail!("{} is no longer a regular file", path.display());
+        Source::File(path) => Box::new(open_regular(path)?.0),
+        Source::Checked(path, identity) => {
+            let (opened, now) = open_regular(path)?;
+            if now != *identity {
+                anyhow::bail!("{} changed after it was checked", path.display());
             }
             Box::new(opened)
         }
@@ -1552,9 +1562,26 @@ fn open(file: &LocalFile) -> anyhow::Result<Box<dyn std::io::Read>> {
     })
 }
 
+/// `path` opened without following a symlink at its end or blocking on a
+/// FIFO, with the device and inode it opened; anything but a regular file
+/// is refused.
+fn open_regular(path: &Path) -> anyhow::Result<(std::fs::File, (u64, u64))> {
+    use std::os::unix::fs::MetadataExt as _;
+    let opened = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .with_context(|| format!("cannot read {}", path.display()))?;
+    let meta = opened.metadata()?;
+    if !meta.is_file() {
+        anyhow::bail!("{} is no longer a regular file", path.display());
+    }
+    Ok((opened, (meta.dev(), meta.ino())))
+}
+
 fn size(file: &LocalFile) -> anyhow::Result<u64> {
     Ok(match &file.source {
-        Source::File(path) => std::fs::metadata(path)?.len(),
+        Source::File(path) | Source::Checked(path, _) => std::fs::metadata(path)?.len(),
         Source::Bytes(bytes) => bytes.len() as u64,
     })
 }
@@ -1571,4 +1598,33 @@ fn hash(file: &LocalFile) -> anyhow::Result<String> {
         hasher.update(&buffer[..read]);
     }
     Ok(hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+#[cfg(test)]
+mod checked_source_tests {
+    use std::os::unix::fs::MetadataExt as _;
+
+    use super::{LocalFile, Source, open};
+
+    /// A checked file whose folder was swapped for a symlink to another
+    /// folder holding a file of the same name is never read.
+    #[test]
+    fn a_checked_file_reached_through_a_swapped_folder_is_not_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let (inside, outside) = (dir.path().join("pick/docs"), dir.path().join("outside"));
+        std::fs::create_dir_all(&inside).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(inside.join("app.toml"), "mine\n").unwrap();
+        std::fs::write(outside.join("app.toml"), "secret\n").unwrap();
+        let path = inside.join("app.toml");
+        let meta = std::fs::symlink_metadata(&path).unwrap();
+        let file = LocalFile {
+            source: Source::Checked(path.clone(), (meta.dev(), meta.ino())),
+            permissions: 0o644,
+        };
+        assert!(open(&file).is_ok());
+        std::fs::rename(&inside, dir.path().join("moved")).unwrap();
+        std::os::unix::fs::symlink(&outside, &inside).unwrap();
+        assert!(open(&file).is_err(), "the swapped folder's file was read");
+    }
 }

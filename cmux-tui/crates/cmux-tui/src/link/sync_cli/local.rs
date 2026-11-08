@@ -44,6 +44,10 @@ use super::skips::{self, Skips, Why};
 #[derive(Clone, Debug)]
 pub(super) enum Source {
     File(PathBuf),
+    /// A file an upload checked, held to the device and inode it had then:
+    /// opened only while it is still that file, so a folder on its way
+    /// swapped for a symlink since reads nothing outside.
+    Checked(PathBuf, (u64, u64)),
     /// Bytes made here (a cleaned git config or reflog).
     Bytes(Vec<u8>),
 }
