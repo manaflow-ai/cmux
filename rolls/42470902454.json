@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42470902454",
+  "recorded_at": "2026-11-08T10:26:04Z",
+  "reason": "cmux-tui e3317482e11b changes the image's cmux-tui (pinned 92877863ee0a)",
+  "dry_run": false,
+  "cmux_tui": "e3317482e11b98c852ef4ead39d19decf0ca06c4",
+  "fixes": [
+    {
+      "sha": "e3317482e11b98c852ef4ead39d19decf0ca06c4",
+      "mergedAt": "2026-11-08T02:03:49-08:00",
+      "subject": "cmux CLI: app machines and app join-line reach the Machines list and the join line in every build (#38353)"
+    },
+    {
+      "sha": "4a1a45a09a9261f01294cbccb1ff946f72faf990",
+      "mergedAt": "2026-11-08T01:57:16-08:00",
+      "subject": "customize: a threads template, the agent chats as a thread list in the sidebar"
+    },
+    {
+      "sha": "a86215b4fa25d9eb5b2433983870026e50278890",
+      "mergedAt": "2026-11-08T01:57:15-08:00",
+      "subject": "apps: a customize script reads the sidebar's agent chats (agent_chat.list)"
+    },
+    {
+      "sha": "3d2fb998cd267d34153b84b078a58c208ad2366c",
+      "mergedAt": "2026-11-08T01:57:14-08:00",
+      "subject": "apps: red test, a customize script reads the sidebar's agent chats (agent_chat.list)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T10:26:04Z",
+    "snapshot_id": "sh-a73cceb8eb3a4c02a377f5d3cad7652e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42470902454): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d65160620a2af098af928d6c213939a2c381aabc",
+    "image": "cloud-native-auto-e3317482-42470902454-1",
+    "revision": "ci-42470902454-1",
+    "at": "2026-11-08T10:26:04Z"
+  },
+  "rolled_back": false
+}
