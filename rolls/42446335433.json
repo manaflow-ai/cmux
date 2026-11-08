@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42446335433",
+  "recorded_at": "2026-11-08T04:32:25Z",
+  "reason": "cmux-tui 133de0807d46 changes the image's cmux-tui (pinned 3b968b301466)",
+  "dry_run": false,
+  "cmux_tui": "133de0807d46f27b08efba461b04c7c8f6923ee2",
+  "fixes": [
+    {
+      "sha": "c7f500c638374b05bc6b606577390f8c2a7a29a0",
+      "mergedAt": "2026-11-08T04:05:09Z",
+      "subject": "acpmux: store chat uploads once by content, delete them when no chat names them (#38190)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T04:32:25Z",
+    "snapshot_id": "sh-5eb4bdc4356643e686eba64c71508795",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42446335433): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "202ede45271496f3790b36ae9be8d058de726644",
+    "image": "cloud-native-auto-133de080-42446335433-1",
+    "revision": "ci-42446335433-1",
+    "at": "2026-11-08T04:32:25Z"
+  },
+  "rolled_back": false
+}
