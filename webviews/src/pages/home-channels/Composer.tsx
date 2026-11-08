@@ -7,7 +7,8 @@
 // In an empty composer, Up edits my last message. The text clears only when the owner took the
 // message; the owner's event shows it. A right-click in the field opens the composer's own menu
 // (POLISH.md right-click contract): Cut, Copy, Paste, Paste as Plain Text, Attach Files… and
-// Insert Mention; the edits run in the app (composerEdit.ts).
+// Insert Mention; the edits run in the app (composerEdit.ts). Cmd-Z and Shift-Cmd-Z undo and redo
+// the text and the staged files on one line (attachmentUndo.ts).
 import { useContext, useEffect, useRef, useState, type RefObject } from "react";
 import { pasteIsOnlyFileNames } from "../../agent-session/acpmux/attachments";
 import { PromptEditor, type PromptEditorHandle } from "../../agent-session/acpmux/composer/PromptEditor";
@@ -21,6 +22,7 @@ import { AttachmentTray, type PendingAttachment } from "./AttachmentViews";
 import { ComposerEdit, type ComposerEditCommand } from "./composerEdit";
 import { QUOTE_EVENT, quoteMarkdown } from "./quoteSelection";
 import { attachmentClass, attachmentType, refusal, type AttachmentService } from "./attachmentService";
+import { AttachmentUndo, undoChord, type AttachmentEdit } from "./attachmentUndo";
 import { Avatar } from "./Avatar";
 import { EmojiPicker, loadEmoji } from "./EmojiPicker";
 import { HomeIcon, type HomeIconName } from "./icons";
@@ -114,6 +116,33 @@ export function Composer({
   const empty = !value.trim() && ready.length === 0;
   const patchFile = (id: string, patch: Partial<PendingAttachment>) =>
     setFiles((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  const filesNow = useRef(files);
+  filesNow.current = files;
+  /// The staged files' adds and removes, for Cmd-Z and Shift-Cmd-Z (attachmentUndo.ts).
+  const fileHistory = useRef(new AttachmentUndo<PendingAttachment>());
+  /// A Cmd-Z or Shift-Cmd-Z the editor runs on its text: its change is no new edit.
+  const replaying = useRef(false);
+  const upload = (id: string, file: File) => {
+    if (!attachments) return;
+    const controller = new AbortController();
+    uploads.current.set(id, controller);
+    attachments.service
+      .upload(attachments.conversation, file, (progress) => patchFile(id, { progress }), controller.signal)
+      .then(
+        (part) => patchFile(id, { part }),
+        (error: unknown) => {
+          if (!controller.signal.aborted) patchFile(id, { error: uploadError(error, t) });
+        },
+      )
+      .finally(() => {
+        if (uploads.current.get(id) === controller) uploads.current.delete(id);
+      });
+  };
+  /// A file edit of the person's: undoable, and what they type next is a new text step.
+  const noteFileEdit = (edit: Omit<AttachmentEdit<PendingAttachment>, "depth">) => {
+    fileHistory.current.record({ ...edit, depth: editor.current?.history().depth ?? 0 });
+    editor.current?.closeHistory();
+  };
   const addFiles = (list: Iterable<File>) => {
     if (!attachments || disabled) return;
     const added: PendingAttachment[] = [];
@@ -132,23 +161,58 @@ export function Composer({
         reader.onload = () => typeof reader.result === "string" && patchFile(id, { thumb: reader.result });
         reader.readAsDataURL(file);
       }
-      const controller = new AbortController();
-      uploads.current.set(id, controller);
-      attachments.service
-        .upload(attachments.conversation, file, (progress) => patchFile(id, { progress }), controller.signal)
-        .then(
-          (part) => patchFile(id, { part }),
-          (error: unknown) => {
-            if (!controller.signal.aborted) patchFile(id, { error: uploadError(error, t) });
-          },
-        )
-        .finally(() => uploads.current.delete(id));
+      upload(id, file);
     }
-    if (added.length) setFiles((current) => [...current, ...added]);
+    if (!added.length) return;
+    setFiles((current) => [...current, ...added]);
+    noteFileEdit({ kind: "add", items: added, index: filesNow.current.length });
+  };
+  /// Takes `items` out of the tray; an upload still running stops.
+  const takeOut = (items: readonly PendingAttachment[]) => {
+    const ids = new Set(items.map((item) => item.id));
+    for (const id of ids) {
+      uploads.current.get(id)?.abort();
+      uploads.current.delete(id);
+    }
+    setFiles((current) => current.filter((item) => !ids.has(item.id)));
+  };
+  /// Puts `items` back at `index` as they were (with the newest picture, progress and stored part
+  /// they had); one whose upload was stopped uploads again.
+  const putBack = (items: readonly PendingAttachment[], index: number) => {
+    for (const item of items)
+      if (!item.part && !item.error && !uploads.current.has(item.id)) upload(item.id, item.file);
+    setFiles((current) => {
+      const ids = new Set(items.map((item) => item.id));
+      const rest = current.filter((item) => !ids.has(item.id));
+      const at = Math.min(index, rest.length);
+      return [...rest.slice(0, at), ...items, ...rest.slice(at)];
+    });
   };
   const removeFile = (id: string) => {
-    uploads.current.get(id)?.abort();
-    setFiles((current) => current.filter((item) => item.id !== id));
+    const index = filesNow.current.findIndex((item) => item.id === id);
+    const item = filesNow.current[index];
+    if (!item) return;
+    takeOut([item]);
+    noteFileEdit({ kind: "remove", items: [item], index });
+  };
+  /// The files an add or remove left in the tray, as they are now (a picture or upload that ended
+  /// after the edit stays with them).
+  const current = (items: readonly PendingAttachment[]) =>
+    items.map((item) => filesNow.current.find((each) => each.id === item.id) ?? item);
+  /// Cmd-Z or Shift-Cmd-Z on a file edit: an add undone or a remove redone takes the files out, the
+  /// others put them back. Returns whether a file edit was the newest.
+  const replayFiles = (direction: "undo" | "redo"): boolean => {
+    const depth = editor.current?.history().depth ?? 0;
+    const edit = direction === "undo" ? fileHistory.current.takeUndo(depth) : fileHistory.current.takeRedo(depth);
+    if (!edit) return false;
+    const removes = (edit.kind === "add") === (direction === "undo");
+    if (removes) {
+      const now = current(edit.items);
+      // Kept as they are now, so a redo brings back the finished upload and its picture.
+      Object.assign(edit, { items: now });
+      takeOut(now);
+    } else putBack(edit.items, edit.index);
+    return true;
   };
   // Every upload ends with the composer (a conversation switch makes a new one).
   useEffect(() => {
@@ -204,7 +268,11 @@ export function Composer({
     void onSend(markdown, sending.length ? sending : undefined).then((sent) => {
       if (!sent) return;
       setValue((current) => (current === markdown ? "" : current));
-      if (sending.length) setFiles((current) => current.filter((item) => !item.part || !sending.includes(item.part)));
+      if (sending.length) {
+        setFiles((current) => current.filter((item) => !item.part || !sending.includes(item.part)));
+        // Sent files are gone for good: no undo brings them back.
+        fileHistory.current.clear();
+      }
     });
   };
   const format = (kind: MarkdownFormat, anchor: Element) => {
@@ -364,9 +432,23 @@ export function Composer({
           onChange={(markdown) => {
             setValue(markdown);
             refreshFormats();
+            if (!replaying.current) fileHistory.current.textEdited();
           }}
           onCaret={refreshFormats}
           onKeyDown={(event) => {
+            const chord = undoChord(event);
+            if (chord) {
+              if (replayFiles(chord)) {
+                event.preventDefault();
+                return;
+              }
+              // The editor undoes or redoes its text in this same key-down.
+              replaying.current = true;
+              queueMicrotask(() => {
+                replaying.current = false;
+              });
+              return;
+            }
             if (event.key === "Escape" && onCancel) {
               event.preventDefault();
               onCancel();

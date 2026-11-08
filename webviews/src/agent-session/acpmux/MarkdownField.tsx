@@ -132,10 +132,13 @@ export type MarkdownFieldHandle = {
   /// The formats active at the selection, for the toolbar's pressed states.
   formats(): Set<MarkdownFormat>;
   /// The field's own history (its context menu's Undo and Redo): whether there is an edit to
-  /// undo or redo, and doing it.
-  history(): { undo: boolean; redo: boolean };
+  /// undo or redo, how many it can undo (`depth`), and doing it.
+  history(): { undo: boolean; redo: boolean; depth: number };
   undo(): void;
   redo(): void;
+  /// Ends the current undo step: what is typed next is its own step (a surface's own edit, such as
+  /// a staged file, went in between).
+  closeHistory(): void;
   /// Selects the whole prompt (its context menu's Select All).
   selectAll(): void;
   /// Inserts `text` at the selection as a paste of plain text goes in, with no surface rule run on it
@@ -1606,7 +1609,12 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         focused: () => view.current?.hasFocus() ?? false,
         history: () => {
           const state = view.current?.state;
-          return { undo: state ? undoDepth(state) > 0 : false, redo: state ? redoDepth(state) > 0 : false };
+          const depth = state ? undoDepth(state) : 0;
+          return { undo: depth > 0, redo: state ? redoDepth(state) > 0 : false, depth };
+        },
+        closeHistory: () => {
+          const current = view.current;
+          if (current) current.dispatch(closeHistory(current.state.tr));
         },
         undo: () => {
           if (view.current) undo(view.current.state, view.current.dispatch);
