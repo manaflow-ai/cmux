@@ -28,7 +28,7 @@ import { WAITING_LABEL, type WaitingOn, WaitingOnContext } from "./waitingOn";
 import { TurnTokens } from "./TurnTokens";
 import { compactTokens, hasTokens, tokenDetail } from "./turnTokensModel";
 import { verbLeads } from "./ToolVerb";
-import { useTicking } from "./WorkingFor";
+import { usePageNow as useTicking } from "../../../ui/pageClock";
 import { WorkingCountsContext, workingParts } from "./workingForModel";
 import { statusVerbAt, statusVerbLabels, useStatusVerbConfig } from "../statusVerbs";
 import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";

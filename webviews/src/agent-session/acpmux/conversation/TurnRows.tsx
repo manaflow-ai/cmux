@@ -73,9 +73,6 @@ import { useTranscriptReadOnly } from "./readOnly";
 import { useTurnWaterfall } from "./useTurnWaterfall";
 import { thoughtIds } from "./turnRowsModel";
 
-/// Where a folded run splits (toolGroups.ts), which the row estimate (model.ts) reads too.
-export { runStretches, type RunStretch } from "./toolGroups";
-
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
   const t = useT();
