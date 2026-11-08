@@ -143,6 +143,7 @@ pub use model_options::{
 };
 pub mod ledger;
 mod model_hint;
+mod model_probe;
 mod models_view;
 mod paging;
 mod personal_stats;
@@ -196,6 +197,7 @@ mod lane_report_reads;
 mod lane_report_subagents;
 mod lane_report_text;
 mod lane_reports;
+mod loop_detector;
 mod loop_goal;
 #[cfg(test)]
 mod loop_goal_tests;
@@ -214,6 +216,7 @@ mod silent_listing;
 mod silent_turn;
 mod stalled_turn;
 mod start_retry;
+mod start_watch;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
 pub(super) use session::{newest_first, prompt_text, short_text};
@@ -1588,6 +1591,7 @@ impl Hub {
             heard_at: std::sync::atomic::AtomicI64::new(0),
             stalled_recheck: AtomicU64::new(0),
             open_tools: StdMutex::new(Default::default()),
+            loop_detector: StdMutex::new(Default::default()),
             stalled_counted: StdMutex::new(None),
             stalled_gen: AtomicU64::new(0),
             sign_in_refused_turn: StdMutex::new(None),
@@ -2224,6 +2228,8 @@ impl Hub {
                 | "turn_error"
                 | "stopping"
                 | "unstuck"
+                | "loop_detected"
+                | "loop_cleared"
                 | work_below::RECORD_KIND
                 | asks_below::RECORD_KIND
                 | "queued"

@@ -236,7 +236,7 @@ pub struct Session {
     pub(super) person: AtomicBool,
     /// Its creator asked its agent start to wait on the harness rather than a wall clock
     /// (`NewRequest::wait_start`; the Chief, whose turn answers a person's message): the start
-    /// ends when the harness stops working (`lifecycle.rs` `StartWatch`), and says it is still
+    /// ends when the harness stops working (`start_watch.rs` `StartWatch`), and says it is still
     /// starting. Unlike `person` it proves nothing about who asks and opens nothing else.
     pub(super) wait_start: AtomicBool,
     /// Steers into the running turn by prompt id (`steer_end.rs`): Send now stops the agent's
@@ -370,6 +370,9 @@ pub struct Session {
     /// The running turn's tool calls that have not ended (`stalled_turn.rs`): a turn quiet
     /// inside one gets longer before it counts as stalled.
     pub(super) open_tools: StdMutex<std::collections::HashSet<String>>,
+    /// Bounded completed tool attempts used to identify a repeated failing call
+    /// (`loop_detector.rs`).
+    pub(super) loop_detector: StdMutex<super::loop_detector::LoopDetector>,
     /// The turn whose stalled count runs: its prompt was written (`stalled_turn.rs`). None
     /// before that, so a turn whose prompt has not reached its agent is never stalled.
     pub(super) stalled_counted: StdMutex<Option<String>>,

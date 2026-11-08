@@ -657,6 +657,8 @@ pub(super) struct Server<B> {
     call_cap: Option<Duration>,
     /// While a `cmux_exec` script runs: when its time limit ends.
     call_deadline: Option<Instant>,
+    /// While a `cmux_exec` script runs: the `_meta` its calls pass on (`upstream::passed_meta`).
+    call_meta: Option<Value>,
     /// Where `run` writes, for a call's `notifications/progress`.
     notes: Option<watch::Output>,
     /// The ids `render` returned in this process: a render may update only one of these.
@@ -683,6 +685,7 @@ impl<B: Backend> Server<B> {
             upstreams: Vec::new(),
             call_cap: None,
             call_deadline: None,
+            call_meta: None,
             typed: std::cell::RefCell::default(),
             notes: None,
             renders: std::collections::HashSet::new(),
@@ -924,11 +927,13 @@ impl<B: Backend> Server<B> {
             let mut images = Vec::new();
             self.call_cap = Some(self.script_limits.total);
             self.call_deadline = Some(Instant::now() + self.script_limits.total);
+            self.call_meta = upstream::passed_meta(params);
             let answered = code_mode::exec(&arguments, self.script_limits, &mut |request| {
                 self.script_request(request, &mut tools, &mut images)
             });
             self.call_cap = None;
             self.call_deadline = None;
+            self.call_meta = None;
             let mut result = answered.unwrap_or_else(|message| {
                 tool_error(envelope(v2_tools::invalid(message), "not_run", None))
             });
@@ -937,7 +942,9 @@ impl<B: Backend> Server<B> {
             }
             return Ok(result);
         }
-        if let Some(job) = self.proxied_tool(name, &arguments) {
+        if let Some(mut job) = self.proxied_tool(name, &arguments) {
+            // A script's own call carries no `_meta`: it passes on the script's (`call_meta`).
+            job.meta = upstream::passed_meta(params).or(job.meta);
             return Ok(job.run(self.call_cap));
         }
         if let Some(result) = chat_tools::call(name, &arguments) {
