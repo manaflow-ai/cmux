@@ -517,6 +517,58 @@ mod tests {
         }
     }
 
+    mod caller_identity {
+        use super::*;
+
+        fn sub_call(command: &str) -> Value {
+            json!({"tool_name": "Bash", "cwd": "/w", "agent_type": "general-purpose",
+                "agent_id": "a0a68e7af3df5967e", "tool_input": {"command": command}})
+        }
+
+        fn marked(command: &str) -> Option<String> {
+            let mark = subagent_mark(&sub_call(command))?;
+            let out = mark["hookSpecificOutput"]["updatedInput"]["command"].as_str()?.to_owned();
+            Some(out)
+        }
+
+        /// The mark does not hang on the word "acpmux" in the command: a wrapper script, an
+        /// alias, a variable or an absolute path under another name runs the same CLI, and a
+        /// subagent's send through one went out as its lead's.
+        #[test]
+        fn a_subagents_command_through_a_wrapper_alias_or_other_path_is_marked() {
+            let prefix = "export ACPMUX_CALLER_SUBAGENT=general-purpose:a0a68e7af3df5967e\n";
+            for command in [
+                "./scripts/tell beta 'hi'",
+                "amx send beta hi",
+                "/opt/tools/bin/agent-send beta hi",
+                "$A send beta hi",
+                "cd /w && python3 tools/notify.py beta",
+                "ls && ./tell beta hi",
+                "echo $(./tell beta hi)",
+                "sh -c 'tell beta hi'",
+            ] {
+                let got = marked(command).unwrap_or_else(|| panic!("not marked: {command}"));
+                assert_eq!(got, format!("{prefix}{command}"), "{command}");
+            }
+        }
+
+        /// A command made only of tools that never start another program stays as it was, so
+        /// the harness judges it as before (Claude Code runs a read-only command unasked).
+        #[test]
+        fn a_subagents_plain_read_only_command_is_not_changed() {
+            for command in [
+                "ls -la",
+                "git status",
+                "git -C /w log --oneline -5",
+                "rg -n foo src | head -20",
+                "cat a.txt && wc -l b.txt",
+                "sed -n '1,40p' src/main.rs",
+            ] {
+                assert_eq!(marked(command), None, "{command}");
+            }
+        }
+    }
+
     #[test]
     fn a_slow_foreground_shell_goes_to_the_background() {
         let deny = decide(&foreground("cargo test"), None).unwrap();
