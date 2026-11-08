@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42454100722",
+  "recorded_at": "2026-11-08T06:30:53Z",
+  "reason": "cmux-tui cbe712021812 changes the image's cmux-tui (pinned 14dbaf4b3742)",
+  "dry_run": false,
+  "cmux_tui": "cbe712021812b473088d7690897730c9c2d4eaed",
+  "fixes": [
+    {
+      "sha": "7f008147911364c67bf28d21d4ce47d03015c0d9",
+      "mergedAt": "2026-11-08T06:01:21Z",
+      "subject": "inference gateway: proxy only the model paths the Worker allows (#38252)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T06:30:53Z",
+    "snapshot_id": "sh-fa41e41d377f4c37be9a79c0b11974a9",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42454100722): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c6eb43c2bd50634b1fccf5fee6117e24a065d511",
+    "image": "cloud-native-auto-cbe71202-42454100722-1",
+    "revision": "ci-42454100722-1",
+    "at": "2026-11-08T06:30:53Z"
+  },
+  "rolled_back": false
+}
