@@ -123,6 +123,34 @@ extension SidebarListViewComponents {
         return true
     }
 
+    /// Before an apply's rows change: the block items an unpin takes out while the list does not draw the workspace's
+    /// row yet stay where they are drawn (their region holds them) until the row's update; the row then starts on the
+    /// item's frame. At most `pinHoldLimit`, then they go at once.
+    func holdUnpinnedItems(to layout: SidebarLayout) {
+        guard drag == nil, settling == nil, landing == nil, let pin = model.workspacePin else { return }
+        let pinned = blockWorkspaces(blocks)
+        for region in blockRegions {
+            for view in region.itemViews.values where view.superview != nil && !view.isHidden {
+                guard let id = view.info.workspace, !pinned.contains(id), !region.heldWorkspaces.contains(id),
+                      layout.row(for: .workspace(id)) == nil, !pin.isPinned(id) else { continue }
+                region.heldWorkspaces.insert(id)
+                view.layer?.zPosition = 1
+                // concurrency-allow: asyncAfter only schedules the fallback on the main queue; no thread waits for it
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.pinHoldLimit) { [weak region] in
+                    guard let region, region.heldWorkspaces.contains(id) else { return }
+                    region.releaseHeld(id)
+                }
+            }
+        }
+    }
+
+    /// After an apply: the held items whose row now shows (it flew from them) go.
+    func releaseUnpinnedItems(_ ids: some Sequence<WorkspaceID>) {
+        for id in ids {
+            for region in blockRegions where region.heldWorkspaces.contains(id) { region.releaseHeld(id) }
+        }
+    }
+
     /// How long a pin's row waits for its block (the block's update follows the rows' within a frame or two).
     static var pinHoldLimit: TimeInterval { 0.25 }
 

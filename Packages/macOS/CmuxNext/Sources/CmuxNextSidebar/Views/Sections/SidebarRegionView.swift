@@ -106,6 +106,11 @@ final class SidebarRegionView: NSView {
     /// The workspaces a pin flies in this apply (`SidebarListView.pinFlights`): a new item for one of them is placed
     /// in its slot at once, never grown from an empty frame; the list's flight moves it from where the row was.
     var flyingWorkspaces: Set<WorkspaceID> = []
+    /// Workspaces an unpin took out of this region before the list draws their row (the blocks and the rows reach the
+    /// list in separate updates): their item stays where it is drawn until the row takes over its frame.
+    var heldWorkspaces: Set<WorkspaceID> = []
+    /// The items the last apply laid out.
+    private var liveItemIDs: Set<LayoutItemID> = []
     private(set) var headerViews: [LayoutSectionID: SidebarSectionHeaderView] = [:]
     /// The drag in progress (R77) and the order the region shows while it
     /// runs and until its card has landed.
@@ -306,9 +311,11 @@ final class SidebarRegionView: NSView {
             view.alphaValue = 0
         }
         for (id, view) in itemViews where !liveItems.contains(id) && !pressed.contains(ObjectIdentifier(view)) {
+            if let workspace = view.info.workspace, heldWorkspaces.contains(workspace) { continue }
             view.removeFromSuperview()
             itemViews[id] = nil
         }
+        liveItemIDs = liveItems
         for (id, view) in appViews where !liveApps.contains(id) {
             view.removeFromSuperview()
             appViews[id] = nil
@@ -452,6 +459,15 @@ final class SidebarRegionView: NSView {
     func itemView(_ id: LayoutItemID) -> SidebarItemRowView? { itemViews[id] }
 
     /// The item that draws workspace `id`, if this region draws it now.
+    /// Lets go of the held item of workspace `id` (its row took over, or no row came).
+    func releaseHeld(_ id: WorkspaceID) {
+        heldWorkspaces.remove(id)
+        for (key, view) in itemViews where view.info.workspace == id && !liveItemIDs.contains(key) {
+            view.removeFromSuperview()
+            itemViews[key] = nil
+        }
+    }
+
     func itemView(workspace id: WorkspaceID) -> SidebarItemRowView? {
         itemViews.values.first { $0.info.workspace == id && $0.superview != nil }
     }

@@ -249,6 +249,8 @@ extension SidebarListViewComponents {
         let reopened = animate ? Self.movedByThemselves(openingRows.keys, from: old, to: layout) : []
         // A pin or an unpin hands its workspace from a list row to a block item or back: the arriving view starts where
         // the leaving one is drawn now and moves on the rows' spring (`SidebarListView+PinFlight`).
+        // An unpin's block update can come before its rows' update: its item stays drawn until the row comes.
+        if opensRows, !adopting { holdUnpinnedItems(to: layout) }
         let flightSources = pinFlightSources(from: old, to: layout, moves: opensRows && !adopting)
         if !flightSources.pins.isEmpty { for region in blockRegions { region.flyingWorkspaces = Set(flightSources.pins.keys) } }
         var flights: [SidebarPinFlight] = []
@@ -417,6 +419,7 @@ extension SidebarListViewComponents {
         }
         if !flightSources.pins.isEmpty { flights += pinFlights(flightSources) }
         if !pinHolds.isEmpty { settlePinHolds() }
+        if !flightSources.unpins.isEmpty { releaseUnpinnedItems(flightSources.unpins.keys) }
         // A flight and the rows it passes start from where they are drawn, at rest: a retarget carries no velocity (m68).
         RowMotion(targets: targets, appearing: appearing, leaving: leaving, lines: lines, companions: history, insert: insertMotion,
                   travel: insertTravel ?? (flights.isEmpty ? nil : .greatestFiniteMagnitude), folding: folding, flights: flights)
