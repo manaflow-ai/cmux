@@ -4,14 +4,16 @@
 //! full path with its own `CLAUDE_CONFIG_DIR` and its own `--settings`.
 //!
 //! The `claude` here is a stand-in for Claude Code that loads hooks the way
-//! Claude Code 2.1 does: the user settings of its config directory, the last
-//! `--settings` file, and every plugin folder named in
-//! `CLAUDE_CODE_PLUGIN_DIRS` (`hooks/hooks.json`, run with
-//! `CLAUDE_PLUGIN_ROOT`). Identical commands from settings files run once;
-//! plugin hooks are never merged with them. It then runs `SessionStart`,
-//! `UserPromptSubmit` and `Stop` and records the hook output. The hook
-//! helper is the real one, so the daemon's agent roster shows whether the
-//! events arrived.
+//! Claude Code 2.1 does: the user settings of its config directory (unless
+//! `--setting-sources` leaves `user` out), the last `--settings` file, and
+//! every plugin folder named in `CLAUDE_CODE_PLUGIN_DIRS`
+//! (`hooks/hooks.json`, run with `CLAUDE_PLUGIN_ROOT`). Identical commands
+//! from settings files run once; plugin hooks are never merged with them. It
+//! then runs `SessionStart`, `UserPromptSubmit` and `Stop` and records the
+//! hook output. Like Claude Code it gives the commands it starts
+//! `CLAUDE_PID` (its process id), and on request it starts another Claude the
+//! way a Bash tool call would. The hook helper is the real one, so the
+//! daemon's agent roster and message inbox show whether the events arrived.
 
 #![cfg(unix)]
 
@@ -31,15 +33,22 @@ import json, os, subprocess, sys, time
 
 args = sys.argv[1:]
 settings_file = None
+setting_sources = None
 i = 0
 while i < len(args):
-    if args[i] == "--settings" and i + 1 < len(args):
-        settings_file = args[i + 1]
+    if args[i] in ("--settings", "--setting-sources") and i + 1 < len(args):
+        if args[i] == "--settings":
+            settings_file = args[i + 1]
+        else:
+            setting_sources = args[i + 1]
         i += 2
         continue
     if args[i].startswith("--settings="):
         settings_file = args[i][len("--settings="):]
+    if args[i].startswith("--setting-sources="):
+        setting_sources = args[i][len("--setting-sources="):]
     i += 1
+reads_user = setting_sources is None or "user" in [s.strip() for s in setting_sources.split(",")]
 
 def load(path):
     try:
@@ -49,7 +58,7 @@ def load(path):
         return {}
 
 config = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.environ["HOME"], ".claude")
-settings_sources = [load(os.path.join(config, "settings.json"))]
+settings_sources = [load(os.path.join(config, "settings.json"))] if reads_user else []
 if settings_file:
     settings_sources.append(load(settings_file))
 plugins = []
@@ -79,7 +88,8 @@ record = {"session_id": session, "outputs": {}}
 payloads = [
     ("SessionStart", {"source": "startup"}),
     ("UserPromptSubmit", {"prompt": "hello"}),
-    ("Stop", {"stop_hook_active": False, "last_assistant_message": "done here"}),
+    ("Stop", {"stop_hook_active": False,
+              "last_assistant_message": os.environ.get("FAKE_REPLY", "done here")}),
 ]
 for event, extra in payloads:
     payload = {"session_id": session, "transcript_path": "/dev/null", "cwd": os.getcwd(),
@@ -87,7 +97,9 @@ for event, extra in payloads:
     payload.update(extra)
     outputs = []
     for command, root in commands(event):
-        env = dict(os.environ)
+        # What Claude Code sets for the commands it starts, hooks and tools.
+        env = dict(os.environ, CLAUDECODE="1", CLAUDE_PID=str(os.getpid()),
+                   CLAUDE_CODE_SESSION_ID=session)
         if root:
             env["CLAUDE_PLUGIN_ROOT"] = root
         done = subprocess.run(["/bin/sh", "-c", command], input=json.dumps(payload).encode(),
@@ -98,6 +110,21 @@ out = os.path.join(os.environ["FAKE_RECORD_DIR"], "claude-" + os.environ["OB_TAG
 with open(out + ".tmp", "w") as f:
     json.dump(record, f)
 os.rename(out + ".tmp", out)
+# A tool call that starts another Claude (`claude -p`) once the test says go:
+# it inherits the plugin folder and this Claude's tool environment.
+go = os.environ.get("FAKE_NESTED_GO")
+if go:
+    deadline = time.time() + 120
+    while not os.path.exists(go) and time.time() < deadline:
+        time.sleep(0.05)
+    nested = dict(os.environ, OB_TAG=os.environ["OB_TAG"] + "-nested",
+                  FAKE_SESSION_ID=os.environ["FAKE_NESTED_SESSION_ID"], FAKE_REPLY="nested reply",
+                  FAKE_EXIT="1", CLAUDECODE="1", CLAUDE_PID=str(os.getpid()),
+                  CLAUDE_CODE_SESSION_ID=session)
+    del nested["FAKE_NESTED_GO"]
+    subprocess.run([os.path.realpath(sys.argv[0]), "-p", "hi"], env=nested, timeout=120)
+if os.environ.get("FAKE_EXIT"):
+    sys.exit(0)
 time.sleep(600)
 "#;
 
@@ -430,13 +457,25 @@ fn any_launcher_claude_reports_to_the_pane_session() {
                 claude.display()
             ),
         ),
+        // Full path with the hooks installed in its config, but started with
+        // setting sources that leave the user settings (the install) out.
+        (
+            "no-user-settings",
+            format!(
+                "{}CLAUDE_CONFIG_DIR='{}' SR2_CLAUDE2_HOOK_SOCKET=/nonexistent/sr2.sock \
+                 '{}' --setting-sources project,local; sleep 600",
+                common("no-user-settings", 4),
+                installed_config.display(),
+                claude.display()
+            ),
+        ),
         // Plain `claude` through the shim on PATH.
         (
             "shim",
             format!(
                 "{}CLAUDE_CONFIG_DIR='{}' SR2_CLAUDE2_HOOK_SOCKET=/nonexistent/sr2.sock \
                  claude; sleep 600",
-                common("shim", 4),
+                common("shim", 5),
                 root.join("config-shim").display()
             ),
         ),
@@ -486,6 +525,102 @@ fn any_launcher_claude_reports_to_the_pane_session() {
         1,
         "the launcher's own Stop hook must run once"
     );
+    drop(daemon);
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// Runs the cmux-tui CLI against `daemon`; its exit status and output.
+fn cli(daemon: &Daemon, exe: &Path, env: &[(&str, &Path)], args: &[&str]) -> (bool, String) {
+    let mut command = Command::new(exe);
+    command
+        .args(["--json", "--socket"])
+        .arg(&daemon.socket)
+        .args(args)
+        .env("LC_ALL", "C")
+        .env_remove("CMUX_TUI_SOCKET")
+        .env_remove("CMUX_MUX_SOCKET")
+        .env_remove("CMUX_TUI_TERMINAL_ID");
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let output = command.output().unwrap();
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    (output.status.success(), text)
+}
+
+#[test]
+fn any_launcher_nested_claude_leaves_the_pane_session_and_its_messages_to_the_outer_claude() {
+    let root = unique_root();
+    let home = root.join("home");
+    let data = root.join("data");
+    let realbin = root.join("realbin");
+    let build = root.join("build");
+    for dir in [&home, &data, &realbin, &build, &root.join("config-outer")] {
+        fs::create_dir_all(dir).unwrap();
+    }
+    let claude = realbin.join("claude");
+    write_executable(&claude, FAKE_CLAUDE);
+    let daemon_exe = build.join("cmux-tui");
+    if fs::hard_link(env!("CARGO_BIN_EXE_cmux-tui"), &daemon_exe).is_err() {
+        fs::copy(env!("CARGO_BIN_EXE_cmux-tui"), &daemon_exe).unwrap();
+    }
+    let path = format!("{}:/usr/bin:/bin", realbin.display());
+    let mut daemon = Daemon::start(&root, &daemon_exe, "nest", &home, &data, &path);
+    let cli_env = [("HOME", home.as_path()), ("XDG_DATA_HOME", data.as_path())];
+
+    // Claude by its full path; once told, a tool call of it starts another
+    // Claude (`claude -p`), which inherits the pane's environment.
+    let go = root.join("go");
+    let outer_session = "00000000-0000-4000-8000-000000000011";
+    let script = format!(
+        "OB_TAG=outer FAKE_RECORD_DIR='{root}' FAKE_SESSION_ID={outer_session} \
+         FAKE_NESTED_SESSION_ID=00000000-0000-4000-8000-000000000012 FAKE_NESTED_GO='{go}' \
+         FAKE_REPLY='outer reply' CLAUDE_CONFIG_DIR='{root}/config-outer' \
+         SR2_CLAUDE2_HOOK_SOCKET=/nonexistent/sr2.sock; export OB_TAG FAKE_RECORD_DIR \
+         FAKE_SESSION_ID FAKE_NESTED_SESSION_ID FAKE_NESTED_GO FAKE_REPLY CLAUDE_CONFIG_DIR \
+         SR2_CLAUDE2_HOOK_SOCKET; '{claude}'; sleep 600",
+        root = root.display(),
+        go = go.display(),
+        claude = claude.display(),
+    );
+    let terminal = daemon.run("outer", &script);
+    launch_record(&root, &daemon, "outer");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let row = daemon.agent_row(&daemon_exe, &cli_env, &terminal);
+        if row["source"] == "hook" && row["extra"]["agent_session_id"] == outer_session {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the outer Claude never reported: {row}");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    // A message for the pane's agent waits for the outer Claude's next prompt.
+    let note = "note for the pane agent 7f3a";
+    let (sent, text) = cli(&daemon, &daemon_exe, &cli_env, &["agent", "message", &terminal, note]);
+    assert!(sent, "agent message failed: {text}");
+    fs::write(&go, b"go").unwrap();
+    let nested = launch_record(&root, &daemon, "outer-nested");
+
+    // The nested Claude neither takes the message nor reports as the pane's agent.
+    assert!(
+        !nested["outputs"].to_string().contains(note),
+        "the nested Claude took the pane agent's message: {nested}"
+    );
+    assert_eq!(
+        session_start_outputs_with(&nested, "systemMessage"),
+        0,
+        "the nested Claude ran the pane's hooks: {nested}"
+    );
+    let (listed, inbox) =
+        cli(&daemon, &daemon_exe, &cli_env, &["agent", "inbox", &terminal, "--state", "queued"]);
+    assert!(listed && inbox.contains(note), "the message is no longer queued: {inbox}");
+    let row = daemon.agent_row(&daemon_exe, &cli_env, &terminal);
+    assert_eq!(row["extra"]["agent_session_id"], outer_session, "{row}");
     drop(daemon);
     let _ = fs::remove_dir_all(&root);
 }

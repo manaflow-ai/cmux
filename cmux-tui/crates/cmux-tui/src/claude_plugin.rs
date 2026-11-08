@@ -207,6 +207,20 @@ mod tests {
     }
 
     #[test]
+    fn any_launcher_pane_plugin_dirs_drop_the_folder_of_a_deleted_build() {
+        let root = tempfile::tempdir().unwrap();
+        let mine = root.path().join("data/cmux-tui/builds/0123abcd/claude-plugin");
+        // Another build's plugin folder, deleted with its build: no manifest.
+        let deleted = root.path().join("data/cmux-tui/builds/4567ef01/claude-plugin");
+        // The person's folder of the same name, elsewhere, stays.
+        let person = root.path().join("tools/claude-plugin");
+        let inherited = std::env::join_paths([&deleted, &person]).unwrap();
+        let value = pane_plugin_dirs(Some(&inherited), &mine).unwrap();
+        assert_eq!(std::env::split_paths(&value).collect::<Vec<_>>(), [person.clone(), mine]);
+        assert_eq!(without_cmux_plugins(&inherited).unwrap().as_os_str(), person.as_os_str());
+    }
+
+    #[test]
     fn any_launcher_plugin_has_the_hooks_and_the_session_context() {
         let root = tempfile::tempdir().unwrap();
         let dir = root.path().join("plugin");
