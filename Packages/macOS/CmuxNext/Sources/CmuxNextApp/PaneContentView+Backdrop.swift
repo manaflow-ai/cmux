@@ -63,7 +63,7 @@ extension PaneContentView {
         // already do): over its art the content stays clear.
         guard backdropState.pin != .inherit else { return }
         let paints = WindowBackdrop(paneScope.tokens, reduceTransparency: ReduceTransparency.shared.isEnabled, selection: paneScope.backdropSelection).panesPaintBackground
-        contentHost.layer?.backgroundColor = paneContentFill(paints: paints, surface: surface, terminal: showsTerminalTab)
+        contentHost.layer?.backgroundColor = paneContentFill(paints: paints, surface: surface, awaiting: awaitedTerminal)
     }
 
     private func makeArtView() -> WindowMaterialView {
@@ -93,13 +93,12 @@ extension PaneContentView {
         return view
     }
 
-    /// The content background under the content only (the strip has its
-    /// own backdrop), or nothing in a translucent window, where the window
-    /// root paints the one sheet (`WindowBackdrop`).
+    /// The content background under the content only (the strip has its own backdrop; a terminal not shown yet has its
+    /// color, `paneContentFill`), or nothing in a translucent window, where the window root paints the one sheet.
     func themeDidChange() {
         needsLayout = true
         // In scope: its workspace's picture decides, not the app's (#28867: a black pane behind the chat).
-        performWithTheme { contentHost.layer?.backgroundColor = paneContentFill(paints: WindowBackdrop.current(themeTokens).panesPaintBackground, surface: Palette.surfaceBackground, terminal: showsTerminalTab) }
+        performWithTheme { contentHost.layer?.backgroundColor = paneContentFill(paints: WindowBackdrop.current(themeTokens).panesPaintBackground, surface: Palette.surfaceBackground, awaiting: awaitedTerminal) }
         paintStrip()
         paintPaneBackdrop()
     }

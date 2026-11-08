@@ -454,7 +454,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         }
         DebugTabSwitch.mark(self, "content")
         if let content { DebugTabSwitch.kind(self, content.switchKind) }
-        (currentTabKey, view.showsTerminalTab) = (key, key.flatMap { key in pane.tabs.first { $0.id == key } }?.kind == .pty) // a stand-in waiting for its surface too
+        (currentTabKey, view.awaitedTerminal) = (key, content == nil && key.flatMap { key in pane.tabs.first { $0.id == key } }?.kind == .pty ? AwaitedTerminal(theme: services.themes.resolver.resolve(view.paneScope.effectiveSpec)?.config) : nil) // a stand-in's terminal waits for its key's frame: its color, not the pane's
         services.themes.applyPaneBackground(self) // a tab's own tint (no work while nothing is set)
         if let key, content != nil { BenchSpans.measure("switch.present") { services.cache.present(key, by: self, presence: presence) } }
         DebugTabSwitch.mark(self, "reveal")
