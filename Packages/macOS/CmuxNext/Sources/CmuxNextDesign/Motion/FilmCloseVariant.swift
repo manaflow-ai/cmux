@@ -74,6 +74,14 @@ public struct FilmCloseVariant: Sendable, Equatable {
 
     public var duration: TimeInterval { milliseconds / 1000 }
 
+    /// True only while a film snap (V1, V3, V4, V5) draws the survivors' final sizes ahead in the close's turn
+    /// (`ScreenContentView.holdsSnapForContent`): each terminal given a size then also sends the grid of that size to its
+    /// PTY in this turn, in the presenter's pass before the commit (lead m60: "the grid is sent in the key turn, before the
+    /// first commit"). The program redraws at its final grid while the old picture is held for one tick; the tick then
+    /// shows the survivor at its final size with its final grid. Before, the grid went only when that size landed (key +
+    /// 33-44 ms in the cv-b-1 films, build bb732e33), so the final grid showed 3-6 refreshes after the key.
+    public var snapSendsGrid = false
+
     /// `debug.frames {"action": "close_variant V3 150 bezier"}` (any words in any order; none: only reads): sets the
     /// selection the next closes play and answers it. A film-only route on an existing probe, so the App gains no lines.
     @MainActor public static func select(_ command: String) -> [String: Any] {
