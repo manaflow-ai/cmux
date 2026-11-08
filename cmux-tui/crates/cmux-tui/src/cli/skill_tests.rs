@@ -108,7 +108,7 @@ fn the_guide_renders_from_the_cli_metadata() {
         assert!(block.lines().count() > 5, "{block}");
         assert!(guide.contains(&block), "usage block missing:\n{block}");
     }
-    assert!(guide.contains(env!("CARGO_PKG_VERSION")));
+    assert!(guide.contains(&crate::version_string()));
     for recipe in RECIPES {
         assert!(guide.contains(&format!("### \"{}\"", recipe.ask)));
     }
