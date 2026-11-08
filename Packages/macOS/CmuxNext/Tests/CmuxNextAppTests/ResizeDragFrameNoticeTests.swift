@@ -149,4 +149,23 @@ struct ResizeDragFrameNoticeTests {
         host.setFrameSize(CGSize(width: host.frame.width - 4, height: host.frame.height))
         #expect(notices.counts[ObjectIdentifier(host)] == 1, "a pane resized after the unzoom posted no frame notice")
     }
+
+    /// A zoom whose pane leaves the layout before it lands (closed mid-spring) gives its views their notices back: the
+    /// hold must not outlive the motion it was for (review of #38849).
+    @Test func aZoomWhosePaneLeavesMidFlightGivesItsViewsTheirNoticesBack() throws {
+        let screen = ZoomKeepsCoveredPanesTests.Screen()
+        defer { screen.window.closeAfterTest() }
+        let host = try #require(screen.root.context.hosts["p1"])
+        let views = Self.subtree(host)
+        screen.show(.leaf("p1"), zoomed: true)
+        for _ in 0..<3 { _ = screen.root.advanceFrame(1.0 / 120) }
+        // SETUP: the zoom is on its spring and holds the pane's views.
+        try #require(screen.screen.zoomMotion.pane == "p1", "SETUP: the zoom landed in 3 frames")
+        try #require(views.contains { !$0.postsFrameChangedNotifications }, "SETUP: the zoom held none of the pane's views")
+        screen.show(.split("b", axis: .vertical, ratio: 0.5, a: .leaf("p2"), b: .split("c", axis: .horizontal, ratio: 0.5,
+                                                                                         a: .leaf("p3"), b: .leaf("p4"))), zoomed: false)
+        screen.land()
+        let muted = views.filter { !$0.postsFrameChangedNotifications }
+        #expect(muted.isEmpty, "\(muted.count) of the closed zoom pane's views still post no frame notice")
+    }
 }
