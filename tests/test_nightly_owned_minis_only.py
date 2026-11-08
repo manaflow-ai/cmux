@@ -45,7 +45,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_ci_fork_runner_routing import parse_expression  # noqa: E402
 from test_nightly_trusted_routing import evaluate  # noqa: E402
 import test_nightly_never_blacksmith as never_blacksmith  # noqa: E402
-from test_nightly_never_blacksmith import JOBS, ROOT, manaflow_route  # noqa: E402
+from test_nightly_never_blacksmith import JOBS, ROOT  # noqa: E402
+from test_nightly_never_blacksmith import manaflow_route as fork_free_route  # noqa: E402
 from test_ci_signing_owned_mac import CLAIM, CLAIM_GATE_ID, claim_gate_for, picker_ref_failures  # noqa: E402
 
 import yaml  # noqa: E402
@@ -62,6 +63,21 @@ HOSTED_TAIL_JOBS = {
     "publish-release-notes": "up to 130 min of publish-lease and API rate-limit waits",
     "publish-nightly-reel": "an ffmpeg render of up to 90 min",
 }
+# Jobs on our minis for nightly-next only. Every other track (classic, RC) goes GitHub-hosted through this
+# short-circuit, as before #38596: its release uploads may wait out the API rate limit for up to 360 min, which must
+# not hold the exclusive signing Mac. job -> why.
+NIGHTLY_NEXT_ONLY_OWNED = {
+    "republish-nightly-deltas": "classic and RC release uploads wait out the rate limit (360 min timeout)",
+}
+TRACK_HOSTED = "github.ref != 'refs/heads/nightly-next' && 'ubuntu-24.04' ||"
+
+
+def manaflow_route(name: str) -> str:
+    """The manaflow-ai route of a nightly-next run: past the fork and the other-track short-circuits."""
+    route = fork_free_route(name)
+    return route.replace(TRACK_HOSTED, "", 1) if name in NIGHTLY_NEXT_ONLY_OWNED else route
+
+
 # Secret jobs glaeda's SIGNING_JOBS gives the whole mini, that hold no signing keychain. The last three ran on
 # GitHub-hosted Ubuntu until glaeda admitted them on the trusted signing runner; keep-published-dsyms holds the
 # push group (it runs in the loop run), republish-nightly-deltas follows generate-nightly-deltas' own hold.
@@ -122,6 +138,12 @@ class EveryJobOnOurMinis(unittest.TestCase):
                     failures[name] = (value, {k: v for k, v in context.items() if v})
                     break
         self.assertEqual(sorted(failures), [], "\n".join(f"{k}: {v}" for k, v in sorted(failures.items())))
+
+    def test_other_tracks_keep_the_hosted_route(self) -> None:
+        for name in NIGHTLY_NEXT_ONLY_OWNED:
+            with self.subTest(job=name):
+                self.assertTrue(fork_free_route(name).lstrip("${ ").startswith(TRACK_HOSTED),
+                                "a non-nightly-next track must not hold the signing Mac through its rate-limit waits")
 
     def test_only_the_listed_tail_jobs_are_hosted(self) -> None:
         hosted = {name for name in JOBS if not JOBS[name].get("uses") and NOT_OURS.search(manaflow_route(name))}

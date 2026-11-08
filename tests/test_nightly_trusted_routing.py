@@ -46,6 +46,9 @@ OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
 # The tail's secret jobs that stay on GitHub-hosted Ubuntu, outside the push group, never Blacksmith
 # (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS has each one's reason). Every other nightly job runs on our own minis.
 HOSTED_SECRET_JOBS = ('sentry-dsyms-nightly', 'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel')
+# On our minis for nightly-next only; classic and RC keep GitHub-hosted Ubuntu, as their release uploads may wait out
+# the rate limit for 360 min (test_nightly_owned_minis_only.NIGHTLY_NEXT_ONLY_OWNED).
+NIGHTLY_NEXT_ONLY_OWNED = ('republish-nightly-deltas',)
 
 DEFAULT_POOL_MEMBERS = {
     'linux_2': 'blacksmith-2vcpu-ubuntu-2404',
@@ -442,11 +445,18 @@ class NightlyTrustedRouting(unittest.TestCase):
                                    'vars.LINUX_RUNNER': runner, 'github.run_attempt': attempt,
                                    'vars.RUNNER_POOLS': json.dumps({'linux': runner or 'blacksmith-4vcpu-ubuntu-2404'}),
                                    'needs.decide.outputs.track': 'nightly-next',
+                                   'github.ref': 'refs/heads/nightly-next',
                                    'vars.CI_CLOUD_OVERFLOW_SAVED': '{"probe":"x"}',
                                    'needs.prepare-nightly-variant-primary.result': primary}
                         allowed = {HOSTED} if name in HOSTED_SECRET_JOBS else OUR_LABELS - {HOSTED}
                         with self.subTest(job=name, runner=runner, attempt=attempt, primary=primary):
                             self.assertIn(evaluate(parse_expression(source), context), allowed)
+                        if name in NIGHTLY_NEXT_ONLY_OWNED:
+                            # Classic (main) and RC runs: hosted, so their rate-limit waits never hold the signer.
+                            for ref in ('refs/heads/main', 'refs/heads/rc/1.2'):
+                                with self.subTest(job=name, runner=runner, attempt=attempt, primary=primary, ref=ref):
+                                    self.assertEqual(evaluate(parse_expression(source), {
+                                        **context, 'github.ref': ref, 'needs.decide.outputs.track': 'nightly'}), HOSTED)
         self.assertGreater(checked, 20)
 
     def test_dispatch_fast_retries_rc_and_disabled_owned_use_the_nightly_only_builder(self):
