@@ -16,8 +16,8 @@
 .cv-link-preview__open:hover,.cv-link-preview .acpmux-open-in:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
 .cv-link-preview .acpmux-open-in{height:20px;padding:0 6px;border-radius:5px;box-shadow:none;color:var(--agent-muted)}
 .cv-link-preview__open:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
-/* A pull request's Review (review from link): Open's quiet button, a hair apart from the split control after it. */
-.cv-link-preview__review{margin-inline-end:2px}
+/* A pull request's Review (review from link): Open's quiet button, one step apart from the split control after it. */
+.cv-link-preview__review{margin-inline-end:4px}
 /* Open and its chevron are one split control (Leo 2026-11-07): one hairline frame, a hairline between the halves, each half hovering on its own. */
 .cv-link-preview__split{display:inline-flex;flex:none;align-items:stretch;height:20px;border:var(--cmux-hairline) solid var(--agent-border);border-radius:6px;overflow:hidden}
 .cv-link-preview__split .cv-link-preview__open{height:auto;border-radius:0;color:var(--agent-text)}
