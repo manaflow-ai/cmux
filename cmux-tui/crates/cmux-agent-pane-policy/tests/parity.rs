@@ -94,7 +94,7 @@ fn frames() {
 #[test]
 fn full_check_order() {
     let all = cases("check.json");
-    assert_eq!(all.as_array().unwrap().len(), 65, "check.json: the full order's 65 cases");
+    assert_eq!(all.as_array().unwrap().len(), 67, "check.json: the full order's 67 cases");
     for c in all.as_array().unwrap() {
         let s = &c["state"];
         let modes: Option<BTreeSet<String>> = s["mode_fields"]

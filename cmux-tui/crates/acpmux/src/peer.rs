@@ -6,7 +6,8 @@
 
 use crate::no_panic::LockExt;
 use crate::peer_link::{
-    Backoff, Link, LinkTimings, PeerState, SleepWatch, WAKE_PROBE, write_deadline,
+    Backoff, Heard, Link, LinkTimings, PeerState, SilenceBudget, SleepWatch, WAKE_PROBE,
+    write_deadline,
 };
 use crate::rpc::{Message, RpcError, method};
 use cmux_json::JsonSet as _;
@@ -275,6 +276,9 @@ pub struct Peer {
     /// Where each change of `state()` goes once the hub runs the peer (`report_states`).
     states: StdMutex<Option<Arc<crate::peer_states::PeerStates>>>,
     timings: LinkTimings,
+    /// How long this peer's links may stay silent: longer for one that answers late. Made from
+    /// `timings` at the first link, so a test can set them first.
+    silence: StdMutex<Option<SilenceBudget>>,
     /// When the hub last saved this peer's sessions (`hub/peer_cache.rs`).
     pub(crate) cache_saved_at: AtomicU64,
     /// The last successful cache write still records an outage that Connected must clear.
@@ -416,6 +420,7 @@ impl Peer {
             link: StdMutex::new(Link::default()),
             states: StdMutex::new(None),
             timings: LinkTimings::from_env(),
+            silence: StdMutex::new(None),
             cache_saved_at: AtomicU64::new(0),
             cache_saved_outage: AtomicBool::new(false),
             cache_write_pending: AtomicBool::new(false),
@@ -450,6 +455,11 @@ impl Peer {
 
     pub fn link(&self) -> Link {
         self.link.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    fn with_silence<T>(&self, f: impl FnOnce(&mut SilenceBudget) -> T) -> T {
+        let mut budget = self.silence.lock().unwrap_or_else(|e| e.into_inner());
+        f(budget.get_or_insert_with(|| SilenceBudget::new(&self.timings)))
     }
 
     /// Every change of the link's state goes through here, so each one sends its note
@@ -1990,11 +2000,17 @@ impl Peer {
         });
 
         // Keepalive: a ping each interval; any byte is an answer. A peer
-        // silent for the whole silence budget, or one that stops reading so a
-        // send cannot go out within the send budget, is dropped and
-        // reconnected; one interval of silence only marks it degraded.
+        // silent for the whole silence budget (`SilenceBudget`: longer for one
+        // that answers late), or one that stops reading so a send cannot go
+        // out within the send budget, is dropped and reconnected; one interval
+        // of silence only marks it degraded.
         let timings = self.timings;
-        let silence = timings.silence_budget();
+        self.with_silence(|b| b.opened(tokio::time::Instant::now()));
+        // The first read's gap is the connect, not an answer.
+        if let Some(heard) = &heard {
+            heard.take_gap();
+        }
+        let mut frame_gap = Duration::ZERO;
         let budget = timings.send;
         let mut ping = tokio::time::interval_at(
             tokio::time::Instant::now() + timings.ping_every,
@@ -2082,8 +2098,20 @@ impl Peer {
                     break Err(timed_out(handshake_started));
                 }
                 _ = ping.tick() => {
+                    let now = tokio::time::Instant::now();
+                    let gap = heard.as_ref().map_or_else(|| std::mem::take(&mut frame_gap), Heard::take_gap);
+                    let (was, silence) = self.with_silence(|b| {
+                        let was = b.current();
+                        b.answered_after(gap, now);
+                        b.settle(now);
+                        (was, b.current())
+                    });
+                    if silence != was {
+                        tracing::info!(peer = %self.name, "silence budget {}s (was {}s; longest wait for an answer {}ms)", silence.as_secs(), was.as_secs(), gap.as_millis());
+                    }
                     let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed()));
                     if silent >= silence {
+                        self.with_silence(|b| b.dropped(now));
                         break Err(format!("peer stopped answering ({}s without a frame)", silent.as_secs()));
                     }
                     if silent >= timings.ping_every {
@@ -2109,6 +2137,7 @@ impl Peer {
                     if !self.link().is_ready() && handshake_deadline.is_elapsed() {
                         break Err(timed_out(handshake_started));
                     }
+                    frame_gap = frame_gap.max(last_frame.elapsed());
                     last_frame = tokio::time::Instant::now();
                     wake_probe = None;
                     self.with_link(|l| l.heard(crate::store::now_ms()));
