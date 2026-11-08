@@ -189,18 +189,30 @@ pub(in crate::cli) fn parse_run(target: &str, flags: &[String]) -> Result<SendRe
 
 /// The shell line `terminal run` types for the words after `--`: one word
 /// as it is, more words each POSIX-quoted (sh, bash and zsh read them back
-/// as the same words). cmd.exe and PowerShell quote differently; the help
-/// tells their users to pass one word.
+/// as the same words). The command word is also quoted when the shell would
+/// read it as syntax: a reserved word (`if`, `{`, `!`) or an assignment
+/// (`FOO=bar`). cmd.exe and PowerShell quote differently; the help tells
+/// their users to pass one word.
 fn shell_line(argv: &[String]) -> String {
-    match argv {
-        [line] => line.clone(),
-        words => words
-            .iter()
-            .map(|word| super::cloud_start_chat::shell_quote(word))
-            .collect::<Vec<_>>()
-            .join(" "),
+    let [first, rest @ ..] = argv else { return String::new() };
+    if rest.is_empty() {
+        return first.clone();
     }
+    let command =
+        if first.contains('=') || SHELL_RESERVED.split_whitespace().any(|word| word == first) {
+            format!("'{}'", first.replace('\'', "'\\''"))
+        } else {
+            super::cloud_start_chat::shell_quote(first)
+        };
+    std::iter::once(command)
+        .chain(rest.iter().map(|word| super::cloud_start_chat::shell_quote(word)))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
+
+/// The words sh, bash and zsh read as syntax in command position.
+const SHELL_RESERVED: &str = "! { } [[ ]] case coproc do done elif else esac fi for foreach \
+                              function if in nocorrect repeat select then time until while";
 
 fn print_json(value: &Value) {
     println!("{}", serde_json::to_string(value).unwrap_or_default());
