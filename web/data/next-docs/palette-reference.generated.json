@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1374,
+    "entries": 1375,
     "shortcuts": 188
   },
   "sections": [
@@ -532,12 +532,6 @@
           "command": null
         },
         {
-          "id": "agentReview.show",
-          "title": "Show Review Queue",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "home.unmuteConversation",
           "title": "Show Alerts",
           "shortcut": null,
@@ -566,6 +560,12 @@
           "title": "Show History",
           "shortcut": null,
           "command": "cmux history show"
+        },
+        {
+          "id": "agentReview.show",
+          "title": "Show Review Queue",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "stash.show",
@@ -6492,6 +6492,12 @@
         {
           "id": "palette.newAgentChatOn",
           "title": "New Agent Chat on…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "palette.newCloudChat",
+          "title": "New Cloud Chat",
           "shortcut": null,
           "command": null
         },
