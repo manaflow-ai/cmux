@@ -67,12 +67,17 @@ def step_pm_xctrace_pins(j, step):
         _rpc(j, "debug.frames", {"action": "start"})
         before = _rpc(j, "debug.action_budget", {"limit": 1})
         seq0 = before["recent"][-1].get("sequence") if isinstance(before, dict) and before.get("recent") else None
+        perf0 = _rpc(j, "debug.sidebar_perf", {})
         pressed = V.step_hid_key(j, {"key": key["key"], "modifiers": list(key.get("modifiers", [])), "mark": f"pmprof.{n}"})
         time.sleep(rest)
         frames = _rpc(j, "debug.frames", {"action": "stop"})
         budget = _rpc(j, "debug.action_budget", {"limit": 4})
+        perf1 = _rpc(j, "debug.sidebar_perf", {})
+        # The rows-to-blocks gap of this key (lead 16:42Z): pins in one apply, rows-first pins and their gap.
+        pin_gap = {k: (perf1.get(k) or 0) - (perf0.get(k) or 0) for k in ("pin_one_apply", "pin_rows_first", "pin_gap_us", "pin_gaps_over_100ms")} \
+            if isinstance(perf0, dict) and isinstance(perf1, dict) and "pin_gap_us" in perf1 else {"error": "no pin gap counters"}
         turns = [r for r in (budget.get("recent") or []) if seq0 is None or (r.get("sequence") or 0) > seq0] if isinstance(budget, dict) else []
-        presses.append({"n": n, "pressed": pressed, "turns": [(r.get("id"), r.get("commit_ms")) for r in turns],
+        presses.append({"n": n, "pressed": pressed, "gap": pin_gap, "turns": [(r.get("id"), r.get("commit_ms")) for r in turns],
                         "missed": frames.get("missed") if isinstance(frames, dict) else None,
                         "missed_frames": frames.get("missed_frames") if isinstance(frames, dict) else None,
                         "main_ms_head": (frames.get("main_ms") or [])[:12] if isinstance(frames, dict) else None,
@@ -87,7 +92,8 @@ def step_pm_xctrace_pins(j, step):
         log.append("xctrace save timed out")
     result = {"bench": "xctrace-pin", "runs": runs, "log": log[-8:], "presses": presses,
               "missed_total": sum(p["missed"] or 0 for p in presses),
-              "missed_per_press": [p["missed"] for p in presses]}
+              "missed_per_press": [p["missed"] for p in presses],
+              "gap_per_press": [p["gap"] for p in presses]}
     xml = j.out / "pin-profile.xml"
     done = subprocess.run([xcrun, "xctrace", "export", "--input", str(trace), "--output", str(xml), "--xpath",
                            '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]'],

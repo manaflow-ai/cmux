@@ -1,0 +1,349 @@
+{
+ "id": "pm-prof-stress",
+ "priority": "P1",
+ "title": "PIN MOTION profile: 20 sidebar pin/unpin keys under xctrace",
+ "why": "pin-motion-4 step 3: name the work behind 1-2 missed refreshes per pin at 120 Hz.",
+ "source": "pin-motion task kit (video-cases/gen_pinmotion.py --prof)",
+ "budget_seconds": 555,
+ "recordings": [],
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "pm-prof-stress"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "home"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 90% x 90% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.9,
+    0.9
+   ]
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace for the case"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p0"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo pm-ready-${nonce}",
+   "enter": true,
+   "mark": "ready"
+  },
+  {
+   "do": "expect",
+   "title": "set-up check: the app types",
+   "since": "ready",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "pm-ready-${nonce}"
+    },
+    {
+     "app_text_line": "pm-ready-${nonce}"
+    },
+    {
+     "frame_text": "pm-ready-${nonce}"
+    }
+   ]
+  },
+  {
+   "do": "settings_file",
+   "title": "set-up: shell #FF00FF (app theme Nord), terminal ground #00FFFF, tab strips #000000, agent ground #0000FF, no close warning, new columns share the strip, no hover cards",
+   "set": {
+    "sidebar": {
+     "hoverCards": {
+      "enabled": false
+     }
+    },
+    "appearance": {
+     "theme": "Builtin Dark",
+     "appTheme": "Nord",
+     "themeEdits": {
+      "Nord/background": "#FF00FF",
+      "Builtin Dark/background": "#00FFFF"
+     },
+     "surfaces": {
+      "terminal": {
+       "color": "#00FFFF",
+       "opacity": 1
+      },
+      "tabBar": {
+       "color": "#000000",
+       "opacity": 1
+      },
+      "agentPane": {
+       "color": "#0000FF",
+       "opacity": 1
+      },
+      "newTabPage": {
+       "color": "#0000FF",
+       "opacity": 1
+      }
+     }
+    },
+    "app": {
+     "warnBeforeClosingTab": false
+    },
+    "layout": {
+     "newColumnWidth": "fitScreen"
+    }
+   }
+  },
+  {
+   "do": "settings_file",
+   "title": "set-up: bind Pin/Unpin Workspace to Ctrl-Opt-Cmd-P for the film (no default key)",
+   "set": {
+    "shortcuts": {
+     "bindings": {
+      "palette.toggleWorkspacePin": "ctrl+opt+cmd+p"
+     }
+    }
+   }
+  },
+  {
+   "do": "try_action",
+   "action": "renameWorkspace",
+   "args": {
+    "name": "alpha"
+   },
+   "title": "set-up: name p0 alpha"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (bravo)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "w1"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "try_action",
+   "action": "renameWorkspace",
+   "args": {
+    "name": "bravo"
+   },
+   "title": "set-up: name it bravo"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (charlie)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "w2"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "try_action",
+   "action": "renameWorkspace",
+   "args": {
+    "name": "charlie"
+   },
+   "title": "set-up: name it charlie"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (delta)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "w3"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "try_action",
+   "action": "renameWorkspace",
+   "args": {
+    "name": "delta"
+   },
+   "title": "set-up: name it delta"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (echo)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "w4"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "try_action",
+   "action": "renameWorkspace",
+   "args": {
+    "name": "echo"
+   },
+   "title": "set-up: name it echo"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (foxtrot)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "w5"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "try_action",
+   "action": "renameWorkspace",
+   "args": {
+    "name": "foxtrot"
+   },
+   "title": "set-up: name it foxtrot"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (golf)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "w6"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "try_action",
+   "action": "renameWorkspace",
+   "args": {
+    "name": "golf"
+   },
+   "title": "set-up: name it golf"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "p0",
+   "title": "set-up: focus p0 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "palette.toggleWorkspacePin",
+   "args": {
+    "pinned": true
+   },
+   "title": "set-up: pin p0 (the pinned group exists before the films)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "w1",
+   "title": "set-up: focus w1 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "palette.toggleWorkspacePin",
+   "args": {
+    "pinned": true
+   },
+   "title": "set-up: pin w1 (the pinned group exists before the films)"
+  },
+  {
+   "do": "stress_full",
+   "settle": 2.0,
+   "title": "STRESS (perf-lead.md, perf-stress-session.py): 60 workspaces, measured 4x3 workspace of 14 panes x 6 tabs, 10 Chromium workspaces, 10 busy terminals"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "w5",
+   "title": "set-up: focus w5 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "pm_xctrace_pins",
+   "runs": 20,
+   "gap": 1.0,
+   "rest": 0.6,
+   "window_ms": 150,
+   "key": {
+    "key": "p",
+    "modifiers": [
+     "control",
+     "option",
+     "cmd"
+    ]
+   },
+   "start_timeout": 40,
+   "cap_seconds": 60,
+   "save_timeout": 50,
+   "export_timeout": 60,
+   "title": "20 pin/unpin keys of w5 under one time profile"
+  }
+ ],
+ "finally": [
+  {
+   "do": "settings_file",
+   "title": "clean-up: the film's workspace pin key off",
+   "unset": [
+    "shortcuts.bindings"
+   ]
+  },
+  {
+   "do": "settings_file",
+   "title": "clean-up: the fixture colors off (the next journey's theme is its own)",
+   "set": {
+    "appearance": {
+     "appTheme": "followTerminal"
+    }
+   },
+   "unset": [
+    "appearance.themeEdits",
+    "appearance.surfaces",
+    "sidebar.hoverCards"
+   ]
+  }
+ ]
+}

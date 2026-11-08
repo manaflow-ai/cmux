@@ -120,8 +120,9 @@ def journey(jid, prefix, curve, view):
     return spec, index
 
 
-def prof_journey(jid, runs):
-    """Step 3 (pin-motion-4): RUNS pin/unpin keys on w5 under one time profile (ext_pmprof), fixture colours, K6."""
+def prof_journey(jid, runs, stress=False):
+    """Step 3 (pin-motion-4): RUNS pin/unpin keys on w5 under one time profile (ext_pmprof), fixture colours, K6.
+    STRESS (pin-motion-5, lead 16:42Z: the rows-to-blocks gap light and STRESS) builds the full STRESS first."""
     check = [{"do": "type", "text": "echo pm-ready-${nonce}", "enter": True, "mark": "ready"},
              {"do": "expect", "title": "set-up check: the app types", "since": "ready", "timeout": 10,
               "all": [{"daemon_line": "pm-ready-${nonce}"}, {"app_text_line": "pm-ready-${nonce}"}, {"frame_text": "pm-ready-${nonce}"}]}]
@@ -130,13 +131,16 @@ def prof_journey(jid, runs):
     for n, label in enumerate(["bravo", "charlie", "delta", "echo", "foxtrot", "golf"], 1):
         steps += ws(f"w{n}", label)
     steps += pin_now("p0") + pin_now("w1")
+    if stress:
+        steps += [{"do": "stress_full", "settle": 2.0, "title": "STRESS (perf-lead.md, perf-stress-session.py): 60 workspaces, "
+                   "measured 4x3 workspace of 14 panes x 6 tabs, 10 Chromium workspaces, 10 busy terminals"}]
     steps += [G.settle(0.6), X.focus("w5"), G.settle(1.0),
               {"do": "pm_xctrace_pins", "runs": runs, "gap": 1.0, "rest": 0.6, "window_ms": 150, "key": WS_KEY,
                "start_timeout": 40, "cap_seconds": 60, "save_timeout": 50, "export_timeout": 60,
                "title": f"{runs} pin/unpin keys of w5 under one time profile"}]
     return {"id": jid, "priority": "P1", "title": f"PIN MOTION profile: {runs} sidebar pin/unpin keys under xctrace",
             "why": "pin-motion-4 step 3: name the work behind 1-2 missed refreshes per pin at 120 Hz.",
-            "source": "pin-motion task kit (video-cases/gen_pinmotion.py --prof)", "budget_seconds": 255,
+            "source": "pin-motion task kit (video-cases/gen_pinmotion.py --prof)", "budget_seconds": 255 + (300 if stress else 0),
             "recordings": [], "options": {"key_path": "real"}, "steps": steps, "finally": [UNBIND, X.settings_back()]}
 
 
@@ -180,9 +184,10 @@ def main():
         print("pm-scroll", o.scroll)
         return
     if o.prof:
-        with open(os.path.join(o.out, "pm-prof.json"), "w") as fh:
-            json.dump(prof_journey("pm-prof", o.prof), fh, indent=1)
-            fh.write("\n")
+        for jid, stress in (("pm-prof", False), ("pm-prof-stress", True)):
+            with open(os.path.join(o.out, f"{jid}.json"), "w") as fh:
+                json.dump(prof_journey(jid, o.prof, stress), fh, indent=1)
+                fh.write("\n")
         print("pm-prof", o.prof)
         return
     os.makedirs(o.films_dir, exist_ok=True)
