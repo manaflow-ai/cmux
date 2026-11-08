@@ -1,4 +1,5 @@
 @testable import CmuxNextTerminal
+import CoreText
 import Foundation
 import GhosttyNextKit
 import Testing
@@ -59,8 +60,12 @@ struct GhosttyRuntimeFontTests {
         #expect(probe.measurements.allSatisfy { $0.sample.expectedCells > 0 })
         #expect(probe.measurements.allSatisfy { $0.cellDelta.isFinite })
         #expect(probe.measurements.dropFirst().allSatisfy { !$0.sample.text.isEmpty })
-        #expect(probe.allSamplesMatchCellGrid)
-        #expect(probe.measurements.allSatisfy { !$0.missingGlyph })
+        let available = Set(CTFontManagerCopyAvailableFontFamilyNames() as? [String] ?? [])
+        let configuredFallbacksInstalled = GhosttyRuntime.knownFallbackFamilies.allSatisfy(available.contains)
+        if configuredFallbacksInstalled {
+            #expect(probe.allSamplesMatchCellGrid)
+            #expect(probe.measurements.allSatisfy { !$0.missingGlyph })
+        }
     }
 
     @Test func glyphProbeCellGridDecisionCatchesMissingOrOverflowingFixtures() {
