@@ -304,7 +304,7 @@ fn a_provisioning_share_arms_its_expiry_timer() {
             None,
             SESSION.into(),
             1,
-            ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None },
+            ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None, signed_in_role: None },
             true,
         )
         .unwrap()["expires_at"]
@@ -332,7 +332,13 @@ fn a_share_its_uses_kicks_and_revoke_survive_a_restart() {
             dir,
             "acp_x".into(),
             3,
-            ShareTerms { ttl_secs: 3600, uses: 3, create_id: None, role: None },
+            ShareTerms {
+                ttl_secs: 3600,
+                uses: 3,
+                create_id: None,
+                role: None,
+                signed_in_role: None,
+            },
             false,
         )
         .unwrap();
@@ -707,7 +713,13 @@ fn invitees_survive_a_restart_and_an_old_file_without_them_loads() {
             dir,
             SESSION.into(),
             1,
-            ShareTerms { ttl_secs: 3600, uses: 1, create_id: None, role: None },
+            ShareTerms {
+                ttl_secs: 3600,
+                uses: 1,
+                create_id: None,
+                role: None,
+                signed_in_role: None,
+            },
             false,
         )
         .unwrap();
@@ -746,7 +758,8 @@ fn an_invite_and_the_list_carry_the_invite_link() {
     std::fs::create_dir_all(&directory).unwrap();
     let dir = Some(directory.as_path());
     let registry = LinkShares::default();
-    let terms = ShareTerms { ttl_secs: 3600, uses: 1, create_id: None, role: None };
+    let terms =
+        ShareTerms { ttl_secs: 3600, uses: 1, create_id: None, role: None, signed_in_role: None };
     let created = registry.insert(dir, SESSION.into(), 1, terms, false).unwrap();
     let share_id = created["share_id"].as_str().unwrap().to_owned();
     let invite =
@@ -782,7 +795,13 @@ fn every_acknowledged_change_reloads_however_many_invitees_join() {
     std::fs::create_dir_all(&directory).unwrap();
     let dir = Some(directory.as_path());
     let shares = LinkShares::default();
-    let terms = || ShareTerms { ttl_secs: 3600, uses: 1, create_id: None, role: None };
+    let terms = || ShareTerms {
+        ttl_secs: 3600,
+        uses: 1,
+        create_id: None,
+        role: None,
+        signed_in_role: None,
+    };
     let mut refused = false;
     'fill: for index in 0..MAX_SHARES {
         let created = match shares.insert(dir, format!("acp_{index}"), 1, terms(), false) {
@@ -858,7 +877,7 @@ fn scratch(name: &str) -> std::path::PathBuf {
 }
 
 fn terms() -> ShareTerms {
-    ShareTerms { ttl_secs: 3600, uses: 1, create_id: None, role: None }
+    ShareTerms { ttl_secs: 3600, uses: 1, create_id: None, role: None, signed_in_role: None }
 }
 
 /// A create whose new share does not fit goes on once the ended shares it may drop are gone, even
@@ -1175,13 +1194,12 @@ fn a_view_link_guest_watches_but_its_prompt_is_refused() {
             assert_code(&client.request(frame), "agent_session.scope_not_granted");
         }
         fake.no_frame();
-        // An account holding the link's secret but not invited joins by the link: it watches
-        // only on a viewers' link, and may send on a link with no role or `talk`.
+        // An account the room signed in, holding the link's secret but not invited, joins by
+        // the link and may send on any of these links, a `view` link included.
         let secret_account = owner.request(json!({"cmd":"agent-session-share-redeem",
             "share_id":link["share_id"], "secret":link["secret"], "account":"eve@example.com",
             "name":"Eve", "attempt_id":format!("e{index}")}));
-        let signed_in = if index == 0 { "view" } else { "talk" };
-        assert_eq!(secret_account["data"]["role"], signed_in, "{name}: {secret_account}");
+        assert_eq!(secret_account["data"]["role"], "talk", "{name}: {secret_account}");
     }
 }
 
@@ -1331,6 +1349,7 @@ fn a_view_link_redeemed_900_times_leaves_room_for_another_chats_share() {
         uses: MAX_LINK_USES,
         create_id: None,
         role: Some(Role::View),
+        signed_in_role: None,
     };
     let share = shares.insert(dir, "acp_view".into(), 1, view, false).unwrap();
     let share_id = share["share_id"].as_str().unwrap().to_owned();
@@ -1527,17 +1546,20 @@ fn redeem_signed_in(owner: &mut Client, share: &Value, account: &str, attempt: &
         "avatar_url":"https://lh3.example.com/a/sam.png"}))
 }
 
-/// A guest the room signed in who holds the link's secret, not invited, may send on a link the
-/// owner made with no role or `talk`: it joins with `talk`, its author carries its name and
-/// picture, and its prompt still goes to acpmux held for the owner. On a viewers' link it watches;
-/// a guest nobody signed in watches on any link (cmux#37766). ask-2a1105b933, items 2 and 3.
+/// A guest the room signed in who holds the link's secret, not invited, may send on any link (the
+/// Share dialog's `view` link included): it joins with `talk`, its author carries its name and
+/// picture, and its prompt still goes to acpmux held for the owner. On a link made with
+/// `signed_in_role: view` it watches; a guest nobody signed in watches on any link (cmux#37766).
+/// ask-2a1105b933, items 2 and 3.
 #[test]
 fn a_signed_in_link_guest_talks_unless_the_link_is_for_viewers() {
     let fake = FakeAcpmux::start("share-signed-in-link");
     let mux = mux_with(&fake, "share-signed-in-link");
     let surface = agent_tab(&mux, Some(SESSION));
     let mut owner = Client::connect(&mux, "share-signed-in-link-owner");
-    let share = create(&mut owner, surface, json!({"role":"talk", "uses":3}));
+    // The Share dialog's "Anyone with the link" share, as on base.
+    let share = create(&mut owner, surface, json!({"role":"view", "uses":3}));
+    assert_eq!(share["signed_in_role"], Value::Null);
     let sam = redeem_signed_in(&mut owner, &share, "Sam@Example.com", "s1");
     assert_eq!(sam["ok"], true, "{sam}");
     assert_eq!(sam["data"]["role"], "talk", "{sam}");
@@ -1577,8 +1599,18 @@ fn a_signed_in_link_guest_talks_unless_the_link_is_for_viewers() {
     );
     assert!(!frame.to_string().contains("sam@example.com"), "the account stays the owner's");
 
-    // A viewers' link: the signed-in guest watches.
-    let view = create(&mut owner, surface, json!({"role":"view", "uses":3}));
+    // A link for viewers only: the signed-in guest watches.
+    let view =
+        create(&mut owner, surface, json!({"role":"view", "signed_in_role":"view", "uses":3}));
+    assert_eq!(view["signed_in_role"], "view");
+    let listed = list(&mut owner);
+    let listed = listed.as_array().unwrap().iter().find(|s| s["share_id"] == view["share_id"]);
+    assert_eq!(listed.unwrap()["signed_in_role"], "view");
+    assert_code(
+        &owner.request(json!({"cmd":"agent-session-share-create", "surface":surface,
+            "signed_in_role":"owner"})),
+        "share.bad_request",
+    );
     let watcher = redeem_signed_in(&mut owner, &view, "sam@example.com", "v1");
     assert_eq!(watcher["data"]["role"], "view", "{watcher}");
     let (mut watching, _) = bind(&mux, &view, &watcher, "share-signed-in-link-view");
@@ -1587,7 +1619,7 @@ fn a_signed_in_link_guest_talks_unless_the_link_is_for_viewers() {
             "client_id":"c1", "text":"hi"})),
         "agent_session.scope_not_granted",
     );
-    // Nobody signed in: view on the talk link too, and a picture without an account is dropped.
+    // Nobody signed in: view, and a picture without an account is dropped.
     let anon = owner.request(json!({"cmd":"agent-session-share-redeem",
         "share_id":share["share_id"], "secret":share["secret"], "name":"Anon",
         "attempt_id":"n1", "avatar_url":"https://lh3.example.com/a/x.png"}));
@@ -1671,6 +1703,7 @@ fn a_guest_whose_picture_would_not_fit_joins_without_it() {
         uses: MAX_LINK_USES,
         create_id: None,
         role: Some(Role::Talk),
+        signed_in_role: None,
     };
     let share = shares.insert(dir, "acp_fit".into(), 1, talk, false).unwrap();
     let share_id = share["share_id"].as_str().unwrap().to_owned();

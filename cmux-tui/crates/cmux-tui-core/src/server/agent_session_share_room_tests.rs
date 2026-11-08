@@ -826,6 +826,7 @@ fn restart_resumes_roomless_pending_deletes_at_expiry_and_frees_capacity() {
                 guests: Vec::new(),
                 invitees: Vec::new(),
                 role: None,
+                signed_in_role: None,
             }));
             Ok(((), true))
         })
@@ -866,7 +867,13 @@ fn restart_resumes_roomless_pending_deletes_at_expiry_and_frees_capacity() {
                 Some(&directory),
                 SESSION.into(),
                 1,
-                ShareTerms { ttl_secs: 3600, uses: 1, create_id: None, role: None },
+                ShareTerms {
+                    ttl_secs: 3600,
+                    uses: 1,
+                    create_id: None,
+                    role: None,
+                    signed_in_role: None
+                },
                 false
             )
             .is_ok()
@@ -945,7 +952,7 @@ fn retry_exhaustion_keeps_owner_cleanup_when_revocation_cannot_be_written() {
             None,
             SESSION.into(),
             surface,
-            ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None },
+            ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None, signed_in_role: None },
             true,
         )
         .unwrap();
@@ -986,7 +993,7 @@ fn revoking_before_the_put_answer_persists_cleanup_across_restart() {
             Some(&directory),
             SESSION.into(),
             1,
-            ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None },
+            ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None, signed_in_role: None },
             true,
         )
         .unwrap();
@@ -1023,7 +1030,7 @@ fn a_revoked_inflight_provision_is_not_evicted_before_its_late_host_token() {
             None,
             SESSION.into(),
             surface,
-            ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None },
+            ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None, signed_in_role: None },
             true,
         )
         .unwrap();
@@ -1035,7 +1042,13 @@ fn a_revoked_inflight_provision_is_not_evicted_before_its_late_host_token() {
                 None,
                 SESSION.into(),
                 surface,
-                ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None },
+                ShareTerms {
+                    ttl_secs: 60,
+                    uses: 1,
+                    create_id: None,
+                    role: None,
+                    signed_in_role: None,
+                },
                 false,
             )
             .unwrap();
@@ -1045,7 +1058,7 @@ fn a_revoked_inflight_provision_is_not_evicted_before_its_late_host_token() {
             None,
             SESSION.into(),
             surface,
-            ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None },
+            ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None, signed_in_role: None },
             false
         ),
         Err("share.limit")
@@ -1066,7 +1079,7 @@ fn a_late_host_token_for_an_inflight_tokenless_delete_still_reaches_the_room() {
             None,
             SESSION.into(),
             surface,
-            ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None },
+            ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None, signed_in_role: None },
             true,
         )
         .unwrap();
@@ -1203,6 +1216,7 @@ fn a_restart_reopens_the_host_socket_of_an_active_bridged_share() {
                 guests: Vec::new(),
                 invitees: Vec::new(),
                 role: None,
+                signed_in_role: None,
             });
             Ok(((), true))
         })
@@ -1243,6 +1257,7 @@ fn a_kick_of_an_ended_share_holds_no_capacity_and_goes_with_its_delete() {
                 guests: Vec::new(),
                 invitees: Vec::new(),
                 role: None,
+                signed_in_role: None,
             }));
             Ok(((), false))
         })
@@ -1253,7 +1268,13 @@ fn a_kick_of_an_ended_share_holds_no_capacity_and_goes_with_its_delete() {
                 None,
                 SESSION.into(),
                 surface,
-                ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None },
+                ShareTerms {
+                    ttl_secs: 60,
+                    uses: 1,
+                    create_id: None,
+                    role: None,
+                    signed_in_role: None
+                },
                 false
             )
             .is_ok()

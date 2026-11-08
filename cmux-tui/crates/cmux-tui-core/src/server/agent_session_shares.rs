@@ -12,7 +12,8 @@
 //! role, avatar?}`. A guest who joined by the link alone, with no account, is always `view`,
 //! whatever its share says. A guest the room signed in (`account`, the room's attestation) who
 //! holds the link's secret but is not invited joins by the link as itself (`via: link`, a use
-//! spent): `talk` unless the share's role is `view`. An invitee takes its invite's role. Every
+//! spent): `talk` on any link unless the share was made with `signed_in_role: view`. An invitee
+//! takes its invite's role. Every
 //! prompt of any guest is held for the owner. Every guest frame re-checks the share (its
 //! state and expiry) and the guest (kicked), and a guest's live stream checks them on every
 //! record. Whatever path ends a share or a guest (a revoke, a kick, the expiry timer, or any verb
@@ -151,9 +152,11 @@ pub(super) struct ShareTerms {
     pub(super) ttl_secs: u64,
     pub(super) uses: u32,
     pub(super) create_id: Option<String>,
-    /// The role the link is made for (any role lifts its uses cap): `view` lets signed-in link
-    /// guests only watch, `talk` (or none) lets them send. Anonymous guests only watch either way.
+    /// The role the link is made for (any role lifts its uses cap). Anonymous guests only watch
+    /// whatever it says.
     pub(super) role: Option<Role>,
+    /// What a signed-in guest who joins by the link (not invited) may do: `talk` when none.
+    pub(super) signed_in_role: Option<Role>,
 }
 
 /// The encoded registry at its largest: `state_file`'s 64 KiB read bound, less a margin.
@@ -332,10 +335,14 @@ struct LinkShare {
     #[serde(default)]
     invitees: Vec<Invitee>,
     /// The role the link was made for (the Share dialog's "Anyone with the link"), which lifts
-    /// its uses cap. A signed-in guest who joins by the link takes it (`talk` when none); an
-    /// anonymous one watches only whatever this says. An invitee keeps its own role.
+    /// its uses cap. A guest who joins by the link alone (nobody signed in) watches only whatever
+    /// this says. An invitee keeps its own role.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     role: Option<Role>,
+    /// What a signed-in guest who joins by the link (not invited) may do: `talk` when none, on
+    /// any link (a `view` link included); `view` when the owner made the link for viewers only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    signed_in_role: Option<Role>,
 }
 
 impl LinkShare {
@@ -401,7 +408,8 @@ impl LinkShare {
             "uses_left": self.uses_left, "state": self.state, "url": null,
             "create_id": self.create_id,
             "room": self.room.as_ref().map(|room| room.get("url").cloned().unwrap_or(Value::Null)),
-            "invite_url": self.invite_url(), "role": self.role, "guests": guests,
+            "invite_url": self.invite_url(), "role": self.role,
+            "signed_in_role": self.signed_in_role, "guests": guests,
             "invitees": invitees})
     }
 }
@@ -588,10 +596,14 @@ struct Create {
     ttl_secs: Option<u64>,
     #[serde(default)]
     uses: Option<u32>,
-    /// The role the link is made for: any role allows up to 1000 uses. `view` lets signed-in
-    /// link guests only watch, `talk` lets them send (held); anonymous ones watch either way.
+    /// The role the link is made for: any role allows up to 1000 uses. A guest who joins by the
+    /// link alone (nobody signed in) watches only either way.
     #[serde(default)]
     role: Option<Role>,
+    /// What a signed-in guest who joins by the link (not invited) may do: `talk` (the default,
+    /// on any link) or `view` (the owner's viewers-only link).
+    #[serde(default)]
+    signed_in_role: Option<Role>,
     /// The owner's cmux cloud access token, for the room's `PUT` only (never stored).
     #[serde(default)]
     owner_token: Option<String>,
@@ -901,12 +913,10 @@ impl LinkShares {
             let share = find(shares, &p.share_id)?;
             let secret_matches =
                 || !p.secret.is_empty() && same(&hex(&digest(&[&p.secret])), &share.secret_sha256);
-            // A signed-in guest who joins by the link takes the link's role (`talk` unless the
-            // owner made it a viewers' link); an anonymous one watches only.
-            let signed_in_role = match share.role {
-                Some(Role::View) => Role::View,
-                _ => Role::Talk,
-            };
+            // A signed-in guest who joins by the link may send on any link unless the owner
+            // limited signed-in guests to watching (`signed_in_role: view`); an anonymous one
+            // watches only.
+            let signed_in_role = share.signed_in_role.unwrap_or(Role::Talk);
             let (account, role, via) = match account {
                 None if !secret_matches() => return Err("share.secret"),
                 None => (None, Some(Role::View), None),
