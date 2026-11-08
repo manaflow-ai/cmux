@@ -246,7 +246,7 @@ pub fn move_stack(dir: &Path, from: &str, to: &str) -> Result<usize, RpcError> {
             moved += 1;
         }
     }
-    drafts.sort_by(|a, b| b.at.cmp(&a.at));
+    drafts.sort_by_key(|d| std::cmp::Reverse(d.at));
     drafts.truncate(STASH_LIMIT);
     write(&to_path, to, &drafts).map_err(not_saved)?;
     crate::config::refuse_lost_home(&from_path).map_err(io::Error::other).map_err(not_saved)?;
@@ -541,7 +541,9 @@ mod tests {
         let draft = Draft {
             id: "d".into(),
             text: "t".into(),
-            attachments: vec![json!({"id": "v", "kind": "video", "name": "a.mov", "frames": [{"data": "AAA"}], "poster": {"data": "BBB"}})],
+            attachments: vec![
+                json!({"id": "v", "kind": "video", "name": "a.mov", "frames": [{"data": "AAA"}], "poster": {"data": "BBB"}}),
+            ],
             at: 1,
         };
         let row = draft.row();
