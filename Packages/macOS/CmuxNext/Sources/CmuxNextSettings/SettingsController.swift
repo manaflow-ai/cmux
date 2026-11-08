@@ -217,10 +217,16 @@ public final class SettingsController {
         await reloadAfterWrite()
     }
 
-    /// Whether a layer below cmux-next.json (MDM recommended, the team's default) fills `key` when
-    /// the file leaves it unset, so only a value in the file keeps the person's choice of the default.
+    /// Whether something other than the row's default fills `key` when cmux-next.json leaves it
+    /// unset, so only a value in the file keeps the person's pick of the default: MDM recommended or
+    /// the team's default, under the key or an older name (`EffectiveSettings.legacyKeys`), an older
+    /// name in the file itself (classic's `browser.openTerminalLinksInCmuxBrowser`), or a reader with
+    /// its own fallback (`SettingsSchema.unsetIsNotDefault`).
     func layerBelowFileSets(_ key: String) -> Bool {
-        lastSource?.managed.recommended[key] != nil || teamPolicy.defaults[key] != nil
+        let older = EffectiveSettings.legacyKeys.filter { $0.value == key }.map(\.key)
+        return ([key] + older).contains { lastSource?.managed.recommended[$0] != nil || teamPolicy.defaults[$0] != nil }
+            || older.contains { fileRoot.value(at: CmuxConfigFile.keyPath(from: $0)) != nil }
+            || SettingsSchema.unsetIsNotDefault(key)
     }
 
     /// Writes a shortcut override for `id`; nil unbinds it.
@@ -491,13 +497,14 @@ extension SettingsController {
             }
             let source = sources[name].map { Result<String, any Error>.success($0) }
                 ?? ThemeFileOverlay.source(named: name, configDirectory: configDirectory)
-            var overlay = ThemeFileOverlay(name: name, source: source, base: root)
+            let folder = ThemeFileSetting.folder(configDirectory: configDirectory)
+            var overlay = ThemeFileOverlay(name: name, source: source, base: root, folder: folder)
             activeSource = try? source?.get()
             var good = overlay.isLoaded ? activeSource : nil
             // A save that does not parse keeps the file's last good text, with the problem noted.
             if overlay.isUnparsable, let lastGood, lastGood.name == name, let text = lastGood.source {
                 let problems = overlay.diagnostics
-                overlay = ThemeFileOverlay(name: name, source: .success(text), base: root)
+                overlay = ThemeFileOverlay(name: name, source: .success(text), base: root, folder: folder)
                 overlay.diagnostics += problems
                 good = text
             }

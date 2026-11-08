@@ -3013,6 +3013,10 @@ mod session_shutdown;
 mod apps_store;
 
 #[cfg(unix)]
+#[path = "cli/stop_start_lock.rs"]
+mod stop_start_lock;
+
+#[cfg(unix)]
 #[path = "cli/pty_child.rs"]
 mod pty_child;
 #[cfg(unix)]
@@ -3797,6 +3801,9 @@ mod state_helpers;
 mod status;
 #[path = "cli/tab_group_hex.rs"]
 mod tab_group_hex;
+#[cfg(unix)]
+#[path = "cli/terminal_paste.rs"]
+mod terminal_paste;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;

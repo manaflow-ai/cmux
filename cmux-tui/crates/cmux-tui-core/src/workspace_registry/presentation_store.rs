@@ -340,6 +340,8 @@ pub struct PresentationSnapshot {
     pub saved_screen_groups: Vec<super::SavedScreenGroupRecord>,
     /// Keep-layout records of live tabs by public tab id (`kept_tab_store`).
     pub kept_tabs: HashMap<String, super::KeptTabRecord>,
+    /// Attention marks of live tabs by public tab id (`tab-attention-v1`).
+    pub tab_attention: HashMap<String, super::TabAttentionRecord>,
 }
 
 /// The nine tab group colors. Frontends render them as muted tints.

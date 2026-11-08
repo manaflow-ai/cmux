@@ -13,6 +13,7 @@
 // Every other chat's ask stays in the header's Needs you list and on its sidebar row.
 import type { CSSProperties } from "react";
 import { useT } from "../i18n";
+import { leaveOnScreenRef } from "../../../ui/tabReach";
 
 export type TranscriptNeedsYou = {
   /// The open asks the pill speaks for: this chat's and its started chats' (`pillAsks`).
@@ -40,6 +41,7 @@ export function NeedsYouPill({
   return (
     <button
       type="button"
+      ref={leaveOnScreenRef}
       className="ui-glass ui-glass-floats acpmux-jump-latest acpmux-needs-you-pill"
       data-shown={shown ? "" : undefined}
       style={lift > 0 ? ({ "--acpmux-dock-space": `${lift}px` } as CSSProperties) : undefined}

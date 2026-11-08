@@ -20,6 +20,8 @@ final class AppPaletteNavigationSource: PaletteNavigationSource {
         let entries = PaletteNavigationEntries.entries(ControlSnapshotPublisher.topology(services), groups: Self.groups(services),
                                                        lastActive: TabSearchFactsBuilder.lastActive(services),
                                                        closing: TabSearchFactsBuilder.closing(services),
+                                                       workspaceNames: Dictionary(services.machines.allWorkspaces.map { ($0.0.id, services.shownWorkspaceName($0.0)) },
+                                                                                  uniquingKeysWith: { first, _ in first }),
                                                        sidebarRanks: services.windows.active?.sidebar.model.workspaceRanks() ?? [:])
         // Agent chats and page tabs read as their tab strip names them, not their `about:blank` record.
         let resolver = TabTitleResolver(services: services)

@@ -10,7 +10,9 @@
 // never "Thinking" while the agent is blocked on them. It reads as Claude desktop's "Needs your input"
 // pill: the attention dot and the words on a tinted pill. Once answered, the dot shrinks into the
 // Thinking line that takes its place (Leo, 2026-11-05: "there's a little animation that plays. It,
-// like, shrinks the thing, the circle into the Thinking... portion afterwards which is cute").
+// like, shrinks the thing, the circle into the Thinking... portion afterwards which is cute"), and
+// when an ask opens under a line already drawn, the dot grows in the same way (Leo, 2026-11-08: "I
+// mostly just meant the yellow circle thing. I thought that was cute").
 import { useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { usePaneLanguage, useT } from "../i18n";
@@ -25,38 +27,15 @@ import { useSubsessionInfo } from "../subagents/subsessions";
 import { ShimmerText } from "./ShimmerText";
 import { formatDuration, spanDuration } from "./turns";
 import { WAITING_LABEL, type WaitingOn, WaitingOnContext } from "./waitingOn";
-import { compactTokens, hasTokens, tokenDetail, TurnTokens } from "./TurnTokens";
+import { TurnTokens } from "./TurnTokens";
+import { compactTokens, hasTokens, tokenDetail } from "./turnTokensModel";
+import { usePageNow as useTicking } from "../../../ui/pageClock";
+import { WorkingCountsContext, workingParts } from "./workingForModel";
 import { verbLeads } from "./toolVerbModel";
-import { useTicking, WorkingCountsContext, workingParts } from "./WorkingFor";
 import { statusVerbAt, statusVerbLabels, useStatusVerbConfig } from "../statusVerbs";
 import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";
 import type { AcpmuxCompaction, AcpmuxTurnRetry } from "../model";
-import type { Translate } from "../i18n";
-
-/// A rate limit or an overloaded model: the model answered and is busy, not out of reach.
-const BUSY = /\b(?:rate.?limit|overloaded|too many requests|capacity)\b/i;
-
-/// What the live line says while the harness retries a failed model request (acpmux
-/// `turn_retrying`): the cause in plain words, the retry's count, and the harness's error when it
-/// names one ("Can't reach the model · retrying (7 of 10) · 503 server error"). Calm: no sweep and
-/// no clock, since nothing works on the reply while it waits.
-export function retryParts(t: Translate, retry: AcpmuxTurnRetry): { label: string; count: string; error?: string } {
-  const words = retry.error?.replaceAll("_", " ");
-  const busy = retry.errorStatus === 429 || retry.errorStatus === 529 || BUSY.test(words ?? "");
-  const label = t(busy ? "turn.live.retry.busy" : "turn.live.retry.unreachable");
-  const count =
-    retry.attempt === undefined
-      ? t("turn.live.retry.retrying")
-      : retry.maxRetries === undefined
-        ? t("turn.live.retry.attemptOnly", { attempt: retry.attempt })
-        : t("turn.live.retry.attempt", { attempt: retry.attempt, max: retry.maxRetries });
-  const error = [retry.errorStatus, words].filter((part) => part !== undefined && part !== "").join(" ");
-  return { label, count, ...(error && { error }) };
-}
-
-/// How long a paused answer still reads "Writing"; a longer pause is the agent thinking again.
-export const WRITING_MS = 5000;
-
+import { retryParts, WRITING_MS, liveLead } from "./thinkingModel";
 /// False while `key` changed in the last `ms`, true once it held still that long (or there is none).
 /// `since`, when known, is when the key's text was written: a key that was already that old when the
 /// line mounted (a chat opened long after its reply paused) is quiet from the first frame, instead
@@ -112,19 +91,6 @@ function useRoll(key: string | undefined, label: string, lead: Roll["lead"]): Ro
   return roll;
 }
 
-/// The live line's words split as Claude Code words them: the action ("Using repo", "Running",
-/// "Sending"), then the rest (": repo grep", " bun test"), both in the line's one muted tone
-/// (conversation.css `.cv-worked__lead`; Leo, 2026-11-07: "don't make it white"). An MCP call's
-/// action runs to its server's colon (`call`: the line names a call, not a command or a send); any
-/// other line's is its first word. Undefined when the line is one word, or in a language whose verb does not lead.
-export function liveLead(label: string, leads: boolean, call: boolean): { lead: string; rest: string } | undefined {
-  if (!leads) return undefined;
-  const server = call ? /^(\p{L}+ [^\s:]+)(: \S[\s\S]*)$/u.exec(label) : null;
-  if (server) return { lead: server[1]!, rest: server[2]! };
-  const word = /^(\p{L}+)( \S[\s\S]*)$/u.exec(label);
-  return word ? { lead: word[1]!, rest: word[2]! } : undefined;
-}
-
 /// `doing`, `doingAt`, `doingShell`, `draft`, `untimed`, `quietKey`: the Codex-style live line at the
 /// bottom of a running turn (conversation/turns.ts `codexLiveTurn`), the turn's one live block, which
 /// each step replaces in place: "Thinking 18s" (the turn's time, and its tokens when the harness
@@ -140,7 +106,7 @@ export function liveLead(label: string, leads: boolean, call: boolean): { lead: 
 /// wait never reads as that long a think or call. All shimmer. While text streams (`quietKey` moves) the
 /// line stays where it is and reads "Writing": it never leaves and comes back mid-turn (Leo,
 /// 2026-11-04: "it appears and disappears????").
-/// The longest the answered dot stays, should its shrink never end (motion off draws no animation).
+/// The longest the dot's grow or shrink lasts, should it never end (motion off draws no animation).
 const SETTLE_MS = 400;
 
 /// True from the render the chat stops waiting on the person until the dot's shrink ends (`done`)
@@ -160,6 +126,26 @@ function useAnswered(waiting: WaitingOn | undefined): [boolean, () => void] {
     return () => clearTimeout(timer);
   }, [waiting]);
   return [answered, () => setAnswered(false)];
+}
+
+/// True from the render the chat starts waiting on the person, under a line already drawn, until the
+/// dot's grow ends (`done`) or SETTLE_MS passes. A line that mounts waiting (a chat opened mid-ask)
+/// draws the dot still: only an ask that opens while the person watches grows in.
+function useAsked(waiting: WaitingOn | undefined): [boolean, () => void] {
+  const [asked, setAsked] = useState(false);
+  const was = useRef(waiting);
+  useLayoutEffect(() => {
+    const before = was.current;
+    was.current = waiting;
+    if (!waiting || before) {
+      setAsked(false);
+      return;
+    }
+    setAsked(true);
+    const timer = setTimeout(() => setAsked(false), SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [waiting]);
+  return [asked, () => setAsked(false)];
 }
 
 export function Thinking({
@@ -240,6 +226,7 @@ export function Thinking({
   const language = usePaneLanguage();
   const waiting = useContext(WaitingOnContext);
   const [answered, settled] = useAnswered(waiting);
+  const [asked, grown] = useAsked(waiting);
   const startLook = starting && !waiting ? experimentArm(agentStartLook) : "thinking";
   // The turn's time, from the prompt, whatever the line names: it keeps counting across steps and
   // never starts again at a call (Leo, 2026-11-01: "it should just keep going").
@@ -418,7 +405,11 @@ export function Thinking({
     >
       {waiting ? (
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
-          <span className="cv-needs-input-glyph" aria-hidden="true" />
+          <span
+            className={`cv-needs-input-glyph${asked ? " is-asked" : ""}`}
+            aria-hidden="true"
+            onAnimationEnd={asked ? grown : undefined}
+          />
           <span className="cv-waiting__pill">{t(WAITING_LABEL[waiting])}</span>
         </output>
       ) : (

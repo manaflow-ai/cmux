@@ -92,12 +92,19 @@ extension SidebarListViewComponents {
 
     /// The groups as their lines draw them: with `sidebar.showColors` off every group has no color, so each draws
     /// its block (`SidebarGroupLine.isBlock`) as a group nobody colored does.
+    /// Under the gradient palette, a placed group's line takes its place's color (`drawnTints`), as its header does.
     var lineColors: [GroupID: SidebarGroup] {
-        model.showsColors ? groups : groups.mapValues { group in
-            var group = group
-            group.tint = .none
-            return group
+        guard model.showsColors else {
+            return groups.mapValues { group in
+                var group = group
+                group.tint = .none
+                return group
+            }
         }
+        guard !drawnTints.isEmpty else { return groups }
+        var colored = groups
+        for (id, tint) in drawnTints { colored[id]?.tint = tint }
+        return colored
     }
 }
 

@@ -69,7 +69,11 @@ export interface ReviewComment {
   path: string;
   line: number | null;
   body: string;
+  /** GitHub's own rendering of `body` (its `bodyHTML`); empty when it was too long to send whole. */
+  html?: string;
   url: string | null;
+  /** Whether its thread is resolved; null when the read did not reach its thread. */
+  resolved?: boolean | null;
 }
 
 /** A comment or a review in the conversation. */
@@ -77,6 +81,8 @@ export interface ConversationEntry {
   kind: "comment" | "review";
   author: string;
   body: string;
+  /** GitHub's own rendering of `body` (its `bodyHTML`); empty when it was too long to send whole. */
+  html?: string;
   /** ISO 8601. */
   at: string;
   url: string | null;
@@ -88,6 +94,8 @@ export interface ConversationEntry {
 /** The host's `pr.details` answer (GitHubPullRequestDetails.swift). */
 export interface PullRequestDetails {
   body: string;
+  /** GitHub's own rendering of `body` (its `bodyHTML`); empty when it was too long to send whole. */
+  html?: string;
   /** The head commit the page shows: Merge is pinned to it. */
   headCommit: string;
   /** GitHub's merge state, lowercased: `clean`, `unstable`, `blocked`, `behind`, `dirty`, `unknown`. */
@@ -101,6 +109,8 @@ export interface PullRequestDetails {
   /** `approved`, `changes_requested`, `commented`, `dismissed` or `requested`. */
   reviewers: { name: string; state: string }[];
   linked: { number: number; title: string; url: string; state: string }[];
+  /** The signed-in GitHub login that read these details, for the conversation's Mine filter. */
+  viewer?: string;
 }
 
 /** One file's inline diff, as the page holds it. */

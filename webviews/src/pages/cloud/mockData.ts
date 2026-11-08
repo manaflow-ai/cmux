@@ -57,7 +57,7 @@ export function sampleMachines(): CloudMachine[] {
       classic: false,
       created_at: T0,
       last_active_at: null,
-      idle_policy: null,
+      idle_policy: { idle_seconds: 0 },
       revision: "1",
     },
     {
@@ -71,7 +71,7 @@ export function sampleMachines(): CloudMachine[] {
       classic: true,
       created_at: T0 - 90 * DAY,
       last_active_at: T0 - 2 * DAY,
-      idle_policy: null,
+      idle_policy: { idle_seconds: 0 },
       revision: "2",
     },
   ];

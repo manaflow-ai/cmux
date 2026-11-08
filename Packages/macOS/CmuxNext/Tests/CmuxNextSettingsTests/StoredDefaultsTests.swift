@@ -53,6 +53,88 @@ import Testing
         #expect(try await settings.file.value(at: ChromeStyleSetting.configPath) == .string(ChromeStyleSetting.fallback.rawValue))
     }
 
+    /// Writes `descriptor`'s default and returns what the file then holds at its path.
+    func writingTheDefault(_ path: [String], in settings: SettingsController) async throws -> JSONValue? {
+        let descriptor = try #require(SettingsSchema.descriptor(for: path))
+        try await settings.setSetting(descriptor, to: descriptor.defaultValue, by: .user)
+        return try await settings.file.value(at: path)
+    }
+
+    /// The team's default fills the key when the file leaves it out.
+    @Test func aTeamDefaultKeepsAnExplicitDefault() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller("{}")
+        settings.setTeamPolicy(TeamPolicyLayer(teamName: "Acme", defaults: ["appearance.chromeStyle": .string("card")]))
+        await settings.reload()
+        #expect(try await writingTheDefault(ChromeStyleSetting.configPath, in: settings) == .string(ChromeStyleSetting.fallback.rawValue))
+    }
+
+    /// A team default under an older name (`EffectiveSettings.legacyKeys`) fills the new key too.
+    @Test func aTeamDefaultUnderAnOlderNameKeepsAnExplicitDefault() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller("{}")
+        let old = AgentPaneDisplaySettingsSchema.legacySessionInfoPlacementPath.joined(separator: ".")
+        settings.setTeamPolicy(TeamPolicyLayer(teamName: "Acme", defaults: [old: .string("push")]))
+        await settings.reload()
+        let path = AgentPaneDisplaySettingsSchema.sessionInfoPlacementPath
+        #expect(try await writingTheDefault(path, in: settings) == .string(AgentPaneDisplaySettingsSchema.sessionInfoPlacementDefault))
+    }
+
+    /// Another editor's settings fill the code editor's keys (`editor.importFrom`, "auto" by default):
+    /// VS Code's `editor.wordWrap: "on"` applies unless cmux-next.json says otherwise.
+    @Test func anImportedEditorValueKeepsAnExplicitDefault() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "editor": { "wordWrap": "on" } }"#)
+        #expect(try await writingTheDefault(EditorSettingsSchema.wordWrapPath, in: settings) == .string(EditorSettingsSchema.wordWrapDefault))
+    }
+
+    /// With no editor import, the built-in per-language values still fill an unset key (Markdown
+    /// wraps), so Word Wrap Off stays stored.
+    @Test func aLanguageDefaultKeepsAnExplicitDefault() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "editor": { "importFrom": "none", "wordWrap": "on" } }"#)
+        #expect(try await writingTheDefault(EditorSettingsSchema.wordWrapPath, in: settings) == .string(EditorSettingsSchema.wordWrapDefault))
+    }
+
+    /// `editor.autoClosingQuotes` follows `editor.autoClosingBrackets` when unset.
+    @Test func aKeyThatFollowsAnotherKeepsAnExplicitDefault() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "editor": { "importFrom": "none", "autoClosingBrackets": false } }"#)
+        #expect(try await writingTheDefault(EditorSettingsSchema.autoClosingQuotesPath, in: settings)
+            == .bool(EditorSettingsSchema.autoClosingQuotesDefault))
+    }
+
+    /// An older file's `browser.openTerminalLinksInCmuxBrowser` fills `browser.openLinksInCmuxBrowser`.
+    @Test func anOlderKeyInTheFileKeepsAnExplicitDefault() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "browser": { "openTerminalLinksInCmuxBrowser": false } }"#)
+        #expect(try await writingTheDefault(LinkRouting.openPath, in: settings) == .bool(LinkRouting.openDefault))
+    }
+
+    /// With no older key and no lower layer, the browser key and the editor import's own selector
+    /// follow their defaults like any other (#38167 F1, F2).
+    @Test func withNothingBelowTheDefaultIsRemoved() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller("{}")
+        #expect(try await writingTheDefault(LinkRouting.openPath, in: settings) == nil)
+        #expect(try await writingTheDefault(EditorSettingsSchema.importFromPath, in: settings) == nil)
+    }
+
+    /// The Debug tunable `agent.harnessPlacement` fills `agentPane.display.harnessPlacement`.
+    @Test func aDebugTunableKeepsAnExplicitDefault() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller("{}")
+        #expect(try await writingTheDefault(AgentPaneDisplaySettingsSchema.harnessPlacementPath, in: settings)
+            == .string(AgentPaneDisplaySettingsSchema.harnessPlacementDefault))
+    }
+
+    /// Every entry of `unsetIsNotDefaultKeys` names a schema key or a prefix of one.
+    @Test func everyFallbackEntryNamesSchemaKeys() {
+        for key in SettingsSchema.unsetIsNotDefaultKeys.keys {
+            #expect(SettingsSchema.all.contains { key.hasSuffix(".") ? $0.id.hasPrefix(key) : $0.id == key }, "\(key)")
+        }
+    }
+
     /// The default changed from "flat-sidebar-line" (stored by an old pick of the row's default) to
     /// the current one: the stored copy goes and the key follows the new default; a copy of the
     /// current default goes too; the theme, the background and a value that was never a default stay.
@@ -89,6 +171,53 @@ import Testing
         try await settings.file.set(.string("flat-sidebar-line"), at: ChromeStyleSetting.configPath)
         #expect(try await settings.forgetStoredDefaults(marker: marker, formerDefaults: former) == nil)
         #expect(try await settings.file.value(at: ChromeStyleSetting.configPath) == .string("flat-sidebar-line"))
+    }
+
+    /// A null the first builds of this change stored for a default write goes once; a set value stays.
+    @Test func strayNullsGoOnce() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let text = #"{ "appearance": { "chromeStyle": null }, "diff": { "layout": "split" }, "notifications": { "quietHours": null } }"#
+        let settings = try await controller(text)
+        let marker = try marker()
+
+        #expect(try await settings.dropStrayNulls(marker: marker) == ["appearance.chromeStyle"])
+        #expect(try await settings.file.value(at: ["appearance"]) == nil)
+        #expect(try await settings.file.value(at: ["diff", "layout"]) == .string("split"))
+        #expect(try await settings.file.value(at: ["notifications", "quietHours"]) == .null, "null is Off there, on purpose")
+        try await settings.file.set(.null, at: ChromeStyleSetting.configPath)
+        #expect(try await settings.dropStrayNulls(marker: marker).isEmpty)
+    }
+
+    /// The passes read the file, then write it a few awaits later; a value someone set in between
+    /// stays (the removal rechecks each path against the file as it is at the write).
+    @Test func aValueSetSinceTheReadStays() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try Data(#"{ "appearance": { "chromeStyle": "card", "theme": "Nord" }, "diff": { "layout": null } }"#.utf8).write(to: url)
+        let file = CmuxConfigFile(url: url)
+
+        let (removed, before) = try await file.removeUnchanged([
+            (path: ["appearance", "chromeStyle"], value: .string(ChromeStyleSetting.fallback.rawValue)),
+            (path: ["diff", "layout"], value: .null),
+        ])
+        #expect(removed == [["diff", "layout"]])
+        #expect(before.contains("card"))
+        #expect(try await file.value(at: ChromeStyleSetting.configPath) == .string("card"))
+        #expect(try await file.value(at: ["diff"]) == nil, "the emptied object goes too")
+        #expect(try await file.value(at: ["appearance", "theme"]) == .string("Nord"))
+    }
+
+    /// The record beside the file goes first: when it cannot be written, nothing is removed.
+    @Test func aFailedRecordWriteLeavesTheFile() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let text = #"{ "diff": { "layout": "auto" } }"#
+        let settings = try await controller(text)
+        // A directory where the record goes, so its write fails.
+        try FileManager.default.createDirectory(at: home.appending(path: "cmux-next.json.defaults-forgotten.json/x"),
+                                                withIntermediateDirectories: true)
+
+        await #expect(throws: (any Error).self) { try await settings.forgetStoredDefaults(marker: try marker(), formerDefaults: [:]) }
+        #expect(try String(contentsOf: url, encoding: .utf8) == text)
     }
 
     /// Every former default names a schema key and differs from its current default.

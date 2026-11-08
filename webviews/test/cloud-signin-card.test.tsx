@@ -171,6 +171,42 @@ beforeEach(async () => {
   await act(async () => root.render(<></>));
 });
 
+test.each(["full", "off", "reduced"])("sign-in steps resize their action row with motion %s", async (motion) => {
+  const { client } = mockClient();
+  const { signIn } = signInFor(client);
+  await render({ route: cloudRoute, cloudSignIn: signIn });
+  const actions = host.querySelector<HTMLElement>(".cv-turn-error__actions")!;
+  const frames: Keyframe[][] = [];
+  let cancellations = 0;
+  const html = dom.window.document.documentElement;
+  html.dataset.agentMotion = motion;
+  actions.getBoundingClientRect = () => ({ height: actions.querySelector("input") ? 100 : 24 }) as DOMRect;
+  actions.animate = (keyframes) => {
+    frames.push(keyframes as Keyframe[]);
+    return { cancel: () => cancellations++ } as unknown as Animation;
+  };
+  try {
+    await act(async () => button("Use an API key")!.click());
+    expect(actions.querySelector('input[type="password"]')).not.toBeNull();
+    expect(frames).toEqual(
+      motion === "full"
+        ? [
+            [
+              { height: "24px", maxHeight: "24px" },
+              { height: "100px", maxHeight: "100px" },
+            ],
+          ]
+        : [],
+    );
+    // Going away cancels the finite resize and removes the clip immediately.
+    await act(async () => root.render(<></>));
+    expect(cancellations).toBe(motion === "full" ? 1 : 0);
+    expect(actions.style.overflow).toBe("");
+  } finally {
+    delete html.dataset.agentMotion;
+  }
+});
+
 test("only an allowed provider page over https opens", () => {
   expect(signInURL("https://claude.ai/oauth/authorize?code=true")).toBe("https://claude.ai/oauth/authorize?code=true");
   expect(signInURL("https://auth.openai.com/codex/device")).toBe("https://auth.openai.com/codex/device");

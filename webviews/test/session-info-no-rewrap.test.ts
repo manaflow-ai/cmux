@@ -129,7 +129,7 @@ await requireBrowserLane("session-info-no-rewrap.test.ts", async () => {
   for (const name of browsers.keys())
     for (const [width, stage] of [
       [740, "overlay"],
-      [1100, "push"],
+      [1100, "overlay"],
       // Wherever the pinned column fits beside the whole panel it pushes, a wide pane too (Lucas,
       // 2026-11-06: the chat centered beside Session Info), and still rewraps no line.
       [1200, "push"],

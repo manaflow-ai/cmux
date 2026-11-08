@@ -1896,6 +1896,72 @@
   }
  },
  {
+  "name": "memory_resolve for the pane's chat passes and needs a gesture",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":52,\"method\":\"_acpmux/memory_resolve\",\"params\":{\"sessionId\":\"s1\",\"offerId\":\"o1\",\"file\":\"CLAUDE.md\",\"accept\":[\"Use pnpm, not npm.\"],\"dismiss\":[]}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 52,
+    "method": "_acpmux/memory_resolve",
+    "params": {
+     "sessionId": "s1",
+     "offerId": "o1",
+     "file": "CLAUDE.md",
+     "accept": [
+      "Use pnpm, not npm."
+     ],
+     "dismiss": []
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/memory_resolve",
+    "page_id": "52",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": true,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "memory_resolve for a chat outside the scope is refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":53,\"method\":\"_acpmux/memory_resolve\",\"params\":{\"sessionId\":\"s9\",\"offerId\":\"o1\",\"file\":\"CLAUDE.md\",\"accept\":[\"Use pnpm, not npm.\"],\"dismiss\":[]}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "refuse": "transport.session_not_in_pane",
+   "method": "_acpmux/memory_resolve",
+   "id": "53",
+   "spend": null
+  }
+ },
+ {
   "name": "a ticketed permission answer binds its pick to the session, permission and option",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":44,\"method\":\"_acpmux/permission_respond\",\"params\":{\"sessionId\":\"s1\",\"permissionId\":\"p1\",\"optionId\":\"o2\",\"_meta\":{\"cmuxGesture\":\"t5\"}}}",
   "state": {

@@ -17,6 +17,7 @@ public final class ShutdownDaemonRequest implements WireValue {
     private final String generation;
     private final Field<Boolean> keepLayout;
     private final long pid;
+    private final Field<Boolean> restart;
 
     private ShutdownDaemonRequest(Builder builder) {
         this.endTerminals = builder.endTerminals;
@@ -26,6 +27,7 @@ public final class ShutdownDaemonRequest implements WireValue {
         this.keepLayout = builder.keepLayout;
         if (!builder.pidSet) throw new IllegalArgumentException("pid is required");
         this.pid = builder.pid;
+        this.restart = builder.restart;
     }
 
     public static Builder builder() { return new Builder(); }
@@ -35,6 +37,7 @@ public final class ShutdownDaemonRequest implements WireValue {
     public String generation() { return generation; }
     public Field<Boolean> keepLayout() { return keepLayout; }
     public long pid() { return pid; }
+    public Field<Boolean> restart() { return restart; }
 
     public static ShutdownDaemonRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "ShutdownDaemonRequest");
@@ -55,6 +58,10 @@ public final class ShutdownDaemonRequest implements WireValue {
         }
         Object rawPid = Wire.required(object, "pid");
         builder.pid(Wire.uint32(rawPid, "ShutdownDaemonRequest.pid"));
+        Object rawRestart = Wire.optional(object, "restart");
+        if (!Wire.isMissing(rawRestart)) {
+            builder.restart(rawRestart == null ? null : Wire.bool(rawRestart, "ShutdownDaemonRequest.restart"));
+        }
         return builder.build();
     }
 
@@ -66,17 +73,18 @@ public final class ShutdownDaemonRequest implements WireValue {
         Wire.put(object, "generation", generation);
         Wire.put(object, "keep_layout", keepLayout);
         Wire.put(object, "pid", pid);
+        Wire.put(object, "restart", restart);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ShutdownDaemonRequest that)) return false;
-        return Objects.equals(endTerminals, that.endTerminals) && Objects.equals(force, that.force) && Objects.equals(generation, that.generation) && Objects.equals(keepLayout, that.keepLayout) && Objects.equals(pid, that.pid);
+        return Objects.equals(endTerminals, that.endTerminals) && Objects.equals(force, that.force) && Objects.equals(generation, that.generation) && Objects.equals(keepLayout, that.keepLayout) && Objects.equals(pid, that.pid) && Objects.equals(restart, that.restart);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(endTerminals, force, generation, keepLayout, pid); }
+    public int hashCode() { return Objects.hash(endTerminals, force, generation, keepLayout, pid, restart); }
 
     @Override
     public String toString() { return "ShutdownDaemonRequest" + toWire(); }
@@ -89,6 +97,7 @@ public final class ShutdownDaemonRequest implements WireValue {
         private Field<Boolean> keepLayout = Field.omitted();
         private Long pid;
         private boolean pidSet;
+        private Field<Boolean> restart = Field.omitted();
 
         public Builder endTerminals(Boolean value) {
             this.endTerminals = Field.of(value);
@@ -110,6 +119,10 @@ public final class ShutdownDaemonRequest implements WireValue {
         public Builder pid(long value) {
             this.pid = value;
             this.pidSet = true;
+            return this;
+        }
+        public Builder restart(Boolean value) {
+            this.restart = Field.ofNullable(value);
             return this;
         }
         public ShutdownDaemonRequest build() { return new ShutdownDaemonRequest(this); }

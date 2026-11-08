@@ -21,9 +21,9 @@ name: cmux-tui artifacts
 #   cmux-tui/<commit-sha>/cmux-tui-holder-<rust-target>  terminal holder (macOS);
 #                                                  install as cmux-holder beside cmux-tui
 #   cmux-tui/<commit-sha>/cmux-tui-agent-screen-detection-<rust-target>  agent screen
-#                                                  detector (macOS); install as
+#                                                  detector (macOS and Linux); install as
 #                                                  cmux-agent-screen-detection beside cmux-tui;
-#                                                  optional (a failed build publishes none)
+#                                                  required (a failed build fails the publish)
 #   cmux-tui/<commit-sha>/manifest.json
 #   cmux-tui/tree/<tree-key>/cmux-tui-aarch64-apple-darwin  immutable, source-addressed
 #   cmux-tui/tree/<tree-key>/cmux-tui-aarch64-apple-darwin.sha256
@@ -2068,6 +2068,10 @@ jobs:
             --require-artifact cmux-tui-host-x86_64-apple-darwin \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
             --require-artifact cmux-tui-holder-x86_64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-x86_64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-unknown-linux-musl \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
@@ -2547,6 +2551,10 @@ jobs:
             --require-artifact cmux-tui-host-x86_64-apple-darwin \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
             --require-artifact cmux-tui-holder-x86_64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-x86_64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-unknown-linux-musl \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
@@ -2664,6 +2672,10 @@ jobs:
             --require-artifact cmux-tui-host-x86_64-apple-darwin \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
             --require-artifact cmux-tui-holder-x86_64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-x86_64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-acpmux-x86_64-unknown-linux-musl \
             --require-artifact cmux-tui-acpmux-aarch64-unknown-linux-musl \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
@@ -2717,6 +2729,10 @@ jobs:
             --require-artifact cmux-tui-host-x86_64-apple-darwin \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
             --require-artifact cmux-tui-holder-x86_64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-x86_64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-acpmux-x86_64-unknown-linux-musl \
             --require-artifact cmux-tui-acpmux-aarch64-unknown-linux-musl \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
@@ -2769,6 +2785,10 @@ jobs:
               --require-artifact cmux-tui-host-x86_64-apple-darwin \
               --require-artifact cmux-tui-holder-aarch64-apple-darwin \
               --require-artifact cmux-tui-holder-x86_64-apple-darwin \
+              --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
+              --require-artifact cmux-tui-agent-screen-detection-x86_64-apple-darwin \
+              --require-artifact cmux-tui-agent-screen-detection-x86_64-unknown-linux-musl \
+              --require-artifact cmux-tui-agent-screen-detection-aarch64-unknown-linux-musl \
               --require-artifact cmux-tui-acpmux-x86_64-unknown-linux-musl \
               --require-artifact cmux-tui-acpmux-aarch64-unknown-linux-musl \
               --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \

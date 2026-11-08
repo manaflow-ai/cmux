@@ -101,18 +101,26 @@ impl Machine {
         Store::new(self.dir.path().join("acpmux/workflows"))
     }
 
+    /// A child session's newest events, read through the running daemon: the daemon holds
+    /// the store's event journal (always on since #37118), so a second open of the store
+    /// here fails with "another process holds the journal".
+    fn session_events(&self, session_id: &str) -> Vec<Value> {
+        let output =
+            self.command(&["acp", "session", "tail", session_id, "--last", "1000"]).output();
+        let Ok(output) = output else { return Vec::new() };
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .collect()
+    }
+
     fn agent_said(&self, run: &RunRecord, expected: &str) -> bool {
-        let config = acpmux::config::Config::default();
-        let logs = acpmux::store::open(&config.store, &self.dir.path().join("acpmux")).unwrap();
         run.activities.values().any(|activity| {
             let Child::Agent { session_id, .. } = &activity.child else { return false };
-            let mut found = false;
-            let _ = logs.scan_strict(session_id, 0, &mut |event| {
-                found = event.msg.pointer("/params/update/content/text").and_then(Value::as_str)
-                    == Some(expected);
-                !found
-            });
-            found
+            self.session_events(session_id).iter().any(|event| {
+                event.pointer("/msg/params/update/content/text").and_then(Value::as_str)
+                    == Some(expected)
+            })
         })
     }
 
@@ -120,6 +128,9 @@ impl Machine {
         let mut watch = Changes::new();
         watch.add(&self.dir.path().join("acpmux/workflows").join(id));
         watch.add(&self.dir.path().join("acpmux/sessions"));
+        // A child's events reach its session log at the journal's next sync; the journal
+        // itself is written as they arrive.
+        watch.add(&self.dir.path().join("acpmux/journal"));
         let deadline = Instant::now() + Duration::from_secs(90);
         loop {
             let run = self.runs().get(id).unwrap();
@@ -148,25 +159,14 @@ impl Drop for Machine {
         if std::thread::panicking() {
             for run in self.runs().list().unwrap_or_default() {
                 eprintln!("failed workflow record: {run:?}");
-                let config = acpmux::config::Config::default();
-                if let Ok(logs) =
-                    acpmux::store::open(&config.store, &self.dir.path().join("acpmux"))
-                {
-                    let mut seen = BTreeSet::new();
-                    for activity in run.activities.values() {
-                        if let Child::Agent { session_id, .. } = &activity.child
-                            && seen.insert(session_id)
-                        {
-                            let mut tail = std::collections::VecDeque::new();
-                            let _ = logs.scan_strict(session_id, 0, &mut |event| {
-                                tail.push_back(format!("{event:?}"));
-                                if tail.len() > 30 {
-                                    tail.pop_front();
-                                }
-                                true
-                            });
-                            eprintln!("failed workflow child {session_id}: {tail:#?}");
-                        }
+                let mut seen = BTreeSet::new();
+                for activity in run.activities.values() {
+                    if let Child::Agent { session_id, .. } = &activity.child
+                        && seen.insert(session_id)
+                    {
+                        let events = self.session_events(session_id);
+                        let tail = &events[events.len().saturating_sub(30)..];
+                        eprintln!("failed workflow child {session_id}: {tail:#?}");
                     }
                 }
             }

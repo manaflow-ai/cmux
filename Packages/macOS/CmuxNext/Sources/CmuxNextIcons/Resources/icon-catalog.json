@@ -1015,6 +1015,24 @@
    "family": "git"
   },
   {
+   "name": "git.issue",
+   "meaning": "Open issue (a GitHub issue link's card and chip).",
+   "sf": "questionmark.square.dashed",
+   "family": "git"
+  },
+  {
+   "name": "git.issue.closed",
+   "meaning": "Issue closed as completed.",
+   "sf": "questionmark.square.dashed",
+   "family": "git.issue"
+  },
+  {
+   "name": "git.issue.notplanned",
+   "meaning": "Issue closed as not planned.",
+   "sf": "questionmark.square.dashed",
+   "family": "git.issue"
+  },
+  {
    "name": "git.pullrequest",
    "meaning": "Pull request (session PR, workspace PR links).",
    "sf": "arrow.triangle.pull",

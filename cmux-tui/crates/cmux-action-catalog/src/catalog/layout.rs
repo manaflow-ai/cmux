@@ -601,6 +601,18 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "home.undockChief",
+        group: GROUP,
+        title: t("LayoutActions", "action.home.undockChief", "Undock Chief"),
+        keywords: &["chief", "dock", "undock", "unpin", "float", "panel", "window", "home", "chat", "side", "left"],
+        category: "window",
+        symbol: "sidebar.left",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        targets: &["window"],
+        cli_name: "home undock-chief",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "window.movePaneToDock",
         group: GROUP,
         title: t("LayoutActions", "action.window.movePaneToDock", "Move Pane to Dock"),

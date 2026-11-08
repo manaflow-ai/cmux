@@ -30,6 +30,9 @@
   --glass-frost: 6px;
   /* How far the rim bends the wallpaper, CSS px (the lens's displacement at the edge). */
   --glass-refraction: 22px;
+  /* --glass-refract (unset here: rimRefraction.ts's default, ios): how a floating glass's rim
+     bends the page under it where the page blurs itself (seeThroughBlur.ts): none, subtle, ios
+     or strong. A surface sets it on itself. */
   /* The specular rim's strength, 0 to 1. */
   --glass-rim: 1;
   /* The chromatic split of the bend (Spectrum only): blue bends 1 + 2x as far as red. */

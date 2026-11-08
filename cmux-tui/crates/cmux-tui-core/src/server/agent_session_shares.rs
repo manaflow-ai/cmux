@@ -53,6 +53,8 @@ use crate::apps::timer::{TimerId, Timers};
 use crate::mux::Mux;
 use crate::server::agent_transfer::state_file::{read_trusted, save};
 
+#[path = "agent_session_share_link.rs"]
+mod link;
 #[path = "agent_session_share_open.rs"]
 mod open;
 #[path = "agent_session_share_room.rs"]
@@ -1444,11 +1446,19 @@ pub(super) fn handle(
         "agent-session-share-uninvite" => {
             parse(params).and_then(|p: Uninvite| shares.uninvite(directory, &p))
         }
+        // A share link the app was handed: the page to open in its web view, signed in when it may be.
+        "agent-session-share-open-link" => {
+            parse(params).and_then(|p: link::OpenLink| link::open(shares, p))
+        }
         "agent-session-share-redeem" => {
             parse(params).and_then(|p: Redeem| shares.redeem(directory, p))
         }
         _ => Err("share.bad_request"),
     };
+    let answer = answer.map(|mut data| {
+        room::name_app_in_invites(&mut data, &shares.bridge.app_query());
+        data
+    });
     // A revoke, a kick, or an expiry any verb noticed closes the guests' connections now.
     shares.settle(mux);
     match answer {
@@ -1482,6 +1492,7 @@ fn fail(writer: &MessageWriter, id: Option<Value>, code: &str) -> bool {
         "share.needs_sign_in" => "sharing a link needs the owner's cmux sign-in (owner_token)",
         "share.room_unreachable" => "the share room did not answer; the share was not opened",
         "share.room_refused" => "the share room refused this share (or sharing is off there)",
+        "share.not_a_link" => "not a chat share link of a known share room",
         _ => "bad request",
     };
     send_response(
