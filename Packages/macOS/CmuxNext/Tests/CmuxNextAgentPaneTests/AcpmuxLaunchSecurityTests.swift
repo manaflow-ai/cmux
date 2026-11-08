@@ -185,6 +185,40 @@ struct AcpmuxLaunchSecurityTests {
         #expect(try flags(hardened) == strict | kSecCSDoNotValidateExecutable)
     }
 
+    /// A script signed with `--options runtime` carries the runtime flag in a signature kept in
+    /// extended attributes, but the kernel never checks a script's contents. It is hashed in full,
+    /// so a script changed after signing fails the strict check.
+    @Test func strictTeamCheckHashesASignedScriptAndRejectsItOnceChanged() throws {
+        let script = FileManager.default.temporaryDirectory.appendingPathComponent("acpmux-sh-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: script) }
+        try Data("#!/bin/sh\necho signed\n".utf8).write(to: script)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        let sign = Process()
+        sign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        sign.arguments = ["--force", "--sign", "-", "--options", "runtime", script.path]
+        try sign.run()
+        sign.waitUntilExit()
+        try #require(sign.terminationStatus == 0)
+
+        func check() throws -> (flags: UInt32, status: OSStatus) {
+            var code: SecStaticCode?
+            try #require(SecStaticCodeCreateWithPath(script as CFURL, [], &code) == errSecSuccess)
+            let flags = AcpmuxServerPeer.strictFlags(for: try #require(code))
+            return (flags.rawValue, SecStaticCodeCheckValidity(try #require(code), flags, nil))
+        }
+        let strict = kSecCSCheckAllArchitectures | kSecCSStrictValidate
+        let signed = try check()
+        #expect(signed.flags == strict)
+        #expect(signed.status == errSecSuccess)
+
+        // Changed after signing; its extended-attribute signature stays.
+        let handle = try FileHandle(forWritingTo: script)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("echo changed\n".utf8))
+        try handle.close()
+        #expect(try check().status != errSecSuccess)
+    }
+
     /// The nightly hang reports of 2026-11-05: `resolve`'s strict signature check read the whole
     /// acpmux file on the main thread every time it was asked (1.7-2.1 s each, `QuitAgents` and
     /// `GitHubAppLease` callers). The verdict is kept for the file as it is on disk, so asking again

@@ -257,7 +257,7 @@ nonisolated enum AcpmuxServerPeer {
     /// DEV is ad-hoc and has no team to require. The verdict is kept while the file is unchanged
     /// (``StrictVerdicts``).
     ///
-    /// A binary whose signature makes the kernel kill it on a page that does not match its code
+    /// A Mach-O whose signature makes the kernel kill it on a page that does not match its code
     /// directory (hardened runtime or kill flag, as every Team-signed nightly binary has) is checked
     /// without hashing its pages: the signature, the code directory and the team requirement are
     /// still checked, strictly, for every architecture, and the kernel checks each page against that
@@ -283,13 +283,17 @@ nonisolated enum AcpmuxServerPeer {
         return SecCSFlags(rawValue: flags)
     }
 
-    /// Whether `code`'s signature has the hardened runtime or the kill flag, so the kernel ends a
-    /// process of it at the first page that does not match its code directory. Reads only the
-    /// signature, never the pages.
+    /// Whether `code` is a Mach-O whose signature has the hardened runtime or the kill flag, so the
+    /// kernel ends a process of it at the first page that does not match its code directory. Reads
+    /// only the signature, never the pages. A signed script (format "generic", its signature in
+    /// extended attributes) can carry those flags too, but the kernel never checks a script's
+    /// contents, so it is hashed in full.
     static func kernelKillsOnInvalidPages(_ code: SecStaticCode) -> Bool {
         var information: CFDictionary?
         guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess,
-              let raw = (information as? [String: Any])?[kSecCodeInfoFlags as String] as? UInt32 else { return false }
+              let info = information as? [String: Any],
+              (info[kSecCodeInfoFormat as String] as? String)?.hasPrefix("Mach-O") == true,
+              let raw = info[kSecCodeInfoFlags as String] as? UInt32 else { return false }
         let flags = SecCodeSignatureFlags(rawValue: raw)
         return flags.contains(.runtime) || flags.contains(.forceKill)
     }
