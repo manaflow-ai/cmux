@@ -1106,7 +1106,10 @@ WEB_HEAD_RERUN = "re-running alone on the head:"
 # replay whose last compare (after its head re-run, or its only one) printed none ended before it judged anything:
 # its charged tests, or the head re-run's failures, are no verdict to compare with the base (review follow-up (1)
 # on #38380), so the replay is the head's own.
-WEB_VERDICT = re.compile(r"^\d+ webview test steps red on this change, \d+ red on the base too\b")
+# The whole line, anchored at both ends: a log cut off after "red on the base too" printed no verdict (review F1 on
+# #38434). A runner copied from before guards_new_reds.py counted flakes prints no flaky count.
+WEB_VERDICT = re.compile(r"^\d+ webview test steps red on this change, \d+ red on the base too, "
+                         r"(?:\d+ flaky on the base, )?\d+ fixed$")
 NO_WEB_VERDICT = "its replay printed no final charged-test verdict (guards_new_reds.py's closing line)"
 
 

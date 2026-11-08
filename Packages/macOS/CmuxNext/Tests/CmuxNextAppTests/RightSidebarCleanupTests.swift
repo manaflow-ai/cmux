@@ -49,15 +49,13 @@ struct RightSidebarCleanupTests {
         #expect((feed.layer?.backgroundColor?.alpha ?? 0) == 0)
     }
 
-    /// The Feed's own panel and page tab keep their grounds.
-    @Test func theFeedPanelAndPageKeepTheirGround() {
+    /// The Feed's page tab keeps its ground.
+    @Test func theFeedPageKeepsItsGround() {
         _ = NSApplication.shared
-        for surface in [FeedHostView.Surface.page, .panel] {
-            let feed = FeedHostView(model: FeedModel(source: MockFeedSource()), surface: surface)
-            feed.updateLayer()
-            let ground = NSColor(feed.appearanceState.colors.background).alphaComponent
-            #expect(ground > 0, "\(surface) lost its ground")
-        }
+        let feed = FeedHostView(model: FeedModel(source: MockFeedSource()), surface: .page)
+        feed.updateLayer()
+        let ground = NSColor(feed.appearanceState.colors.background).alphaComponent
+        #expect(ground > 0, "the page lost its ground")
     }
 
     /// No section draws a ground: rendered alone, an empty corner of each stays transparent, so the

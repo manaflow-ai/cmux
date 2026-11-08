@@ -160,9 +160,23 @@ def owned(app_pid: int, bundle: str):
         if in_bundle(cmd, bundle) is not None:
             _run_pids.add(pid)
             found[pid] = (kind_of(cmd, bundle), cmd)
-        elif _responsible is not None and "com.apple.WebKit." in cmd and _responsible(pid) == app_pid:
+        elif _responsible is not None and "com.apple.WebKit." in cmd and webkit_owned(pid, app_pid):
             found[pid] = (kind_of(cmd, bundle), cmd)
     return found
+
+
+# A direct launch (CMUX_BENCH_LAUNCH=direct) makes the app a child of this script, so macOS holds the
+# script's own responsible process responsible for the app and for its WebKit processes too. Those
+# then count as the app's when they did not run before the launch (`launch` records the ones that did).
+_direct_launch = False
+_webkit_before: set[int] = set()
+
+
+def webkit_owned(pid: int, app_pid: int) -> bool:
+    owner = _responsible(pid)
+    if owner == app_pid:
+        return True
+    return _direct_launch and pid not in _webkit_before and owner == _responsible(app_pid)
 
 
 def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: float = 0):
@@ -696,6 +710,9 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
     log_path = os.path.join(scratch, "app.log")
     launched_at = time.time()
     if direct:
+        global _direct_launch
+        _direct_launch = True
+        _webkit_before.update(p for p, _, cmd in process_table() if "com.apple.WebKit." in cmd)
         env.setdefault("CMUX_NEXT_TEST_WINDOW_FRAME", "40,40,1400,900")
         with open(log_path, "a") as log:
             child = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
