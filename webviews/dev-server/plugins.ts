@@ -234,12 +234,7 @@ function appHostServer(): Plugin {
           fs: config.server?.fs?.allow
             ? undefined
             : {
-                allow: [
-                  webviewsRoot,
-                  path.join(webviewsRoot, "..", "schemas/settings"),
-                  // The UI font's WOFF2 (src/gallery/frame/uiFont.ts).
-                  path.join(webviewsRoot, "..", "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts"),
-                ],
+                allow: [webviewsRoot, path.join(webviewsRoot, "..", "schemas/settings")],
               },
         },
       };
