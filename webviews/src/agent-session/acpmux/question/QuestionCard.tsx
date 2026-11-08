@@ -23,6 +23,7 @@ import {
   type CardInput,
   type CardState,
 } from "./cardState";
+import "../needsYou/needsYou.css";
 import { HtmlPreview } from "./HtmlPreview";
 import { inlineText, plainText } from "./inlineText";
 import {
@@ -102,7 +103,9 @@ export const QuestionCard = memo(function QuestionCard({
 type ReplyHandler = (reply: QuestionReply) => void | Promise<unknown>;
 
 /// The pill over a pending card. Folding hides the card but keeps it mounted, so the person's
-/// picks and Other text survive; the ask stays pending until answered or skipped.
+/// picks and Other text survive; the ask stays pending until answered or skipped. It draws as a quiet
+/// "Needs your input" tag (Leo 2026-11-05, of the old amber block: "kind of ugly"): the one
+/// Needs you dot (needsYou.css), the words and the fold chevron on one small-radius rect tinted with the mark, as JumpPill's.
 function PendingAsk({ question, onReply }: { question: AgentQuestion; onReply: ReplyHandler }) {
   const t = useT();
   const cardId = useId();
@@ -116,9 +119,11 @@ function PendingAsk({ question, onReply }: { question: AgentQuestion; onReply: R
         aria-controls={cardId}
         onClick={() => setOpen((shown) => !shown)}
       >
-        <span className="acpmux-question-status-dot" aria-hidden="true" />
-        {t("question.needsInput")}
-        <ChevronDown size={12} className="acpmux-question-status-chevron" />
+        <span className="acpmux-question-status-pill">
+          <span className="acpmux-needs-you-dot" aria-hidden="true" />
+          {t("question.needsInput")}
+          <ChevronDown size={12} className="acpmux-question-status-chevron" />
+        </span>
       </button>
       <PendingQuestion id={cardId} hidden={!open} question={question} onReply={onReply} />
     </div>
@@ -631,7 +636,10 @@ function PendingQuestion({
             onClick={() => dispatch({ type: "submit" })}
           >
             {t("question.submit")}
-            <Keycap>⌘↩</Keycap>
+            <span className="acpmux-question-keys">
+              <Keycap>⌘</Keycap>
+              <Keycap>↩</Keycap>
+            </span>
           </button>
         )}
       </div>

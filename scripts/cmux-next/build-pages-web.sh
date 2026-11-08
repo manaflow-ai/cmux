@@ -28,6 +28,7 @@ done
 PAGES="
 apps
 artifacts
+bookmarks
 changelog
 chief-inspector
 chief-usage

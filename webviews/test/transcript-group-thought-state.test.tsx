@@ -87,7 +87,8 @@ const opened = () =>
 const click = (node: Element) => act(async () => node.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
 
 test("an opened thought inside a group stays open as calls join", async () => {
-  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   resetTranscriptDisclosure();
   await draw(items(6));
   // Six reads, every one listed: the five thoughts between them show, each closed.
@@ -105,7 +106,8 @@ test("an opened thought inside a group stays open as calls join", async () => {
 });
 
 test("a thought that led into a run opens its group in full, and keeps the reader's choice", async () => {
-  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   resetTranscriptDisclosure();
   // The thought before any call draws on its own; once two reads follow it, it leads their group.
   await draw([thought(0), read(0)], "leads");
@@ -123,7 +125,8 @@ test("a thought that led into a run opens its group in full, and keeps the reade
 });
 
 test("an opened thought stays open when the call after it finishes and joins it to a group", async () => {
-  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   resetTranscriptDisclosure();
   // A live run leaves out the read still running (turns.ts codexRuns): the thought draws on its own.
   await draw([command, read(0), read(1), thought(0)], "joins");
@@ -138,7 +141,8 @@ test("an opened thought stays open when the call after it finishes and joins it 
 });
 
 test("one activity shown twice in a group keeps two thoughts' states apart", async () => {
-  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   resetTranscriptDisclosure();
   const same = thought(9);
   const list = [read(0), same, read(1), same, read(2)];
@@ -154,7 +158,8 @@ test("one activity shown twice in a group keeps two thoughts' states apart", asy
 });
 
 test("a thought that takes another's place on its own row starts closed", async () => {
-  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   resetTranscriptDisclosure();
   // The live run leaves out each read still running: thought 0 draws on its own after the group.
   await draw([command, read(0), read(1), thought(0)], "replaced");

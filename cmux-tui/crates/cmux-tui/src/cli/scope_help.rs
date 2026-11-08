@@ -56,6 +56,8 @@ pub(super) const ATTENTION_HELP: &str = "\
 USAGE
   cmux attention request --tab <tab_…> --reason <text>
   cmux attention clear --tab <tab_…>
+  cmux attention next [--after <tab_…>] [--focus]
+  cmux attention list
 
 request marks the tab where the person must act (confirm, log in, approve,
 pick): the tab and its workspace show as needing them in every cmux client.
@@ -64,6 +66,14 @@ to take the person there when they ask, run `cmux tab <tab_…> focus`. The mark
 when you clear it, when a browser tab goes to another page, or when the tab
 closes. Name the workspace and tab by their titles when you talk to the person,
 never by a ws_ or tab_ id.
+
+next answers the tab the person should go to next, as JSON {target,
+queue_length, focused}: tabs where they must act first (a request, a blocked
+agent or program), then unread error and warning notifications, then other
+unread ones, each oldest first. target is the entry after the focused tab (or
+after --after), wrapping to the first, or null. It moves focus only with
+--focus. list answers the whole queue as {queue}. The TUI key `Ctrl-b a`
+(next-attention) visits the same order; `Ctrl-b A` lists it.
 ";
 
 pub(super) const NOTIFY_HELP: &str = "\
