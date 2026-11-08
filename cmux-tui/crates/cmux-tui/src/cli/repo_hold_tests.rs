@@ -68,6 +68,7 @@ fn the_verbs_parse() {
     assert_eq!(run(&words(&["hold", "/tmp/x"])), 2);
     assert_eq!(run(&words(&["hold", "/tmp/x", "--"])), 2);
     assert_eq!(run(&words(&["fill"])), 2);
-    let (dir, cmd) = parse(&words(&["/tmp/x", "--", "sh", "-c", "true"])).unwrap();
+    let args = words(&["/tmp/x", "--", "sh", "-c", "true"]);
+    let (dir, cmd) = parse(&args).unwrap();
     assert_eq!((dir, cmd.to_vec()), (PathBuf::from("/tmp/x"), words(&["sh", "-c", "true"])));
 }
