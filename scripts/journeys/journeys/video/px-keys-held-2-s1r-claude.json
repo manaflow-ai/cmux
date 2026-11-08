@@ -117,11 +117,17 @@
    "title": "set-up: a Chromium page that lags shows the gap (browserResize.pageBackdrop off, where the store takes it)"
   },
   {
+   "do": "file",
+   "path": "/tmp/jr-claude-config.json",
+   "text": "{\"hasCompletedOnboarding\": true, \"theme\": \"dark\", \"lastOnboardingVersion\": \"2.1.310\", \"numStartups\": 5, \"customApiKeyResponses\": {\"approved\": [\"00000000000000000000\"], \"rejected\": []}, \"projects\": {\"/tmp\": {\"hasTrustDialogAccepted\": true, \"hasCompletedProjectOnboarding\": true}, \"/private/tmp\": {\"hasTrustDialogAccepted\": true, \"hasCompletedProjectOnboarding\": true}}}",
+   "title": "set-up: a Claude Code config past its first run (onboarding done, dark theme, /tmp trusted, the fixture API key approved; no network until a prompt is sent)"
+  },
+  {
    "do": "type",
-   "text": "PATH=/opt/homebrew/bin:$PATH claude",
+   "text": "mkdir -p /tmp/jr-claude-cfg && cp /tmp/jr-claude-config.json /tmp/jr-claude-cfg/.claude.json && CLAUDE_CONFIG_DIR=/tmp/jr-claude-cfg ANTHROPIC_API_KEY=sk-ant-api03-jrfixture0000000000000000000000000000000000000000 PATH=/opt/homebrew/bin:$PATH claude",
    "enter": true,
    "mark": "tui-p0",
-   "title": "set-up: claude in p0"
+   "title": "set-up: claude in p0 at its prompt (not its first-run screen)"
   },
   {
    "do": "wait",
