@@ -130,7 +130,7 @@ mod imp {
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
     use std::time::Duration;
 
-    pub struct Socket(OwnedFd);
+    pub struct Socket(pub OwnedFd);
 
     #[cfg(target_os = "macos")]
     pub fn open() -> Option<Socket> {
@@ -168,7 +168,7 @@ mod imp {
             libc::bind(
                 socket.0.as_raw_fd(),
                 (&addr as *const libc::sockaddr_nl).cast(),
-                std::mem::size_of::<libc::sockaddr_nl>() as libc::socklen_t,
+                size_of::<libc::sockaddr_nl>() as libc::socklen_t,
             )
         };
         (bound == 0).then_some(socket)
