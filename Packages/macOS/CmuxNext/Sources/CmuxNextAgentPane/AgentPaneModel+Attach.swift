@@ -65,8 +65,9 @@ extension AgentPaneModel {
     /// The Mac files of a new chat's first-send chips that may go to Cloud (``AgentPaneCloudStart/carriedFiles``):
     /// a `link` chip's path when it is a file this pane handed the page from the person's own drop,
     /// paste or pick (``AgentPaneDroppedPaths/linkedFiles``), or a `saved` chip's file this app wrote
-    /// under Chat Uploads (``ChatUploadFolders``). A path page script made up is never one; folders aren't.
-    func cloudCarriedFiles(_ attachments: [JSONValue]) async -> Set<String> {
+    /// under Chat Uploads (``ChatUploadFolders``), which are also answered as `saved`. A path page
+    /// script made up is never one; folders aren't.
+    func cloudCarriedFiles(_ attachments: [JSONValue]) async -> (files: Set<String>, saved: Set<String>) {
         let linked = Set(droppedPaths.linkedFiles), root = chatUploadFolders?.root
         let asked = attachments.compactMap { chip -> (path: String, saved: Bool)? in
             guard chip["kind"]?.stringValue == "link", let path = chip["path"]?.stringValue,
@@ -74,14 +75,19 @@ extension AgentPaneModel {
             if linked.contains(path) { return (path, false) }
             return chip["saved"]?.boolValue == true ? (path, true) : nil
         }
-        guard !asked.isEmpty else { return [] }
+        guard !asked.isEmpty else { return ([], []) }
         return await Task.detached(priority: .userInitiated) {
-            Set(asked.compactMap { path, saved in
-                if saved { guard let root, Self.isSavedUpload(path, root: root) else { return nil } }
+            var files: Set<String> = [], saved: Set<String> = []
+            for (path, _) in asked {
                 var folder: ObjCBool = false
-                guard FileManager.default.fileExists(atPath: path, isDirectory: &folder), !folder.boolValue else { return nil }
-                return path
-            })
+                guard FileManager.default.fileExists(atPath: path, isDirectory: &folder), !folder.boolValue else { continue }
+                // A drop's own recording snapshot lives under Chat Uploads too: staged like a saved chip.
+                let under = root.map { Self.isSavedUpload(path, root: $0) } ?? false
+                guard linked.contains(path) || under else { continue }
+                files.insert(path)
+                if under { saved.insert(path) }
+            }
+            return (files, saved)
         }.value
     }
 

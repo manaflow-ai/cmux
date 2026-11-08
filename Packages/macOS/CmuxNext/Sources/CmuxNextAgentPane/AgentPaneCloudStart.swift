@@ -39,6 +39,9 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// The Mac files this send's link chips may carry to the machine, set by the pane from what it
     /// authorized itself (``AgentPaneModel/cloudCarriedFiles(_:)``); never read from the page.
     public var carriedFiles: Set<String> = []
+    /// Those of ``carriedFiles`` this app saved under Chat Uploads (in `~/Library`, which the upload
+    /// CLI never reads from): cloned into the private paste folder first, as image copies are.
+    public var stagedFiles: Set<String> = []
 
     public init(task: String, cwd: String?, harness: String? = nil, model: String? = nil, key: String, environment: String? = nil, reservationKey: String? = nil, gestureTicket: String? = nil) {
         (self.task, self.cwd, self.harness, self.model, self.key) = (task, cwd, harness, model, key)
@@ -234,8 +237,8 @@ struct AgentPaneHandOff {
             return AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
         }
         var start = start
-        start.carriedFiles = await model.cloudCarriedFiles(start.attachments)
-        guard AgentPaneCloudAttachments(start.attachments, files: start.carriedFiles) != nil else {
+        (start.carriedFiles, start.stagedFiles) = await model.cloudCarriedFiles(start.attachments)
+        guard AgentPaneCloudAttachments(start.attachments, files: start.carriedFiles, staged: start.stagedFiles) != nil else {
             return AgentPaneReply.failure(code: "cloud_attachments", message: AgentPaneCloudAttachments.refusal(start.attachments))
         }
         // The page names the folder the composer shows as the chat's, and the Send's gesture (`held`)

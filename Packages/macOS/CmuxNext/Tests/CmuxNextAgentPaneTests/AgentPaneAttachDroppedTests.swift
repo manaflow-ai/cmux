@@ -142,7 +142,7 @@ struct AgentPaneAttachDroppedTests {
             if saved { chip["saved"] = .bool(true) }
             return .object(chip)
         }
-        #expect(await rig.model.cloudCarriedFiles([chip(file.path)]).isEmpty, "a path the page named before any drop")
+        #expect(await rig.model.cloudCarriedFiles([chip(file.path)]).files.isEmpty, "a path the page named before any drop")
         rig.model.droppedPaths.stash([folder, file], kind: .drop)
         _ = await rig.ask("drop", ["docs", "build.zip"])
         #expect(rig.model.droppedPaths.linkedFiles == [file.path], "files only, never the folder")
@@ -150,7 +150,12 @@ struct AgentPaneAttachDroppedTests {
             chip(file.path), chip(folder.path), chip(outside.path), chip(saved.path, saved: true), chip(outside.path, saved: true),
             chip(uploads.path + "/../outside.txt", saved: true),
         ])
-        #expect(carried == [file.path, saved.path])
+        #expect(carried.files == [file.path, saved.path])
+        #expect(carried.saved == [saved.path], "a Chat Uploads file is staged first: the upload CLI never reads ~/Library")
+        // A drop of more files than one batch held before still authorizes every one.
+        let many = (0..<1500).map { "/tmp/many-\($0).bin" }
+        rig.model.droppedPaths.linked(many)
+        #expect(Set(rig.model.droppedPaths.linkedFiles).isSuperset(of: many))
         rig.model.droppedPaths.clearForSessionChange()
         #expect(rig.model.droppedPaths.linkedFiles.isEmpty)
     }

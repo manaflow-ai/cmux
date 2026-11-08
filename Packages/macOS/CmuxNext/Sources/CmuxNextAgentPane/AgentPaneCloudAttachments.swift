@@ -12,6 +12,8 @@ public nonisolated struct AgentPaneCloudAttachments: Sendable {
     private let items: [JSONValue]
     /// Per item, the Mac file a carried link chip names, else nil.
     private let files: [String?]
+    /// The carried files to clone into the paste folder before the upload (Chat Uploads, which the CLI never reads).
+    private let staged: Set<String>
 
     /// The refusal's words when `items` can't go to Cloud: a folder says so; any other chip needs a local file.
     public static func refusal(_ items: [JSONValue]) -> String {
@@ -40,7 +42,7 @@ public nonisolated struct AgentPaneCloudAttachments: Sendable {
 
     /// Nil for a path-only attachment whose path is not one of `carried`, or a malformed chip; no
     /// native file is opened.
-    public init?(_ items: [JSONValue], files carried: Set<String> = []) {
+    public init?(_ items: [JSONValue], files carried: Set<String> = [], staged: Set<String> = []) {
         var files: [String?] = []
         for item in items {
             guard let id = item["id"]?.stringValue, !id.isEmpty,
@@ -61,6 +63,7 @@ public nonisolated struct AgentPaneCloudAttachments: Sendable {
         }
         self.items = items
         self.files = files
+        self.staged = staged.intersection(carried)
     }
 
     /// Copies image previews off the main actor for their file links. Other media go inline only.
@@ -114,10 +117,16 @@ public nonisolated struct AgentPaneCloudAttachments: Sendable {
         }
         let folder = pastes.appendingPathComponent(UUID().uuidString.lowercased(), isDirectory: true)
         defer { Task.detached(priority: .utility) { try? FileManager.checked.removeItem(at: folder) } }
-        let written = images.isEmpty ? [] : try await Task.detached(priority: .userInitiated) { try Self.write(images, in: folder) }.value
-        // In chip order, as ``remapped(_:)`` reads the answer.
-        var copies = written.makeIterator()
-        let paths = zip(items, files).compactMap { item, file in file ?? (item["kind"]?.stringValue == "image" ? copies.next() : nil) }
+        let ordered = zip(items, files).compactMap { item, file in file ?? (item["kind"]?.stringValue == "image" ? "" : nil) }
+        let paths = try await Task.detached(priority: .userInitiated) { [staged] in
+            let written = images.isEmpty ? [] : try Self.write(images, in: folder)
+            // In chip order, as ``remapped(_:)`` reads the answer; "" is the next image copy.
+            var copies = written.makeIterator()
+            return try ordered.enumerated().map { index, path in
+                if path.isEmpty { return copies.next() ?? "" }
+                return staged.contains(path) ? try Self.clone(path, in: folder, index: index) : path
+            }
+        }.value
         try Task.checkCancellation()
         let delivery = try await upload(paths)
         do {
@@ -128,6 +137,20 @@ public nonisolated struct AgentPaneCloudAttachments: Sendable {
             await delivery.undo()
             throw error
         }
+    }
+
+    /// `path` cloned (APFS: no bytes copied; else a streamed copy, never held in memory) owner-only
+    /// into its own folder `staged-<index>` of `folder`.
+    static func clone(_ path: String, in folder: URL, index: Int) throws -> String {
+        let manager = FileManager.checked, owner: [FileAttributeKey: Any] = [.posixPermissions: 0o700]
+        try manager.createDirectory(at: folder.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: owner)
+        if !manager.fileExists(atPath: folder.path) { try manager.createDirectory(at: folder, withIntermediateDirectories: false, attributes: owner) }
+        let parent = folder.appendingPathComponent("staged-\(index)", isDirectory: true)
+        try manager.createDirectory(at: parent, withIntermediateDirectories: false, attributes: owner)
+        let url = parent.appendingPathComponent(URL(fileURLWithPath: path).lastPathComponent, isDirectory: false)
+        try manager.copyItem(at: URL(fileURLWithPath: path), to: url)
+        try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        return url.path
     }
 
     /// Each file owner-only in its own folder, so two files may share a name. Shared with the

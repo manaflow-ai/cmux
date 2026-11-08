@@ -127,6 +127,29 @@ import Testing
         #expect(carry.remapped(["/work/0/report.pdf"]) == nil, "every carried file needs its machine path")
     }
 
+    /// A file this app saved under Chat Uploads (in ~/Library, which the upload CLI refuses to read)
+    /// goes as a private clone in the paste folder, never as its own path.
+    @MainActor @Test func aSavedChatUploadIsClonedIntoThePasteFolderFirst() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-staged-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let saved = base.appendingPathComponent("Chat Uploads/notes.txt")
+        try FileManager.default.createDirectory(at: saved.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("notes".utf8).write(to: saved)
+        let chip: JSONValue = .object(["id": .string("link:" + saved.path), "kind": .string("link"), "name": .string("notes.txt"),
+                                       "path": .string(saved.path), "saved": .bool(true)])
+        let carry = try #require(AgentPaneCloudAttachments([chip], files: [saved.path], staged: [saved.path]))
+        let pastes = base.appendingPathComponent("cmux-pastes")
+        let chips = try await carry.withUploaded(in: pastes, upload: { paths in
+            #expect(paths.count == 1)
+            #expect(paths[0] != saved.path && paths[0].hasPrefix(pastes.path))
+            #expect(try Data(contentsOf: URL(fileURLWithPath: paths[0])) == Data("notes".utf8))
+            let mode = try FileManager.default.attributesOfItem(atPath: paths[0])[.posixPermissions] as? NSNumber
+            #expect(mode?.intValue == 0o600)
+            return .init(paths: ["/work/0/notes.txt"], undo: {})
+        }) { $0 }
+        #expect(chips[0]["path"] == .string("/work/0/notes.txt") && chips[0]["saved"] == .bool(true))
+    }
+
     /// A link chip whose path the pane never authorized (page script made it up) is still refused,
     /// and a folder is refused in words that say folders.
     @Test func aPageInventedPathOrAFolderIsStillRefused() {

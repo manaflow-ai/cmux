@@ -57,9 +57,11 @@ public final class AgentPaneDroppedPaths {
     /// usable by this pane's existing file open/drag actions after the preview path disappears.
     private(set) var retainedPaths: [String] = []
     /// The files (never folders) this pane handed the page from the person's own drop, paste or
-    /// pick, newest last, bounded to a hundred: a new chat's first send to Cloud may carry these
+    /// pick, newest last, bounded to ``linkedLimit``: a new chat's first send to Cloud may carry these
     /// to the machine (``AgentPaneModel/cloudCarriedFiles(_:)``). Page script can't add one.
     private(set) var linkedFiles: [String] = []
+    /// Far past any one drop (a batch of a thousand files keeps every one); paths only, no handles.
+    nonisolated static let linkedLimit = 4096
     /// Invalidates async drop work when the pane switches to a different chat.
     private(set) var generation = UUID()
 
@@ -161,13 +163,12 @@ public final class AgentPaneDroppedPaths {
         if retainedPaths.count > 100 { retainedPaths.removeFirst(retainedPaths.count - 100) }
     }
 
-    /// Records files handed to the page as link items, keeping the newest hundred.
+    /// Records files handed to the page as link items, keeping the newest ``linkedLimit``.
     func linked(_ paths: [String]) {
-        for path in paths {
-            linkedFiles.removeAll { $0 == path }
-            linkedFiles.append(path)
-        }
-        if linkedFiles.count > 100 { linkedFiles.removeFirst(linkedFiles.count - 100) }
+        let fresh = Set(paths)
+        linkedFiles.removeAll { fresh.contains($0) }
+        linkedFiles.append(contentsOf: paths)
+        if linkedFiles.count > Self.linkedLimit { linkedFiles.removeFirst(linkedFiles.count - Self.linkedLimit) }
     }
 
     /// A pane can move between chat sessions. Clear pending drops as well as already-retained
