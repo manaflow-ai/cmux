@@ -85,11 +85,22 @@ impl Kind {
 /// An ask as its `permission_request` recorded it.
 #[derive(Clone, Debug)]
 pub(crate) struct Ask {
+    /// Who settled it, when the decision record cannot say (`Index::mark_settled`).
+    pub settled_by: Option<Settled>,
     pub at: u64,
     pub turn_id: Option<String>,
     pub request: Value,
     /// When the index learned it, to tell a read's lazy drop from a newer ask.
     noted: u64,
+}
+
+/// Who settled an ask when no one is named in its decision record.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Settled {
+    /// The caller of `respond_permission` cancelled it (a question skipped, a card dismissed).
+    Caller,
+    /// Allowed by itself after a switch: `policy` (approve all) or `mode` (full access).
+    Auto(&'static str),
 }
 
 #[derive(Clone, Debug)]
@@ -130,7 +141,20 @@ impl Index {
         let asks = inner.asks.entry(session.to_owned()).or_default();
         // A reissue keeps when it was first asked.
         let at = asks.get(id).map_or(at, |a| a.at);
-        asks.insert(id.to_owned(), Ask { at, turn_id, request, noted });
+        let settled_by = asks.get(id).and_then(|a| a.settled_by);
+        asks.insert(id.to_owned(), Ask { settled_by, at, turn_id, request, noted });
+    }
+
+    /// Who is settling `permission_id` of `session`, told before its reply is sent: the
+    /// decision record that follows names no answerer for these.
+    pub(crate) fn mark_settled(&self, session: &str, permission_id: &str, by: Settled) {
+        let mut inner = self.lock();
+        let key = (session.to_owned(), permission_id.to_owned());
+        if let Some((a, _)) = inner.settling.get_mut(&key) {
+            a.settled_by = Some(by);
+        } else if let Some(a) = inner.asks.get_mut(session).and_then(|m| m.get_mut(permission_id)) {
+            a.settled_by = Some(by);
+        }
     }
 
     /// The ask a `permission_decision` record of `session` answered, taken out of the index.

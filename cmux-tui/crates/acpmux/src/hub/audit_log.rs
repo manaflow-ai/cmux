@@ -9,7 +9,7 @@
 //!   never answered and is not logged. Tool output is never logged; the ask is one line with its
 //!   secrets masked (`session::masked_preview`).
 //! - Entry: `{v, seq, at, sessionId, host?, harness, vendor, kind, permissionId?, promptId?,
-//!   prUrl?, ask, decision {optionId?, kind: allow|deny|answer|accept|changes}, answeredBy
+//!   prUrl?, ask, decision {optionId?, kind: allow|deny|answer|cancel|accept|changes}, answeredBy
 //!   {person, device?, via?, feedItem?}, prevHash, hash}`. `kind` is `approval`, `plan`,
 //!   `question`, `queued` or `review`. `answeredBy.person` is true only for an answer the
 //!   person's proof stood behind: an allow or an answer (which `respond_permission` accepts only

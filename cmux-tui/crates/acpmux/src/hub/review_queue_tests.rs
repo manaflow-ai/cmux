@@ -243,6 +243,41 @@ async fn a_queue_read_between_the_answer_and_its_record_keeps_the_audit_entry() 
 }
 
 #[tokio::test]
+async fn a_dismissal_and_an_automatic_allow_are_recorded_as_such() {
+    use super::review_queue::Settled;
+    let hub = hub();
+    let s = hub.insert_test_session(meta("s1", "ready", &[], 2));
+    // Dismissed by its caller: kept, apart from a withdrawal.
+    let _a = ask(&hub, &s, "p1", tool_request("Run ls"));
+    hub.review_index.mark_settled("s1", "p1", Settled::Caller);
+    s.permissions.lock().unwrap().pending.remove("p1");
+    hub.append(
+        &s,
+        "mux",
+        "permission_decision",
+        json!({"permissionId": "p1", "outcome": {"outcome": "cancelled"}}),
+    );
+    // Withdrawn by its agent: nobody answered.
+    let _b = ask(&hub, &s, "p2", tool_request("Run pwd"));
+    s.permissions.lock().unwrap().pending.remove("p2");
+    hub.append(
+        &s,
+        "mux",
+        "permission_decision",
+        json!({"permissionId": "p2", "outcome": {"outcome": "cancelled"}}),
+    );
+    // Allowed by a switch to full access.
+    let _c = ask(&hub, &s, "p3", tool_request("Run make"));
+    hub.review_index.mark_settled("s1", "p3", Settled::Auto("mode"));
+    answer(&hub, &s, "p3", "ok");
+    let all = hub.audit.all().unwrap();
+    let got: Vec<_> =
+        all.iter().map(|e| (e["permissionId"].clone(), e["decision"]["kind"].clone())).collect();
+    assert_eq!(got, vec![(json!("p1"), json!("cancel")), (json!("p3"), json!("allow"))]);
+    assert_eq!(all[1]["answeredBy"], json!({"person": false, "via": "mode"}));
+}
+
+#[tokio::test]
 async fn a_purged_chat_leaves_no_audit_entry() {
     let hub = hub();
     let gone = hub.insert_test_session(meta("incognito", "ready", &[], 2));

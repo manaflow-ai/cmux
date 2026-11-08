@@ -1,6 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
 use super::person::ANSWERED_BY_SLOT;
+use super::review_queue::Settled;
 use super::*;
 use cmux_json::JsonSet as _;
 
@@ -1373,6 +1374,10 @@ impl Hub {
             }
             (p, answered_by, checked_annotations)
         };
+        if option_id.is_none() {
+            // The caller dismissed it: the audit trail keeps it apart from a withdrawal.
+            self.review_index.mark_settled(&session.id, permission_id, Settled::Caller);
+        }
         let mut outcome = match option_id {
             Some(o) => json!({"outcome": "selected", "optionId": o}),
             None => json!({"outcome": "cancelled"}),
