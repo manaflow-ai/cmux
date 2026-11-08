@@ -19,6 +19,7 @@ mod resolve;
 pub mod search;
 mod settings;
 pub(crate) mod sources;
+pub mod text;
 mod watch;
 mod window;
 
@@ -63,6 +64,9 @@ pub struct ChatService {
     /// Connection ids with a live `_acpmux/chats_watch`, each with the
     /// generation of its forwarding task (a re-enable starts a new one).
     watching: Mutex<(u64, HashMap<String, u64>)>,
+    /// What was said in each chat, for a window's search by it (`text.rs`); filled by the thread
+    /// [`Self::start`] starts.
+    text: text::ChatText,
 }
 
 struct State {
@@ -91,6 +95,7 @@ impl ChatService {
         let (found, settings_refused) = discover_roots(&sources, recorded.roots(), &settings);
         let index = ChatIndex::load(&cache_path(&sources), found.roots);
         let (changes, _) = broadcast::channel(256);
+        let text = text::ChatText::new(text_path(&sources));
         let service = Arc::new(Self {
             sources,
             state: Mutex::new(State {
@@ -105,6 +110,7 @@ impl ChatService {
             }),
             changes,
             watching: Mutex::new((0, HashMap::new())),
+            text,
         });
         // Watch first: a file written during the scan is applied after it.
         service.rewatch();
@@ -113,7 +119,53 @@ impl ChatService {
         service.save(&state.index);
         state.index.take_structural_change();
         drop(state);
+        service.start_text();
         service
+    }
+
+    /// Starts the thread that keeps [`Self::text`] current: it loads the saved text, reads every
+    /// chat whose text is missing or older, then reads again after each index change (a burst
+    /// settles for [`TEXT_SETTLE`] first), until the service is dropped and its change channel
+    /// closes.
+    fn start_text(self: &Arc<Self>) {
+        let service = Arc::downgrade(self);
+        let mut changes = self.subscribe();
+        // task-owner: the chat service; ends when it is dropped (the change channel closes).
+        let started =
+            std::thread::Builder::new().name("acpmux-chat-text".into()).spawn(move || {
+                if let Some(service) = service.upgrade() {
+                    service.text.load();
+                }
+                loop {
+                    let Some(live) = service.upgrade() else { return };
+                    live.index_text();
+                    drop(live);
+                    match changes.blocking_recv() {
+                        Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                        Err(broadcast::error::RecvError::Closed) => return,
+                    }
+                    std::thread::sleep(TEXT_SETTLE);
+                    while matches!(
+                        changes.try_recv(),
+                        Ok(_) | Err(broadcast::error::TryRecvError::Lagged(_))
+                    ) {}
+                }
+            });
+        if let Err(error) = started {
+            tracing::warn!(%error, "chat text: thread not started");
+        }
+    }
+
+    /// One pass of the text thread: every chat the person sees (none while chats are off).
+    fn index_text(&self) {
+        let every = ChatQuery { limit: usize::MAX, ..ChatQuery::default() };
+        let chats = self.listed_from(&every).unwrap_or_default();
+        self.text.update(&chats, &|entry| transcript_turns(entry).ok());
+    }
+
+    /// What was said in each chat (`text.rs`).
+    pub fn text(&self) -> &text::ChatText {
+        &self.text
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Arc<Vec<SeqChange>>> {
@@ -166,7 +218,7 @@ impl ChatService {
         if !state.settings.enabled {
             return WindowRows::default();
         }
-        window::rows(spec, &state.index, activity)
+        window::rows(spec, &state.index, activity, Some(&self.text))
     }
 
     /// `_acpmux/chat_projects`: each harness's project folders, every absolute chat folder with
@@ -508,8 +560,51 @@ fn cache_path(sources: &ChatSources) -> PathBuf {
     sources.acpmux_home.join("chat-index/v1.json")
 }
 
+fn text_path(sources: &ChatSources) -> PathBuf {
+    sources.acpmux_home.join("chat-index/text-v1.json")
+}
+
+/// The text thread reads changed chats this long after a change, so a chat being written is read
+/// once per burst, not per line.
+const TEXT_SETTLE: std::time::Duration = std::time::Duration::from_secs(2);
+
 fn settings_path(sources: &ChatSources) -> PathBuf {
     sources.acpmux_home.join("chat-settings.json")
+}
+
+/// A chat's turns: Claude Code and Codex through adopt's reader (`adopt_replay.rs`, the turns an
+/// adopted chat replays), every other harness through `cmux_chat_index::transcript`. Both come
+/// out with the same caps, and a file that cannot be read is an error, never "no turns".
+pub fn transcript_turns(
+    entry: &cmux_chat_index::ChatEntry,
+) -> Result<Vec<cmux_chat_index::transcript::Turn>, cmux_chat_index::transcript::TranscriptError> {
+    use cmux_chat_index::AdapterKind;
+    use cmux_chat_index::transcript::{TranscriptError, Turn, capped};
+    let family = match entry.harness {
+        AdapterKind::ClaudeCode => "claude",
+        AdapterKind::Codex => "codex",
+        kind => {
+            return cmux_chat_index::transcript::read_turns(
+                kind,
+                &entry.source_path,
+                &entry.session_id,
+            );
+        }
+    };
+    // adopt's reader answers an unreadable file with no turns.
+    std::fs::File::open(&entry.source_path)
+        .map_err(|e| TranscriptError::Unreadable(e.to_string()))?;
+    let turns = crate::adopt_replay::read(family, &entry.source_path);
+    Ok(turns
+        .into_iter()
+        .map(|t| Turn {
+            prompt: capped(t.prompt),
+            // No answer yet has no answer time (adopt's reader starts it at the prompt's).
+            answer_at: t.answer_at.filter(|_| !t.answer.is_empty()),
+            answer: capped(t.answer),
+            prompt_at: t.prompt_at,
+        })
+        .collect())
 }
 
 /// The roots to read under `settings`: none when chats are off; only the

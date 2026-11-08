@@ -678,6 +678,28 @@ class RecentRevertTests(unittest.TestCase):
         # A pure addition taken out again is a revert.
         self.assertTrue(risk.undoes("@@ -1,3 +1,1 @@\n-.a{}\n-.b{}\n ctx", "@@ -1 +1,3 @@\n+.a{}\n+.b{}\n ctx"))
 
+    def test_a_reflowed_list_does_not_take_back_the_line_it_rewraps(self):
+        # PR #38436 (2026-11-08): two exports added to a `pub use listen::{...}` list made rustfmt rewrap it.
+        # #37363 had added the line `verify_session_socket_directory,`; after the rewrap that name sits on a
+        # longer line, so line matching read the PR as taking #37363 back and held it.
+        commit = ("@@ -2746,6 +2746,7 @@ mod listen;\n pub use listen::{\n"
+                  "     connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,\n"
+                  "+    verify_session_socket_directory,\n };")
+        pr = ("@@ -2769,11 +2769,13 @@ mod listen;\n pub use listen::{\n"
+              "-    connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,\n"
+              "-    verify_session_socket_directory,\n"
+              "+    connect_session_socket, prepare_socket_parent, remove_socket_start_lock, serve, serve_bound,\n"
+              "+    serve_paused, socket_start_lock_path, verify_session_socket_directory,\n };")
+        self.assertFalse(risk.undoes(pr, commit))
+        # Really deleting the line still takes it back.
+        self.assertTrue(risk.undoes("@@ -2769,3 +2769,2 @@\n pub use listen::{\n"
+                                    "-    verify_session_socket_directory,\n };", commit))
+        # A line that loses a token is not a reflow: `foo(a, b)` to `foo(a)`, then back, is a revert.
+        shortened = "@@ -1,2 +1,2 @@\n-    foo(a, b);\n+    foo(a);\n ctx"
+        self.assertTrue(risk.undoes("@@ -1,2 +1,2 @@\n-    foo(a);\n+    foo(a, b);\n ctx", shortened))
+        widened = "@@ -1,2 +1,2 @@\n-    foo(a);\n+    foo(a, b);\n ctx"
+        self.assertTrue(risk.undoes("@@ -1,2 +1,2 @@\n-    foo(a, b);\n+    foo(a);\n ctx", widened))
+
     def test_a_revert_of_last_weeks_change_names_its_pull_request(self):
         now = time.time()
         with tempfile.TemporaryDirectory() as repo:

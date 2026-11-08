@@ -180,6 +180,12 @@ pub struct Peer {
     /// no-session answer for it is not final (`Hub::no_session_is_final`). False from the
     /// hub's `Disconnected`.
     pub rows_ready: AtomicBool,
+    /// One more than the link epoch whose session list the hub applied last (its `Connected`
+    /// notice), 0 before any: the rows are that link's ([`Self::rows_current`]).
+    rows_link: AtomicU64,
+    /// The links whose `Connected` notice is on its way to the hub, oldest first: the hub takes
+    /// one with each `Connected` it applies, so it knows which link's list that one follows.
+    listed_links: StdMutex<std::collections::VecDeque<u64>>,
     /// The WebSocket is open, handshake or not: only the handshake's own requests go out
     /// while it is open and not `connected`.
     open: AtomicBool,
@@ -402,6 +408,8 @@ impl Peer {
             prompts: Default::default(),
             connected: AtomicBool::new(false),
             rows_ready: AtomicBool::new(false),
+            rows_link: AtomicU64::new(0),
+            listed_links: StdMutex::new(std::collections::VecDeque::new()),
             open: AtomicBool::new(false),
             last_error: StdMutex::new(None),
             facts: StdMutex::new(carrier::LinkFacts::default()),
@@ -997,6 +1005,21 @@ impl Peer {
         self.features.lock_or_recover().clear();
         self.link_epoch.fetch_add(1, Ordering::SeqCst);
         self.github_revoked.notify_waiters();
+    }
+
+    /// The hub applied a `Connected` notice of this peer: the rows are now those its link listed
+    /// at that handshake. A notice no link queued (a test's) stands for the live link.
+    pub(crate) fn note_rows_applied(&self) {
+        let link = self.listed_links.lock_or_recover().pop_front();
+        let link = link.unwrap_or_else(|| self.link_epoch());
+        self.rows_link.store(link + 1, Ordering::SeqCst);
+    }
+
+    /// The link is ready and the hub applied the session list it sent at its own handshake, so
+    /// its notices keep the rows current. A link that dropped and came back reads false until
+    /// the new link's list is applied: until then the rows are the link before's.
+    pub fn rows_current(&self) -> bool {
+        self.ready() && self.rows_link.load(Ordering::SeqCst) == self.link_epoch() + 1
     }
 
     /// The WebSocket is open and the handshake has not finished.
@@ -2047,6 +2070,7 @@ impl Peer {
                 "connected to {}",
                 lift_query_token(&me.url).0
             );
+            me.listed_links.lock_or_recover().push_back(link);
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
             // Several at once: a chat the peer is slow on holds up no other's stream, and a
             // link with many chats does not fill its send queue with them.
