@@ -141,3 +141,42 @@ it("lets every listed service through, as staging lists cmux-platform's dev and 
   expect((await h.request("/v1/meshes", as(dev))).status).toBe(200);
   expect((await h.request("/v1/meshes", as(staging))).status).toBe(200);
 });
+
+it("lets a listed service write its mesh's ACL only with the acl scopes granted by CMUX_VM_SERVICE_KEY_SCOPE_GRANTS", async () => {
+  const create = async (harness: Harness, key: string) => {
+    const created = await harness.request("/v1/mesh-creations", as(key, { "idempotency-key": "cloud-team-network" }), {
+      method: "POST",
+      body: { displayName: "Cloud network", labels: { role: "cloud" } },
+    });
+    expect(created.status).toBe(201);
+    return Schema.decodeUnknownSync(Mesh)(await created.json()).id;
+  };
+  const rules = [{ src: ["device:*"], dst: ["vm:*"], allow: ["tcp:22", "tcp:4100"] }];
+
+  const without = await start();
+  const plainKey = await service(without);
+  const plainMesh = await create(without, plainKey);
+  expect((await without.request(`/v1/meshes/${plainMesh}/acl`, as(plainKey))).status).toBe(403);
+  expect((await without.request(`/v1/meshes/${plainMesh}/acl`, as(plainKey), { method: "PUT", body: { expectedVersion: 0, rules } })).status).toBe(403);
+  await without.dispose();
+  h = undefined;
+
+  h = await makeHarness({
+    mesh: { tenants: ["team_alpha"], services: [SERVICE] },
+    serviceScopeGrants: JSON.stringify({ [SERVICE]: ["acl:read", "acl:write"] }),
+  });
+  h.setBilling(TEAM, true);
+  const key = await service(h);
+  const mesh = await create(h, key);
+  const before = await h.request(`/v1/meshes/${mesh}/acl`, as(key));
+  expect(before.status).toBe(200);
+  expect(await before.json()).toMatchObject({ version: 0, rules: [] });
+  const put = await h.request(`/v1/meshes/${mesh}/acl`, as(key), { method: "PUT", body: { expectedVersion: 0, rules } });
+  expect(put.status).toBe(200);
+  expect(await put.json()).toMatchObject({ meshId: mesh, version: 1 });
+  const after = await h.request(`/v1/meshes/${mesh}/acl`, as(key));
+  expect(await after.json()).toMatchObject({ version: 1, rules });
+  // A grant names one key: another service with the same labels gets nothing more.
+  const other = await service(h, "cloud-chief");
+  expect((await h.request(`/v1/meshes/${mesh}/acl`, as(other))).status).toBe(404);
+});

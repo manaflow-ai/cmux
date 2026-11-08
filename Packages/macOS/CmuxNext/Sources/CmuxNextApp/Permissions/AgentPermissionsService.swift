@@ -11,6 +11,7 @@ final class AgentPermissionsService {
     let requests: AgentPermissionRequests
     /// The grant reads `permissions.status` answers from.
     let probe: SystemPermissionProbe
+    let opener: SystemPermissionOpener
     private let setup: ComputerUseSetup
     private let presenter: PermissionRequestPresenter
 
@@ -23,6 +24,7 @@ final class AgentPermissionsService {
             services?.onboarding.show(step: .computerUse)
         })
         let requests = AgentPermissionRequests(probe: probe, opener: opener)
+        self.opener = opener
         self.requests = requests
         // The Computer Use window guides the helper's grants, so the card steps aside after Continue;
         // under the upstream driver no window opens and the card keeps guiding.

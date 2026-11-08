@@ -25,9 +25,9 @@ import CoreGraphics
 ///
 /// `sidebar.textSize` (``SidebarTextSize``) adds its steps on top of any density. The custom sizes
 /// (`sidebar.titleSize`, `sidebar.detailSize`, `sidebar.rowHeight`, `sidebar.rowPadding`) win over
-/// both, exactly, in points at Interface Size 100%. A custom density's
-/// `sidebarListRowHeight` token sets Normal's row, and the others scale from it. A group header's name
-/// keeps its existing rule and follows its bar (`SidebarStyle.groupHeaderFont`). Row spacing stays `space1` so selection fills
+/// both, exactly, in points at Interface Size 100%. `appearance.metrics.sidebarRowHeight` and a custom density's
+/// `sidebarRowHeight` token set Normal's row, and the others scale from it. A group header's name
+/// takes the rows' title size and regular weight (`SidebarStyle.groupHeaderFont`). Row spacing stays `space1` so selection fills
 /// keep their rhythm, and it is the only gap between rows: a group's or the
 /// Pinned block's last row adds no padding (Leo 2026-10-21). Values are read at layout time, never cached, so a
 /// change applies live.
@@ -47,27 +47,26 @@ enum SidebarDensityTokens {
     /// list's Codex row at this density's scale plus the text size step.
     static var rowHeight: CGFloat { SidebarRowTokens.current.rowHeight }
     /// A workspace row with one detail line: the one-line row plus that line's height, so a row's
-    /// text keeps the same room above and below with one line or more (Leo 2026-10-20). With
-    /// `SidebarTunables.evenRowText` off, the app's fixed step over a one-line row instead.
-    static var rowHeightWithSubtitle: CGFloat {
-        SidebarTunables.evenRowText.value
-            ? rowHeight + SidebarStyle.detailLineHeight
-            : rowHeight + scaled(Metrics.sidebarSubtitleStep)
-    }
+    /// text keeps the same room above and below with one line or more (Leo 2026-10-20).
+    static var rowHeightWithSubtitle: CGFloat { rowHeight + SidebarStyle.detailLineHeight }
     /// A machine or section header in the list, and a band's header.
     static var headerHeight: CGFloat { scaled(Metrics.sidebarHeaderHeight) + extra }
-    /// Rows inset from the sidebar edge, and their content from the row edge: `sidebar.rowPadding` when set;
-    /// else Codex's 8 pt `--padding-row-x` (issue 28793) at this density's scale.
-    static var horizontalInset: CGFloat { SidebarRowTokens.current.horizontalInset }
+    /// Rows inset from the sidebar edge, and their content from the row edge: `SidebarRowTokens.horizontalInset`'s
+    /// rule (`sidebar.rowPadding` when set; else Codex's 8 pt `--padding-row-x`, issue 28793, at this density's scale),
+    /// read from its inputs. Every row frame reads it several times (`SidebarListView.frame(for:)`), and
+    /// `SidebarRowTokens.current` builds the whole token set, fonts too, for each read.
+    static var horizontalInset: CGFloat {
+        if let padding = preferences.rowPadding { return Metrics.scale(padding) }
+        return scaled(Metrics.space4)
+    }
     static var iconBox: CGFloat { scaled(LayoutGrid.iconBox) }
     /// Compatibility name used by the existing session-tree layout. The tree's base indent is
     /// independent of the sidebar's group nesting grid and remains the original space4.
     static var depthIndent: CGFloat { Metrics.space4 }
     /// The corner radius of every row fill: pinned rows, group headers and workspace rows share it,
-    /// so their fills line up at each density. One `space1` rounder than the app's item corner (8 compact,
-    /// 9 comfortable), near ChatGPT's soft row corner for its height (about 9 to 10 pt on a 30 pt row).
-    /// Leo 2026-11-02: "SMOOTH OUT A BIT MORE OF OUR CORNERS ON THE SIDEBAR WORKSPACES".
-    static var rowCornerRadius: CGFloat { scaled(Metrics.itemCornerRadius + Metrics.space1) }
+    /// so their fills line up at each density. It is the tab pill's radius (`Metrics.tabCornerRadius`),
+    /// one token for both (Lawrence 2026-11-05: "workspace roundness needs to be same as tabs roundness").
+    static var rowCornerRadius: CGFloat { Metrics.tabCornerRadius }
     static var sectionSpacing: CGFloat { scaled(Metrics.space4) }
     static var topPadding: CGFloat { scaled(Metrics.space2) }
 }

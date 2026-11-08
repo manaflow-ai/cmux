@@ -11,13 +11,45 @@ export type GithubReference = {
 // Not after a word, a path or URL (`x.com/#12`) or an HTML entity (`&#123;`). GitHub numbers
 // start at 1 and have at most ten digits (the pull request card's rule), so `#0`, `#012` and
 // `#12345678901` are not references.
-// A short name glued to the `#` (`hq#12`) is a reference only when the caller takes aliases and
-// it is a known one (REPOSITORY_ALIASES); any other word glued to a `#` (`foo#12`) stays text.
+// A short name glued to the `#` (`hq#12`, `subrouter-internal#54`) is a reference only when the
+// caller takes aliases and it is a known one (REPOSITORY_ALIASES); any other word glued to a `#`
+// (`foo#12`, `F#7`) stays text.
 const REFERENCE =
   /(?<![\w./&-])(?:(?<repository>[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*)(?<qualifiedNumber>#[1-9][0-9]{0,9})|(?<alias>[A-Za-z][A-Za-z0-9-]*)(?<aliasNumber>#[1-9][0-9]{0,9})|(?<bareNumber>#[1-9][0-9]{0,9}))(?![\w])/g;
 
-/// Short repository names agents write in place of `owner/repo` (`hq#2713`), in agent replies only.
-export const REPOSITORY_ALIASES: ReadonlyMap<string, string> = new Map([["hq", "manaflow-ai/cmuxterm-hq"]]);
+/// The repositories cmux's own agents name by their short name (`subrouter-internal#54`, Leo
+/// 2026-11-07: "should we auto-render this as a link?"). Nothing else in the app lists them, so
+/// this does; a name two of them share would name neither, and is left out (shortNames).
+export const KNOWN_REPOSITORIES: readonly string[] = [
+  "manaflow-ai/cmux",
+  "manaflow-ai/cmuxterm-hq",
+  "manaflow-ai/cmux-platform",
+  "manaflow-ai/cmux-design-references",
+  "manaflow-ai/subrouter",
+  "manaflow-ai/subrouter-internal",
+  "teamleaderleo/leo-workspace",
+];
+
+/// Each repository's name, when no other repository in `repositories` has it.
+export function shortNames(repositories: readonly string[]): Map<string, string> {
+  const out = new Map<string, string>();
+  const shared = new Set<string>();
+  for (const repository of repositories) {
+    const name = repository.slice(repository.indexOf("/") + 1).toLowerCase();
+    if (out.has(name)) shared.add(name);
+    else out.set(name, repository);
+  }
+  for (const name of shared) out.delete(name);
+  return out;
+}
+
+/// Short repository names agents write in place of `owner/repo` (`hq#2713`, `lw#12`,
+/// `subrouter-internal#54`), in agent replies only.
+export const REPOSITORY_ALIASES: ReadonlyMap<string, string> = new Map([
+  ...shortNames(KNOWN_REPOSITORIES),
+  ["hq", "manaflow-ai/cmuxterm-hq"],
+  ["lw", "teamleaderleo/leo-workspace"],
+]);
 
 /**
  * Finds explicit `owner/repo#123` and, when known, bare `#123` references. `kind` picks the

@@ -142,7 +142,8 @@ pub(super) fn run_with(
     let mut read_value = |_: &str| -> Result<zeroize::Zeroizing<String>, String> {
         Err("no value in this test".into())
     };
-    let mut ssh = |_: &bootstrap::SshPlan| -> std::io::Result<i32> { panic!("no ssh in this test") };
+    let mut ssh =
+        |_: &bootstrap::SshPlan| -> std::io::Result<i32> { panic!("no ssh in this test") };
     let mut hooks = Hooks { confirm: &mut confirm, read_value: &mut read_value, ssh: &mut ssh };
     let options = RunOptions { interactive, every: Duration::from_millis(20) };
     let code = run(&command, &platform, output, options, &mut out, &mut hooks, interrupt);
@@ -161,6 +162,24 @@ pub(super) fn no_secret(text: &str) {
     for secret in [TOKEN, CREDENTIAL, MACHINE_CREDENTIAL, "cmj_", "cmm_"] {
         assert!(!text.contains(secret), "{secret} leaked in {text:?}");
     }
+}
+
+#[test]
+fn selected_team_uses_the_platform_team_header() {
+    let (origin, requests) = fake(Arc::new(|_| (200, "[]".into())));
+    let platform = platform(&origin).with_team(Some("team_0123456789abcdef0123".into()));
+    platform.post("/v1/machines/credentials", json!({})).unwrap();
+    let request = requests.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(
+        request
+            .lines()
+            .any(|line| line.eq_ignore_ascii_case("x-cmux-team: team_0123456789abcdef0123"))
+    );
+    assert!(
+        !request
+            .lines()
+            .any(|line| line.eq_ignore_ascii_case("x-cmux-team-id: team_0123456789abcdef0123"))
+    );
 }
 
 #[test]
@@ -250,9 +269,10 @@ fn the_credential_comes_from_stdin_a_file_or_the_env_and_errors_name_neither() {
 }
 
 #[test]
-fn the_platform_is_https_and_defaults_to_development() {
+fn the_platform_is_https_and_defaults_to_production() {
     let none = |_: &str| -> Option<String> { None };
-    assert_eq!(platform_origin(None, &none).unwrap(), DEV_ORIGIN);
+    assert_eq!(platform_origin(None, &none).unwrap(), DEFAULT_ORIGIN);
+    assert_eq!(DEFAULT_ORIGIN, "https://cmux-platform-production.debussy.workers.dev");
     let env = |key: &str| -> Option<String> {
         (key == PLATFORM_ENV).then(|| "https://platform.example/".to_owned())
     };

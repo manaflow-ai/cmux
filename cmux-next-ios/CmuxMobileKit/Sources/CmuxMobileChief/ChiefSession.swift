@@ -16,14 +16,15 @@ import UIKit
 public final class ChiefSession {
     /// The Mac Chief: the Mac's Chief owner over the link (``ChiefDaemonBackend``),
     /// which `LiveCoordinator` swaps in and out as the Mac link changes.
-    public static let shared = ChiefSession(backend: defaultBackend())
+    public static let shared = ChiefSession(backend: defaultBackend(), transcripts: ChiefSession.transcripts)
 
     /// The Cloud Chief: the main conversation of the user's Cloud Chief
     /// (``ChiefCloudBackend``), set by ``ChiefSources`` after sign-in. Home
     /// shows it first when it answers; offline until then.
     public static let cloud = ChiefSession(
         backend: ChiefOfflineBackend(reason: ChiefSources.signedOutReason),
-        outbox: .cloud
+        outbox: .cloud,
+        transcripts: ChiefSession.transcripts
     )
 
     /// Chief before a Mac link: offline (``ChiefOfflineBackend``). DEBUG
@@ -100,6 +101,7 @@ public final class ChiefSession {
             // then what is written (and what flushes) is still the current Chief's.
             if backend is ChiefOfflineBackend {
                 outboxTarget = Self.target(of: backend, macID: macID, previous: outboxTarget)
+                store.useTranscriptCache(transcripts, key: transcriptKey)
                 refreshOutbox()
             }
             guard !engineReportIsCurrent else { return }
@@ -112,7 +114,7 @@ public final class ChiefSession {
     public private(set) var questions: [AgentQuestion] = []
     /// Each answer's progress, by question id (``ChiefAnswerFlow``).
     public private(set) var answers: [String: ChiefAnswerFlow] = [:]
-    /// The signer for answers (Face ID with this phone's approval key), asked
+    /// The signer for answers (this phone's approval key), asked
     /// at answer time: the link's pairing may change while Chief is open.
     public var answerSigner: (@MainActor () -> (any ChiefAnswerSigning)?)?
     /// The newest message the user has seen with the conversation open.
@@ -131,10 +133,14 @@ public final class ChiefSession {
     public private(set) var outboxTarget: String?
     /// Newest message seq already seen; newer ones from Chief alert.
     private var alertedSeq: Int?
+    /// Each message alerted as new (tests).
+    @ObservationIgnored var onAlert: (@MainActor (ConversationMessage) -> Void)?
 
     public init(backend: any ConversationBackend, identity: ChiefIdentity = .standard,
                 preferences: ChiefPreferences = ChiefPreferences(), outbox: ChiefOutbox? = nil,
+                transcripts: ConversationTranscriptCache? = nil,
                 clock: any Clock<Duration> = ContinuousClock()) {
+        self.transcripts = transcripts
         self.identity = identity
         self.clock = clock
         avatar = identity.avatar
@@ -145,6 +151,7 @@ public final class ChiefSession {
         outboxTarget = Self.target(of: backend, macID: nil, previous: nil)
         store = ConversationStore(backend: backend)
         control = (backend as? ChiefDaemonBackend)?.control
+        store.useTranscriptCache(transcripts, key: transcriptKey)
         refreshOutbox()
         ChiefAlerts.shared.install()
         attach()
@@ -156,10 +163,39 @@ public final class ChiefSession {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.loadEngine() }
         }
+        // Leaving the foreground: what shows now is what the phone shows when it comes back.
+        backgroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.store.saveTranscript() }
+        }
         #endif
     }
 
     @ObservationIgnored private var foregroundObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private var backgroundObserver: (any NSObjectProtocol)?
+
+    /// The kept transcript's key: the Chief the outbox writes to. DEBUG's mock Chief (no Mac,
+    /// no Cloud) keeps its own, so simulator runs show the same behavior.
+    private var transcriptKey: String? {
+        if let outboxTarget { return outboxTarget }
+        #if DEBUG
+        if backend is ChiefMockBackend { return "mock" }
+        #endif
+        return nil
+    }
+
+    /// Every Chief conversation's newest messages, kept on this phone (Messages-style): a
+    /// store built again after the app comes back, or on a relaunch, shows them at once.
+    public static let transcripts = ConversationTranscriptCache.inApplicationSupport("cmux-mobile-chief-transcripts")
+    private let transcripts: ConversationTranscriptCache?
+
+    /// Sign-out: every kept Chief conversation leaves this phone, and this session's store stops
+    /// showing and keeping them (a store made by sign-out's own backend swap showed them already).
+    public func discardTranscripts() {
+        store.discardKeptTranscript()
+        transcripts?.removeAll()
+    }
 
     /// Swaps the backend (offline to `ChiefDaemonBackend` once a Mac link is
     /// up, or to ``ChiefCloudBackend`` with the Cloud Chief's `identity`).
@@ -183,6 +219,8 @@ public final class ChiefSession {
             waiting += carried
             outboxStore.save(waiting)
         }
+        // What the old store shows now is what a later store shows first.
+        store.saveTranscript()
         store.stop()
         if let identity, identity != self.identity {
             self.identity = identity
@@ -203,6 +241,9 @@ public final class ChiefSession {
         questions = []
         answers = [:]
         outboxTarget = Self.target(of: backend, macID: macID, previous: outboxTarget)
+        // The Chief's newest messages as this phone last saw them show at once (an offline
+        // backend keeps the Chief that was open), until this backend reads the newest page.
+        store.useTranscriptCache(transcripts, key: transcriptKey)
         refreshOutbox()
         attach()
     }
@@ -302,6 +343,36 @@ public final class ChiefSession {
         return live
     }
 
+    /// The reply can reach the transcript before the frame-batched live
+    /// callback. Match the reply's idempotency key when that happens so the
+    /// delayed callback cannot briefly resurrect a duplicate bubble.
+    static func liveReplyMatches(_ live: ChiefLive, message: ConversationMessage?) -> Bool {
+        let keyParts = live.key.split(separator: "\u{0}", omittingEmptySubsequences: false)
+        guard keyParts.count == 3, let message, message.senderID == String(keyParts[1]),
+              let clientID = message.clientMessageID,
+              let runID = keyParts.last, !runID.isEmpty else { return false }
+        let author = keyParts[1]
+        if clientID == runID || clientID == "\(author):chief-reply:\(runID)" { return true }
+        // Cloud's durable producers append a numeric retry counter. Require
+        // the complete author/run prefix so similar run IDs cannot collide.
+        for kind in ["chief-reply", "chief-reply-d"] {
+            let prefix = "\(kind):\(author):\(runID):"
+            guard clientID.hasPrefix(prefix) else { continue }
+            let retry = clientID.dropFirst(prefix.count)
+            return !retry.isEmpty && retry.utf8.allSatisfy { (48...57).contains($0) }
+        }
+        return false
+    }
+
+    /// Remember a reply that overtook its batched live callback. A later user
+    /// message changes lastMessage but must not resurrect the answered step.
+    func acceptLive(_ live: ChiefLive?) {
+        if let live, let step = live.step, Self.liveReplyMatches(live, message: lastMessage) {
+            answeredLiveStep = "\(live.key)\u{0}\(step)"
+        }
+        self.live = live
+    }
+
     /// Chief is typing or a run is live: Home's pin shows the typing bubble.
     public var isWorking: Bool { isTyping || live != nil }
 
@@ -333,7 +404,7 @@ public final class ChiefSession {
         }
     }
 
-    /// Answers `question` (Face ID, then the Mac). The flow says where it is;
+    /// Answers `question` (signed, then the Mac). The flow says where it is;
     /// a second call while one is in flight does nothing.
     public func answer(_ question: AgentQuestion, with answer: AgentQuestionAnswer) {
         guard let source = backend as? any ChiefQuestionSource else { return }
@@ -522,7 +593,7 @@ public final class ChiefSession {
             source.liveFeed.observe { [weak self] live in
                 Task { @MainActor [weak self] in
                     guard let self, self.store === store, self.live != live else { return }
-                    self.live = live
+                    self.acceptLive(live)
                 }
             }
         }
@@ -645,7 +716,8 @@ public final class ChiefSession {
 
     /// Alerts for Chief's messages that arrived live (not the first page).
     private func alertNewMessages() {
-        guard store.connection == .connected, let id = conversationID else { return }
+        // Kept rows from an earlier run are not news, nor is what the first page brings.
+        guard store.connection == .connected, store.hasLoadedNewest, let id = conversationID else { return }
         // Messages are in seq order: the newest numbered one is near the end
         // (this runs on every store change, each keystroke and stream chunk).
         let newest = store.messages.last { $0.seq != nil }?.seq ?? 0
@@ -658,6 +730,7 @@ public final class ChiefSession {
         guard newest > seen else { return }
         alertedSeq = newest
         for message in store.messages where (message.seq ?? 0) > seen && message.senderID == identity.chiefID {
+            onAlert?(message)
             ChiefAlerts.shared.notify(message, title: store.info?.title ?? identity.title, conversationID: id, macID: macID,
                                      preferences: preferences, visible: isVisible)
         }

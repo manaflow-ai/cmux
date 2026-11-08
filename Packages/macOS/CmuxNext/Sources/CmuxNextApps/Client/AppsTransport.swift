@@ -30,6 +30,8 @@ public protocol AppsTransport: AnyObject {
     /// Begins following the daemon (availability events from here on).
     func start()
     func list() async throws(AppsTransportError) -> AppsListReply
+    /// Visible Session Info app sections (`cmux.apps.panels.list`).
+    func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel]
     /// `apps-set`; returns the app's record after the commit.
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord
     func mount(app: String, interface: String, mountID: String, context: AppJSON) async throws(AppsTransportError)

@@ -1,6 +1,5 @@
-// The line over a running turn's work, with the Codex-style turn off (Debug toggles codexToolRuns
-// or liveLineBelow; with both on, the default, the turn's one live line at its bottom is
-// Thinking.tsx and it draws the same counts): "Working for 42s", ticking each second from the prompt,
+// The older "Working for" line over a running turn's work (a `working` row; the transcript now
+// draws the turn's one live line at its bottom instead, Thinking.tsx, with the same counts): "Working for 42s", ticking each second from the prompt,
 // or held at `durationMs` while text streams. While a call runs (`row.doing`, turns.ts) it names
 // that call beside the time instead, as Claude desktop's line does, after the terminal glyph when
 // the call is a command; not while the call's own tool row is on screen, which names it already.
@@ -18,8 +17,7 @@
 // above the composer, waitingOn.ts), the line says so in place of the time and the call: the clock
 // would read as the agent still working.
 //
-// Drawn as the turn's last row (`row.below`, Debug Settings `agentPane.debug.liveLineBelow`), it
-// has no rule under it and its clock never stops while the turn runs, and before any output
+// Drawn as the turn's last row (`row.below`), it has no rule under it and its clock never stops while the turn runs, and before any output
 // (`row.thinkingNow`) it reads "Thinking" beside the time.
 import { createContext, useContext } from "react";
 import { type Translate, useT } from "../i18n";
@@ -27,12 +25,14 @@ import type { AcpmuxRow, TurnTokenSplit } from "../model";
 import { usePageNow as useTicking } from "../../../ui/pageClock";
 export { usePageNow as useTicking } from "../../../ui/pageClock";
 import { TerminalSquare } from "./icons";
+import { useTextSwap } from "../../../ui/motion/useTextSwap";
 import { BackgroundHint } from "./BackgroundHint";
 import { TimedLabel, TurnTokens } from "./TurnTokens";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { formatDuration } from "./turns";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
+import { StatusVerb } from "./StatusVerb";
 
 export const workingLabel = (t: Translate, at: number, now: number) =>
   t("turn.working", { time: formatDuration(Math.max(0, now - at)) });
@@ -93,6 +93,8 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
   const sending = shown !== undefined && sendName !== undefined;
   const doing = sending ? t("send.sending", { target: sendName }) : shown;
   const parts = counts ? workingParts(t, counts) : [];
+  // A new call changes the words as Claude desktop's line does (ui/motion/useTextSwap.ts).
+  const words = useTextSwap<HTMLSpanElement>(waiting ? undefined : (doing ?? ""));
   return (
     // Find counts and visits transcript rows only (chatFind.ts findMatches skips this row), so the
     // line is not painted either: the call it names is matched on its own tool row.
@@ -108,8 +110,9 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
         </output>
       ) : doing || row.thinkingNow ? (
         <>
-          <span className={doing ? "cv-worked__label cv-worked__doing" : "cv-worked__label"}>
-            {doing ?? t("thinking")}
+          <span ref={words} className={doing ? "cv-worked__label cv-worked__doing" : "cv-worked__label"}>
+            {doing ??
+              (held ? t("thinking") : <StatusVerb elapsedMs={Math.max(0, until - row.at)} verbKey={row.verbKey} />)}
           </span>
           <span className="cv-worked__time">{formatDuration(Math.max(0, until - row.at))}</span>
         </>

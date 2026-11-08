@@ -49,7 +49,9 @@ RUN = "dm%05d" % random.randint(0, 99999)
 # Each browser's downloads folder (the DevTools screenshot buttons save there), never the account's ~/Downloads:
 # macOS asks for access to that one in a prompt that covers a fleet Mac's screen. cmux gets it through
 # CMUX_NEXT_DOWNLOADS_DIR (Debug builds), Chrome through its profile's download.default_directory.
-DOWNLOADS = {name: tempfile.mkdtemp(prefix="%s-%s-downloads-" % (RUN, name)) for name in ("cmux", "chrome")}
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import kit_downloads  # noqa: E402
+DOWNLOADS = {name: kit_downloads.make("%s-%s-downloads-" % (RUN, name)) for name in ("cmux", "chrome")}
 LOG = open(os.path.join(opts.out, "transcript.jsonl"), "w")
 RESULTS = {"run": RUN, "checks": []}
 
@@ -602,6 +604,8 @@ def main():
         rpc("debug.quit", {"fixture_quit": "end-sessions"}, 10)
         if os.environ.get("NX_APP_STOP"):
             subprocess.run([os.environ["NX_APP_STOP"]], timeout=120)
+        for folder in DOWNLOADS.values():  # the screenshots were moved to opts.out; both browsers have quit
+            kit_downloads.remove(folder)
     gaps = [c["id"] for c in RESULTS["checks"] if c["status"] == "known-gap"]
     print("RESULT %s (%d checks, known gaps: %s)" % ("FAIL" if failed else "PASS", len(RESULTS["checks"]), ", ".join(gaps) or "none"), flush=True)
     sys.exit(1 if failed else 0)

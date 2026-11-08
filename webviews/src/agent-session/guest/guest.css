@@ -5,6 +5,8 @@
 .guest-card__title{margin:0;font-size:var(--text-title);line-height:var(--text-title--line-height);font-weight:600}
 .guest-card__detail{margin:0;color:var(--agent-muted)}
 .guest-card__error{margin:0;color:var(--agent-danger)}
+.guest-card__link{color:inherit;text-decoration:underline}
+.guest-live__view-only{margin:0;padding:4px 0;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);text-align:center}
 .guest-join{display:flex;gap:8px;margin-top:4px}
 .guest-join__name{flex:1;min-width:0;height:32px;box-sizing:border-box;padding:0 12px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-input-bg);color:var(--agent-text);font:inherit}
 /* Focus shows as the caret and a stronger edge, never a ring on the field (desktop.css). */
@@ -12,6 +14,14 @@
 .guest-join__button{flex:none;height:32px;padding:0 16px;border:0;border-radius:8px;background:var(--agent-accent);color:var(--agent-on-accent, var(--agent-page-bg));font:inherit;font-weight:500}
 .guest-join__button:disabled{opacity:0.45}
 .guest-join__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+/* A signed-in visitor's Join: one full-width button, their picture, then "Join as <name>" cut at the end. */
+.guest-join__as{flex:1;min-width:0;display:inline-flex;align-items:center;justify-content:center;gap:var(--ds-space-2, 8px)}
+.guest-join__as-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.guest-join__face{flex:none;display:inline-flex;align-items:center}
+/* Edit name is a quiet text link under the button, never a second filled control. */
+.guest-join__edit{align-self:center;padding:0;border:0;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
+.guest-join__edit:hover{color:var(--agent-text);text-decoration:underline}
+.guest-join__edit:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 /* The transcript's column: 760px wide, 16px from the edges on a phone. */
 .guest-live{--guest-inset:max(16px, calc((100% - 760px) / 2));height:100%;display:flex;flex-direction:column}
 .guest-live__header{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--guest-inset);border-bottom:1px solid var(--agent-border)}

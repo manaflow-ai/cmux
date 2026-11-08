@@ -1,3 +1,4 @@
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
@@ -17,6 +18,8 @@ struct AppEnvironment: Sendable {
     let noActivate: Bool
     /// DEBUG showcase profile requested by `--showcase` or `CMUX_NEXT_SHOWCASE=1`.
     let showcase: Bool
+    /// The showcase, `CMUX_NEXT_SKIP_ONBOARDING=1` or `--skip-onboarding` (capture builds): no first-run onboarding page opens; accounts and agents stay real.
+    let skipsOnboarding: Bool
     /// DEBUG-only auth capture fixture. This composes isolated, offline auth
     /// dependencies for fleet captures; it is never enabled in release builds.
     let authCaptureFixture: Bool
@@ -42,7 +45,9 @@ struct AppEnvironment: Sendable {
     /// so prompts and tools pick the same colors as in Ghostty. Also the
     /// daemon's launch overrides, so terminals it creates without a
     /// per-terminal `env` match. Resolved once per launch.
-    let terminalEnvironment: [String: String]
+    var terminalEnvironment: [String: String]
+    /// Resolved by the Rust CLI before any credential-bearing service or daemon starts.
+    var cloudConfiguration: CloudConfiguration?
     /// Ghostty resources directory and bundled CLI helper for shell
     /// integration (`GhosttyShellIntegration`). Resolved once per launch.
     var ghosttyResources: String?
@@ -97,25 +102,24 @@ struct AppEnvironment: Sendable {
         #endif
     }
 
-    static func current(_ environment: [String: String] = ProcessInfo.processInfo.environment, openFiles: OpenFileLimit.Change? = nil) -> AppEnvironment {
+    static func current(_ environment: [String: String] = ProcessInfo.processInfo.environment, arguments: [String] = ProcessInfo.processInfo.arguments, openFiles: OpenFileLimit.Change? = nil) -> AppEnvironment {
         let noActivate = environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
 #if DEBUG
-        let showcase = environment["CMUX_NEXT_SHOWCASE"] == "1" || ProcessInfo.processInfo.arguments.contains("--showcase")
-        let authCaptureFixture = environment["CMUX_NEXT_AUTH_CAPTURE_FIXTURE"] == "1"
-            || ProcessInfo.processInfo.arguments.contains("--auth-capture-fixture")
+        let showcase = environment["CMUX_NEXT_SHOWCASE"] == "1" || arguments.contains("--showcase")
+        let authCaptureFixture = environment["CMUX_NEXT_AUTH_CAPTURE_FIXTURE"] == "1" || arguments.contains("--auth-capture-fixture")
 #else
-        let showcase = false
-        let authCaptureFixture = false
+        let (showcase, authCaptureFixture) = (false, false)
 #endif
         let launch = LaunchIdentity.current()
         return AppEnvironment(
             launch: launch,
             noActivate: noActivate,
-            showcase: showcase,
+            showcase: showcase, skipsOnboarding: showcase || environment["CMUX_NEXT_SKIP_ONBOARDING"] == "1" || arguments.contains("--skip-onboarding"),
             authCaptureFixture: authCaptureFixture,
             captureShellHome: captureShellHome(environment),
             testWindow: TestWindowPlacement.parse(environment, noActivate: noActivate),
             terminalEnvironment: terminalEnvironment(launch: launch, environment: environment).merging(openFiles?.childEnvironment ?? [:]) { $1 },
+            cloudConfiguration: nil,
             ghosttyResources: GhosttyRuntime.resourcesDirectory(environment: environment),
             ghosttyBinary: GhosttyRuntime.cliHelperPath()
         )
@@ -125,15 +129,15 @@ struct AppEnvironment: Sendable {
     /// connection, new workspaces, the compat CLI): the filtered login
     /// environment, ``terminalEnvironment``, then Ghostty's shell integration
     /// from the config applied at spawn time, so `reload-config` affects
-    /// the next terminal.
-    func terminalEnvironmentProvider() -> @Sendable () async -> [String: String] {
+    /// the next terminal. `prefersGhosttyTerm` reads `terminal.term` per terminal.
+    func terminalEnvironmentProvider(prefersGhosttyTerm: @escaping @MainActor @Sendable () -> Bool) -> @Sendable () async -> [String: String] {
         let resources = ghosttyResources
         let binary = ghosttyBinary
         return TerminalEnvironment.instance.shared(overrides: terminalEnvironment, integration: {
             await MainActor.run {
                 Self.shellIntegration(GhosttyRuntime.shared.shellIntegrationSettings, resources: resources, binary: binary)
             }
-        }, cli: Self.bundledCLI(appResources: Bundle.main.resourceURL?.path, resolvesShellIntegration: resolvesShellIntegration))
+        }, cli: Self.bundledCLI(appResources: Bundle.main.resourceURL?.path, resolvesShellIntegration: resolvesShellIntegration), prefersGhosttyTerm: prefersGhosttyTerm)
     }
 
     /// The bundled `cmux` for this app's terminals: `<Resources>/bin`, and

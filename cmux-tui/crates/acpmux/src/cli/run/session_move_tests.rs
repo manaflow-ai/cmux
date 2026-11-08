@@ -199,3 +199,75 @@ fn the_tree_size_sums_blobs_and_skips_submodules() {
     assert_eq!(sum_tree_sizes(listing), 125);
     assert_eq!(sum_tree_sizes(b""), 0);
 }
+
+/// A git checkout on branch `lane/x` with an `origin`, in a fresh temp folder.
+fn repo_with_branch() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    let run = |args: &[&str]| {
+        let ok = StdCommand::new("git").arg("-C").arg(dir.path()).args(args).output().unwrap();
+        assert!(ok.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&ok.stderr));
+    };
+    run(&["init", "-q", "-b", "lane/x"]);
+    run(&["remote", "add", "origin", "git@github.com:manaflow-ai/cmux.git"]);
+    std::fs::create_dir(dir.path().join("sub")).unwrap();
+    std::fs::write(dir.path().join("sub/a.txt"), "a").unwrap();
+    run(&["add", "."]);
+    run(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "a"]);
+    dir
+}
+
+#[test]
+fn a_source_machines_checkout_reads_as_this_machines_does() {
+    // `--from`: the checkout script runs on the source machine; here it runs in a local shell,
+    // and reads the same checkout `checkout_of` reads here.
+    let repo = repo_with_branch();
+    let sub = repo.path().join("sub");
+    let read = |cwd: &Path| {
+        let out = run_here(CHECKOUT_SCRIPT, format!("{}\n", cwd.display()).as_bytes()).unwrap();
+        assert!(out.ok, "{}", out.stderr);
+        parse_checkout(&out.stdout).unwrap()
+    };
+    let there = read(&sub).expect("a checkout");
+    assert_eq!(Some(there.clone()), checkout_of(&sub).unwrap());
+    assert_eq!(there.branch.as_deref(), Some("lane/x"));
+    assert_eq!(there.origin.as_deref(), Some("git@github.com:manaflow-ai/cmux.git"));
+    assert!(!there.dirty);
+
+    std::fs::write(sub.join("b.txt"), "b").unwrap();
+    assert!(read(&sub).unwrap().dirty);
+
+    let plain = tempfile::tempdir().unwrap();
+    assert_eq!(read(plain.path()), None);
+}
+
+#[test]
+fn a_checkout_answer_without_a_plain_top_folder_is_refused() {
+    assert!(parse_checkout("branch\tmain\n").is_err());
+    assert!(parse_checkout("top\t/a/../b\nbranch\tmain\n").is_err());
+    assert_eq!(parse_checkout("none\n").unwrap(), None);
+}
+
+#[test]
+fn local_names_this_machine_only() {
+    assert!(names_here("local", "lawbook"));
+    assert!(names_here("LawBook", "lawbook"));
+    assert!(!names_here("cmux-lawrence", "lawbook"));
+}
+
+#[test]
+fn this_machine_is_the_target_of_a_move_from_another_without_being_a_peer() {
+    let here = Target { name: "lawbook".into(), ssh: String::new(), probed: Some(about_ok(None)) };
+    let targets = Targets::with_here("local", &json!({"peers": []}), Some(here)).unwrap();
+    assert_eq!(targets.named.as_deref(), Some("lawbook"));
+    // Without --from, `local` is no peer.
+    assert!(Targets::new("local", &json!({"peers": []})).is_err());
+}
+
+#[test]
+fn a_folder_is_made_on_this_machine_for_a_move_here() {
+    let base = tempfile::tempdir().unwrap();
+    let want = base.path().join("teleport/eval");
+    let made =
+        prepare_folder("", &Folder::Plain { cwd: want.to_string_lossy().into_owned() }).unwrap();
+    assert_eq!(Path::new(&made), want.canonicalize().unwrap());
+}

@@ -75,6 +75,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var chromiumDeadline: Duration = .seconds(8)
     /// The deadline's clock (tests pass one that returns at once or never).
     var chromiumClock: any Clock<Duration> = ContinuousClock()
+    /// How long ``callPageScript(_:arguments:)`` waits for a Chromium start still in flight before it
+    /// gives up and returns nil (on ``chromiumClock``): about a page script's own 5 s hook wait.
+    var chromiumScriptWait: Duration = .seconds(5)
     /// Makes Chromium pages; the app sets it once at startup (its composition root). Nil keeps every
     /// page on WebKit (tests, a build without Chromium).
     public static var chromiumHosting: (any PageChromiumHosting)?
@@ -101,8 +104,17 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The static status look (`WebTheme.statusIndicators`): the setting and Reduce Motion.
     private var statusLookObservation: Task<Void, Never>?
     private var reduceMotionObservers: [MainActorObservation] = []
+    /// Runs after each zoom change (the interface scale, the additional zoom): a host that sizes the
+    /// page in points from its CSS px reports takes them again.
+    public var onZoomChange: (() -> Void)?
     public var additionalZoom: Double = 1 {
         didSet { if additionalZoom != oldValue { applyUIScale() } }
+    }
+    /// False for a page inside native chrome that lays it out in points (a browser chrome
+    /// surface): its CSS pixel stays one point at every `uiScale`, so the sizes it reports and
+    /// the metrics it is given match the native card around it.
+    public var followsUIScale = true {
+        didSet { if followsUIScale != oldValue { applyUIScale() } }
     }
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
     /// Answers the page's dynamic prefixes (``PageDescriptor/dynamicPrefixes``); the scheme
@@ -336,6 +348,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // webview-allow: the page host's WebKit engine; PageEnginePolicy picks it
         webView = PageWKWebView(frame: .zero, configuration: configuration)
         inputReadiness.attach(webView)
+        if options.keepsLoadedWeb { WebBundleServedViews.shared.keepLoadedTree(webView) }
         let webKitBridge = WebKitPageHostBridge(webView: webView)
         bridge = webKitBridge
         let target = PageScriptTarget(webKitBridge)
@@ -353,13 +366,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         webView.autoresizingMask = [.width, .height]
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false
-        // The page is transparent; WebKit's opaque backing would hide the window's backdrop.
-        // macOS has no public switch, so this uses `_setDrawsBackground:` through KVC, checked first.
-        if webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) {
-            webView.setValue(false, forKey: "drawsBackground")
-        }
-        webView.underPageBackgroundColor = .clear
-        // Web Inspector in every build (Inspect Element, Cmd-Opt-I).
+        Self.clearBackground(of: webView)
+        // Web Inspector in every build (Inspect Element, Cmd-Opt-I), but never on a page that refuses probes.
         webView.isInspectable = true
         webView.navigationDelegate = self
         fileChooser = Self.openPanel.map { PageOpenPanel(openPanel: $0) }
@@ -396,6 +404,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         PagePaintProbe.install(in: webView.configuration.userContentController) { [weak self] in
             self?.notePainted()
         }
+        PageTitleRowPress.install(in: webView.configuration.userContentController) { [weak self] in self?.titleRowPressed($0) }
         bridge.install { [weak self] message in
             await self?.receive(message)
         }
@@ -476,6 +485,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         webView.pageZoom = pageZoom
         chromiumSession?.page.setZoom(pageZoom)
         if loaded { glassFeed.refresh() } // the zoom moves the art's rect in CSS px
+        onZoomChange?()
     }
 
     /// Marks a claimed pooled host as used by real input.
@@ -487,6 +497,15 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// default, minimize, or nothing), for a title bar the page draws (DESKTOP-FEEL).
     func performTitleBarDoubleClick() {
         WindowTitlebar.performDoubleClick(in: window)
+    }
+
+    /// Makes `webView` transparent: WebKit's opaque backing would hide the window's backdrop.
+    /// macOS has no public switch, so this uses `_setDrawsBackground:` through KVC, checked first.
+    static func clearBackground(of webView: WKWebView) {
+        if webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) {
+            webView.setValue(false, forKey: "drawsBackground")
+        }
+        webView.underPageBackgroundColor = .clear
     }
 
     nonisolated public override var isFlipped: Bool { true }
@@ -503,8 +522,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
     }
 
-    /// The fragment the host last asked the page to show (``open(route:)``); the page may move on
-    /// by itself (its own links and history).
+    /// The fragment the host last asked the page to show (``open(route:)``), or the one the page
+    /// showed when it moved from Chromium to WebKit (``reopenForLiveOverride(hosting:isCurrent:)``);
+    /// the page may move on by itself (its own links and history).
     public internal(set) var route: String?
 
     /// Shows `route` (the URL fragment) in the page.
@@ -549,6 +569,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// When the current document painted its first frame (``PagePaintProbe``), in
     /// `ProcessInfo.systemUptime` seconds; nil until it has.
     public internal(set) var paintedUptime: TimeInterval?
+    /// It shows what must never leave the screen (a revealed password): page probes (`debug.page` query,
+    /// snapshot, call and list) never reach it, as screen capture never does, and no Web Inspector attaches
+    /// to it (one reads the DOM and calls the page's bridge).
+    public var refusesProbes = false {
+        didSet { webView.isInspectable = !refusesProbes }
+    }
     public var hasPainted: Bool { paintedUptime != nil }
     /// Callbacks for the current document's first frame (`whenPainted`).
     var paintWaiters: [() -> Void] = []
@@ -678,8 +704,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         let url = action.request.url
         switch PageNavigation.policy(for: url, page: descriptor, userClicked: action.navigationType == .linkActivated,
                                      mainFrame: action.targetFrame?.isMainFrame ?? true,
-                                     targetFrameURL: action.targetFrame?.request.url,
-                                     sourceFrameURL: action.sourceFrame.request.url, hook: onNavigate) {
+                                     targetFrameURL: action.targetFrameURL,
+                                     sourceFrameURL: action.sourceFrameURL, hook: onNavigate) {
         case .allow:
             return .allow
         case .openExternal:

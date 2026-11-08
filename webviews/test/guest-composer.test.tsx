@@ -119,6 +119,8 @@ async function mount(fake: ReturnType<typeof room>, storage = memoryStorage()) {
       <GuestPage
         shareId={SHARE}
         guestId="g1"
+        // A talk guest (a plain `role` prop reads as an ARIA role to the linter).
+        {...{ role: "talk" as const }}
         name="Ana"
         storage={storage}
         redeem={() => new Promise(() => undefined)}

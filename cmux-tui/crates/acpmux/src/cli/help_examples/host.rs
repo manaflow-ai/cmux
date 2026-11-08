@@ -62,6 +62,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     ("machine load", &[("Print this machine's load now as JSON", "acpmux machine load --json")]),
     (
+        "machine verdict",
+        &[("Judge the host readings given as JSON on stdin", "acpmux machine verdict --json")],
+    ),
+    (
         "machine notice",
         &[(
             "Add a muted line to every live chat here",
@@ -148,6 +152,44 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             "Ask to turn screen consent off; a shell is refused, the cmux app changes it",
             "acpmux machine consent revoke --screen",
         )],
+    ),
+    (
+        "machine leave",
+        &[
+            ("Revoke this joined machine and remove its join state", "acpmux machine leave"),
+            (
+                "Remove the join state after revoking the machine from your Mac",
+                "acpmux machine leave --local-only --json",
+            ),
+        ],
+    ),
+    (
+        "machine vault",
+        &[
+            ("Pull this machine's vault now", "acpmux machine vault pull"),
+            ("See which vault env vars this machine holds", "acpmux machine vault status"),
+        ],
+    ),
+    (
+        "machine vault pull",
+        &[
+            ("Pull the vault with this machine's join credential", "acpmux machine vault pull"),
+            (
+                "Pull for a script: state and env names, never values",
+                "acpmux machine vault pull --json",
+            ),
+        ],
+    ),
+    (
+        "machine vault status",
+        &[(
+            "Show vault env names, the last pull and whether Claude and Codex are signed in",
+            "acpmux machine vault status --json",
+        )],
+    ),
+    (
+        "machine vault forget",
+        &[("Remove this machine's vault env values and state", "acpmux machine vault forget")],
     ),
     (
         "machine setup",
@@ -271,6 +313,66 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("List tailnet machines that could be added", "acpmux machine candidates"),
             ("Also try key-only ssh to each online machine", "acpmux machine candidates --probe"),
+        ],
+    ),
+    (
+        "machine key",
+        &[
+            ("Print the line a new machine adds to authorized_keys", "acpmux machine key"),
+            ("Make an ed25519 key when this machine has none", "acpmux machine key --create"),
+        ],
+    ),
+    (
+        "machine agents",
+        &[
+            (
+                "See whether Claude Code and Codex are ready on mini-3",
+                "acpmux machine agents mini-3",
+            ),
+            ("Install Claude Code there", "acpmux machine agents mini-3 --install claude"),
+            (
+                "Sign Codex in there from this terminal",
+                "acpmux machine agents mini-3 --login codex",
+            ),
+        ],
+    ),
+    (
+        "machine deps",
+        &[
+            ("Restore this project's dependencies from the cache", "acpmux machine deps warm"),
+            ("See the cache key for each project in a folder", "acpmux machine deps key ~/src/app"),
+        ],
+    ),
+    (
+        "machine deps warm",
+        &[
+            ("Restore, install and upload after a cold install", "acpmux machine deps warm"),
+            ("Only restore, without running the install", "acpmux machine deps warm --no-install"),
+            (
+                "Upload before returning, not in the background",
+                "acpmux machine deps warm --upload-now",
+            ),
+            (
+                "Skip projects that already have node_modules or .venv",
+                "acpmux machine deps warm ~/src/app --if-missing --json",
+            ),
+        ],
+    ),
+    (
+        "machine deps wait",
+        &[
+            ("Wait for the uploads a cold install started", "acpmux machine deps wait"),
+            ("Wait, then say how many it waited for", "acpmux machine deps wait --json"),
+        ],
+    ),
+    (
+        "machine deps key",
+        &[
+            ("Print each project's cache key here", "acpmux machine deps key"),
+            (
+                "Print the keys for another folder as JSON",
+                "acpmux machine deps key ~/src/app --json",
+            ),
         ],
     ),
 ];

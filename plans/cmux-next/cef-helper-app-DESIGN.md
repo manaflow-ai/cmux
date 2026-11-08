@@ -74,7 +74,7 @@ Two channels per host:
 
 1. **Input and geometry: two stream socket pairs (one per direction), fixed 64-byte frames** (`shim/chromium_host_wire.h`,
    `S/ChromiumHost/ChromiumHostFrame.swift`, one golden frame tested on both sides). cmux writes non-blocking from the
-   main thread (one `write` on an `O_NONBLOCK` descriptor, a few us) and reads on a thread of its own, blocking on the
+   main thread (one `writev` of the header and payload on an `O_NONBLOCK` descriptor, a few us, no heap allocation) and reads on a thread of its own, blocking on the
    other pair (macOS ignores `MSG_DONTWAIT` on Unix sockets, and file status flags are shared by every descriptor of
    a socket, so one socket cannot be both); the host reads on a thread of its own and posts each frame to its UI thread.
    Bounded both ways (256 KB send buffer, 4,096 frames backlog); an overflow ends the host, never blocks cmux.

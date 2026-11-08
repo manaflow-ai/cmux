@@ -58,7 +58,7 @@ test("a sending message row has no spinner", () => {
     />,
   );
   expect(view.textContent).toContain("reviewer");
-  expect(view.querySelector(".cv-sent.is-live")).not.toBeNull();
+  expect(view.querySelector(".cv-sent-msg.is-live")).not.toBeNull();
   expect(view.querySelectorAll(".cv-spinner")).toHaveLength(0);
 });
 

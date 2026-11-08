@@ -6,7 +6,8 @@
 // skipping the history between it and the page, and say when the Chief sent it.
 import { expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
-import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import type { AcpmuxRow, AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000c3";
 const START = Date.UTC(2026, 9, 19, 9, 0, 0);
@@ -40,16 +41,20 @@ type Rec = ReturnType<typeof record>[number];
 
 /// A daemon whose attach page holds only the newest `page` records (as acpmux's maxBytes cap
 /// does), answering `_acpmux/events` like acpmux: beforeSeq pages backwards, newest `limit` first.
-function fakeDaemon(history: Rec[], page: number) {
+function fakeDaemon(history: Rec[], page: number, sessionId = CHAT) {
   let socket: any;
+  let pageSize = page;
+  let attachHeld = false;
+  let attachAsked: (() => void) | undefined;
+  let releaseAttach: (() => void) | undefined;
   const requests: { method: string; params: any }[] = [];
   const session = {
-    sessionId: CHAT,
+    sessionId,
     cwd: "/home/dev/x",
     title: "x",
     harness: "claude",
     family: "claude",
-    status: "running",
+    status: history.at(-1)?.kind === "turn_result" ? "idle" : "running",
     turnCount: 1,
     updatedAt: START,
   };
@@ -60,15 +65,23 @@ function fakeDaemon(history: Rec[], page: number) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
-        return { sessions: [session] };
+        return { sessions: [session, { ...session, sessionId: `${sessionId}-other`, status: "idle" }] };
       case "_acpmux/attach":
+        if (params.sessionId !== sessionId)
+          return {
+            session: { ...session, sessionId: params.sessionId, status: "idle" },
+            events: [],
+            hasMore: false,
+            lastSeq: 0,
+          };
         return {
           session,
           lastSeq: history.at(-1)?.seq ?? 0,
-          events: history.slice(-page),
-          hasMore: history.length > page,
+          events: history.slice(-pageSize),
+          hasMore: history.length > pageSize,
         };
       case "_acpmux/events": {
+        if (params.sessionId !== sessionId) return { events: [], hasMore: false, lastSeq: 0 };
         const before = params?.beforeSeq ?? Infinity;
         const limit = params?.limit ?? 5000;
         const all = history.filter((event) => event.seq < before && matches(params?.kinds, event));
@@ -86,30 +99,55 @@ function fakeDaemon(history: Rec[], page: number) {
         const message = JSON.parse(raw);
         if (message.id === undefined) return;
         requests.push({ method: message.method, params: message.params });
-        queueMicrotask(() =>
+        const reply = () =>
           socket.onmessage?.({
             data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) }),
-          }),
-        );
+          });
+        if (attachHeld && message.method === "_acpmux/attach" && message.params.sessionId === sessionId) {
+          attachHeld = false;
+          releaseAttach = reply;
+          attachAsked?.();
+        } else queueMicrotask(reply);
       },
       close() {},
     };
     queueMicrotask(() => socket.onopen?.());
     return socket as WebSocket;
   };
-  return { open, requests };
+  return {
+    open,
+    requests,
+    sessionId,
+    holdNextAttach(limit: number) {
+      pageSize = limit;
+      attachHeld = true;
+      return new Promise<void>((resolve) => (attachAsked = resolve));
+    },
+    releaseAttach: () => releaseAttach?.(),
+  };
 }
 
 async function connect(daemon: ReturnType<typeof fakeDaemon>) {
   let rows: AcpmuxRow[] = [];
+  const snapshots: AcpmuxSnapshot[] = [];
   const client = await AcpmuxDirectClient.connect(
-    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
-    (snapshot: any) => (rows = snapshot.rows),
+    {
+      protocolVersion: 1,
+      transport: "acpmux-websocket",
+      endpoint: "ws://127.0.0.1:1/",
+      token: "t",
+      sessionId: daemon.sessionId,
+    },
+    (snapshot) => {
+      if (snapshot.type !== "snapshot") return;
+      rows = snapshot.rows;
+      snapshots.push(snapshot);
+    },
     undefined,
     daemon.open,
   );
   for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-  return { client, rows: () => rows };
+  return { client, rows: () => rows, snapshots };
 }
 const users = (rows: AcpmuxRow[]) => rows.filter((row) => row.kind === "user");
 
@@ -195,4 +233,51 @@ test("loading older history after the opener keeps the records between and draws
   // Every tool call of the turn is there once the history is in.
   const toolIds = rows().flatMap((row) => (row.items ?? []).flatMap((item) => (item.tool ? [item.tool.id] : [])));
   expect(new Set(toolIds).size).toBe(30);
+});
+
+test("a warm capped tail has its final completed-turn structure before the unchanged attach answers", async () => {
+  const sessionId = `${CHAT}-warm-completed`;
+  const history = longTurn({ text: "Keep the completed turn folded", promptId: "warm-prompt" }, 420);
+  history.push(...record([["mux", "turn_result", { status: "completed" }]], history.length + 1));
+  for (const event of history) event.sessionId = sessionId;
+  // The first visit loaded the whole turn, so its opener was an ordinary event, not turnOpener.
+  const daemon = fakeDaemon(history, history.length, sessionId);
+  const { client, snapshots } = await connect(daemon);
+  try {
+    await client.select(`${sessionId}-other`);
+    const asked = daemon.holdNextAttach(400);
+    const first = snapshots.length;
+    const firstRequest = daemon.requests.length;
+    const back = client.select(sessionId);
+    await asked;
+    const cached = snapshots.slice(first).find((snapshot) => snapshot.sessionId === sessionId)!;
+    expect(cached.drewKeptTail).toBe(true);
+    expect(users(cached.rows).map((row) => row.text)).toEqual(["Keep the completed turn folded"]);
+    const shape = (snapshot: AcpmuxSnapshot) =>
+      turnView(snapshot.rows, new Set(), { working: snapshot.isWorking, agentFamily: "codex" }).map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        text: row.text,
+        foldOpen: row.foldOpen,
+      }));
+    const before = shape(cached);
+    expect(before.some((row) => row.kind === "worked")).toBe(true);
+    daemon.releaseAttach();
+    await back;
+    expect(shape(snapshots.at(-1)!)).toEqual(before);
+    // The click did not fetch the turn opener: cache preparation retained it before truncation.
+    // The rail independently reads its older-prompt index when the capped tail first draws.
+    const promptReads = daemon.requests
+      .slice(firstRequest)
+      .filter(
+        (request) =>
+          request.method === "_acpmux/events" &&
+          request.params?.sessionId === sessionId &&
+          request.params?.kinds?.includes("user_message"),
+      );
+    expect(promptReads.filter((request) => request.params?.promptIndex !== true)).toEqual([]);
+  } finally {
+    daemon.releaseAttach();
+    client.close();
+  }
 });

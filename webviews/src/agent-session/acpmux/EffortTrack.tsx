@@ -1,5 +1,5 @@
 import React, { useLayoutEffect, useRef } from "react";
-import type { Choice } from "./ComposerPickers";
+import type { Choice } from "./composerPickerModel";
 import type { ReasoningSliderStyle } from "./composerSettings";
 import { useT } from "./i18n";
 

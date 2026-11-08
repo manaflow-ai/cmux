@@ -38,6 +38,12 @@ public final class AccountsTeamsModel {
     public private(set) var isSaving = false
     /// What the last change did, until the next gesture.
     public private(set) var notice: String?
+    /// Invitations addressed to the person, newest first; read with the roles.
+    public private(set) var received: [CMUXReceivedTeamInvitation] = []
+    /// The invitation being accepted or declined.
+    public private(set) var answering: String?
+    /// Why the last accept or decline failed.
+    public private(set) var receivedError: String?
 
     @ObservationIgnored private let services: any AccountsServices
     @ObservationIgnored private var membershipRead = 0
@@ -45,6 +51,7 @@ public final class AccountsTeamsModel {
     /// not list (roles unknown) asks once, not on every redraw.
     @ObservationIgnored private var askedFor: Set<String> = []
     @ObservationIgnored private var detailRead = 0
+    @ObservationIgnored private var receivedRead = 0
 
     init(services: any AccountsServices) {
         self.services = services
@@ -71,6 +78,8 @@ public final class AccountsTeamsModel {
         guard services.activeTeam != nil else {
             memberships = [:]
             askedFor = []
+            received = []
+            receivedError = nil
             close()
             return
         }
@@ -79,6 +88,7 @@ public final class AccountsTeamsModel {
         if let list = try? await services.teamBackend?.teamMemberships(), read == membershipRead {
             memberships = Dictionary(list.teams.map { ($0.id, $0) }) { first, _ in first }
         }
+        await loadReceived()
         if let openTeamID { await loadDetail(openTeamID) }
     }
 
@@ -185,6 +195,57 @@ public final class AccountsTeamsModel {
             }
             return message
         }
+    }
+
+    /// Joins the team `invitationID` names; it becomes the active team when the switch to it
+    /// succeeds, and the notice says which happened. Returns the failure text, or nil.
+    @discardableResult
+    public func accept(_ invitationID: String) async -> String? {
+        let name = received.first { $0.id == invitationID }?.teamName ?? ""
+        return await answer(invitationID) {
+            let joined = try await self.backend().acceptTeamInvitation(id: invitationID)
+            await self.services.activeTeam?.refresh()
+            guard self.services.activeTeam?.id == joined.teamID else { return AccountsStrings.teamsJoinedInactive(name) }
+            return AccountsStrings.teamsJoined(name)
+        }
+    }
+
+    /// Declines `invitationID`. Returns the failure text, or nil.
+    @discardableResult
+    public func decline(_ invitationID: String) async -> String? {
+        let name = received.first { $0.id == invitationID }?.teamName ?? ""
+        return await answer(invitationID) {
+            try await self.backend().declineTeamInvitation(id: invitationID)
+            return AccountsStrings.teamsDeclined(name)
+        }
+    }
+
+    /// Runs one accept or decline; either way the invitations and roles re-read after it, so an
+    /// invitation that was already answered elsewhere leaves the list.
+    private func answer(_ invitationID: String, _ work: @escaping () async throws -> String) async -> String? {
+        guard answering == nil, !isSaving else { return AccountsStrings.teamsErrorBusy }
+        answering = invitationID
+        receivedError = nil
+        notice = nil
+        defer { answering = nil }
+        do {
+            notice = try await work()
+            await reload()
+            return nil
+        } catch {
+            let message = AccountsStrings.teamMessage(for: error)
+            receivedError = message
+            await reload()
+            return message
+        }
+    }
+
+    private func loadReceived() async {
+        receivedRead += 1
+        let read = receivedRead
+        guard let backend = services.teamBackend, let list = try? await backend.receivedTeamInvitations() else { return }
+        guard read == receivedRead else { return }
+        received = list
     }
 
     private func loadDetail(_ teamID: String) async {

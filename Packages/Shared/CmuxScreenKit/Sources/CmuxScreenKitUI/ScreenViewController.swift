@@ -56,6 +56,10 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     /// Stream mode: the Mac's video, and its displays (each streams on its own).
     private var videoView: ScreenVideoView?
     private var streamDisplays: [CGSize] = []
+    /// The decoded video's pixel size (stream mode; nil before the first frame).
+    private var videoSize: CGSize?
+    /// The 2 s viewer demand reports (stream mode).
+    private var demandReports: Task<Void, Never>?
 
     public init(session: ScreenSession) {
         self.session = session
@@ -126,6 +130,11 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     override public func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         becomeFirstResponder()
+        // The Mac streams at up to this rate (120 on a ProMotion iPhone or iPad
+        // when the Mac's display does 120 too); unreported, it stays at 60.
+        if let fps = view.window?.windowScene?.screen.maximumFramesPerSecond, fps > 0 {
+            session.displayMaximumFrameRate = fps
+        }
     }
 
     override public func viewDidLayoutSubviews() {
@@ -141,7 +150,11 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         video.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         content.insertSubview(video, at: 0)
         videoView = video
-        video.onSize = { [weak self] size in self?.applyFrameSize(size) }
+        video.onSize = { [weak self] size in
+            guard let self else { return }
+            videoSize = size
+            applyFrameSize(streamLayoutSize(for: size))
+        }
         video.onFrame = { [weak self] in self?.session.perf?.streamFrame() }
         session.onVideoTrack = { [weak video] box in video?.attach(box) }
         session.onStreamDisplays = { [weak self] sizes, current in
@@ -151,7 +164,38 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
             pageControl.numberOfPages = sizes.count
             pageControl.currentPage = current
             pageControl.isHidden = sizes.count < 2
+            // A video size that came before the displays: lay it out at the display's size now.
+            if let videoSize { applyFrameSize(streamLayoutSize(for: videoSize)) }
         }
+        // How large the stream shows, every 2 s: the Mac captures no larger than that.
+        demandReports?.cancel()
+        demandReports = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2)) // viewer demand heartbeat (Petal's 2 s)
+                guard let self else { return }
+                reportDemand(pinch: false)
+            }
+        }
+    }
+
+    /// The viewer's demand report: the long edge, in this screen's pixels, of
+    /// the whole streamed display at the current zoom.
+    private func reportDemand(pinch: Bool) {
+        guard session.isStream, frameSize.width > 0, view.window != nil else { return }
+        let pixels = max(frameSize.width, frameSize.height) * scrollView.zoomScale * traitCollection.displayScale
+        session.reportView(longEdge: Int(pixels.rounded(.up)), pinch: pinch)
+    }
+
+    /// The content size for a stream's video: the Mac display's own pixel
+    /// size when the video has its shape (the Mac may send it scaled down to
+    /// what this view shows), so a resolution step keeps the zoom and the
+    /// pointer where they are; the video's size otherwise.
+    private func streamLayoutSize(for video: CGSize) -> CGSize {
+        guard session.isStream, streamDisplays.indices.contains(page) else { return video }
+        let display = streamDisplays[page]
+        guard display.width > 0, display.height > 0, video.height > 0,
+              abs(display.width / display.height - video.width / video.height) < 0.01 else { return video }
+        return display
     }
 
     /// A new frame size (VNC framebuffer or video): reset the content and refit.
@@ -691,6 +735,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
     public func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
         followCursor()
+        reportDemand(pinch: true)
     }
 
     // MARK: Mouse and trackpad (iPad)

@@ -16,13 +16,15 @@ public nonisolated struct MetricTunable: Sendable {
     public let key: MetricKey?
     /// The custom density's `tokens` key for this metric.
     public let token: String
+    /// An icon box: every density resolves it on the icon scale (`DensityTokens.resolveGlyph`).
+    public var glyph = false
     public let tunable: DerivedTunable<CGFloat>
 
     /// The value chrome uses now. Observation-tracked (density, cmux.json
     /// override and Debug Settings override).
-    @MainActor public var value: CGFloat { Metrics.scale(tunable.resolve(Metrics.pick(compactValue, comfortable, key, token: token))) }
+    @MainActor public var value: CGFloat { Metrics.scale(tunable.resolve(Metrics.pick(compactValue, comfortable, key, token: token, glyph: glyph))) }
     /// The value without a Debug Settings override (density, custom density token and cmux.json override).
-    @MainActor public var densityValue: CGFloat { Metrics.scale(Metrics.pick(compactValue, comfortable, key, token: token)) }
+    @MainActor public var densityValue: CGFloat { Metrics.scale(Metrics.pick(compactValue, comfortable, key, token: token, glyph: glyph)) }
     /// The compact value in effect: `tight` under Compact tabs, else `compact`.
     @MainActor var compactValue: CGFloat { tight.flatMap { Metrics.compactTabs ? $0 : nil } ?? compact }
     public var descriptor: TunableDescriptor { tunable.descriptor }
@@ -30,15 +32,15 @@ public nonisolated struct MetricTunable: Sendable {
     /// `token` is the custom density's `tokens` key that sets it exactly (`name` unless given).
     static func make(_ name: String, _ section: TunableSection, _ label: String, help: String,
                      compact: CGFloat, comfortable: CGFloat, tight: CGFloat? = nil, key: MetricKey? = nil,
-                     token: String? = nil, range: ClosedRange<Double>? = nil) -> MetricTunable {
+                     token: String? = nil, range: ClosedRange<Double>? = nil, glyph: Bool = false) -> MetricTunable {
         let token = token ?? name
         let upper = max((Double(comfortable) * 2.5).rounded(.up), 24)
         let step = comfortable < 10 ? 0.5 : 1
         let note = compact == comfortable ? "" : " Default \(TunableExport.format(Double(compact))) compact, \(TunableExport.format(Double(comfortable))) comfortable."
         let tunable = DerivedTunable<CGFloat>.number(
             "metrics.\(name)", section, label, help: help + note, range: range ?? 0...upper, step: step, unit: .points,
-            code: "MetricTunables.\(name)") { Metrics.pick(tight.flatMap { Metrics.compactTabs ? $0 : nil } ?? compact, comfortable, key, token: token) }
-        return MetricTunable(name: name, compact: compact, comfortable: comfortable, tight: tight, key: key, token: token, tunable: tunable)
+            code: "MetricTunables.\(name)") { Metrics.pick(tight.flatMap { Metrics.compactTabs ? $0 : nil } ?? compact, comfortable, key, token: token, glyph: glyph) }
+        return MetricTunable(name: name, compact: compact, comfortable: comfortable, tight: tight, key: key, token: token, glyph: glyph, tunable: tunable)
     }
 }
 
@@ -127,18 +129,14 @@ public nonisolated enum MetricTunables {
         "dividerHitWidth", .panes, "Divider drag width", help: "Draggable width centered on a split divider.",
         compact: 7, comfortable: 7, key: .dividerHitWidth, range: 1...24)
     public static let densityPaneCornerRadius = MetricTunable.make(
-        "densityPaneCornerRadius", .panes, "Pane corner radius", help: "Rounded pane corners when padding or a border shows and layout.paneCornerRadius is unset.",
-        compact: 6, comfortable: 8)
+        "densityPaneCornerRadius", .panes, "Corner radius", help: "The one outer radius of panes, the main pane, the omnibar and tabs (tabs: less the corner padding) when layout.paneCornerRadius is unset. The omnibar's 8 pt by default (Lawrence 2026-11-05).",
+        compact: 8, comfortable: 8)
 
     // MARK: Shape, icons, focus
 
-    public static let panelCornerRadius = MetricTunable.make("panelCornerRadius", .shape, "Panel corner radius", help: "Floating glass panels and the floating drop highlight.",
-                                                             compact: 10, comfortable: 12, key: .panelCornerRadius)
-    public static let itemCornerRadius = MetricTunable.make("itemCornerRadius", .shape, "Item corner radius", help: "Tabs, rows and buttons.",
-                                                            compact: 6, comfortable: 7)
-    public static let iconSize = MetricTunable.make("iconSize", .shape, "Icon size", help: "Tab, row and toolbar icons.", compact: 14, comfortable: 16)
+    public static let iconSize = MetricTunable.make("iconSize", .shape, "Icon size", help: "Tab, row and toolbar icons.", compact: 14, comfortable: 16, glyph: true)
     public static let smallIconSize = MetricTunable.make("smallIconSize", .shape, "Small icon size", help: "Secondary glyphs and trailing buttons.",
-                                                         compact: 12, comfortable: 14)
+                                                         compact: 12, comfortable: 14, glyph: true)
     public static let scrollEdgeFade = MetricTunable.make("scrollEdgeFade", .focus, "Scroll edge fade", help: "Height of the fade where a list hides content.",
                                                           compact: 18, comfortable: 22)
 
@@ -146,6 +144,6 @@ public nonisolated enum MetricTunables {
     public static var metrics: [MetricTunable] {
         [sidebarWidth, titlebarHeight, sidebarRowHeight, sidebarListRowHeight, sidebarRowHeightWithSubtitle, sidebarHeaderHeight, roomDotDiameter, roomDotSlot,
          tabStripHeight, tabHeight, controlHeight, tabMaxWidth, tabMinActiveWidth, tabMinInactiveWidth, tabPinnedWidth, tabMinWidth, paletteRowHeight, paletteSearchHeight, paletteWidth, panelInset,
-         columnGap, dividerThickness, dividerHitWidth, densityPaneCornerRadius, panelCornerRadius, itemCornerRadius, iconSize, smallIconSize, scrollEdgeFade]
+         columnGap, dividerThickness, dividerHitWidth, densityPaneCornerRadius, iconSize, smallIconSize, scrollEdgeFade]
     }
 }

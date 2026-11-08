@@ -301,7 +301,7 @@ final class ThemeCoordinator {
             let entry = if let target, target.kind == .tab { services.cache.existingBrowser(target.id) } else {
                 try? AppActionContext(services: services).page(ActionInvocation(target: target))
             }
-            return entry?.chrome.toolbarButtons.modes.colorScheme.rawValue
+            return entry?.state.modes.colorScheme.rawValue
         }
         // A pane's own background and tint (the pane's Appearance folder checks them).
         if action == "pane.setBackground" || action == "pane.setTint" {

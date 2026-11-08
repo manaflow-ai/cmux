@@ -894,3 +894,40 @@ fn an_untimed_repeat_of_a_counted_record_is_not_lost() {
     append(&path, &[report, again]);
     assert_eq!(Tracker::default().refresh(&source, now, &models()).unwrap().tokens24h, Some(10));
 }
+
+#[test]
+fn the_day_reports_the_cache_read_share_and_the_cost_per_call() {
+    let home = tempfile::tempdir().unwrap();
+    let (source, path) = claude(home.path());
+    let now = ms("2026-10-30T12:00:00Z");
+    // A cold call writes the prompt to the hour-long cache; the next two read it back.
+    let cold = json!({"input_tokens": 10, "cache_creation_input_tokens": 90_000,
+        "cache_creation": {"ephemeral_1h_input_tokens": 90_000, "ephemeral_5m_input_tokens": 0},
+        "cache_read_input_tokens": 0, "output_tokens": 100});
+    append(
+        &path,
+        &[
+            assistant("msg_1", "2026-10-30T11:00:00Z", cold, false),
+            assistant("msg_2", "2026-10-30T11:10:00Z", usage(10, 0, 90_000, 100), false),
+            // A subagent's call is the chat's spend too.
+            assistant("msg_3", "2026-10-30T11:20:00Z", usage(10, 0, 90_000, 100), true),
+        ],
+    );
+    let mut tracker = Tracker::default();
+    let stats = tracker.refresh(&source, now, &models()).unwrap();
+    assert_eq!(stats.calls24h, Some(3));
+    // 180,000 of 270,030 prompt tokens came from the cache.
+    assert_eq!(stats.cache_read_share24h, Some(0.6666));
+    // 1h writes at twice the $4 input: 90,000 * 8 = $0.72; 30 input at $4, 300 output at $20,
+    // 180,000 reads at $0.20: $0.76212 over three calls.
+    assert_eq!(stats.cost_usd24h, Some(0.7621));
+    // Per call keeps sub-cent precision, so a cheap call never reads as $0.
+    assert_eq!(stats.cost_per_call_usd24h, Some(0.25404));
+
+    // A day later no call is left: the share is unknown, never 0%.
+    let later = tracker.refresh(&source, now + DAY_MS, &models()).unwrap();
+    assert_eq!(
+        (later.calls24h, later.cache_read_share24h, later.cost_per_call_usd24h),
+        (Some(0), None, None)
+    );
+}

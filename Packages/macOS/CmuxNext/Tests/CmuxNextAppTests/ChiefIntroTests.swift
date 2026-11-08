@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 import Foundation
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 import Testing
 
 /// The Chief's first-open intro: the welcome once per install for the only Chief, and a new

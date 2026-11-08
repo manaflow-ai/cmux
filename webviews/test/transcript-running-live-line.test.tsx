@@ -13,6 +13,7 @@ import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { WorkingFor } from "../src/agent-session/acpmux/conversation/WorkingFor";
 import { RunInBackgroundContext } from "../src/agent-session/acpmux/conversation/runInBackground";
 import { THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { callsToHold, linedCallOf, withoutHeldCalls } from "../src/agent-session/acpmux/conversation/turnEndHold";
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -28,7 +29,7 @@ const call = (id: string, status = "completed", extra: Partial<Tool> = {}): Acpm
   text: "",
   tool: { id, title: id, kind: "execute", status, command: id, startedAt: at, ...extra },
 });
-const codex = (rows: AcpmuxRow[]) => turnView(rows, new Set(), { working: true, liveRuns: true, lineBelow: true });
+const codex = (rows: AcpmuxRow[]) => turnView(rows, new Set(), { working: true });
 const words = (html: string) =>
   html
     .replace(/<[^>]+>/g, " ")
@@ -48,6 +49,9 @@ test("a command still running in an earlier run is the live line, not Thinking u
   ]);
   const line = shaped.at(-1)!;
   expect(line).toMatchObject({ kind: THINKING, doing: cp, doingShell: true, doingCommand: true });
+  // The line says which call it took out of its run, so a reader scrolled up keeps it out when the
+  // line lets go of it (turnEndHold.ts `callsToHold`, cmux#33200).
+  expect(line.linedCall).toBe(cp);
   // The running cp left its run, so it reads once, on the line.
   const tools = shaped.flatMap((entry) => entry.items ?? []).map((item) => item.tool?.id);
   expect(tools).toEqual(["git log"]);
@@ -76,6 +80,7 @@ test("the call in the latest step still names the line before an older command",
     row("r2", "activity", { items: [call("bun test", "in_progress")] }),
   ]);
   expect(shaped.at(-1)).toMatchObject({ doing: "bun test", doingCommand: true });
+  expect(shaped.at(-1)!.linedCall).toBeUndefined();
   // The older command keeps its row, which says it is still running and offers no ⌃B.
   expect(shaped.find((entry) => entry.id === "r1")?.items?.map((item) => item.tool?.id)).toEqual(["cp a b"]);
 });
@@ -89,12 +94,12 @@ test("a backgrounded command stays in its run and never takes the line", () => {
     row("a", "assistant", { text: LONG_NOTE }),
     row("r2", "activity", { items: [call("git log")] }),
   ]);
-  // The line holds the latest finished step instead, never the backgrounded command.
-  expect(shaped.at(-1)).toMatchObject({ doing: "git log", doingDone: true });
+  // The line reads Thinking, never the backgrounded command.
+  expect(shaped.at(-1)!.doing).toBeUndefined();
   expect(shaped.some((entry) => entry.id === "r1")).toBe(true);
 });
 
-test("a running command's row has no ⌃B hint and reads Running, then Ran", () => {
+test("a running command's row has no ⌃B hint and reads Running, then what it did", () => {
   const running = call("cp a b", "in_progress").tool!;
   const item = { kind: "tool", text: "", tool: running } as AcpmuxActivity;
   for (const html of [withCtrlB(<CommandRow item={item} />), withCtrlB(<ToolRow item={item} />)]) {
@@ -103,7 +108,8 @@ test("a running command's row has no ⌃B hint and reads Running, then Ran", () 
     expect(words(html)).not.toContain("Ran ");
   }
   const done = { ...item, tool: { ...running, status: "completed", exitCode: 0 } } as AcpmuxActivity;
-  expect(words(withCtrlB(<CommandRow item={done} />))).toContain("Ran cp a b");
+  // Finished, it says what it did (commandActions.ts); a command the table does not know says Ran.
+  expect(words(withCtrlB(<CommandRow item={done} />))).toContain("Copied a to b");
 });
 
 test("the older live line (Working for) carries the hint too, even while the command's row shows", () => {
@@ -126,8 +132,6 @@ test("a run whose command is on the line never shares a version with its ended, 
   const step = row("r2", "activity", { items: [call("git diff")] });
   const live = turnView([user, run, note, step], new Set(["worked-u"]), {
     working: true,
-    liveRuns: true,
-    lineBelow: true,
   });
   const lined = live.find((entry) => entry.id === "r1")!;
   expect(lined.items?.map((item) => item.tool?.id)).toEqual(["git log"]);
@@ -142,7 +146,6 @@ test("a run whose command is on the line never shares a version with its ended, 
       row("s", "turnSummary", { status: "completed" }),
     ],
     new Set(["worked-u"]),
-    { liveRuns: true, lineBelow: true },
   );
   const folded = ended.find((entry) => entry.id === "r1")!;
   expect(folded.items?.map((item) => item.tool?.id)).toEqual(["git log", "cp a b"]);
@@ -152,33 +155,14 @@ test("a run whose command is on the line never shares a version with its ended, 
 test("with a todo list the activity line offers ⌃B for a running command", async () => {
   const { ActivityLine } = await import("../src/agent-session/acpmux/conversation/ActivityLine");
   const plan = row("p", "plan", { plan: [{ content: "Copy the logs", status: "in_progress" }] });
-  for (const liveRuns of [false, true]) {
-    const shaped = turnView(
-      [row("u", "user"), plan, row("run", "activity", { items: [call("git log"), call("cp a b", "in_progress")] })],
-      new Set(),
-      { working: true, liveRuns, lineBelow: true, sessionStatus: true },
-    );
-    const line = shaped.at(-1)!;
-    expect(line).toMatchObject({ kind: "activityLine", doingCommand: true });
-    expect(withCtrlB(<ActivityLine row={line} />)).toContain("cv-command__bg");
-  }
-});
-
-test("the older layout offers no ⌃B while the agent still writes the command", () => {
-  const draft = call("Bash", "pending", { title: "Bash", command: undefined });
-  for (const lineBelow of [false, true]) {
-    const shaped = turnView(
-      [row("u", "user"), row("run", "activity", { items: [call("git log"), draft] })],
-      new Set(),
-      {
-        working: true,
-        lineBelow,
-      },
-    );
-    const line = shaped.find((entry) => entry.kind === "working")!;
-    expect(line.doingDraft).toBe(true);
-    expect(withCtrlB(<WorkingFor row={line} now={() => line.at + 5_000} />)).not.toContain("cv-command__bg");
-  }
+  const shaped = turnView(
+    [row("u", "user"), plan, row("run", "activity", { items: [call("git log"), call("cp a b", "in_progress")] })],
+    new Set(),
+    { working: true, sessionStatus: true },
+  );
+  const line = shaped.at(-1)!;
+  expect(line).toMatchObject({ kind: "activityLine", doingCommand: true });
+  expect(withCtrlB(<ActivityLine row={line} />)).toContain("cv-command__bg");
 });
 
 // Re-review on #24305 (Codex xhigh): with a todo list the activity line names the command the runs
@@ -201,7 +185,7 @@ test("with a todo list the activity line names the command its run gave up", () 
         row("r3", "activity", { items: [call("git status")] }),
       ],
       new Set(),
-      { working: true, liveRuns: true, lineBelow: true, sessionStatus: true },
+      { working: true, sessionStatus: true },
     );
     const line = shaped.at(-1)!;
     expect(line).toMatchObject({ kind: "activityLine", doingCommand: true });
@@ -219,4 +203,37 @@ test("the Sending message line draws no chevron: it has nothing to open", async 
   const html = renderToStaticMarkup(<ActivityLine row={line} now={() => 1000} />);
   expect(html).toContain("tests");
   expect(html).not.toContain("cv-tool__chevron");
+});
+
+// cmux#33200: while the reader is scrolled up, the command the line lets go of stays out of its run,
+// as they saw it, instead of coming back as a row that moves every row under it.
+test("a command the line let go of stays out of its run while held", () => {
+  const cp = "cp a b";
+  const rows = [
+    row("u", "user"),
+    row("r1", "activity", { items: [call(cp, "in_progress")] }),
+    row("a", "assistant", { text: LONG_NOTE }),
+    row("r2", "activity", { items: [call("git log"), call("git diff")] }),
+  ];
+  expect(linedCallOf(codex(rows))).toBe(cp);
+  // It finishes: the line lets go of it, and it would go back into its run as a row.
+  const done = rows.map((each) => (each.id === "r1" ? { ...each, items: [call(cp)], version: 2 } : each));
+  expect(linedCallOf(codex(done))).toBeUndefined();
+  expect(codex(done).some((each) => each.id === "r1")).toBe(true);
+  const held = new Set([callsToHold(cp, undefined, new Set())!]);
+  expect(held).toEqual(new Set([cp]));
+  expect(callsToHold(cp, cp, new Set())).toBeUndefined();
+  expect(callsToHold(cp, undefined, held)).toBeUndefined();
+  // Held, its run draws no row for it, and every other row is the same object.
+  const without = withoutHeldCalls(done, held);
+  expect(without.some((each) => each.id === "r1")).toBe(false);
+  expect(without[0]).toBe(done[0]);
+  expect(codex([...without]).some((each) => each.id === "r1")).toBe(false);
+  expect(withoutHeldCalls(done, held)).toEqual(without);
+  // A run with other calls keeps them, at a version none of its own states has.
+  const shared = [row("u2", "user"), row("r3", "activity", { items: [call("ls"), call(cp)] })];
+  const kept = withoutHeldCalls(shared, held)[1]!;
+  expect(kept.items?.map((item) => item.tool?.id)).toEqual(["ls"]);
+  expect(Number.isInteger(kept.version)).toBe(false);
+  expect(withoutHeldCalls(shared, new Set())).toBe(shared);
 });

@@ -15,6 +15,8 @@ public nonisolated enum ImportSourceKind: String, Codable, Sendable, CaseIterabl
     case iterm2
     /// cmux Classic's saved workspaces.
     case cmuxClassic
+    /// Conductor's workspaces (`~/conductor/workspaces`), adopted in place.
+    case conductor
 }
 
 /// What a scan found for one source, from folder listings and file
@@ -43,7 +45,7 @@ public nonisolated struct ImportFinding: Codable, Sendable, Hashable, Identifiab
         }
     }
 
-    /// `browser.<id>`, `agents.claudeCode`, `agents.codex`, `terminal.ghostty`, `terminal.iterm2`, `cmux.classic`.
+    /// `browser.<id>`, `agents.claudeCode`, `agents.codex`, `terminal.ghostty`, `terminal.iterm2`, `cmux.classic`, `agents.conductor`.
     public var id: String
     public var kind: ImportSourceKind
     /// The browser, for `.browser`.
@@ -52,7 +54,7 @@ public nonisolated struct ImportFinding: Codable, Sendable, Hashable, Identifiab
     public var name: String
     /// Browser profiles (only those not imported yet) or iTerm2 profiles.
     public var profiles: [Profile]
-    /// Sessions, threads or workspaces, for the agent and Classic sources.
+    /// Sessions, threads or workspaces, for the agent, Classic and Conductor sources.
     public var count: Int
     public var access: Access
 
@@ -90,7 +92,7 @@ public nonisolated struct ImportFinding: Codable, Sendable, Hashable, Identifiab
             // keeps the card dismissed and only a new one brings it back (ImportSuggestionState.hides).
             let held = profiles.flatMap { profile in profile.kinds.map { "\(profile.directoryName)=\($0.rawValue)" } }.sorted()
             return ([id, access.rawValue] + held).joined(separator: "|")
-        case .claudeCode, .codex, .ghostty, .cmuxClassic:
+        case .claudeCode, .codex, .ghostty, .cmuxClassic, .conductor:
             return [id, access.rawValue].joined(separator: "|")
         }
     }

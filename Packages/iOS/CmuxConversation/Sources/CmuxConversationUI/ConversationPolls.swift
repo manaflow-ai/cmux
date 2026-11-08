@@ -167,7 +167,6 @@ extension MessageCellLayout {
             senderNameFrame: senderNameFrame,
             quoteFrame: nil,
             quoteTextFrame: nil,
-            threadPath: nil,
             imageFrames: [],
             bubbleFrame: nil,
             textFrame: nil,

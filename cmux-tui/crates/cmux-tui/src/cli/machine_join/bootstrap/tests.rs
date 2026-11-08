@@ -3,7 +3,9 @@ use std::sync::{Arc, mpsc};
 
 use serde_json::{Value, json};
 
-use super::super::tests::{TOKEN, command, entry, far, fake, mint_answer, never, no_secret, platform};
+use super::super::tests::{
+    TOKEN, command, entry, fake, far, mint_answer, never, no_secret, platform,
+};
 use super::super::{Hooks, RunOptions, run};
 use super::*;
 
@@ -17,7 +19,10 @@ fn minting() -> (String, mpsc::Receiver<String>) {
             return (200, json!([entry("jt_1")]).to_string());
         }
         if request.starts_with("GET /v1/vault/env ") {
-            return (200, json!({"entries": [{"name": "OPENAI_API_KEY", "revision": 1}]}).to_string());
+            return (
+                200,
+                json!({"entries": [{"name": "OPENAI_API_KEY", "revision": 1}]}).to_string(),
+            );
         }
         (404, "{}".to_owned())
     }))
@@ -47,9 +52,7 @@ fn run_add(
         asked.push(question.to_owned());
         true
     };
-    let mut read_value = |_: &str| -> Result<Zeroizing<String>, String> {
-        Err("none".into())
-    };
+    let mut read_value = |_: &str| -> Result<Zeroizing<String>, String> { Err("none".into()) };
     let mut ssh = |plan: &SshPlan| -> std::io::Result<i32> {
         plans.push((plan.argv.clone(), plan.stdin.as_ref().map(|s| s.as_str().to_owned())));
         Ok(if codes.is_empty() { 0 } else { codes.remove(0) })
@@ -77,8 +80,14 @@ fn usb_writes_the_token_only_into_an_owner_only_command_file() {
         let script_path = stick.path().join(USB_SCRIPT);
         let script = std::fs::read_to_string(&script_path).unwrap();
         assert!(script.starts_with("#!/bin/sh\n"), "{script}");
-        assert!(script.contains(&format!("curl -fsSL {origin}/v1/machines/join.sh -o \"$f\"")), "{script}");
-        assert!(script.contains(&format!("if CMUX_JOIN={TOKEN} sh \"$f\"; then\n  rm -f -- \"$here\"")), "{script}");
+        assert!(
+            script.contains(&format!("curl -fsSL {origin}/v1/machines/join.sh -o \"$f\"")),
+            "{script}"
+        );
+        assert!(
+            script.contains(&format!("if CMUX_JOIN={TOKEN} sh \"$f\"; then\n  rm -f -- \"$here\"")),
+            "{script}"
+        );
         assert_eq!(script.matches(TOKEN).count(), 1, "the token once, in the join's env");
         let mode = std::fs::metadata(&script_path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o700);
@@ -110,9 +119,18 @@ fn usb_with_vault_asks_first_and_a_bad_path_spends_no_token() {
     let stick = tempfile::tempdir().unwrap();
     let path = stick.path().to_str().unwrap().to_owned();
     let (origin, requests) = minting();
-    let ran = run_add(&["machine", "add", "--usb", &path, "--vault", "--ttl", "5m"], &origin, OutputMode::Human, true, &[]);
+    let ran = run_add(
+        &["machine", "add", "--usb", &path, "--vault", "--ttl", "5m"],
+        &origin,
+        OutputMode::Human,
+        true,
+        &[],
+    );
     assert_eq!(ran.code, Ok(0));
-    assert_eq!(ran.asked, vec!["This machine gets 1 env var from your vault: OPENAI_API_KEY. Continue?"]);
+    assert_eq!(
+        ran.asked,
+        vec!["This machine gets 1 env var from your vault: OPENAI_API_KEY. Continue?"]
+    );
     requests.recv().unwrap();
     assert_eq!(body_of(&requests.recv().unwrap()), json!({"ttlSeconds": 300, "vault": true}));
     let readme = std::fs::read_to_string(stick.path().join(USB_README)).unwrap();
@@ -120,9 +138,10 @@ fn usb_with_vault_asks_first_and_a_bad_path_spends_no_token() {
     // A second run on the same stick overwrites nothing and makes no token.
     let before = std::fs::read_to_string(stick.path().join(USB_SCRIPT)).unwrap();
     let (origin, requests) = minting();
-    let failure = run_add(&["machine", "add", "--usb", &path], &origin, OutputMode::Quiet, true, &[])
-        .code
-        .unwrap_err();
+    let failure =
+        run_add(&["machine", "add", "--usb", &path], &origin, OutputMode::Quiet, true, &[])
+            .code
+            .unwrap_err();
     assert!(failure.message.contains("already exists"), "{}", failure.message);
     assert!(requests.try_recv().is_err(), "no token for a used stick");
     assert_eq!(std::fs::read_to_string(stick.path().join(USB_SCRIPT)).unwrap(), before);
@@ -143,7 +162,9 @@ fn usb_with_vault_asks_first_and_a_bad_path_spends_no_token() {
 
 #[test]
 fn a_used_or_linked_stick_is_refused_and_nothing_is_written_through_a_link() {
-    for (name, link) in [(USB_SCRIPT, false), (USB_README, false), (USB_SCRIPT, true), (USB_README, true)] {
+    for (name, link) in
+        [(USB_SCRIPT, false), (USB_README, false), (USB_SCRIPT, true), (USB_README, true)]
+    {
         let stick = tempfile::tempdir().unwrap();
         let elsewhere = stick.path().join("elsewhere");
         std::fs::write(&elsewhere, "keep").unwrap();
@@ -155,9 +176,10 @@ fn a_used_or_linked_stick_is_refused_and_nothing_is_written_through_a_link() {
         }
         let path = stick.path().to_str().unwrap().to_owned();
         let (origin, requests) = minting();
-        let failure = run_add(&["machine", "add", "--usb", &path], &origin, OutputMode::Human, true, &[])
-            .code
-            .unwrap_err();
+        let failure =
+            run_add(&["machine", "add", "--usb", &path], &origin, OutputMode::Human, true, &[])
+                .code
+                .unwrap_err();
         assert_eq!(failure.exit, 2, "{name} link={link}");
         assert!(requests.try_recv().is_err(), "checked before a token is made");
         assert_eq!(std::fs::read_to_string(&elsewhere).unwrap(), "keep");
@@ -168,7 +190,8 @@ fn a_used_or_linked_stick_is_refused_and_nothing_is_written_through_a_link() {
     }
     // A dangling link counts as taken too.
     let stick = tempfile::tempdir().unwrap();
-    std::os::unix::fs::symlink(stick.path().join("nowhere"), stick.path().join(USB_README)).unwrap();
+    std::os::unix::fs::symlink(stick.path().join("nowhere"), stick.path().join(USB_README))
+        .unwrap();
     assert_eq!(usb_taken(stick.path()).len(), 1);
     assert!(write_usb(stick.path(), "script", "readme").is_err());
     assert!(!stick.path().join("nowhere").exists());
@@ -220,7 +243,11 @@ fn the_usb_command_deletes_itself_only_after_a_join_that_worked() {
         if curl_code != 0 {
             assert!(!got.exists(), "a failed download runs nothing");
         } else {
-            assert_eq!(std::fs::read_to_string(&got).unwrap(), TOKEN, "the join's sh got it in its env");
+            assert_eq!(
+                std::fs::read_to_string(&got).unwrap(),
+                TOKEN,
+                "the join's sh got it in its env"
+            );
         }
         let left: Vec<_> = std::fs::read_dir(dir.path())
             .unwrap()
@@ -236,9 +263,14 @@ fn the_usb_command_deletes_itself_only_after_a_join_that_worked() {
 #[test]
 fn the_ssh_plan_carries_the_token_on_stdin_never_in_argv() {
     let plan = join_plan("https://p.example", "leo@mini-9", TOKEN);
-    assert_eq!(plan.argv[..5], ["ssh", "-o", "ConnectTimeout=15", "--", "leo@mini-9"].map(str::to_owned));
+    assert_eq!(
+        plan.argv[..5],
+        ["ssh", "-o", "ConnectTimeout=15", "--", "leo@mini-9"].map(str::to_owned)
+    );
     assert!(plan.argv[5].starts_with("sh -c 'IFS= read -r t; "), "{}", plan.argv[5]);
-    assert!(plan.argv[5].contains("curl -fsSL https://p.example/v1/machines/join.sh -o \"$f\" || {"));
+    assert!(
+        plan.argv[5].contains("curl -fsSL https://p.example/v1/machines/join.sh -o \"$f\" || {")
+    );
     assert!(plan.argv[5].ends_with("CMUX_JOIN=\"$t\" sh \"$f\"'"));
     assert!(plan.argv.iter().all(|a| !a.contains("cmj_")));
     assert_eq!(plan.stdin.as_deref().map(String::as_str), Some(format!("{TOKEN}\n").as_str()));
@@ -261,7 +293,11 @@ fn the_ssh_plan_carries_the_token_on_stdin_never_in_argv() {
 fn run_ssh_writes_the_token_to_ssh_stdin_and_the_remote_sh_gets_it_in_its_env() {
     let dir = tempfile::tempdir().unwrap();
     let got = dir.path().join("got");
-    let bin = fake_curl(dir.path(), &format!("printf '%s' \"$CMUX_JOIN\" >'{}'\nexit 5", got.display()), 0);
+    let bin = fake_curl(
+        dir.path(),
+        &format!("printf '%s' \"$CMUX_JOIN\" >'{}'\nexit 5", got.display()),
+        0,
+    );
     // A fake ssh: records its argv, then runs the remote command as sshd would (`sh -c`).
     let ssh = dir.path().join("ssh");
     let argv_log = dir.path().join("ssh-argv");
@@ -288,7 +324,13 @@ fn run_ssh_writes_the_token_to_ssh_stdin_and_the_remote_sh_gets_it_in_its_env() 
 #[test]
 fn ssh_join_reports_the_machine_and_offers_the_agents_own_sign_in() {
     let (origin, requests) = minting();
-    let ran = run_add(&["machine", "add", "leo@mini-9", "--bootstrap"], &origin, OutputMode::Human, true, &[0, 0]);
+    let ran = run_add(
+        &["machine", "add", "leo@mini-9", "--bootstrap"],
+        &origin,
+        OutputMode::Human,
+        true,
+        &[0, 0],
+    );
     assert_eq!(ran.code, Ok(0), "{}", ran.out);
     no_secret(&ran.out);
     assert!(ran.out.contains("lane-vm-3 joined (machine m_1)."), "{}", ran.out);
@@ -302,7 +344,13 @@ fn ssh_join_reports_the_machine_and_offers_the_agents_own_sign_in() {
     assert_eq!(body_of(&requests.recv().unwrap()), json!({}), "--bootstrap shares no vault");
     // Not on a terminal: no sign-in run, one line that says how.
     let (origin, _requests) = minting();
-    let ran = run_add(&["machine", "add", "leo@mini-9", "--vault", "--yes"], &origin, OutputMode::Human, false, &[0]);
+    let ran = run_add(
+        &["machine", "add", "leo@mini-9", "--vault", "--yes"],
+        &origin,
+        OutputMode::Human,
+        false,
+        &[0],
+    );
     assert_eq!(ran.code, Ok(0));
     assert_eq!(ran.plans.len(), 1);
     assert!(
@@ -314,7 +362,13 @@ fn ssh_join_reports_the_machine_and_offers_the_agents_own_sign_in() {
     );
     // --no-wait: the join ran, and the machine list is never read.
     let (origin, requests) = minting();
-    let ran = run_add(&["machine", "add", "leo@mini-9", "--bootstrap", "--no-wait"], &origin, OutputMode::Json, false, &[0]);
+    let ran = run_add(
+        &["machine", "add", "leo@mini-9", "--bootstrap", "--no-wait"],
+        &origin,
+        OutputMode::Json,
+        false,
+        &[0],
+    );
     assert_eq!(ran.code, Ok(0));
     assert!(requests.recv().unwrap().starts_with("POST /v1/machines/join-tokens "));
     assert!(requests.try_recv().is_err(), "no list read with --no-wait");
@@ -322,7 +376,13 @@ fn ssh_join_reports_the_machine_and_offers_the_agents_own_sign_in() {
     assert_eq!(value["joined"], Value::Null);
     // --json: one object, no token.
     let (origin, _requests) = minting();
-    let ran = run_add(&["machine", "add", "leo@mini-9", "--bootstrap"], &origin, OutputMode::Json, true, &[0]);
+    let ran = run_add(
+        &["machine", "add", "leo@mini-9", "--bootstrap"],
+        &origin,
+        OutputMode::Json,
+        true,
+        &[0],
+    );
     let value: Value = serde_json::from_str(ran.out.trim()).unwrap();
     assert_eq!(value["joined"]["machineId"], "m_1");
     no_secret(&ran.out);
@@ -331,16 +391,31 @@ fn ssh_join_reports_the_machine_and_offers_the_agents_own_sign_in() {
 #[test]
 fn ssh_that_cannot_connect_guides_to_remote_login_and_the_pasted_line() {
     let (origin, _requests) = minting();
-    let ran = run_add(&["machine", "add", "leo@mini-9", "--bootstrap"], &origin, OutputMode::Human, true, &[255]);
+    let ran = run_add(
+        &["machine", "add", "leo@mini-9", "--bootstrap"],
+        &origin,
+        OutputMode::Human,
+        true,
+        &[255],
+    );
     assert_eq!(ran.code, Ok(4));
     assert!(ran.out.contains("System Settings > General > Sharing > Remote Login"), "{}", ran.out);
-    assert!(ran.out.contains(&format!(" curl -fsSL {origin}/v1/machines/join.sh | CMUX_JOIN={TOKEN} sh")));
+    assert!(
+        ran.out
+            .contains(&format!(" curl -fsSL {origin}/v1/machines/join.sh | CMUX_JOIN={TOKEN} sh"))
+    );
     assert_eq!(ran.plans.len(), 1, "no sign-in after a failed join");
     // Another remote failure: an error that names no token.
     let (origin, _requests) = minting();
-    let failure = run_add(&["machine", "add", "leo@mini-9", "--bootstrap"], &origin, OutputMode::Json, true, &[3])
-        .code
-        .unwrap_err();
+    let failure = run_add(
+        &["machine", "add", "leo@mini-9", "--bootstrap"],
+        &origin,
+        OutputMode::Json,
+        true,
+        &[3],
+    )
+    .code
+    .unwrap_err();
     assert_eq!(failure.code, "machine_join.remote_failed");
     no_secret(&failure.message);
 }

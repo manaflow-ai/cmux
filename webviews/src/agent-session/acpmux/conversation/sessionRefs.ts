@@ -22,7 +22,7 @@ export type SessionRefTarget = {
 
 export type AgentRef =
   /// An agent link: `href` is what a click opens when the session is not the reader's; `query` what
-  /// `_acpmux/resolve` is asked (undefined: a link acpmux cannot resolve, the opaque `?id=` form).
+  /// `_acpmux/resolve` is asked (undefined: a link acpmux cannot resolve).
   | { kind: "link"; href: string; query?: string }
   /// A `HOST/NAME` that may name a session; it is one only if acpmux resolves it.
   | { kind: "name"; query: string };
@@ -39,6 +39,9 @@ const FILE_EXT = /\.[A-Za-z][A-Za-z0-9]{0,11}$/;
 /// A harness's own session id, which a link without a harness is resolved by (acpmux matches a
 /// bare id against `agentSessionId`).
 const SESSION_ID = /^(?!\.+$)[A-Za-z0-9._:-]{1,256}$/;
+/// The opaque id of a public link (`?id=aid-...`), which acpmux reads only where it holds the key
+/// (opaque_agent_id.rs); elsewhere it resolves nothing and the link opens its web page.
+const OPAQUE_ID = /^aid-[0-9a-f]{20}$/;
 
 /// The agent reference `text` (a code span's content) is, or undefined.
 export function agentRef(text: string): AgentRef | undefined {
@@ -52,8 +55,11 @@ export function agentRef(text: string): AgentRef | undefined {
     const harness = params.get("harness");
     const session = params.get("session");
     // A link with its harness is acpmux's to read whole (agent_link.rs); one that names only the
-    // session (`?host=&session=`, as lanes print them) is resolved by the session's id.
-    const query = harness && session ? value : session && SESSION_ID.test(session) ? session : undefined;
+    // session (`?host=&session=`, as lanes print them) is resolved by the session's id. An opaque
+    // `?id=` link goes to acpmux whole too.
+    const id = params.getAll("id");
+    const opaque = id.length === 1 && OPAQUE_ID.test(id[0] ?? "");
+    const query = (harness && session) || opaque ? value : session && SESSION_ID.test(session) ? session : undefined;
     return { kind: "link", href, ...(query && { query }) };
   }
   if (NATIVE_LINK.test(value)) {
@@ -84,9 +90,24 @@ type Resolver = (query: string) => Promise<unknown>;
 /// How many answers are kept; the oldest go first.
 const MAX_KNOWN = 500;
 const known = new Map<string, SessionRefTarget | null>();
+/// When each "no session" answer came. A miss is asked again once it is older than `MISS_KEPT_MS`:
+/// a peer's list not mirrored yet, or a machine not connected yet, answers later (Leo, 2026-11-07,
+/// on a sender chip: "it just never ever loaded the thing in the first place").
+const missedAt = new Map<string, number>();
+export const MISS_KEPT_MS = 15_000;
 const pending = new Map<string, Promise<SessionRefTarget | null>>();
 const listeners = new Set<() => void>();
 let resolver: Resolver | undefined;
+
+/// The label acpmux puts after a sender that named itself (`hub/inbox.rs` `display_sender`): who sent
+/// it is unverified, but the chat it names is still the one to look up.
+const SELF_DECLARED = / \(self-declared, unauthenticated\)$/;
+
+/// The reference a sender's displayed name stands for: the name without acpmux's self-declared
+/// label. Looked up with the label, no chat ever matched, and every click said it could not be found.
+export function senderRef(name: string): string {
+  return name.trim().replace(SELF_DECLARED, "").trim();
+}
 
 /// Sets how a reference is resolved (App.tsx: `_acpmux/resolve` through the page's client).
 /// Without one nothing resolves, and links open their web page.
@@ -101,12 +122,21 @@ export function sessionRefsResolve(): boolean {
 
 /// What `query` resolved to: its session, null for none, undefined before it was asked.
 export function knownSessionRef(query: string): SessionRefTarget | null | undefined {
+  forgetStaleMiss(query);
   return known.get(query);
 }
 
+function forgetStaleMiss(query: string): void {
+  const at = missedAt.get(query);
+  if (at === undefined || Date.now() - at < MISS_KEPT_MS) return;
+  missedAt.delete(query);
+  known.delete(query);
+}
+
 /// Resolves `query` once; later calls share the answer. A failed ask (not found, refused, no
-/// daemon) is an answer: no session.
+/// daemon) is an answer: no session, for `MISS_KEPT_MS`.
 export function resolveSessionRef(query: string): Promise<SessionRefTarget | null> {
+  forgetStaleMiss(query);
   if (known.has(query)) return Promise.resolve(known.get(query)!);
   const inFlight = pending.get(query);
   if (inFlight) return inFlight;
@@ -115,8 +145,14 @@ export function resolveSessionRef(query: string): Promise<SessionRefTarget | nul
     .then(resolvedTarget, () => null)
     .then((target) => {
       pending.delete(query);
-      if (known.size >= MAX_KNOWN) known.delete(known.keys().next().value!);
+      if (known.size >= MAX_KNOWN) {
+        const oldest = known.keys().next().value!;
+        known.delete(oldest);
+        missedAt.delete(oldest);
+      }
       known.set(query, target);
+      if (target) missedAt.delete(query);
+      else missedAt.set(query, Date.now());
       for (const listener of listeners) listener();
       return target;
     });
@@ -132,6 +168,7 @@ export function subscribeSessionRefs(listener: () => void): () => void {
 /// Forgets every answer (tests).
 export function resetSessionRefs(): void {
   known.clear();
+  missedAt.clear();
   pending.clear();
 }
 

@@ -35,6 +35,10 @@ public nonisolated enum SidebarGroupBy: String, Hashable, Sendable, CaseIterable
     case none
     /// A header per folder: the front tab's working directory.
     case folder
+    /// Projects and Recents, as the ChatGPT app's sidebar (Lawrence 2026-11-05): every group under a
+    /// "Projects" header (the first five, then "Show N more"), then every workspace in no group under
+    /// "Recents", the newest activity first.
+    case recents
 }
 
 public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
@@ -130,6 +134,12 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.groupHeader.unreadCount`: a collapsed group's header shows its members' unread
     /// total on the right. Off by default, as ``groupHeaderMemberCount``.
     public var groupHeaderUnreadCount = false
+    /// `sidebar.groupHeader.background`: a group header's background is glass, solid, or (the default, `auto`)
+    /// glass where the sidebar is see-through and solid where it is opaque. It always shows (Lawrence 2026-11-05).
+    public var groupHeaderBackground: SidebarGroupBackgroundStyle = .auto
+    /// `sidebar.groupPalette` (``GroupPalette``): where group colors come from, and whether a new group takes the
+    /// palette's next color. Pure glass by default: a new group has no color until a person picks one.
+    public var groupPalette: GroupPalette = .glass
     /// Normal (the default, the Codex desktop sidebar), compact, comfortable or expanded workspace rows
     /// (`sidebar.density`); minimal mode wins over expanded content.
     public var density: SidebarDensity = .normal
@@ -143,11 +153,6 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var detailSize: CGFloat?
     public var rowHeight: CGFloat?
     public var rowPadding: CGFloat?
-    /// The custom sizes' ranges, in points.
-    public static let titleSizeRange: ClosedRange<CGFloat> = 9...24
-    public static let detailSizeRange: ClosedRange<CGFloat> = 8...20
-    public static let rowHeightRange: ClosedRange<CGFloat> = 16...56
-    public static let rowPaddingRange: ClosedRange<CGFloat> = 0...24
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
     /// Off by default: a fresh profile's sidebar is pinned, its Settings and
     /// account band always shown; hover-reveal is opt-in (Leo 2026-10-11).

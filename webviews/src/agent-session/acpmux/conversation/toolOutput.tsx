@@ -4,6 +4,7 @@
 // (where results and errors are) until the reader asks for all of it.
 import { useMemo, useState } from "react";
 import { useT } from "../i18n";
+import { ExpandRow } from "./ExpandRow";
 
 /// Terminal control codes: CSI sequences (colours, `\x1b[?25l`, `\x1b[2~`, `\x1b[0 q`), OSC
 /// strings such as hyperlinks (`\x1b]8;;URL\x07text\x1b]8;;\x07`), charset picks (`tput sgr0`
@@ -73,19 +74,16 @@ export function previewedOutput(
 }
 
 /// Show all output / Show less under an output long enough to have been cut (and too few lines for
-/// a preview, which opens it instead: BlockParts.tsx `PreviewMore`). Find skips its words.
+/// a preview, which opens it instead: BlockParts.tsx `PreviewMore`). The block's whole bottom row (ExpandRow.tsx).
 export function OutputMore({ output }: { output: ReturnType<typeof useOutput> }) {
   const t = useT();
   if (!output.long) return null;
   return (
-    <button
-      type="button"
+    <ExpandRow
       className="cv-output-more"
-      aria-expanded={output.all}
-      data-find-skip=""
-      onClick={output.toggle}
-    >
-      {output.all ? t("shell.showLess") : t("shell.showAll")}
-    </button>
+      open={output.all}
+      onToggle={output.toggle}
+      label={output.all ? t("shell.showLess") : t("shell.showAll")}
+    />
   );
 }
