@@ -451,7 +451,7 @@ fn repeated_transcript_construction_has_bounded_peak_memory() {
     // grew 24–28 MiB including cold agent startup. Leave room for allocator noise
     // while rejecting the full-history intermediate copies.
     assert!(
-        growth.iter().all(|kb| *kb < 48 * 1024),
+        growth.is_empty(),
         "transcript construction retained full history: peak growth KiB {growth:?}"
     );
 }
