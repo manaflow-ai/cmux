@@ -26,8 +26,11 @@ function trackedKeys(): ReadonlySet<string> {
 }
 
 /** Keys a write to the key also changes (`WindowBackgroundSetting.linkedEdits` on the host):
- * Opacity in Ghostty mode names the Material, and Material's reset removes Opacity. */
+ * Opacity in Ghostty mode names the Material, Material's reset removes Opacity, and a picture
+ * picked at Opacity 100% removes Opacity. */
 const LINKED: Readonly<Record<string, readonly string[]>> = {
+  // A picture picked at Opacity 100% resets Opacity and its Material, which would hide it (#29881).
+  "appearance.background": ["appearance.backgroundOpacity", "appearance.backgroundBlur"],
   "appearance.backgroundOpacity": ["appearance.backgroundBlur"],
   "appearance.backgroundBlur": ["appearance.backgroundOpacity"],
 };

@@ -922,11 +922,14 @@ export class SettingsStore {
     return ok;
   }
 
-  /** Writes each state (outside the undo stack): a set, a reset or a theme level. */
+  /** Writes each state (outside the undo stack): a set, a reset or a theme level. The background
+   * goes first: a picture written at Opacity 100% resets Opacity on the host (#29881), so an Opacity
+   * the same step puts back must land after it. */
   private async applyAppearance(states: readonly TargetState[]): Promise<boolean> {
     let ok = true;
     let themes = false;
-    for (const state of states) {
+    const isBackground = (state: TargetState) => state.kind === "setting" && state.key === BACKGROUND;
+    for (const state of [...states.filter(isBackground), ...states.filter((state) => !isBackground(state))]) {
       if (state.kind === "theme") {
         themes = true;
         const reply = await this.request("cmux.settings.theme.set", { level: state.level, spec: state.spec });

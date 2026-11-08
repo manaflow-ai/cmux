@@ -16,6 +16,12 @@ public nonisolated enum WindowBackgroundSetting {
     /// Removing the opacity removes that material too (back to Ghostty), but
     /// keeps one the user chose; removing the material removes the opacity.
     ///
+    /// Picking a background picture while Opacity is 100% removes that Opacity too (and the
+    /// material it named), as its reset does: at 100% the theme color covers the picture
+    /// completely, so the pick showed nothing (#29881). Over the picture the window then shows the
+    /// theme's tint over art; 100% stays one slider move away. "none" and an Opacity under 100%,
+    /// already the person's tint over the picture, are left as they are.
+    ///
     /// - Parameter path: The key being written.
     /// - Parameter value: Its new value; nil removes it.
     /// - Parameter root: The settings document before the write.
@@ -32,6 +38,10 @@ public nonisolated enum WindowBackgroundSetting {
             return root.value(at: materialPath)?.stringValue == ghosttyMaterial.rawValue ? [(materialPath, nil)] : []
         case materialPath where value == nil:
             return root.value(at: opacityPath) == nil ? [] : [(opacityPath, nil)]
+        case BackdropSelectionSetting.configPath:
+            guard let picture = value?.stringValue, picture != "none",
+                  let opacity = root.value(at: opacityPath)?.doubleValue, opacity >= 1 else { return [] }
+            return [(opacityPath, nil)] + linkedEdits(writing: opacityPath, value: nil, in: root, ghosttyMaterial: ghosttyMaterial)
         default:
             return []
         }
