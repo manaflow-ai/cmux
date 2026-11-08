@@ -18,11 +18,14 @@ final class PagePooledOwner {
 }
 
 extension PageWebView {
+    /// `overlayProcess`: an overlay page's shared process (``PageOverlayProcess``); its store, so the page can
+    /// join that process. Nil: the page's own store.
     static func hostConfiguration(handler: PageSchemeHandler, documentAttributes: [String: String],
-                                  options: PageEngineOptions) -> (configuration: WKWebViewConfiguration,
-                                                                   inputReadiness: PageInputReadiness) {
+                                  options: PageEngineOptions,
+                                  overlayProcess: PageOverlayProcess? = nil) -> (configuration: WKWebViewConfiguration,
+                                                                                 inputReadiness: PageInputReadiness) {
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
+        configuration.websiteDataStore = overlayProcess?.dataStore ?? .nonPersistent()
         configuration.processPool = PageProcessPool.forNewView
         if options.fullFrameRate { WebKitRenderRate.apply(fullRate: true, to: configuration.preferences) }
         configuration.setURLSchemeHandler(handler, forURLScheme: PageDescriptor.scheme)
