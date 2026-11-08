@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemonService
 import CmuxNextDesign
@@ -337,15 +338,12 @@ extension WindowController {
     }
 
     private func makeChiefPanelView() -> ChiefPanelView {
+        let settings = services.settings, look = ChiefPanelScreenLook(share: { [weak services] in services?.chiefScreenShare }, settings: { settings })
         let view = ChiefPanelView(title: HomeStrings.chiefName, actions: .init(
-            toggleDock: { [weak self] in self.map { $0.toggleChiefPanelDock(edge: $0.services.chiefDockEdge) } },
-            hide: { [weak self] in self?.hideChiefPanel() },
-            moved: { [weak self] frame in
-                guard let self else { return }
-                let size = root.contentHost.bounds.size
-                state.chiefPanel.floatingFrame = ChiefPanelFrame.fitting(CGRect(x: frame.minX, y: size.height - frame.maxY, width: frame.width, height: frame.height), in: size)
-                frameChiefPanelDidChange()
-            }, stop: { [weak self] in _ = self?.services.registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }))
+            toggleDock: { [weak self] in self.map { $0.toggleChiefPanelDock(edge: $0.services.chiefDockEdge) } }, hide: { [weak self] in self?.hideChiefPanel() },
+            moved: { [weak self] in self?.state.chiefPanel.floatingFrame = $0; self?.frameChiefPanelDidChange() }, stop: { [weak self] in _ = self?.services.registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) },
+            toggleSeesScreen: look.toggle, opened: { [weak self] in look.panelOpened(window: self?.window?.title) }))
+        view.follow({ ChiefPanelStyle(rawValue: settings?.snapshot.chiefPanelStyle ?? "") ?? .default }, seesScreen: { look.seesScreen })
         chiefPanelView = view
         return view
     }

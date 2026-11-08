@@ -245,6 +245,13 @@ fn a_credential_s_subject_is_its_jwt_sub_claim_or_none() {
     assert_eq!(token_subject(&jwt(json!({"sub": 7}))), None);
     assert_eq!(token_subject("opaque-token"), None);
     assert_eq!(token_subject("a.!!!.c"), None);
+    // Only a three-segment credential with a JWT header has a `sub`.
+    let claims = encode(json!({"sub": "user-1"}));
+    let header = encode(json!({"alg": "ES256"}));
+    assert_eq!(token_subject(&format!("opaque.{claims}.sig")), None);
+    assert_eq!(token_subject(&format!("{}.{claims}.sig", encode(json!({"typ": "JWT"})))), None);
+    assert_eq!(token_subject(&format!("{header}.{claims}")), None);
+    assert_eq!(token_subject(&format!("{header}.{claims}.sig.extra")), None);
 }
 
 #[test]
