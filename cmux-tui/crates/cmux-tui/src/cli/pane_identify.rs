@@ -79,7 +79,7 @@ pub(super) fn read_identity(socket: &Path, terminal: &str) -> Result<Value, Fail
     let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
     let mut reader = BufReader::new(stream);
     let mut read = |operation, extra: Option<(&str, &str)>| {
-        let mut params = route();
+        let mut params = route(operation);
         if let Some((key, value)) = extra {
             params.insert(key.into(), Value::String(value.to_owned()));
         }
@@ -100,11 +100,14 @@ pub(super) fn read_identity(socket: &Path, terminal: &str) -> Result<Value, Fail
     Ok(identity_value(socket, &session, &machine, caller, outer_app()))
 }
 
-/// Every read names the local machine and the socket's own session.
-fn route() -> Map<String, Value> {
+/// Every read names the local machine; all but `machine.get` (which takes
+/// no session) also name the socket's own session.
+fn route(operation: ResourceOperation) -> Map<String, Value> {
     let mut params = Map::new();
     params.insert("machine".into(), json!("current"));
-    params.insert("session".into(), json!("current"));
+    if operation != ResourceOperation::MachineGet {
+        params.insert("session".into(), json!("current"));
+    }
     params
 }
 
@@ -317,6 +320,15 @@ mod tests {
         let text = human(&value);
         assert!(text.contains("session_1 bench"), "{text}");
         assert!(text.contains("/x/cmux.sock (`cmux app identify`)"), "{text}");
+    }
+
+    /// `machine.get` refuses a session parameter ("unknown parameters").
+    #[test]
+    fn the_machine_read_names_no_session() {
+        assert!(route(ResourceOperation::MachineGet).get("session").is_none());
+        assert_eq!(route(ResourceOperation::MachineGet)["machine"], "current");
+        assert_eq!(route(ResourceOperation::SessionGet)["session"], "current");
+        assert_eq!(route(ResourceOperation::TerminalGet)["session"], "current");
     }
 
     #[test]
