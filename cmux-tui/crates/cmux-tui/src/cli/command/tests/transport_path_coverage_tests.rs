@@ -55,6 +55,21 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         // closed.reopen by a closed workspace's old id (its link, #25659).
         (vec!["closed", "reopen", "--workspace", WORKSPACE], "closed.reopen"),
         // Fields added since the case list last covered them: each one's CLI path.
+        (
+            vec![
+                "git",
+                "diff",
+                "--path",
+                "/repo",
+                "--scope",
+                "commits",
+                "--base",
+                "0123456789abcdef0123456789abcdef01234567",
+                "--head",
+                "89abcdef0123456789abcdef0123456789abcdef",
+            ],
+            "git.diff",
+        ),
         (vec!["notification", "clear", "--workspace", WORKSPACE], "notification.clear"),
         (
             vec![
@@ -478,6 +493,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         // keeps the unconditional clear (docs/protocol.md, #27497).
         ("tab.update", "attention_request_id"),
         ("client.metadata.update", "capabilities"),
+        // workspace.create's place hint comes from the terminal the CLI runs
+        // in (CMUX_WORKSPACE_ID, command/workspace.rs), never from a flag.
+        ("workspace.create", "created_by"),
         // layout.bulk: the CLI names the anchor by its selector and has no
         // selection; apps and MCP send anchor and ids.
         ("layout.bulk", "anchor"),
