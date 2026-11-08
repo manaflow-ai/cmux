@@ -75,6 +75,7 @@ import { sendStopMorph } from "../agent-session/acpmux/composer/sendStopMorph.ex
 import { fileKindIcon } from "../agent-session/acpmux/chips/fileKindIcon.experiment";
 import { timeHoverWording } from "../agent-session/acpmux/conversation/timeHoverWording.experiment";
 import { timeHoverDate } from "../agent-session/acpmux/conversation/timeHoverDate.experiment";
+import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -156,6 +157,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   emojiShortcodeLook,
   pastePlaceholderLook,
   sendStopMorph,
+  fieldGrowthMotion,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

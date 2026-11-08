@@ -306,11 +306,12 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
       };
     });
 
-  // Frame widths: the composer is SIDES (32 px) narrower (488, 414 and 268 px; 208 and 168 px). Since #24938
-  // took the harness label out of the row it holds only the mode, the model button and the ring, so
-  // every whole label still fits a 264 px composer and the row has run out by 204 px; the widths
-  // between sit near that boundary, where the fonts decide it, and are left out.
-  for (const width of [520, 446, 300])
+  // Frame widths: the composer is SIDES (32 px) narrower (488, 414 and 308 px; 208 and 168 px). Since #24938
+  // took the harness label out of the row it holds only the mode, the model button and the ring; the
+  // model button also draws its provider's logo before the name (cmux#38053, about 22 px), so every
+  // whole label still fits a 308 px composer and the row has run out by 208 px; the widths between
+  // sit near that boundary, where the fonts decide it, and are left out.
+  for (const width of [520, 446, 340])
     test(`a ${width - SIDES} px composer keeps "Opus 5.5  Medium" and the mode's name: the row has room`, async () => {
       const page = await open("quiet-chips", width);
       const shown = await row(page);
