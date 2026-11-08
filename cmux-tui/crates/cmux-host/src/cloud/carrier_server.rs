@@ -3,12 +3,13 @@
 //!
 //! The ticket used to be an agent socket line (`carrier_ticket.rs`): the
 //! worker's poll loop accepted it and handed it to the GitHub minter. That
-//! loop also sends the status reports, the Native receiving bootstrap and the
-//! receiver's policy reads, each a blocking request of up to 20 s, and a
-//! fresh machine runs all of them in its first seconds. The session host's
-//! ticket command gives up after 10 s (cmux-remote `relay.rs`), so its first
-//! Registers timed out behind them, two or three times in a row, and the
-//! machine was unreachable over its relay for 10 to 30 s after boot.
+//! loop also sends the status reports and its other Cloud requests, each a
+//! blocking request of up to 20 s, and a fresh machine runs them in its first
+//! seconds. The session host's ticket command gives up after 10 s (cmux-remote
+//! `relay.rs`), so its first Registers timed out behind them, two or three
+//! times in a row (production probe, 2026-11-08), and the machine had no relay
+//! route for 10 to 30 s after boot. The GitHub minter's queue (one mint at a
+//! time, each up to three 20 s calls) was a second place to wait.
 //!
 //! This thread owns its listener and its own [`CloudClient`] (the same bound
 //! machine and install key) from each bind on, and asks the platform for the
