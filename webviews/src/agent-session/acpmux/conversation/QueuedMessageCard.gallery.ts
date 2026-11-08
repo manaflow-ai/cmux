@@ -103,7 +103,7 @@ export default agentPaneEntry({
       snapshot: chat(running, { isWorking: true, queue: [queued[10]!, own] }),
       play: async (ctx) => {
         await openGroup(ctx);
-        await ctx.hover({ selector: ".cv-received > .cv-disclosure__line" });
+        await ctx.hover({ selector: ".cv-received > :is(.cv-agentmsg__line, .cv-disclosure__line)" });
         await ctx.waitFor(() => ctx.document.querySelector('[data-menu="waiting-message"]'));
         ctx.document.querySelector<HTMLButtonElement>('[data-menu="waiting-message"]')!.click();
         await ctx.waitFor(() => ctx.document.querySelectorAll('[role="menuitem"]').length >= 2);

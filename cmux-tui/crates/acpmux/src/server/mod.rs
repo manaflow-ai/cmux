@@ -1045,13 +1045,32 @@ pub async fn serve_ws_until(
             let mut stream = stream;
             // The whole head routes the request (`ws_peek.rs`). Each path checks it: serve_http
             // as it reads, tungstenite as it parses it again for the callback.
-            let (head, read) = match ws_peek::request(&mut stream, peer).await {
-                ws_peek::Request::Head { head, read } => (head, read),
-                ws_peek::Request::TooLarge => {
-                    refuse_http(stream, Refusal::MissingHost).await;
+            let mut probed = false;
+            let (head, read) = loop {
+                let (head, read) = match ws_peek::request(&mut stream, peer).await {
+                    ws_peek::Request::Head { head, read } => (head, read),
+                    ws_peek::Request::TooLarge => {
+                        refuse_http(stream, Refusal::MissingHost).await;
+                        return;
+                    }
+                    ws_peek::Request::Gone => return,
+                };
+                // The cmux link proves this is the listener `listener.json` names before it
+                // sends a paired peer's bytes (`listener_record.rs`): it answers the link's
+                // challenge under the record's key, for the probe alone, once.
+                let Some(answer) = crate::listener_record::probe_answer(&read) else {
+                    break (head, read);
+                };
+                if probed {
                     return;
                 }
-                ws_peek::Request::Gone => return,
+                probed = true;
+                if tokio::io::AsyncWriteExt::write_all(&mut stream, answer.as_bytes())
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
             };
             if !head.to_ascii_lowercase().contains("upgrade: websocket") {
                 serve_http(stream, &head, &policy, peer).await;
