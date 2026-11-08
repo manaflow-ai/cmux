@@ -20,6 +20,8 @@ def send(value):
 def prompt(request):
     params = request["params"]
     text = "".join(block.get("text", "") for block in params.get("prompt", []))
+    with open("/tmp/fake-race-prompts.log", "a") as log:  # DEBUG: removed before review
+        log.write(f"--- {model}\n{json.dumps(params.get('prompt'))[:1500]}\n")
     if model in ("review", "invalid"):
         # Context acpmux embeds around a session's message may follow the list: read only the list.
         candidates, _ = json.JSONDecoder().raw_decode(text.split("\nCandidates:\n", 1)[1])
