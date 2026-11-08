@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import base64
 import email.message
+import gzip
 import http.client
 import importlib.util
 import io
@@ -103,6 +105,63 @@ def busy_main_push(queued=7):
     """A protected run that fills the queue so the threshold is exceeded."""
     run = make_run(event="push", branch="main", name="CI")
     return run, mac_jobs(queued=queued)
+
+
+class PaidPortablePoolSnapshotTests(unittest.TestCase):
+    def test_linux_only_workflow_filter_still_reads_portable_queue_demand(self):
+        for base in ("main", "feat-cmux-next"):
+            for path in janitor.rescue.PORTABLE_LIGHT_WORKFLOW_PATHS:
+                with self.subTest(base=base, path=path):
+                    run = make_run(path=path)
+                    run["pull_requests"] = [{"base": {"ref": base}}]
+                    api = mock.Mock()
+                    api.jobs.return_value = mac_jobs(queued=1, label=LINUX)
+                    listed, unread, unlisted = janitor.read_run_jobs(
+                        api, [run], frozenset({path}), NOW,
+                        branch_linux_only={"feat-cmux-next": frozenset({path})})
+                    self.assertEqual((unread, unlisted), (set(), set()))
+                    self.assertEqual(listed, {run["id"]: api.jobs.return_value})
+
+    def test_paid_linux_queue_and_running_demand_reach_the_rescue_snapshot(self):
+        run = make_run(path=".github/workflows/pr-checks.yml")
+        jobs = mac_jobs(queued=2, running=1)
+        jobs += [
+            {"name": "UI review advisory", "status": "queued", "labels": [LINUX], "created_at": iso(43)},
+            {"name": "post", "status": "queued", "labels": [LINUX], "created_at": iso(12)},
+            {"name": "Web validation", "status": "in_progress", "labels": [LINUX],
+             "created_at": iso(20), "started_at": iso(10), "runner_id": 1},
+            {"name": "approval", "status": "waiting", "labels": [LINUX], "created_at": iso(60)},
+        ]
+        snapshot = janitor.pool_load_snapshot([run], {run["id"]: jobs}, now=NOW)
+        self.assertEqual(snapshot["pools"][LINUX], {
+            "queued": 2, "running": 1, "reserved_queued": 0, "oldest_queued_minutes": 43,
+        })
+        self.assertEqual(snapshot["pools"][MAC]["queued"], 2)
+        self.assertEqual(snapshot["pools"][MAC]["running"], 1)
+        self.assertEqual(snapshot["label_started"][LINUX], iso(10))
+
+    def test_paid_linux_labels_share_the_rescues_narrow_label_predicate(self):
+        run = make_run()
+        labels = (LINUX, "blacksmith-2vcpu-linux-2404", "blacksmith-4vcpu-ubuntu-2404-arm")
+        excluded = ("ubuntu-24.04", "self-hosted", "glaeda-linux", "blacksmith-ubuntu-2404")
+        jobs = [{"status": "queued", "labels": [label], "created_at": iso(42)}
+                for label in (*labels, *excluded)]
+        snapshot = janitor.pool_load_snapshot([run], {run["id"]: jobs}, now=NOW)
+        self.assertEqual(set(snapshot["pools"]), set(labels))
+        self.assertTrue(all(pool["oldest_queued_minutes"] == 42 for pool in snapshot["pools"].values()))
+
+    def test_paid_linux_start_evidence_requires_an_assigned_running_or_finished_job(self):
+        run = make_run()
+        jobs = [
+            {"status": "completed", "labels": [LINUX], "started_at": iso(20), "runner_name": "paid"},
+            {"status": "in_progress", "labels": [LINUX], "started_at": iso(10), "runner_id": 7},
+            {"status": "queued", "labels": [LINUX], "started_at": iso(1), "runner_id": 7},
+            {"status": "in_progress", "labels": [LINUX], "started_at": iso(2)},
+            {"status": "completed", "conclusion": "skipped", "labels": [LINUX],
+             "started_at": iso(3), "runner_id": 7},
+            {"status": "in_progress", "labels": ["ubuntu-24.04"], "started_at": iso(4), "runner_id": 7},
+        ]
+        self.assertEqual(janitor.label_started([run], {run["id"]: jobs}), {LINUX: iso(10)})
 
 
 class ProtectionTests(unittest.TestCase):
@@ -2613,14 +2672,17 @@ class LostBesideLaterSiblingsTests(unittest.TestCase):
                 self.assertEqual(janitor.lost_wait_start(stuck, jobs[run["id"]]),
                                  janitor.parse_time("2026-10-31T02:18:12Z"))
 
-    def test_it_is_lost_from_02_48_and_fails_over_at_the_open_head(self):
-        # 30 minutes after 02:18:12Z, react-apps-check (1) and (4) and react-doctor were running (created 02:30Z
-        # and 02:43Z) and `web / runners` had just finished (02:43:49Z); at 02:57:39Z the react-apps-base-check
-        # shards had been created and were queued. None of them can be its need, and the run cannot finish
-        # without it, so it is lost at both: the cancel's re-run of failed (cancelled) jobs brings them back too.
-        for at in ("2026-10-31T02:48:30Z", "2026-10-31T02:57:39Z"):
-            with self.subTest(at=at):
-                self.assert_fails_over(at)
+    def test_it_fails_over_at_the_open_head_once_no_sibling_is_running(self):
+        # At 02:57:39Z the react-apps-base-check shards had been created and were queued, and nothing else ran.
+        # None of them can be its need, and the run cannot finish without it, so it is lost: the cancel's
+        # re-run of failed (cancelled) jobs brings them back too.
+        self.assert_fails_over("2026-10-31T02:57:39Z")
+        # At 02:48:30Z, 30 minutes after 02:18:12Z, react-apps-check (1) and (4) and react-doctor were running
+        # (created 02:30Z and 02:43Z): a cancel then would kill their work (run 42018091049), so it waits.
+        at = "2026-10-31T02:48:30Z"
+        run, sweep, jobs = self.world(at)
+        self.assertTrue(any(job["status"] == "in_progress" for job in jobs[run["id"]]))
+        self.assertEqual(janitor.find_lost([run, sweep], jobs, now=janitor.parse_time(at)), {})
         # Not before its 30 minutes.
         run, sweep, jobs = self.world("2026-10-31T02:48:00Z")
         self.assertEqual(janitor.find_lost([run, sweep], jobs, now=janitor.parse_time("2026-10-31T02:48:00Z")), {})
@@ -2657,6 +2719,77 @@ class LostBesideLaterSiblingsTests(unittest.TestCase):
                             labels=["blacksmith-8vcpu-ubuntu-2404"], created_at="2026-10-31T02:15:00Z")
                 jobs[run["id"]].append(gate)
                 self.assertEqual(janitor.find_lost([run, sweep], jobs, now=now), {})
+
+
+class LostBesideARunningSiblingTests(unittest.TestCase):
+    """Run 42018091049 attempt 2 (PR #36356, cmux-next, 2026-11-05): a lost job beside a running sibling.
+
+    `cmux-next daemon tests` and `cmux-next swift test` (glaeda-side-std-xcode-26.6) were created at 11:51:20Z.
+    The swift test started on a runner at 12:19:37Z; the daemon tests stayed queued with no runner while newer
+    jobs on the label started. The 12:43Z sweep found the daemon tests lost at the open head and cancelled the
+    run, killing the swift test 26 minutes into its run. A running sibling now gates the failover, and the
+    cancel re-checks for one.
+    """
+
+    SIDE_LABEL = "glaeda-side-std-xcode-26.6"
+    SHA = "b7ccd309521263c5288ca4b61478e7fac4ed49dc"
+    AT = "2026-11-05T12:44:30Z"
+
+    def world(self, swift_done=None):
+        history = [
+            (127227054661, "cmux-next push head preflight", LINUX, "2026-11-05T11:49:34Z", "2026-11-05T11:49:36Z",
+             "2026-11-05T11:49:38Z", 101),
+            (127227297469, "cmux-next fleet Release compile", LINUX, "2026-11-05T11:50:07Z", "2026-11-05T11:50:08Z",
+             "2026-11-05T11:50:16Z", 102),
+            (127227843398, "cmux-next swift test", self.SIDE_LABEL, "2026-11-05T11:51:20Z", "2026-11-05T12:19:37Z",
+             swift_done, 201),
+            (127227843495, "cmux-next daemon tests", self.SIDE_LABEL, "2026-11-05T11:51:20Z", None, None, None),
+        ]
+        jobs = recorded_jobs(history, self.AT)
+        run = {"id": 42018091049, "event": "pull_request", "status": "in_progress", "run_attempt": 2,
+               "head_branch": "leo/vm-agent-key-rust-rules", "head_sha": self.SHA,
+               "path": ".github/workflows/cmux-next.yml", "name": "cmux-next · b550d5f611919488d58d388e469eb4860f9640f8",
+               "created_at": "2026-11-05T11:19:51Z", "triggering_actor": {"login": "teamleaderleo"},
+               "head_repository": {"full_name": "manaflow-ai/cmux", "owner": {"login": "manaflow-ai"}},
+               "pull_requests": [{"number": 36356}]}
+        other = make_run(event="pull_request", branch="another-pr", sha="ccc", path=".github/workflows/cmux-next.yml",
+                         name="cmux-next · ccc", status="in_progress")
+        served = recorded_jobs([(1, "cmux-next daemon tests", self.SIDE_LABEL, "2026-11-05T12:00:00Z",
+                                 "2026-11-05T12:01:00Z", None, 77)], self.AT)
+        prs = {run["head_branch"]: [make_pr(36356, head=self.SHA)], "another-pr": []}
+        return run, other, {run["id"]: jobs, other["id"]: served}, prs
+
+    def plan(self, runs, jobs, prs):
+        return janitor.build_plan(runs, jobs, prs, threshold=6, max_cancels=10, pull_request_policy="compile-only",
+                                  now=janitor.parse_time(self.AT), rerun_state=True, branch_heads={},
+                                  app_rerun=True, cmux_bot_rerun=True)
+
+    def test_a_running_sibling_keeps_the_run_from_being_cancelled(self):
+        run, other, jobs, prs = self.world()
+        swift = next(job for job in jobs[run["id"]] if job["name"] == "cmux-next swift test")
+        self.assertEqual((swift["status"], swift["runner_name"]), ("in_progress", "runner-201"))
+        self.assertEqual(janitor.find_lost([run, other], jobs, now=janitor.parse_time(self.AT)), {})
+        decision = decision_for(self.plan([run, other], jobs, prs), run)
+        self.assertTrue(decision is None or decision.action == "skip")
+
+    def test_it_fails_over_once_the_sibling_finished(self):
+        run, other, jobs, prs = self.world(swift_done="2026-11-05T12:40:00Z")
+        lost = janitor.find_lost([run, other], jobs, now=janitor.parse_time(self.AT))
+        self.assertEqual(lost[run["id"]].job_name, "cmux-next daemon tests")
+        decision = decision_for(self.plan([run, other], jobs, prs), run)
+        self.assertEqual((decision.action, decision.candidate.category), ("cancel", "lost"))
+        self.assertTrue(decision.candidate.open_head)
+
+    def test_the_cancel_is_refused_when_a_sibling_started_since_the_inventory(self):
+        run, other, jobs, prs = self.world(swift_done="2026-11-05T12:40:00Z")
+        candidate = decision_for(self.plan([run, other], jobs, prs), run).candidate
+        now_jobs = [dict(job) for job in jobs[run["id"]]]
+        now_jobs.append(dict(now_jobs[-1], id=5, name="cmux-next Swift exports cache", status="in_progress",
+                             runner_id=9, runner_name="runner-9", labels=[LINUX]))
+        fake = FakeGitHub({run["id"]: dict(run)}, {run["id"]: now_jobs})
+        results, failures = janitor.cancel_plan(fake, [candidate], jobs)
+        self.assertIn("is running beside the lost job", results[run["id"]])
+        self.assertEqual((failures, fake.posts()), (0, []))
 
 
 class LostInAFailedRunTests(unittest.TestCase):
@@ -3927,6 +4060,108 @@ class FleetGatesTests(unittest.TestCase):
         step = next(s for s in steps if s.get("name") == "Cancel wasted macOS runs")
         self.assertEqual(step["env"]["FLEET_GATES"], "${{ vars.CI_FLEET_GATES }}")
         self.assertEqual(text.count("vars.CI_FLEET_GATES"), 1)  # never expanded into a script
+
+
+class HostedLightCandidatesTests(unittest.TestCase):
+    def _raw(self, *, rows=None, state_overrides=None, candidate_overrides=None):
+        created = (NOW - dt.timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        rows = rows if rows is not None else [{
+            "id": 123, "path": ".github/workflows/ci.yml", "event": "pull_request",
+            "run_attempt": 1, "status": "queued", "head_sha": "a" * 40,
+            "created_at": created, "private": "drop-me",
+        }]
+        source = {
+            "schema": "hosted-light-candidates/v1", "repository": "manaflow-ai/cmux",
+            "generated_at": (NOW - dt.timedelta(seconds=20)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "controller_generated_at": (NOW - dt.timedelta(seconds=10)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "receiver_last_delivery": (NOW - dt.timedelta(seconds=20)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "jobs_since": (NOW - dt.timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "coverage": "partial", "complete": False, "truncated": True,
+            "total_runs": len(rows), "runs": rows,
+        }
+        source.update(candidate_overrides or {})
+        state = {"schema": "runner-state/v1", "repository": "manaflow-ai/cmux", "complete": True,
+                 "generated_at": (NOW - dt.timedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                 "runner_groups": {}, "repository_runners": [], "scale_sets": {},
+                 "hosted_light_candidates": source}
+        state.update(state_overrides or {})
+        return base64.b64encode(gzip.compress(json.dumps(state).encode(), mtime=0)).decode()
+
+    def test_valid_source_uses_receiver_clock_and_strips_payload_fields(self):
+        snapshot = {"truncated": False}
+        janitor.attach_hosted_light_candidates(snapshot, self._raw(), now=NOW)
+        value = snapshot["hosted-light-candidates"]
+        self.assertEqual(value["generated_at"], "2026-09-22T16:59:40Z")
+        self.assertEqual(value["controller_generated_at"], "2026-09-22T16:59:50Z")
+        self.assertEqual(value["receiver_last_delivery"], value["generated_at"])
+        self.assertEqual(set(value["runs"][0]), {
+            "id", "path", "event", "run_attempt", "status", "head_sha", "created_at",
+        })
+        self.assertNotIn("drop-me", json.dumps(snapshot))
+
+    def test_invalid_source_and_kill_switch_omit_optional_field(self):
+        for overrides in (
+            {"schema": "runner-state/v2"},
+            {"repository": "other/repo"},
+            {"generated_at": "2026-09-22T16:54:59Z"},
+            {"generated_at": "2026-09-22T17:00:06Z"},
+        ):
+            with self.subTest(overrides=overrides):
+                snapshot = {"truncated": False}
+                janitor.attach_hosted_light_candidates(snapshot, self._raw(state_overrides=overrides), now=NOW)
+                self.assertNotIn("hosted-light-candidates", snapshot)
+        snapshot = {"truncated": False}
+        janitor.attach_hosted_light_candidates(
+            snapshot, self._raw(candidate_overrides={"receiver_last_delivery": "2026-09-22T17:00:00Z"}), now=NOW)
+        self.assertNotIn("hosted-light-candidates", snapshot)
+        with mock.patch.dict("os.environ", {"CI_HOSTED_LIGHT_CANDIDATES_DISABLED": "1"}):
+            snapshot = {"truncated": False}
+            janitor.attach_hosted_light_candidates(snapshot, self._raw(), now=NOW)
+            self.assertNotIn("hosted-light-candidates", snapshot)
+
+    def test_outer_truncation_never_presents_candidate_field(self):
+        for snapshot in ({"truncated": True}, {"truncated": False, "starved_incomplete": True}):
+            janitor.attach_hosted_light_candidates(snapshot, self._raw(), now=NOW)
+            self.assertNotIn("hosted-light-candidates", snapshot)
+
+    def test_malformed_rows_are_dropped_and_candidate_remains_partial(self):
+        rows = [{"id": 1, "path": ".github/workflows/ci.yml", "event": "pull_request", "run_attempt": 1,
+                 "status": "queued", "head_sha": "b" * 40, "created_at": "2026-09-22T16:55:00Z"},
+                {"id": "bad", "path": "private.txt"}]
+        snapshot = {"truncated": False}
+        janitor.attach_hosted_light_candidates(snapshot, self._raw(rows=rows), now=NOW)
+        value = snapshot["hosted-light-candidates"]
+        self.assertEqual([row["id"] for row in value["runs"]], [1])
+        self.assertTrue(value["truncated"])
+        self.assertEqual(value["total_runs"], 2)
+
+    def test_encoded_and_decoded_bounds_omit_source(self):
+        snapshot = {"truncated": False}
+        janitor.attach_hosted_light_candidates(snapshot, "A" * (48 * 1024 + 1), now=NOW)
+        self.assertNotIn("hosted-light-candidates", snapshot)
+        oversized = {"x": "x" * (2 * 1024 * 1024 + 1)}
+        state = {"schema": "runner-state/v1", "repository": "manaflow-ai/cmux", "complete": True,
+                 "generated_at": "2026-09-22T16:59:30Z", "hosted_light_candidates": oversized}
+        raw = base64.b64encode(gzip.compress(json.dumps(state).encode(), mtime=0)).decode()
+        janitor.attach_hosted_light_candidates(snapshot, raw, now=NOW)
+        self.assertNotIn("hosted-light-candidates", snapshot)
+
+    def test_timestamp_overflow_omits_optional_source(self):
+        snapshot = {"truncated": False}
+        janitor.attach_hosted_light_candidates(
+            snapshot,
+            self._raw(candidate_overrides={"receiver_last_delivery": "0001-01-01T00:00:00+23:59"}),
+            now=NOW,
+        )
+        self.assertNotIn("hosted-light-candidates", snapshot)
+
+    def test_workflow_passes_runner_state_only_through_env(self):
+        steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["sweep"]["steps"]
+        step = next(item for item in steps if item.get("name") == "Cancel wasted macOS runs")
+        self.assertEqual(step["env"]["CI_RUNNER_STATE"], "${{ vars.CI_RUNNER_STATE }}")
+        self.assertEqual(step["env"]["CI_HOSTED_LIGHT_CANDIDATES_DISABLED"],
+                         "${{ vars.CI_HOSTED_LIGHT_CANDIDATES_DISABLED }}")
+        self.assertEqual(WORKFLOW.read_text(encoding="utf-8").count("vars.CI_RUNNER_STATE"), 1)
 
 
 NEXT_PATH = ".github/workflows/cmux-next.yml"
