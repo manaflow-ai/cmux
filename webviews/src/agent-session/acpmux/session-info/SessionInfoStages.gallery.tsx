@@ -20,11 +20,7 @@ export default componentEntry<{ surface: "transcript" }>({
   pane: true,
   height: 640,
   widths: { narrow: 1100, normal: 1200, wide: 1600 },
-  covers: [
-    "agent-session/acpmux/session-info/SessionInfo.tsx#sessionInfoStage",
-    "agent-session/acpmux/session-info/SessionInfo.tsx#pushedRoom",
-    "agent-session/acpmux/session-info/SessionInfo.tsx#pushKeepsColumn",
-  ],
+  covers: ["agent-session/acpmux/session-info/SessionInfo.tsx#SessionInfoPanel"],
   load: async () => {
     setHeaderState({ inspector: true });
     setSessionInfoOpen(true);
