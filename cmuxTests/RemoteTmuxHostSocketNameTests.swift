@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 import Testing
 
@@ -171,5 +172,41 @@ import Testing
                 TerminalController.remoteTmuxBrokerFailureMessage(
                     from: ["host": "dev@host", "socket_name": bad], selectBroker: { _ in .none }) != nil)
         }
+    }
+}
+
+/// The RPC handlers hand the boundary the request's transport and socket name, so a session
+/// too long for a named et server is refused by the handler itself as `invalid_params`, before
+/// any process is spawned. The boundary tests above prove the arithmetic; this proves the
+/// handlers reach it with the right inputs.
+@Suite(.serialized, .exclusiveAppContext) struct RemoteTmuxSocketNameHandlerTests {
+    @Test(arguments: ["remote.tmux.mirror", "remote.tmux.window", "remote.tmux.attach"])
+    func overBudgetSessionOnANamedETServerIsInvalidParams(method: String) throws {
+        let remoteTmuxKey = SettingCatalog().betaFeatures.remoteTmux.userDefaultsKey
+        let previousRemoteTmux = UserDefaults.standard.object(forKey: remoteTmuxKey)
+        UserDefaults.standard.set(true, forKey: remoteTmuxKey)
+        defer {
+            if let previousRemoteTmux {
+                UserDefaults.standard.set(previousRemoteTmux, forKey: remoteTmuxKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: remoteTmuxKey)
+            }
+        }
+        // Exactly fills the default server's line, so only `-L alpha` pushes it over budget.
+        let session = String(repeating: "n", count: RemoteTmuxETTransportProfile.maxSessionNameBytes())
+        let requestData = try JSONSerialization.data(withJSONObject: [
+            "jsonrpc": "2.0", "id": 1, "method": method,
+            "params": ["host": "dev@host", "transport": "et", "socket_name": "alpha", "session": session],
+        ])
+        let responseText = TerminalController.shared.handleSocketLine(String(decoding: requestData, as: UTF8.self))
+        let responseData = try #require(responseText.data(using: .utf8))
+        let response = try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
+
+        #expect(response["ok"] as? Bool == false)
+        let error = try #require(response["error"] as? [String: Any])
+        #expect(error["code"] as? String == "invalid_params")
+        // The session check is what refused it: the host, transport and socket name were fine.
+        let message = try #require(error["message"] as? String)
+        #expect(message.contains("session"), "\(method) refused for another reason: \(message)")
     }
 }
