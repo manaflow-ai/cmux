@@ -738,3 +738,41 @@ async fn a_local_cloud_mobile_prompt_in_a_mode_that_does_not_ask_is_refused() {
     assert!(local.prompt(&s, "mine").await.get("error").is_none());
     let _ = std::fs::remove_dir_all(&d);
 }
+
+/// A plan approval's Approve and auto-accept edits also moves the chat to Accept edits, a mode
+/// that does not ask: a paired device may not pick it, even signed for it, and its Keep planning
+/// (a deny) still counts. Its phone shows Approve plan and Keep planning only.
+#[tokio::test]
+async fn a_paired_device_cannot_pick_a_plan_answer_that_moves_the_mode() {
+    use ring::signature::{ECDSA_P256_SHA256_FIXED_SIGNING, EcdsaKeyPair, KeyPair};
+    let rng = ring::rand::SystemRandom::new();
+    let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &rng).unwrap();
+    let key =
+        EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng).unwrap();
+    let public: String = key.public_key().as_ref().iter().map(|b| format!("{b:02x}")).collect();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let exp = now + 120;
+    let d = dir("plan-mode");
+    let hub = hub(&d, None);
+    let mut local = Client::person(&hub, Origin::Local).await;
+    let mut turns = Client::new(&hub, Origin::Local);
+    let mut web = Client::new(&hub, Origin::Web);
+    let enroll = json!({"macDevice": "mac-1",
+                        "approvers": [{"id": "phone-1", "publicKey": public, "name": "iPhone"}]});
+    let r = local.call("_acpmux/approvers_set", enroll).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let s = no_mode_session(&mut local, &d).await;
+    set_policy(&mut local, &s, "approve-reads").await;
+    let respond = "_acpmux/permission_respond";
+    let prompt =
+        json!({"sessionId": s, "prompt": [{"type": "text", "text": "ask-plan: ## Retry uploads"}]});
+    let turn = turns.send("session/prompt", prompt).await;
+    let (pid, nonce, inst) = pending_ask(&mut local, &s, 0).await;
+    let sig = phone_signature(&key, &inst, &s, &pid, "acceptEdits", &nonce, exp);
+    let r = web.call(respond, phone_allow(&s, &pid, "acceptEdits", &nonce, exp, &sig)).await;
+    assert_eq!(reason(&r), "remote.lasting_grant_refused", "{r}");
+    let r = web.call(respond, json!({"sessionId": s, "permissionId": pid, "optionId": "no"})).await;
+    assert!(r.get("error").is_none(), "a deny: {r}");
+    assert!(turns.reply(turn).await.get("error").is_none());
+    wait_events_n(&mut local, &s, "chose no", 1).await;
+}

@@ -63,6 +63,10 @@ pub(crate) const MODES: [(&str, &str, &str); 5] = [
 /// a Web start settles in an asking mode (`server/remote_guard.rs`).
 pub const OWN_MODE: &str = "auto";
 
+/// The option of an ExitPlanMode ask that approves the plan and leaves plan mode for
+/// Accept edits: the mode id, as the pane reads it (PermissionCard.tsx `planAcceptEdits`).
+pub const PLAN_ACCEPT_EDITS: &str = "acceptEdits";
+
 /// The launch flag that lets a running Claude Code switch to
 /// bypassPermissions (it does not turn the mode on by itself).
 pub const ALLOW_BYPASS_FLAG: &str = "--allow-dangerously-skip-permissions";
@@ -280,6 +284,8 @@ mod edit_diff_tests;
 mod elicitation;
 #[cfg(test)]
 mod elicitation_tests;
+#[cfg(test)]
+mod plan_accept_edits_tests;
 // The chat's own tool calls running in the foreground, and for how long (`FOREGROUND_WORK`).
 mod foreground_work;
 #[cfg(test)]
@@ -507,6 +513,9 @@ pub struct Translator {
     /// suggested with its permission ask (`session_rules`), held until the
     /// answer: an "Allow for this session" hands them back.
     suggestions: Mutex<HashMap<String, Value>>,
+    /// claude control request_ids of the ExitPlanMode asks still waiting: only these offer
+    /// `PLAN_ACCEPT_EDITS`, so only their answer may pick it.
+    plan_asks: Mutex<HashSet<String>>,
     /// claude control request_id -> the tool input of its `can_use_tool`
     /// ask, held until the answer: Claude Code takes an allow only with
     /// `updatedInput` (its permission reply schema), so an allow the hub
@@ -726,6 +735,7 @@ impl Translator {
             pending: Mutex::new(HashMap::new()),
             control_out: Mutex::new(HashMap::new()),
             suggestions: Mutex::new(HashMap::new()),
+            plan_asks: Mutex::new(HashSet::new()),
             inputs: Mutex::new(HashMap::new()),
             elicitations: Mutex::new(HashMap::new()),
             next_control: AtomicI64::new(1),

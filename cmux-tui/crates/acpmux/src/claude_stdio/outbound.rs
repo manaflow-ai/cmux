@@ -464,6 +464,7 @@ impl Translator {
                     return Outbound::Lines(vec![reply]);
                 }
                 let suggested = self.suggestions.lock().await.remove(&ctl_id);
+                let plan_ask = self.plan_asks.lock().await.remove(&ctl_id);
                 let asked = self.inputs.lock().await.remove(&ctl_id);
                 let outcome =
                     result.as_ref().and_then(|r| r.get("outcome")).cloned().unwrap_or(Value::Null);
@@ -472,7 +473,8 @@ impl Translator {
                 // missing, rejected, or unknown option denies it.
                 let allowed = error.is_none()
                     && outcome.get("outcome").and_then(Value::as_str) != Some("cancelled")
-                    && matches!(selected, "allow_once" | "allow_always");
+                    && (matches!(selected, "allow_once" | "allow_always")
+                        || (plan_ask && selected == super::PLAN_ACCEPT_EDITS));
                 let response = if !allowed {
                     json!({"behavior": "deny", "message": "The user rejected this action."})
                 } else {
@@ -498,6 +500,16 @@ impl Translator {
                         && let Some(rules) = suggested
                     {
                         allow.set("updatedPermissions", rules);
+                    }
+                    // Approve and auto-accept edits: Claude Code leaves plan mode for
+                    // Accept edits for the rest of the session, as its own prompt's
+                    // "Yes, and auto-accept edits" does. Its status line then names the
+                    // new mode (inbound.rs), so the pane's mode follows.
+                    if selected == super::PLAN_ACCEPT_EDITS {
+                        allow.set(
+                            "updatedPermissions",
+                            json!([{"type": "setMode", "mode": "acceptEdits", "destination": "session"}]),
+                        );
                     }
                     allow
                 };

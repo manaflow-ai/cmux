@@ -20,10 +20,27 @@ type RowStyle = "light" | "keycap" | "hover" | "trailing";
 /// How the one-time line of an ask the chat's highest mode does not answer reads: "line" (shipped,
 /// a muted line under the title), "callout" (an inset tinted box) or "pill" (a small pill).
 type OneTimeStyle = "line" | "callout" | "pill";
+/// How a plan approval's Approve and auto-accept edits sits (PermissionCard.tsx): "pair" (shipped,
+/// a tonal button beside the filled Approve plan), "stacked" (the answers as full-width rows) or
+/// "quiet" (no fill, text only, before Approve plan).
+type PlanStyle = "pair" | "stacked" | "quiet";
 type Props = Pick<ComponentProps<typeof PermissionCard>, "permission" | "harness" | "fullAccessMode" | "shortcuts"> & {
   scopeStyle?: ScopeStyle;
   rowStyle?: RowStyle;
   oneTimeStyle?: OneTimeStyle;
+  planStyle?: PlanStyle;
+};
+
+const planStyles: Record<Exclude<PlanStyle, "pair">, string> = {
+  stacked: `
+    [data-plan-style="stacked"] .acpmux-permission-buttons { flex-direction: column-reverse; align-items: stretch; }
+    [data-plan-style="stacked"] .acpmux-permission-allows { flex-direction: column-reverse; align-items: stretch; margin: 0; }
+    [data-plan-style="stacked"] .acpmux-permission-buttons button { justify-content: space-between; }`,
+  quiet: `
+    [data-plan-style="quiet"] .acpmux-permission-buttons button.acpmux-permission-accept-edits { background: none;
+      color: var(--agent-muted); }
+    [data-plan-style="quiet"] .acpmux-permission-buttons button.acpmux-permission-accept-edits:hover {
+      background: color-mix(in srgb, var(--agent-text) 6%, transparent); color: var(--agent-text); }`,
 };
 
 const oneTimeStyles: Record<Exclude<OneTimeStyle, "line">, string> = {
@@ -182,6 +199,24 @@ const claudePlan: AcpmuxPermission = {
   ],
 };
 
+/// The same plan with acpmux's Approve and auto-accept edits (claude_stdio `PLAN_ACCEPT_EDITS`).
+const claudePlanAcceptEdits: AcpmuxPermission = {
+  ...claudePlan,
+  permissionId: "gallery-claude-plan-accept-edits",
+  options: [
+    { id: "allow_once", name: "Answer", kind: "allow_once", allow: true },
+    { id: "acceptEdits", name: "Approve and auto-accept edits", kind: "allow_once", allow: true },
+    { id: "reject_once", name: "Reject", kind: "reject_once", allow: false },
+  ],
+};
+
+/// Keep planning opens its field for an optional note, which goes back to the agent with the deny.
+const keepPlanningNote: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Keep planning" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-feedback textarea"));
+  await ctx.type("Keep the retry inside uploadChunk; no new module.", { selector: ".acpmux-permission-feedback textarea" });
+};
+
 /// Grok's plan approval as acpmux builds it (hub xai.rs): "Ready to code?" with the plan.
 const grokPlan: AcpmuxPermission = {
   permissionId: "gallery-grok-plan",
@@ -203,6 +238,7 @@ function GalleryPermissionCard({
   scopeStyle,
   rowStyle,
   oneTimeStyle,
+  planStyle,
 }: Props) {
   return (
     <div
@@ -210,11 +246,13 @@ function GalleryPermissionCard({
       data-scope-style={scopeStyle}
       data-row-style={rowStyle}
       data-one-time-style={oneTimeStyle}
+      data-plan-style={planStyle}
       style={{ paddingTop: 12 }}
     >
       {scopeStyle && scopeStyle !== "under" && <style>{scopeStyles[scopeStyle]}</style>}
       {rowStyle && rowStyle !== "light" && <style>{rowStyles[rowStyle]}</style>}
       {oneTimeStyle && oneTimeStyle !== "line" && <style>{oneTimeStyles[oneTimeStyle]}</style>}
+      {planStyle && planStyle !== "pair" && <style>{planStyles[planStyle]}</style>}
       <div className="acpmux-main">
         <div className="acpmux-permission acpmux-asks-stack">
           <ShortcutsContext value={labels}>
@@ -298,6 +336,23 @@ export default componentEntry<Props>({
     "plan-claude": {
       note: 'Leo 2026-11-05: "i like these plans too... i want us to be able to render it in ours". Claude Code\'s ExitPlanMode: the plan renders as Markdown in the card, with Approve plan and Keep planning (which opens a field for what to change).',
       props: { permission: claudePlan, harness: "claude" },
+    },
+    "plan-claude-accept-edits": {
+      note: 'Chosen. Where the harness has the mode (Claude Code), Approve and auto-accept edits (key 2) sits as a tonal button beside the filled Approve plan (⌘↩): it approves and leaves plan mode for Accept edits, as Claude Code\'s own prompt does. Keep planning stays at the leading edge. Flat fills, no borders.',
+      props: { permission: claudePlanAcceptEdits, harness: "claude" },
+    },
+    "plan-accept-edits-stacked": {
+      note: "Alternative B: the three answers as full-width rows, Approve plan on top. Reads like the terminal's numbered list, but a long plan card grows three rows taller and the answers lose their edges.",
+      props: { permission: claudePlanAcceptEdits, harness: "claude", planStyle: "stacked" },
+    },
+    "plan-accept-edits-quiet": {
+      note: "Alternative C: Approve and auto-accept edits with no fill, text only. Calmer, but it reads as a link, not an answer of the same weight as Approve plan.",
+      props: { permission: claudePlanAcceptEdits, harness: "claude", planStyle: "quiet" },
+    },
+    "plan-keep-planning-note": {
+      note: "Keep planning opens its field in place of the answers, settling in on the house curve (265 ms, no overshoot); the note is optional and goes back to the agent with the deny (Return sends, Esc closes).",
+      props: { permission: claudePlanAcceptEdits, harness: "claude" },
+      play: keepPlanningNote,
     },
     "plan-grok": {
       note: "Grok's plan approval (x.ai/exit_plan_mode): the same plan card.",

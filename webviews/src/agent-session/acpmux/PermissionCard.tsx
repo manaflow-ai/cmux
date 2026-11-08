@@ -138,7 +138,9 @@ const ALLOW_KEY: CardKey = { keys: ["⌘", "↩"], aria: "Meta+Enter" };
 /// A plan approval (Claude Code's ExitPlanMode, Grok's and Cursor's plan modes) shows its plan as
 /// Markdown, the way the transcript renders a reply, with Approve plan and Keep planning, whose field
 /// says what to change (Leo, 2026-11-05: "i like these plans too... i want us to be able to render it
-/// in ours").
+/// in ours"). Where the harness has the mode (Claude Code), Approve and auto-accept edits sits beside
+/// Approve plan (key 2): it approves and leaves plan mode for Accept edits, as Claude Code's own
+/// prompt does.
 export function PermissionCard({
   permission,
   onAnswer,
@@ -186,8 +188,9 @@ export function PermissionCard({
     allowOnce,
     allowAlways,
     deny: denyOption,
+    acceptEdits,
     others,
-  } = useMemo(() => permissionAnswers(permission.options), [permission.options]);
+  } = useMemo(() => permissionAnswers(permission.options, Boolean(permission.plan)), [permission.options, permission.plan]);
   const alwaysScope = allowAlways && alwaysAllowScope(permission, allowAlways);
   const scopeText = external ? undefined : permissionScopeText(permission, t);
   /// The one scope line: the target the ask covers, then the Always allow rule.
@@ -356,7 +359,9 @@ export function PermissionCard({
         deny(true);
         return true;
       }
-      const option = action === "allow_once" ? allowOnce : alwaysAtSource ? undefined : allowAlways;
+      // On a plan approval key 2 (and ⌥⌘2) is Approve and auto-accept edits, the second answer.
+      const option =
+        action === "allow_once" ? allowOnce : acceptEdits ?? (alwaysAtSource ? undefined : allowAlways);
       if (!option) return false;
       answerByKey(option);
       return true;
@@ -457,7 +462,11 @@ export function PermissionCard({
   );
 
   return (
-    <PermissionCardFrame ref={group} className="acpmux-permission-ask ui-glass" ariaLabel={title}>
+    <PermissionCardFrame
+      ref={group}
+      className={`acpmux-permission-ask ui-glass${plan ? " acpmux-permission-plan-card" : ""}`}
+      ariaLabel={title}
+    >
       <div className="acpmux-permission-request" data-harness={harness || undefined}>
         <div className="acpmux-permission-request-head">
           <span className="acpmux-permission-request-icon" aria-hidden="true">
@@ -553,7 +562,7 @@ export function PermissionCard({
               }}
             />
           )}
-          {(allowAlways || allowOnce) && (
+          {(allowAlways || allowOnce || acceptEdits) && (
             // The allows keep the trailing edge together, so a narrow card wraps them as a pair.
             <span className="acpmux-permission-allows">
               {allowAlways && allowAlwaysLabel && (
@@ -566,6 +575,15 @@ export function PermissionCard({
                   }
                   disabled={alwaysAtSource}
                   onClick={() => answer(allowAlways)}
+                />
+              )}
+              {acceptEdits && (
+                // A one-time allow that also leaves plan mode for Accept edits, beside Approve plan.
+                <PermissionActionButton
+                  label={t("permission.plan.approveAcceptEdits")}
+                  shortcut={shortcuts ? allowChatShortcut : undefined}
+                  className="acpmux-permission-accept-edits"
+                  onClick={() => answer(acceptEdits)}
                 />
               )}
               {allowOnce && (

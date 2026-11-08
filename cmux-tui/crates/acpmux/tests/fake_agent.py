@@ -816,6 +816,28 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "ask-plan: X" asks as acpmux's claude_stdio asks a plan approval: Approve, Approve and
+    # auto-accept edits (a one-time allow that also moves the mode) and Reject.
+    if text.startswith("ask-plan:"):
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "p1", "title": "Approve plan", "kind": "other", "status": "pending",
+                             "rawInput": {"plan": text[9:].strip()},
+                             "_meta": {"claude": {"tool": "ExitPlanMode", "interactive": True}}},
+                "options": [
+                    {"optionId": "yes", "name": "Answer", "kind": "allow_once"},
+                    {"optionId": "acceptEdits", "name": "Approve and auto-accept edits", "kind": "allow_once",
+                     "_meta": {"acpmux": {"setsMode": "acceptEdits"}}},
+                    {"optionId": "no", "name": "Reject", "kind": "reject_once"},
+                ],
+            },
+        )
+        chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "ask-always: X" asks with an "allow always" option (a lasting grant).
     if text.startswith("ask-always:"):
         res = request(
