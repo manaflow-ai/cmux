@@ -298,7 +298,7 @@ impl Reducer {
                         span.end_at
                             .saturating_sub(span.start_at)
                             .saturating_mul(share)
-                            / ms.max(1),
+                            / (*ms).max(1),
                     );
                 }
             }
