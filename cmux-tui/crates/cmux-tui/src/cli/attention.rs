@@ -145,7 +145,7 @@ fn snapshot_queue(snapshot: &Value) -> Vec<Value> {
     }
     // Every row of a terminal carries that terminal's current unread marker,
     // so only its newest row says why the tab is unread.
-    let mut newest: std::collections::HashMap<&str, &Value> = std::collections::HashMap::new();
+    let mut newest: std::collections::BTreeMap<&str, &Value> = std::collections::BTreeMap::new();
     for notification in records(snapshot, "notifications") {
         let Some(terminal) = text(notification, "terminal_id") else { continue };
         let created = millis(field(notification, "created_at_ms")).unwrap_or(0);
@@ -154,9 +154,7 @@ fn snapshot_queue(snapshot: &Value) -> Vec<Value> {
             newest.insert(terminal, notification);
         }
     }
-    let mut rows: Vec<&Value> = newest.into_values().collect();
-    rows.sort_by(|a, b| text(a, "terminal_id").cmp(&text(b, "terminal_id")));
-    for notification in rows {
+    for notification in newest.into_values() {
         if field(notification, "unread") != true {
             continue;
         }
