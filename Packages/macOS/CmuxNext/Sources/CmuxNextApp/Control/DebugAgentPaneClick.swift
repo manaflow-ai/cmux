@@ -22,10 +22,10 @@ enum DebugAgentPaneClick {
         return false;
         """
 
-    /// After the click: the page's events (`?` marks an untrusted one), its visibility and focus.
+    /// After the click: the page's events (`?` marks an untrusted one), the `buttons` its pointer and mouse events carried, its visibility and focus.
     private static let report = """
         await new Promise((resolve) => setTimeout(resolve, 300));
-        return JSON.stringify({ events: window.__cmuxDebugClick ?? [], visibility: document.visibilityState, focus: document.hasFocus() });
+        return JSON.stringify({ events: window.__cmuxDebugClick ?? [], buttons: window.__cmuxDebugClickButtons ?? [], visibility: document.visibilityState, focus: document.hasFocus() });
         """
 
     /// The element `params` names (`selector` or `text`) in the page `view` shows: its center (`x`, `y`, CSS pixels) and
@@ -106,16 +106,16 @@ enum DebugAgentPaneClick {
             SyntheticInput.click(webView, down: down, up: up); app?.setHandlingSendEvent(outer)
             delivered = "view"
         }
-        let gestures = view.model.transport.gestures.debugState
         let page = (try? await view.callPageScript(report)) as? String
         let pageObject = page.flatMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
         return .object([
             "pane": .string(pane), "clicked": .bool(true), "tag": (found["tag"] as? String).map(JSONValue.string) ?? .null,
             "window_x": .number(Double(point.x)), "window_y": .number(Double(point.y)), "delivered": .string(delivered),
-            "gesture_available": .bool(gestures.available),
+            "gesture_available": .bool(view.model.transport.gestures.debugState.available),
             "hit": hit.map { .string(String(describing: type(of: $0))) } ?? .null,
             "hit_in_page": .bool(hit?.isDescendant(of: webView) == true),
             "page_events": .array(((pageObject?["events"] as? [String]) ?? []).map(JSONValue.string)),
+            "page_buttons": .array(((pageObject?["buttons"] as? [String]) ?? []).map(JSONValue.string)),
             "page_visibility": (pageObject?["visibility"] as? String).map(JSONValue.string) ?? .null,
             "page_focus": (pageObject?["focus"] as? Bool).map(JSONValue.bool) ?? .null,
         ])
