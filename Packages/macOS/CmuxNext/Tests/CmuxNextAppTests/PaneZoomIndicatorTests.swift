@@ -43,10 +43,18 @@ import Testing
             settle()
         }
 
-        /// The shown view that offers Exit Zoom, anywhere in the pane.
+        /// The shown view that offers Exit Zoom, anywhere in the pane: not hidden, and neither it nor an ancestor clear.
         var indicator: NSView? {
+            func drawn(_ view: NSView) -> Bool {
+                var next: NSView? = view
+                while let current = next {
+                    if current.alphaValue == 0 { return false }
+                    next = current.superview
+                }
+                return true
+            }
             func find(_ view: NSView) -> NSView? {
-                if !view.isHiddenOrHasHiddenAncestor, view.alphaValue > 0, view.accessibilityLabel() == Strings.exitZoom,
+                if !view.isHiddenOrHasHiddenAncestor, drawn(view), view.accessibilityLabel() == Strings.exitZoom,
                    !view.frame.isEmpty { return view }
                 for sub in view.subviews { if let hit = find(sub) { return hit } }
                 return nil
