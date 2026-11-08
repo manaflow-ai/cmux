@@ -30,7 +30,6 @@ use ghostty_vt::KeyEncoder;
 use ghostty_vt::KeyInput;
 use ghostty_vt::key_input_from_chord;
 use ghostty_vt::rows_to_runs;
-use regex::Regex;
 use serde_json::Value;
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -346,7 +345,8 @@ pub(super) fn wait_for(
     }
     let surface = get_surface(mux, surface)?;
     require_pty(&surface)?;
-    let regex = Regex::new(&pattern).map_err(|err| anyhow::anyhow!("bad regex: {err}"))?;
+    let regex = crate::wait_pattern::compile(&pattern)
+        .map_err(|err| anyhow::anyhow!("bad regex: {err}"))?;
     let start = Instant::now();
     let check = || -> anyhow::Result<Option<String>> {
         let text = surface.try_with_terminal(|t| t.active_text())??;

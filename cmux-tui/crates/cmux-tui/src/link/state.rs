@@ -14,9 +14,9 @@ use zeroize::Zeroizing;
 /// outer WireGuard port of cmux endpoints).
 pub(super) const DEFAULT_PORT: u16 = 4101;
 
-/// The link mesh's inner MTU: 1200, the smaller of the two paths a session
-/// may use (1380 direct, 1200 through the Freestyle tunnel; transport.md
-/// 3.1), so a peer can move to the tunnel route without a size change.
+/// The link mesh's inner MTU. 1200 fit the nested tunnel route, which is
+/// gone; it stays until a change measures a larger one (1380 direct,
+/// transport.md 3.1).
 pub(super) const LINK_MTU: u16 = 1200;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -179,3 +179,56 @@ test("a sub-session's note through the outbox names its sender, not the person",
   expect(queuedMessage({ text: "From now on: rebase first", client: "acpmux-outbox#7" })).toBeUndefined();
   expect(queuedMessage({ text: "[P1] Fix the crash", client: "acpmux-outbox#7" })).toBeUndefined();
 });
+
+// Review of #37653 (F1): a queued record's text is the whole message. One that only starts like the
+// broker's label, from a client that names its sender in `fromAgent` alone (no relay record), keeps
+// its words; only a list's one-line preview is read as possibly cut inside a label.
+test("a whole queued message that only starts like a relay label keeps its words", () => {
+  const text = "[message 1234abcd from a lane: the parser is fixed";
+  expect(queuedMessage({ text, client: "acpmux", fromAgent: "lane-a" })?.text).toBe(text);
+  // A whole label around it, closed by its own nonce, is still left out.
+  const relayed = `[message 1234abcd from vm-1/lane-a (an agent, not Leo), relayed by the lane-gh broker; its text ends at "[end of message 1234abcd]"]\nthe parser is fixed\n[end of message 1234abcd]`;
+  expect(queuedMessage({ text: relayed, client: "acpmux", fromAgent: "vm-1/lane-a" })?.text).toBe(
+    "the parser is fixed",
+  );
+});
+
+test("a queue list's preview cut inside a relay label reads as nothing of the label", () => {
+  const listed = mergeQueue(
+    [],
+    [
+      {
+        promptId: "p1",
+        preview: "[message 1234abcd from vm-1/lane-a (an agent, not Leo), relayed by the lane-gh br…",
+        fromAgent: "vm-1/lane-a",
+      },
+    ],
+  );
+  expect(listed[0]?.message?.text).toBe("");
+});
+
+// cmux#38642 review: a queued `agent_message` record names its sender (`fromName`) but carries no
+// proof of it (no `fromRelay`, no `fromSessionId`), so a first line that only looks like the
+// broker's head is the sender's own text: anyone can type one. Only a sender acpmux proved loses a
+// head with no closing line; any other keeps it, and only a whole closed label goes.
+test("a queued agent message with no proven sender keeps a relay-looking first line", () => {
+  const head =
+    '[message 1234abcd from vm-1/lane-a (an agent, not Leo), relayed by the lane-gh broker; its text ends at "[end of message 1234abcd]"]';
+  const text = `${head}\nthe parser is fixed`;
+  const record = (provenance: Record<string, unknown>) => ({
+    text,
+    client: "acpmux",
+    promptId: "p1",
+    _meta: { provenance },
+  });
+  const named = { kind: "agent_message", from: "fromAgent", fromName: "lane-a", to: "s-1" };
+  expect(queuedMessage(record(named))?.text).toBe(text);
+  // acpmux's `fromAgent` alone names the sender, no proof either.
+  expect(queuedMessage({ text, client: "acpmux", fromAgent: "lane-a", promptId: "p2" })?.text).toBe(text);
+  // A relay's record proves the sender: the head the broker wrote is left out.
+  const proven = { ...named, fromRelay: { by: "lane-gh", machine: "vm-1", session: "lane-a" } };
+  expect(queuedMessage(record(proven))?.text).toBe("the parser is fixed");
+  // A whole closed label is the broker's, read so for any agent's record.
+  const closed = `${text}\n[end of message 1234abcd]`;
+  expect(queuedMessage({ ...record(named), text: closed })?.text).toBe("the parser is fixed");
+});

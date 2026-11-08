@@ -345,7 +345,7 @@ public final class HoverCardCoordinator {
             self.panel = panel
             panel.present(body: body.view, anchor: anchor, placement: body.placement, parent: parent,
                           themeAnchor: body.themeAnchor, sliding: sliding, interactive: body.interactive,
-                          cornerRadius: body.cornerRadius, applyTheme: body.applyTheme)
+                          cornerRadius: body.cornerRadius, entrance: body.entrance, applyTheme: body.applyTheme)
             // `present` lets an interactive card take the mouse; off the card it gives it back now.
             updateCardMouse()
             // A hover card whose row's escape slot already holds the pointer (it rested in the

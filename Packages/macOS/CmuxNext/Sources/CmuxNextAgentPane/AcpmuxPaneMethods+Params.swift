@@ -71,6 +71,11 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/session/auth": (["sessionId", "target", "refresh"], []),
         // The running-limit stepper: `maxRunning` only, never `maxChildren` or `maxDepth`.
         "_acpmux/subsession/limits": (["sessionId", "maxRunning"], []),
+        "_acpmux/race/start": (["parent", "prompt", "candidates", "reviewer"], []),
+        "_acpmux/race/get": (["parent", "raceId"], []),
+        "_acpmux/race/list": (["parent"], []),
+        "_acpmux/race/cancel": (["parent", "raceId"], []),
+        "_acpmux/race/stats": (["parent"], []),
         // `server`: one of that chat's MCP servers by name; acpmux refuses a name the chat does not list.
         "_acpmux/mcp/reconnect": (["sessionId", "server"], []),
         // `release`: a new chat's typing prewarm taken back (cleared prompt, closed unsent; newChatPrewarm.ts).
@@ -118,6 +123,8 @@ nonisolated extension AcpmuxPaneMethods {
         // `model`: the side session's model when the page names one; acpmux picks a fast one otherwise.
         "_acpmux/btw": (["sessionId", "question", "model", "inline"], []),
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
+        // `accept` and `dismiss`: the offer's own one-line facts, which acpmux matches against it.
+        "_acpmux/memory_resolve": (["sessionId", "offerId", "file", "accept", "dismiss"], []),
         "_acpmux/context": (["sessionId"], []),
         // `text: null` removes the saved text; `partId`: a verified local preset prompt's id.
         "_acpmux/context_override": (["sessionId", "scope", "text", "partId"], []),

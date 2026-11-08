@@ -1128,7 +1128,14 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
                         session: self.options.session,
                         lane_policy: self.options.lane_policy,
                         limits: SessionLimits::default(),
-                        reconnect: self.options.reconnect,
+                        // `--reconnect-attempts` bounds the first connect
+                        // only. The established link redials in budgeted
+                        // bursts and parks between them instead of ending
+                        // the process, which made every layer above redial.
+                        reconnect: ReconnectPolicy {
+                            maximum_attempts: None,
+                            ..self.options.reconnect
+                        },
                     },
                     Some(reconnect_groups),
                 ),
@@ -2403,10 +2410,22 @@ async fn run_daemon(
         pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeReadySend);
         let mut shutdown_failures = Vec::new();
         if ready.send(Ok(info)).is_ok() {
-            let services = DaemonServices::with_local_sockets(
+            // A Cloud machine's carrier (a grant config) also bridges the
+            // acpmux service to this user's acpmux carrier socket, in the
+            // home `cmux acp` resolves.
+            #[cfg(unix)]
+            let acpmux_socket = options
+                .carrier_grant_config
+                .as_ref()
+                .and_then(|_| crate::acp::daemon_acpmux_home())
+                .map(|home| cmux_remote::acpmux_bridge::socket_path(&home));
+            #[cfg(not(unix))]
+            let acpmux_socket = None;
+            let services = DaemonServices::with_carrier_sockets(
                 workspace,
                 Some(mux_socket),
                 options.local_sockets.clone(),
+                acpmux_socket,
             );
             services.run_with_shutdown(clients, shutdown).await;
         } else {
@@ -5636,6 +5655,12 @@ mod tests {
                 heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: None,
                 maximum_duration: None,
+                attempts_per_recovery: 3,
+                // Real-clock fixture: redial as fast as its delays allow.
+                redial_budget: cmux_remote::connection::RedialBudget {
+                    capacity: 1_000,
+                    refill_interval: Duration::from_millis(1),
+                },
             },
             startup_timeout: instrumented_test_timeout(Duration::from_secs(5)),
             state_dir: directory.path().join("client"),
@@ -5800,6 +5825,12 @@ mod tests {
                 heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: Some(2),
                 maximum_duration: None,
+                attempts_per_recovery: 3,
+                // Real-clock fixture: redial as fast as its delays allow.
+                redial_budget: cmux_remote::connection::RedialBudget {
+                    capacity: 1_000,
+                    refill_interval: Duration::from_millis(1),
+                },
             },
             startup_timeout: Duration::from_secs(2),
             state_dir: directory.path().join("client"),
@@ -5876,6 +5907,12 @@ mod tests {
                 heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: Some(2),
                 maximum_duration: None,
+                attempts_per_recovery: 3,
+                // Real-clock fixture: redial as fast as its delays allow.
+                redial_budget: cmux_remote::connection::RedialBudget {
+                    capacity: 1_000,
+                    refill_interval: Duration::from_millis(1),
+                },
             },
             startup_timeout: Duration::from_secs(1),
             state_dir: directory.path().join("client"),

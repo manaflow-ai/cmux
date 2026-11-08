@@ -929,6 +929,9 @@
         "values": [
           "\"daemon-shutdown\""
         ]
+      },
+      "/restart": {
+        "ty": "boolean"
       }
     },
     "event:detached": {
@@ -12032,6 +12035,10 @@
       "/pid": {
         "ty": "uint32",
         "required": true
+      },
+      "/restart": {
+        "ty": "boolean",
+        "nullable": true
       }
     },
     "request:sidebar-plugin": {
@@ -17327,6 +17334,17 @@
       "/data/agents/*/state": {
         "ty": "enum",
         "required": true,
+        "values": [
+          "blocked",
+          "done",
+          "idle",
+          "unknown",
+          "working"
+        ]
+      },
+      "/data/agents/*/status": {
+        "ty": "enum",
+        "nullable": true,
         "values": [
           "blocked",
           "done",

@@ -480,7 +480,14 @@ export function AttachmentChip({
     const keep = onKeepFile ? () => onKeepFile(attachment.id) : undefined;
     const label = `${name} · ${pastedSize(t, language, text)}`;
     const accessible = `${attachment.name || pasteName(text)}, ${label}`;
-    const body = <TextAttachmentCard text={text} label={label} wrap />;
+    const body = (
+      <TextAttachmentCard
+        text={text}
+        label={label}
+        wrap
+        {...(keep ? { reserve: t(ATTACHMENT_LABELS.keepPasted) } : {})}
+      />
+    );
     return menu(
       expand,
       <div className="acpmux-attachment acpmux-attachment-pasted acpmux-text-card">

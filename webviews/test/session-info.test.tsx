@@ -25,8 +25,8 @@ import { setChipHost } from "../src/agent-session/acpmux/chips/host";
 import { resetPullRequestStore } from "../src/agent-session/acpmux/chips/pullRequestStore";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import { resetChangesStatuses } from "../src/agent-session/acpmux/session-info/changesStatus";
+import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
 import {
-  SessionInfo,
   sessionInfoTopOffset,
   sessionInfoOverChat,
   sessionInfoPushes,
@@ -39,8 +39,8 @@ import {
   sessionInfoFits,
   FLOAT_MARGIN,
   pushes,
-  useSessionInfo,
-} from "../src/agent-session/acpmux/session-info/SessionInfo";
+} from "../src/agent-session/acpmux/session-info/sessionInfoModel";
+import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
 import {
   SESSION_INFO_WIDTH,
   sessionInfoState,
@@ -974,7 +974,8 @@ test("Changes lists the pull requests the chat opened or touched, open ones firs
     ]),
   );
   // Usage and Connectors always show in the chat's own panel (None here), under the Show more line.
-  expect(sectionIds(container)).toEqual(["environment", "context", "changes", "usage", "connectors"]);
+  // The pull requests it opened and merged are also its Outputs (producedLinks.ts).
+  expect(sectionIds(container)).toEqual(["environment", "context", "outputs", "changes", "usage", "connectors"]);
   const changes = section(container, "changes")!;
   expect(meta(changes)).toBe("9");
   const listed = () => [...changes.querySelectorAll<HTMLElement>("li.acpmux-session-info-pr")];

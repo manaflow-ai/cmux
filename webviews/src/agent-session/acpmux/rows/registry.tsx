@@ -33,6 +33,8 @@ import { BackgroundTaskRow } from "./BackgroundTaskRow";
 import { CompactionRow } from "./CompactionRow";
 import { FailoverRow } from "./FailoverRow";
 import { ReadOnlyRecapRow, RecapRow } from "./RecapRow";
+import { MemoryOfferRow } from "./MemoryOfferRow";
+import { MEMORY_OFFER } from "../conversation/memoryInbox";
 import { PolicyUnenforcedRow } from "./PolicyUnenforcedRow";
 import { AgentPairRow } from "./AgentPairRow";
 import { SessionStartRow } from "./SessionStartRow";
@@ -81,6 +83,7 @@ export const defaultRegistry: NativeRegistry = {
   compaction: CompactionRow,
   failover: FailoverRow,
   recap: RecapRow,
+  [MEMORY_OFFER]: MemoryOfferRow,
   policyUnenforced: PolicyUnenforcedRow,
   agentPair: AgentPairRow,
   sessionStart: SessionStartRow,
@@ -117,6 +120,8 @@ export const readOnlyRegistry: NativeRegistry = {
   [QUEUED_MESSAGE]: ReadOnlyQueuedMessageRow,
   agentPair: ReadOnlyAgentPairRow,
   recap: ReadOnlyRecapRow,
+  // An offer to write the owner's instructions file is the owner's own.
+  [MEMORY_OFFER]: NoRow,
   sessionOffer: NoRow,
   [OFFER_RESULT]: NoRow,
   [STARTED_SESSIONS]: NoRow,

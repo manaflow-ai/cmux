@@ -555,7 +555,7 @@ impl Hub {
         };
         // Its replay is not known to be in the log until its end is learned (below).
         child.mark_replay_unknown();
-        let proven = self.adopt_caller_token(&session.id, caller_token);
+        let proven = self.adopt_caller_token(&session.id, caller_token, &incarnation);
         // A fork through an adopted agent asks for the list it started with
         // (`spawn.rs` decides it at session/new for a spawned one).
         let meta = session.meta();
@@ -1190,7 +1190,7 @@ impl Hub {
     ) {
         Self::recover_floor(session, &work);
         session.compacting.store(work.compacting, Ordering::SeqCst);
-        self.rebuild_processes(session);
+        self.recover_processes(session);
         // A carried turn the restart cut before its prompt went out (or before it started):
         // the agent runs it still, and it goes on (`carried_turn.rs`).
         if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) = work.turn.clone()
@@ -1588,6 +1588,9 @@ impl Hub {
                    "agentRequestId": agent_request_id.clone()}),
         );
         self.set_status(session, SessionStatus::Waiting);
+        // A chat restored as Waiting changes no status here, so its parent's count of asks below
+        // is decided now: a new daemon starts every count at none (`asks_below.rs`).
+        self.refresh_parent_asks_below(session);
         let hub = self.clone();
         let s = session.clone();
         let c = child.clone();
@@ -1922,7 +1925,7 @@ impl Hub {
         if let Some(pid) = record.harness_pid {
             crate::cpu_class::clear_running(pid);
         }
-        self.forget_adopted_caller(&session.id);
+        self.forget_adopted_caller(&session.id, &record.incarnation);
         // Logged before the first entry, so a later controller counts every
         // entry of this incarnation.
         let mut started = json!({

@@ -153,6 +153,27 @@ test("grouped requests are left to their group card", async () => {
   expect(ids(asks)).toEqual(["solo"]);
 });
 
+// A sub-session's ordinary command approval is grouped (acpmux permission_groups.rs `eligible`):
+// the chat above it still draws it (subagents/childAsks.ts), so the tracker holds it apart.
+test("grouped requests are held apart for the chat above their sub-session, and leave when answered", async () => {
+  const { asks, reads } = tracker();
+  asks.pending({ sessionId: "s1", permissionId: "solo" });
+  const listed = asks.list();
+  asks.pending({ sessionId: "child", permissionId: "g1", groupId: "grp" });
+  expect(asks.listGrouped().map((ask) => ask.permission.permissionId)).toEqual(["g1"]);
+  expect(asks.list()).toBe(listed);
+  asks.session({ sessionId: "child", pendingPermissions: 2 });
+  reads[0]!.resolve([
+    { permissionId: "g1", groupId: "grp" },
+    { permissionId: "g2", groupId: "grp" },
+  ]);
+  await settle();
+  expect(asks.listGrouped().map((ask) => ask.permission.permissionId)).toEqual(["g1", "g2"]);
+  asks.session({ sessionId: "child", pendingPermissions: 0 });
+  expect(asks.listGrouped()).toEqual([]);
+  expect(ids(asks)).toEqual(["solo"]);
+});
+
 test("asks found by a read (opened before the page saw them) are dated by the chat's last change", async () => {
   const { asks, reads } = tracker(() => 5000);
   asks.sessions([{ sessionId: "s1", pendingPermissions: 2, updatedAt: 1200 }]);

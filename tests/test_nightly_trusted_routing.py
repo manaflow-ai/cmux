@@ -489,6 +489,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertIn(
             "github.ref == 'refs/heads/nightly-next' && ((github.event_name == 'push' || "
             "github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry != '') && 'push' || "
+            "github.event_name == 'workflow_dispatch' && inputs.nightly_next_sign_stage != '' && 'sign' || "
             "format('run-{0}', github.run_id))",
             group,
         )

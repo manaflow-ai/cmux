@@ -460,3 +460,81 @@ fn carrier_ticket_request_uses_an_empty_body() {
     assert_eq!(request.url, format!("{DEV}/v1/cloud/machines/{MACHINE}/carrier"));
     assert_eq!(request.bearer.as_deref(), Some("tok-1"));
 }
+
+/// The bind endpoint answering from a script, then like [`Fake`].
+struct Scripted(RefCell<VecDeque<Result<(u16, Value), String>>>, Fake);
+
+impl Scripted {
+    fn new(answers: impl IntoIterator<Item = Result<(u16, Value), String>>) -> Scripted {
+        Scripted(RefCell::new(answers.into_iter().collect()), Fake::new())
+    }
+}
+
+impl Http for Scripted {
+    fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String> {
+        let next = self.0.borrow_mut().pop_front();
+        next.unwrap_or_else(|| self.1.post(url, body, bearer))
+    }
+}
+
+fn forbidden() -> Result<(u16, Value), String> {
+    Ok((403, json!({ "ok": false, "error": { "code": "auth.forbidden" } })))
+}
+
+/// hq#7542: a bind whose answer was lost may have spent the token; the
+/// platform's refusal of the retry must not delete bind.json while the
+/// token can live, or the machine never binds.
+#[test]
+fn a_refusal_after_a_lost_answer_keeps_bind_json_while_the_token_lives() {
+    let rng = SystemRandom::new();
+    let mut store = MemoryStore::default();
+    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+    let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
+    let http = Scripted::new([Err("connection reset".to_owned()), forbidden(), forbidden()]);
+    let mut bind = |at| bind_machine(&mut store, &http, &key, "AAAA=", &daemon(), None, at);
+    assert!(matches!(bind(T0), BindResult::Retry(_)));
+    let result = bind(T0 + 1_100);
+    assert!(matches!(result, BindResult::Retry(_)), "{result:?}");
+    let result = bind(T0 + 15 * 60 * 1000);
+    assert_eq!(result, BindResult::Refused("auth.forbidden".to_owned()), "past the token's life");
+    assert_eq!(store.read(BIND_FILE), None);
+    assert_eq!(store.read(BIND_UNANSWERED_FILE), None);
+}
+
+#[test]
+fn a_retry_after_a_lost_answer_that_binds_clears_the_record() {
+    let rng = SystemRandom::new();
+    let mut store = MemoryStore::default();
+    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+    let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
+    let http = Scripted::new([Ok((503, json!({}))), forbidden()]);
+    let mut bind = |at| bind_machine(&mut store, &http, &key, "AAAA=", &daemon(), None, at);
+    assert!(matches!(bind(T0), BindResult::Retry(_)));
+    assert!(matches!(bind(T0 + 1_000), BindResult::Retry(_)));
+    let result = bind(T0 + 5_000);
+    assert!(matches!(result, BindResult::Bound(_)), "{result:?}");
+    assert_eq!(store.mode_of(BIND_UNANSWERED_FILE), None);
+    assert_eq!(store.read(BIND_FILE), None);
+}
+
+/// With no unanswered try, or one of an earlier token, a refusal is final.
+#[test]
+fn a_refusal_with_no_lost_answer_of_this_token_is_final() {
+    let rng = SystemRandom::new();
+    let mut store = MemoryStore::default();
+    let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
+    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+    let http = Scripted::new([forbidden(), Err("connection reset".to_owned()), forbidden()]);
+    let result = bind_machine(&mut store, &http, &key, "AAAA=", &daemon(), None, T0);
+    assert_eq!(result, BindResult::Refused("auth.forbidden".to_owned()));
+    assert_eq!(store.read(BIND_FILE), None);
+    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+    let result = bind_machine(&mut store, &http, &key, "AAAA=", &daemon(), None, T0);
+    assert!(matches!(result, BindResult::Retry(_)), "{result:?}");
+    let mut next: Value = serde_json::from_str(&bind_text()).unwrap();
+    next["bind_token"] = json!("bt_a_new_one_time_token_from_the_driver_0000");
+    store.write(BIND_FILE, &next.to_string(), 0o600).unwrap();
+    let result = bind_machine(&mut store, &http, &key, "AAAA=", &daemon(), None, T0 + 1_000);
+    assert_eq!(result, BindResult::Refused("auth.forbidden".to_owned()), "another token");
+    assert_eq!(store.read(BIND_FILE), None);
+}

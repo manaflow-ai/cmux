@@ -30,6 +30,10 @@
 //!   value as `chat`:
 //!   `adopt` with ready `session/new` params, `terminal` with argv/env/cwd,
 //!   or `readOnly`; `needsFolder` when the person must pick the folder.
+//! - `_acpmux/chat_resolve {ref}`: the chat a pasted reference names (`/resume <ref>`,
+//!   `chats/resolve.rs`): a session id, its start, a transcript path, a key or a resume
+//!   command. `{status: found, key, chat}`, `{status: ambiguous, chats}` (newest first, at most
+//!   5), `{status: notFound}` or `{status: tooShort}`.
 //! - `_acpmux/chat_transcript {key}`: the chat's past turns, read now from its
 //!   harness's store: `{key, harness, title, cwd, turns: [{prompt, answer,
 //!   promptAt?, answerAt?}]}`, the newest 200. A harness with no reader, or a
@@ -55,6 +59,7 @@
 //! found", like `_acpmux/directories`. Agents and MCP get them only through
 //! the `chats.read` scope, which is never granted by default.
 
+mod ledger;
 mod offers;
 mod search;
 mod stats;
@@ -113,6 +118,9 @@ pub(super) async fn route(
     if let Some(reply) = heap(|| super::subsessions::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
+    if let Some(reply) = heap(|| super::races::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
     // So do the forum methods (`forum.rs`): this daemon's own log.
     if let Some(reply) = heap(|| super::forum::dispatch(hub, conn, m, &params)).await {
         return reply;
@@ -132,6 +140,9 @@ pub(super) async fn route(
         return reply;
     }
     if let Some(reply) = super::goal::dispatch(hub, conn, m, &params) {
+        return reply;
+    }
+    if let Some(reply) = heap(|| super::memory_inbox::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
     if let Some(reply) = heap(|| super::workflow_runs::dispatch(hub, conn, m, &params)).await {
@@ -155,6 +166,10 @@ pub(super) async fn route(
     // Personal stats over the session logs (`stats.rs`): local, never a peer's.
     if m == crate::rpc::method::MUX_STATS {
         return stats::handle(hub, conn.origin, &params).await;
+    }
+    // What turns cost (`hub/ledger`): local and the app's pane, never a peer's.
+    if m == crate::rpc::method::MUX_LEDGER {
+        return ledger::handle(hub, conn.origin, &params);
     }
     // A chat's route (`routes.rs`) is a session method, not the chat index.
     if !m.starts_with(PREFIX) || m == crate::rpc::method::MUX_CHAT_ROUTE_SET {
@@ -237,6 +252,42 @@ pub(super) async fn route(
                 // copy of the index to name it.
                 plan.set("chat", crate::chats::chat_value(&chat));
                 Ok(plan)
+            })
+            .await
+        }
+        // `/resume <ref>`: the one chat a pasted id, id start, path or command names.
+        "_acpmux/chat_resolve" => {
+            let service =
+                service.ok_or_else(|| RpcError::internal("the chat index is starting"))?;
+            let text = params
+                .get("ref")
+                .and_then(Value::as_str)
+                .filter(|text| text.len() <= 4096)
+                .map(str::to_owned)
+                .ok_or_else(|| RpcError::invalid_params("ref must be a string"))?;
+            blocking(move || {
+                Ok(match service.resolve_ref(&text) {
+                    crate::chats::Resolved::Found(key) => match service.get(&key) {
+                        Some(chat) => json!({
+                            "status": "found",
+                            "key": crate::chats::key_text(&key),
+                            "chat": crate::chats::chat_value(&chat),
+                        }),
+                        None => json!({"status": "notFound"}),
+                    },
+                    crate::chats::Resolved::Ambiguous(keys) => {
+                        let chats: Vec<Value> = keys
+                            .iter()
+                            .filter_map(|key| service.get(key))
+                            .map(|chat| crate::chats::chat_value(&chat))
+                            .collect();
+                        json!({"status": "ambiguous", "chats": chats})
+                    }
+                    crate::chats::Resolved::TooShort => json!({"status": "tooShort"}),
+                    crate::chats::Resolved::NotFound | crate::chats::Resolved::Unindexed(_) => {
+                        json!({"status": "notFound"})
+                    }
+                })
             })
             .await
         }

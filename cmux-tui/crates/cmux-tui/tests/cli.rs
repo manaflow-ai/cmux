@@ -3013,6 +3013,10 @@ mod session_shutdown;
 mod apps_store;
 
 #[cfg(unix)]
+#[path = "cli/stop_start_lock.rs"]
+mod stop_start_lock;
+
+#[cfg(unix)]
 #[path = "cli/pty_child.rs"]
 mod pty_child;
 #[cfg(unix)]

@@ -21,6 +21,8 @@ cmux-agent-pane-policy.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-layout-reducer.workspace = true
+# The tab a pane selects after a close (close_focus::tab), the app's own rule.
+cmux-focus-core.workspace = true
 # The daemon checks URLs with the URL parser (`url`); the app links the crate without it.
 cmux-bookmarks-core = { workspace = true, features = ["url"] }
 cmux-bookmarks-ops = { workspace = true }
@@ -63,6 +65,7 @@ flate2.workspace = true
 wait-timeout.workspace = true
 tungstenite.workspace = true
 cmux-local-auth.workspace = true
+cmux-local-url.workspace = true
 cmux-link.workspace = true
 getrandom.workspace = true
 rusqlite.workspace = true

@@ -9,7 +9,7 @@ import {
   sessionInfoPopover,
   sessionInfoPushes,
   sessionInfoStage,
-} from "./SessionInfo";
+} from "./sessionInfoModel";
 
 // Pushed, the column keeps its whole-pane width, centered unrounded in the chat, never nearer its sides
 // than the page edge (sessionInfo.css --acpmux-session-info-column).

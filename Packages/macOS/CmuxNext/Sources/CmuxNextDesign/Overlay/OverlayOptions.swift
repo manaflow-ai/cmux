@@ -127,6 +127,19 @@ public final class OverlayHandle {
         host?.layout(self)
     }
 
+    /// Where the overlay takes clicks (window coordinates), when that is less than its frame: a
+    /// transparent page that draws small things over the window (the toast stack) takes clicks only
+    /// on them, and the window under the rest stays usable. Nil: its whole visible frame.
+    public private(set) var hitRegions: [NSRect]?
+
+    /// Sets ``hitRegions`` (nil: the whole frame again).
+    public func update(hitRegions regions: [NSRect]?) {
+        guard regions != hitRegions else { return }
+        hitRegions = regions
+        host?.cachedRegions = nil
+        host?.updateMouseRouting()
+    }
+
     /// Moves the overlay and its blocked region (a tab dialog after a tab resize), and where it takes clicks.
     public func update(anchor: NSRect, modalRegion: NSRect?, mouseRect: NSRect?) {
         options.anchor = anchor
@@ -148,6 +161,26 @@ public final class OverlayHandle {
     public func stopTakingMouse() {
         guard !options.passesThroughClicks else { return }
         options.passesThroughClicks = true
+        host?.cachedRegions = nil
+        host?.updateMouseRouting()
+    }
+
+    /// From now on the overlay takes clicks again, in place: no dismiss and present, which moves
+    /// its content to another view and makes a web page draw a blank frame (the cookie import
+    /// card's first click, and its tab getting the keyboard back).
+    public func startTakingMouse() {
+        guard options.passesThroughClicks else { return }
+        options.passesThroughClicks = false
+        host?.cachedRegions = nil
+        host?.updateMouseRouting()
+    }
+
+    /// Hides the overlay where it is, or shows it again, and takes no clicks while hidden: a card
+    /// that waits off screen keeps its place and its drawn content for when it shows again.
+    public func setHiddenInPlace(_ hidden: Bool) {
+        let view = clipView ?? content
+        guard view.isHidden != hidden else { return }
+        view.isHidden = hidden
         host?.cachedRegions = nil
         host?.updateMouseRouting()
     }

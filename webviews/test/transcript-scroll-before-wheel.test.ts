@@ -6,8 +6,8 @@
 // The pane's wheel listeners on a trackpad are passive, so WebKit scrolls the transcript on its
 // scrolling thread and hands the page the wheel event afterwards. A streamed snapshot that commits
 // in between saw the offset risen with no input yet, took it for layout work, and pinned the view
-// back to the bottom. Each case here moves the offset first, lets a snapshot commit (or the scroll
-// event arrive) before the wheel, then delivers the wheel late, as the app's WebKit does.
+// back to the bottom. The case here moves the offset first, lets a snapshot commit before the wheel,
+// then delivers the wheel late, as the app's WebKit does.
 //
 // Real Chromium and WebKit from Playwright; CI fails the file when they cannot launch
 // (requireBrowserLane).
@@ -146,27 +146,22 @@ await requireBrowserLane("transcript-scroll-before-wheel.test.ts", async () => {
         }
       });
 
-      test("a trackpad's first small step, its scroll event before its wheel, is not pinned back", async () => {
+      test("a rise of a pixel or two that no input made stays followed", async () => {
+        // WebKit itself moves a followed offset a pixel or so above the latest line as a reply grows
+        // (cx-02st5): inside the follow deadband that is layout work, never the reader's scroll.
         const page = await followedStream(await launch());
         try {
-          await page.evaluate(() => {
-            document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop -= 2;
-          });
-          // The scroll event comes with the next frame; the wheel has not reached the page yet.
-          await frames(page, 1);
           await page.evaluate(
-            (rows) => (window as unknown as { __showRowsSync(rows: unknown): void }).__showRowsSync(rows),
+            (rows) => {
+              const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+              node.scrollTop -= 2;
+              (window as unknown as { __showRowsSync(rows: unknown): void }).__showRowsSync(rows);
+            },
             streaming(3, 3),
           );
-          const committed = await fromEnd(page);
-          await lateWheel(page, -2);
-          await frames(page, 3);
-          const state = { committed, end: await fromEnd(page), following: await following(page) };
-          console.log(`small-step-before-wheel ${name}: ${JSON.stringify(state)}`);
-          // Base: the scroll event read the 2 px as layout work and the view went back to the end.
-          expect(state.committed).toBeGreaterThanOrEqual(2);
-          expect(state.end).toBeGreaterThanOrEqual(2);
-          expect(state.following).toBe(false);
+          await frames(page, 4);
+          expect(await fromEnd(page)).toBeLessThanOrEqual(1);
+          expect(await following(page)).toBe(true);
         } finally {
           await page.close();
         }

@@ -15,17 +15,17 @@ import { setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
 import { transcriptColumn } from "../src/agent-session/acpmux/model";
 import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
+import { SessionInfoPanel } from "../src/agent-session/acpmux/session-info/SessionInfo";
 import {
   FLOAT_MARGIN,
-  SessionInfoPanel,
   pushedWidth,
   pushedRoom,
   sessionInfoFits,
   sessionInfoShown,
   sessionInfoStage,
   paneRoom,
-  useSessionInfo,
-} from "../src/agent-session/acpmux/session-info/SessionInfo";
+} from "../src/agent-session/acpmux/session-info/sessionInfoModel";
+import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
 import { setNativeHost } from "../src/agent-session/acpmux/native";
 import { setNativeSessionInfoHost } from "../src/agent-session/acpmux/session-info/native/host";
 import {

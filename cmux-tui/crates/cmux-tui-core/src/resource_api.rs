@@ -506,6 +506,12 @@ pub(crate) fn public_terminal_snapshot(
     if running && let Some(since) = surface.and_then(crate::Surface::terminal_prompt_since) {
         extra.insert("prompt".into(), crate::terminal_activity::prompt_json(since));
     }
+    // `terminal-exit-status-v1`: the last command the shell finished (OSC
+    // 133 D), with its exit code when the shell sent one. Absent without
+    // shell integration, so a missing field never reads as success.
+    if running && let Some(last) = surface.and_then(crate::Surface::terminal_last_command) {
+        extra.insert("last_command".into(), crate::terminal_activity::last_command_json(last));
+    }
     if running && let Some(at) = surface.and_then(crate::Surface::terminal_last_output) {
         extra.insert("last_output".into(), crate::terminal_activity::last_output_json(at));
     }
@@ -549,6 +555,9 @@ pub(crate) fn public_session_snapshot_with_journal_head(
     let (sidebar_status, sidebar_last_size, sidebar_configured) =
         mux.sidebar_plugin_resource_status();
     let sidebar_surface = sidebar_status.surface.and_then(|surface| mux.surface(surface));
+    // Taken before the projection lock, like the sidebar status (memory only).
+    let last_replies = mux.agent_last_replies();
+    let last_sessions = mux.agent_last_sessions();
     #[cfg(test)]
     run_snapshot_before_projection_hook();
     mux.with_resource_projection(|registry, state| {
@@ -685,6 +694,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                 })?;
                 let tab_ids = tab_ids_by_terminal.remove(&terminal_id).unwrap_or_default();
                 public_terminal_snapshot(&terminal_id, durable, surface.map(Arc::as_ref), tab_ids)
+                    .map(|terminal| crate::mux::with_agent_session(terminal, &last_sessions))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -755,6 +765,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                 agent
             })
             .map(|agent| agent.into_public_snapshot(&topology.session_id))
+            .map(|agent| crate::mux::with_last_reply(agent, &last_replies))
             .collect::<Vec<_>>();
         agents.sort_by(|left, right| {
             left["id"].as_str().unwrap_or_default().cmp(right["id"].as_str().unwrap_or_default())

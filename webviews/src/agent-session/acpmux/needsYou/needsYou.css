@@ -422,18 +422,20 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 40%, transparent);
 }
 
-/* The Needs your input pill: Jump to latest's glass (tint, rim, hover wash), widened to a small-radius rect,
-   a little larger than Claude's (Leo 2026-10-20). */
+/* The Needs your input pill: Jump to latest's glass (tint, rim, hover wash), widened to a small-radius
+   rect (no capsule: agent-pane-no-capsules). It reads as the question card's pill (QuestionCard.tsx .acpmux-question-status): the Needs you dot, the words in the mark's colour at regular weight, a muted chevron
+   (Leo 2026-11-05, of the bold block it was: "kind of ugly"). */
 .acpmux-jump-latest.acpmux-needs-you-pill {
   display: inline-flex;
   gap: var(--ds-space-2);
   width: auto;
-  height: 34px;
+  height: var(--ds-control-primary);
   padding: 0 var(--ds-space-3);
   border-radius: var(--ds-radius-popup);
+  color: var(--acpmux-needs-you-mark);
   font-family: var(--font-ui);
   font-size: var(--text-control);
-  font-weight: var(--weight-emphasis, 600);
+  font-weight: var(--weight-regular);
   white-space: nowrap;
   letter-spacing: var(--text-control--letter-spacing);
 }
@@ -578,4 +580,12 @@
 }
 .acpmux-needs-you-form .acpmux-needs-you-error {
   margin: 0;
+}
+/* An approval's answer letter (y, n) at the row's end, as the permission card's keycaps. */
+.acpmux-needs-you-answer[data-answer-key] {
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+}
+.acpmux-needs-you-answer .acpmux-keycap {
+  margin: 0;
+  color: var(--agent-muted);
 }

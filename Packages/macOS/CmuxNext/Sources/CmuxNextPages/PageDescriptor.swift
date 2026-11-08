@@ -76,8 +76,10 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.confirmedOps = confirmedOps
         // Only a first-party page may widen its policy (PageID). Another built-in (`cmux.`) page may
         // add image sources only (the GitHub page's image proxy), which loads pixels and runs nothing,
-        // and keeps no daemon access; any other id gets the strict one.
-        self.csp = PageID.isFirstParty(id) ? csp : PageID.isReserved(id) ? PageCSP(image: csp.image) : .strict
+        // and keeps no daemon access, while its own narrowing (inline script off) stands (review
+        // follow-up on #38075, F2); any other id gets the strict one.
+        self.csp = PageID.isFirstParty(id) ? csp
+            : PageID.isReserved(id) ? PageCSP(image: csp.image, inlineScript: csp.inlineScript) : .strict
         // One file name inside the root, never a path.
         self.entry = entry.isEmpty || entry.contains("/") || entry.hasPrefix(".") ? "index.html" : entry
         self.dynamicPrefixes = dynamicPrefixes

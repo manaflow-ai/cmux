@@ -175,7 +175,7 @@ const ENTRANCES: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/PeerCopyBanner.tsx": { count: 3, what: "a banner at the top of the chat" },
   "src/agent-session/acpmux/WatchBanner.tsx": { count: 1, what: "a banner at the top of the chat" },
   "src/agent-session/acpmux/conversation/ArtifactPanel.tsx": { count: 1, what: "the artifact side panel" },
-  "src/agent-session/acpmux/session-info/SessionInfo.tsx": { count: 1, what: "the Session Info side panel" },
+  "src/agent-session/acpmux/session-info/useSessionInfo.tsx": { count: 1, what: "the Session Info side panel" },
   "src/agent-session/acpmux/session-info/TasksSection.tsx": { count: 1, what: "an arriving task row" },
   "src/agent-session/acpmux/summary/SummaryCard.tsx": { count: 1, what: "the summary side panel" },
   "src/agent-session/acpmux/summary/SummaryTasks.tsx": { count: 1, what: "an arriving task row" },
@@ -235,6 +235,10 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/files-panel-motion.ts": { count: 2, what: "the files panel slides in from its edge" },
   "src/motion/SyncTitle.tsx": { count: 3, what: "a title's new text cross-fades" },
   "src/motion/useSyncListMotion.ts": { count: 3, what: "list rows arrive, move and leave" },
+  "src/pages/overlay/toasts/useToastMotion.ts": {
+    count: 4,
+    what: "a toast rises and fades in, slides to its new slot, and its copy fades out where it was",
+  },
   "src/ui/motion/SlidingIndicator.tsx": {
     count: 1,
     what: "a tab bar's or segmented control's highlight travels to the selected item",

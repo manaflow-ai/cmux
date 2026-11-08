@@ -72,6 +72,8 @@ export interface ReviewComment {
   /** GitHub's own rendering of `body` (its `bodyHTML`); empty when it was too long to send whole. */
   html?: string;
   url: string | null;
+  /** Whether its thread is resolved; null when the read did not reach its thread. */
+  resolved?: boolean | null;
 }
 
 /** A comment or a review in the conversation. */
@@ -107,6 +109,8 @@ export interface PullRequestDetails {
   /** `approved`, `changes_requested`, `commented`, `dismissed` or `requested`. */
   reviewers: { name: string; state: string }[];
   linked: { number: number; title: string; url: string; state: string }[];
+  /** The signed-in GitHub login that read these details, for the conversation's Mine filter. */
+  viewer?: string;
 }
 
 /** One file's inline diff, as the page holds it. */

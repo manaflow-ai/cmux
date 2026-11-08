@@ -41,6 +41,27 @@ chats at the bottom of the sidebar. Open one to resume it.
 - **A picture for each New entry people can see.** Stable and RC releases require one for every New
   entry, in light and dark. Nightlies show a picture when it is there.
 
+## A gallery picture, and a before and after
+
+Leo, 2026-10-20: "tho i think vids and before/afters for our techincal stuff is p important... we
+want things to be PRETTY!!!!" When the change shows in a webview gallery entry, name the state that
+shows it, and for an Improved entry the state it replaced:
+
+```
+title: The Updated card stays glass while open
+category: improved
+gallery: pages.changelog.update-surfaces/card-preview-over-rows
+before: pages.changelog.update-surfaces/card-preview-over-rows-solid
+```
+
+Each value is `ENTRY/VARIANT`, as the gallery names them. Keep the before state as a variant of
+your gallery when you change a look (`-solid`, `-old`), so it can still render after the change.
+When the file merges, `whats-new-gallery.yml` renders both in the dark default theme and puts them
+on pr-media after the privacy check (`scripts/cmux-next/media/whats-new-gallery.py`). The next
+nightly shows the picture beside the entry, with the before after it. A clip wins over both.
+NOW's `whats_new` line (cmuxterm-hq goal whats-new-pretty) counts the New and Improved entries of the
+last ten nightlies that went out without a picture, or without a before and after.
+
 ## A clip for each change people can see
 
 Leo, 2026-10-24: "I also think the What's New video is kind of, uh, it's like you're not even showing

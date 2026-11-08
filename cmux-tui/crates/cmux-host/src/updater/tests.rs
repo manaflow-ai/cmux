@@ -322,13 +322,6 @@ fn a_file_hash_covers_every_byte_past_one_read_buffer() {
     assert_eq!(store::sha256_file(&path).unwrap(), sha(&bytes));
 }
 
-#[test]
-fn a_running_relay_chat_holds_the_update() {
-    assert_eq!(relay_chats_busy(0), None);
-    assert_eq!(relay_chats_busy(1).as_deref(), Some("1 relay chat"));
-    assert_eq!(relay_chats_busy(3).as_deref(), Some("3 relay chats"));
-}
-
 /// A claimed spare resumed at 21:28:35 and its updater restarted the services
 /// at 21:28:41, killing the Mac's first dial (nightly 8d8fc7a, 2026-11-06): no
 /// flip within the connect hold of a start, a bind or a resume.
@@ -379,4 +372,120 @@ fn a_hold_that_starts_during_staging_holds_the_flip() {
         Some(role::Outcome::Busy(why)) => assert!(why[0].contains("connect hold"), "{why:?}"),
         other => panic!("the flip is not held: {other:?}"),
     }
+}
+
+/// A new machine is a restore of the bake's snapshot: `realtime - boottime`
+/// jumps by the stopped time, which starts the connect hold before the
+/// supervisor's `Resumed` arrives; a clock sync's drift does not.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_snapshot_restore_counts_from_the_clock_offset_not_a_sync() {
+    let second = 1_000_000_000_i128;
+    assert!(!role::restored_between(None, 50 * second));
+    assert!(!role::restored_between(Some(50 * second), 50 * second + second / 2));
+    assert!(role::restored_between(Some(50 * second), 50 * second + 3 * 24 * 3600 * second));
+}
+
+/// Attached carrier sessions hold an update, an unreadable list too, and only
+/// for [`carrier::CARRIER_MAX_HOLD`]: then the update goes at the next idle
+/// gap of the agent turns, and the bound is reported once. No sessions ends
+/// the hold, so the next attach gets a whole one.
+#[test]
+fn carrier_sessions_hold_the_flip_up_to_the_bound() {
+    use std::time::{Duration, Instant};
+
+    use carrier::{CARRIER_MAX_HOLD, CarrierHold};
+
+    let t0 = Instant::now();
+    let mut hold = CarrierHold::default();
+    let idle = hold.look(t0, Ok(Vec::new()));
+    assert_eq!(idle.busy, None);
+    assert!(!idle.new_session);
+
+    let mac = vec!["device-a/s1".to_owned()];
+    let attached = hold.look(t0 + Duration::from_secs(60), Ok(mac.clone()));
+    assert!(attached.busy.as_deref().is_some_and(|why| why.contains("1 carrier session")));
+    assert!(attached.new_session, "a session the last look did not see is a new connect");
+
+    let later = hold.look(t0 + Duration::from_secs(60) + CARRIER_MAX_HOLD / 2, Ok(mac.clone()));
+    assert!(later.busy.is_some(), "still inside the bound");
+    assert!(!later.new_session);
+
+    let unknown = hold.look(
+        t0 + Duration::from_secs(60) + CARRIER_MAX_HOLD / 2,
+        Err("its admin channel answered exit status: 1".to_owned()),
+    );
+    assert!(unknown.busy.as_deref().is_some_and(|why| why.contains("unknown")), "{unknown:?}");
+
+    let passed = hold.look(t0 + Duration::from_secs(60) + CARRIER_MAX_HOLD, Ok(mac.clone()));
+    assert_eq!(passed.busy, None, "a stuck session holds no update past the bound");
+    assert!(passed.bound_passed);
+    let again = hold.look(t0 + Duration::from_secs(120) + CARRIER_MAX_HOLD, Ok(mac));
+    assert_eq!(again.busy, None);
+    assert!(!again.bound_passed, "the bound is reported once");
+
+    // The Mac leaves; its next attach is held from that look on.
+    let t1 = t0 + 2 * CARRIER_MAX_HOLD;
+    assert_eq!(hold.look(t1, Ok(Vec::new())).busy, None);
+    let back = hold.look(t1 + Duration::from_secs(5), Ok(vec!["device-a/s2".to_owned()]));
+    assert!(back.busy.is_some());
+    assert!(back.new_session);
+}
+
+/// The admin channel's list: connected and reconnecting (inside the resume
+/// lease) sessions are attached, a restart would end both; closed ones are not.
+#[test]
+fn attached_carrier_sessions_are_connected_or_reconnecting() {
+    let list = json!([
+        {"device_id": "d1", "session_id": "a", "generation": 1, "state": "connected",
+         "resume_lease_remaining_ms": null, "lane_bindings": [], "physical_link_count": 1},
+        {"device_id": "d1", "session_id": "b", "generation": 2, "state": "reconnecting",
+         "resume_lease_remaining_ms": 9000, "lane_bindings": [], "physical_link_count": 0},
+        {"device_id": "d2", "session_id": "c", "generation": 1, "state": "closed",
+         "resume_lease_remaining_ms": null, "lane_bindings": [], "physical_link_count": 0},
+        {"device_id": "d2", "session_id": "d", "generation": 1, "state": "disconnected",
+         "resume_lease_remaining_ms": null, "lane_bindings": [], "physical_link_count": 0},
+    ]);
+    assert_eq!(
+        carrier::attached_sessions_in(&list.to_string()),
+        Some(vec!["d1/a".to_owned(), "d1/b".to_owned()])
+    );
+    assert_eq!(carrier::attached_sessions_in("[]"), Some(Vec::new()));
+    assert_eq!(carrier::attached_sessions_in("{\"error\": \"no daemon\"}"), None);
+    assert_eq!(carrier::attached_sessions_in("remote daemon is not running"), None);
+}
+
+/// A claimed spare raises neither `Resumed` nor `Bound`; what its updater
+/// sees is the person's first carrier session. A session the last look did
+/// not see starts the connect hold, so the flip waits through that first
+/// connect even once the carrier hold's bound has passed.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_new_carrier_session_starts_the_connect_hold() {
+    use std::time::{Duration, Instant};
+
+    assert_eq!(role::carrier_busy_from(Ok(Vec::new())), None);
+    let before = Instant::now();
+    let busy = role::carrier_busy_from(Ok(vec!["claimer/first-link".to_owned()]));
+    assert!(busy.is_some(), "an attached session holds the update");
+    let left = role::held_for(before).expect("a new carrier session holds the next flip");
+    assert!(left > role::CONNECT_HOLD - Duration::from_secs(5), "{left:?}");
+    match role::held_outcome(Instant::now()) {
+        Some(role::Outcome::Busy(why)) => assert!(why[0].contains("connect hold"), "{why:?}"),
+        other => panic!("the flip is not held: {other:?}"),
+    }
+}
+
+/// The Cloud role's bind commit (a fresh machine bound to its person) starts
+/// the connect hold through the same call, which the supervisor's `Bound`
+/// (an instance id change) does not cover.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_bind_commit_starts_the_connect_hold() {
+    use std::time::{Duration, Instant};
+
+    let before = Instant::now();
+    role::hold_connects();
+    let left = role::held_for(before).expect("a bind holds the next flip");
+    assert!(left > role::CONNECT_HOLD - Duration::from_secs(5), "{left:?}");
 }

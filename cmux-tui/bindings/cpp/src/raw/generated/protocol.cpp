@@ -168,6 +168,11 @@ Result<Json> Codec<AgentRecord>::encode(const AgentRecord& value) {
     auto encoded_state = encode_value(value.state);
     if (!encoded_state) return std::move(encoded_state).error();
     object.emplace("state", std::move(encoded_state).value());
+    if (!value.status.is_absent()) {
+        auto encoded = encode_value(value.status);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("status", std::move(encoded).value());
+    }
     auto encoded_surface = encode_value(value.surface);
     if (!encoded_surface) return std::move(encoded_surface).error();
     object.emplace("surface", std::move(encoded_surface).value());
@@ -247,6 +252,16 @@ Result<AgentRecord> Codec<AgentRecord>::decode(const Json& value) {
         auto decoded = decode_value<AgentState>(*field_state);
         if (!decoded) return std::move(decoded).error();
         result.state = std::move(decoded).value();
+    }
+    const Json* field_status = value.find("status");
+    if (field_status) {
+        if (field_status->is_null()) {
+            result.status = Field<AgentState>::null();
+        } else {
+            auto decoded = decode_value<AgentState>(*field_status);
+            if (!decoded) return std::move(decoded).error();
+            result.status = Field<AgentState>(std::move(decoded).value());
+        }
     }
     const Json* field_surface = value.find("surface");
     if (!field_surface) {
@@ -32580,6 +32595,11 @@ Result<Json> Codec<ShutdownDaemonRequest>::encode(const ShutdownDaemonRequest& v
     auto encoded_pid = encode_value(value.pid);
     if (!encoded_pid) return std::move(encoded_pid).error();
     object.emplace("pid", std::move(encoded_pid).value());
+    if (!value.restart.is_absent()) {
+        auto encoded = encode_value(value.restart);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("restart", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -32622,6 +32642,16 @@ Result<ShutdownDaemonRequest> Codec<ShutdownDaemonRequest>::decode(const Json& v
         auto decoded = decode_value<std::uint32_t>(*field_pid);
         if (!decoded) return std::move(decoded).error();
         result.pid = std::move(decoded).value();
+    }
+    const Json* field_restart = value.find("restart");
+    if (field_restart) {
+        if (field_restart->is_null()) {
+            result.restart = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_restart);
+            if (!decoded) return std::move(decoded).error();
+            result.restart = Field<bool>(std::move(decoded).value());
+        }
     }
     return result;
 }
@@ -37391,6 +37421,11 @@ Result<Json> Codec<DaemonShutdownEvent>::encode(const DaemonShutdownEvent& value
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("daemon-shutdown")));
+    if (value.restart) {
+        auto encoded = encode_value(*value.restart);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("restart", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -37398,6 +37433,12 @@ Result<DaemonShutdownEvent> Codec<DaemonShutdownEvent>::decode(const Json& value
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     DaemonShutdownEvent result{};
+    const Json* field_restart = value.find("restart");
+    if (field_restart) {
+        auto decoded = decode_value<bool>(*field_restart);
+        if (!decoded) return std::move(decoded).error();
+        result.restart = std::move(decoded).value();
+    }
     const Json* field_event = value.find("event");
     if (!field_event) {
         return make_error(ErrorCode::decode, "missing required field 'event'");
@@ -43760,10 +43801,11 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand254FieldRequirements{{
     {"marked_unread", 12U, "notification-mark-unread-v1"},
     {"pinned", 12U, "workspace-pin-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 3> kCommand255FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 4> kCommand255FieldRequirements{{
     {"end_terminals", 12U, "terminal-reap-v1"},
     {"force", 10U, "daemon-handoff-force-v1"},
     {"keep_layout", 12U, "end-terminals-keep-layout-v1"},
+    {"restart", 12U, ""},
 }};
 constexpr std::array<CommandFieldRequirement, 10> kCommand258FieldRequirements{{
     {"cwd", 12U, "terminal-env-v1"},

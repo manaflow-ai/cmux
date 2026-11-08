@@ -43,12 +43,11 @@ extension SettingsSchema {
         "notifications.dismissal": [.string("keystroke"), .string("click")],
         "sidebar.hoverCards.delay": [.number(1300), .number(250)], "sidebar.hoverCards.groups.delay": [.number(600)],
         "sidebar.workspaceRow.agentStatus": [.bool(true)], "sidebar.workspaceRow.log": [.bool(true)],
-        "sidebar.workspaceRow.notification": [.bool(true)], "tabs.cmdWClosesPinnedTabs": [.bool(false)],
-        "tabs.newTabNowPlaying": [.bool(true)], "tabs.newTabPosition": [.string("end")],
-        "tabs.newTabTemplate": [.string("default"), .string("cards")], "tabs.newTabWidgets.greeting": [.bool(true)],
-        "ui.animations.newWorkspace": [.bool(false)], "ui.paneAnimations": [.bool(false)],
-        "updates.downloadAutomatically": [.bool(true)], "updates.idleInstallMaxWaitSeconds": [.number(900)],
-        "updates.installOnQuit": [.bool(true)], "workspaces.autoArchive.style": [.string("suggest")],
-        "workspaces.newPlacement": [.string("top")],
+        "sidebar.workspaceRow.notification": [.bool(true)], "tabs.newTabNowPlaying": [.bool(true)],
+        "tabs.newTabPosition": [.string("end")], "tabs.newTabTemplate": [.string("default"), .string("cards")],
+        "tabs.newTabWidgets.greeting": [.bool(true)], "ui.animations.newWorkspace": [.bool(false)],
+        "ui.paneAnimations": [.bool(false)], "updates.downloadAutomatically": [.bool(true)],
+        "updates.idleInstallMaxWaitSeconds": [.number(900)], "updates.installOnQuit": [.bool(true)],
+        "workspaces.autoArchive.style": [.string("suggest")], "workspaces.newPlacement": [.string("top")],
     ]
 }

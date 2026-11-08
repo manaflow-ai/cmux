@@ -872,6 +872,56 @@ class ShipReceiptTests(unittest.TestCase):
         self.assertIsNone(self.signed([self.comment(line, association="CONTRIBUTOR")], [], HEAD))
 
 
+class PrivateMemberReceiptTests(unittest.TestCase):
+    """PR #38436 (2026-11-08): `risk evidence` said "no review verdict on the head commit yet" after a valid
+    `Review (claude-17-review-w3h, started by claude-17): SHIP at <head>` comment, while the same classifier run
+    on a person's token signed it off. The poster, lawrencecchen, is a private member of the organization.
+    A person's token reads that comment's author_association as MEMBER; the workflow's GITHUB_TOKEN and App
+    token cannot see a private membership and read CONTRIBUTOR, so the receipt was not trusted. A login whose
+    association is not trusted now counts when its permission on the repository is write or higher."""
+
+    BODY = "Author-agent: claude-opus-5-5 (W3-H)"
+    LINE = f"Review (claude-17-review-w3h, started by claude-17): SHIP at {HEAD}"
+
+    def comment(self, association="CONTRIBUTOR", login="lawrencecchen"):
+        return {"body": self.LINE, "created_at": "2026-11-08T20:08:13Z", "author_association": association,
+                "user": {"login": login, "type": "User"}}
+
+    def pull(self):
+        return {"body": self.BODY, "author_association": "CONTRIBUTOR", "head": {"sha": HEAD},
+                "user": {"login": "lawrencecchen", "type": "User"}, "labels": []}
+
+    def test_a_write_role_counts_whatever_the_token_reads_as_association(self):
+        roles = {"lawrencecchen": "admin", "drive-by": "read"}
+        signed = risk.signed_off([self.comment()], [], HEAD, "lawrencecchen", self.pull(), permission=roles.get)
+        self.assertEqual(signed, "review (claude-17-review-w3h, started by claude-17)")
+        self.assertIsNone(risk.signed_off([self.comment(login="drive-by")], [], HEAD, "lawrencecchen", self.pull(),
+                                          permission=roles.get))
+        # Without a permission reader the association alone decides, as before.
+        self.assertIsNone(risk.signed_off([self.comment()], [], HEAD, "lawrencecchen", self.pull()))
+
+    def test_human_ok_by_reads_the_permission_of_an_untrusted_association(self):
+        asked = []
+
+        def fake_json(*args):
+            asked.append(args[-1])
+            if args[-1].endswith("/collaborators/lawrencecchen/permission"):
+                return {"role_name": "admin"}
+            raise AssertionError(f"unexpected read {args}")
+        answers = {"repos/o/r/issues/7/comments?per_page=100": [self.comment(), self.comment()],
+                   "repos/o/r/pulls/7/reviews?per_page=100": []}
+        saved = risk.gh_items, risk.gh_json
+        risk.gh_items, risk.gh_json = answers.__getitem__, fake_json
+        try:
+            who, blocked = risk.human_ok_by("o/r", "7", self.pull())
+        finally:
+            risk.gh_items, risk.gh_json = saved
+        self.assertFalse(blocked)
+        self.assertEqual(who, f"review (claude-17-review-w3h, started by claude-17) shipped {HEAD[:12]}")
+        # One read per login, however many comments it posted.
+        self.assertEqual(asked, ["repos/o/r/collaborators/lawrencecchen/permission"])
+
+
 class SameAccountReceiptTests(unittest.TestCase):
     """cmux-ad m25 item 7: every agent posts as the same account as the pull request's author, so a SHIP from that
     account counts only when it names its reviewer agent and who started it, neither of them the description's
