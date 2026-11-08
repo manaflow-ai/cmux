@@ -311,8 +311,11 @@ impl Endpoint {
         }
         self.watch_silence(now_us);
         let mut out = Vec::new();
-        let routes = self.routes();
-        for packet in self.link.poll_transmit(now_us)? {
+        let packets = self.link.poll_transmit(now_us)?;
+        // Only a poll that sends counts against silence: an idle link
+        // waiting for nothing is not a quiet path.
+        let routes = if packets.is_empty() { Vec::new() } else { self.routes() };
+        for packet in packets {
             for route in &routes {
                 out.push(Transmit { route: *route, packet: packet.clone() });
             }
