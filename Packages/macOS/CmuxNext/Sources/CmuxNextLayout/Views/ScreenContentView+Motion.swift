@@ -221,6 +221,9 @@ extension ScreenContentView {
         let uncovered = uncoveredRect, clip = PaneArrival.stripClip(geometry, docks: growingDocks), zooming = zoomMotion.pane
         var clips: [(host: PaneHostView, scrolls: Bool)] = []
         var changed = force
+        // ZOOM VARIANTS 3 sub-spans (never merged): per-pane counts of the presentation's work, as span names.
+        var zkResized = 0, zkMoved = 0, zkClipped = 0, zkDividers = 0
+        let zkLoop = MotionTrace.now()
         let scale = self.scale
         let laysOutNow = window != nil && bounds.width >= 1 && bounds.height >= 1
         for (pane, frame) in paneFrames {
@@ -262,12 +265,14 @@ extension ScreenContentView {
                 // frames come from an empty viewport, and laying every pane out there broke Auto Layout
                 // constraints in each one (4.77 s for moveWorkspaceToNewWindow in STRESS); the window's
                 // layout pass lays them out once the root has its size.
-                if laysOutNow, placed.width >= 1, placed.height >= 1 { host.layoutSubtreeIfNeeded() }
+                if laysOutNow, placed.width >= 1, placed.height >= 1 { MotionTrace.interval("zk.p.lay") { host.layoutSubtreeIfNeeded() } }
+                zkResized += 1
                 changed = true
             } else if host.frame.origin != placed.origin {
                 // A pane that only moves (the strip camera, a column opening beside it) keeps its
                 // size: no layout of its strip or content, no terminal resize.
                 host.frame = placed
+                zkMoved += 1
                 changed = true
             }
             // A spring that starts or retargets (a press during the motion) to a new size: the content
@@ -294,13 +299,17 @@ extension ScreenContentView {
         // Once every frame is placed: a pane is clipped by the panes in front of it, the panes a
         // zoom covers too (they stay where they were, opaque, `zoomMotion.covered`). A host whose
         // clip inputs did not change keeps its clip without recomputing it.
+        MotionTrace.interval("zk.p.loop", since: zkLoop)
+        let zkClip = MotionTrace.now()
         let above = panesAbove()
         for (host, scrolls) in clips {
-            if clipToStrip(host, scrolls: scrolls, clip: clip, above: above, force: force) { changed = true }
+            if clipToStrip(host, scrolls: scrolls, clip: clip, above: above, force: force) { changed = true; zkClipped += 1 }
         }
         for host in coveredHosts {
-            if clipToStrip(host, scrolls: false, clip: nil, above: above, force: force) { changed = true }
+            if clipToStrip(host, scrolls: false, clip: nil, above: above, force: force) { changed = true; zkClipped += 1 }
         }
+        MotionTrace.interval("zk.p.clip", since: zkClip)
+        let zkDiv = MotionTrace.now()
         var dividersChanged = force
         for (kind, frame) in dividerFrames {
             guard let view = dividerViews[kind] else { continue }
@@ -309,6 +318,7 @@ extension ScreenContentView {
             let shownArea = areaWindow(of: kind), clips: [CGRect?] = [uncovered, shownArea]
             guard force || view.frame != placed || view.alphaValue != frame.alpha.value || view.placedClips != clips else { continue }
             dividersChanged = true
+            zkDividers += 1
             if view.frame != placed { view.frame = placed }
             if view.alphaValue != frame.alpha.value { view.alphaValue = frame.alpha.value }
             view.placedClips = clips
@@ -333,10 +343,14 @@ extension ScreenContentView {
             userMotionActive = false
             if !hasMotion { context.userMotionEnded() }
         }
+        MotionTrace.interval("zk.p.div", since: zkDiv)
+        if MotionTrace.isEnabled {
+            MotionTrace.interval("zk.n.r\(zkResized).m\(zkMoved).c\(zkClipped).d\(zkDividers).of\(paneFrames.count)") {}
+        }
         // The handles moved under a still pointer, or the panes did (a zoom covers handles).
-        if dividersChanged || changed { refreshDividerHover() }
+        if dividersChanged || changed { MotionTrace.interval("zk.p.hover") { refreshDividerHover() } }
         if dividersChanged || changed { context.overlayNeedsSync() }
-        updateScrollbar() // After the sync request: its thumb (a page occluder) rides that sync's page update.
+        MotionTrace.interval("zk.p.bar") { updateScrollbar() } // After the sync request: its thumb (a page occluder) rides that sync's page update.
     }
     /// Divider hover from the pointer and the current frames (`ScreenDividers`).
     func refreshDividerHover() { ScreenDividers(screen: self).refreshHover() }

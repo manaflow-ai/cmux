@@ -406,8 +406,10 @@ public final class LayoutRootView: NSView {
                 }
                 // The focus ring of a split's new pane appears with the pane; the focus flash still
                 // runs, so the pane after a close or a link's new pane shows where focus went.
-                view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
-                                  animated: chromeAnimated && !structureChanged, flashAnimated: chromeAnimated)
+                MotionTrace.interval("zk.chrome") {
+                    view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
+                                      animated: chromeAnimated && !structureChanged, flashAnimated: chromeAnimated)
+                }
             } else if chromeChanged {
                 // A focus move alone changes the chrome of two panes, the one left and the one focused: every
                 // other pane keeps its ring, dim and tab emphasis (O(2), not O(panes); speed-of-sound 3.2).
@@ -426,9 +428,11 @@ public final class LayoutRootView: NSView {
                 let source: ColumnFocusSource = previous?.focused != snapshot.focused ? model.lastFocusSource : .programmatic
                 // Only a snap that stands in for Reduce Motion's spring shows the
                 // scrollbar, not one at launch or while out of the window.
-                if view.syncScroll(focused: focused, source: source, mode: snapshot.centerMode,
-                                   animated: previous != nil && canAnimate && context.animatesPaneLayout, reveals: !snapshot.gestureActive,
-                                   showsScrollbarOnSnap: previous != nil && window != nil && driver.isAttached) {
+                if MotionTrace.interval("zk.scroll", {
+                    view.syncScroll(focused: focused, source: source, mode: snapshot.centerMode,
+                                    animated: previous != nil && canAnimate && context.animatesPaneLayout, reveals: !snapshot.gestureActive,
+                                    showsScrollbarOnSnap: previous != nil && window != nil && driver.isAttached)
+                }) {
                     needsFrames = true
                 }
             }
