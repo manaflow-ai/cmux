@@ -595,6 +595,29 @@ class ListReadsNameTheirFields(unittest.TestCase):
         self.assertEqual(job, {k: v for k, v in self.REST_JOB.items() if k not in dropped})
 
 
+    def test_a_status_projection_keeps_updated_at_for_the_verdict_window(self):
+        import shutil
+        if shutil.which("jq") is None:
+            self.skipTest("jq is not on PATH")
+        status = {"context": "ws-check", "state": "success", "description": "d", "target_url": "u",
+                  "created_at": "2026-11-08T10:00:00Z", "updated_at": "2026-11-08T11:00:00Z", "id": 9, "creator": {}}
+        doc = {"state": "success", "sha": "abc", "total_count": 1, "statuses": [status], "repository": {}}
+        out = subprocess.run(["jq", "-c", excuse.projection(f"repos/{REPO}/commits/abc/status")],
+                             input=json.dumps(doc), text=True, capture_output=True, check=True).stdout
+        self.assertEqual(json.loads(out)["statuses"][0]["updated_at"], "2026-11-08T11:00:00Z")
+
+    def test_a_base_runs_projected_jobs_are_cached_with_their_run_id(self):
+        page = json.dumps({"total_count": 1, "jobs": [{"id": 1, "name": "a", "run_id": None, "run_attempt": 1}]})
+        run = {"id": 77, "status": "completed", "run_attempt": 1, "updated_at": "2026-11-08T11:00:00Z"}
+        with tempfile.TemporaryDirectory() as cache, \
+                unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_ENV: cache}):
+            github, asked = self.reader([page])
+            self.assertEqual(excuse.base_run_jobs(REPO, run, github)[0]["run_id"], 77)
+            github, asked = self.reader([])
+            self.assertEqual(excuse.base_run_jobs(REPO, run, github)[0]["run_id"], 77)  # from the cache, no read
+            self.assertEqual(asked, [])
+
+
 class PortableGhLog(unittest.TestCase):
 
     def setUp(self):

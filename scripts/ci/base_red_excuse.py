@@ -139,7 +139,8 @@ PROJECTIONS = (
      f"{{total_count, jobs: [.jobs[] | {{{JOB_FIELDS}, steps: [.steps[]? | {{{STEP_FIELDS}}}]}}]}}"),
     # A commit's combined status.
     (re.compile(r"repos/[^/]+/[^/]+/commits/[^/?]+/status(?:\?.*)?"),
-     "{state, sha, total_count, statuses: [.statuses[] | {context, state, description, target_url, created_at}]}"),
+     "{state, sha, total_count, statuses: [.statuses[] | {context, state, description, target_url, created_at, "
+     "updated_at}]}"),
     # A branch's commit history.
     (re.compile(r"repos/[^/]+/[^/]+/commits\?(?:.*&)?sha=.*"),
      "[.[] | {sha, commit: {committer: {date: .commit.committer.date}}, parents: [.parents[]? | {sha}]}]"),
@@ -1508,6 +1509,9 @@ def base_run_jobs(repo: str, run: dict, github) -> list[dict]:
     jobs = [found for page in github.json(f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100",
                                           paginate=True)
             for found in page.get("jobs") or []]
+    for job in jobs:  # a --jq projection of glaeda's slim list reads a null run_id; the cache check above needs it
+        if job.get("run_id") is None:
+            job["run_id"] = run["id"]
     if key is not None:
         try:
             key.parent.mkdir(parents=True, exist_ok=True)
