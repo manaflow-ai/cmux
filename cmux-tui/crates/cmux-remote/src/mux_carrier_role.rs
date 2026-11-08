@@ -99,7 +99,7 @@ mod tests {
     /// with every command it knows listed (cmux-tui-core's
     /// `carrier_role_tests` measures the real one).
     fn legacy_reply() -> String {
-        let known: Vec<String> = (0..400).map(|n| format!("`command-{n:03}`")).collect();
+        let known: Vec<String> = (0..600).map(|n| format!("`command-{n:03}`")).collect();
         let error = format!(
             "bad request: unknown variant `carrier-role`, expected one of {}",
             known.join(", ")
