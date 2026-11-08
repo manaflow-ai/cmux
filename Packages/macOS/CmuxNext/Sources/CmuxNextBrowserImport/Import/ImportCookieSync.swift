@@ -113,6 +113,8 @@ public actor ImportCookieSync {
     public func stop() { end() }
 
     private func end() {
+        // An import already running sees another generation and writes nothing more (`isCurrent`).
+        generation += 1
         reader?.cancel()
         reader = nil
         handle = nil
@@ -150,7 +152,7 @@ public actor ImportCookieSync {
         defer { importing.remove(source) }
         while let report = latest.removeValue(forKey: source) {
             if !report.changed.isEmpty {
-                guard await bringOver(report) else { return }
+                guard isCurrent(sync), await bringOver(report, of: sync) else { return }
             }
             // A newer report came while importing: it is imported before anything commits. A paused or
             // restarted sync is gone, and the next one reports again.
@@ -159,14 +161,15 @@ public actor ImportCookieSync {
     }
 
     /// One report's sites into the source's profile; false when it could not be imported.
-    private func bringOver(_ report: CookieSyncReport) async -> Bool {
+    private func bringOver(_ report: CookieSyncReport, of sync: Int) async -> Bool {
         guard let record = await store.cookieSyncedSources().first(where: { $0.sourceKey == report.source }),
-              let file = record.syncedCookieFile else { return false }
+              let file = record.syncedCookieFile, isCurrent(sync) else { return false }
         let keys = keys ?? OneReadSafeStorage(keySource)
         self.keys = keys
         let started = ContinuousClock.now
         do {
-            let result = try await CookieImporter(destination: destination, keys: keys)
+            let writes = CurrentSyncOnly(destination: destination) { [weak self] in await self?.isCurrent(sync) ?? false }
+            let result = try await CookieImporter(destination: writes, keys: keys)
                 .run(Self.profile(record, file: file), into: record.targetProfileID, filter: CookieDomainFilter(report.changed))
             let milliseconds = stats.imported(result.written, in: ContinuousClock.now - started)
             log.info("cookie sync \(report.source, privacy: .public): \(result.written) cookies of \(report.changed.count) sites in \(milliseconds, format: .fixed(precision: 1)) ms")
@@ -183,6 +186,9 @@ public actor ImportCookieSync {
         }
         return false
     }
+
+    /// Whether `sync` is still the running sync: off, quit or restarted, it is not.
+    private func isCurrent(_ sync: Int) -> Bool { sync == generation && !isPaused && handle != nil }
 
     /// Every synced source of `source`'s browser stops, and the person hears it once: another profile
     /// of that browser refused while this one stops, or after it stopped, says nothing more.
@@ -298,6 +304,18 @@ struct CookieSyncReport: Decodable, Sendable, Equatable {
         scanMs = try container.decodeIfPresent(Double.self, forKey: .scanMs)
         cpuMs = try container.decodeIfPresent(Double.self, forKey: .cpuMs)
         reason = try container.decodeIfPresent(String.self, forKey: .reason)
+    }
+}
+
+/// Writes cookies only while the sync that read them still runs: turned off mid-import (or quit, or
+/// restarted), the import writes nothing more, even after a Keychain prompt it was waiting on.
+private struct CurrentSyncOnly: CookieDestination {
+    let destination: any CookieDestination
+    let isCurrent: @Sendable () async -> Bool
+
+    func setCookies(_ cookies: [ImportedCookie], profileID: String) async throws -> CookieWriteResult {
+        guard await isCurrent() else { return CookieWriteResult(written: 0, rejected: 0) }
+        return try await destination.setCookies(cookies, profileID: profileID)
     }
 }
 

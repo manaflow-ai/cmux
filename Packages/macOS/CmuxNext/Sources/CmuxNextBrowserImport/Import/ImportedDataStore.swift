@@ -42,8 +42,8 @@ public actor ImportedDataStore {
         var batch = batch
         if let earlier = sources().first(where: { $0.sourceKey == batch.source.sourceKey }) {
             batch.source = batch.source.fences(adding: earlier)
-            // A re-import without cookies (bookmarks only) keeps the cookies' sync.
-            if batch.cookies == nil, batch.source.syncedCookieFile == nil { batch.source.syncedCookieFile = earlier.syncedCookieFile }
+            // A re-import that brought no cookies (bookmarks only, or none written) keeps the cookies' sync.
+            if batch.source.syncedCookieFile == nil { batch.source.syncedCookieFile = earlier.syncedCookieFile }
         }
         batch.history = batch.history.filter(batch.source.keeps)
         let file = batchFile(batch.source)
