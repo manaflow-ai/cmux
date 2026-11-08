@@ -134,6 +134,62 @@ await requireBrowserLane("agent-pane-chat-width.test.ts", async () => {
   };
 
   const widths = { standard: 800, narrow: 640, wide: 960 } as const;
+  // Panes narrower than the setting (360 to 760; 640's at 600, 960's at 900): the column is the pane
+  // less its page edges, never wider than the pane, and the composer stays on it.
+  for (const [variant, width] of [
+    ["standard", 360],
+    ["standard", 600],
+    ["standard", 760],
+    ["narrow", 600],
+    ["wide", 900],
+  ] as const)
+    test(`${variant} fits a ${width}px pane, the pane less its page edges`, async () => {
+      const m = await at(variant, width);
+      expect(m.column.width).toBeCloseTo(m.pane - 32, -0.3);
+      expect(m.column.width).toBeLessThanOrEqual(m.pane);
+      expect(m.composer.left).toBeCloseTo(m.column.left, -0.3);
+    });
+
+  /** Runs in the page: what draws past the transcript's sides, unless a box that scrolls on its own
+   *  (a code block, a table) holds it inside them; and how far the transcript itself scrolls sideways. */
+  function overflow() {
+    const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const pane = scroller.getBoundingClientRect();
+    const spills: string[] = [];
+    for (const element of scroller.querySelectorAll<HTMLElement>("*")) {
+      const box = element.getBoundingClientRect();
+      if (box.width === 0 || (box.right <= pane.right + 0.5 && box.left >= pane.left - 0.5)) continue;
+      let held = false;
+      for (let parent = element.parentElement; parent && parent !== scroller; parent = parent.parentElement) {
+        if (getComputedStyle(parent).overflowX === "visible") continue;
+        const clip = parent.getBoundingClientRect();
+        if (clip.right <= pane.right + 0.5 && clip.left >= pane.left - 0.5) held = true;
+        break;
+      }
+      if (!held)
+        spills.push(`${element.className || element.tagName} ${Math.round(box.left)}..${Math.round(box.right)}`);
+    }
+    return { sideways: scroller.scrollWidth - scroller.clientWidth, spills: spills.slice(0, 5) };
+  }
+
+  // Content that cannot wrap (an unbroken 263-character token, a long URL, a wide table, a one-line
+  // command) at the narrowest pane, a usual one and a wide one, and at Full Width: it stays inside the
+  // pane, and the transcript never scrolls sideways.
+  for (const [variant, width] of [
+    ["overflow", 360],
+    ["overflow", 900],
+    ["overflow", 1920],
+    ["overflow-full-width", 900],
+    ["overflow-full-width", 2560],
+  ] as const)
+    test(`${variant}: content that cannot wrap stays inside a ${width}px pane`, async () => {
+      const page = await open(variant, width);
+      const result = await page.evaluate(overflow);
+      await page.close();
+      console.log(`chat-width ${variant} @${width}: ${JSON.stringify(result)}`);
+      expect(result).toEqual({ sideways: 0, spills: [] });
+    });
+
   for (const width of [900, 1440, 1920]) {
     for (const [variant, cap] of Object.entries(widths))
       test(`${variant} draws its ${cap}px Chat Text Width at ${width}`, async () => {
