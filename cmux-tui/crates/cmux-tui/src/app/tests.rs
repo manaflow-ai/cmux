@@ -3,6 +3,7 @@
 //! machine controllers, tree and buffer helpers) that the topic files reach
 //! through `use super::*`.
 
+mod attention;
 mod completed_selection;
 mod deferred_input;
 mod docked_workspaces;

@@ -268,7 +268,7 @@ fn osc_bytes(dialect: OscDialect, title: &str, body: &str) -> Vec<u8> {
 }
 
 #[cfg(test)]
-mod tests {
+mod attention_passthrough_tests {
     use super::*;
 
     fn host(terminal: HostTerminal) -> HostTerminalInfo {

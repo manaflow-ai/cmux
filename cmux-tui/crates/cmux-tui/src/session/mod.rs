@@ -47,7 +47,7 @@ pub use remote::{
     RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface, RemoteTransport,
     RemoteTransportAbort,
 };
-pub use tree::{TabAttentionView, TabNotificationView, TreeView, WorkspaceView};
+pub use tree::{TabNotificationView, TreeView, WorkspaceView};
 
 pub(crate) const CLEAR_HISTORY_UNSUPPORTED_ERROR: &str =
     "remote server does not support clear-history; restart the cmux-tui server";
