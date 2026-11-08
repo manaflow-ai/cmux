@@ -210,6 +210,11 @@ impl Hub {
         meta.status = SessionStatus::Idle;
         // It lives here now, whatever the daemon it came from had recorded.
         meta.moved_to = None;
+        // The linked-worktree record names the source machine's checkout (its root and git
+        // dir): here it never matches, and `revive_folder` refused every turn of a chat moved
+        // into a fresh clone as `session.folder_missing` while its folder was there. The first
+        // turn here reads the folder's own record (`worktree_care/revive.rs`).
+        meta.worktree = None;
         // An approve-all an older daemon or a vmHost machine gave asks here (`policy_source.rs`).
         super::policy_source::settle_imported_grant(&mut meta);
         meta.subsession = None;
