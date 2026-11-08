@@ -107725,10 +107725,26 @@
                   "string" : "home-dock"
                 }
               ]
+            },
+            {
+              "equals" : [
+                "topPage",
+                {
+                  "string" : "import-history"
+                }
+              ]
+            },
+            {
+              "equals" : [
+                "pageId",
+                {
+                  "string" : "cmux.import-history"
+                }
+              ]
             }
           ]
         },
-        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
       },
       {
         "argument" : null,
@@ -107771,10 +107787,26 @@
                   "string" : "home-dock"
                 }
               ]
+            },
+            {
+              "equals" : [
+                "topPage",
+                {
+                  "string" : "import-history"
+                }
+              ]
+            },
+            {
+              "equals" : [
+                "pageId",
+                {
+                  "string" : "cmux.import-history"
+                }
+              ]
             }
           ]
         },
-        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
       },
       {
         "argument" : null,
@@ -107816,10 +107848,26 @@
                   "string" : "home-dock"
                 }
               ]
+            },
+            {
+              "equals" : [
+                "topPage",
+                {
+                  "string" : "import-history"
+                }
+              ]
+            },
+            {
+              "equals" : [
+                "pageId",
+                {
+                  "string" : "cmux.import-history"
+                }
+              ]
             }
           ]
         },
-        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
       },
       {
         "argument" : null,
@@ -107861,10 +107909,26 @@
                   "string" : "home-dock"
                 }
               ]
+            },
+            {
+              "equals" : [
+                "topPage",
+                {
+                  "string" : "import-history"
+                }
+              ]
+            },
+            {
+              "equals" : [
+                "pageId",
+                {
+                  "string" : "cmux.import-history"
+                }
+              ]
             }
           ]
         },
-        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
       },
       {
         "argument" : null,
