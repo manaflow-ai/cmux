@@ -38,8 +38,6 @@ use cmux_json::JsonSet as _;
 
 const OPERATION: &str = "git.worktree.create";
 pub(super) const BRANCH_PREFIX: &str = "cmux/";
-/// Git options that run no hook: an empty hooks folder.
-const NO_HOOKS: [&str; 2] = ["-c", "core.hooksPath=/dev/null"];
 const MAX_NAME_CHARS: usize = 48;
 /// Suffixes tried after a taken name: `name-2` up to this.
 const MAX_SUFFIX: usize = 99;
@@ -163,13 +161,14 @@ pub(super) fn plan(
 }
 
 /// Makes the attempt's worktree and records its base, unless a lost
-/// reply's run already made it. `hooks` off makes it with no git hook run:
-/// a hook such as `post-checkout` would run the checked-out code.
+/// reply's run already made it. `trusted` off checks it out running none of
+/// the checked-out code: no git hook (`post-checkout`) and no filter driver
+/// (a `smudge` or `process` command can name a script in the checkout).
 pub(super) fn create(
     repository: &Repository,
     git: &UserGit<'_>,
     attempt: &Attempt,
-    hooks: bool,
+    trusted: bool,
 ) -> Result<(), ResourceError> {
     if !made(attempt) {
         if attempt.root.exists() {
@@ -190,15 +189,33 @@ pub(super) fn create(
         // A first run stopped mid-checkout leaves the branch it made: the
         // retry checks that branch out instead of making it again.
         let branch_made = repository.commit(&format!("refs/heads/{}", attempt.branch)).is_some();
-        let mut arguments: Vec<&str> = if hooks { Vec::new() } else { NO_HOOKS.to_vec() };
-        if branch_made {
-            arguments.extend(["worktree", "add", root.as_ref(), attempt.branch.as_str()]);
+        let arguments: Vec<&str> = if branch_made {
+            vec!["worktree", "add", root.as_ref(), attempt.branch.as_str()]
         } else {
             let branch = attempt.branch.as_str();
-            let base = attempt.base_commit.as_str();
-            arguments.extend(["worktree", "add", "-b", branch, root.as_ref(), base]);
+            vec!["worktree", "add", "-b", branch, root.as_ref(), attempt.base_commit.as_str()]
+        };
+        let mut settings = Vec::new();
+        if !trusted {
+            settings.push(("core.hooksPath".to_string(), "/dev/null".to_string()));
+            let filters = cmux_git::filter_overrides(&repository.root)
+                .map_err(|failure| run_failed(OPERATION, &failure))?;
+            settings.extend(filters);
         }
-        let run = git.run(&arguments).map_err(|failure| run_failed(OPERATION, &failure))?;
+        // Through `GIT_CONFIG_COUNT`, which keeps a driver's name whole.
+        let mut environment = Vec::new();
+        if !settings.is_empty() {
+            environment.push(("GIT_CONFIG_COUNT".to_string(), settings.len().to_string()));
+        }
+        for (index, (key, value)) in settings.into_iter().enumerate() {
+            environment.push((format!("GIT_CONFIG_KEY_{index}"), key));
+            environment.push((format!("GIT_CONFIG_VALUE_{index}"), value));
+        }
+        let environment: Vec<(&str, &str)> =
+            environment.iter().map(|(name, value)| (name.as_str(), value.as_str())).collect();
+        let run = git
+            .run_with(&arguments, &environment)
+            .map_err(|failure| run_failed(OPERATION, &failure))?;
         if !run.success && !made(attempt) {
             let message = "git worktree add failed";
             return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));

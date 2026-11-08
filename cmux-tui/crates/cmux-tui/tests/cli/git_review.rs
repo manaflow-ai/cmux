@@ -128,6 +128,13 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\n", hook_ran.display())).unwrap();
     fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
     git(&checkout, &["config", "diff.noprefix", "true"]);
+    // A filter driver the person set up that runs a script from the checkout:
+    // the pull request could change that script.
+    fs::create_dir_all(checkout.join(".git/info")).unwrap();
+    fs::write(checkout.join(".git/info/attributes"), "*.txt filter=mine\n").unwrap();
+    let smudge = format!("touch '{}'; cat", hook_ran.display());
+    git(&checkout, &["config", "filter.mine.smudge", &smudge]);
+    git(&checkout, &["config", "filter.mine.required", "true"]);
 
     // gh: `pr view` answers the pull request; a POST keeps what it was sent and
     // counts itself; a read of the reviews answers existing.txt, if any.
@@ -179,7 +186,7 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     // The pull request's own setup script never runs before anyone read it,
     // and no git hook runs in its checkout either.
     assert_eq!(value["setup"]["state"], "none", "{value}");
-    assert!(!hook_ran.exists(), "a post-checkout hook ran in the review's checkout");
+    assert!(!hook_ran.exists(), "a hook or filter ran in the review's checkout");
     assert_eq!(git(&worktree, &["rev-parse", "HEAD"]), head);
     assert_eq!(git(&checkout, &["config", "--get", "branch.cmux/review-7.cmuxBase"]), merge_base);
     // The person's checkout stays on its branch.

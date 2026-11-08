@@ -243,8 +243,8 @@ fn worktree(
     }
     let fields = Map::from_iter([("name".into(), json!(name)), ("base".into(), json!(head))]);
     let attempt = worktree::plan(&target.repository, target.common_dir(), &fields)?;
-    // No hook runs: a `post-checkout` hook would run the pull request's code
-    // in its checkout before anyone read it.
+    // Untrusted: no hook or filter driver runs, since either could run the
+    // pull request's code in its checkout before anyone read it.
     worktree::create(&target.repository, git, &attempt, false)?;
     Ok((attempt.root, attempt.branch, false))
 }
