@@ -43,7 +43,7 @@ const API_SEGMENTS: [&str; 6] = ["api", "graphql", "rpc", "health", "healthz", "
 /// takes only those two), and an API path (`/api`, `/v1`, `/graphql`...) becomes `/`.
 pub(super) fn preview_of(candidate: &Candidate) -> ProcessPreview {
     let (scheme, rest) = candidate.url.split_once("://").unwrap_or(("http", &*candidate.url));
-    let path = rest.find('/').map_or("/", |at| &rest[at..]);
+    let path = rest.find('/').and_then(|at| rest.get(at..)).unwrap_or("/");
     let path = if api_path(path) { "/" } else { path };
     let host = match candidate.host.as_str() {
         "127.0.0.1" => "127.0.0.1",

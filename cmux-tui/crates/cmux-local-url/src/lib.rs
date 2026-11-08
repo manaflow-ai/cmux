@@ -29,19 +29,24 @@ pub struct Candidate {
     pub url: String,
 }
 
-static ADDRESS: LazyLock<Regex> = LazyLock::new(|| {
+/// The address pattern: a constant that compiles (`terminal_ports_tests.rs` match with it), so a
+/// failure only means no candidates, never a panic.
+static ADDRESS: LazyLock<Option<Regex>> = LazyLock::new(|| {
     Regex::new(
         r"(?i)(?P<scheme>https?://)?(?P<host>localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1?\]|\[::ffff:127(?:\.\d{1,3}){3}\]|\*):(?P<port>\d{1,5})\b(?P<path>/[^\s'\x22<>()\[\],]*)?",
     )
-    .expect("static regex") // crash-allow: constant pattern
+    .ok()
 });
 
 /// Ports named in `text` on a loopback or wildcard host, the last printed
 /// first, each port once, at most [`MAX_CANDIDATES`]. `text` is plain: pass
 /// a program's raw output through [`strip_ansi`] first.
 pub fn candidates(text: &str) -> Vec<Candidate> {
+    let Some(address) = ADDRESS.as_ref() else {
+        return Vec::new();
+    };
     let mut found: Vec<Candidate> = Vec::new();
-    for capture in ADDRESS.captures_iter(text) {
+    for capture in address.captures_iter(text) {
         let Ok(port) = capture["port"].parse::<u16>() else {
             continue;
         };
@@ -70,7 +75,7 @@ pub fn tail(text: &str, max: usize) -> &str {
     while !text.is_char_boundary(start) {
         start += 1;
     }
-    &text[start..]
+    text.get(start..).unwrap_or_default()
 }
 
 /// `text` without its terminal escapes: CSI sequences (colors, `ESC [ 1 m`),

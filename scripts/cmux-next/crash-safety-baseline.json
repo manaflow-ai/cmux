@@ -119,7 +119,6 @@
     "cmux-config": 2,
     "cmux-layout-reducer": 4,
     "cmux-local-auth": 2,
-    "cmux-local-url": 1,
     "cmux-terminal-sizing": 6,
     "cmux-tui-core": 10,
     "cmux-unix-socket": 1
