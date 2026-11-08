@@ -2211,13 +2211,15 @@ export function NewTabScreen(props: Props) {
   // First run (no chats on this Mac or its peers yet): three things to ask, under the composer. A
   // pick fills the composer and sends nothing; the first chat takes them away for good.
   const pickStarter = (prompt: string) => {
+    // A starter is words for the agent: a field left in shell mode (a typed `!`) would run it.
+    setShell(false);
     edit(prompt);
     requestAnimationFrame(() => {
       field.current?.focus();
       field.current?.setCaret(field.current.plainText().length);
     });
   };
-  const starters = showsFirstRunStarters(snapshot, { allChats }) && (
+  const starters = showsFirstRunStarters(snapshot, { allChats, chatsPending: props.chatsPending === true }) && (
     <FirstRunStarters {...(props.starterLook ? { look: props.starterLook } : {})} onPick={pickStarter} />
   );
   // The stage's widgets, in the user's order (`tabs.newTabWidgets.order`): Projects and Quick

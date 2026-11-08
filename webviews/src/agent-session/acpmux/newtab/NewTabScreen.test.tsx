@@ -397,6 +397,35 @@ test("first run: the starters show only once acpmux answered with an agent and n
   expect(showsFirstRunStarters(noChat([], { catalog: [] }), { allChats: false })).toBe(false);
   expect(showsFirstRunStarters(noChat([session({ sessionId: "s1" })]), { allChats: false })).toBe(false);
   expect(showsFirstRunStarters(noChat([]), { allChats: true })).toBe(false);
+  // A cached catalog can come before the chats are listed: no starters until they are.
+  expect(showsFirstRunStarters(noChat([]), { allChats: false, chatsPending: true })).toBe(false);
+});
+
+test("while the chats are still being listed, New Tab draws no starters", async () => {
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} chatsPending />);
+  });
+  await promptField();
+  expect(container.querySelector(".nt-starters")).toBeNull();
+});
+
+test("a starter picked in shell mode leaves shell mode, so Return asks the agent", async () => {
+  let shellRuns = 0;
+  await act(async () => {
+    root!.render(
+      <NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} onShell={() => void shellRuns++} />,
+    );
+  });
+  const field = await typePrompt("!");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(container.querySelector(".nt-screen[data-shell]")).toBeTruthy();
+  const fix = container.querySelector<HTMLButtonElement>('.nt-starter[data-starter="fix"]')!;
+  await act(async () => fix.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(container.querySelector(".nt-screen[data-shell]")).toBeNull();
+  expect(promptValue(field)).toBe(translateNewTab("starters.fix"));
+  await press(field, "Enter");
+  expect(shellRuns).toBe(0);
 });
 
 test("a first-run starter fills the composer, sends nothing, and the rows stay while it is edited", async () => {
