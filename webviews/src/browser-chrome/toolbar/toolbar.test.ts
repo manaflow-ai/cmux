@@ -618,10 +618,17 @@ describe("drafts move with their tab (two panes, two toolbar pages)", () => {
         expect(a.session.state.elided).toBe(true);
         const shown = a.session.presentation.text;
         const at = shown.indexOf("example") + 2;
+        // Each press then does what the browser's own press does: a caret for one click, the
+        // word under the pointer (in the text the field shows now) for two.
         const press = (detail: number) => {
           input.dispatchEvent(
             new view.MouseEvent("mousedown", { bubbles: true, button: 0, detail, clientX: at * 10 + 5 }),
           );
+          if (detail === 1) input.setSelectionRange(at, at);
+          else {
+            const word = [...input.value.matchAll(/\w+/g)].find((match) => match.index + match[0].length > at)!;
+            input.setSelectionRange(word.index, word.index + word[0].length);
+          }
           view.dispatchEvent(new view.MouseEvent("pointerup"));
         };
         press(1);
