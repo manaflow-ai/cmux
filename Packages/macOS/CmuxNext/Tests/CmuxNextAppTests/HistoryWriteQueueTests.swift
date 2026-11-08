@@ -273,15 +273,16 @@ import Testing
         #expect(seeded.isEmpty, "a read answered before the clear was used after it")
     }
 
-    /// The app's own wiring: an omnibox visit and a Clear History wait in the same queue while the local
-    /// daemon is away (no daemon in this test).
+    /// The app's own wiring: the omnibox seed's read, an omnibox visit and a Clear History wait in the same
+    /// queue while the local daemon is away (no daemon in this test).
     @Test func visitsAndClearsShareTheAppsQueue() throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         services.history.attach(services.cache.history, profile: .default)
+        #expect(services.history.writes.count == 1, "the seed's read is not in the queue")
         services.cache.history.recordVisit(url: try #require(URL(string: "https://a.example/")), title: "A", at: Date())
-        #expect(services.history.writes.count == 1)
-        services.history.clear(kinds: [.page], range: .all)
         #expect(services.history.writes.count == 2)
+        services.history.clear(kinds: [.page], range: .all)
+        #expect(services.history.writes.count == 3)
     }
 }
