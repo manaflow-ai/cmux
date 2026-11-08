@@ -111,9 +111,11 @@ await requireBrowserLane("folder-popover-scaling.browser.test.ts", async () => {
       const page = await open(engine, 320);
       try {
         await page.evaluate(() => document.documentElement.style.setProperty("--cmux-interface-scale", "1.5"));
-        await page.evaluate(
-          () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
-        );
+        // Base UI repositions the popup after the size change: wait until it is back inside the window.
+        await page.waitForFunction(() => {
+          const rect = document.querySelector(".acpmux-folder-popover")!.getBoundingClientRect();
+          return rect.left >= 0 && rect.right <= window.innerWidth + 0.5;
+        });
         const box = (await page.locator(".acpmux-folder-popover").boundingBox())!;
         expect(box.x).toBeGreaterThanOrEqual(0);
         expect(box.x + box.width).toBeLessThanOrEqual(320 + 0.5);

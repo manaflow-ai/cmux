@@ -1514,8 +1514,9 @@
    with its ⌥⌘ digit, then the current one's check. */
 /* Its floor beats the folder popover's own rules, whose classes it carries: the location menus'
    200 px, so This Mac, Cloud and Remote (its longest row now This Mac with its ⌥⌘ digit) are no
-   wider than their fullest row needs (gallery invariants.ts `menu-fit`). */
-.acpmux-menu.acpmux-location-menu.acpmux-env-popover { min-width: 200px; }
+   wider than their fullest row needs (gallery invariants.ts `menu-fit`). It keeps the location
+   menus' 320 px cap too, not the folder popover's em cap (cmux#38864 sizes the folder popover only). */
+.acpmux-menu.acpmux-location-menu.acpmux-env-popover { min-width: 200px; max-width: min(320px, var(--available-width, calc(100vw - 24px))); }
 /* Its rows as the model picker's and every other menu's (design/menus.md, popupSurface.css): the
    neutral menu wash (--acpmux-menu-hover, as .acpmux-quick-item), no accent tint and no focus bar,
    inset 5 from the popup's edges at radius 5, the icon at the shared 15 leading. The highlight is
