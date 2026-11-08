@@ -235,6 +235,23 @@ struct SidebarPinFlightTests {
         if back > 0.25 { failures.append("\(name): goes back \(back) pt") }
     }
 
+    /// When the move carrying `view` begins (media time): the latest begin of its `move` springs.
+    static func moveBegin(of view: NSView) -> CFTimeInterval? {
+        guard let layer = view.layer else { return nil }
+        return (layer.animationKeys() ?? []).filter { $0.hasPrefix("\(SidebarDragSpring.batchKey).") }
+            .compactMap { layer.animation(forKey: $0)?.beginTime }.map { layer.convertTime($0, to: nil) }.max()
+    }
+
+    /// The first frame that can show a move is the one after the turn that starts it: a move that begins before that
+    /// turn ends shows already advanced on its first frame (a step off the leaving view, p1 films 31fec6d8: about 13%
+    /// of the way on SB-PIN). Records a failure when `view`'s move begins before `turnEnd`.
+    static func checkBegin(_ name: String, of view: NSView, turnEnd: CFTimeInterval, failures: inout [String]) {
+        guard let begin = moveBegin(of: view) else { return failures.append("\(name): no move carries it") }
+        if begin < turnEnd {
+            failures.append("\(name): the move begins \(String(format: "%.2f", (turnEnd - begin) * 1000)) ms before its turn ends")
+        }
+    }
+
     /// Where each workspace other than `moved` is drawn at rest (row or item).
     static func rest(_ list: SidebarListView) -> [WorkspaceID: CGRect] {
         var frames: [WorkspaceID: CGRect] = [:]
@@ -263,6 +280,7 @@ struct SidebarPinFlightTests {
         let after = Self.rest(list)
         let arrived = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
         var failures: [String] = []
+        Self.checkBegin(pin ? "pinned d" : "unpinned d", of: arrived, turnEnd: now, failures: &failures)
         Self.checkPath(pin ? "pinned d" : "unpinned d", probes: probes, now: now, start: startFrame,
                        end: list.convert(arrived.bounds, from: arrived), failures: &failures)
         for (id, from) in before {
@@ -381,10 +399,13 @@ struct SidebarPinFlightTests {
         let pinning = Self.probes(Self.moved, list, now: firstNow)
         Self.show([], on: list)
         list.reload(animated: true)
-        // The unpin's moves begin with this reload's transaction: the pin's path (captured before it) at that time is
-        // where the person sees the workspace when the unpin starts.
-        let now = CACurrentMediaTime()
+        let turnEnd = CACurrentMediaTime()
+        let arrived = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
         var failures: [String] = []
+        Self.checkBegin("unpin over a pin", of: arrived, turnEnd: turnEnd, failures: &failures)
+        // The hand-off is the instant the unpin's move begins: the pin's path (captured before it) at that instant is
+        // where the person sees the workspace, and the unpin's path must start exactly there.
+        let now = try #require(Self.moveBegin(of: arrived), "no move carries the unpinned row")
         let drawn: CGRect
         switch Self.one(pinning, at: now) {
         case let .success(frame): drawn = frame
@@ -393,7 +414,6 @@ struct SidebarPinFlightTests {
             return
         }
         let probes = Self.probes(Self.moved, list, now: now)
-        let arrived = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
         Self.checkPath("unpin over a pin", probes: probes, now: now, start: drawn,
                        end: list.convert(arrived.bounds, from: arrived), failures: &failures)
         #expect(failures.isEmpty, "\(failures.prefix(16).joined(separator: "\n"))")
