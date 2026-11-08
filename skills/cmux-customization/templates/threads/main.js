@@ -126,7 +126,7 @@ function card(chat) {
     () =>
       meta() || chat().pull_requests.length
         ? HStack({ spacing: 6 }, [
-            () => (meta() ? Text(meta).font("caption").color("tertiary").lineLimit(1).truncation("middle") : null),
+            () => (meta() ? Text(meta).font("caption").color("tertiary").lineLimit(1).truncation("tail") : null),
             Spacer(),
             () =>
               chat().pull_requests.length
