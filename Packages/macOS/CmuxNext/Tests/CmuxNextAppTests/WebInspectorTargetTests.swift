@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextPages
 import Testing
 import WebKit
 
@@ -35,6 +36,46 @@ struct WebInspectorTargetTests {
         #expect(WebInspectorTargets.webView(containing: inner, within: root) === webView)
         #expect(WebInspectorTargets.webView(containing: inner, within: NSView()) == nil)
         #expect(WebInspectorTargets.webView(containing: NSView(), within: nil) == nil)
+    }
+
+    /// A cmux page in WebKit gives its web view; one that refuses probes (a revealed password) gives
+    /// no target, and the search does not go on into its web view.
+    @Test func aPageViewGivesItsWebViewUnlessItRefusesProbes() throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("inspector-target-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
+        let descriptor = PageDescriptor(id: "test.inspector-target", resource: "inspector-target", namespaces: [])
+        let page = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: nil))
+        defer { page.close() }
+        let pane = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        page.frame = pane.bounds
+        pane.addSubview(page)
+        page.layoutSubtreeIfNeeded()
+        guard case .webView(let webView)? = WebInspectorTargets.page(in: pane) else {
+            Issue.record("no target in the page's pane"); return
+        }
+        #expect(webView === page.webKitView)
+        #expect(WebInspectorTargets.page(containing: page.webKitView, within: pane) != nil)
+        page.refusesProbes = true
+        #expect(WebInspectorTargets.page(in: pane) == nil)
+        #expect(WebInspectorTargets.page(containing: page.webKitView, within: pane) == nil)
+    }
+
+    /// Settings > Advanced > Developer Tools for cmux Pages off: no cmux page is a target, so the
+    /// commands are disabled there (a browser tab keeps them).
+    @Test func appPagesOffFindsNoPage() {
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let webView = WKWebView(frame: root.bounds)
+        root.addSubview(webView)
+        let window = NSWindow(contentRect: root.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = root
+        window.makeFirstResponder(webView)
+        #expect(WebInspectorTargets().target(in: nil, keyWindow: window) != nil)
+        #expect(WebInspectorTargets(appPages: false).target(in: nil, keyWindow: window) == nil)
     }
 
     @Test func inspectElementIsListedEverywhereAndDisabledWithoutAWebView() {

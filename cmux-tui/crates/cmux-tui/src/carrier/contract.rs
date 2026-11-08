@@ -74,15 +74,29 @@ pub(super) struct Failure {
     pub step: Step,
     pub detail: String,
     pub retryable: bool,
+    /// The daemon no longer has the attempt's session (its session host
+    /// restarted): the next attempt opens a fresh session at once, with no
+    /// backoff ([`super::client::dial`] allows [`MAX_FRESH_SESSIONS`]).
+    pub fresh_session: bool,
 }
+
+/// How many times one dial opens a fresh session because the daemon lost
+/// the one it was given: once per restart, bounded so a daemon that keeps
+/// restarting cannot keep a dial redialing.
+pub(super) const MAX_FRESH_SESSIONS: u32 = 2;
 
 impl Failure {
     pub(super) fn retry(step: Step, detail: impl Into<String>) -> Self {
-        Self { step, detail: detail.into(), retryable: true }
+        Self { step, detail: detail.into(), retryable: true, fresh_session: false }
     }
 
     pub(super) fn fatal(step: Step, detail: impl Into<String>) -> Self {
-        Self { step, detail: detail.into(), retryable: false }
+        Self { step, detail: detail.into(), retryable: false, fresh_session: false }
+    }
+
+    /// The daemon answered that it no longer has the session.
+    pub(super) fn session_gone(step: Step, detail: impl Into<String>) -> Self {
+        Self { step, detail: detail.into(), retryable: true, fresh_session: true }
     }
 
     /// The deadline passed while the attempt was at `step`.
