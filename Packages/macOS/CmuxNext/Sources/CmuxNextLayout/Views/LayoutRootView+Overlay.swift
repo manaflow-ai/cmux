@@ -170,7 +170,12 @@ extension LayoutRootView {
     /// A press came while a film zoom plays (ZOOM VARIANTS 8): every screen's film motion ends for the catchers now, so
     /// the window's divider catchers follow the layout before the press goes on. Returns whether a film motion ended.
     public func endFilmMotionWait() -> Bool {
-        false
+        var ended = false
+        for screen in screenViews.values where screen.frameInput.filmMotionUntil != 0 {
+            screen.filmMotionEnded(screen.frameInput.filmZoomGeneration)
+            ended = true
+        }
+        return ended
     }
     #endif
 

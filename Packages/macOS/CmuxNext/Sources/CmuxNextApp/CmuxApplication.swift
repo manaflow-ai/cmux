@@ -40,6 +40,7 @@ import os
 ///   clicked refuses it too, for a few seconds (`InputVerificationService.endRelaunchBehind`).
 final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
     private var handlingSendEvent = false
+    private let filmPresses = DividerPressRetarget() // ZOOM VARIANTS 8: a press in a film zoom goes to its window now
     /// Set in `CmuxNextApp.shared.main` before `run()`; an update relaunch's startup turns it
     /// off again when it ends (`InputVerificationService.endRelaunchBehind`).
     var refusesActivation = false
@@ -136,7 +137,8 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
         if event.type == .keyDown, FindPillView.forwardArrowKeyDown(event, in: keyWindow ?? event.window) { return }
         if event.type == .keyUp || event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown, keyUpOrClickInterceptor?(event) == true { return }
-        if event.type == .leftMouseDown || event.type == .leftMouseUp {
+        if filmPresses.deliver(event, target: { ($1 as? ShellWindow)?.overlayLayer.pressTarget(for: $0) }) { // delivered there
+        } else if event.type == .leftMouseDown || event.type == .leftMouseUp {
             BenchSpans.measure(event.type == .leftMouseDown ? "app.sendEvent.down" : "app.sendEvent.up") { super.sendEvent(event) }
         } else { super.sendEvent(event) }
         if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown { BenchSpans.measure("app.mouseDownObserver") { mouseDownObserver?(event) } }

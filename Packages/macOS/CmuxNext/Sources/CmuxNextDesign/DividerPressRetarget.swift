@@ -15,9 +15,6 @@ public final class DividerPressRetarget {
     /// The window number the window server sends the press's events to, and the window that takes them instead.
     private var held: (source: Int, target: NSWindow?)?
 
-    /// The app's router (`CmuxApplication.sendEvent`).
-    public static let app = DividerPressRetarget()
-
     /// Makes the router.
     public init() {}
 

@@ -29,9 +29,10 @@ struct ScreenFrameInput {
     /// until the fade ends, then retired as ``filmZoomRetire`` is. The generation tells a fade's end from a newer zoom's.
     var filmZoomFading: [PaneID] = []
     var filmZoomGeneration = 0
-    /// A film zoom's motion plays until this media time (ZOOM VARIANTS 7): set at the zoom (its curve's duration plus 1 s,
-    /// in case no end comes), cleared by its end (``ScreenContentView/filmMotionEnded(_:)``). The window's divider
-    /// catchers wait for it as for a spring (`LayoutRootView.catchersWaitForLanding`).
+    /// A film zoom's motion plays until this media time (ZOOM VARIANTS 7): set at the zoom (its curve's duration plus
+    /// `filmEndGrace`, its deadline, in case no end comes), cleared by its end, its deadline or a press
+    /// (``ScreenContentView/filmMotionEnded(_:)``). The window's divider catchers wait for it as for a spring
+    /// (`LayoutRootView.catchersWaitForLanding`).
     var filmMotionUntil: Double = 0
     #endif
 }
