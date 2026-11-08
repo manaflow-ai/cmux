@@ -18,8 +18,9 @@
 //!   mount point or firmlink below the root is crossed;
 //! - after the file is open, its folder's `..` chain must reach the opened root in as many steps
 //!   as the walk went down, so a folder renamed out of the root during the walk is refused;
-//! - the opened descriptor must be a regular file with one link (or an upload whose other names
-//!   are the content store's, `file_uploads/store.rs`, and then its own path is the one opened),
+//! - the opened descriptor must be a regular file with one link (or, opened from the chat's own
+//!   uploads folder, an upload whose other names are the content store's,
+//!   `file_uploads/store.rs`, and then its own path is the one opened),
 //!   its own path (`F_GETPATH`, `/proc/self/fd`) inside the root's, and no part of it below the
 //!   root a dot name, nor a key file, nor under `~/Library`;
 //! - its type is sniffed from its bytes: png, jpeg, gif or webp up to [`MAX_IMAGE_BYTES`], an
@@ -256,11 +257,12 @@ pub fn open_in(
     if !meta.is_file() {
         return Err(refused("media.notFile", "the path is not a regular file"));
     }
-    // An upload's bytes are stored once by content (`file_uploads/store.rs`): its other name is
-    // the store's, and its own name is the one opened here (the fd's path may be the store's).
+    // An upload's bytes are stored once by content (`file_uploads/store.rs`): opened from the
+    // chat's own uploads folder, its other name is the store's, and its own name is the one
+    // opened here (the fd's path may be the store's).
     let opened = parts.iter().fold(root_path.clone(), |path, part| path.join(part));
     let stored = sys::links(&meta) != 1;
-    if stored && !super::file_uploads::is_stored_upload(&opened, &file) {
+    if stored && !super::file_uploads::is_stored_upload(&root_path, &opened, &file) {
         return Err(refused("media.linked", "the file has another name (a hard link)"));
     }
     let identity = sys::identity(&meta);
