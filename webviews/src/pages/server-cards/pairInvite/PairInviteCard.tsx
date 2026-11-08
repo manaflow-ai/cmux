@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { DialogButton } from "../../../ui/DialogButton";
 import { cx } from "../../../ui/cx";
 import type { Strings } from "../../shared/i18n";
+import { targetOf, type CardTarget } from "../host";
 import {
   buttonsOf,
   clock,
@@ -31,7 +32,8 @@ export interface PairInviteCardProps {
   copied: CopyTarget | null;
   layout?: PairInviteLayout;
   /** A footer or Copy button; `name` is the Name field (Confirm reads it). */
-  onAction(action: Action, name: string): void;
+  /** `target`: the pressed button's rect (a click-only action's host checks the click landed in it). */
+  onAction(action: Action, name: string, target?: CardTarget): void;
   onRunChief(on: boolean): void;
 }
 
@@ -58,7 +60,7 @@ export function PairInviteCard({
   const [typed, setTyped] = useState<{ code: string; value: string } | null>(null);
   const name = candidate && typed?.code === candidate.code ? typed.value : (candidate?.name ?? "");
   const buttons = buttonsOf(step);
-  const press = (action: Action) => onAction(action, name);
+  const press = (action: Action, target?: CardTarget) => onAction(action, name, target);
   // Return presses the default button, never Confirm or Try Again: only a click pairs a machine.
   const main = buttons.find((button) => button.key === "return");
   const onReturn = useRef<(() => void) | null>(null);
@@ -104,7 +106,7 @@ export function PairInviteCard({
             className={cx("server-card-button", button.key === "return" && "is-default")}
             data-action={button.action}
             disabled={!isEnabled(button.action, step, status.approver)}
-            onClick={() => press(button.action)}
+            onClick={(event) => press(button.action, targetOf(event.currentTarget))}
           >
             {buttonTitle(button.action, strings, copied)}
           </DialogButton>

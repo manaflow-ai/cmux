@@ -21,7 +21,11 @@ export function JoinConsentCardHost({ client, strings }: { client: PageClient | 
   useCardSize(client, JOIN_CONSENT_CARD, ref);
   return (
     <div ref={ref} className="server-card-frame join-consent-frame">
-      <JoinConsentCard status={status} strings={strings} onAnswer={(allow) => void store.answer(allow)} />
+      <JoinConsentCard
+        status={status}
+        strings={strings}
+        onAnswer={(allow, target) => void store.answer(allow, target)}
+      />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 // The Pair Another Machine card's state owner: the host's status, read again on every change event.
 // React reads it through `useSyncExternalStore`; a reply older than a newer read is dropped.
 import type { PageClient } from "../../shared/pageClient";
+import type { CardTarget } from "../host";
 import { PairInviteOps, type CopyTarget, type PairInviteStatus } from "./types";
 
 export interface PairInviteSnapshot {
@@ -69,9 +70,9 @@ export class PairInviteStore {
     return this.run(PairInviteOps.setRunChief, { on });
   }
 
-  /** The host takes it only from the person's own click on the card. */
-  confirm(name: string): Promise<boolean> {
-    return this.run(PairInviteOps.confirm, { name });
+  /** The host takes it only from the person's own click inside `target`, Confirm's rect. */
+  confirm(name: string, target: CardTarget | undefined): Promise<boolean> {
+    return this.run(PairInviteOps.confirm, { name, target });
   }
 
   private async run(op: string, params: unknown): Promise<boolean> {

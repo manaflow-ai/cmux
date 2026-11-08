@@ -11,9 +11,10 @@ public import Foundation
 /// the page draws who asked for what, the question, the note, why an Allow did not take, Deny and Allow.
 /// - `status` → `{ask: {requester, surface} | null, error: string | null, writing}`;
 /// - `deny` → closes the ask, writing nothing (the person's own click or key);
-/// - `allow` → SECURITY: grants the asked surface only from the person's own click on the card
-///   (``WebCardPanel/isPersonClick(_:)``: a left click the panel saw from the HID system, so no key,
-///   script, Accessibility press, posted event or Computer Use click), and never while a write is in
+/// - `allow {target}` → SECURITY: grants the asked surface only from the person's own click on Allow
+///   (``WebCardPanel/isPersonClick(_:on:)``: a left click the panel saw from the HID system, its down
+///   and up inside `target`, Allow's rect; so no key, script, Accessibility press, posted event or
+///   Computer Use click, and no script press after a click elsewhere), and never while a write is in
 ///   flight; the model then asks the device owner (Touch ID or the login password) before it sends;
 /// - stream `changes` → one empty event whenever `status` may have changed.
 ///
@@ -56,7 +57,7 @@ public final class JoinConsentCardProvider: WebCard {
             // Both buttons are off while a write is in flight: no press lands over a grant still landing.
             guard model.ask != nil, !model.writing else { return .null }
             // SECURITY: the person's own click on the card, read by the panel from the click's events.
-            guard host?.isPersonClick(context) == true else { throw Self.refused }
+            guard host?.isPersonClick(context, on: params["target"]) == true else { throw Self.refused }
             // task-owner: one answer per click; the write ends on its own
             Task { [model] in await model.answer(allow: true) }
             return .null
@@ -106,7 +107,7 @@ extension WebCardPanel {
     /// SECURITY (cmux#33066, HQ#5121): out of screen capture and screen sharing (`sharingType = .none`),
     /// so no screenshot, recording or agent's capture shows Allow and Computer Use refuses the window
     /// (MacCuaTargetResolver); Allow takes only the person's own click on it, read from the HID system
-    /// (``isPersonClick(_:)``).
+    /// (``isPersonClick(_:on:)``).
     /// `isPersonEvent` is the person check (the app's strict HID-source `PersonInputCheck`).
     @MainActor
     public static func joinConsent(model: JoinConsentModel, isPersonEvent: @escaping @MainActor (NSEvent) -> Bool) -> WebCardPanel? {

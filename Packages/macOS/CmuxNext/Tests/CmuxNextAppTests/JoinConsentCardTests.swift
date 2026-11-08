@@ -36,22 +36,32 @@ import Testing
             model = JoinConsentModel(services: fake.services())
         }
 
-        /// One left click on the panel: its mouse-down and mouse-up, the person's when `person`.
+        /// Where Allow is, in the panel's window, and another spot on the card (the words). Both are
+        /// outside the card's views: the panel reads the click, no view takes it.
+        static let allowAt = NSPoint(x: -50, y: -50)
+        static let elsewhere = NSPoint(x: -250, y: -50)
+
+        /// Allow's rect as the page sends it (`getBoundingClientRect()`, CSS px) around ``allowAt``.
+        var allowTarget: JSONValue {
+            let center = panel.pagePoint(Self.allowAt)
+            return ["x": .number(center.x - 30), "y": .number(center.y - 12), "width": 60, "height": 24]
+        }
+
+        /// One left click on the panel at `at`: its mouse-down and mouse-up, the person's when `person`.
         /// Returns the mouse-up's time, which the page's call carries as its gesture.
         @discardableResult
-        func click(person: Bool = true) throws -> TimeInterval {
-            let down = try event(.leftMouseDown), up = try event(.leftMouseUp)
+        func click(person: Bool = true, at point: NSPoint = allowAt) throws -> TimeInterval {
+            let down = try event(.leftMouseDown, at: point), up = try event(.leftMouseUp, at: point)
             if person { genuine.formUnion([down.eventNumber, up.eventNumber]) }
             panel.sendEvent(down)
             panel.sendEvent(up)
             return up.timestamp
         }
 
-        func event(_ type: NSEvent.EventType) throws -> NSEvent {
+        func event(_ type: NSEvent.EventType, at point: NSPoint) throws -> NSEvent {
             number += 1
             clock += 0.05
-            // Outside the card's views: the panel reads the click, no view takes it.
-            return try #require(NSEvent.mouseEvent(with: type, location: NSPoint(x: -50, y: -50), modifierFlags: [], timestamp: clock,
+            return try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: clock,
                                                    windowNumber: panel.windowNumber, context: nil, eventNumber: number, clickCount: 1,
                                                    pressure: 0))
         }
@@ -74,14 +84,16 @@ import Testing
             clock += NSEvent.doubleClickInterval
         }
 
-        func call(_ op: String, gesture: TimeInterval?) async throws -> JSONValue {
+        /// A page call; Allow and Deny send their button's rect (`target`, Allow's by default).
+        func call(_ op: String, gesture: TimeInterval?, target: JSONValue? = nil) async throws -> JSONValue {
             let context = PageCallContext(page: "cmux.server-cards", userGesture: gesture != nil, gestureEvent: gesture)
-            return try await provider.call(op, params: .null, context: context)
+            let params: JSONValue = op == JoinConsentCardProvider.statusOp ? .null : ["target": target ?? allowTarget]
+            return try await provider.call(op, params: params, context: context)
         }
 
-        func allow(_ gesture: TimeInterval?) async -> Bool {
+        func allow(_ gesture: TimeInterval?, target: JSONValue? = nil) async -> Bool {
             do {
-                _ = try await call(JoinConsentCardProvider.allowOp, gesture: gesture)
+                _ = try await call(JoinConsentCardProvider.allowOp, gesture: gesture, target: target)
                 return true
             } catch let error as PageError {
                 #expect(error.code == PageNativeOp.userOnlyCode)
@@ -154,6 +166,29 @@ import Testing
         #expect(!(await ask.allow(up)), "the same click twice")
         await ask.settle()
         #expect(ask.fake.writes == ["screen true"] && ask.model.ask == nil)
+    }
+
+    /// SECURITY (review F1 on cmux#37286): a genuine click must land on Allow itself. A real click on
+    /// the card's words, then a script's press of Allow carrying that click's gesture and Allow's rect,
+    /// grants nothing; neither does a call with no rect or a bad one.
+    @Test func allowNeedsTheClickToLandOnAllow() async throws {
+        let ask = try await ask()
+        let elsewhere = try ask.click(at: Ask.elsewhere)
+        #expect(!(await ask.allow(elsewhere)), "a real click elsewhere, then a script's press of Allow")
+        let onAllow = try ask.click()
+        #expect(!(await ask.allow(onAllow, target: .null)), "no rect")
+        #expect(!(await ask.allow(onAllow, target: ["x": 0, "y": 0, "width": 0, "height": 0])), "an empty rect")
+        let down = try ask.event(.leftMouseDown, at: Ask.elsewhere), up = try ask.event(.leftMouseUp, at: Ask.allowAt)
+        ask.genuine.formUnion([down.eventNumber, up.eventNumber])
+        ask.panel.sendEvent(down)
+        ask.panel.sendEvent(up)
+        #expect(!(await ask.allow(up.timestamp)), "a drag that began elsewhere and ended on Allow")
+        await ask.settle()
+        #expect(ask.fake.writes.isEmpty && ask.model.ask != nil)
+        let real = try ask.click()
+        #expect(await ask.allow(real), "the person's click on Allow")
+        await ask.settle()
+        #expect(ask.fake.writes == ["screen true"])
     }
 
     /// One click answers once, and while a write is in flight (both buttons off) neither Allow nor Deny

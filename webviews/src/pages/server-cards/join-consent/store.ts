@@ -1,6 +1,7 @@
 // The join consent ask's state owner: the host's status, read again on every change event. React
 // reads it through `useSyncExternalStore`; a reply older than a newer read is dropped.
 import type { PageClient } from "../../shared/pageClient";
+import type { CardTarget } from "../host";
 import { JoinConsentOps, type JoinConsentStatus } from "./types";
 
 export class JoinConsentStore {
@@ -52,11 +53,11 @@ export class JoinConsentStore {
   }
 
   /** Deny or Allow. The host takes Allow only from the person's own click on the card, and neither
-   * while a write is in flight. */
-  async answer(allow: boolean): Promise<void> {
+   * while a write is in flight, and Allow only when that click landed inside `target`, its rect. */
+  async answer(allow: boolean, target: CardTarget): Promise<void> {
     if (!this.client || !this.status?.ask || this.status.writing) return;
     try {
-      await this.client.call(allow ? JoinConsentOps.allow : JoinConsentOps.deny, {});
+      await this.client.call(allow ? JoinConsentOps.allow : JoinConsentOps.deny, { target });
     } catch {
       // Refused (not the person's click): the ask stays as it is.
     }

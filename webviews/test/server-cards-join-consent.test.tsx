@@ -22,12 +22,14 @@ const strings: Strings = {
 class FakeHost {
   status: JoinConsentStatus = askStatus();
   calls: string[] = [];
+  params: unknown[] = [];
   refuseAllow = false;
   private listener?: () => void;
   private seq = 0;
 
-  async call<T>(op: string): Promise<T> {
+  async call<T>(op: string, params?: unknown): Promise<T> {
     this.calls.push(op);
+    if (op !== "cmux.joinConsent.status") this.params.push(params);
     if (op === "cmux.joinConsent.status") return structuredClone(this.status) as T;
     if (op === "cmux.joinConsent.allow" && this.refuseAllow)
       throw pageError("cmux.page.user_only", "Only your own click on Allow allows this.");
@@ -48,6 +50,9 @@ class FakeHost {
     return this.calls.filter((op) => op !== "cmux.joinConsent.status");
   }
 }
+
+// Allow's rect, which the host checks the person's click landed in (WebCardPanel.isPersonClick).
+const target = { x: 220, y: 96, width: 72, height: 28 };
 
 const settle = async () => {
   for (let index = 0; index < 20; index++) await Promise.resolve();
@@ -99,20 +104,21 @@ describe("Join Consent ask", () => {
   test("one press sends one answer; none while writing or with no ask", async () => {
     const host = new FakeHost();
     const store = await opened(host);
-    await store.answer(true);
+    await store.answer(true, target);
     expect(host.answers()).toEqual(["cmux.joinConsent.allow"]);
+    expect(host.params).toEqual([{ target }]);
     host.change(askStatus({ writing: true }));
     await settle();
-    await store.answer(true);
-    await store.answer(false);
+    await store.answer(true, target);
+    await store.answer(false, target);
     expect(host.answers()).toEqual(["cmux.joinConsent.allow"]);
     host.change(askStatus({ ask: null }));
     await settle();
-    await store.answer(false);
+    await store.answer(false, target);
     expect(host.answers()).toEqual(["cmux.joinConsent.allow"]);
     host.change(askStatus());
     await settle();
-    await store.answer(false);
+    await store.answer(false, target);
     expect(host.answers()).toEqual(["cmux.joinConsent.allow", "cmux.joinConsent.deny"]);
   });
 
@@ -120,7 +126,7 @@ describe("Join Consent ask", () => {
     const host = new FakeHost();
     host.refuseAllow = true;
     const store = await opened(host);
-    await store.answer(true);
+    await store.answer(true, target);
     expect(store.getSnapshot()?.ask).toEqual({ requester: "studio-mac", surface: "screen" });
   });
 });

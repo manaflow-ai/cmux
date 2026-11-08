@@ -1,6 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
-import CmuxNextSettings
+public import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 
@@ -19,8 +19,8 @@ import Foundation
 ///
 /// A card plugs in as a ``WebCard``: a page provider for its own `cmux.<card>.` prefix that hears
 /// its opening and closing. A card that takes an action only from the person's own click
-/// (approve, allow) asks its ``WebCard/host`` ``isPersonClick(_:)``, which reads the click from the
-/// panel's own events.
+/// (approve, allow) asks its ``WebCard/host`` ``isPersonClick(_:on:)``, which reads the click from the
+/// panel's own events and checks it landed on the control.
 @MainActor
 public final class WebCardPanel: NSPanel {
     /// The gap between the window's top edge and the card's.
@@ -52,8 +52,9 @@ public final class WebCardPanel: NSPanel {
     /// An opening waiting for its card's first size: where and how it shows.
     private var pending: (card: String, parent: NSRect?, visible: NSRect, intent: WindowActivation.Intent)?
     private let pendingTimeout = DemandTimer(owner: "web-card-first-size")
-    /// The person's last left click on the panel: its down and up event times.
-    private var personClick: (down: TimeInterval, up: TimeInterval?)?
+    /// The person's last left click on the panel: its down and up event times, and where each
+    /// landed in the page (CSS px, ``pagePoint(_:)``).
+    private var personClick: (down: TimeInterval, downAt: CGPoint, up: TimeInterval?, upAt: CGPoint?)?
     /// When the card last drew anew (a click begun sooner is not aimed at what shows now).
     private var armedAt: TimeInterval = 0
     /// The click a person-only action already spent.
@@ -148,24 +149,49 @@ public final class WebCardPanel: NSPanel {
         armedAt = uptime
     }
 
-    /// SECURITY: whether a page call comes from the person's own left click on this card: the
-    /// call's gesture is a click the panel saw from the HID system (no key, script, Accessibility
+    /// SECURITY: whether a page call comes from the person's own left click on this card's control:
+    /// the call's gesture is a click the panel saw from the HID system (no key, script, Accessibility
     /// press or posted event), begun at least a double-click interval after the card last drew,
-    /// and not spent by an earlier call.
-    public func isPersonClick(_ context: PageCallContext) -> Bool {
+    /// not spent by an earlier call, and both its down and its up landed inside `target`, the
+    /// control's `getBoundingClientRect()` (`{x, y, width, height}`, CSS px) the page sends with the
+    /// call. A genuine click elsewhere on the card (the Name field) followed by a script's press of
+    /// the control lands outside it; with no target, nothing counts.
+    public func isPersonClick(_ context: PageCallContext, on target: JSONValue?) -> Bool {
         guard context.userGesture, let gesture = context.gestureEvent, let click = personClick, let up = click.up,
-              gesture == up || gesture == click.down,
+              let upAt = click.upAt, let rect = Self.rect(target),
+              gesture == up || gesture == click.down, rect.contains(click.downAt), rect.contains(upAt),
               click.down - armedAt >= NSEvent.doubleClickInterval, spentClick != up else { return false }
         spentClick = up
         return true
     }
 
+    /// A point of the panel's window in the page's CSS px, top-left origin (what
+    /// `getBoundingClientRect()` measures in): the page is zoomed by the interface scale.
+    public func pagePoint(_ windowPoint: NSPoint) -> CGPoint {
+        let local = page.convert(windowPoint, from: nil)
+        let zoom = page.webKitView.pageZoom * page.webKitView.magnification
+        let y = page.isFlipped ? local.y : page.bounds.height - local.y
+        return CGPoint(x: local.x / zoom, y: y / zoom)
+    }
+
+    /// `{x, y, width, height}` as a rect, nil unless all four are finite and the size is positive.
+    static func rect(_ value: JSONValue?) -> CGRect? {
+        guard let x = value?["x"]?.doubleValue, let y = value?["y"]?.doubleValue,
+              let width = value?["width"]?.doubleValue, let height = value?["height"]?.doubleValue,
+              [x, y, width, height].allSatisfy(\.isFinite), width > 0, height > 0 else { return nil }
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
     override public func sendEvent(_ event: NSEvent) {
         switch event.type {
         case .leftMouseDown:
-            personClick = isPersonEvent(event) ? (event.timestamp, nil) : nil
+            personClick = isPersonEvent(event) ? (event.timestamp, pagePoint(event.locationInWindow), nil, nil) : nil
         case .leftMouseUp:
-            if let down = personClick?.down, isPersonEvent(event) { personClick = (down, event.timestamp) } else { personClick = nil }
+            if let click = personClick, isPersonEvent(event) {
+                personClick = (click.down, click.downAt, event.timestamp, pagePoint(event.locationInWindow))
+            } else {
+                personClick = nil
+            }
         case .keyDown:
             personClick = nil
         default:
@@ -241,7 +267,7 @@ public protocol WebCard: PageProvider {
     var card: String { get }
     /// The prefix of the card's ops (`cmux.pairInvite.`).
     var prefix: String { get }
-    /// The panel that shows the card (the panel sets it): ``WebCardPanel/isPersonClick(_:)`` and ``WebCardPanel/rearm(at:)``.
+    /// The panel that shows the card (the panel sets it): ``WebCardPanel/isPersonClick(_:on:)`` and ``WebCardPanel/rearm(at:)``.
     var host: WebCardPanel? { get set }
     /// The card opens; `again` when it already showed (a live session may stay).
     func opened(again: Bool)

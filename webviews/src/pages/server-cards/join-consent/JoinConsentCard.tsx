@@ -1,10 +1,11 @@
 // The join consent's one-time ask (design/server-cards.md "Join Consent"): who asked for what, the
 // question, the note, why an Allow did not take, then Deny and Allow. Allow takes only a click: it
 // has no key, and the host takes it only from the person's own click on the card
-// (WebCardPanel.isPersonClick). Both buttons are off while a write is in flight.
+// (WebCardPanel.isPersonClick), landed on Allow itself: it sends its own rect. Both buttons are off while a write is in flight.
 import { DialogButton } from "../../../ui/DialogButton";
 import { cx } from "../../../ui/cx";
 import type { Strings } from "../../shared/i18n";
+import { targetOf, type CardTarget } from "../host";
 import { viewOf } from "./model";
 import type { JoinConsentStatus } from "./types";
 
@@ -15,7 +16,8 @@ export interface JoinConsentCardProps {
   status: JoinConsentStatus | undefined;
   strings: Strings;
   layout?: JoinConsentLayout;
-  onAnswer(allow: boolean): void;
+  /** `target`: the pressed button's rect, which the host checks the person's click landed in. */
+  onAnswer(allow: boolean, target: CardTarget): void;
 }
 
 export function JoinConsentCard({ status, strings, layout = "stacked", onAnswer }: JoinConsentCardProps) {
@@ -55,7 +57,7 @@ export function JoinConsentCard({ status, strings, layout = "stacked", onAnswer 
           className="server-card-button"
           data-action="deny"
           disabled={!view.enabled}
-          onClick={() => onAnswer(false)}
+          onClick={(event) => onAnswer(false, targetOf(event.currentTarget))}
         >
           {t("devices.join.ask.deny")}
         </DialogButton>
@@ -64,7 +66,7 @@ export function JoinConsentCard({ status, strings, layout = "stacked", onAnswer 
           className="server-card-button is-default"
           data-action="allow"
           disabled={!view.enabled}
-          onClick={() => onAnswer(true)}
+          onClick={(event) => onAnswer(true, targetOf(event.currentTarget))}
         >
           {t("devices.join.ask.allow")}
         </DialogButton>
