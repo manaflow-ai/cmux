@@ -71,7 +71,17 @@ fn screen(mux: &Mux, terminal_id: &TerminalPublicId, state: &str, at_ms: u64) {
     mux.append_journal_ingress(&ingress, "screen", &format!("screen-{state}-{at_ms}")).unwrap();
 }
 
-fn public_agents(mux: &Mux) -> Vec<serde_json::Value> {
+/// Let the wall clock pass the last commit: the roster clamps a plugin's
+/// observation to its commit time and orders it after a hook's report only
+/// when it is later.
+fn tick() {
+    let start = crate::workspace_registry::unix_epoch_ms().unwrap();
+    while crate::workspace_registry::unix_epoch_ms().unwrap() <= start {
+        std::hint::spin_loop();
+    }
+}
+
+fn public_agents(mux: &Mux) -> Vec<Value> {
     let snapshot = crate::resource_api::public_session_snapshot(settled(mux)).unwrap();
     snapshot["agents"].as_array().unwrap().clone()
 }
@@ -85,24 +95,26 @@ fn the_next_session_after_a_screen_proven_exit_owns_the_public_row() {
     let t0 = crate::workspace_registry::unix_epoch_ms().unwrap();
 
     hook(&mux, &terminal_id, "old", "SessionStart", t0);
-    hook(&mux, &terminal_id, "old", "UserPromptSubmit", t0 + 10);
+    hook(&mux, &terminal_id, "old", "UserPromptSubmit", t0 + 1);
+    tick();
     screen(&mux, &terminal_id, "working", t0 + 3_000);
     assert_eq!(public_agents(&mux).len(), 1);
     // The harness is killed: no `SessionEnd`, the screen sees it gone.
+    tick();
     screen(&mux, &terminal_id, "done", t0 + 5_000);
     assert!(public_agents(&mux).is_empty(), "the killed agent's row goes");
     assert_eq!(roster_agent_state(&mux, &terminal_id), None);
     let fence = mux.agent_hook_fences.lock().unwrap()[&terminal_id].clone();
     assert!(fence.ended && fence.session_id == "old", "{fence:?}");
-    assert_eq!(fence.ended_at_ms, Some(t0 + 5_000));
+    let exit_at = fence.ended_at_ms.expect("the exit's observation ends the session");
 
     // A `Stop` the old session sent before it died arrives late.
-    hook(&mux, &terminal_id, "old", "Stop", t0 + 4_000);
+    hook(&mux, &terminal_id, "old", "Stop", exit_at - 1);
     assert!(public_agents(&mux).is_empty(), "a late hook of the killed session stays out");
     assert_eq!(roster_agent_state(&mux, &terminal_id), None);
 
-    hook(&mux, &terminal_id, "new", "SessionStart", t0 + 6_000);
-    hook(&mux, &terminal_id, "new", "UserPromptSubmit", t0 + 7_000);
+    hook(&mux, &terminal_id, "new", "SessionStart", exit_at + 1);
+    hook(&mux, &terminal_id, "new", "UserPromptSubmit", exit_at + 2);
     let agents = public_agents(&mux);
     assert_eq!(agents.len(), 1, "{agents:?}");
     assert_eq!(agents[0]["state"], "working");
@@ -122,12 +134,15 @@ fn a_suspended_session_brought_back_with_fg_gets_its_public_row_back() {
     let t0 = crate::workspace_registry::unix_epoch_ms().unwrap();
 
     hook(&mux, &terminal_id, "same", "SessionStart", t0);
-    hook(&mux, &terminal_id, "same", "UserPromptSubmit", t0 + 10);
+    hook(&mux, &terminal_id, "same", "UserPromptSubmit", t0 + 1);
+    tick();
     screen(&mux, &terminal_id, "working", t0 + 3_000);
+    tick();
     screen(&mux, &terminal_id, "done", t0 + 5_000);
     assert!(public_agents(&mux).is_empty());
+    let exit_at = mux.agent_hook_fences.lock().unwrap()[&terminal_id].ended_at_ms.unwrap();
 
-    hook(&mux, &terminal_id, "same", "UserPromptSubmit", t0 + 8_000);
+    hook(&mux, &terminal_id, "same", "UserPromptSubmit", exit_at + 1);
     let agents = public_agents(&mux);
     assert_eq!(agents.len(), 1, "{agents:?}");
     assert_eq!(agents[0]["state"], "working");
