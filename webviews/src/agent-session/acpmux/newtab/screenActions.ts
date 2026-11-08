@@ -126,14 +126,13 @@ export function newTabScreenActions(deps: {
     },
     onFixFromLink: (url) => {
       ignore(
-        callNative("chat.fix_from_link", { url })
+        callNative("chat.fix_from_link", { url, ...(cwd ? { cwd } : {}) })
           .then((result) => {
             const sessionId =
               result && typeof result === "object" && typeof (result as { sessionId?: unknown }).sessionId === "string"
                 ? (result as { sessionId: string }).sessionId
                 : undefined;
             if (!sessionId) throw new Error("fix-from-link did not return a session");
-            deps.leave();
             deps.selectSession(sessionId);
           })
           .catch((error) => deps.showError?.(error)),
