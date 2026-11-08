@@ -26,8 +26,7 @@ export type TriageMove =
 /// itself, so it works with the Needs you list turned off.
 export function triageMove(
   permission:
-    | (Pick<AcpmuxPermission, "permissionId" | "question" | "plan"> &
-        Partial<Pick<AcpmuxPermission, "options">>)
+    | (Pick<AcpmuxPermission, "permissionId" | "question" | "plan"> & Partial<Pick<AcpmuxPermission, "options">>)
     | undefined,
   items: readonly NeedsYouItem[],
   sessionId?: string,
@@ -36,9 +35,7 @@ export function triageMove(
   if (!permission) {
     const pending =
       groups?.supported && !groups.allowRefused
-        ? groups.groups.some(
-            (group) => group.state === "pending" && group.decisions.includes("allow_once"),
-          )
+        ? groups.groups.some((group) => group.state === "pending" && group.decisions.includes("allow_once"))
         : false;
     return pending ? { kind: "allow", plan: false } : undefined;
   }
@@ -73,14 +70,10 @@ export function triageMove(
 }
 
 /// How many other chats wait on the person: one per chat, never this one or a marked tab.
-export function othersWaiting(
-  items: readonly NeedsYouItem[],
-  sessionId: string | undefined,
-): number {
+export function othersWaiting(items: readonly NeedsYouItem[], sessionId: string | undefined): number {
   const chats = new Set<string>();
   for (const item of items)
-    if (item.kind !== "tab" && item.sessionId && item.sessionId !== sessionId)
-      chats.add(item.sessionId);
+    if (item.kind !== "tab" && item.sessionId && item.sessionId !== sessionId) chats.add(item.sessionId);
   return chats.size;
 }
 
@@ -89,7 +82,5 @@ export function askedAt(
   permission: Pick<AcpmuxPermission, "permissionId"> | undefined,
   items: readonly NeedsYouItem[],
 ) {
-  return permission
-    ? items.find((each) => each.id === askItemId(permission.permissionId))?.at
-    : undefined;
+  return permission ? items.find((each) => each.id === askItemId(permission.permissionId))?.at : undefined;
 }

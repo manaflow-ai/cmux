@@ -18,9 +18,7 @@ const item = (id: string, sessionId: string, extra: Partial<NeedsYouItem> = {}):
 
 const once: AcpmuxPermission["options"] = [{ id: "a", name: "Allow", kind: "allow_once", allow: true }];
 
-const question = { id: "q", items: [] } as unknown as NonNullable<
-  Parameters<typeof triageMove>[0]
->["question"];
+const question = { id: "q", items: [] } as unknown as NonNullable<Parameters<typeof triageMove>[0]>["question"];
 
 describe("triageMove", () => {
   test("nothing waiting: no move", () => {
@@ -63,9 +61,7 @@ describe("triageMove", () => {
     });
   });
   test("a question with no one-click answer is only skipped", () => {
-    expect(
-      triageMove({ permissionId: "p", question }, [item("acpmux:p", "s", { kind: "decision" })]),
-    ).toEqual({
+    expect(triageMove({ permissionId: "p", question }, [item("acpmux:p", "s", { kind: "decision" })])).toEqual({
       kind: "skip",
     });
     expect(triageMove({ permissionId: "p", question }, [])).toEqual({ kind: "skip" });
