@@ -232,7 +232,11 @@ async fn resent(
     answer(prompt_id, turn_of(rx).await, None)
 }
 
-fn reply(prompt_id: &str, turn_id: Option<&str>, peer: Option<&crate::claude_peers::Peer>) -> Value {
+fn reply(
+    prompt_id: &str,
+    turn_id: Option<&str>,
+    peer: Option<&crate::claude_peers::Peer>,
+) -> Value {
     let bridged = peer.map(|p| json!({"pid": p.pid, "entrypoint": p.entrypoint}));
     json!({
         "stopReason": "end_turn",

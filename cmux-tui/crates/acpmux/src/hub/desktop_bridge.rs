@@ -77,8 +77,8 @@ impl Hub {
         let stores = super::adoption::store_families(&*self.config.read().await);
         let (shown, name) = {
             let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-            let shown =
-                super::adoption::adopted_in(&sessions, &stores, "claude", &peer.session_id).is_some();
+            let shown = super::adoption::adopted_in(&sessions, &stores, "claude", &peer.session_id)
+                .is_some();
             let taken = |n: &str| sessions.values().any(|s| s.meta().name == n);
             (shown, unique_name(peer, taken))
         };
