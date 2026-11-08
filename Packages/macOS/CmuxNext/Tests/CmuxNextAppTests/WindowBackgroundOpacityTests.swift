@@ -321,4 +321,44 @@ import Testing
         #expect(scope.shownWindowOpacity == shown.tintOpacity)
         #expect(scope.shownWindowOpacity < 1)
     }
+
+    /// https://github.com/manaflow-ai/cmux/issues/29881: at Opacity 100% the theme color covers a
+    /// background picture completely, so picking one showed nothing. Picking a picture with the
+    /// window opaque by Opacity returns Opacity (and the Material it named) to the theme's tint
+    /// over art, in the same write, so the picture shows. 100% stays one slider move away.
+    @Test func pickingAPictureAtFullOpacityShowsThePicture() async throws {
+        try await withHarness(#"{"appearance": {"backgroundOpacity": 1, "backgroundBlur": "none"}}"#) { harness in
+            #expect(harness.settings.snapshot.windowBackground.opacity == 1)
+            try await set(harness, "appearance.background", "van-gogh-starry-night")
+            #expect(harness.settings.snapshot.backdropSelection?.id == "van-gogh-starry-night")
+            #expect(harness.settings.snapshot.windowBackground == WindowBackgroundOverride())
+            #expect(!harness.file.contains("backgroundOpacity"))
+            #expect(!harness.file.contains("backgroundBlur"))
+            // Over the picture the window shows a tint, not the opaque theme color.
+            let scope = ThemeScope(level: .room)
+            scope.setBackdropSelection(try #require(harness.settings.snapshot.backdropSelection))
+            #expect(scope.shownWindowOpacity < 1)
+        }
+    }
+
+    /// A Material the person chose stays; only the Opacity that hid the picture goes.
+    @Test func pickingAPictureAtFullOpacityKeepsAChosenMaterial() async throws {
+        try await withHarness(#"{"appearance": {"backgroundOpacity": 1, "backgroundBlur": "frosted"}}"#) { harness in
+            try await set(harness, "appearance.background", "van-gogh-starry-night")
+            #expect(harness.settings.snapshot.windowBackground == WindowBackgroundOverride(material: .frosted))
+        }
+    }
+
+    /// An Opacity under 100% already shows the picture: it is the person's tint and stays. Turning
+    /// the picture off, or setting 100% with a picture on, never touches Opacity.
+    @Test func otherOpacityAndBackgroundWritesKeepOpacity() async throws {
+        try await withHarness(#"{"appearance": {"backgroundOpacity": 0.6, "backgroundBlur": "none"}}"#) { harness in
+            try await set(harness, "appearance.background", "van-gogh-starry-night")
+            #expect(harness.settings.snapshot.windowBackground.opacity == 0.6)
+            try await set(harness, Self.opacityKey, 1)
+            #expect(harness.settings.snapshot.windowBackground.opacity == 1)
+            try await set(harness, "appearance.background", "none")
+            #expect(harness.settings.snapshot.windowBackground.opacity == 1)
+        }
+    }
 }

@@ -1,6 +1,7 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { AppearanceHistory, diff, HISTORY_LIMIT, type KeyState } from "./appearanceHistory";
 import { activePreset, APPEARANCE_PRESETS } from "./appearancePresets";
+import { withLinked } from "./appearanceUndo";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
 
@@ -22,6 +23,16 @@ const setting = (key: string, value: unknown, customized = true): KeyState => ({
 });
 
 describe("the undo stack (model)", () => {
+  // https://github.com/manaflow-ai/cmux/issues/29881: picking a picture at Opacity 100% also clears
+  // Opacity (and the Material it named) on the host, so the step records both and Undo restores them.
+  test("a background write's step also records the window Opacity and Material it may clear", () => {
+    expect(withLinked(["appearance.background"])).toEqual([
+      "appearance.background",
+      "appearance.backgroundOpacity",
+      "appearance.backgroundBlur",
+    ]);
+  });
+
   test("undo returns the before states last change first, redo the after states", () => {
     const history = new AppearanceHistory();
     const before = [setting("a", null, false), setting("b", 1)];
@@ -128,6 +139,22 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
     const back = page.store.getSnapshot().rows;
     expect(back.get("appearance.background")?.value).toBe("friedrich-forest-moonlight");
     expect(back.get("appearance.backgroundOpacity")?.value).toBe(0.5);
+  });
+
+  // #29881: the host resets Opacity when a picture is written at 100%, so a step that puts back both
+  // writes the background first and the Opacity after it.
+  test("Undo writes the background before the Opacity it puts back", async () => {
+    page = await renderPage({ path: "/settings/appearance" });
+    await run(() => page!.store.set("appearance.background", "friedrich-forest-moonlight"));
+    await run(() => page!.store.set("appearance.backgroundOpacity", 1));
+    await run(() => page!.store.resetAppearanceToDefaults());
+    const before = ops(page.provider, "cmux.settings.set").length;
+    await run(() => page!.store.undoAppearance());
+    const keys = ops(page.provider, "cmux.settings.set")
+      .slice(before)
+      .map((op) => (op as { key: string }).key);
+    expect(keys.indexOf("appearance.background")).toBe(0);
+    expect(keys).toContain("appearance.backgroundOpacity");
   });
 
   test("Restore How It Was puts back what Appearance showed when it opened", async () => {
