@@ -33,7 +33,25 @@ pub(super) struct ScreenEvidence {
     source_session: Option<String>,
 }
 
+/// A hook's turn start on a terminal ([`AgentRoster::screen_ends_hook_row`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct HookTurnStart {
+    /// The hook's commit time.
+    pub(super) at_ms: u64,
+    /// The screen's `working` stretch that was already running when the turn
+    /// started, by when the plugin first saw it: a prompt typed while the
+    /// screen reads working, then the spinner, is one stretch the plugin
+    /// reports once.
+    #[serde(default)]
+    pub(super) screen_working_since_ms: Option<u64>,
+}
+
 impl ScreenEvidence {
+    /// When the plugin first saw the `working` stretch it reports now.
+    pub(super) fn working_since_ms(&self) -> Option<u64> {
+        (self.state == AgentState::Working.as_str()).then_some(self.observed_at_ms)
+    }
+
     /// A restored record names a valid plugin and a live state.
     pub(super) fn valid(&self) -> bool {
         self.producer != AGENT_HOOK_PRODUCER_ID
@@ -121,8 +139,9 @@ impl AgentRoster {
     /// `Stop` that ran can be lost on its way (#21229), and a killed harness
     /// sends no `SessionEnd` (#20874). The screen proves it, observed after
     /// the hook's last report: the same plugin saw this turn run (`working`
-    /// observed since the row became `working` and since the hook's latest
-    /// turn start, `turn_started_at_ms`) and now sees the
+    /// first seen after the hook's latest turn start, or the `working`
+    /// stretch already running when it started, [`HookTurnStart`]; with no
+    /// turn start, since the row became `working`) and now sees the
     /// agent's own idle prompt, or saw this agent's process (since the hook
     /// session took the terminal, `apply` drops older evidence) and now
     /// sees its process gone (`saw_exit`; the detector confirms an exit
@@ -130,7 +149,7 @@ impl AgentRoster {
     /// reports, proves nothing.
     pub(super) fn screen_ends_hook_row(
         existing: &RosterEntry,
-        turn_started_at_ms: Option<u64>,
+        turn_start: Option<&HookTurnStart>,
         note: ScreenNote,
         state: AgentState,
         observed_at_ms: u64,
@@ -138,9 +157,11 @@ impl AgentRoster {
         let ends = match state {
             AgentState::Idle => {
                 existing.agent_state() == AgentState::Working
-                    && note.ended_turn_seen_working_at.is_some_and(|seen_at| {
-                        seen_at >= existing.since_ms()
-                            && turn_started_at_ms.is_none_or(|started| seen_at >= started)
+                    && note.ended_turn_seen_working_at.is_some_and(|seen_at| match turn_start {
+                        Some(start) => {
+                            seen_at >= start.at_ms || start.screen_working_since_ms == Some(seen_at)
+                        }
+                        None => seen_at >= existing.since_ms(),
                     })
             }
             AgentState::Done => note.saw_exit,

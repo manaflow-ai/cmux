@@ -306,18 +306,61 @@ fn an_older_observation_does_not_replace_newer_evidence() {
     assert_eq!(rig.shown(), "working");
 }
 
-/// A second prompt while the row is still `working` (no `Stop` between, or a
-/// lost one) opens a new turn: the screen must see that turn run before its
-/// idle prompt ends it (second review of #38417, F1).
+/// The turn ends with a lost `Stop` (the screen shows the prompt), then the
+/// next prompt goes in: its idle prompt, before the screen sees it run, does
+/// not end it (second review of #38417, F1).
 #[test]
-fn a_prompt_submitted_while_working_fences_the_earlier_evidence() {
+fn the_next_turn_after_a_lost_stop_ends_only_once_the_screen_saw_it_run() {
     let mut rig = Rig::running_turn("claude");
+    rig.prompt(15_300);
+    assert_eq!(rig.shown(), "idle");
     rig.hook(16_000, "UserPromptSubmit");
     rig.prompt(18_000);
     assert_eq!(rig.shown(), "working");
     rig.screen(18_300, "working");
     rig.prompt(19_000);
     assert_eq!(rig.shown(), "idle");
+}
+
+/// A message queued while the turn runs (a second `UserPromptSubmit`, the
+/// spinner never stops), then Esc: the stretch the screen saw run across the
+/// new turn start ends it.
+#[test]
+fn esc_after_a_message_queued_mid_turn_clears_working() {
+    let mut rig = Rig::running_turn("claude");
+    rig.hook(16_000, "UserPromptSubmit");
+    rig.prompt(18_000);
+    assert_eq!(rig.shown(), "idle");
+}
+
+/// The person types the prompt without pausing, so the screen reads working
+/// (typing output) before the `UserPromptSubmit` commits, and the spinner
+/// keeps it working: the plugin reports that stretch once, before the turn
+/// starts. Esc still ends the turn (adversarial review of #38417).
+#[test]
+fn esc_after_a_prompt_typed_without_a_pause_clears_working() {
+    let mut rig = Rig::new("claude");
+    rig.hook(10_000, "SessionStart");
+    rig.prompt(10_050);
+    rig.screen(10_800, "working");
+    rig.hook(11_000, "UserPromptSubmit");
+    assert_eq!(rig.shown(), "working");
+    rig.prompt(14_300);
+    assert_eq!(rig.shown(), "idle");
+}
+
+/// Ctrl+Z puts the shell in front: the plugin reads the agent gone and the
+/// row goes. After `fg` the same session's hooks own the row again.
+#[test]
+fn a_suspended_agent_brought_back_with_fg_gets_its_hooks_back() {
+    let mut rig = Rig::running_turn("claude");
+    rig.screen(14_600, "done");
+    assert_eq!(rig.shown(), "done");
+    rig.prompt(20_000);
+    assert_eq!(rig.shown(), "idle");
+    rig.hook(21_000, "UserPromptSubmit");
+    assert_eq!(rig.shown(), "working");
+    assert_eq!(rig.roster.entries[TERMINAL].source, "hook");
 }
 
 #[test]

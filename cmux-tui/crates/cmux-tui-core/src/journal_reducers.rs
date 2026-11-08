@@ -605,7 +605,7 @@ pub(crate) struct AgentRoster {
     /// keeps the row's `since_ms`, so only this fences the screen's evidence of
     /// a turn running to the turn now open ([`Self::screen_ends_hook_row`]).
     #[serde(default)]
-    hook_turn_started_at: HashMap<String, u64>,
+    hook_turn_started_at: HashMap<String, HookTurnStart>,
 }
 
 impl AgentRoster {
@@ -809,7 +809,14 @@ impl AgentRoster {
             }
             self.hook_fences.insert(terminal_id.to_string(), next);
             if event.kind == "agent.turn.started" {
-                self.hook_turn_started_at.insert(terminal_id.to_string(), event.committed_at_ms);
+                let start = HookTurnStart {
+                    at_ms: event.committed_at_ms,
+                    screen_working_since_ms: self
+                        .screen_evidence
+                        .get(terminal_id)
+                        .and_then(ScreenEvidence::working_since_ms),
+                };
+                self.hook_turn_started_at.insert(terminal_id.to_string(), start);
             }
             let agent = event.adapter_id().map(str::to_string);
             (state, AgentSource::Hook, None, None, None, agent, event.committed_at_ms)
@@ -846,7 +853,7 @@ impl AgentRoster {
                     screen_ended_hook_row = existing_source == AgentSource::Hook
                         && Self::screen_ends_hook_row(
                             existing,
-                            self.hook_turn_started_at.get(terminal_id).copied(),
+                            self.hook_turn_started_at.get(terminal_id),
                             screen_note,
                             state,
                             updated_at_ms,
@@ -952,14 +959,13 @@ impl AgentRoster {
                             }))
             });
             return if owned_by_event || screen_ended_hook_row {
-                // The screen proved the hook session's agent gone, which no
-                // `SessionEnd` will say (a killed harness): its fence ends as
-                // that hook would end it, so the next session's hooks take
-                // the terminal instead of being refused as another session's.
-                if screen_ended_hook_row && let Some(fence) = self.hook_fences.get_mut(terminal_id)
-                {
-                    fence.ended = true;
-                    fence.ended_at_ms = Some(updated_at_ms);
+                // The screen proved the hook session's agent gone from the
+                // foreground, which no `SessionEnd` will say (a killed
+                // harness, or one suspended with Ctrl+Z): its fence goes, so
+                // the next hook takes the terminal, another session's instead
+                // of being refused, or this session's after `fg`.
+                if screen_ended_hook_row {
+                    self.hook_fences.remove(terminal_id);
                 }
                 self.entries.remove(terminal_id);
                 vec![RosterDelta::Remove { terminal_id: terminal_id.to_string(), source }]
@@ -1112,7 +1118,7 @@ fn valid_decimal_generation(value: &str) -> bool {
 
 #[path = "journal_reducers_screen_evidence.rs"]
 mod screen_evidence;
-use screen_evidence::{ScreenEvidence, ScreenNote};
+use screen_evidence::{HookTurnStart, ScreenEvidence, ScreenNote};
 
 #[cfg(test)]
 #[path = "journal_reducers_blocker_tests.rs"]
