@@ -369,14 +369,13 @@ fn settings_owner_reports_a_hand_edit_of_the_file_on_the_subscribe_stream() {
     // after the burst reports both keys (one settings-changed when the saves
     // fall into one burst, as they do unless the runner stalls between them).
     let first = COMMENTED.replace("\"top\"", "\"bottom\"");
-    let second = first.replace("/* inline */", "/* inline */,\n    \"cmdWClosesPinnedTabs\": true");
+    let second = first.replace("/* inline */", "/* inline */,\n    \"swapCmdTAndCmdN\": true");
     for text in [&first, &second] {
         fs::write(&temporary, text).unwrap();
         fs::rename(&temporary, &daemon.config).unwrap();
     }
     let mut reported = std::collections::BTreeSet::new();
-    while !(reported.contains("tabs.barPosition") && reported.contains("tabs.cmdWClosesPinnedTabs"))
-    {
+    while !(reported.contains("tabs.barPosition") && reported.contains("tabs.swapCmdTAndCmdN")) {
         let event = next_settings_event("the burst of two saves");
         assert_eq!(event["origin"], "file", "{event}");
         reported.extend(
@@ -388,5 +387,5 @@ fn settings_owner_reports_a_hand_edit_of_the_file_on_the_subscribe_stream() {
         );
     }
     assert_eq!(daemon.get("tabs.barPosition")["value"], "bottom");
-    assert_eq!(daemon.get("tabs.cmdWClosesPinnedTabs")["value"], true);
+    assert_eq!(daemon.get("tabs.swapCmdTAndCmdN")["value"], true);
 }

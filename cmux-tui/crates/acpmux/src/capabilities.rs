@@ -129,6 +129,8 @@ pub const CAPABILITIES: &[Capability] = &[
     // Who else works on these files, topic, branch or folder, here and on peers
     // (`hub/touched.rs`).
     Capability { id: "who-else-v1", wire: &[method::MUX_WHO_ELSE] },
+    // What turns cost, indexed by day and session (`hub/ledger`).
+    Capability { id: "cost-ledger-v1", wire: &[method::MUX_LEDGER] },
     // Who has a shared chat open and who types in it (`hub/presence.rs`); the attach reply's
     // `presence` comes with it.
     Capability { id: "chat-presence-v1", wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },
@@ -253,6 +255,8 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "agent-session-turn-rewind-v1",
         wire: &[method::AGENT_SESSION_TURN_PREPARE, method::AGENT_SESSION_TURN_ABANDON],
     },
+    // The person's Accept or Dismiss on what a chat learned (`server/memory_inbox.rs`).
+    Capability { id: "memory-inbox-v1", wire: &[method::MUX_MEMORY_RESOLVE] },
     // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).
     Capability {
         id: "agent-login-v1",

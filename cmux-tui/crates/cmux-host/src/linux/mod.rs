@@ -514,7 +514,7 @@ fn interface_addresses() -> Vec<(String, IpAddr)> {
 /// `CLOCK_REALTIME - CLOCK_BOOTTIME` in nanoseconds. A snapshot restore
 /// stops the boot clock while the machine is stopped, so this grows by the
 /// stopped time once realtime is set again; a sync moves it only by drift.
-fn realtime_minus_boottime_ns() -> i128 {
+pub(crate) fn realtime_minus_boottime_ns() -> i128 {
     fn read(clock: libc::clockid_t) -> i128 {
         let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
         // SAFETY: `ts` is a valid, writable timespec for the call.

@@ -108,7 +108,8 @@ fn sidebar_requires_open(summary: &Value) -> bool {
 /// The session's status dot, decided here once so every client draws the
 /// same one (cx-zlox). First match wins:
 ///
-/// - `input`: a permission or question waits for the person.
+/// - `input`: a permission or question waits for the person, here or in an
+///   open sub-session below it (`subsessionsWaiting`, `asks_below.rs`).
 /// - `working`: a turn runs.
 /// - `failed`: the last turn failed (also when the agent then exited).
 /// - `lost`: the agent process is gone (`disconnected`, or a peer's
@@ -144,6 +145,9 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         "disconnected" if !summary["turn"].is_null() => Some("lost"),
         "waiting" => Some("input"),
         _ if pending => Some("input"),
+        // A sub-session below it waits on the person: its run stalls there until someone answers,
+        // so the parent's own row says so, whatever its own turn does (`asks_below.rs`).
+        _ if summary["subsessionsWaiting"].as_u64().unwrap_or(0) > 0 => Some("input"),
         "running" => Some("working"),
         _ if last == Some("failed") => Some("failed"),
         "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
@@ -229,7 +233,13 @@ pub fn lane(summary: &Value) -> Value {
             "working",
             summary["turn"]["startedAt"].as_u64().or(summary["subagentsWorkingSince"].as_u64()),
         ),
-        Some("input") => ("input", summary["inputSince"].as_u64().or(updated)),
+        Some("input") => (
+            "input",
+            summary["inputSince"]
+                .as_u64()
+                .or(summary["subsessionsWaitingSince"].as_u64())
+                .or(updated),
+        ),
         Some("failed") => ("failed", ended),
         Some("lost") if in_turn => ("lost", updated),
         Some("lost") => ("lost", summary["lastTurn"]["endedAt"].as_u64().or(updated)),
@@ -633,6 +643,10 @@ impl Hub {
         }
         // Since when work it started runs on past its own turn (`work_below.rs`).
         summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
+        // How many open sub-sessions below it wait on the person, and since when (`asks_below.rs`).
+        let waiting = self.subsessions_waiting(session);
+        summary.set("subsessionsWaiting", json!(waiting.map_or(0, |(count, _)| count)));
+        summary.set("subsessionsWaitingSince", json!(waiting.map(|(_, since)| since)));
         // What runs below it now (the sidebar hover card, Leo 2026-11-01: "this hover preview
         // being able to see the # of associated subagents and whatnot"): its running subagents,
         // their first names, and its running background commands (`running_work`).

@@ -56,7 +56,9 @@ pub(super) const RECIPES: &[Recipe] = &[
         commands: &["cmux --json terminal <term> run --timeout 10m -- npm test"],
         read: "run types the command into the terminal's shell, waits for its next prompt, \
                prints the new `output` and `exit_status`, and exits with that status (124 \
-               when the time passed, 125 when the shell reported no status).",
+               when the time passed, 125 when the shell reported no status). The words after \
+               `--` reach the shell as the same words (`run -- sh -c 'exit 7'` exits 7); one \
+               quoted word is a shell line (`run -- 'make && make test'`).",
     },
     Recipe {
         ask: "Run this command and give me its exit code.",
@@ -99,16 +101,44 @@ pub(super) const RECIPES: &[Recipe] = &[
     Recipe {
         ask: "Start Claude (or Codex) in a new pane and give it a task.",
         commands: &[
-            "cmux --json pane current split --right",
-            "cmux --json terminal <term> send --text claude --wait none",
-            "cmux --json terminal <term> screen wait --pattern 'for shortcuts|❯' --timeout-ms 30000",
-            "cmux --json terminal <term> send --text 'Fix the failing test' --wait idle --timeout 15m",
+            "cmux --json agent start alpha --cmd 'sr2 claude' --no-focus",
+            "cmux --json terminal alpha send --text 'Fix the failing test' --wait idle --timeout 15m",
         ],
-        read: "The second send pastes the task, presses Enter, waits until the agent is \
-               idle and prints its new `output`; `state` is `idle`, or `waiting-for-input` \
-               when it shows a dialog (send refuses to type into a dialog unless --force). \
-               cmux adds its hooks to `claude` and `codex` started in a cmux terminal; \
-               nothing is written to ~/.claude or ~/.codex.",
+        read: "agent start splits your pane, runs the launcher (--cmd; codex works too) in a \
+               tab named alpha and returns once the agent can take a message: `state` \
+               `ready` (exit 0) with `terminal_id`, `tab_id`, `pane_id`, or `blocked` \
+               (exit 4) with `dialog` (`folder_trust`, `login`, ...) and `reason` when a \
+               startup dialog waits on the person; never answer it yourself. The name works \
+               wherever a terminal, tab or pane selector goes. send pastes the task, presses \
+               Enter, waits until the agent is idle and prints its new `output`; `state` is \
+               `idle`, or `waiting-for-input` when it shows a dialog (send refuses to type \
+               into a dialog unless --force). cmux adds its hooks to `claude` and `codex` \
+               started in a cmux terminal; nothing is written to ~/.claude or ~/.codex.",
+    },
+    Recipe {
+        ask: "Is agent alpha ready? What did it last say?",
+        commands: &[
+            "cmux --json terminal alpha wait --until ready --timeout 60s",
+            "cmux --json terminal list --agents",
+            "cmux terminal alpha screen read",
+        ],
+        read: "wait --until ready: `state` `ready`, or `blocked` with `dialog` and `reason` \
+               (exit 4). terminal list --agents: one record per agent with `name`, `harness`, \
+               `state`, `tab_id`, `pane_id` and `last_reply` (the agent's last answer, one \
+               line, at most 200 characters). screen read prints the screen as text \
+               (--details or --json for the whole record).",
+    },
+    Recipe {
+        ask: "Bring back an agent that exited (same conversation).",
+        commands: &[
+            "cmux --json agent resume alpha --no-focus",
+            "cmux --json terminal <term> resume --split down --no-focus",
+        ],
+        read: "resume reruns the agent's launcher with its recorded harness session \
+               (`claude --resume <id>`, `codex resume <id>`), in the old tab's pane unless \
+               --pane or --split say otherwise, closes the exited tab and keeps its name; it \
+               waits and answers like agent start, plus `resumed.agent_session_id`. \
+               `agent.no_session` means the hooks never reported a session id.",
     },
     Recipe {
         ask: "Is an agent waiting for me? Which agents run here?",
@@ -138,6 +168,18 @@ pub(super) const RECIPES: &[Recipe] = &[
         ],
         read: "A screen is a tmux window: a full layout of panes in a workspace. A new \
                screen does not move the person's view.",
+    },
+    Recipe {
+        ask: "Move that pane to its own screen. / Put it next to my editor pane.",
+        commands: &[
+            "cmux --json pane <pane> move --new-screen --name logs",
+            "cmux --json pane <pane> move --to-pane <other-pane> --split right",
+            "cmux --json pane <pane> move --to-workspace <ws>",
+        ],
+        read: "move takes every tab of the pane, in order, and the emptied pane closes: \
+               `moved_tabs`, `destination.pane` (where they are now), `created` (the new \
+               screen or pane, else null). --to-tab <tab> puts them after that tab. The \
+               focus stays unless --focus.",
     },
     Recipe {
         ask: "Tell me when you need me.",
@@ -333,6 +375,8 @@ const WAITS_AND_ERRORS: &str = "
 
 `--wait prompt` and `wait --until` need shell integration (OSC 133), which cmux shells have.
 A timeout does not stop the command; read the screen before you send more.
+A `--pattern` RE is matched line by line: `^` and `$` match at the start and end of each line \
+(`--pattern '^BENCH_OK$'`), as in grep. Start it with `(?-m)` to match the whole text.
 
 ## Errors and exit codes
 
