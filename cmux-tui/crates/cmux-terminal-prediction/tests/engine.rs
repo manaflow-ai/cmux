@@ -1027,28 +1027,69 @@ fn an_erase_the_remote_never_sends_is_withdrawn() {
 }
 
 #[test]
-fn steady_typing_after_backspace_predicts_again_within_a_round_trip() {
-    // Backspace over echoed text withdraws, and output stays untracked for
-    // two round trips. Keys typed in that window used to push it out again,
-    // so typing faster than one key per two round trips never predicted
-    // until a pause. They are now tracked, and the first one's echo closes
-    // the window. Every echo here comes 100 ms after its key.
+fn steady_typing_after_a_paste_predicts_again_without_a_pause() {
+    // An unmodelled key (here a paste) withdraws, and output stays untracked
+    // for two round trips. Keys typed in that window used to push it out
+    // again, so typing faster than one key per two round trips never
+    // predicted until a pause. They are now tracked: while the paste's own
+    // output may still be printing their echoes are ambiguous, and after
+    // that the first one closes the window. Every echo comes 150 ms after
+    // its key, and keys are 100 ms apart, beyond the coalescing gap.
     let mut session = Session::new();
     for key in ["l", "s", "a", "b"] {
         session.type_key_after(key, ms(100));
-        session.remote_after(key, ms(100));
+        session.remote_after(key, ms(150));
+        session.engine.presented_frame(session.clock);
+    }
+    session.advance(ms(100));
+    let _ = session.engine.sent_untracked_input(session.clock);
+    session.type_key_after("c", ms(100));
+    assert_eq!(session.drawn(), "");
+    session.remote_after("pasted", ms(50));
+    session.type_key_after("d", ms(50));
+    assert_eq!(session.drawn(), "");
+    session.remote_after("c", ms(50));
+    session.type_key_after("e", ms(50));
+    session.remote_after("d", ms(50));
+    session.engine.presented_frame(session.clock);
+    session.type_key_after("f", ms(50));
+    session.remote_after("e", ms(50));
+    session.type_key_after("g", ms(50));
+    session.remote_after("f", ms(50));
+    session.engine.presented_frame(session.clock);
+    // The old window would still be open: every key pushed it 350 ms out.
+    session.type_key_after("h", ms(0));
+    assert!(
+        session.drawn().ends_with('h'),
+        "drawn {:?}, status {:?}",
+        session.drawn(),
+        session.status()
+    );
+}
+
+#[test]
+fn steady_typing_after_backspace_predicts_again_without_a_pause() {
+    // The same after Backspace over echoed text, whose echo may redraw the
+    // rest of the line.
+    let mut session = Session::new();
+    for key in ["l", "s", "a", "b"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(150));
         session.engine.presented_frame(session.clock);
     }
     session.type_key_after("\x7f", ms(100));
-    session.type_key_after("c", ms(50));
-    assert_eq!(session.drawn(), "");
+    session.type_key_after("c", ms(100));
     session.remote_after("\x08\x1b[K", ms(50));
-    session.type_key_after("d", ms(0));
-    assert_eq!(session.drawn(), "");
-    session.remote_after("c", ms(50));
-    session.type_key_after("e", ms(0));
-    session.remote_after("d", ms(50));
-    session.type_key_after("f", ms(0));
-    session.engine.presented_frame(session.clock);
-    assert!(session.drawn().ends_with('f'), "drawn {:?}", session.drawn());
+    for (typed, echoed) in [("d", "c"), ("e", "d"), ("f", "e"), ("g", "f")] {
+        session.type_key_after(typed, ms(50));
+        session.remote_after(echoed, ms(50));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("h", ms(50));
+    assert!(
+        session.drawn().ends_with('h'),
+        "drawn {:?}, status {:?}",
+        session.drawn(),
+        session.status()
+    );
 }
