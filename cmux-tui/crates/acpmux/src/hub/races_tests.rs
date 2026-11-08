@@ -308,6 +308,7 @@ async fn a_guarded_import_never_resumes_a_race_or_keeps_its_authority() {
 async fn a_prompt_that_left_the_queue_unrun_settles_its_candidate() {
     let hub = memory_hub();
     let child = hub.insert_test_session(test_meta("queued-child", "idle", Some("parent")));
+    hub.save_meta(&child);
     assert_eq!(hub.settled(&child, Some("t1")), None, "no record yet: still waiting");
     hub.append(&child, "mux", "queue_removed", json!({"turnId": "t1", "reason": "stopped"}));
     let (ok, error) = hub.settled(&child, Some("t1")).unwrap();
