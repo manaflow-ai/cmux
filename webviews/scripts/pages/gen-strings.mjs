@@ -207,6 +207,11 @@ export const PAGES = {
       },
     ],
   },
+  // The Bookmarks page shares its table with the Swift bar, bubble and manager.
+  bookmarks: {
+    out: "webviews/src/pages/bookmarks/generated/strings.json",
+    catalogs: [{ file: `${sources}/CmuxNextBookmarks/Resources/Localizable.xcstrings` }],
+  },
   // Cloud has no Swift page, so its table lives next to the page.
   cloud: {
     out: "webviews/src/pages/cloud/generated/strings.json",
@@ -281,6 +286,11 @@ export const PAGES = {
   artifacts: {
     out: "webviews/src/pages/artifacts/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/artifacts/Localizable.xcstrings" }],
+  },
+  // The overlay page's toast stack (cmux-page://cmux.overlay/, route /toasts); its table lives next to it.
+  "overlay-toasts": {
+    out: "webviews/src/pages/overlay/toasts/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/overlay/toasts/Localizable.xcstrings" }],
   },
   // The Stats page (cmux-page://cmux.stats/, hq#1920); its table lives next to it.
   stats: {

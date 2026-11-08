@@ -17,10 +17,12 @@
 //! if it were me?"): `verified` says whether the daemon bound the sender (a caller-proven session,
 //! the hub's own prompt) or the sender only named itself; `transport` is how it came (`unix`,
 //! `app`, `web`, `peer`, `trigger`); `claimed` holds labels it gave that prove nothing (`cliHost`,
-//! `fromHarness`). No label, socket access or environment variable makes a prompt the person's:
-//! only a connection that proved the person (`hub/person.rs`), an authenticated paired client,
-//! or a peer attesting its own proven connection. Any other prompt naming no sender is
-//! `unverified` ([`unverified`]), and the person's own record says `_meta.origin` ([`ORIGIN`]).
+//! `fromHarness`). No label or environment variable makes a prompt the person's: a connection
+//! that proved the person (`hub/person.rs`), an authenticated paired client, a peer attesting its
+//! own proven connection, or the owner's own terminal send (a plain unix connection with no caller
+//! token that claims no sender, harness or relay, `server/requests.rs` `owner_terminal`). Any
+//! other prompt naming no sender is `unverified` ([`unverified`]), and the person's own record
+//! says `_meta.origin` ([`ORIGIN`]).
 //! What a prompt may do (permissions, approvals) is decided elsewhere and never from these.
 //!
 //! The hub sets two more kinds itself, never taken from a client: `{kind: "offer_result",
@@ -299,9 +301,10 @@ pub const TRANSPORT: &str = "transport";
 pub const CLAIMED: &str = "claimed";
 
 /// The provenance kind of a prompt no proof attributes: not the proven person's (the app's own
-/// connection, a paired device), and naming no sender. A local process of the user (a shell, a
-/// script, an agent outside acpmux) may send it, so it is shown as an unknown sender, never as the
-/// person (Leo, 2026-11-05: "why is it sending it as if it were me?").
+/// connection, a paired device, the owner's own terminal send), and naming no sender. A local
+/// process that claims a harness or relay, or holds a caller token it could not prove, may send
+/// it, so it is shown as an unknown sender, never as the person (Leo, 2026-11-05: "why is it
+/// sending it as if it were me?").
 pub const UNVERIFIED_KIND: &str = "unverified";
 
 /// Who started a handoff whose start is not the proven person's (`hub/handoff/ops.rs`): its

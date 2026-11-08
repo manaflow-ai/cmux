@@ -249,6 +249,15 @@ impl App {
                 self.replace_selection(None);
                 return Ok(RenderAction::Draw);
             }
+            Action::NextAttention => self.jump_to_next_attention()?,
+            Action::AttentionList => {
+                self.finish_active_drag();
+                self.shortcut_help = None;
+                self.prompt = None;
+                self.omnibar = None;
+                self.open_attention_list();
+                return Ok(RenderAction::Draw);
+            }
             Action::Detach => {
                 // Only a session hosted inside this process ends with the
                 // TUI; a session owned elsewhere (detached local owner or

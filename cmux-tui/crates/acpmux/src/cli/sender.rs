@@ -3,10 +3,11 @@
 //!
 //! An agent in an acpmux session needs none: its caller token, inherited from the session's
 //! process tree, proves the session to the daemon that issued it (`client.rs`, `hub/person.rs`
-//! (a)). Run outside one, nothing tells an agent from the person, and the shared Unix account
-//! proves nobody: the daemon records a send naming no sender as `unverified`, never as the
-//! person's (Leo, 2026-11-05: "why is it sending it as if it were me?"). Only the app's own
-//! proven connection is the person. `ACPMUX_FROM` names an agent: `reach` sets it from the
+//! (a)). Run outside one, the shared Unix account proves nobody, so the CLI says what it can
+//! tell: an agent harness's shell names itself and its harness (below), and the daemon records
+//! that send as the agent's (Leo, 2026-11-05: "why is it sending it as if it were me?"). A send
+//! that names no one and claims no harness is the owner's own terminal send, recorded as the
+//! person's prompt (`server/requests.rs` `owner_terminal`). `ACPMUX_FROM` names an agent: `reach` sets it from the
 //! caller's session name, the one identity that survives an ssh hop (claude-sr2, 2026-10-24).
 //!
 //! With neither, an agent harness's own shell names its harness ([`harness_name`]): Claude Code
@@ -33,7 +34,7 @@ pub fn harness_of_this_process() -> Option<&'static str> {
 }
 
 /// The machine a send naming no sender ran on (`_meta.acpmux.cliHost`), a claimed label the
-/// daemon keeps on its `unverified` provenance. None for an agent's send, named or in a session.
+/// daemon keeps on the recorded client (and on an `unverified` provenance). None for an agent's send, named or in a session.
 pub fn person_host(named: bool) -> Option<String> {
     (!from_an_agent(named)).then(crate::host_pressure::host_name)
 }
@@ -74,7 +75,7 @@ fn in_session(env: impl Fn(&str) -> Option<String>) -> bool {
 }
 
 /// The sender a send names with no `--from`: `None` when it runs in an acpmux session (the
-/// daemon proves that one) or names no one (the daemon records it `unverified`). `ACPMUX_FROM`
+/// daemon proves that one) or names no one (the owner's own send, `owner_terminal`). `ACPMUX_FROM`
 /// wins over the harness's own name.
 pub fn implicit(
     env: impl Fn(&str) -> Option<String>,

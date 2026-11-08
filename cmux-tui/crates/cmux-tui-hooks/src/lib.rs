@@ -2062,9 +2062,12 @@ fn codex_contextual_hook_command(
     terminal: &str,
     launcher: &Path,
 ) -> String {
+    // SessionStart prints the session context (cmux-tui-hook
+    // session_context.rs) for this launch's hooks only, so only these
+    // commands let the helper answer it.
     let reply = if sync_barrier_event(event) {
         "||exit 2"
-    } else if delivers_messages("codex", event) {
+    } else if delivers_messages("codex", event) || event == "SessionStart" {
         "||echo {}"
     } else {
         "||:;echo {}"
@@ -4015,6 +4018,38 @@ mod tests {
                 .unwrap();
         let hook = &root["hooks"]["PreToolUse"][0]["hooks"][0];
         assert_eq!(hook.get("async").and_then(Value::as_bool), None, "{hook}");
+    }
+
+    /// The Codex wrapper's SessionStart hook prints the helper's session
+    /// context alone on success and the empty object when the helper fails:
+    /// one JSON object either way.
+    #[cfg(unix)]
+    #[test]
+    fn codex_launch_session_context_prints_one_json_object() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let helper = root.path().join("hook");
+        let command = codex_contextual_hook_command(
+            "SessionStart",
+            Path::new("/unused"),
+            "term_test",
+            &helper,
+        );
+        for (script, expected) in [
+            (
+                "#!/bin/sh\necho '{\"hookSpecificOutput\":{\"additionalContext\":\"cmux\"}}'\n",
+                json!({"hookSpecificOutput": {"additionalContext": "cmux"}}),
+            ),
+            ("#!/bin/sh\nexit 1\n", json!({})),
+        ] {
+            fs::write(&helper, script).unwrap();
+            fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
+            let result = std::process::Command::new("sh").arg("-c").arg(&command).output().unwrap();
+            assert_eq!(result.status.code(), Some(0), "{command}");
+            let value: Value = serde_json::from_slice(&result.stdout)
+                .unwrap_or_else(|error| panic!("{error}: {:?}", result.stdout));
+            assert_eq!(value, expected, "{command}");
+        }
     }
 
     #[cfg(unix)]

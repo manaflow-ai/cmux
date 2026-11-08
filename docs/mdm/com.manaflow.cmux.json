@@ -177,6 +177,39 @@
       "title" : "Prompt Rail Side",
       "type" : "string"
     },
+    "agentPane.display.senderIcon.badge" : {
+      "default" : "diamond",
+      "description" : "The small colored glyph on a sender's icon that tells sessions of one model family apart.",
+      "enum" : [
+        "diamond",
+        "robot",
+        "none"
+      ],
+      "title" : "Sender Badge",
+      "type" : "string"
+    },
+    "agentPane.display.senderIcon.corner" : {
+      "default" : "bottom-right",
+      "description" : "Where the small glyph sits on a sender's icon.",
+      "enum" : [
+        "bottom-right",
+        "bottom-left",
+        "top-right",
+        "top-left"
+      ],
+      "title" : "Sender Badge Corner",
+      "type" : "string"
+    },
+    "agentPane.display.senderIcon.lead" : {
+      "default" : "family",
+      "description" : "Which is big in a sender's icon: the model family's mark, or the session's own colored badge.",
+      "enum" : [
+        "family",
+        "session"
+      ],
+      "title" : "Sender Icon Emphasis",
+      "type" : "string"
+    },
     "agentPane.display.sessionInfo.placement" : {
       "default" : "overlay",
       "description" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
@@ -4143,6 +4176,18 @@
       "title" : "Group Workspaces by Computer",
       "type" : "boolean"
     },
+    "sidebar.groupGradient" : {
+      "default" : "sunset",
+      "description" : "The gradient that Group Colors set to Gradient steps through: each colored group takes the color at its place in the list, so neighbors step through it and a group you move recolors.",
+      "enum" : [
+        "sunset",
+        "aurora",
+        "lagoon",
+        "twoTone"
+      ],
+      "title" : "Group Gradient",
+      "type" : "string"
+    },
     "sidebar.groupHeader.background" : {
       "default" : "auto",
       "description" : "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.",
@@ -4168,13 +4213,14 @@
     },
     "sidebar.groupPalette" : {
       "default" : "glass",
-      "description" : "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked.",
+      "description" : "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient.",
       "enum" : [
         "glass",
         "theme",
         "wallpaper",
         "grayscale",
-        "vibrant"
+        "vibrant",
+        "gradient"
       ],
       "title" : "Group Colors",
       "type" : "string"
