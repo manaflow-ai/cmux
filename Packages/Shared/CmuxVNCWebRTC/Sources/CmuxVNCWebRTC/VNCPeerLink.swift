@@ -23,9 +23,26 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     // crash-allow: a `let` made once (lazy static init is atomic); libwebrtc's factory is thread-safe.
     nonisolated(unsafe) private static let factory: RTCPeerConnectionFactory = {
         RTCInitializeSSL()
+        applyFieldTrials()
         // Hardware H.264 (VideoToolbox) first, then VP8/VP9/AV1 software; H.264 without a level frame rate cap.
         return RTCPeerConnectionFactory(encoderFactory: ScreenEncoderFactory(), decoderFactory: ScreenDecoderFactory())
     }()
+
+    /// libwebrtc field trials for a remote screen, set once before the factory exists
+    /// (libwebrtc reads them process-wide).
+    ///
+    /// Playout delay 0 on both ends: a decoded frame is shown at once instead of being held in
+    /// the jitter buffer for smooth playback. A screen is not a film: the newest pixels matter,
+    /// not an even cadence. The receive trial covers this build's viewer whatever the host
+    /// sends; the send trial puts min 0, max 0 in the playout-delay header extension, so a
+    /// viewer from before this change also renders at once.
+    static let fieldTrials: [String: String] = [
+        "WebRTC-ForcePlayoutDelay": "min_ms:0,max_ms:0",
+        "WebRTC-ForceSendPlayoutDelay": "min_ms:0,max_ms:0",
+    ]
+
+    /// Calls the deprecated setter through a protocol, so this file builds without a warning.
+    private static func applyFieldTrials() { (FieldTrialSetter.self as any FieldTrialApplying.Type).apply() }
 
     /// Largest data channel message (SCTP fragments larger ones less well).
     static let chunk = 16 * 1024
@@ -537,4 +554,11 @@ final class ScreenDecoderFactory: NSObject, RTCVideoDecoderFactory {
             return RTCVideoCodecInfo(name: info.name, parameters: parameters)
         }
     }
+}
+
+/// The deprecated field trial setter, called from a deprecated context (no warning at the call site).
+private protocol FieldTrialApplying { static func apply() }
+private enum FieldTrialSetter: FieldTrialApplying {
+    @available(*, deprecated, message: "libwebrtc's only Objective-C entry point for field trials")
+    static func apply() { RTCInitFieldTrialDictionary(VNCPeerLink.fieldTrials) }
 }
