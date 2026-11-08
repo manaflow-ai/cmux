@@ -1829,6 +1829,20 @@ async fn dispatch_request_with_identity(
             let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
             let steer = flag("steer").or_else(|| params.get("steer").and_then(Value::as_bool));
             let steer = steer.unwrap_or(false);
+            // A subagent's prompt that starts a turn of a lane of its own lead: that turn's answer
+            // reaches the subagent (`hub/lane_report_subagents.rs`), so the receiver is told to end
+            // its turn with it rather than send it to the lead (`hub/prompt_attribution.rs`). Not
+            // one steered into a running turn: that turn's answer goes where its own prompt's does.
+            let provenance = provenance.map(|p| {
+                let lane_of_caller = conn.caller().is_some_and(|c| {
+                    c != s.id && hub.lane_report_parent(&s.id).as_deref() == Some(c)
+                });
+                let steers_in = steer && s.turn().is_some();
+                if steers_in || !lane_of_caller {
+                    return p;
+                }
+                crate::prompt_provenance::subagent_gets_reply(p)
+            });
             let prompt_id = mux_meta(&params)
                 .and_then(|m| m.get("promptId"))
                 .and_then(Value::as_str)

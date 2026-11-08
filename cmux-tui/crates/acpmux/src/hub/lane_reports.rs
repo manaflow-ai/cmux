@@ -439,11 +439,15 @@ impl Hub {
     pub(super) fn lane_turn_started(&self, session: &Session, provenance: Option<&Value>) {
         self.lane_turn_on(session, reports_only(provenance));
         let parent = self.lane_report_parent(&session.id);
+        let turn = session.meta().turn_count;
         if let Some(sub) =
             super::lane_report_subagents::asking_subagent(parent.as_deref(), provenance)
         {
-            let turn = session.meta().turn_count;
             self.lane_turns().subagents.insert((session.id.clone(), turn), sub);
+        }
+        let kind = provenance.and_then(|p| p.get("kind")).and_then(Value::as_str);
+        if parent.is_some() && kind == Some(super::digest::DIGEST_KIND) {
+            self.lane_report_turn_joined(&session.id, turn);
         }
     }
 
@@ -484,6 +488,8 @@ impl Hub {
         started: bool,
         turn: u64,
     ) {
+        // Reports left for its subagents that none of them will take (`lane_report_subagents.rs`).
+        self.subagent_notices_sweep(session);
         // One that failed to start left the lane stuck, so it reports whatever it took in.
         let on_reports = self.lane_turns().end(&session.id, turn) && started;
         if !self.lane_links(|links| links.contains_key(&session.id)) {
@@ -650,7 +656,7 @@ impl Hub {
     /// person). A turn a subagent of the parent asked for without waiting goes to that subagent
     /// while it runs (`lane_report_subagents.rs`), and to the parent, saying whose it was, once
     /// it has ended.
-    async fn lane_deliver(
+    pub(super) async fn lane_deliver(
         self: &Arc<Self>,
         parent: &str,
         lane: &str,
@@ -717,7 +723,7 @@ impl Hub {
     }
 
     /// Puts the report in parent `p`'s chat as a hub-set prompt; done once it is accepted.
-    pub(super) async fn lane_report_to_parent(
+    async fn lane_report_to_parent(
         self: &Arc<Self>,
         p: Arc<Session>,
         lane: &str,

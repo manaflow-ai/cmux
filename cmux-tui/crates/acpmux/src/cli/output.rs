@@ -233,7 +233,7 @@ impl PromptId {
     /// when the Bash hook marked this process (`cli/sender.rs` `SUBAGENT_ENV`): `acpmux run` and
     /// `acpmux new` with a prompt, which a subagent runs in its lead's session as it runs
     /// `acpmux send`. The lane then reads that subagent as its sender, and its reports reach it.
-    pub(crate) fn from_this_caller(mut self) -> Self {
+    pub(crate) fn naming_this_caller(mut self) -> Self {
         self.subagent = crate::cli::sender::subagent_of_this_process().map(|s| s.to_value());
         self
     }

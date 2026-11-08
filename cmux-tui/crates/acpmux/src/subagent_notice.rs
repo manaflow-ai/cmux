@@ -42,14 +42,20 @@ pub fn session_dir(home: &Path, session: &str) -> PathBuf {
 }
 
 /// The folder of subagent `agent` (Claude Code's `agent_id`) of `session`; none for an id that
-/// is no plain word (`cli::sender::subagent_word`).
+/// is no plain word ([`name_word`]).
 pub fn agent_dir(home: &Path, session: &str, agent: &str) -> Option<PathBuf> {
-    crate::cli::sender::subagent_word(agent).then(|| session_dir(home, session).join(agent))
+    name_word(agent).then(|| session_dir(home, session).join(agent))
+}
+
+/// A plain word (`cli::sender::subagent_word`) that is one file name of its own: not `.`, `..`
+/// or hidden.
+fn name_word(word: &str) -> bool {
+    crate::cli::sender::subagent_word(word) && !word.starts_with('.')
 }
 
 /// Leaves `notice` as `<id>.json` in `dir` (an [`agent_dir`]); `id` is a plain word.
 pub fn leave(dir: &Path, id: &str, notice: &Value) -> std::io::Result<PathBuf> {
-    if !crate::cli::sender::subagent_word(id) {
+    if !name_word(id) {
         return Err(std::io::Error::other("a notice id is a plain word"));
     }
     create_private(dir)?;
@@ -115,9 +121,19 @@ pub fn stopped(dir: &Path) -> bool {
     dir.join(STOPPED).exists()
 }
 
-/// Removes `session`'s folder: no subagent of it runs any more, or it closed.
+/// Removes `session`'s folder and every notice in it: the session closed.
 pub fn forget(home: &Path, session: &str) {
     let _ = std::fs::remove_dir_all(session_dir(home, session));
+}
+
+/// Removes `session`'s emptied folders, once its notices were taken and no subagent of it runs.
+/// A folder a notice was left in meanwhile stays: whoever left it takes it back ([`take`]).
+pub fn tidy(home: &Path, session: &str) {
+    for (dir, _) in agents(home, session) {
+        let _ = std::fs::remove_file(dir.join(STOPPED));
+        let _ = std::fs::remove_dir(&dir);
+    }
+    let _ = std::fs::remove_dir(session_dir(home, session));
 }
 
 /// `dir` and its parents, the folders acpmux makes owner-only.
@@ -161,6 +177,8 @@ mod tests {
         let dir = agent_dir(&home, "s/1", "a0a68e7af3df5967e").unwrap();
         assert!(dir.starts_with(home.join("run/subagent-notices/s_1")), "{dir:?}");
         assert_eq!(agent_dir(&home, "s1", "../x"), None, "no path from an id");
+        assert_eq!(agent_dir(&home, "s1", ".."), None, "no path from an id");
+        assert_eq!(agent_dir(&home, "s1", "."), None, "no path from an id");
         let path = leave(&dir, "lane-report-1", &json!({"text": "one"})).unwrap();
         leave(&dir, "lane-report-2", &json!({"text": "two"})).unwrap();
         assert_eq!(take(&path), Some(json!({"text": "one"})));
@@ -170,7 +188,13 @@ mod tests {
         assert_eq!(agents(&home, "s/1"), vec![(dir.clone(), false)]);
         mark_stopped(&dir).unwrap();
         assert!(stopped(&dir));
-        assert_eq!(agents(&home, "s/1"), vec![(dir, true)]);
+        assert_eq!(agents(&home, "s/1"), vec![(dir.clone(), true)]);
+        let kept = leave(&dir, "lane-report-3", &json!({"text": "three"})).unwrap();
+        tidy(&home, "s/1");
+        assert_eq!(take(&kept), Some(json!({"text": "three"})), "tidy keeps a left notice");
+        tidy(&home, "s/1");
+        assert!(agents(&home, "s/1").is_empty());
+        leave(&dir, "lane-report-4", &json!({"text": "four"})).unwrap();
         forget(&home, "s/1");
         assert!(agents(&home, "s/1").is_empty());
         let _ = std::fs::remove_dir_all(&home);

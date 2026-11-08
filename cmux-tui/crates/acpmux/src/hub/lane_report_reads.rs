@@ -6,7 +6,9 @@
 //! caller's connection is still open when the turn ends ([`LaneReplyReader`]). A Claude Code
 //! subagent runs those in its lead's session with its lead's caller token, so before this the lead
 //! got a second copy of every reply its subagent already had as a lane report turn (W5-M,
-//! 2026-11-08). A caller that left first (a timed-out CLI) read nothing: its report goes.
+//! 2026-11-08). A caller that left first (a timed-out CLI) read nothing: its report goes. A
+//! steer into a running turn and a turn several messages joined (`digest.rs`) are never read
+//! this way: their reply answers more than the waiting caller's message.
 
 use super::*;
 use std::collections::BTreeMap;
@@ -34,6 +36,9 @@ struct Receipt {
     start_seq: u64,
     ended: bool,
     read: bool,
+    /// Its turn ran several messages that joined one turn (`digest.rs`): a waiting caller's
+    /// reply answers its own message only, so it reads none of the turn ([`LaneReplyReader`]).
+    joined: bool,
 }
 
 impl Reads {
@@ -106,7 +111,10 @@ impl LaneReplyReader {
         let (hub, lane, key, ended) =
             (self.hub.clone(), self.lane.clone(), self.key, self.ended.clone());
         Box::new(move |v: Value| {
-            let duplicate = v.get("duplicate").and_then(Value::as_bool) == Some(true);
+            // A duplicate of a prompt already run, or a steer into another prompt's turn: the
+            // turn's reply answers more than this caller's prompt, so it reads none of it.
+            let duplicate = v.get("duplicate").and_then(Value::as_bool) == Some(true)
+                || v.get("steer").and_then(Value::as_bool) == Some(true);
             if let (Some(hub), Some(turn), false) =
                 (hub.upgrade(), v.get("turnId").and_then(Value::as_str), duplicate)
             {
@@ -165,9 +173,22 @@ impl Hub {
         reads.parent = parent;
         let live = !*ended.borrow();
         reads.replies.entry(turn_id.to_owned()).or_default().insert(key, ended);
-        for receipt in reads.turns.values_mut().filter(|r| r.turn_id == turn_id && r.ended) {
+        let ended = reads.turns.values_mut().filter(|r| r.turn_id == turn_id && r.ended);
+        for receipt in ended.filter(|r| !r.joined) {
             receipt.read |= live;
         }
+    }
+}
+
+impl Hub {
+    /// Turn `turn` of `lane` started with messages that joined one turn (`digest.rs`).
+    pub(super) fn lane_report_turn_joined(&self, lane: &str, turn: u64) {
+        let Some(parent) = self.lane_report_parent(lane) else { return };
+        let mut lanes = self.lane_report_reads.lanes.lock().unwrap_or_else(|e| e.into_inner());
+        let reads = lanes.entry(lane.to_owned()).or_default();
+        reads.parent = parent;
+        reads.turns.entry(turn).or_default().joined = true;
+        reads.trim();
     }
 }
 
@@ -226,8 +247,9 @@ impl Hub {
         receipt.start_seq = result.get("turnSeq").and_then(Value::as_u64).unwrap_or(0);
         receipt.ended = true;
         receipt.read |= reads.waits.contains_key(&receipt.turn_id);
-        let turn_id = receipt.turn_id.clone();
-        if reads.reply_read(&turn_id)
+        let (turn_id, joined) = (receipt.turn_id.clone(), receipt.joined);
+        if !joined
+            && reads.reply_read(&turn_id)
             && let Some(receipt) = reads.turns.get_mut(&turn)
         {
             receipt.read = true;

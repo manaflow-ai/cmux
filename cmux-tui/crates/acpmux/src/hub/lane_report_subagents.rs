@@ -16,11 +16,18 @@
 //! - Once the subagent has stopped (its `SubagentStop` hook marked it) or no subagent of the
 //!   parent runs any more (`SubagentTree::running_count`, which also covers one that ended with no
 //!   hook), a report it did not take goes to the parent's chat as any report does, saying whose
-//!   it was (`forSubagent`, [`label`]). Reports left in the folder are looked at again whenever the
-//!   parent's count of running subagents changes ([`Hub::subagents_running`]).
+//!   it was (`forSubagent`, [`label`]). Reports left in the folder are looked at again whenever
+//!   the parent's count of running subagents changes, its harness ends, or a turn of it ends
+//!   ([`Hub::subagent_notices_sweep`]).
 //!
 //! A daemon restart keeps the left reports on disk; they reach the lead at the parent's next
-//! change of running subagents. A closed parent's folder is removed with its link.
+//! turn end or change of running subagents. A closed parent's folder is removed with its link.
+//!
+//! Not covered: a subagent that calls acpmux through the cmux MCP tools (`acpmux_bg_start`,
+//! `cmux_exec`) and not through Bash carries no mark, so its reports reach the lead as before.
+//! A subagent that ends with no `SubagentStop` keeps its reports until no subagent of the lead
+//! runs. A steered message, and one that joined another message's turn (`digest.rs`), report to
+//! whoever's message started the turn.
 
 use super::lane_reports::Report;
 use super::*;
@@ -129,9 +136,17 @@ impl Hub {
 
     /// The count of `session`'s running subagents changed to `count`: recorded for watchers
     /// (`views.rs` `SUBAGENTS_RUNNING`), and the reports left for its subagents are looked at
-    /// again: those of a subagent that stopped, or all of them when none runs, go to `session`.
+    /// again ([`Hub::subagent_notices_sweep`]).
     pub(super) fn subagents_running(&self, session: &Session, count: usize) {
         self.append(session, "mux", super::views::SUBAGENTS_RUNNING, json!({"count": count}));
+        self.subagent_notices_sweep(session);
+    }
+
+    /// The reports left for `session`'s subagents that none of them will take go to `session`
+    /// itself: those of a subagent that stopped, or all of them when none runs. Run when its
+    /// count of running subagents changes, when its harness ends, and at each of its turn ends,
+    /// which also finds the ones a daemon restart left on disk.
+    pub(super) fn subagent_notices_sweep(&self, session: &Session) {
         let home = crate::config::home();
         let left = crate::subagent_notice::agents(&home, &session.id);
         if left.is_empty() {
@@ -144,24 +159,23 @@ impl Hub {
         ) else {
             return;
         };
-        let Some(parent) =
-            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&session.id).cloned()
-        else {
-            return;
-        };
-        let notices: Vec<Value> = left
+        let count = session.subagents.lock().unwrap_or_else(|e| e.into_inner()).running_count();
+        let notices: Vec<(PathBuf, Value)> = left
             .iter()
             .filter(|(_, stopped)| count == 0 || *stopped)
-            .flat_map(|(dir, _)| crate::subagent_notice::take_all(dir))
+            .flat_map(|(dir, _)| {
+                crate::subagent_notice::take_all(dir).into_iter().map(|n| (dir.clone(), n))
+            })
             .collect();
         if count == 0 {
-            crate::subagent_notice::forget(&home, &session.id);
+            crate::subagent_notice::tidy(&home, &session.id);
         }
         if notices.is_empty() {
             return;
         }
+        let parent = session.id.clone();
         runtime.spawn(async move {
-            for notice in notices {
+            for (dir, notice) in notices {
                 let report = notice.get("report").cloned().map(serde_json::from_value::<Report>);
                 let (Some(Ok(mut report)), Some(lane)) =
                     (report, notice.get("lane").and_then(Value::as_str))
@@ -169,8 +183,11 @@ impl Hub {
                     continue;
                 };
                 report.subagent_ended = true;
-                if let Err(e) = hub.lane_report_to_parent(parent.clone(), lane, &report).await {
-                    tracing::warn!(parent = %parent.id, lane, "lane report not delivered: {}", e.message);
+                // The same checks as any report: the lane still reports here, its turn unread.
+                if let Err(e) = hub.lane_deliver(&parent, lane, &report).await {
+                    tracing::warn!(parent = %parent, lane, "lane report not delivered: {}", e.message);
+                    // Left again, for the next look (a turn end of the parent).
+                    let _ = crate::subagent_notice::leave(&dir, &report.prompt_id, &notice);
                 }
             }
         });

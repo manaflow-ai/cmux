@@ -107,6 +107,8 @@ impl Hub {
     pub(super) fn end_background_subagents(&self, session: &Session) {
         session.subagents.lock().unwrap_or_else(|e| e.into_inner()).end_background();
         self.refresh_work_below(session);
+        // Reports left for its subagents go to it now (`lane_report_subagents.rs`).
+        self.subagent_notices_sweep(session);
     }
 
     /// Before a daemon adopts `session`'s running host (`hosts.rs` `adopt_held`), its subagents
