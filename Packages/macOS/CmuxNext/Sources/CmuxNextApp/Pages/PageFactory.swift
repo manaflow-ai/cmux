@@ -54,10 +54,6 @@ struct PageFactory {
         return page
     }
 
-    /// The App Store page (react-pages.md 3, apps-web-DESIGN.md) on `route` (`#/discover?app=<id>`,
-    /// `#/installed`); nil only when the page resources are missing.
-    /// `cmux.apps.` goes to the daemon relay behind the native sheet of ``AppsPageConfirmations``
-    /// (the sheet reads the listing first so it can name the scopes); `glyph/` is ``AppsGlyphResource``.
     func appsWebPage(route: String?) -> PageWebView? {
         let confirming = appsStoreProvider()
         let native = AppPageNativeProvider(services: services, page: .apps)
@@ -69,10 +65,15 @@ struct PageFactory {
         return page
     }
 
-    /// The App Store's `cmux.apps.*` calls: the daemon relay behind the native consent card of
-    /// ``AppsPageConfirmations`` (the card reads the listing first so it can name the scopes). The
-    /// App Store page and the `app.install` / `app.remove` actions (CLI, palette, MCP) share it, so
-    /// every install shows the same card and only the person's click makes it the user's.
+    func skillsWebPage(route: String?) -> PageWebView? {
+        let confirming = ConfirmingPageProvider(inner: DaemonPageRelay(services: services), presenter: DialogPageConfirmationPresenter()) { op, params in
+            guard op.hasSuffix(".install") || op.hasSuffix(".remove") else { return nil }
+            let kind: PageConfirmation.Kind = op.hasSuffix(".remove") ? .uninstall : .install
+            return PageConfirmation(kind: kind, name: params["id"]?.stringValue ?? "Skill")
+        }
+        let page = PageWebView(descriptor: .skills, routes: [PageRoute(prefix: "cmux.skills.", provider: confirming)], route: route); confirming.anchor = { [weak page] in page }; return page
+    }
+
     func appsStoreProvider() -> ConfirmingPageProvider {
         // The organization's DisabledFeatures `apps` turns the store off (the same transport state
         // the native store reads), checked on every call.
