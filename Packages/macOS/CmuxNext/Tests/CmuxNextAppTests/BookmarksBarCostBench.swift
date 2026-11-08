@@ -61,6 +61,8 @@ struct BookmarksBarCostBench {
         let attach = Self.ms(attachStart)
 
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 40), styleMask: [.borderless], backing: .buffered, defer: true)
+        // ARC owns the window: a close must not release it a second time.
+        window.isReleasedWhenClosed = false
         defer { window.close() }
         let shown = try #require(entries[0].state.accessory?.view)
         shown.frame = NSRect(x: 0, y: 0, width: 1200, height: 28)

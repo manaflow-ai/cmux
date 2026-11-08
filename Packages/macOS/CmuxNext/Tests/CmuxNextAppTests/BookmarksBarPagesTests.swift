@@ -29,7 +29,10 @@ struct BookmarksBarPagesTests {
 
     static func window() -> NSWindow {
         _ = NSApplication.shared
-        return NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 40), styleMask: [.borderless], backing: .buffered, defer: true)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 40), styleMask: [.borderless], backing: .buffered, defer: true)
+        // ARC owns the window: a close must not release it a second time.
+        window.isReleasedWhenClosed = false
+        return window
     }
 
     @Test func hiddenTabsHoldNoPageAndTabsTakingTurnsInAPaneShareOne() throws {
