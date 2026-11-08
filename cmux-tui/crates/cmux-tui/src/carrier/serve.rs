@@ -290,8 +290,9 @@ async fn connection(
         log: shared.log.clone(),
         phases: shared.log.clone(),
     };
+    let plan = &plan;
     let opened = tokio::select! {
-        opened = shared.session.stream(deadline, || client::dial(&plan, super::jitter)) => opened,
+        opened = shared.session.stream(deadline, move || client::dial(plan, super::jitter)) => opened,
         _ = stopped.wait_for(|stopped| *stopped) => return,
     };
     let held::Stream { mux, vmk, lease, dialed } = match opened {

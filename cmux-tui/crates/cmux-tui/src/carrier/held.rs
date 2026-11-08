@@ -138,14 +138,25 @@ impl Slot {
     /// A mux control stream for one connection: on the held session when it
     /// is alive, else on a session `dial` makes (and the slot then holds).
     /// Everything stays inside `deadline`; `dial` keeps it itself.
-    pub(super) async fn stream<F, Fut>(&self, deadline: Instant, dial: F) -> Result<Stream, Refused>
+    pub(super) async fn stream<F, Fut>(
+        &self,
+        deadline: Instant,
+        mut dial: F,
+    ) -> Result<Stream, Refused>
     where
-        F: FnOnce() -> Fut,
+        F: FnMut() -> Fut,
         Fut: std::future::Future<Output = Result<Dialed, Failure>>,
     {
-        // At most twice: a held session that turns out gone when its stream
-        // is refused is dropped and the next pass dials.
-        for _ in 0..2 {
+        // A held session that turns out gone when its stream is refused is
+        // dropped once and the next pass dials; a session retired while its
+        // dial or its stream open was in flight is never handed out, and the
+        // next pass dials with the current credential. The deadline bounds
+        // every pass.
+        let mut refused_once = false;
+        loop {
+            if Instant::now() >= deadline {
+                return Err(Refused::waiting(Failure::deadline(Step::Ticket)));
+            }
             let mut guard = tokio::time::timeout_at(deadline, self.held.lock())
                 .await
                 .map_err(|_| Refused::waiting(Failure::deadline(Step::Ticket)))?;
@@ -157,7 +168,17 @@ impl Slot {
                     match on_held(&held, lease, deadline).await {
                         Ok(stream) => return Ok(stream),
                         Err(Some(failure)) => return Err(Refused::waiting(failure)),
-                        Err(None) => continue,
+                        Err(None) if held.retired() => continue,
+                        Err(None) if !refused_once => {
+                            refused_once = true;
+                            continue;
+                        }
+                        Err(None) => {
+                            return Err(Refused::waiting(Failure::fatal(
+                                Step::Handshake,
+                                "the held session refused a stream twice",
+                            )));
+                        }
                     }
                 }
                 Some(_) => {
@@ -183,14 +204,17 @@ impl Slot {
                 generation,
                 slot_generation: self.generation.clone(),
             });
+            // Dialed with a credential another person's replaced meanwhile:
+            // closed, never handed out.
+            if held.retired() {
+                mux.close().await;
+                held.close().await;
+                continue;
+            }
             let lease = self.lease(&held);
             *guard = Some(held);
             return Ok(Stream { mux, vmk, lease, dialed: true });
         }
-        Err(Refused::waiting(Failure::fatal(
-            Step::Handshake,
-            "the held session refused a stream twice",
-        )))
     }
 
     /// Later connections dial a new session: a credential for another
@@ -217,14 +241,22 @@ impl Slot {
     }
 }
 
-/// A stream on a held session. `Err(None)`: the session is gone (the
-/// caller dials); `Err(Some(_))`: this connection's failure.
+/// A stream on a held session. `Err(None)`: the session is gone or was
+/// retired meanwhile (the caller dials); `Err(Some(_))`: this connection's
+/// failure.
 async fn on_held(
     held: &Arc<Held>,
     lease: Lease,
     deadline: Instant,
 ) -> Result<Stream, Option<Failure>> {
     match tokio::time::timeout_at(deadline, OpenedMuxControl::open(&held.multiplexer)).await {
+        // Retired while the stream opened (another person's credential):
+        // not handed out; the caller dials with the current one.
+        Ok(Ok(mux)) if held.retired() => {
+            mux.close().await;
+            lease.end().await;
+            Err(None)
+        }
         Ok(Ok(mux)) => Ok(Stream { mux, vmk: held.vmk, lease, dialed: false }),
         Ok(Err(error)) => {
             lease.end().await;
