@@ -2100,6 +2100,20 @@ multi-selection; a row's buttons; group headers; item rows; pinned tiles; the pr
 to the list (they did so before only until the switch's focus change, which came in the same turn).
 Sidebar-Look: no visual change. Tests: `SidebarSwitchPressKeepsPageKeyTests`, `SidebarSwitchPressFocusTests`.
 
+## A group's rail fades with its rows (2026-11-08)
+
+- Leo 2026-11-08: "there's the sidebar where when things maybe open or shift a bit, there's like still a bit of a
+  flicker on that, like individual top group".
+- Cause: a new or leaving group line faded on AppKit's animator, which started one refresh after the rows' render-server
+  fade, so a new group's rail and its header were at different opacities for a frame; a new line also started at its
+  rows' model frames (already at the move's end) instead of where they were drawn, a rail's colour change faded on its
+  own, and on an expand the rail showed below members the fold had not uncovered yet.
+- Now group lines fade through the rows' own render-server fade (`RowMotion.fade`, same spring, same begin time), a new
+  line starts at its rows' drawn (presentation) frames, the rail's fill colour changes with no implicit fade, and on an
+  expand the line takes the same fold mask as its new members.
+- Test: `SidebarGroupFlickerTests` (rail alpha equals header alpha in every frame; event g, a new group opening at the
+  top), red commit first.
+
 ## Reviewed behavior-only commits
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:

@@ -200,6 +200,10 @@ class SidebarRowView: NSView {
 
     /// The frame as drawn now: the presentation mid-animation (debug).
     var shownFrame: CGRect { layer?.presentation()?.frame ?? frame }
+    /// The frame as drawn now, where a new group line starts (`groupLines(current:)`): mid-move the presentation (a
+    /// render-server move sets the model frame to its end at once, `SidebarDragSpring`), else the model frame (a
+    /// recycled layer's presentation can still show its last row's).
+    var drawnFrame: CGRect { layer?.animationKeys()?.isEmpty == false ? shownFrame : frame }
 
     /// Size the row is animating toward. Content lays out for the final size
     /// up front, so an animated frame change never shows a stale layout.
