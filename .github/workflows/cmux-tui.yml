@@ -1017,9 +1017,17 @@ jobs:
     name: test (${{ matrix.os }})
     needs: validate-inputs
     runs-on: ${{ matrix.runner }}
-    # A green run takes ~40 min on a 32 vCPU runner (the workspace test step alone
-    # 36.6 min, run 40976799846); 40 cancelled the first all-green run.
-    timeout-minutes: 55
+    # A green run took ~40 min on a 32 vCPU runner (the workspace test step alone
+    # 36.6 min, run 40976799846); 40 cancelled the first all-green run. On the
+    # 16 vCPU pool at --test-threads=2 the suite has outgrown 55: every full run
+    # since 2026-11-08 06:11 was cut inside terminal_host_recovery.rs (run
+    # 42463005009: compile 5.7 min, acpmux tests 29 min, workspace step cut at
+    # 53 min with 23 of that binary's 257 tests left, the core and smoke steps
+    # still to run). A green 16 vCPU run is estimated at 67-72 min; 90 leaves
+    # room for the 8 vCPU overflow pool and for the cargo cache, which a
+    # cancelled job never saves (its post step is skipped), so the next run
+    # compiles cold.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
