@@ -126,3 +126,30 @@ async fn a_subscription_after_a_filtered_attach_goes_to_the_peer() {
     let again = call(&hub, method::MUX_ATTACH, sub).await.expect("answered here");
     assert_eq!(again["row"], true, "{again}");
 }
+
+/// #38305 F1: a first attach that never reached the link (here its link was not open) leaves the
+/// chat marked, but the peer streams nothing of it: a send's subscription goes to the peer again,
+/// rather than be answered here with no stream behind it.
+#[tokio::test]
+async fn a_subscription_after_a_first_attach_that_never_reached_the_link_goes_to_the_peer() {
+    let (hub, peer) = hub_with_peer();
+    hub.seed_peer_back(&peer, vec![row()]);
+    let sub = json!({"sessionId": format!("far/{CHAT}"), "limit": 0, "row": true});
+    let first = call(&hub, method::MUX_ATTACH, sub.clone()).await;
+    assert!(first.is_err(), "the first attach goes to the peer: {first:?}");
+    assert!(!peer.mark_attached(CHAT), "the failed attach left the chat marked");
+    let again = call(&hub, method::MUX_ATTACH, sub).await;
+    assert!(again.is_err(), "answered here with no stream from the peer: {again:?}");
+}
+
+/// #38305 F2: a link back (connected) whose session list the hub has not applied yet holds the
+/// rows of the link before: a send's reads go to the peer until the list is applied.
+#[tokio::test]
+async fn a_link_whose_rows_are_not_applied_yet_never_answers_from_its_row() {
+    let (hub, peer) = hub_with_peer();
+    peer.connected.store(true, std::sync::atomic::Ordering::SeqCst);
+    let info =
+        call(&hub, method::MUX_INFO, json!({"sessionId": format!("far/{CHAT}"), "row": true}))
+            .await;
+    assert!(info.is_err(), "answered from a row the link has not listed again: {info:?}");
+}
