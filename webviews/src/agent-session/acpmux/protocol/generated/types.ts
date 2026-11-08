@@ -9,6 +9,8 @@ export interface AcpmuxRequestMeta {
   argv?: unknown;
   author?: unknown;
   beforePromptId?: unknown;
+  callerKind?: unknown;
+  callerProtocol?: unknown;
   callerSession?: unknown;
   cancelToken?: unknown;
   class?: unknown;
@@ -129,20 +131,20 @@ export type AllowanceExpiry = "session_stop_or_daemon_restart";
  */
 export interface AnswerMeta {
   /** `{device, feedItem}`, from the person's connection only. */
-  answeredBy?: (AnsweredBy | null);
+  answeredBy?: AnsweredBy | null;
   /**
    * An enrolled approver's signed answer beside `decisionNonce`: a phone's
    * (`hub/approvers.rs`) or a Mac's (`hub/mac_approvers.rs`).
    */
-  approverDecision?: (ApproverDecision | null);
+  approverDecision?: ApproverDecision | null;
   /**
    * A group's one-time allow from an enrolled Mac (`_acpmux/permission_group_respond`):
    * one signed allow per pending member of the group, by permission id.
    */
-  approverDecisions?: (Record<string, MemberApproverDecision> | null);
-  decisionNonce?: (string | null);
-  personDecision?: (string | null);
-  via?: (string | null);
+  approverDecisions?: Record<string, MemberApproverDecision> | null;
+  decisionNonce?: string | null;
+  personDecision?: string | null;
+  via?: string | null;
 }
 
 export interface AnsweredBy {
@@ -179,24 +181,24 @@ export interface ArchiveParams {
 
 export interface AttachParams {
   /** Page forward from here (oldest first) when `beforeSeq` is absent. */
-  afterSeq?: (number | null);
+  afterSeq?: number | null;
   /** The newest `limit` records before this one. */
-  beforeSeq?: (number | null);
+  beforeSeq?: number | null;
   /**
    * Send every matching record as `_acpmux/event`; else the agent's
    * updates arrive as ACP `session/update` and acpmux's own as
    * `_acpmux/event`.
    */
-  eventStream?: (boolean | null);
-  kinds?: (EventKinds | null);
+  eventStream?: boolean | null;
+  kinds?: EventKinds | null;
   /** Default 2000. */
-  limit?: (number | null);
-  maxBytes?: (number | null);
+  limit?: number | null;
+  maxBytes?: number | null;
   sessionId: string;
   /** False attaches without showing the chat (`hub/seen.rs`); default true. */
-  visible?: (boolean | null);
+  visible?: boolean | null;
   /** Wait for restart-time log restoration before answering; false serves the page immediately. */
-  waitLogs?: (boolean | null);
+  waitLogs?: boolean | null;
 }
 
 export type AttachResult = {
@@ -219,7 +221,7 @@ export type AttachResult = {
    * with older records before it (`server/requests/turn_opener.rs`); null otherwise. An older
    * acpmux leaves it out, and its client reads it with `_acpmux/events`.
    */
-  turnOpener: (SessionEvent | null);
+  turnOpener: SessionEvent | null;
 } & Record<string, unknown>;
 
 export interface AttachmentParams {
@@ -234,29 +236,29 @@ export interface AttachmentParams {
  */
 export interface Author {
   /** A link guest's prompts wait for the chat owner's approval. */
-  approval?: (AuthorApproval | null);
+  approval?: AuthorApproval | null;
   /** `tailnet:<login>` until accounts are mapped, then `user_…`; one line of at most 256 bytes. */
   id: string;
-  login?: (string | null);
+  login?: string | null;
   /** One line of 1 to 64 characters. */
   name: string;
-  node?: (string | null);
+  node?: string | null;
 }
 
 export type AuthorApproval = "owner";
 
 export type AuthorMeta = {
-  acpmux?: (AuthorMetaFields | null);
+  acpmux?: AuthorMetaFields | null;
 } & Record<string, unknown>;
 
 /** `_meta.acpmux` of a request that may name its person; other fields pass. */
 export type AuthorMetaFields = {
   /** None: the chat's owner. */
-  author?: (Author | null);
+  author?: Author | null;
 } & Record<string, unknown>;
 
 /** Whether a harness's autocompact is capped (`UsageStats.autocompact`). */
-export type Autocompact = ("capped" | "none" | "unknown");
+export type Autocompact = "capped" | "none" | "unknown";
 
 export interface BookmarkGetParams {
   _meta?: RequestMeta;
@@ -279,9 +281,9 @@ export interface BtwParams {
 }
 
 /** The carrier a live link runs over (`carrier`); null while no link is open. */
-export type Carrier = ("direct" | "ssh" | "hub" | "cloud");
+export type Carrier = "direct" | "ssh" | "hub" | "cloud";
 
-export type ChangedSession = (SessionSummary | PurgedSession);
+export type ChangedSession = SessionSummary | PurgedSession;
 
 export type ChatAllowance = {
   active: boolean;
@@ -304,15 +306,15 @@ export type CoverageLabel = "acp_requests_only";
 export type CreatedBy = {
   kind: CreatorKind;
   /** The acpmux session whose agent created it; only for `agent`. */
-  session?: (string | null);
+  session?: string | null;
   /**
    * The cmux workspace it was created from (lowercase UUID): the agent session's
    * workspace for an agent, else the one the create named.
    */
-  workspace?: (string | null);
+  workspace?: string | null;
 } & Record<string, unknown>;
 
-export type CreatorKind = ("person" | "agent" | "script");
+export type CreatorKind = "person" | "agent" | "script";
 
 export type DeliveryReceipt = {
   messageId: string;
@@ -330,7 +332,7 @@ export type Done = Record<string, unknown>;
  * Why a link is down (`cause`), so a surface can tell this Mac's network apart from the
  * machine. Null while the link is up or on its way the first time.
  */
-export type DownCause = ("localNetwork" | "hubDown" | "peerDown" | "auth");
+export type DownCause = "localNetwork" | "hubDown" | "peerDown" | "auth";
 
 export interface DraftGetParams {
   _meta?: RequestMeta;
@@ -359,49 +361,49 @@ export type Enforcement = {
 /** The facts of a typed failure (`errorKind`); only the keys that apply are present. */
 export type ErrorDetails = {
   /** The program that could not start. */
-  binary?: (string | null);
-  cwd?: (string | null);
-  exitCode?: (number | null);
-  freeBytes?: (number | null);
+  binary?: string | null;
+  cwd?: string | null;
+  exitCode?: number | null;
+  freeBytes?: number | null;
   /** When the peer last answered (RFC 3339). */
-  lastSeenAt?: (string | null);
+  lastSeenAt?: string | null;
   /** The folder whose disk is full or low. */
-  path?: (string | null);
+  path?: string | null;
   /** The peer, by its name in `acpmux host ls`. */
-  peer?: (string | null);
+  peer?: string | null;
   /** The message is held in the durable outbox and goes when the peer or daemon is back. */
-  queued?: (boolean | null);
-  retryAfterMs?: (number | null);
-  signal?: (string | null);
-  totalBytes?: (number | null);
+  queued?: boolean | null;
+  retryAfterMs?: number | null;
+  signal?: string | null;
+  totalBytes?: number | null;
 } & Record<string, unknown>;
 
 /**
  * Which records a page or an event stream carries: one kind, or any of
  * several. Absent or null: every record.
  */
-export type EventKinds = (string | string[]);
+export type EventKinds = string | string[];
 
 export interface EventsParams {
   /** Records after this one; it may not lie beyond the last record. */
-  afterSeq?: (number | null);
+  afterSeq?: number | null;
   /** The newest `limit` records before this one. */
-  beforeSeq?: (number | null);
-  kinds?: (EventKinds | null);
+  beforeSeq?: number | null;
+  kinds?: EventKinds | null;
   /** Default 5000. */
-  limit?: (number | null);
-  maxBytes?: (number | null);
+  limit?: number | null;
+  maxBytes?: number | null;
   /**
    * Every prompt before `beforeSeq`, oldest first, each cut to its id and the start of its text,
    * in one reply (`Hub::prompt_index`): `kinds`, `limit` and `maxBytes` are not read.
    */
-  promptIndex?: (boolean | null);
+  promptIndex?: boolean | null;
   sessionId: string;
   /**
    * Only this subagent's own records: the updates acpmux tagged with it and those that start
    * or change it (`EventFilter::of_subagent`). A subagent pane reads its subagent with it.
    */
-  subagent?: (string | null);
+  subagent?: string | null;
 }
 
 export type EventsResult = {
@@ -428,17 +430,17 @@ export type EventsResult = {
 export interface ForkParams {
   _meta?: unknown;
   /** Recorded prompt identity, nonempty and at most 512 UTF-8 bytes. Claude/Codex only. */
-  beforePromptId?: (string | null);
+  beforePromptId?: string | null;
   /**
    * The caller's name for this fork while it is made, at most 128 bytes: `_acpmux/kill` with
    * `cancelFork` and this token stops it, or takes it back once made (`hub/fork_cancel.rs`).
    */
-  cancelToken?: (string | null);
-  live?: (boolean | null);
+  cancelToken?: string | null;
+  live?: boolean | null;
   /** Persisted retry identity, nonempty and at most 512 UTF-8 bytes; scoped to the source. */
-  requestId?: (string | null);
+  requestId?: string | null;
   sessionId: string;
-  throughSeq?: (number | null);
+  throughSeq?: number | null;
 }
 
 export interface ForumRulesParams {
@@ -542,27 +544,27 @@ export interface KillParams {
 /** The session's lane (cx-v9k2f), decided once by the daemon (`views::lane`). */
 export type Lane = {
   /** The failed or lost turn's error text, secrets masked (`secret_scan`). */
-  error: (string | null);
+  error: string | null;
   /** Unix ms the state began; null when the daemon does not know. */
-  since: (number | null);
+  since: number | null;
   /**
    * A `working` lane that has stalled: since when its turn has had no tool
    * call in flight and no sign of its model (`turn.stalledSince`); null
    * otherwise. The state stays `working`, so a client that reads only it
    * is unchanged.
    */
-  stalledSince: (number | null);
+  stalledSince: number | null;
   state: LaneState;
   /**
    * What the session is doing now, one line: the running turn's prompt,
    * else the agent's last reply line, secrets masked (`secret_scan`).
    */
-  step: (string | null);
+  step: string | null;
   /**
    * The session's title, else its latest prompt, one line, secrets masked
    * (`secret_scan`).
    */
-  title: (string | null);
+  title: string | null;
 } & Record<string, unknown>;
 
 export type LaneState = "working" | "input" | "failed" | "lost" | "idle";
@@ -578,8 +580,8 @@ export type LastMessage = {
  */
 export type LastTurn = {
   /** Why a turn ended without an answer, e.g. `outcome_unknown`. */
-  detail?: (string | null);
-  details?: (ErrorDetails | null);
+  detail?: string | null;
+  details?: ErrorDetails | null;
   endedAt: number;
   /**
    * What kind of failure a failed turn was (`recovery.rs`): `disk.full`, `disk.low`,
@@ -588,16 +590,16 @@ export type LastTurn = {
    * error. The same key is on a request's error `data` and on the `turn_error` and
    * `turn_result` records.
    */
-  errorKind?: (string | null);
-  errorSource?: (string | null);
-  errorText?: (string | null);
-  promptId?: (string | null);
+  errorKind?: string | null;
+  errorSource?: string | null;
+  errorText?: string | null;
+  promptId?: string | null;
   /** One sentence saying what to do about the failure. */
-  recovery?: (string | null);
+  recovery?: string | null;
   /** `completed`, `failed` or `cancelled`. */
-  status?: (string | null);
-  stopReason?: (string | null);
-  turnId?: (string | null);
+  status?: string | null;
+  stopReason?: string | null;
+  turnId?: string | null;
 } & Record<string, unknown>;
 
 /**
@@ -626,7 +628,16 @@ export type LoopEpisodeSummary = {
 } & Record<string, unknown>;
 
 /** A machine link's whole state (`link`): what every surface draws, from acpmux alone. */
-export type MachineLink = ("connected" | "connecting" | "reconnecting" | "restarting" | "degraded" | "offline" | "authFailed" | "updateRequired" | "paused");
+export type MachineLink =
+  | "connected"
+  | "connecting"
+  | "reconnecting"
+  | "restarting"
+  | "degraded"
+  | "offline"
+  | "authFailed"
+  | "updateRequired"
+  | "paused";
 
 export interface MailAckParams {
   messageId: string;
@@ -650,12 +661,12 @@ export type MailMessage = {
 export type MailPageResult = {
   cursor: number;
   messages: MailRow[];
-  nextCursor?: (number | null);
+  nextCursor?: number | null;
 } & Record<string, unknown>;
 
 export interface MailReadParams {
-  after?: (number | null);
-  limit?: (number | null);
+  after?: number | null;
+  limit?: number | null;
   recipient: string;
 }
 
@@ -667,12 +678,12 @@ export type MailRow = {
 export interface MailSendParams {
   body: string;
   id: string;
-  metadata?: (Record<string, unknown> | null);
+  metadata?: Record<string, unknown> | null;
   /** Session recipient for ordinary mail. Omit when `target` is supplied. */
-  recipient?: (string | null);
+  recipient?: string | null;
   sender: string;
   /** Quiet reports alias (`reports:<person>`). Omit for session mail. */
-  target?: (string | null);
+  target?: string | null;
 }
 
 export type MailSendResult = {
@@ -683,10 +694,10 @@ export type MailSendResult = {
 } & Record<string, unknown>;
 
 export interface MailWaitParams {
-  after?: (number | null);
-  limit?: (number | null);
+  after?: number | null;
+  limit?: number | null;
   recipient: string;
-  timeoutMs?: (number | null);
+  timeoutMs?: number | null;
 }
 
 export interface McpReconnectParams {
@@ -731,7 +742,7 @@ export type MessageEvent = {
 export type MessageRole = "agent" | "user";
 
 export type MessageSender = {
-  host?: (string | null);
+  host?: string | null;
   name: string;
   sessionId: string;
 } & Record<string, unknown>;
@@ -771,7 +782,7 @@ export type Participant = {
 } & Record<string, unknown>;
 
 /** A peer link's state, folded for older apps (`state`): read `link` for the whole of it. */
-export type PeerLinkState = ("connecting" | "connected" | "degraded" | "reconnecting" | "offline");
+export type PeerLinkState = "connecting" | "connected" | "degraded" | "reconnecting" | "offline";
 
 export interface PeerReconnectParams {
   _meta?: RequestMeta;
@@ -798,17 +809,17 @@ export type PeerStateChanged = {
   /** When the note was made, ms since the epoch. */
   at: number;
   /** The carrier the open link runs over; null while none is open. */
-  carrier: (Carrier | null);
+  carrier: Carrier | null;
   /** Why the link is down; null while it is up or on its way the first time. */
-  cause: (DownCause | null);
+  cause: DownCause | null;
   /** Why the link is down, when it is. */
-  error: (string | null);
+  error: string | null;
   /** The last frame from the peer, ms since the epoch. */
-  lastSeen: (number | null);
+  lastSeen: number | null;
   /** The link's whole state: what a surface draws. */
   link: MachineLink;
   /** When acpmux dials again on its own, ms since the epoch; null while it is not waiting. */
-  nextRetryAt: (number | null);
+  nextRetryAt: number | null;
   /** The peer's name, as in `_acpmux/peers`. */
   peer: string;
   /** When `link` took its value, ms since the epoch. */
@@ -848,7 +859,7 @@ export type PermissionDecision = "allow_once" | "allow_chat" | "deny";
 /** A batch of permission requests from one turn, decided together. */
 export type PermissionGroup = {
   /** The decision taken, once one was. */
-  decision: (PermissionDecision | null);
+  decision: PermissionDecision | null;
   /**
    * What a respond may choose: all three, or `deny` alone when a pending
    * item has no single allow-once option.
@@ -859,7 +870,7 @@ export type PermissionGroup = {
   revision: number;
   sessionId: string;
   state: PermissionGroupState;
-  turnId: (string | null);
+  turnId: string | null;
 } & Record<string, unknown>;
 
 export type PermissionGroupItem = {
@@ -875,7 +886,7 @@ export type PermissionGroupList = {
    * refusal's reason (`permission.person_required`: only the person
    * allows a group, and a peer's link never is one). A deny still counts.
    */
-  allowRefused?: (string | null);
+  allowRefused?: string | null;
   batching: PermissionBatching;
   chatAllowance: ChatAllowance;
   coverage: PermissionCoverage;
@@ -885,7 +896,7 @@ export type PermissionGroupList = {
    * one-time allow signed by an enrolled Mac for every pending member
    * (`_meta.acpmux.approverDecisions`, `hub/mac_approvers.rs`).
    */
-  macAllowOnce?: (boolean | null);
+  macAllowOnce?: boolean | null;
 } & Record<string, unknown>;
 
 export type PermissionGroupReceipt = {
@@ -895,7 +906,7 @@ export type PermissionGroupReceipt = {
 } & Record<string, unknown>;
 
 export interface PermissionGroupRespondParams {
-  _meta?: (RequestMeta2 | null);
+  _meta?: RequestMeta2 | null;
   decision: PermissionDecision;
   /** 1 to 256 bytes; the same key with the same body replays the receipt. */
   decisionKey: string;
@@ -922,28 +933,28 @@ export type PermissionItemState = "pending" | "resolved" | "cancelled";
  */
 export type PermissionPending = {
   /** Signs an allow relayed for the person (`hub/person.rs`). */
-  decisionNonce?: (string | null);
+  decisionNonce?: string | null;
   /** The batch it joined, if any. */
-  groupId?: (string | null);
+  groupId?: string | null;
   permissionId: string;
-  personInstance?: (string | null);
+  personInstance?: string | null;
   /** The agent's `session/request_permission` params. */
   request: Record<string, unknown>;
   seq: number;
   sessionId: string;
-  turnId?: (string | null);
+  turnId?: string | null;
   /** `attach` or `watch`. */
   via: string;
 } & Record<string, unknown>;
 
 export interface PermissionRespondParams {
-  _meta?: (RequestMeta2 | null);
+  _meta?: RequestMeta2 | null;
   /** Claude Code AskUserQuestion annotations beside the answers, by question text: `{preview?, notes?}`. */
   annotations?: unknown;
   /** A question's answers, by question. */
   answers?: unknown;
   /** The option chosen; absent cancels the request. */
-  optionId?: (string | null);
+  optionId?: string | null;
   permissionId: string;
   sessionId: string;
 }
@@ -976,7 +987,7 @@ export interface ProcessBackgroundParams {
   /** The chat's id, name or unique prefix. */
   sessionId: string;
   /** Only the task this tool call started. */
-  toolCallId?: (string | null);
+  toolCallId?: string | null;
 }
 
 export type ProcessBackgroundResult = {
@@ -1011,7 +1022,7 @@ export interface ProcessTailParams {
 }
 
 /** What another agent's message asks of the session it goes to. */
-export type PromptClass = ("block" | "question" | "result" | "fyi");
+export type PromptClass = "block" | "question" | "result" | "fyi";
 
 /** `_acpmux/protocol` takes no params. */
 export type ProtocolParams = Record<string, never>;
@@ -1063,7 +1074,7 @@ export type QueuedAuthor = {
    * Their profile picture (`_meta.provenance` `fromAvatar`, an `https://` URL), left out when
    * they have none (and from an older acpmux).
    */
-  avatar?: (string | null);
+  avatar?: string | null;
   /** `tailnet:<login>`, `user_…` or `guest:<share>.<guest>`. */
   id: string;
   name: string;
@@ -1078,7 +1089,7 @@ export type QueuedImage = {
   id: string;
   mimeType: string;
   /** Its file name, when the client gave one. */
-  name: (string | null);
+  name: string | null;
   /** The app it came from (`{name, bundleId?, site?}`), as the prompt's display metadata named it. Absent otherwise. */
   source?: unknown;
 } & Record<string, unknown>;
@@ -1091,7 +1102,7 @@ export type QueuedPromptSummary = {
    * name and offers none of its own actions on it (only they change it, `queue.not_author`).
    * Kept across a restart and by their own edit.
    */
-  author: (QueuedAuthor | null);
+  author: QueuedAuthor | null;
   /**
    * A person's prompt that waits for the chat's owner (`author.approval: "owner"`): the queue
    * runs past it until the owner approves it (`_acpmux/queue_approve`, naming `turnId` and `revision`) or
@@ -1103,24 +1114,24 @@ export type QueuedPromptSummary = {
    * `result` when it named none; null for the person's own prompt and from a peer on an older
    * acpmux.
    */
-  class: (PromptClass | null);
+  class: PromptClass | null;
   client: string;
   /**
    * The sending agent's name when it is another agent's message, null for the person's: an
    * app draws it as a received message waiting for the turn, not as a composer row.
    */
-  fromAgent: (string | null);
+  fromAgent: string | null;
   /**
    * That session's harness family (`claude`, `codex`, ...), bound the same way: what an app
    * draws the sender's icon from. Null when unknown (a mesh relay carries none yet).
    */
-  fromHarness: (string | null);
+  fromHarness: string | null;
   /**
    * The sending session's id when the daemon bound it (its caller token, a peer daemon's word
    * on its own proven caller, the mesh relay's sender, a lane's report), null otherwise
    * (`prompt_provenance.rs` `FROM_SESSION_ID`). Display only, never authority.
    */
-  fromSessionId: (string | null);
+  fromSessionId: string | null;
   /** Waits behind a failed turn until the queue is resumed. */
   held: boolean;
   /**
@@ -1157,7 +1168,7 @@ export type QueuedPromptSummary = {
    * subagent's resume, not as the person's prompt. Null for any other prompt, and once edited
    * (an edit drops the provenance).
    */
-  subagentRetry: (QueuedSubagentRetry | null);
+  subagentRetry: QueuedSubagentRetry | null;
   turnId: string;
 } & Record<string, unknown>;
 
@@ -1166,9 +1177,9 @@ export type QueuedSubagentRetry = {
   /** The Agent tool's id for it, which the agent resumes it by. */
   agentId: string;
   /** The transient error it failed on. */
-  error: (string | null);
+  error: string | null;
   /** Its task or name, when acpmux knew one. */
-  name: (string | null);
+  name: string | null;
 } & Record<string, unknown>;
 
 export type RequestMeta = {
@@ -1176,12 +1187,12 @@ export type RequestMeta = {
 } & Record<string, unknown>;
 
 export interface RequestMeta2 {
-  acpmux?: (AnswerMeta | null);
+  acpmux?: AnswerMeta | null;
   /**
    * The app's gesture ticket for this exact pick (`transport.gesture`);
    * the app's relay reads it, acpmux does not.
    */
-  cmuxGesture?: (string | null);
+  cmuxGesture?: string | null;
 }
 
 export interface ResolveParams {
@@ -1205,7 +1216,7 @@ export interface RetryParams {
    * One of the chat's failed subagents to resume instead, by its id or agent id
    * (`hub/subagent_retry_manual.rs`), never taken as the chat's own turn.
    */
-  subagentId?: (string | null);
+  subagentId?: string | null;
 }
 
 /**
@@ -1224,7 +1235,7 @@ export type RetryReason = "capacity" | "transport" | "agent_exited" | "context";
 export type RetryResult = {
   kind: RetryKind;
   promptId: string;
-  turnId?: (string | null);
+  turnId?: string | null;
 } & Record<string, unknown>;
 
 /**
@@ -1258,10 +1269,10 @@ export interface SecretSubmitParams {
  * sign in again to the route `routeId`.
  */
 export type SessionAuthLogin = {
-  command?: (string | null);
-  host?: (string | null);
+  command?: string | null;
+  host?: string | null;
   kind: SessionAuthLoginKind;
-  routeId?: (string | null);
+  routeId?: string | null;
 } & Record<string, unknown>;
 
 export type SessionAuthLoginKind = "terminal" | "route";
@@ -1273,8 +1284,8 @@ export type SessionAuthLoginKind = "terminal" | "route";
  */
 export interface SessionAuthParams {
   refresh?: boolean;
-  sessionId?: (string | null);
-  target?: (SessionAuthTarget | null);
+  sessionId?: string | null;
+  target?: SessionAuthTarget | null;
 }
 
 /**
@@ -1285,26 +1296,33 @@ export type SessionAuthResult = {
   /** One sentence: the probe's status, the turn's error, or the check that ran. */
   detail: string;
   /** When the evidence was observed (ms since the epoch); null when `source` is `none`. */
-  evidenceAt?: (number | null);
+  evidenceAt?: number | null;
   /**
    * The chat whose turn is the evidence (`source` `turn`): for a `target`, a chat on this
    * daemon with the same harness, account home and route.
    */
-  fromSessionId?: (string | null);
+  fromSessionId?: string | null;
   harness: string;
   /** The peer the chat runs on; null on this daemon. */
-  host?: (string | null);
+  host?: string | null;
   /** How to sign in: only for `signedOut`, `expired` and `routeAuthNeeded`. */
-  login?: (SessionAuthLogin | null);
+  login?: SessionAuthLogin | null;
   /** The route the chat is bound to; null when it is not routed. */
-  routeId?: (string | null);
+  routeId?: string | null;
   source: SessionAuthSource;
   state: SessionAuthState;
 } & Record<string, unknown>;
 
 export type SessionAuthSource = "peerLink" | "routeProbe" | "turn" | "authCheck" | "none";
 
-export type SessionAuthState = "ready" | "signedOut" | "expired" | "routeAuthNeeded" | "routeUnreachable" | "peerUnreachable" | "unknown";
+export type SessionAuthState =
+  | "ready"
+  | "signedOut"
+  | "expired"
+  | "routeAuthNeeded"
+  | "routeUnreachable"
+  | "peerUnreachable"
+  | "unknown";
 
 /**
  * The chat a send would start: its harness, the peer it runs on (`host`, a peer name; absent:
@@ -1313,10 +1331,10 @@ export type SessionAuthState = "ready" | "signedOut" | "expired" | "routeAuthNee
  */
 export type SessionAuthTarget = {
   /** Absolute project directory on the destination daemon. Absent: project auth is unknown. */
-  cwd?: (string | null);
+  cwd?: string | null;
   harness: string;
-  host?: (string | null);
-  routeId?: (string | null);
+  host?: string | null;
+  routeId?: string | null;
 } & Record<string, unknown>;
 
 export interface SessionCancelParams {
@@ -1332,7 +1350,7 @@ export type SessionChanged = {
   /** The record kind, or `queue`, `permission_resolved` or `purged`. */
   kind: string;
   /** The peer a remote session runs on. */
-  peer?: (string | null);
+  peer?: string | null;
   recordKind: string;
   seq: number;
   session: ChangedSession;
@@ -1346,7 +1364,7 @@ export type SessionChanged = {
 export type SessionDetail = {
   agentCapabilities?: unknown;
   agentInfo?: unknown;
-  agentSessionId?: (string | null);
+  agentSessionId?: string | null;
   /** Attached clients. */
   attached: number;
   /**
@@ -1365,8 +1383,8 @@ export type SessionDetail = {
    * Null for a fork, a moved-in session and one saved before it existed; absent from a
    * peer on an older acpmux.
    */
-  createdBy?: (CreatedBy | null);
-  currentModeId?: (string | null);
+  createdBy?: CreatedBy | null;
+  currentModeId?: string | null;
   /** Lossy when the path is not UTF-8. */
   cwd: string;
   /**
@@ -1378,41 +1396,41 @@ export type SessionDetail = {
    * The harness's current reasoning effort, when it reports one.
    * Additive for older clients and peers.
    */
-  effort?: (string | null);
+  effort?: string | null;
   enforcement: Enforcement;
   eventCount: number;
-  family?: (string | null);
+  family?: string | null;
   /** Where a fork branched off its parent. */
-  forkSeq?: (number | null);
+  forkSeq?: number | null;
   harness: string;
   /** The status dot every client draws (`status_indicator`); null for none. */
-  indicator?: (Indicator | null);
+  indicator?: Indicator | null;
   /** Since when it waits on the person (`lane`); null while it does not. */
-  inputSince?: (number | null);
+  inputSince?: number | null;
   /** What it is doing and since when (`views::lane`); null for a closed session. */
-  lane?: (Lane | null);
+  lane?: Lane | null;
   /** One sidebar line; null before the first prompt. */
-  lastMessage?: (LastMessage | null);
-  lastPrompt?: (string | null);
+  lastMessage?: LastMessage | null;
+  lastPrompt?: string | null;
   lastSeq: number;
-  lastTurn?: (LastTurn | null);
+  lastTurn?: LastTurn | null;
   /**
    * An optional controller/daemon lifecycle receipt. It is absent until a
    * producer supplies a validated receipt; clients must not infer one from
    * status or placement fields.
    */
-  lifecycleReceipt?: (LifecycleReceipt | null);
+  lifecycleReceipt?: LifecycleReceipt | null;
   /**
    * A live repeated-tool episode (`hub/loop_detector.rs`), if this turn is looping.
    * Additive so older clients and peers can omit it.
    */
-  loopEpisode?: (LoopEpisodeSummary | null);
+  loopEpisode?: LoopEpisodeSummary | null;
   /**
    * The MCP servers the harness says it loaded, from its own report (Claude
    * Code's system/init); null when it reports none (every ACP harness).
    */
-  mcpServers?: (McpServerSummary[] | null);
-  model?: (string | null);
+  mcpServers?: McpServerSummary[] | null;
+  model?: string | null;
   models?: unknown;
   /** The agent's ACP session modes. */
   modes?: unknown;
@@ -1437,15 +1455,15 @@ export type SessionDetail = {
    * session a person or the app started. Not the fork parent (`parentId`). Absent
    * from a peer on an older acpmux.
    */
-  parent?: (string | null);
-  parentId?: (string | null);
+  parent?: string | null;
+  parentId?: string | null;
   /** The peer daemon a remote session runs on; absent for this daemon's own. */
-  peer?: (string | null);
+  peer?: string | null;
   /** Permission requests waiting for an answer. */
   pending: unknown[];
   pendingPermissions: number;
-  policy?: (string | null);
-  preview?: (string | null);
+  policy?: string | null;
+  preview?: string | null;
   /**
    * The pull request URLs its `gh pr create` calls printed, oldest first;
    * absent from a peer on an older acpmux.
@@ -1465,7 +1483,7 @@ export type SessionDetail = {
    * The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null
    * when none waits.
    */
-  retry?: (RetrySummary | null);
+  retry?: RetrySummary | null;
   /**
    * Its last turn failed on an error an automatic retry answers, and whether, and when, it
    * is retried is not settled yet: `retry` is about to be set or stay null, or the retry is
@@ -1484,24 +1502,24 @@ export type SessionDetail = {
   rulesJson?: unknown;
   sessionId: string;
   /** Its name among its parent's sub-sessions; null for a root. */
-  shortName?: (string | null);
+  shortName?: string | null;
   /** Some attached client shows the chat. */
   shown: boolean;
   /** The parent's tool call that started it, when acpmux could tell. */
-  spawnToolCallId?: (string | null);
+  spawnToolCallId?: string | null;
   /**
    * The session whose agent started this one, kept only while that parent
    * is listed and is a root itself: one level, for lists that fold one level.
    * `parent` without those rules, else an older client's `spawnedBy` tag.
    */
-  spawnedBy?: (string | null);
+  spawnedBy?: string | null;
   /**
    * The session whose agent started this one with its `start_session`
    * tool (`hub/subsessions.rs`); null for a session a person or client
    * started. Kept when the parent is closed or gone, so a client draws
    * the tree from these links at any depth.
    */
-  startedBy?: (string | null);
+  startedBy?: string | null;
   /**
    * Its agent is being started (a start, a wake or a mode change holds the session's spawn
    * lease, as `stop --if-idle` reads it): a daemon restart now ends that start, so an update
@@ -1520,23 +1538,23 @@ export type SessionDetail = {
   /** The agent takes a prompt mid-turn. */
   steering: boolean;
   /** Last classified error, redacted and bounded. Omitted for peers. */
-  stuckError?: (string | null);
-  stuckReason?: (StuckReason | null);
+  stuckError?: string | null;
+  stuckReason?: StuckReason | null;
   /** Unix milliseconds when the third failure established stuck. Omitted for peers. */
-  stuckSince?: (number | null);
+  stuckSince?: number | null;
   /** Tags that have not expired. */
   tags: Record<string, string>;
-  title?: (string | null);
+  title?: string | null;
   /**
    * Who supplied `title`: `prompt` is the first-prompt fallback, while
    * `harness`, `generated` and `adopted` are real chat titles. Older peers
    * may omit this field.
    */
-  titleSource?: (string | null);
+  titleSource?: string | null;
   /** The chat's tools (`hub/tools.rs`), present on per-session reads and attachments. */
-  tools?: (ToolSummary[] | null);
+  tools?: ToolSummary[] | null;
   /** `_acpmux/set_tools` can change them; omitted from census rows. */
-  toolsMutable?: (boolean | null);
+  toolsMutable?: boolean | null;
   /**
    * The seq of its newest transcript record (`hub/paging.rs` `is_transcript`): unlike
    * `updatedAt` and `lastSeq`, bookkeeping (an agent start's `agent_start_waiting`, usage,
@@ -1545,7 +1563,7 @@ export type SessionDetail = {
    * Absent from a peer on an older acpmux.
    */
   transcriptSeq?: number;
-  turn?: (TurnSummary | null);
+  turn?: TurnSummary | null;
   turnCount: number;
   unread: boolean;
   updatedAt: number;
@@ -1555,14 +1573,14 @@ export type SessionDetail = {
    * (`usage_stats.rs`); absent until a Claude Code or Codex chat's records
    * are found, for any other harness, and from a peer on an older acpmux.
    */
-  usageStats?: (UsageStats | null);
+  usageStats?: UsageStats | null;
   /**
    * What it waits on the person for: `question` (an agent question) or
    * `permission`; null while nothing is pending. Only the person allows a permission.
    */
-  waitingOn?: (string | null);
+  waitingOn?: string | null;
   /** The first prompt of the question it waits on, cut to 120 characters. */
-  waitingPrompt?: (string | null);
+  waitingPrompt?: string | null;
   /**
    * A sub-session whose queued prompt waits for a free run slot of its parent: the parent
    * runs as many sub-sessions as its `maxRunning` allows (`hub/subsession_runs.rs`). Absent
@@ -1570,7 +1588,7 @@ export type SessionDetail = {
    */
   waitsForSlot?: boolean;
   /** The family of a conversation another app runs that this chat only shows; null otherwise. */
-  watching?: (string | null);
+  watching?: string | null;
 } & Record<string, unknown>;
 
 /** One record of a session's log (`server::event_value`). */
@@ -1637,7 +1655,7 @@ export interface SessionSetModelParams {
  * acpmux may lack newer fields, so nullable ones are optional here.
  */
 export type SessionSummary = {
-  agentSessionId?: (string | null);
+  agentSessionId?: string | null;
   /** Attached clients. */
   attached: number;
   /**
@@ -1655,8 +1673,8 @@ export type SessionSummary = {
    * Null for a fork, a moved-in session and one saved before it existed; absent from a
    * peer on an older acpmux.
    */
-  createdBy?: (CreatedBy | null);
-  currentModeId?: (string | null);
+  createdBy?: CreatedBy | null;
+  currentModeId?: string | null;
   /** Lossy when the path is not UTF-8. */
   cwd: string;
   /**
@@ -1668,41 +1686,41 @@ export type SessionSummary = {
    * The harness's current reasoning effort, when it reports one.
    * Additive for older clients and peers.
    */
-  effort?: (string | null);
+  effort?: string | null;
   enforcement: Enforcement;
   eventCount: number;
-  family?: (string | null);
+  family?: string | null;
   /** Where a fork branched off its parent. */
-  forkSeq?: (number | null);
+  forkSeq?: number | null;
   harness: string;
   /** The status dot every client draws (`status_indicator`); null for none. */
-  indicator?: (Indicator | null);
+  indicator?: Indicator | null;
   /** Since when it waits on the person (`lane`); null while it does not. */
-  inputSince?: (number | null);
+  inputSince?: number | null;
   /** What it is doing and since when (`views::lane`); null for a closed session. */
-  lane?: (Lane | null);
+  lane?: Lane | null;
   /** One sidebar line; null before the first prompt. */
-  lastMessage?: (LastMessage | null);
-  lastPrompt?: (string | null);
+  lastMessage?: LastMessage | null;
+  lastPrompt?: string | null;
   lastSeq: number;
-  lastTurn?: (LastTurn | null);
+  lastTurn?: LastTurn | null;
   /**
    * An optional controller/daemon lifecycle receipt. It is absent until a
    * producer supplies a validated receipt; clients must not infer one from
    * status or placement fields.
    */
-  lifecycleReceipt?: (LifecycleReceipt | null);
+  lifecycleReceipt?: LifecycleReceipt | null;
   /**
    * A live repeated-tool episode (`hub/loop_detector.rs`), if this turn is looping.
    * Additive so older clients and peers can omit it.
    */
-  loopEpisode?: (LoopEpisodeSummary | null);
+  loopEpisode?: LoopEpisodeSummary | null;
   /**
    * The MCP servers the harness says it loaded, from its own report (Claude
    * Code's system/init); null when it reports none (every ACP harness).
    */
-  mcpServers?: (McpServerSummary[] | null);
-  model?: (string | null);
+  mcpServers?: McpServerSummary[] | null;
+  model?: string | null;
   /**
    * Moved to another daemon (`acpmux session move`): where it runs now,
    * `{host?, sessionId, cwd?, branch?, commit?}`. It never runs here again. Absent otherwise,
@@ -1724,13 +1742,13 @@ export type SessionSummary = {
    * session a person or the app started. Not the fork parent (`parentId`). Absent
    * from a peer on an older acpmux.
    */
-  parent?: (string | null);
-  parentId?: (string | null);
+  parent?: string | null;
+  parentId?: string | null;
   /** The peer daemon a remote session runs on; absent for this daemon's own. */
-  peer?: (string | null);
+  peer?: string | null;
   pendingPermissions: number;
-  policy?: (string | null);
-  preview?: (string | null);
+  policy?: string | null;
+  preview?: string | null;
   /**
    * The pull request URLs its `gh pr create` calls printed, oldest first;
    * absent from a peer on an older acpmux.
@@ -1750,7 +1768,7 @@ export type SessionSummary = {
    * The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null
    * when none waits.
    */
-  retry?: (RetrySummary | null);
+  retry?: RetrySummary | null;
   /**
    * Its last turn failed on an error an automatic retry answers, and whether, and when, it
    * is retried is not settled yet: `retry` is about to be set or stay null, or the retry is
@@ -1767,24 +1785,24 @@ export type SessionSummary = {
   rules: boolean;
   sessionId: string;
   /** Its name among its parent's sub-sessions; null for a root. */
-  shortName?: (string | null);
+  shortName?: string | null;
   /** Some attached client shows the chat. */
   shown: boolean;
   /** The parent's tool call that started it, when acpmux could tell. */
-  spawnToolCallId?: (string | null);
+  spawnToolCallId?: string | null;
   /**
    * The session whose agent started this one, kept only while that parent
    * is listed and is a root itself: one level, for lists that fold one level.
    * `parent` without those rules, else an older client's `spawnedBy` tag.
    */
-  spawnedBy?: (string | null);
+  spawnedBy?: string | null;
   /**
    * The session whose agent started this one with its `start_session`
    * tool (`hub/subsessions.rs`); null for a session a person or client
    * started. Kept when the parent is closed or gone, so a client draws
    * the tree from these links at any depth.
    */
-  startedBy?: (string | null);
+  startedBy?: string | null;
   /**
    * Its agent is being started (a start, a wake or a mode change holds the session's spawn
    * lease, as `stop --if-idle` reads it): a daemon restart now ends that start, so an update
@@ -1803,23 +1821,23 @@ export type SessionSummary = {
   /** The agent takes a prompt mid-turn. */
   steering: boolean;
   /** Last classified error, redacted and bounded. Omitted for peers. */
-  stuckError?: (string | null);
-  stuckReason?: (StuckReason | null);
+  stuckError?: string | null;
+  stuckReason?: StuckReason | null;
   /** Unix milliseconds when the third failure established stuck. Omitted for peers. */
-  stuckSince?: (number | null);
+  stuckSince?: number | null;
   /** Tags that have not expired. */
   tags: Record<string, string>;
-  title?: (string | null);
+  title?: string | null;
   /**
    * Who supplied `title`: `prompt` is the first-prompt fallback, while
    * `harness`, `generated` and `adopted` are real chat titles. Older peers
    * may omit this field.
    */
-  titleSource?: (string | null);
+  titleSource?: string | null;
   /** The chat's tools (`hub/tools.rs`), present on per-session reads and attachments. */
-  tools?: (ToolSummary[] | null);
+  tools?: ToolSummary[] | null;
   /** `_acpmux/set_tools` can change them; omitted from census rows. */
-  toolsMutable?: (boolean | null);
+  toolsMutable?: boolean | null;
   /**
    * The seq of its newest transcript record (`hub/paging.rs` `is_transcript`): unlike
    * `updatedAt` and `lastSeq`, bookkeeping (an agent start's `agent_start_waiting`, usage,
@@ -1828,7 +1846,7 @@ export type SessionSummary = {
    * Absent from a peer on an older acpmux.
    */
   transcriptSeq?: number;
-  turn?: (TurnSummary | null);
+  turn?: TurnSummary | null;
   turnCount: number;
   unread: boolean;
   updatedAt: number;
@@ -1837,14 +1855,14 @@ export type SessionSummary = {
    * (`usage_stats.rs`); absent until a Claude Code or Codex chat's records
    * are found, for any other harness, and from a peer on an older acpmux.
    */
-  usageStats?: (UsageStats | null);
+  usageStats?: UsageStats | null;
   /**
    * What it waits on the person for: `question` (an agent question) or
    * `permission`; null while nothing is pending. Only the person allows a permission.
    */
-  waitingOn?: (string | null);
+  waitingOn?: string | null;
   /** The first prompt of the question it waits on, cut to 120 characters. */
-  waitingPrompt?: (string | null);
+  waitingPrompt?: string | null;
   /**
    * A sub-session whose queued prompt waits for a free run slot of its parent: the parent
    * runs as many sub-sessions as its `maxRunning` allows (`hub/subsession_runs.rs`). Absent
@@ -1852,45 +1870,45 @@ export type SessionSummary = {
    */
   waitsForSlot?: boolean;
   /** The family of a conversation another app runs that this chat only shows; null otherwise. */
-  watching?: (string | null);
+  watching?: string | null;
 } & Record<string, unknown>;
 
 /** Also the page fields of `_acpmux/watch` (`hub::session_pages`). */
 export interface SessionsParams {
   /** A previous reply's `nextCursor`: the page starts after that session. */
-  cursor?: (string | null);
+  cursor?: string | null;
   /** `_acpmux/sessions` only: exclude these statuses before pagination. */
-  excludeStatus?: (string[] | null);
+  excludeStatus?: string[] | null;
   /** Page size, at least 1. Without it the reply is the whole list. */
-  limit?: (number | null);
+  limit?: number | null;
   /** `_acpmux/sessions` only: exclude peer sessions before pagination. */
-  localOnly?: (boolean | null);
+  localOnly?: boolean | null;
   /** `_acpmux/sessions` only: `sessionId` orders by immutable ID for complete scans. */
-  orderBy?: (string | null);
+  orderBy?: string | null;
   /**
    * `_acpmux/sessions` only (a watch refuses it): only the sessions this acpmux peer owns
    * (its name, e.g. `huge-blue`). Empty is no filter.
    */
-  peer?: (string | null);
+  peer?: string | null;
   /**
    * `_acpmux/sessions` only (a watch refuses it): only the sessions with a pending permission
    * or question, local and peer, summarized alone and answered without the list's pace.
    * Takes no other filter; the reply is never paged (capability `session-list-pending-v1`).
    */
-  pendingOnly?: (boolean | null);
+  pendingOnly?: boolean | null;
   /**
    * `_acpmux/sessions` only (a watch refuses it): only the sessions in this status
    * (`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.
    */
-  status?: (string | null);
+  status?: string | null;
   /**
    * `_acpmux/sessions` only: read each chat's usage from its harness's records first
    * (`usageStats`; at most one read every 5 s, waited for at most 750 ms). Without it the
    * rows carry what the last read found.
    */
-  usage?: (boolean | null);
+  usage?: boolean | null;
   /** Include tool inventories explicitly; default census rows omit them. */
-  withTools?: (boolean | null);
+  withTools?: boolean | null;
 }
 
 export type SessionsResult = {
@@ -1898,18 +1916,18 @@ export type SessionsResult = {
    * A watch that sent `known` (`watch_delta.rs`): `sessions` holds only the rows new or
    * changed since, and the rest of the known rows stand.
    */
-  delta?: (boolean | null);
+  delta?: boolean | null;
   /**
    * With `limit`: the cursor for the next page, null when the list is
    * done. Absent without `limit`.
    */
-  nextCursor?: (string | null);
+  nextCursor?: string | null;
   /** With `delta`: the known sessions no longer listed. */
-  removed?: (string[] | null);
+  removed?: string[] | null;
   /** Local and peer sessions, newest first, then by `sessionId`. */
   sessions: SessionSummary[];
   /** With `delta`: how many listed rows were left out as unchanged. */
-  unchanged?: (number | null);
+  unchanged?: number | null;
 } & Record<string, unknown>;
 
 export interface SetToolsParams {
@@ -1996,10 +2014,10 @@ export type TurnSummary = {
    * What the turn does right now: its latest tool call's title, masked
    * (`secret_scan`); null until it calls one (`hub/activity.rs`).
    */
-  activity: (string | null);
+  activity: string | null;
   client: string;
   /** Its plan's entry in progress, masked; null without one. */
-  planStep: (string | null);
+  planStep: string | null;
   prompt: string;
   promptId: string;
   /**
@@ -2007,7 +2025,7 @@ export type TurnSummary = {
    * model since then, for `stalledTurnMs` or more (`hub/activity.rs`);
    * null while it has not.
    */
-  stalledSince: (number | null);
+  stalledSince: number | null;
   startedAt: number;
   turnId: string;
   turnSeq: number;
@@ -2018,7 +2036,7 @@ export type TurnSummary = {
  * lapses after 8 s. The connection must be attached to the chat.
  */
 export interface TypingParams {
-  _meta?: (AuthorMeta | null);
+  _meta?: AuthorMeta | null;
   on: boolean;
   sessionId: string;
 }
@@ -2042,44 +2060,44 @@ export type UsageStats = {
    * `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` of a known window, `autoCompactWindow`;
    * Codex's `model_auto_compact_token_limit`); null otherwise.
    */
-  autocompactCap: (number | null);
+  autocompactCap: number | null;
   /**
    * Of those calls' prompt tokens (input, cache read and cache write), the share the prompt
    * cache served (0 to 1); null with no calls or when the day is not read whole.
    */
-  cacheReadShare24h: (number | null);
+  cacheReadShare24h: number | null;
   /** Model calls of the last 24 hours, subagents' included. */
-  calls24h: (number | null);
+  calls24h: number | null;
   /** Compactions in the last 24 hours. */
-  compactions24h: (number | null);
+  compactions24h: number | null;
   /** The last call's context: its input, cache read and cache write tokens. */
-  contextTokens: (number | null);
+  contextTokens: number | null;
   /** The model's context window, as the harness reported it, else the catalog's. */
-  contextWindow: (number | null);
+  contextWindow: number | null;
   /** `costUsd24h` over the priced calls: what one call costs at list prices, USD. */
-  costPerCallUsd24h: (number | null);
+  costPerCallUsd24h: number | null;
   /**
    * Those tokens at the model catalog's list prices, USD; null when no model
    * they ran on has a price, or when `tokens24h` is null.
    */
-  costUsd24h: (number | null);
+  costUsd24h: number | null;
   /**
    * The executable its harness runs, by file name (`claude`, `claude-sr2`,
    * `codex-acp`); `harness` is the profile. Null when this daemon did not
    * start it (an adopted, watched or revived chat).
    */
-  launcher: (string | null);
+  launcher: string | null;
   /** Subagents started in the last hour. */
-  subagents1h: (number | null);
+  subagents1h: number | null;
   /** Subagents started in the last 24 hours. */
-  subagents24h: (number | null);
+  subagents24h: number | null;
   /** Subagents that run now. */
-  subagentsLive: (number | null);
+  subagentsLive: number | null;
   /**
    * Tokens of the last 24 hours, subagents' included: input, output, cache
    * read and cache write.
    */
-  tokens24h: (number | null);
+  tokens24h: number | null;
   /** Unix ms of the read these come from. */
   updatedAt: number;
 } & Record<string, unknown>;
@@ -2089,7 +2107,7 @@ export interface ViewParams {
    * An author changes only that person's presence (`hub/presence.rs`), not whether the
    * chat counts as shown.
    */
-  _meta?: (AuthorMeta | null);
+  _meta?: AuthorMeta | null;
   sessionId: string;
   /** The attached client shows the chat (`hub/seen.rs`). */
   visible: boolean;
@@ -2102,21 +2120,21 @@ export interface WarmParams {
 }
 
 export interface WatchParams {
-  cursor?: (string | null);
+  cursor?: string | null;
   /**
    * Default true: every session's changes arrive as
    * `_acpmux/session_changed`.
    */
-  enabled?: (boolean | null);
+  enabled?: boolean | null;
   /**
    * A peer daemon's link only (`watch_delta.rs`): every session it holds of this daemon's
    * list, with the digest of its row as last listed (`""` when it changed since). The reply
    * is then a delta: `delta: true`, the rows new or changed, and `removed`.
    */
-  known?: (Record<string, string> | null);
-  limit?: (number | null);
+  known?: Record<string, string> | null;
+  limit?: number | null;
   /** Include tool inventories explicitly; default census rows omit them. */
-  withTools?: (boolean | null);
+  withTools?: boolean | null;
 }
 
 export interface WatchTakeOverParams {
