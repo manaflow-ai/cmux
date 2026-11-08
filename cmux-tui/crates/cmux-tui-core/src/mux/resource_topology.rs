@@ -322,6 +322,11 @@ impl Mux {
                 });
             }
             ResourceCreationPreparation::Blocked { idempotency_key, operation } => {
+                self.report_resource_effect_indeterminate(
+                    &idempotency_key,
+                    &operation,
+                    BLOCKED_CREATION_CAUSE,
+                );
                 return Err(anyhow::Error::new(resource_effect_indeterminate(
                     &idempotency_key,
                     &operation,
@@ -2500,9 +2505,17 @@ impl Mux {
                 }
                 ResourceEffectOutcome::Failure(error) => Err(anyhow::Error::new(error)),
             },
-            ResourceEffectPreparation::Indeterminate => Err(anyhow::Error::new(
-                resource_effect_indeterminate(&mutation.id, &operation_name),
-            )),
+            ResourceEffectPreparation::Indeterminate => {
+                self.report_resource_effect_indeterminate(
+                    &mutation.id,
+                    &operation_name,
+                    crate::resource_api::EARLIER_ATTEMPT_CAUSE,
+                );
+                Err(anyhow::Error::new(resource_effect_indeterminate(
+                    &mutation.id,
+                    &operation_name,
+                )))
+            }
             ResourceEffectPreparation::Execute { .. } => {
                 let intent = self.mark_resource_effect_executing(
                     &mutation.id,
@@ -2524,24 +2537,12 @@ impl Mux {
                                 format!("{error:#}"),
                                 json!({"idempotency_key":mutation.id}),
                             );
-                            if self
-                                .commit_resource_effect(
-                                    &mutation.id,
-                                    &operation_name,
-                                    fingerprint,
-                                    &ResourceEffectOutcome::Failure(error.clone()),
-                                    None,
-                                )
-                                .is_ok()
-                            {
-                                return Err(anyhow::Error::new(error));
-                            } else {
-                                let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                                return Err(anyhow::Error::new(resource_effect_indeterminate(
-                                    &mutation.id,
-                                    &operation_name,
-                                )));
-                            }
+                            return Err(self.commit_topology_failure_or_indeterminate(
+                                &mutation.id,
+                                &operation_name,
+                                fingerprint,
+                                error,
+                            ));
                         }
                     };
                     drop(_creation_fence);
@@ -2556,24 +2557,12 @@ impl Mux {
                             .is_some_and(|error| error.code == "confirmation.required") =>
                     {
                         let error = error.downcast_ref::<ResourceError>().expect("checked").clone();
-                        let outcome = ResourceEffectOutcome::Failure(error.clone());
-                        if self
-                            .commit_resource_effect(
-                                &mutation.id,
-                                &operation_name,
-                                fingerprint,
-                                &outcome,
-                                None,
-                            )
-                            .is_ok()
-                        {
-                            return Err(anyhow::Error::new(error));
-                        }
-                        let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                        return Err(anyhow::Error::new(resource_effect_indeterminate(
+                        return Err(self.commit_topology_failure_or_indeterminate(
                             &mutation.id,
                             &operation_name,
-                        )));
+                            fingerprint,
+                            error,
+                        ));
                     }
                     Err(error)
                         if operation == ResourceOperation::ScreenLayoutUndo
@@ -2588,23 +2577,12 @@ impl Mux {
                                 format!("{error:#}"),
                                 json!({"idempotency_key":mutation.id}),
                             );
-                            if self
-                                .commit_resource_effect(
-                                    &mutation.id,
-                                    &operation_name,
-                                    fingerprint,
-                                    &ResourceEffectOutcome::Failure(error.clone()),
-                                    None,
-                                )
-                                .is_ok()
-                            {
-                                return Err(anyhow::Error::new(error));
-                            }
-                            let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                            return Err(anyhow::Error::new(resource_effect_indeterminate(
+                            return Err(self.commit_topology_failure_or_indeterminate(
                                 &mutation.id,
                                 &operation_name,
-                            )));
+                                fingerprint,
+                                error,
+                            ));
                         };
                         let actual = match self
                             .workspace_registry
@@ -2613,41 +2591,28 @@ impl Mux {
                             .resource_topology_snapshot()
                         {
                             Ok(snapshot) => snapshot.revision,
-                            Err(_) => {
-                                let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                                return Err(anyhow::Error::new(resource_effect_indeterminate(
+                            Err(error) => {
+                                return Err(self.indeterminate_topology_effect(
                                     &mutation.id,
                                     &operation_name,
-                                )));
+                                    &format!("the topology revision could not be read: {error:#}"),
+                                ));
                             }
                         };
                         let error = ResourceError::revision_conflict(expected, actual);
-                        if self
-                            .commit_resource_effect(
-                                &mutation.id,
-                                &operation_name,
-                                fingerprint,
-                                &ResourceEffectOutcome::Failure(error.clone()),
-                                None,
-                            )
-                            .is_ok()
-                        {
-                            return Err(anyhow::Error::new(error));
-                        }
-                        let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                        return Err(anyhow::Error::new(resource_effect_indeterminate(
+                        return Err(self.commit_topology_failure_or_indeterminate(
                             &mutation.id,
                             &operation_name,
-                        )));
+                            fingerprint,
+                            error,
+                        ));
                     }
-                    Err(_error) => {
-                        #[cfg(test)]
-                        eprintln!("resource topology effect execution failed: {_error:#}");
-                        let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                        return Err(anyhow::Error::new(resource_effect_indeterminate(
+                    Err(error) => {
+                        return Err(self.indeterminate_topology_effect(
                             &mutation.id,
                             &operation_name,
-                        )));
+                            &format!("the effect failed: {error:#}"),
+                        ));
                     }
                 };
                 match self.commit_full_resource_effect_projection(
@@ -2657,18 +2622,56 @@ impl Mux {
                     result,
                 ) {
                     Ok(commit) => Ok(commit),
-                    Err(_error) => {
-                        #[cfg(test)]
-                        eprintln!("resource topology effect projection commit failed: {_error:#}");
-                        let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                        Err(anyhow::Error::new(resource_effect_indeterminate(
-                            &mutation.id,
-                            &operation_name,
-                        )))
-                    }
+                    Err(error) => Err(self.indeterminate_topology_effect(
+                        &mutation.id,
+                        &operation_name,
+                        &format!("the outcome commit failed: {error:#}"),
+                    )),
                 }
             }
         }
+    }
+
+    /// Commits `error` as the effect's failed outcome. When that commit
+    /// fails, the effect is indeterminate, and the daemon log gets both the
+    /// failure and the commit error.
+    fn commit_topology_failure_or_indeterminate(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        fingerprint: &Value,
+        error: ResourceError,
+    ) -> anyhow::Error {
+        match self.commit_resource_effect(
+            idempotency_key,
+            operation,
+            fingerprint,
+            &ResourceEffectOutcome::Failure(error.clone()),
+            None,
+        ) {
+            Ok(_) => anyhow::Error::new(error),
+            Err(commit_error) => self.indeterminate_topology_effect(
+                idempotency_key,
+                operation,
+                &format!(
+                    "the effect failed ({}: {}) and its failure outcome commit failed: {commit_error:#}",
+                    error.code, error.message
+                ),
+            ),
+        }
+    }
+
+    /// Marks a topology effect indeterminate and logs `cause`, so the daemon
+    /// log says why the response is `mutation.indeterminate`.
+    fn indeterminate_topology_effect(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        cause: &str,
+    ) -> anyhow::Error {
+        self.report_resource_effect_indeterminate(idempotency_key, operation, cause);
+        let _ = self.mark_resource_effect_indeterminate(idempotency_key);
+        anyhow::Error::new(resource_effect_indeterminate(idempotency_key, operation))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3574,6 +3577,11 @@ impl Mux {
                 Ok(ResourcePatchCommit { revision, result: created_path, replayed: true })
             }
             ResourceCreationPreparation::Blocked { idempotency_key, operation } => {
+                self.report_resource_effect_indeterminate(
+                    &idempotency_key,
+                    &operation,
+                    BLOCKED_CREATION_CAUSE,
+                );
                 Err(anyhow::Error::new(resource_effect_indeterminate(&idempotency_key, &operation)))
             }
             ResourceCreationPreparation::Failed { error, .. } => Err(anyhow::Error::new(error)),
@@ -3597,6 +3605,7 @@ impl Mux {
                         eprintln!("correlated resource creation failed: {error:#}");
                         let failure = resource_creation_failure(&recovery, &error);
                         return creation_settlement_result(
+                            self,
                             self.settle_resource_creation(recovery, Some(failure))?,
                             &idempotency_key,
                             &operation_name,
@@ -3617,6 +3626,7 @@ impl Mux {
                         );
                         let failure = resource_creation_failure(&recovery, &error);
                         creation_settlement_result(
+                            self,
                             self.settle_resource_creation(recovery, Some(failure))?,
                             &idempotency_key,
                             &operation_name,
@@ -3685,15 +3695,17 @@ impl Mux {
                     created_path,
                 ) {
                     Ok(commit) => Ok(ResourceCreationSettlement::Created(commit)),
-                    Err(_) => {
+                    Err(error) => {
                         if let Some(settlement) = self.persisted_creation_settlement(&recovery)? {
                             return Ok(settlement);
                         }
                         if recovery.interrupted {
                             return Ok(ResourceCreationSettlement::Pending);
                         }
-                        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                        Ok(ResourceCreationSettlement::Indeterminate)
+                        self.indeterminate_creation(
+                            &recovery,
+                            &format!("the created resource's outcome commit failed: {error:#}"),
+                        )
                     }
                 }
             }
@@ -3717,30 +3729,43 @@ impl Mux {
                     None,
                 ) {
                     Ok(_) => Ok(ResourceCreationSettlement::NotApplied(error)),
-                    Err(_) => {
+                    Err(commit_error) => {
                         if let Some(settlement) = self.persisted_creation_settlement(&recovery)? {
                             return Ok(settlement);
                         }
-                        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                        Ok(ResourceCreationSettlement::Indeterminate)
+                        self.indeterminate_creation(
+                            &recovery,
+                            &format!(
+                                "the creation did not apply ({}: {}) and its failure outcome \
+                                 commit failed: {commit_error:#}",
+                                error.code, error.message
+                            ),
+                        )
                     }
                 }
             }
             ResourceCreationEvidence::Ambiguous => {
                 self.rollback_interrupted_workspace_creation(&recovery.intent)?;
-                self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                Ok(ResourceCreationSettlement::Indeterminate)
+                self.indeterminate_creation(
+                    &recovery,
+                    &creation_cause("the creation evidence is ambiguous", failure.as_ref()),
+                )
             }
-            ResourceCreationEvidence::AmbiguousLive => {
-                self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                Ok(ResourceCreationSettlement::Indeterminate)
-            }
+            ResourceCreationEvidence::AmbiguousLive => self.indeterminate_creation(
+                &recovery,
+                &creation_cause(
+                    "the live state does not show whether the creation applied",
+                    failure.as_ref(),
+                ),
+            ),
             ResourceCreationEvidence::Pending => Ok(ResourceCreationSettlement::Pending),
             ResourceCreationEvidence::TerminalClosedAfterFailure => {
                 let Some(error) = failure else {
                     self.rollback_interrupted_workspace_creation(&recovery.intent)?;
-                    self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                    return Ok(ResourceCreationSettlement::Indeterminate);
+                    return self.indeterminate_creation(
+                        &recovery,
+                        "the created terminal closed and the failure that closed it is unknown",
+                    );
                 };
                 self.rollback_interrupted_workspace_creation(&recovery.intent)?;
                 match self.commit_resource_effect(
@@ -3751,16 +3776,38 @@ impl Mux {
                     None,
                 ) {
                     Ok(_) => Ok(ResourceCreationSettlement::NotApplied(error)),
-                    Err(_) => {
+                    Err(commit_error) => {
                         if let Some(settlement) = self.persisted_creation_settlement(&recovery)? {
                             return Ok(settlement);
                         }
-                        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                        Ok(ResourceCreationSettlement::Indeterminate)
+                        self.indeterminate_creation(
+                            &recovery,
+                            &format!(
+                                "the creation did not apply ({}: {}) and its failure outcome \
+                                 commit failed: {commit_error:#}",
+                                error.code, error.message
+                            ),
+                        )
                     }
                 }
             }
         }
+    }
+
+    /// Marks a creation indeterminate and logs `cause`, so the daemon log
+    /// says why the creation answers `mutation.indeterminate`.
+    fn indeterminate_creation(
+        &self,
+        recovery: &ResourceCreationRecovery,
+        cause: &str,
+    ) -> anyhow::Result<ResourceCreationSettlement> {
+        self.report_resource_effect_indeterminate(
+            &recovery.idempotency_key,
+            &recovery.operation,
+            cause,
+        );
+        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
+        Ok(ResourceCreationSettlement::Indeterminate)
     }
 
     fn rollback_interrupted_workspace_creation(&self, intent: &Value) -> anyhow::Result<()> {
@@ -5033,7 +5080,24 @@ fn resource_creation_failure(
     })
 }
 
+/// Cause logged when a creation waits on an earlier attempt that is still
+/// running or has an indeterminate outcome.
+const BLOCKED_CREATION_CAUSE: &str =
+    "an earlier attempt of this creation is still running or has an indeterminate outcome";
+
+/// Joins an indeterminate creation's reason with the failure that started its
+/// settlement, when there is one.
+fn creation_cause(reason: &str, failure: Option<&ResourceError>) -> String {
+    match failure {
+        Some(failure) => {
+            format!("{reason}; the attempt failed ({}: {})", failure.code, failure.message)
+        }
+        None => reason.to_string(),
+    }
+}
+
 fn creation_settlement_result(
+    mux: &Mux,
     settlement: ResourceCreationSettlement,
     idempotency_key: &str,
     operation: &str,
@@ -5045,6 +5109,11 @@ fn creation_settlement_result(
             Err(anyhow::Error::new(resource_effect_indeterminate(idempotency_key, operation)))
         }
         ResourceCreationSettlement::Pending => {
+            mux.report_resource_effect_indeterminate(
+                idempotency_key,
+                operation,
+                "an interrupted attempt of this creation has not settled yet",
+            );
             Err(anyhow::Error::new(resource_effect_indeterminate(idempotency_key, operation)))
         }
     }
