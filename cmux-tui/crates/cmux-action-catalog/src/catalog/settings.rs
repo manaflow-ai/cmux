@@ -470,7 +470,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.newTab.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.newTab.toggle", "Toggle New Tab Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.newTab.toggle", "New Tab Animations"),
         keywords: &["animation", "motion", "tab", "new tab", "appearance"],
         category: "settings",
         symbol: "plus.rectangle.on.rectangle",
@@ -481,7 +481,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.newWorkspace.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.newWorkspace.toggle", "Toggle New Workspace Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.newWorkspace.toggle", "New Workspace Animations"),
         keywords: &["animation", "motion", "workspace", "sidebar", "appearance"],
         category: "settings",
         symbol: "sidebar.left",
@@ -492,7 +492,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.toggle", "Toggle All Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.toggle", "All Animations"),
         keywords: &["animation", "motion", "appearance", "no animations", "disable", "reduce motion", "instant"],
         category: "settings",
         symbol: "sparkles",
@@ -503,7 +503,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.sidebar.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.sidebar.toggle", "Toggle Sidebar Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.sidebar.toggle", "Sidebar Animations"),
         keywords: &["animation", "motion", "appearance", "sidebar", "row", "group", "reorder"],
         category: "settings",
         symbol: "sidebar.left",
@@ -514,7 +514,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.tabs.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.tabs.toggle", "Toggle Tab Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.tabs.toggle", "Tab Animations"),
         keywords: &["animation", "motion", "appearance", "tab", "tab bar"],
         category: "settings",
         symbol: "rectangle.split.3x1",
@@ -525,7 +525,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.panes.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.panes.toggle", "Toggle Pane and Window Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.panes.toggle", "Pane and Window Animations"),
         keywords: &["animation", "motion", "appearance", "pane", "split", "zoom", "window"],
         category: "settings",
         symbol: "rectangle.split.2x1",
@@ -536,7 +536,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.overlays.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.overlays.toggle", "Toggle Menu and Card Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.overlays.toggle", "Menu and Card Animations"),
         keywords: &["animation", "motion", "appearance", "menu", "popover", "palette", "toast", "card"],
         category: "settings",
         symbol: "menubar.rectangle",
@@ -547,7 +547,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.hoverCards.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.hoverCards.toggle", "Toggle Hover Card Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.hoverCards.toggle", "Hover Card Animations"),
         keywords: &["animation", "motion", "appearance", "hover card", "tooltip"],
         category: "settings",
         symbol: "rectangle.on.rectangle",
@@ -558,7 +558,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.home.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.home.toggle", "Toggle Home and Chat Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.home.toggle", "Home and Chat Animations"),
         keywords: &["animation", "motion", "appearance", "home", "chief", "chat", "bubble"],
         category: "settings",
         symbol: "bubble.left.and.bubble.right",
@@ -569,7 +569,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.cursor.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.cursor.toggle", "Toggle Agent Cursor Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.cursor.toggle", "Agent Cursor Animations"),
         keywords: &["animation", "motion", "appearance", "cursor", "agent", "ripple"],
         category: "settings",
         symbol: "cursorarrow.motionlines",
@@ -580,7 +580,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.indicators.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.indicators.toggle", "Toggle Spinner and Progress Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.indicators.toggle", "Spinner and Progress Animations"),
         keywords: &["animation", "motion", "appearance", "spinner", "progress", "pulse", "loading"],
         category: "settings",
         symbol: "progress.indicator",
@@ -591,7 +591,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.feedback.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.feedback.toggle", "Toggle Highlight and Color Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.feedback.toggle", "Highlight and Color Animations"),
         keywords: &["animation", "motion", "appearance", "hover", "highlight", "color", "theme"],
         category: "settings",
         symbol: "hand.point.up.left",
@@ -602,7 +602,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.web.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.web.toggle", "Toggle Web Page Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.web.toggle", "Web Page Animations"),
         keywords: &["animation", "motion", "appearance", "web", "page", "css"],
         category: "settings",
         symbol: "globe",
@@ -657,7 +657,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.paneBorder.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.paneBorder.toggle", "Toggle Pane Borders"),
+        title: t("ActionCatalog", "action.appearance.paneBorder.toggle", "Pane Borders"),
         keywords: &["border", "outline", "hairline", "pane", "appearance", "layout"],
         category: "settings",
         symbol: "square.dashed",
@@ -668,7 +668,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.panePadding.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.panePadding.toggle", "Toggle Pane Padding"),
+        title: t("ActionCatalog", "action.appearance.panePadding.toggle", "Pane Padding"),
         keywords: &["padding", "gap", "inset", "edge to edge", "pane", "appearance", "layout"],
         category: "settings",
         symbol: "rectangle.inset.filled",
@@ -679,7 +679,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.paneCorners.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.paneCorners.toggle", "Toggle Rounded Pane Corners"),
+        title: t("ActionCatalog", "action.appearance.paneCorners.toggle", "Rounded Pane Corners"),
         keywords: &["corner", "radius", "rounded", "square", "pane", "appearance", "layout"],
         category: "settings",
         symbol: "square.on.square",
@@ -789,7 +789,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "focusRing.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.focusRing.toggle", "Toggle Focus Ring"),
+        title: t("ActionCatalog", "action.focusRing.toggle", "Focus Ring"),
         keywords: &["focus", "ring", "outline", "highlight", "pane", "appearance"],
         category: "settings",
         symbol: "square.dashed.inset.filled",
@@ -822,7 +822,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "focusRing.singlePane.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.focusRing.singlePane.toggle", "Toggle Focus Ring for a Single Pane"),
+        title: t("ActionCatalog", "action.focusRing.singlePane.toggle", "Focus Ring for a Single Pane"),
         keywords: &["focus", "ring", "single", "one", "pane", "appearance"],
         category: "settings",
         symbol: "square.inset.filled",
@@ -833,7 +833,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.paneBorderWidth.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.paneBorderWidth.toggle", "Toggle Thick Pane Borders"),
+        title: t("ActionCatalog", "action.appearance.paneBorderWidth.toggle", "Thick Pane Borders"),
         keywords: &["border", "width", "thick", "thin", "hairline", "pane", "appearance", "layout"],
         category: "settings",
         symbol: "lineweight",

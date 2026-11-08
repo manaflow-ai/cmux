@@ -69,3 +69,12 @@ for (const [name, node] of [
     expect(refs[0]!.querySelector(".cv-foreign-file__note")?.textContent).toBe(translate("message.foreignFile"));
     expect(host.querySelector("img, code")).toBeNull();
   });
+
+// Review of #37560: a prompt of ids alone stops the scan past the cap, so it never collects every
+// id, and stays one text node.
+test("a huge prompt of ids stops collecting past the cap and stays plain text", async () => {
+  const ids = Array.from({ length: 5000 }, (_, i) => `libfile_${String(i).padStart(12, "0")}`).join(" ");
+  expect(foreignFileIds(ids, 64).length).toBe(65);
+  const host = await render(<PromptText rowId="r3" text={`${ids} ${"x".repeat(210_000)}`} show={(text) => text} />);
+  expect(host.querySelectorAll(".cv-foreign-file").length).toBe(0);
+});

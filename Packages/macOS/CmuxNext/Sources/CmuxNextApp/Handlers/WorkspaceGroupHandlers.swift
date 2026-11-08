@@ -259,17 +259,16 @@ enum WorkspaceGroupHandlers {
         return model.group(shown) != nil ? shown : nil
     }
 
-    /// A new group inside `parent` on the sidebar document (remote-groups-DESIGN.md slice 3), with the
-    /// no color; a person's new subgroup opens its name editor, as New Group does.
+    /// A new group inside `parent` on the sidebar document (remote-groups-DESIGN.md slice 3), in the palette's next color
+    /// (`SidebarGroup.newTint`, windowless too); a person's new subgroup opens its name editor, as New Group does.
     private static func newSubgroup(in parent: CmuxNextSidebar.GroupID, name: String, byUser: Bool, _ context: AppActionContext) throws {
         guard let store = context.services.sidebarDoc.activeStore else {
             throw ActionFailure.invalidTarget(WorkspaceVerbStrings.subgroupNeedsDocument)
         }
         let id = CmuxNextSidebar.GroupID.make()
-        let plan = SidebarDocSubgroupPlan(parent: parent, id: id, name: name, color: .none,
-                                          records: store.records)
-        guard let ops = plan.ops else {
-            throw ActionFailure.invalidTarget(plan.refusal == .tooDeep ? WorkspaceVerbStrings.subgroupTooDeep : RefusalStrings.groupRequired)
+        let ops: [[String: Any]], color = SidebarGroup.newTint(in: (try? context.sidebar().model.sections) ?? [])
+        do throws(SidebarDocSubgroupRefusal) { ops = try store.subgroupOps(parent: parent, id: id, name: name, color: color) } catch {
+            throw ActionFailure.invalidTarget(error == .tooDeep ? WorkspaceVerbStrings.subgroupTooDeep : RefusalStrings.groupRequired)
         }
         do {
             try store.sendChecked(ops: ops, title: SidebarDocStore.moveTitle)

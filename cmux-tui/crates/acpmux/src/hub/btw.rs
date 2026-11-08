@@ -367,6 +367,7 @@ impl Hub {
                     route: None,
                     subsession: None,
                     lineage: None,
+                    created_by: None,
                     disallowed_tools: Vec::new(),
                     checked_cwd: None,
                     // It sees what its chat sees.

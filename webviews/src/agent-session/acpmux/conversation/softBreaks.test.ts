@@ -3,7 +3,7 @@
 // mid-hash. Leo 2026-10-28: "WHY IS THIS RENDERING/MESSAGING NOT FIXED YET".
 import { expect, test } from "bun:test";
 import { isValidElement, type ReactNode } from "react";
-import { softBreaks } from "./softBreaks";
+import { softBreaks } from "./softBreaksModel";
 
 const A = "9127e6194f1c2a9be07d3e6f58a1b2c3d4e50b1a";
 const B = "68ab5dda55f4d5d0821cf21a4b520c2397145d00";

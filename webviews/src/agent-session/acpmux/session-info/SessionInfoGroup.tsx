@@ -14,7 +14,7 @@
 //   moves again or the list unmounts; the window listeners exist only while a drag runs (pointer up,
 //   pointer cancel, Escape and window blur end it). Reduce Motion or the host's motion switch
 //   (`data-agent-motion="off"`) moves everything in one frame.
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { MOTION_EASE_OUT, MOTION_MS } from "../../../motion/scale.generated";
 import { isAgentMotionOff } from "../../shared/motion";
 import { useT } from "../i18n";
@@ -22,20 +22,7 @@ import { heldPlace } from "./heldPlace";
 import { SessionInfoFold } from "./SessionInfoSection";
 import { isAppId, MORE_LINE, moveTo, setSectionOrder, tuckedSections, useSectionOrder } from "./sectionOrder";
 import type { SessionInfoSectionId } from "./sessionInfoState";
-
-type Reorder = {
-  dragging: SessionInfoSectionId | undefined;
-  start: (id: SessionInfoSectionId, event: React.PointerEvent<HTMLElement>) => void;
-  step: (id: SessionInfoSectionId, by: -1 | 1) => void;
-};
-
-const ReorderContext = createContext<Reorder | undefined>(undefined);
-
-/// The panel's reorder actions, for a section inside it; none outside (the gallery's lone sections).
-export function useReorder(): Reorder | undefined {
-  return useContext(ReorderContext);
-}
-
+import { type Reorder, ReorderContext } from "./sessionInfoGroupModel";
 type Drag = {
   id: SessionInfoSectionId;
   /// The pointer's clientY at the press and now.
@@ -147,9 +134,16 @@ export function SessionInfoSectionList({
     const animate = motionOn();
     // A section that left keeps no place: shown again, it appears where it lands.
     for (const id of places.current.keys()) if (!shown.includes(id)) places.current.delete(id);
-    for (const node of root.querySelectorAll<HTMLElement>(":scope > [data-slot]")) {
+    // Every section's place and drawn shift first, then the writes: a read after the last
+    // section's restyle would lay the list out again for each section (cmux-perf/layout-thrash-in-loop).
+    const measured = Array.from(root.querySelectorAll<HTMLElement>(":scope > [data-slot]"), (node) => ({
+      node,
+      top: node.offsetTop,
+      // Only a reorder that slides reads the shift (a style read on every render otherwise).
+      shift: moved && animate ? drawnShift(node) : 0,
+    }));
+    for (const { node, top, shift } of measured) {
       const id = node.dataset.slot as SessionInfoSectionId;
-      const top = node.offsetTop;
       const was = places.current.get(id);
       places.current.set(id, top);
       if (drag.current?.id === id) continue;
@@ -179,7 +173,7 @@ export function SessionInfoSectionList({
       }
       if (!moved || !animate || was === undefined || was === top) continue;
       // From where it is drawn now (its old place plus any slide still running) to its new place.
-      const from = was + drawnShift(node) - top;
+      const from = was + shift - top;
       slides.current.get(id)?.cancel();
       if (from === 0) continue;
       const slide = slideFrom(node, from);

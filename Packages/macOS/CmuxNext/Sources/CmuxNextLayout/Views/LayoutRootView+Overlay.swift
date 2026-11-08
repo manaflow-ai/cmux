@@ -108,7 +108,7 @@ extension LayoutRootView {
     /// nothing over panes (`dividerMouseAreas`).
     public var interactiveOverlayRects: [CGRect] {
         var rects: [CGRect] = []
-        if let active = model.activeScreenID, let screen = screenViews[active], !screen.isHidden {
+        if let active = model.layoutPassReads.activeScreenID, let screen = screenViews[active], !screen.isHidden {
             rects += ScreenDividers(screen: screen).lineRects.map { convert($0, from: screen) }
         }
         return rects
@@ -119,7 +119,7 @@ extension LayoutRootView {
     /// click-catching panel that forwards the mouse to this window, so the
     /// page keeps drawing edge to edge under them.
     public var dividerMouseAreas: [LayoutMouseArea] {
-        guard let active = model.activeScreenID, let screen = screenViews[active], !screen.isHidden else { return [] }
+        guard let active = model.layoutPassReads.activeScreenID, let screen = screenViews[active], !screen.isHidden else { return [] }
         return screen.dividerMouseAreas.map { area in
             var area = area
             area.rect = convert(area.rect, from: screen)

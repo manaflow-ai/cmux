@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxHomeCore
 public import CmuxNextActions
 import CmuxNextHome
+import CmuxNextHomeModel
 
 /// One item of a Home menu: a catalog action with the registry's own title and the arguments it
 /// runs with. The native list's row menu and the React Messages page (`cmux.home.messages.menu`)

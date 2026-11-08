@@ -117,6 +117,31 @@ import Testing
         #expect(chrome.showsCookieImportOffer, "the offer left with the switch and never came back")
     }
 
+    /// The cookie import card waits clear until its page measured itself: the overlay host shows what
+    /// it presents at full opacity, and a present (the first, or again after a tab switch) kept that.
+    @Test func aCookieOfferStaysClearUntilItsPageMeasuredItself() async {
+        let t = Self.tab("t.example"), u = Self.tab("u.example")
+        let stateT = BrowserChromeTabState(), stateU = BrowserChromeTabState()
+        let pane = BrowserPaneChrome()
+        let chrome = pane.bind(t, state: stateT)
+        let window = Self.window(chrome)
+        defer {
+            window.close()
+            pane.drop()
+            t.close()
+            u.close()
+        }
+        let offer = BrowserCookieImportOffer(icons: [], title: "Import", detail: "", importTitle: "Import", notNowTitle: "Not now")
+        chrome.showCookieImportOffer(offer) { _ in }
+        let card = chrome.currentCookieImportCard
+        #expect(card?.superview != nil, "the card was not presented")
+        #expect(card?.alphaValue == 0, "the empty card showed before its page measured it")
+        pane.bind(u, state: stateU)
+        pane.bind(t, state: stateT)
+        #expect(card?.superview != nil, "the card did not come back with its tab")
+        #expect(card?.alphaValue == 0, "presenting the card again showed it before its page measured it")
+    }
+
     /// History is the tab's, not the toolbar's (Chrome's HistoryTabHelper): a tab that never shows, or loads while
     /// another tab of the pane shows, records its visits and finished loads then, and a later show records none again.
     @Test func aHiddenTabRecordsItsVisitsAndFinishedLoads() async {

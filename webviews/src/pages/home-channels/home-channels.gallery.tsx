@@ -346,7 +346,9 @@ export default componentEntry<Props>({
       },
     },
     "switcher-filtered": {
-      note: "The palette ranks conversations, threads and actions with the palette ranker as you type.",
+      // The mock provider answers `cmux.home.paletteRank` with the fixture ranker (paletteRank.ts: a
+      // case-insensitive substring filter in row order); in the app the daemon's palette.rank ranks.
+      note: "The palette filters conversations, threads and actions as you type (the fixture ranker here; the daemon ranks in the app).",
       props: { select: "c-release" },
       checks: {
         longFrameFailMs: openFrame,

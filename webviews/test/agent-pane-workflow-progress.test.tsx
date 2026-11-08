@@ -189,6 +189,10 @@ for (const producer of [false, true])
     }
   });
 
+/// A workflow's progress: on its line, or, for a lone item, on the folded hat's header (SubagentTray.tsx
+/// LoneProgress), where the line is not drawn until the hat opens.
+const PROGRESS = ".acpmux-agent-line__progress, .acpmux-running-tray__stats";
+
 test("bridge repopulates progress when switching sessions", async () => {
   configureSubagentTray(true);
   (dom.window as unknown as { webkit: unknown }).webkit = {
@@ -211,9 +215,9 @@ test("bridge repopulates progress when switching sessions", async () => {
     const second = { ...agents[0]!, id: "workflow-session-b", tokens: 84_000, agents: { started: 3, done: 2 } };
     await mountApp(root);
     await act(async () => receive(snapshot([first], [], "gallery-session-a")));
-    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toBe("1/3 agents");
+    expect(dom.window.document.querySelector(PROGRESS)?.textContent).toBe("1/3 agents");
     await act(async () => receive(snapshot([second], [], "gallery-session-b")));
-    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toBe("2/3 agents");
+    expect(dom.window.document.querySelector(PROGRESS)?.textContent).toBe("2/3 agents");
   } finally {
     await act(async () => root.unmount());
   }
@@ -242,7 +246,7 @@ test("versioned bridge snapshots retain progress when an unrelated snapshot omit
     ...snapshot(items, changed),
     subagentStructureVersion: 1,
   });
-  const progress = () => dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent;
+  const progress = () => dom.window.document.querySelector(PROGRESS)?.textContent;
   try {
     await mountApp(root);
     await act(async () => receive(versioned([first])));
@@ -278,9 +282,9 @@ test("compatibility snapshots without a progress delta refresh the row from its 
     const updated = { ...first, tokens: 84_000, agents: { started: 3, done: 2 } };
     await mountApp(root);
     await act(async () => receive(snapshot([first], [], "compatibility-session")));
-    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toBe("1/3 agents");
+    expect(dom.window.document.querySelector(PROGRESS)?.textContent).toBe("1/3 agents");
     await act(async () => receive(snapshot([updated], [], "compatibility-session")));
-    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toBe("2/3 agents");
+    expect(dom.window.document.querySelector(PROGRESS)?.textContent).toBe("2/3 agents");
   } finally {
     await act(async () => root.unmount());
   }

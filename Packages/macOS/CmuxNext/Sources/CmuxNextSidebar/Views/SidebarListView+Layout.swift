@@ -105,15 +105,22 @@ extension SidebarListViewComponents {
         }
         o.blockHeights = blockHeights(includeGap: includeGap)
         o.collapsedDocSections = Set(model.collapsedLayoutSections.map(\.rawValue))
+        // A drag's start moves no row: a section the drag empties keeps a drop zone in the dragged rows' place, and an
+        // empty one opens its zone only as the drag reaches it (`SidebarEmptyZones`).
         if let blocks, let moving = shownDrag?.docItems.map(Set.init) {
-            o.emptyDocSections = Set(blocks.sections.filter { $0.value.items.allSatisfy { moving.contains($0.id.rawValue) } }.keys)
+            o.emptyDocSections = Set(blocks.sections.filter { !$0.value.items.isEmpty && $0.value.items.allSatisfy { moving.contains($0.id.rawValue) } }.keys)
+            // Only an empty section (or one the drag empties) opens a zone: one that keeps items takes the drop among them.
+            if let open = shownDrag?.openZone, blocks.sections[open]?.items.allSatisfy({ moving.contains($0.id.rawValue) }) ?? true {
+                o.emptyDocSections.insert(open)
+            }
         }
         guard let drag = shownDrag else { return o }
-        if drag.docItems != nil { o.showEmptyPinned = true } // an empty Pinned takes a drop on the document
+        o.showEmptyPinned = drag.keepsPinned || drag.openZone == SidebarDocStore.pinnedSection
+        if drag.docItems != nil { o.dragClosesArchive = true }
         switch drag.payload {
         case let .workspaces(ids):
             o.excludedWorkspaces.formUnion(ids)
-            o.showEmptyPinned = true
+            o.dragClosesArchive = true
             // A drag that carries a Done row draws unfolded: the fold would move it out of the slot or add a fold row.
             if SidebarLayout.dragUnfolds(ids.compactMap { model.workspace($0) }, options: o) { (o.foldsDone, o.foldsArchived, o.archiveSection) = (false, false, false) }
         case let .group(group):
@@ -594,6 +601,7 @@ extension SidebarListViewComponents {
             rowViews[row.key] = view
         }
         pruneOffscreen()
+        showLinesInView()
         // What responsive scrolling may count as drawn: the rows just realized, never more (`prepareContent(in:)`).
         if !realize.isNull, preparedContentRect != realize { preparedContentRect = realize }
         let followed = hoverFollowsScroll

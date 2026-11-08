@@ -322,3 +322,35 @@ fn the_history_page_relay_hears_a_closed_workspace_as_history_changed() {
     let refused = channels.send(&json!({"id": 2, "cmd": "subscribe"}));
     assert_eq!(refused["error_code"], "origin.forbidden", "{refused}");
 }
+
+/// The Stashed Tabs page: its relay reads `stash.list`, may import OneTab
+/// text only with the person's gesture, never reads history, and hears a
+/// stash change another client makes (`stash-changed`) and nothing else.
+#[test]
+fn the_stash_page_relay_lists_stashes_and_hears_stash_changed() {
+    let fixture = Fixture::new("stash");
+    fixture.ensure(HISTORY_ORIGIN);
+    let mut relay = fixture.unix();
+    let hello =
+        relay.send(&json!({"id": 1, "cmd": "client-hello", "role": "page_relay", "page": "stash"}));
+    assert_eq!(hello["ok"], true, "{hello}");
+    assert_eq!(hello["data"]["page_events"], json!(["stash-changed"]), "{hello}");
+    let list = v2("list", "stash.list", json!({}), None);
+    assert_eq!(relay.send(&list)["ok"], true);
+    let groups = json!({"source": "onetab", "groups": [{"tabs": [{"url": "https://a.example/"}]}]});
+    let refused = relay.send(&v2("import", "stash.import", groups.clone(), Some("pr-stash-1")));
+    assert_eq!(refusal_reason(&refused), "gesture_required");
+    let history = relay.send(&v2("history", "history.entries.list", json!({}), None));
+    assert_eq!(refusal_reason(&history), "page_not_allowed");
+    let subscribed = relay.send(&json!({"id": 2, "cmd": "subscribe"}));
+    assert_eq!(subscribed["ok"], true, "{subscribed}");
+
+    // Another client (the CLI, a window's Save and Close) stashes pages.
+    let mut main = fixture.unix();
+    let imported = main.send(&v2("import", "stash.import", groups, Some("pr-stash-2")));
+    assert_eq!(imported["ok"], true, "{imported}");
+    let event = relay.event();
+    assert_eq!(event["event"], "stash-changed", "{event}");
+    let read = relay.send(&list);
+    assert_eq!(read["result"].as_array().map(Vec::len), Some(1), "{read}");
+}

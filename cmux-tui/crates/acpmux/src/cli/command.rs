@@ -276,6 +276,8 @@ pub enum Command {
         class: Option<String>,
         #[command(flatten)]
         inbox: SendThread,
+        #[command(flatten)]
+        relay: SendRelay,
         /// Send this file with the message (repeatable): an image reaches the agent and its
         /// transcript as an image, any other file as a link to its copy. Saved owner-only on the
         /// session's machine, a peer's too. Any size and number: large ones are uploaded first.
@@ -1137,6 +1139,23 @@ pub struct SendThread {
     /// named (default: your messages about the PR its first line names, else all yours).
     #[arg(long, value_name = "THREAD", conflicts_with = "pr")]
     pub thread: Option<String>,
+}
+
+/// `acpmux send --relay NAME --relayed-from MACHINE[/SESSION]`: a relay's word on where the
+/// message it carries came from (`_meta.acpmux.fromRelay`, `prompt_provenance::FROM_RELAY`). The
+/// daemon takes it only from a send run outside any acpmux session on its own machine (the
+/// lane-gh broker's); an agent's send drops it, and its sender reads as self-declared.
+#[derive(Args, Default)]
+pub struct SendRelay {
+    /// The relay carrying the message, as it names itself (`lane-gh`).
+    #[arg(long, value_name = "NAME", requires = "relayed_from")]
+    pub relay: Option<String>,
+    /// The machine the relay took the message from, and its session there.
+    #[arg(long, value_name = "MACHINE[/SESSION]", requires = "relay")]
+    pub relayed_from: Option<String>,
+    /// That session's harness family (`claude`, `codex`, `gemini`, ...), in the machine's word.
+    #[arg(long, value_name = "FAMILY", requires = "relay")]
+    pub relayed_harness: Option<String>,
 }
 
 /// `acpmux session inbox NAME`'s flags.

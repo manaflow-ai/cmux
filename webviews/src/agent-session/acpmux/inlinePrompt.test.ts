@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { inlineToken, type ComposerAttachment } from "./attachments";
 import type { AcpmuxRow, QueuedPrompt } from "./model";
-import { takeBackSteer } from "./conversation/PendingSteer";
+import { takeBackSteer } from "./conversation/pendingSteerModel";
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
 const saved = { window: scope.window, document: scope.document };
