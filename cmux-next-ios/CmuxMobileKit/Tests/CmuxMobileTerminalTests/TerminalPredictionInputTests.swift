@@ -45,7 +45,10 @@ import UIKit
             let wait = roundTrip
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: wait) // test: the link's round trip
-                self?.write(bytes)
+                // Not once the test stopped echoes: nothing reaches a
+                // screen after its test (`TerminalScreenTestLock`).
+                guard let self, echoes else { return }
+                write(bytes)
             }
         }
 
@@ -60,11 +63,18 @@ import UIKit
         }
     }
 
+    @MainActor
     struct Screen {
         let screen: TerminalViewController
         let session: EchoSession
         let window: UIWindow
         let prediction: TerminalSurfacePrediction
+
+        func close() {
+            session.echoes = false
+            window.isHidden = true
+            window.rootViewController = nil
+        }
     }
 
     static func waitUntil(_ seconds: Double, _ condition: () -> Bool) async throws {
@@ -108,8 +118,10 @@ import UIKit
 
     @Test func ghosttysOwnWritesLeavePredictionAlone() async throws {
         // A program that asked for mouse reports: a tap is a click it reads.
+        await TerminalScreenTestLock.acquire()
+        defer { TerminalScreenTestLock.release() }
         let screen = try await Self.makeScreen(setup: "\u{1B}[?1000h")
-        defer { screen.window.isHidden = true }
+        defer { screen.close() }
         try await Self.engage(screen)
         try #require(screen.prediction.drawnLayout != nil, "nothing drawn to keep")
         screen.session.echoes = false
@@ -128,8 +140,10 @@ import UIKit
     }
 
     @Test func aKeyTypedWhileTheLinkIsDownIsNotPredicted() async throws {
+        await TerminalScreenTestLock.acquire()
+        defer { TerminalScreenTestLock.release() }
         let screen = try await Self.makeScreen()
-        defer { screen.window.isHidden = true }
+        defer { screen.close() }
         try await Self.engage(screen)
         try #require(screen.prediction.drawnLayout != nil, "nothing drawn before the drop")
         screen.session.echoes = false
@@ -144,8 +158,10 @@ import UIKit
     }
 
     @Test func aKeyTheSessionRefusesIsNotPredicted() async throws {
+        await TerminalScreenTestLock.acquire()
+        defer { TerminalScreenTestLock.release() }
         let screen = try await Self.makeScreen()
-        defer { screen.window.isHidden = true }
+        defer { screen.close() }
         try await Self.engage(screen)
         try #require(screen.prediction.drawnLayout != nil, "nothing drawn before the refusal")
         screen.session.echoes = false
