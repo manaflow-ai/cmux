@@ -2,6 +2,7 @@
 // question, the note, why an Allow did not take, then Deny and Allow. Allow takes only a click: it
 // has no key, and the host takes it only from the person's own click on the card
 // (WebCardPanel.isPersonClick). Both buttons are off while a write is in flight.
+import { Spinner } from "../../../agent-session/acpmux/conversation/icons";
 import { DialogButton } from "../../../ui/DialogButton";
 import { cx } from "../../../ui/cx";
 import type { Strings } from "../../shared/i18n";
@@ -48,7 +49,7 @@ export function JoinConsentCard({ status, strings, layout = "stacked", onAnswer 
         )}
       </div>
       <footer className="server-card-footer">
-        {!view.enabled && <span className="server-card-spinner" aria-hidden="true" />}
+        {!view.enabled && <Spinner size={12} loading className="server-card-spinner" />}
         <span className="server-card-footer-gap" />
         <DialogButton
           dialogKey={null}

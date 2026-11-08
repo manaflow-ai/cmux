@@ -36,6 +36,12 @@ const POPUP_PAGES: Record<string, string[]> = {
     "pages/overlay/overlay.css",
     "pages/overlay/dialog/dialog.css",
   ],
+  // The server cards (Pair Another Machine, the join consent ask) on the panel's own glass (main.tsx).
+  "Packages/macOS/CmuxNext/Sources/CmuxNextPages/WebCard/WebCardPanel.swift": [
+    "pages/shared/pageBase.css",
+    "ui/ui.css",
+    "pages/server-cards/styles.css",
+  ],
   "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/GroupEditor/GroupEditorService.swift": [
     "pages/group-editor/styles.css",
   ],
