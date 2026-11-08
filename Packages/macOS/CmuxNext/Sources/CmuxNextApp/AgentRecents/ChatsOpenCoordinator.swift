@@ -133,7 +133,7 @@ final class ChatsOpenCoordinator {
         case .needsFolder(let reason):
             // The chat opens (in its new workspace) and says why it has no folder, with Choose
             // Folder there (cx-nn3e.1), never a bare Open panel.
-            let seed = AgentPaneSeed(folderNeeded: AgentPaneFolderNeeded(chat: key, reason: reason), pastChat: key)
+            let seed = AgentPaneSeed(folderNeeded: AgentPaneFolderNeeded(chat: key, reason: reason), pastChat: key, revealTurn: reveal)
             if let page, replace(page, with: seed) { return }
             createWorkspace(WorkspaceSpawn(name: title), seed: seed)
         case .reveal(let tab):

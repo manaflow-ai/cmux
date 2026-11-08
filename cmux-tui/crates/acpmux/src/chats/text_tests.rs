@@ -56,6 +56,9 @@ fn every_word_in_one_message_any_case_the_newest_message_is_the_hit() {
         &[turn("nan nan row nan", "row"), turn("x", "nan NaN nan row")],
     );
     assert_eq!(repeated.find(&words, &Matcher::new(&words)).map(|f| f.matches), Some(2));
+    // One word too: the scan goes on past the message it found.
+    let one = needle("nan");
+    assert_eq!(repeated.find(&one, &Matcher::new(&one)).map(|f| f.matches), Some(2));
     // Words split between a prompt and its answer are no match.
     let split = needle("sidebar nan");
     assert_eq!(doc.find(&split, &Matcher::new(&split)), None);

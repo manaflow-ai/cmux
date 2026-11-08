@@ -229,8 +229,10 @@ impl ChatText {
 
     /// Takes the text an earlier run saved; a missing, damaged or older copy is read past.
     pub fn load(&self) {
-        let Some(saved) = std::fs::read(&self.path)
+        // Not from a lost home (`config::mark_home_lost`): the copy there may be another daemon's.
+        let Some(saved) = crate::config::refuse_lost_home(&self.path)
             .ok()
+            .and_then(|()| std::fs::read(&self.path).ok())
             .and_then(|bytes| serde_json::from_slice::<Loaded>(&bytes).ok())
             .filter(|saved| saved.schema == SCHEMA)
         else {
@@ -365,8 +367,11 @@ impl ChatText {
     }
 }
 
-fn save(path: &Path, saved: &Saved) -> std::io::Result<()> {
-    cmux_chat_index::write_json_private(path, saved)
+/// Not under a lost home (`config::mark_home_lost`), as the chat index saves its own cache: the
+/// home there may be another daemon's now, and the text is user data.
+fn save(path: &Path, saved: &Saved) -> anyhow::Result<()> {
+    crate::config::refuse_lost_home(path)?;
+    Ok(cmux_chat_index::write_json_private(path, saved)?)
 }
 
 #[cfg(test)]
