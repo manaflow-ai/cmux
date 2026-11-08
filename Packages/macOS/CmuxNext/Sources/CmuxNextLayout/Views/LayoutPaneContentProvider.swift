@@ -65,6 +65,10 @@ final class LayoutViewContext {
     var userMotionStepped: () -> Void = {}
     /// A user gesture ended with nothing left to spring: the motion it started ends.
     var userMotionEnded: () -> Void = {}
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// A film zoom's motion ended (ZOOM VARIANTS 7): the window's divider catchers follow the layout now.
+    var filmMotionEnded: () -> Void = {}
+    #endif
     /// A pane's strip clip changed since the last overlay sync (`PaneHostView.setStripClip`): that sync tells the
     /// window once, with its divider lines, and its Chromium pages re-read their clips (`reportInteractiveRects`).
     var stripClipsChanged = false

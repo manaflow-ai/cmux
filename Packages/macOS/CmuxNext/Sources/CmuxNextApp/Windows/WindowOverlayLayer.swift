@@ -268,7 +268,7 @@ final class WindowOverlayLayer {
         // A spring or a divider drag moves the dividers on every display frame or pointer event: the catcher panels
         // (one window move each) follow once, at the landing or release, which the root reports even when no rect
         // changes then (`isInLayoutMotion`). The pressed panel keeps the drag's events and cursor where it is.
-        let springing = planes.contains { ($0.home as? LayoutRootView)?.isInLayoutMotion == true }
+        let springing = planes.contains { ($0.home as? LayoutRootView)?.catchersWaitForLanding == true }
         if areas != catcherAreas, !springing {
             catcherAreas = areas
             syncCatchers()
@@ -312,7 +312,7 @@ final class WindowOverlayLayer {
             syncCatchers()
         }
         if placement == .overlayWindow { enforceOrder() }
-        if catchers.pagesMoved, !planes.contains(where: { ($0.home as? LayoutRootView)?.isInLayoutMotion == true }) { syncCatchers() }
+        if catchers.pagesMoved, !planes.contains(where: { ($0.home as? LayoutRootView)?.catchersWaitForLanding == true }) { syncCatchers() }
     }
 
     private func showPanel() {
