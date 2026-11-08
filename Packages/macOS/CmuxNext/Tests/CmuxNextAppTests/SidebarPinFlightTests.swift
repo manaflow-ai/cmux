@@ -135,6 +135,13 @@ struct SidebarPinFlightTests {
             }
         }
 
+        /// Why it shows or not at `time` (a failure's detail): attached, opacity, size and the view's type.
+        func describe(at time: CFTimeInterval) -> String {
+            let size = self.size.value(at: time)
+            let opacity = nodes.reduce(Float(1)) { $0 * $1.opacity(time) }
+            return "\(type(of: view)) attached \(attached) size \(size.x)x\(size.y) exact \(self.size.isExact) opacity \(opacity)"
+        }
+
         /// Its frame in the list and its opacity at `time`, clipped by the containers that clip; nil when nothing shows.
         func shown(at time: CFTimeInterval) -> (frame: CGRect, opacity: Float)? {
             guard attached else { return nil }
@@ -191,7 +198,8 @@ struct SidebarPinFlightTests {
     static func one(_ probes: [Probe], at time: CFTimeInterval) -> Result<CGRect, Failure> {
         let shown = probes.compactMap { $0.shown(at: time) }
         guard shown.count == 1 else {
-            return .failure(Failure(text: "\(shown.count) copies show: \(shown.map { "\($0.frame) at \($0.opacity)" })"))
+            return .failure(Failure(text: "\(shown.count) copies show: \(shown.map { "\($0.frame) at \($0.opacity)" }) of "
+                + "\(probes.map { $0.describe(at: time) })"))
         }
         return .success(shown[0].frame)
     }
