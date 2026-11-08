@@ -665,6 +665,31 @@ export function scrollEdges(box: { scrollTop: number; clientHeight: number; scro
   };
 }
 
+/** On a sideways scroller (a wide table, an unwrapped code box) while content lies past its left
+    edge (it was scrolled) or its right edge. The stylesheet fades that edge out with a mask, so the
+    fade takes whatever background the box sits on, light or dark (user 2026-11-07: "markdown
+    missing fade now"). */
+export const MORE_LEFT_ATTRIBUTE = "data-more-left";
+export const MORE_RIGHT_ATTRIBUTE = "data-more-right";
+
+/** Which side edges of a scroller have content past them (a half pixel of slack for zoomed pages). */
+export function sidewaysEdges(box: { scrollLeft: number; clientWidth: number; scrollWidth: number }): {
+  left: boolean;
+  right: boolean;
+} {
+  return {
+    left: box.scrollLeft > 0.5,
+    right: box.scrollLeft + box.clientWidth < box.scrollWidth - 0.5,
+  };
+}
+
+/** Sets `MORE_LEFT_ATTRIBUTE` and `MORE_RIGHT_ATTRIBUTE` on `box` from where it is scrolled now. */
+export function markSidewaysEdges(box: Element): void {
+  const edges = sidewaysEdges(box);
+  if (box.hasAttribute(MORE_LEFT_ATTRIBUTE) !== edges.left) box.toggleAttribute(MORE_LEFT_ATTRIBUTE, edges.left);
+  if (box.hasAttribute(MORE_RIGHT_ATTRIBUTE) !== edges.right) box.toggleAttribute(MORE_RIGHT_ATTRIBUTE, edges.right);
+}
+
 /**
  * Keeps `MORE_ABOVE_ATTRIBUTE` and `MORE_BELOW_ATTRIBUTE` on `element` current: now, on every
  * scroll and whenever it or its content changes size. The fades they turn on have no transition:

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 612,
+  "count": 613,
   "sections": [
     {
       "id": "general",
@@ -6596,6 +6596,14 @@
       "id": "advanced",
       "title": "Advanced",
       "rows": [
+        {
+          "key": "developerTools.appPages",
+          "title": "Developer Tools for cmux Pages",
+          "help": "Inspect Element in the right-click menu and Toggle Developer Tools (⌥⌘I) work in agent chats, Home, Markdown and Settings. Browser tabs always have them.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Developer Tools"
+        },
         {
           "key": "labs.liveCode",
           "title": "Live Code",
