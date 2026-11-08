@@ -2175,6 +2175,262 @@
   "breaks": true
  },
  {
+  "name": "_acpmux/plan/fanout model with a command substitution",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/fanout",
+   "params": {
+    "sessionId": "s",
+    "prompt": "Add a NOTICE",
+    "variants": [
+     {
+      "harness": "claude",
+      "model": "m$(touch /tmp/pwn)"
+     },
+     {
+      "harness": "codex"
+     }
+    ],
+    "_meta": {
+     "cmuxGesture": "t"
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/plan/fanout model with backticks",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/fanout",
+   "params": {
+    "sessionId": "s",
+    "prompt": "Add a NOTICE",
+    "variants": [
+     {
+      "harness": "claude",
+      "model": "m`id`"
+     },
+     {
+      "harness": "codex"
+     }
+    ],
+    "_meta": {
+     "cmuxGesture": "t"
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/plan/fanout model with a semicolon",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/fanout",
+   "params": {
+    "sessionId": "s",
+    "prompt": "Add a NOTICE",
+    "variants": [
+     {
+      "harness": "claude",
+      "model": "m;id"
+     },
+     {
+      "harness": "codex"
+     }
+    ],
+    "_meta": {
+     "cmuxGesture": "t"
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/plan/fanout model with a space",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/fanout",
+   "params": {
+    "sessionId": "s",
+    "prompt": "Add a NOTICE",
+    "variants": [
+     {
+      "harness": "claude",
+      "model": "claude opus"
+     },
+     {
+      "harness": "codex"
+     }
+    ],
+    "_meta": {
+     "cmuxGesture": "t"
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/plan/fanout model with a newline",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/fanout",
+   "params": {
+    "sessionId": "s",
+    "prompt": "Add a NOTICE",
+    "variants": [
+     {
+      "harness": "claude",
+      "model": "m\nid"
+     },
+     {
+      "harness": "codex"
+     }
+    ],
+    "_meta": {
+     "cmuxGesture": "t"
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/plan/fanout model as a flag",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/fanout",
+   "params": {
+    "sessionId": "s",
+    "prompt": "Add a NOTICE",
+    "variants": [
+     {
+      "harness": "claude",
+      "model": "--dangerously-skip-permissions"
+     },
+     {
+      "harness": "codex"
+     }
+    ],
+    "_meta": {
+     "cmuxGesture": "t"
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/plan/fanout effort with a command substitution",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/fanout",
+   "params": {
+    "sessionId": "s",
+    "prompt": "Add a NOTICE",
+    "variants": [
+     {
+      "harness": "codex",
+      "effort": "$(id)"
+     },
+     {
+      "harness": "codex"
+     }
+    ],
+    "_meta": {
+     "cmuxGesture": "t"
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/plan/fanout harness with a semicolon",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/fanout",
+   "params": {
+    "sessionId": "s",
+    "prompt": "Add a NOTICE",
+    "variants": [
+     {
+      "harness": "claude;id"
+     },
+     {
+      "harness": "codex"
+     }
+    ],
+    "_meta": {
+     "cmuxGesture": "t"
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/plan/fanout model not a string",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/fanout",
+   "params": {
+    "sessionId": "s",
+    "prompt": "Add a NOTICE",
+    "variants": [
+     {
+      "harness": "claude",
+      "model": 1
+     },
+     {
+      "harness": "codex"
+     }
+    ],
+    "_meta": {
+     "cmuxGesture": "t"
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/plan/fanout variant not an object",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/fanout",
+   "params": {
+    "sessionId": "s",
+    "prompt": "Add a NOTICE",
+    "variants": [
+     "claude",
+     {
+      "harness": "codex"
+     }
+    ],
+    "_meta": {
+     "cmuxGesture": "t"
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
   "name": "_acpmux/plan/keep removing the others",
   "frame": {
    "jsonrpc": "2.0",

@@ -321,6 +321,32 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
         )
         .await;
     assert!(many.get("error").is_some(), "at most four: {many}");
+    // A run's harness, model and effort are spawn parameters (`${model}` in a harness's argv):
+    // one id each, refused before any run starts, as `session/new` refuses them.
+    let chats = app.ok("_acpmux/sessions", json!({})).await["sessions"].as_array().unwrap().len();
+    for bad in [
+        json!({"harness": "fake", "model": "m$(touch /tmp/pwn)"}),
+        json!({"harness": "fake", "model": "m`id`"}),
+        json!({"harness": "fake", "model": "m;id"}),
+        json!({"harness": "fake", "model": "claude opus"}),
+        json!({"harness": "fake", "model": "m\nid"}),
+        json!({"harness": "fake", "model": "--dangerously-skip-permissions"}),
+        json!({"harness": "fake", "effort": "$(id)"}),
+        json!({"harness": "fake;id"}),
+        json!({"harness": "fake", "model": 1}),
+    ] {
+        // The bad run is the last, so a check made run by run would start the first.
+        let variants = json!([{"harness": "fake"}, bad]);
+        let r = app
+            .call(
+                "_acpmux/plan/fanout",
+                json!({"sessionId": chat, "prompt": "Add a NOTICE", "variants": variants}),
+            )
+            .await;
+        assert!(r.get("error").is_some(), "{bad} is refused: {r}");
+    }
+    let after = app.ok("_acpmux/sessions", json!({})).await["sessions"].as_array().unwrap().len();
+    assert_eq!(after, chats, "a refused fan-out starts no chat");
     let four: Vec<Value> = (0..4).map(|_| json!({"harness": "fake"})).collect();
     let ran = app
         .ok(

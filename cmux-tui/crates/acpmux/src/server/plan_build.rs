@@ -24,6 +24,7 @@ use super::{Conn, str_param};
 use crate::hub::Hub;
 use crate::hub::plan_build::{self, Target, Variant};
 use crate::rpc::{RpcError, method};
+use cmux_agent_pane_policy::params::is_model_id;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -73,19 +74,27 @@ fn variants(params: &Value) -> Result<Vec<Variant>, RpcError> {
     if !(2..=plan_build::MAX_RUNS).contains(&list.len()) {
         return Err(bad());
     }
-    let text = |v: &Value, key: &str| {
-        v.get(key)
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|t| !t.is_empty())
-            .map(str::to_owned)
+    // Each is a spawn parameter (`--model`, `${model}` in a harness's argv or env): one id, the
+    // rule a start's model keeps (`is_model_id`), checked on every run before any starts.
+    let id = |v: &Value, key: &str| -> Result<Option<String>, RpcError> {
+        match v.get(key) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(t)) if t.is_empty() => Ok(None),
+            Some(t) if is_model_id(t) => Ok(t.as_str().map(str::to_owned)),
+            Some(_) => Err(RpcError::invalid_params(format!(
+                "a run's {key} must be one id: letters, digits and ._-/:@[]+"
+            ))),
+        }
     };
     list.iter()
         .map(|v| {
+            if !v.is_object() {
+                return Err(bad());
+            }
             Ok(Variant {
-                harness: text(v, "harness").ok_or_else(bad)?,
-                model: text(v, "model"),
-                effort: text(v, "effort"),
+                harness: id(v, "harness")?.ok_or_else(bad)?,
+                model: id(v, "model")?,
+                effort: id(v, "effort")?,
             })
         })
         .collect()

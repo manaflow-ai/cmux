@@ -60,6 +60,22 @@ struct AgentPanePlanFanoutRelayTests {
         #expect(pane.server.peers.first?.frames.contains { $0.contains("_acpmux/plan/fanout") } == false)
     }
 
+    /// A run's model reaches a harness's argv (`${model}`): one id, as a start's model is, even on
+    /// the person's own ticket for it (cmux#38503 review: `m$(touch /tmp/pwn)`).
+    @Test(arguments: ["m$(touch /tmp/pwn)", "m`id`", "m;id", "claude opus", "m\nid", "--yolo"])
+    func aRunWhoseModelIsNotOneIdNeverReachesAcpmux(model: String) async throws {
+        let pane = try await Self.paneWithChat()
+        defer { pane.server.stop(); try? FileManager.default.removeItem(atPath: pane.folder) }
+
+        let variants: [[String: Any]] = [["harness": "claude", "model": model], ["harness": "codex"]]
+        pane.transport.gestures.record(click: true)
+        // Refused when the ticket is made or when the run is sent: either way it never goes.
+        let ticket = pane.transport.reserveGesture(try Self.intent(prompt: "Add a NOTICE", variants: variants))
+        let frame = try Self.fanout(id: 2, prompt: "Add a NOTICE", variants: variants, ticket: ticket ?? "t")
+        #expect(await pane.transport.send(connection: pane.id, frames: [frame]) != nil)
+        #expect(pane.server.peers.first?.frames.contains { $0.contains("_acpmux/plan/fanout") } == false)
+    }
+
     @Test func aRunWithNoGestureOfThePersonsIsRefused() async throws {
         let pane = try await Self.paneWithChat()
         defer { pane.server.stop(); try? FileManager.default.removeItem(atPath: pane.folder) }

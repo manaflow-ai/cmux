@@ -187,6 +187,17 @@ nonisolated extension AcpmuxPaneMethods {
         let setting = settingMethods.contains(method)
         let denied = setting ? [] : modeFields ?? []
         if params.keys.contains(where: denied.contains) { return true }
+        // A run's harness, model and effort are spawn parameters, as a start's model is: each one
+        // id (``isModelID(_:)``); the daemon refuses them too.
+        if method == "_acpmux/plan/fanout", let variants = params["variants"] {
+            guard let list = variants as? [Any] else { return true }
+            for variant in list {
+                guard let fields = variant as? [String: Any] else { return true }
+                for key in ["harness", "model", "effort"] {
+                    if let id = fields[key], !(id is NSNull), !isModelID(id) { return true }
+                }
+            }
+        }
         guard let rawMeta = params["_meta"] else { return false }
         guard let meta = rawMeta as? [String: Any] else { return true }
         // A redeeming frame: R1 first (nothing but the ticket in _meta), then the gesture rule.
