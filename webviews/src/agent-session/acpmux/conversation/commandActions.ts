@@ -591,7 +591,9 @@ const GH: Record<string, Record<string, Rule>> = {
     // `--auto` only schedules the merge and `--disable-auto` cancels one: neither merged, so the line
     // stays. A merge that also deletes the branch or overrides the rules reads as its line too.
     merge: (args) =>
-      args.some((arg) => /^--(?:auto|disable-auto)(?:=|$)/.test(arg) || ["-d", "--delete-branch", "--admin"].includes(arg))
+      args.some(
+        (arg) => /^--(?:auto|disable-auto)(?:=|$)/.test(arg) || ["-d", "--delete-branch", "--admin"].includes(arg),
+      )
         ? undefined
         : target("command.gh.prMerge", "pr", ghTarget(args)),
     create: () => ({ key: "command.gh.prCreate" }),

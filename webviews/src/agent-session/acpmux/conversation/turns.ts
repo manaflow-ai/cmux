@@ -26,7 +26,7 @@ import { STARTED_SESSIONS } from "../started/startedSessions";
 import { QUESTION_RECORD } from "../question/record";
 import { chosenAnswer, nextStepAsk, pickedAnswer } from "./nextStepAsk";
 import { lastWrapUp, withoutWrapUp } from "./wrapUp";
-import { currentLanguage, translatorFor, type Translate } from "../i18n";
+import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { scriptNoun } from "./commandActions";
