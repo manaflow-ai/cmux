@@ -6686,6 +6686,19 @@
         {
           "keys" : [
             {
+              "key" : "",
+              "modifiers" : [
+                "ctrl",
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "!codeEditorFocused"
+        },
+        {
+          "keys" : [
+            {
               "key" : "]",
               "modifiers" : [
                 "opt",
@@ -6698,7 +6711,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "",
+        "key" : "l",
         "modifiers" : [
           "ctrl",
           "opt",
@@ -6735,6 +6748,19 @@
         {
           "keys" : [
             {
+              "key" : "",
+              "modifiers" : [
+                "ctrl",
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "!codeEditorFocused"
+        },
+        {
+          "keys" : [
+            {
               "key" : "[",
               "modifiers" : [
                 "opt",
@@ -6747,7 +6773,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "",
+        "key" : "h",
         "modifiers" : [
           "ctrl",
           "opt",
