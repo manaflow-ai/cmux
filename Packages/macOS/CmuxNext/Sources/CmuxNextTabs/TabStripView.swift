@@ -140,6 +140,9 @@ public final class TabStripView: NSView {
     var slotIndexCache: TabSlotIndex?
     /// The strip moves whose Core Animation transaction has not completed (`applyFrames`, `moveEnded`).
     var movesInFlight: Set<Int> = []
+    /// Tabs pinned or unpinned whose move is in flight: they draw above both regions, unclipped by the pinned band's
+    /// edge, until every strip move ends (`TabStripView+PinMotion`).
+    var pinFlights: Set<TabID> = []
     /// Work waiting for every strip move to end (``whenStill(_:)``).
     var stillWaiters: [@MainActor () -> Void] = []
     /// Passes over every cell, by kind (`occlusion`, `separators`, `frames`): what a change cost, for

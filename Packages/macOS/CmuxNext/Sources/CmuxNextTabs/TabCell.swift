@@ -77,6 +77,9 @@ final class TabCell {
     var innerPath: InnerPath?
     /// The title's geometry of the last `layoutParts(onPath: true)` sample; nil when it hides there.
     var pathTitle: TitleFade.Sample?
+    /// The form the tab showed when it was pinned or unpinned, until the strip's move of its width takes its parts
+    /// from that look to the new one on the width's progress (`TabCell+InnerPath`, `retimeInner`).
+    var pinStartForm: TabChromeVisibility?
     /// Created on the first occlusion (`occlude(visible:)`).
     private(set) var occlusionMaskIfMade: CALayer?
     var occlusionMask: CALayer {
@@ -192,6 +195,8 @@ final class TabCell {
         isClosing = false // a tab the model still lists is not closing
         guard newItem != item else { return }
         let previous = item
+        // A pin or an unpin: the look it shows now is where the width's move starts the parts from.
+        if previous.isPinned != newItem.isPinned { pinStartForm = pinStartForm ?? visibility }
         item = newItem
         applyItem(previous: previous)
     }
