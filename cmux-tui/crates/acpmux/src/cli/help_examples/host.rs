@@ -175,6 +175,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         )],
     ),
     (
+        "machine tunnel rekey",
+        &[(
+            "Ask for a new WireGuard key for this Mac; a shell is refused",
+            "printf '%s\\n' \"$TOKEN\" | acpmux machine tunnel rekey",
+        )],
+    ),
+    (
         "machine leave",
         &[
             ("Revoke this joined machine and remove its join state", "acpmux machine leave"),

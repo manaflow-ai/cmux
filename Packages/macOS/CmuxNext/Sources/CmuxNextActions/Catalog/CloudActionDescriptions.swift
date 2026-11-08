@@ -133,7 +133,8 @@ nonisolated enum CloudActionDescriptions {
             argument: --arg path=<network id>. Returns no fields.
             """,
         "cloudTunnelRotateKey": """
-            Replaces the client public key of this Mac's Cloud tunnel with --public-key. Returns no fields.
+            Gives this Mac a new WireGuard key for its Cloud tunnel: the agent daemon makes the key, registers it, \
+            then uses it. Returns no fields.
             """,
         "cloudNetworkList": """
             Lists the account's Cloud networks and returns count and text with one line per network: its \

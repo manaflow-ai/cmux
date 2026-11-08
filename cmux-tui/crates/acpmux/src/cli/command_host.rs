@@ -117,7 +117,7 @@ pub enum PeerCmd {
         #[command(subcommand)]
         cmd: ConsentCmd,
     },
-    /// This Mac's Cloud tunnel on the team mesh, through the daemon: attach, detach.
+    /// This Mac's Cloud tunnel on the team mesh, through the daemon: attach, detach, rekey.
     /// The daemon takes them only from the cmux app (its person proof), with the person's
     /// cmux access token on stdin; a shell or agent is refused.
     Tunnel {
@@ -369,6 +369,8 @@ pub enum TunnelCmd {
         #[arg(long, value_name = "ID")]
         network: Option<String>,
     },
+    /// Give this Mac a new WireGuard key (in the process that holds the key).
+    Rekey,
 }
 
 #[derive(Subcommand)]

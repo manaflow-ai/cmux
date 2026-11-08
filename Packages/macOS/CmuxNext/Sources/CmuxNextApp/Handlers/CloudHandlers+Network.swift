@@ -18,8 +18,7 @@ extension CloudHandlers {
             runTracked("detach Cloud tunnel network", context) { try await AcpmuxCloudTunnel(QuitAgents.environment(context.services), fallback: CloudStrings.tunnelDaemonUnavailable).run(.detach, token: cloud.auth.tokens().access, networkID: networkID) }
         }
         bind("cloudTunnelRotateKey", registry, reason: reason) { invocation in
-            guard let key = invocation["publicKey"]?.stringValue else { throw ActionFailure(message: CloudStrings.tunnelKeyRequired) }
-            runTracked("rotate Cloud tunnel key", context) { _ = try await cloud.api.rotateTunnelKey(deviceFingerprint: cloud.installIDs.backend.loadNow(), publicKey: key) }
+            runTracked("rotate Cloud tunnel key", context) { try await AcpmuxCloudTunnel(QuitAgents.environment(context.services), fallback: CloudStrings.tunnelDaemonUnavailable).run(.rekey, token: cloud.auth.tokens().access) }
         }
         bind("cloudNetworkList", registry, reason: reason) { invocation in
             answer("list Cloud networks", invocation, context) {

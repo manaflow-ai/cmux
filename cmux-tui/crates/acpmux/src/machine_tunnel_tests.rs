@@ -3,7 +3,6 @@
 
 use super::*;
 use cmux_link::key_holder::KeyFile;
-use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Notify;
@@ -94,8 +93,131 @@ fn machine(origin: &str) -> Machine {
     Machine { id: "machine_1".into(), team: "team_1".into(), origin: origin.into() }
 }
 
+/// What the wg-key route answers when it takes the key: the record with the key it was sent.
+fn takes_the_key(seen: &Seen) -> (u16, Value) {
+    (200, json!({"machineId": "machine_1", "joinTokenId": "join_1", "teamId": "team_1",
+                 "wgPublicKey": seen.body["wgPublicKey"]}))
+}
+
 fn reason(error: &RpcError) -> &str {
     error.data.as_ref().and_then(|data| data["reason"].as_str()).unwrap_or_default()
+}
+
+fn public_of(dir: &Path) -> String {
+    crate::cli::mesh_node_key::load_or_create_at(dir).unwrap().public_key_b64()
+}
+
+#[tokio::test]
+async fn a_rekey_sends_the_new_key_before_it_replaces_the_key_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let old = public_of(dir.path());
+    let old_bytes = std::fs::read(KeyFile::Node.path_in(dir.path())).unwrap();
+    let platform = platform(dir.path().into(), None, takes_the_key).await;
+    let recorded = Mutex::new(None);
+    let rekeys = tokio::sync::Mutex::new(());
+    let answer = rekey_once(&rekeys, &machine(&platform.origin), dir.path(), None, TOKEN, |key| {
+        *recorded.lock().unwrap() = Some(key.to_owned());
+        Ok(())
+    })
+    .await
+    .unwrap();
+    let seen = platform.seen.lock().unwrap().clone();
+    assert_eq!(seen.len(), 1);
+    assert!(seen[0].line.starts_with("POST /v1/machines/credentials/machine_1/wg-key "));
+    assert!(seen[0].headers.contains(&format!("authorization: bearer {TOKEN}")));
+    assert!(seen[0].headers.contains("x-cmux-team: team_1"));
+    // The platform had the new key while the file still held the old one.
+    assert_eq!(seen[0].key_then.as_deref(), Some(old_bytes.as_slice()));
+    let new = seen[0].body["wgPublicKey"].as_str().unwrap().to_owned();
+    assert_ne!(new, old);
+    assert_eq!(public_of(dir.path()), new, "the key file holds the key the platform took");
+    assert_eq!(answer, json!({"machineId": "machine_1", "wgPublicKey": new, "restarted": false}));
+    assert_eq!(recorded.lock().unwrap().as_deref(), Some(new.as_str()));
+    assert!(!answer.to_string().contains(TOKEN));
+    assert!(KeyHolder::acquire(dir.path()).is_ok(), "the rekey kept the key lock");
+}
+
+#[tokio::test]
+async fn a_refused_rekey_leaves_the_key_file_as_it_was() {
+    for (status, code) in [(409, "machine.wg_key_in_use"), (403, "machine.revoked"), (503, "mesh.unavailable")] {
+        let dir = tempfile::tempdir().unwrap();
+        let old_bytes = {
+            public_of(dir.path());
+            std::fs::read(KeyFile::Node.path_in(dir.path())).unwrap()
+        };
+        let platform = platform(dir.path().into(), None, move |_| {
+            (status, json!({"_tag": "Refused", "code": code, "message": "no"}))
+        })
+        .await;
+        let rekeys = tokio::sync::Mutex::new(());
+        let error = rekey_once(&rekeys, &machine(&platform.origin), dir.path(), None, TOKEN, |_| {
+            panic!("a refused rekey records no key")
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(reason(&error), "platform");
+        let data = error.data.clone().unwrap();
+        assert_eq!(data["code"], code);
+        assert_eq!(data["status"], status);
+        assert_eq!(data["retryable"], status == 503);
+        assert_eq!(std::fs::read(KeyFile::Node.path_in(dir.path())).unwrap(), old_bytes);
+        assert!(!error.message.contains(TOKEN));
+    }
+}
+
+#[tokio::test]
+async fn a_platform_that_answers_another_key_changes_nothing_here() {
+    let dir = tempfile::tempdir().unwrap();
+    let old = public_of(dir.path());
+    let platform = platform(dir.path().into(), None, |_| {
+        (200, json!({"wgPublicKey": "mVS8z5lKoaFVnHkPXDVWTyIkp0ZB1Cj8DbpsGh+Ibhs="}))
+    })
+    .await;
+    let rekeys = tokio::sync::Mutex::new(());
+    let error = rekey_once(&rekeys, &machine(&platform.origin), dir.path(), None, TOKEN, |_| Ok(()))
+        .await
+        .unwrap_err();
+    assert_eq!(reason(&error), "platform");
+    assert_eq!(public_of(dir.path()), old);
+}
+
+#[tokio::test]
+async fn a_second_rekey_while_one_runs_is_busy() {
+    let dir = tempfile::tempdir().unwrap();
+    public_of(dir.path());
+    let hold = Arc::new(Notify::new());
+    let platform = platform(dir.path().into(), Some(hold.clone()), takes_the_key).await;
+    let target = machine(&platform.origin);
+    let rekeys = tokio::sync::Mutex::new(());
+    let first = rekey_once(&rekeys, &target, dir.path(), None, TOKEN, |_| Ok(()));
+    let second = async {
+        platform.arrived.notified().await;
+        let second = rekey_once(&rekeys, &target, dir.path(), None, TOKEN, |_| Ok(())).await;
+        hold.notify_one();
+        second
+    };
+    let (first, second) = tokio::join!(first, second);
+    assert!(first.is_ok(), "{first:?}");
+    assert_eq!(reason(&second.unwrap_err()), "busy");
+    assert_eq!(platform.seen.lock().unwrap().len(), 1, "the busy rekey sent nothing");
+}
+
+#[tokio::test]
+async fn a_key_lock_another_holder_has_is_refused_key_held() {
+    let dir = tempfile::tempdir().unwrap();
+    let old = public_of(dir.path());
+    let platform = platform(dir.path().into(), None, takes_the_key).await;
+    // Another holder (the link, say): this process's pid is the record.
+    let other = KeyHolder::acquire(dir.path()).unwrap();
+    let rekeys = tokio::sync::Mutex::new(());
+    let error = rekey_once(&rekeys, &machine(&platform.origin), dir.path(), None, TOKEN, |_| Ok(()))
+        .await
+        .unwrap_err();
+    assert_eq!(reason(&error), "key_held");
+    assert_eq!(error.data.unwrap()["holderPid"], std::process::id());
+    assert!(platform.seen.lock().unwrap().is_empty(), "a non-holder sent the platform nothing");
+    assert_eq!(public_of(dir.path()), old);
+    drop(other);
 }
 
 #[tokio::test]

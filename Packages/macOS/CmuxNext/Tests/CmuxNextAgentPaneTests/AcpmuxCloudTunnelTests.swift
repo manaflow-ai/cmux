@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// The Cloud tunnel palette commands (`cloudTunnelAttach`, `cloudTunnelDetach`) call this app's
-/// acpmux, never classic Cloud: each is one
+/// The Cloud tunnel palette commands (`cloudTunnelAttach`, `cloudTunnelDetach`,
+/// `cloudTunnelRotateKey`) call this app's acpmux, never classic Cloud: each is one
 /// `_acpmux/machine.tunnel.*` call on a person-proved line, with the person's token, and a line
 /// whose proof acpmux did not take never sees the token.
 @MainActor
@@ -37,17 +37,22 @@ struct AcpmuxCloudTunnelTests {
         let line = Line(isPerson: true)
         try await Self.tunnel(line).run(.attach, token: "person-token", networkID: "team_1")
         try await Self.tunnel(line).run(.detach, token: "person-token", networkID: "team_1")
-        #expect(line.calls.map(\.method) == ["_acpmux/machine.tunnel.attach", "_acpmux/machine.tunnel.detach"])
+        try await Self.tunnel(line).run(.rekey, token: "person-token", networkID: "team_1")
+        #expect(line.calls.map(\.method) == [
+            "_acpmux/machine.tunnel.attach", "_acpmux/machine.tunnel.detach", "_acpmux/machine.tunnel.rekey",
+        ])
         #expect(line.calls.allSatisfy { $0.params["token"] as? String == "person-token" })
         #expect(line.calls[0].params["networkId"] as? String == "team_1")
         #expect(line.calls[1].params["networkId"] as? String == "team_1")
+        // A rekey takes no key and no network: the daemon makes the key.
+        #expect(Set(line.calls[2].params.keys) == ["token"])
         #expect(line.closed)
     }
 
     @Test func aLineWithoutThePersonProofNeverSeesTheToken() async {
         let line = Line(isPerson: false)
         await #expect(throws: AcpmuxCloudTunnel.Refusal.self) {
-            try await Self.tunnel(line).run(.attach, token: "person-token")
+            try await Self.tunnel(line).run(.rekey, token: "person-token")
         }
         #expect(line.calls.isEmpty)
         #expect(line.closed)
@@ -57,12 +62,12 @@ struct AcpmuxCloudTunnelTests {
     }
 
     @Test func aRefusalSaysTheDaemonsOwnWords() async {
-        let line = Line(isPerson: true, reply: nil, lastError: "this Mac is not joined to a cmux team; add it first")
+        let line = Line(isPerson: true, reply: nil, lastError: "a rekey of this Mac's WireGuard key is already running")
         do {
-            try await Self.tunnel(line).run(.attach, token: "person-token")
-            Issue.record("a refused attach returned")
+            try await Self.tunnel(line).run(.rekey, token: "person-token")
+            Issue.record("a refused rekey returned")
         } catch {
-            #expect(error.localizedDescription == "this Mac is not joined to a cmux team; add it first")
+            #expect(error.localizedDescription == "a rekey of this Mac's WireGuard key is already running")
         }
         let silent = Line(isPerson: true, reply: nil)
         do {

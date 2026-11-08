@@ -1623,7 +1623,10 @@ async fn tunnel_platform() -> (String, std::sync::Arc<std::sync::Mutex<Vec<(Stri
             }
             let body: Value = serde_json::from_slice(&buffer[head_end..]).unwrap_or(Value::Null);
             let line = head.lines().next().unwrap_or_default().to_owned();
-            let reply = if line.contains("/v1/mesh/nodes/machine_test/") {
+            let reply = if line.contains("/wg-key ") {
+                json!({"machineId": "machine_test", "joinTokenId": "join_test", "teamId": "team_test",
+                       "wgPublicKey": body["wgPublicKey"]})
+            } else if line.contains("/v1/mesh/nodes/machine_test/") {
                 json!({"tunnel_id": "machine_test", "network_id": "team_test", "client_public_key": "k"})
             } else {
                 json!({"code": "test.unknown", "message": "not this test's route"})
@@ -1642,8 +1645,8 @@ async fn tunnel_platform() -> (String, std::sync::Arc<std::sync::Mutex<Vec<(Stri
 }
 
 /// The tunnel methods carry the person's cmux token: a shell on the unix socket is refused
-/// before anything reaches the platform; the app's person-proved connection attaches and
-/// detaches this Mac as the person.
+/// before anything reaches the platform; the app's person-proved connection attaches this Mac
+/// and rekeys it, and the key file then holds the key the platform took.
 #[tokio::test]
 async fn only_the_person_moves_this_macs_cloud_tunnel() {
     use std::os::unix::fs::PermissionsExt;
@@ -1655,7 +1658,7 @@ async fn only_the_person_moves_this_macs_cloud_tunnel() {
     let token = json!({"token": "person-token"});
     let mut shell = Rpc::connect(&daemon.socket).await;
     shell.initialize().await;
-    for method in ["_acpmux/machine.tunnel.attach", "_acpmux/machine.tunnel.detach"] {
+    for method in ["_acpmux/machine.tunnel.attach", "_acpmux/machine.tunnel.detach", "_acpmux/machine.tunnel.rekey"] {
         let refused = shell.call(method, token.clone()).await;
         assert_eq!(reason(&refused), REASON, "{method}: {refused}");
     }
@@ -1668,16 +1671,25 @@ async fn only_the_person_moves_this_macs_cloud_tunnel() {
         .ok("_acpmux/machine.tunnel.attach", json!({"token": "person-token", "networkId": "team_test"}))
         .await;
     assert_eq!(attached["tunnel_id"], "machine_test");
-    let detached = app.ok("_acpmux/machine.tunnel.detach", token.clone()).await;
-    assert_eq!(detached["tunnel_id"], "machine_test");
+    let rekeyed = app.ok("_acpmux/machine.tunnel.rekey", token.clone()).await;
+    let new_key = rekeyed["wgPublicKey"].as_str().unwrap().to_owned();
+    assert_eq!(rekeyed["restarted"], false, "no WireGuard transport runs in this daemon");
     let requests = seen.lock().unwrap().clone();
     assert_eq!(requests.len(), 2, "{requests:?}");
     assert!(requests[0].0.starts_with("post /v1/mesh/nodes/machine_test/attach "), "{}", requests[0].0);
-    assert!(requests[1].0.starts_with("post /v1/mesh/nodes/machine_test/detach "), "{}", requests[1].0);
+    assert!(requests[1].0.starts_with("post /v1/machines/credentials/machine_test/wg-key "), "{}", requests[1].0);
+    assert_eq!(requests[1].2["wgPublicKey"], new_key.as_str());
     for (_, headers, _) in &requests {
         assert!(headers.contains("authorization: bearer person-token"), "{headers}");
         assert!(headers.contains("x-cmux-team: team_test"), "{headers}");
     }
+    let key = std::fs::read(daemon.dir.join("node.wg.key")).unwrap();
+    let key: [u8; 32] = key.try_into().unwrap();
+    let public = x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from(key));
+    use base64::Engine as _;
+    assert_eq!(base64::engine::general_purpose::STANDARD.encode(public.to_bytes()), new_key);
+    let record: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(record["wgPublicKey"], new_key.as_str());
     assert!(!std::fs::read_to_string(&path).unwrap().contains("person-token"), "the token was stored");
 }
 

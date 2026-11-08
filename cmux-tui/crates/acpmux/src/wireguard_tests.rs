@@ -432,3 +432,47 @@ fn a_stop_delivers_what_the_listener_sent_before_the_tunnel_ends() {
         a.shutdown(tokio::time::Instant::now()).await;
     });
 }
+
+/// A rekey's restart (`machine_tunnel.rs`): the mesh comes back on the same UDP port with the
+/// new key. A peer that knows only the new key reaches this side after the restart, never before.
+#[test]
+fn a_restart_runs_the_mesh_with_the_new_key_on_the_same_port() {
+    runtime().block_on(async {
+        let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let homes = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
+        let b_key = crate::cli::mesh_node_key::load_or_create_at(homes[1].path()).unwrap();
+        crate::cli::mesh_node_key::load_or_create_at(homes[0].path()).unwrap();
+        let fresh = Zeroizing::new([42u8; 32]);
+        let fresh_public = base64::engine::general_purpose::STANDARD.encode(
+            x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from(*fresh)).to_bytes(),
+        );
+        let (a_socket, b_socket) =
+            (UdpSocket::bind("127.0.0.1:0").await.unwrap(), UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let a = StaticConfig { listen: a_socket.local_addr().unwrap(), address: "10.77.0.1:4100".parse().unwrap() };
+        let b = StaticConfig { listen: b_socket.local_addr().unwrap(), address: "10.77.0.2:4100".parse().unwrap() };
+        let a_peers = BTreeMap::from([("b".into(), peer(b_key.public_key_b64(), b.listen, b.address))]);
+        // b already knows a only by the key a gets in the rekey.
+        let b_peers = BTreeMap::from([("a".into(), peer(fresh_public, a.listen, a.address))]);
+        let a_lock = KeyHolder::acquire(homes[0].path()).unwrap();
+        let b_lock = KeyHolder::acquire(homes[1].path()).unwrap();
+        let target_addr = target.local_addr().unwrap();
+        let a_side = Transport::from_socket(&a, &a_peers, homes[0].path(), target_addr, a_socket, a_lock)
+            .await
+            .unwrap();
+        let b_side = Transport::from_socket(&b, &b_peers, homes[1].path(), target_addr, b_socket, b_lock)
+            .await
+            .unwrap();
+        let before =
+            tokio::time::timeout(Duration::from_secs(1), a_side.connect(a_side.route("b").unwrap())).await;
+        assert!(!matches!(before, Ok(Ok(_))), "b took a's old key");
+        let port = a_side.local_addr();
+        a_side.restart(fresh).await.unwrap();
+        assert_eq!(a_side.local_addr(), port);
+        assert!(a_side.with_key(|_| ()).is_some(), "the restart kept the key lock");
+        let after = tokio::time::timeout(BOUND, a_side.connect(a_side.route("b").unwrap())).await;
+        assert!(matches!(after, Ok(Ok(_))), "the restarted mesh did not reach b with the new key");
+        tokio::time::timeout(BOUND, target.accept()).await.unwrap().unwrap();
+        a_side.shutdown(tokio::time::Instant::now()).await;
+        b_side.shutdown(tokio::time::Instant::now()).await;
+    });
+}

@@ -387,7 +387,7 @@ pub static ACTIONS: &[Action] = &[
         id: "cloudTunnelRotateKey",
         group: GROUP,
         title: t("ActionCatalog", "action.cloudTunnelRotateKey", "Rotate Cloud Tunnel Key"),
-        description: Some("Replaces the client public key of this Mac's Cloud tunnel with --public-key. Returns no fields."),
+        description: Some("Gives this Mac a new WireGuard key for its Cloud tunnel: the agent daemon makes the key, registers it, then uses it. Returns no fields."),
         keywords: &["cloud", "tunnel", "key"],
         category: "cloud",
         symbol: "key",

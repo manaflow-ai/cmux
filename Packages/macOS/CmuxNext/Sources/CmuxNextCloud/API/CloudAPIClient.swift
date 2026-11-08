@@ -83,12 +83,6 @@ public struct CloudAPIClient: Sendable {
                        timeout: .seconds(100), as: CloudSCPEndpoint.self)
     }
 
-    // MARK: Tunnel
-
-    public func rotateTunnelKey(deviceFingerprint: String, publicKey: String, tunnelPurpose: String = "browser") async throws -> CloudTunnelNetworkMutation {
-        try await send("POST", "/api/vm/tunnel/network/rotate-key", body: ["deviceFingerprint": deviceFingerprint, "clientPublicKey": publicKey, "tunnelPurpose": tunnelPurpose], timeout: .seconds(60), as: CloudTunnelNetworkMutation.self)
-    }
-
     public func listFirewallRules(vpcID: String? = nil, vmID: String? = nil, tunnelID: String? = nil) async throws -> [CloudFirewallRule] {
         var parts: [String] = []
         if let vpcID { parts.append("vpcId=\(queryComponent(vpcID))") }

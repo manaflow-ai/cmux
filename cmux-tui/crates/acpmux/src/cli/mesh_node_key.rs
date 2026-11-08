@@ -101,6 +101,28 @@ pub fn replace_at(state_dir: &Path) -> Result<NodeKeypair> {
     load_or_create_at(state_dir)
 }
 
+/// Put `private` in place of the node key in `state_dir`, with this machine's WireGuard key
+/// lock (`holder`) held: a rekey (`crate::machine_tunnel`), after the platform took the new
+/// public half. The new key is fully synced in a temporary file first and renamed over the old
+/// one, so a reader sees the old key or the new one, never a mix.
+pub(crate) fn replace_held(
+    state_dir: &Path,
+    holder: &KeyHolder,
+    private: &[u8; 32],
+) -> Result<NodeKeypair> {
+    crate::config::private_state_dir(state_dir)?;
+    holder.open(KeyFile::Node, state_dir, |path| -> Result<()> {
+        let temporary = write_temporary(path, private)?;
+        let renamed = std::fs::rename(&temporary, path);
+        if renamed.is_err() {
+            let _ = std::fs::remove_file(&temporary);
+        }
+        renamed.context("replace the node key")?;
+        sync_parent(path)
+    })?;
+    Ok(NodeKeypair::of(private))
+}
+
 fn read_key(path: &Path) -> Result<Zeroizing<[u8; 32]>> {
     let mut file = crate::config::private_state_file(path)?;
     let mut key = Zeroizing::new([0u8; 32]);
@@ -118,6 +140,22 @@ fn read_key(path: &Path) -> Result<Zeroizing<[u8; 32]>> {
 }
 
 fn create_key_if_absent(path: &Path, bytes: &[u8; 32]) -> Result<()> {
+    let temporary = write_temporary(path, bytes)?;
+    // Only remove a temporary file after this invocation created it.
+    let result: Result<()> = (|| {
+        match std::fs::hard_link(&temporary, path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.into()),
+        }
+        sync_parent(path)
+    })();
+    let _ = std::fs::remove_file(&temporary);
+    result
+}
+
+/// `bytes` in a new owner-only file next to `path`, fully synced.
+fn write_temporary(path: &Path, bytes: &[u8; 32]) -> Result<std::path::PathBuf> {
     let temporary = path.with_extension(format!("wg-key-{}", uuid::Uuid::new_v4()));
     #[cfg(unix)]
     let mut file = {
@@ -131,25 +169,28 @@ fn create_key_if_absent(path: &Path, bytes: &[u8; 32]) -> Result<()> {
     };
     #[cfg(windows)]
     let mut file = crate::owner_only::create_new(&temporary)?;
-    // Only remove a temporary file after this invocation created it.
-    let result: Result<()> = (|| {
+    let written: Result<()> = (|| {
         file.write_all(bytes)?;
         file.sync_all()?;
-        drop(file);
-        match std::fs::hard_link(&temporary, path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error.into()),
-        }
-        #[cfg(unix)]
-        {
-            let parent = path.parent().ok_or_else(|| anyhow!("node key has no state directory"))?;
-            std::fs::File::open(parent)?.sync_all()?;
-        }
         Ok(())
     })();
-    let _ = std::fs::remove_file(&temporary);
-    result
+    drop(file);
+    if let Err(error) = written {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error);
+    }
+    Ok(temporary)
+}
+
+fn sync_parent(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        let parent = path.parent().ok_or_else(|| anyhow!("node key has no state directory"))?;
+        std::fs::File::open(parent)?.sync_all()?;
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -192,6 +233,31 @@ mod tests {
         let empty = tempfile::tempdir().unwrap();
         let first = replace_at(empty.path()).unwrap();
         assert_eq!(load_or_create_at(empty.path()).unwrap().public_key, first.public_key);
+    }
+
+    #[test]
+    fn a_held_replacement_swaps_the_key_and_leaves_no_temporary() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = load_or_create_at(dir.path()).unwrap();
+        let holder = KeyHolder::acquire(dir.path()).unwrap();
+        let fresh = [9u8; 32];
+        let replaced = replace_held(dir.path(), &holder, &fresh).unwrap();
+        assert_ne!(replaced.public_key, old.public_key);
+        assert_eq!(replaced.public_key, NodeKeypair::of(&fresh).public_key);
+        let (held, private) = load_or_create_held(dir.path(), &holder).unwrap();
+        assert_eq!(held.public_key, replaced.public_key);
+        assert_eq!(*private, fresh);
+        #[cfg(unix)]
+        {
+            let mode =
+                std::fs::metadata(KeyFile::Node.path_in(dir.path())).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        let names: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(!names.iter().any(|name| name.contains("wg-key-")), "{names:?}");
     }
 
     #[test]

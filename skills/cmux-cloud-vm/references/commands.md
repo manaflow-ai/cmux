@@ -195,7 +195,7 @@ cmux cloud ssh --target machine:vm-… --json
 ```bash
 cmux cloud network-list
 cmux cloud firewall-list | firewall-get | firewall-create | firewall-delete   # --path <rule-id>, or JSON for create
-cmux cloud tunnel-attach | tunnel-detach | tunnel-rotate-key                 # attach/detach: --path <network-id>; rotate-key: a public key (see cmux action describe); this Mac
+cmux cloud tunnel-attach | tunnel-detach | tunnel-rotate-key                 # attach/detach: --path <network-id>; rotate-key: no arguments, the agent daemon makes the new key; this Mac
 cmux cloud domain-list
 cmux cloud publication-list
 cmux cloud provision-api --target machine:vm-… --port 3000 [--name ci]   # URL + API key, one call

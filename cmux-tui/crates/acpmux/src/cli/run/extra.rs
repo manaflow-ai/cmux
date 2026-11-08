@@ -819,6 +819,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let (m, network) = match cmd {
                 TunnelCmd::Attach { network } => (method::MUX_MACHINE_TUNNEL_ATTACH, network),
                 TunnelCmd::Detach { network } => (method::MUX_MACHINE_TUNNEL_DETACH, network),
+                TunnelCmd::Rekey => (method::MUX_MACHINE_TUNNEL_REKEY, None),
             };
             let token = crate::cli::join_input::read_stdin_line(false)?
                 .ok_or_else(|| anyhow!("pass the cmux access token on stdin"))?;
