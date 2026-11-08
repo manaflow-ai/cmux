@@ -441,9 +441,25 @@ struct CloudStartSession {
     static func fromFolder(_ invocation: ActionInvocation, cwd: String?, home: String = NSHomeDirectory()) throws -> String? {
         guard let text = invocation["fromFolder"]?.stringValue?.trimmingCharacters(in: .whitespaces), !text.isEmpty else { return nil }
         guard cwd == nil else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderWithCwd) }
-        guard text.utf8.count <= 4096, !text.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }), let folder = CloudMoveFolder.normalized(text) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderInvalid) }
+        guard text.utf8.count <= 4096, !text.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }), let folder = Self.normalizedFolder(text) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderInvalid) }
         if let refusal = AgentPaneCloudFolderRefusal.written(folder, home: home) { throw ActionFailure(message: Self.message(refusal, folder: folder)) }
         return folder
+    }
+
+    /// `path` with its `.` and `..` parts resolved and no trailing slash, as written otherwise (standardizing would turn
+    /// /private/tmp into /tmp). Nil for a relative path or one that climbs above the root. The same rule as Rust's
+    /// `moves::folder::normalized`, which the pinned app library does not expose as an op.
+    static func normalizedFolder(_ path: String) -> String? {
+        guard path.hasPrefix("/") else { return nil }
+        var parts: [Substring] = []
+        for part in path.split(separator: "/") {
+            switch part {
+            case ".": continue
+            case "..": if parts.popLast() == nil { return nil }
+            default: parts.append(part)
+            }
+        }
+        return "/" + parts.joined(separator: "/")
     }
 
     static func requireOwned(_ session: CloudMachineSession) async throws { if await CloudMove.ownerAnswer(session).vmKind != "owner" { throw ActionFailure(message: CloudStartSessionStrings.fromFolderNotOwned(session.machine.title)) } }
