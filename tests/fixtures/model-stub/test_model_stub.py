@@ -259,7 +259,13 @@ class ScriptAndCliTest(unittest.TestCase):
                 p.terminate()
                 p.wait(5)
 
-    # Faults (the Cloud self-test, plans/cmux-next/cloud-selftest-DESIGN.md): injected errors and delays.
+
+class FaultTest(unittest.TestCase):
+    """Faults (the Cloud self-test, plans/cmux-next/cloud-selftest-DESIGN.md): injected errors and delays."""
+
+    setUp = StubTest.setUp
+    tearDown = StubTest.tearDown
+    rows = StubTest.rows
 
     def post_status(self, path: str, body: dict) -> tuple[int, dict, dict]:
         req = urllib.request.Request(self.base + path, data=json.dumps(body).encode(), headers={"content-type": "application/json"})
