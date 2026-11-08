@@ -62,6 +62,8 @@ on:
       - scripts/ci/macho_weaken.py
       - scripts/ci/macos-cross.sh
       - scripts/ci/cargo-groups.sh
+      - scripts/ci/acpmux-build-features.sh
+      - scripts/ci/tailnet-go.sh
       - scripts/ci/macos-stubs/**
       - first-party-apps/cloud/server/**
       - workers/cmux-vm/cli/**
@@ -109,6 +111,7 @@ on:
       # tests/test_web_bundle_key_inputs.sh keeps this list complete).
       - web/data/model-catalog/**
       - Resources/markdown-viewer/viewer-navigation.js
+      - clients/ts/cloud/src/generated.ts
       - config/vite-plus/**
       - tests/test_build_web_bundles_from.sh
       - tests/test_web_bundle_key_inputs.sh
@@ -352,6 +355,8 @@ on:
       - scripts/ci/macho_weaken.py
       - scripts/ci/macos-cross.sh
       - scripts/ci/cargo-groups.sh
+      - scripts/ci/acpmux-build-features.sh
+      - scripts/ci/tailnet-go.sh
       - scripts/ci/macos-stubs/**
       - first-party-apps/cloud/server/**
       - workers/cmux-vm/cli/**
@@ -394,6 +399,7 @@ on:
       # tests/test_web_bundle_key_inputs.sh keeps this list complete).
       - web/data/model-catalog/**
       - Resources/markdown-viewer/viewer-navigation.js
+      - clients/ts/cloud/src/generated.ts
       - config/vite-plus/**
       - tests/test_build_web_bundles_from.sh
       - tests/test_web_bundle_key_inputs.sh

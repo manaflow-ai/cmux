@@ -3,6 +3,7 @@
 //! to paired peers only, no relay.
 
 mod access_cli;
+mod acpmux;
 mod agent_cli;
 mod cloud_fs;
 mod control;
@@ -31,6 +32,8 @@ mod state;
 mod sync_cli;
 
 #[cfg(test)]
+mod acpmux_tests;
+#[cfg(test)]
 mod e2e_tests;
 #[cfg(test)]
 mod outgoing_revocation_tests;
@@ -56,6 +59,7 @@ use cmux_wg::{InterfaceAddress, WgMesh, WgMeshConfig};
 use serde_json::json;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+use self::acpmux::AcpmuxTarget;
 use self::control::{Peers, serve_local, serve_overlay};
 use self::dial::Overlay as _;
 use self::mesh::MeshOverlay;
@@ -508,9 +512,11 @@ async fn serve(
     if let Some(ready) = ready {
         ready.send(&ready_line);
     }
+    // A paired peer's `acpmux` stream goes to this user's acpmux listener.
+    let acpmux = AcpmuxTarget::from_acpmux_home();
     let result = tokio::select! {
         served = serve_local(local, overlay.clone(), peers.clone(), status) => served.map_err(anyhow::Error::from),
-        () = serve_overlay(listener, peers.clone(), session_socket, owner) => Ok(()),
+        () = serve_overlay(listener, peers.clone(), session_socket, owner, acpmux) => Ok(()),
         signal = shutdown_signal() => signal,
         outcome = launchd_agent_outcome(watch) => outcome,
     };
