@@ -112,7 +112,8 @@ fn lookup<'a>(event: &'a Value, path: &[String]) -> Option<&'a Value> {
 fn same(value: &Value, want: &str) -> bool {
     match value {
         Value::String(text) => text == want,
-        other => other.to_string() == want,
+        // Not a string: `want` read as JSON (`3`, `true`, `null`).
+        other => serde_json::from_str::<Value>(want).is_ok_and(|parsed| &parsed == other),
     }
 }
 

@@ -177,8 +177,8 @@ fn stand_in_app(socket: &std::path::Path, frames: Vec<Value>, done: Arc<AtomicBo
 #[test]
 fn cmux_events_until_prints_the_match_and_a_timeout_exits_124() {
     let dir = std::env::temp_dir().join(format!("cmux-events-until-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
     let app = dir.join("app.sock");
     let event = |seq: u64, name: &str, workspace: &str| {
         json!({"type": "event", "seq": seq, "name": name, "category": "workspace",
@@ -276,5 +276,5 @@ fn cmux_events_until_prints_the_match_and_a_timeout_exits_124() {
         );
     }
     done.store(true, Ordering::Relaxed);
-    let _ = std::fs::remove_dir_all(&dir);
+    let _ = fs::remove_dir_all(&dir);
 }
