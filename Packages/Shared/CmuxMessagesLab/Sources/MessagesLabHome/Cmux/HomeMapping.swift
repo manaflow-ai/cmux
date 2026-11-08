@@ -140,8 +140,8 @@ enum HomeMapping {
     /// (the vendored `TextParts.parts`, as MessagesLab's own send does): a
     /// line that is only a URL is a link card in its place, the other lines
     /// stay one text bubble. So the local send and the message HomeStore
-    /// stores show the same bubbles. A web link in a sentence then gets a
-    /// card after its bubble (`withInlineCards`, issue 38178).
+    /// stores show the same bubbles. A web link in an agent's sentence then
+    /// gets a card after its bubble (`withInlineCards`, issue 38178).
     static func projectedParts(_ item: TranscriptItem, summary: ConversationSummary?, media: Media = { _ in nil },
                                links: Links = { _ in nil }) -> (parts: [Part], owners: [Int]) {
         guard !item.isRetracted else { return ([], []) }
@@ -170,8 +170,8 @@ enum HomeMapping {
             parts += shown
             owners += Array(repeating: i, count: shown.count)
         }
-        // A link in a sentence gets its card after its bubble (HomeMapping+InlineCards.swift).
-        return withInlineCards(parts, owners: owners, links: links)
+        // A link in an agent's sentence gets its card after its bubble (HomeMapping+InlineCards.swift).
+        return markdown ? withInlineCards(parts, owners: owners, links: links) : (parts, owners)
     }
 
     /// What an agent-message row says, as Markdown. An agents row is one muted (italic) line with no

@@ -1,13 +1,16 @@
 import CmuxHomeCore
 import Foundation
 
-/// cmux: a link inside a sentence gets its preview card too (issue 38178: "Links show a preview
-/// card (title, site, image when available), like iMessage link previews"). Messages' own rule
-/// (`TextParts.parts`) makes a card only of a line that is a URL alone; the Chief writes its links
-/// in prose and Markdown, so its replies showed none. Each bubble's web links (http and https that
-/// the link policy allows) get a card right after the bubble, in the order they appear, at most
-/// ``maxInlineCards`` per message; the text keeps its links. A URL that already has a card in the
-/// message (a URL-only line, a sender's `link_preview` part) gets no second one.
+/// cmux: a link inside an agent's sentence gets its preview card too (issue 38178: "Links show a
+/// preview card (title, site, image when available), like iMessage link previews"). Messages' own
+/// rule (`TextParts.parts`) makes a card only of a line that is a URL alone; the Chief writes its
+/// links in prose and Markdown, which Messages never has, so its replies showed none. In an agent's
+/// reply each bubble's web links (http and https that the link policy allows) get a card right after
+/// the bubble, in the order they appear, at most ``maxInlineCards`` per message; the text keeps its
+/// links. A URL that already has a card in the message (a URL-only line, a sender's `link_preview`
+/// part) gets no second one. A person's bubbles keep Messages' rule exactly (LabFixtureParityTests:
+/// Home lays out the Messages demo as Messages does), so a person's send and its stored message
+/// show the same bubbles.
 extension HomeMapping {
     /// Cards a message adds for the links in its sentences, at most.
     static let maxInlineCards = 3
@@ -35,16 +38,6 @@ extension HomeMapping {
             }
         }
         return (outParts, outOwners)
-    }
-
-    /// Whether `item`'s text may show a card for a link in a sentence (a cheap test: a written
-    /// `http`). My send's flying bubble was built without them (MessagesLab's `TextParts`), so
-    /// HomeDiff gives it the stored parts when this holds.
-    static func addsInlineCards(_ item: TranscriptItem) -> Bool {
-        item.parts.contains { part in
-            if case .text(let text, _) = part { return text.range(of: "http", options: .caseInsensitive) != nil }
-            return false
-        }
     }
 
     /// The web links of a bubble's runs that may be a card, in order (duplicates kept: the caller

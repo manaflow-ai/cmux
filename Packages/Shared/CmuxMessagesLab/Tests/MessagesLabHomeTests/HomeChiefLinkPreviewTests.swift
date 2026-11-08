@@ -33,14 +33,14 @@ import Testing
                        createdAt: base.addingTimeInterval(Double(n)), delivery: .committed, messageID: MessageID("msg_\(n)"))
     }
 
-    /// A friend's, another agent's, mine, the Chief's, mine with a file name and a GitHub link, and
-    /// an agent's message sent through my CLI (authored as me, marked `agent~`).
+    /// A friend's, another agent's, mine, the Chief's, the Chief's with a file name and a GitHub link,
+    /// and an agent's message sent through my CLI (authored as me, marked `agent~`).
     static let items = [item(1, friend, "Look at \(friends) later"),
                         item(2, helper, "Helper read \(helpers) for you."),
                         item(3, me, "Did you see \(mine) today?\n\(sole)"),
                         item(4, chief, chiefText),
-                        item(5, me, "I updated README.md for \(gitHubPR) just now"),
-                        item(6, me, "[from Grok bot] I read \(bot) for you", key: "agent~grok-1")]
+                        item(5, chief, "I updated README.md for \(gitHubPR) just now"),
+                        item(6, me, "[from Grok bot] I read this for you\n\(bot)", key: "agent~grok-1")]
 
     struct Pane { let window: NSWindow; let controller: ChatController }
 
@@ -79,8 +79,8 @@ import Testing
         #expect(cardURLs(chief) == [Self.pr, Self.docs])
         // Settled with no fetched preview: the domain card.
         if case let .link(_, title, site, _, _)? = chief.last { #expect(title == "docs.example.com" && site == "docs.example.com") }
-        // My sentence's link gets a card; the URL-only line keeps its one card (no second card for it).
-        #expect(cardURLs(parts(pane, 3)) == [Self.mine, Self.sole])
+        // A person's bubbles keep Messages' rule: my sentence's link is no card, my URL-only line is one.
+        #expect(cardURLs(parts(pane, 3)) == [Self.sole])
         // A file name the detector reads as a domain ("README.md") is no card; a GitHub pull request's
         // card is titled from its URL (a private repository's page needs sign-in, so it is never fetched).
         let five = parts(pane, 5)
@@ -106,7 +106,7 @@ import Testing
         let urls = HomeProjection.previewableCardURLs(items, summary: summary, me: Self.me, asked: [Self.docs], limit: 8, parts: shown)
         // Newest first; an asked URL is not asked again; a friend's, another agent's and an agent's
         // message through my CLI never fetch; a GitHub card with its local title needs no fetch.
-        #expect(urls == [Self.pr, Self.mine, Self.sole])
+        #expect(urls == [Self.pr, Self.sole])
         #expect(HomeProjection.previewableCardURLs(items, summary: summary, me: Self.me, asked: [], limit: 2, parts: shown).count == 2)
         #expect(!cardURLs(shown(items[5])).isEmpty, "the agent's message shows its card, domain only")
 
