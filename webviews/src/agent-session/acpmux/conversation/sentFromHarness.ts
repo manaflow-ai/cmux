@@ -58,10 +58,13 @@ export function sentFrom(msg: unknown): SentFrom | undefined {
   };
   const entrypoint = field(claimed?.entrypoint);
   const app = field(claimed?.app);
-  const desktop = entrypoint === "claude-desktop";
+  // A Claude desktop claim, by its entrypoint or by the app it names, holds only under Claude.app;
+  // any claim naming an app holds only when the daemon found that app.
+  const desktop = harness === "claude-code" && (entrypoint === "claude-desktop" || app === "Claude.app");
   const confirmed =
     !!checked &&
     (checked.harness === harness || (!!app && checked.app === app)) &&
+    (!app || checked.app === app) &&
     (!desktop || checked.app === "Claude.app");
   return {
     promptId,

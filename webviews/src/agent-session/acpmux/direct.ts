@@ -2200,8 +2200,9 @@ export class AcpmuxDirectClient {
   /// The promptIds drawn as prompts. An older page folds in after the rows below it, so the steer
   /// a held prompt re-ran comes after that prompt: it draws nothing. Kept across that fold.
   private promptsShown = new Set<string>();
-  /// Where each prompt was sent from, by prompt id (`sender_claim`, conversation/sentFromHarness.ts): its
-  /// record comes before the prompt's own, which reads it as its row is drawn.
+  /// Where each prompt was sent from, by prompt id (`sender_claim`, conversation/sentFromHarness.ts): a
+  /// row drawn after its claim reads it here, and a claim after its row (the daemon writes it once
+  /// the prompt is kept, an older page folds in later) updates that row.
   private sentFromPrompts = new Map<string, SentFrom>();
   /// Attachments sent with a prompt until its user-message event gives it a durable row id.
   private optimisticPromptAttachments = new Map<string, ComposerAttachment[]>();
@@ -7096,7 +7097,13 @@ export class AcpmuxDirectClient {
         this.takeSubagentRows();
       } else if (event.kind === "sender_claim") {
         const from = sentFrom(msg);
-        if (from) this.sentFromPrompts.set(from.promptId, from);
+        if (from) {
+          this.sentFromPrompts.set(from.promptId, from);
+          const rowId = this.promptRowKeys.get(from.promptId);
+          const row = rowId === undefined ? undefined : this.rows.get(rowId);
+          if (row?.kind === "user" && !row.untyped && row.promptId === from.promptId)
+            this.rows.set(row.id, { ...row, version: row.version + 1, sentFrom: from });
+        }
       } else if (event.kind === "session_offer") {
         // Off by default: off, an offer draws nothing (offer/offersShown.ts).
         const offer = offersShown() ? sessionOffer(msg) : undefined;
