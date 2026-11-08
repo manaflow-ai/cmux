@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42468965482",
+  "recorded_at": "2026-11-08T09:56:16Z",
+  "reason": "cmux-tui 848448bb49e1 changes the image's cmux-tui (pinned 555cb8016293)",
+  "dry_run": false,
+  "cmux_tui": "848448bb49e19a0a1cfaf74b643689840822e666",
+  "fixes": [
+    {
+      "sha": "848448bb49e19a0a1cfaf74b643689840822e666",
+      "mergedAt": "2026-11-08T01:37:33-08:00",
+      "subject": "link: carry acpmux between paired machines (one-link slice 2) (#38323)"
+    },
+    {
+      "sha": "39ce4f7dd1b104bb2a6f29d1a0a76e3367c002a0",
+      "mergedAt": "2026-11-08T01:11:21-08:00",
+      "subject": "fix(home): a queued agent's pill opens its chat with its place in line and Start now, then its workspace"
+    },
+    {
+      "sha": "9bc205f6836f205b02fe513838b655003ea88e9b",
+      "mergedAt": "2026-11-08T01:11:21-08:00",
+      "subject": "test(home): a queued agent's pill opens its chat with its place in line and Start now, then its workspace once it starts"
+    },
+    {
+      "sha": "a2c2ee89e4d07aaab942eb3f5a87ebb807f7cf88",
+      "mergedAt": "2026-11-08T01:10:12-08:00",
+      "subject": "cmux NEXT: app calls read the Add Device join line and the sidebar's machines (#38310)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-08T09:56:16Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
