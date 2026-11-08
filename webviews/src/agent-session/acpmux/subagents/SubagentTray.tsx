@@ -362,6 +362,10 @@ export const SubagentTray = memo(function SubagentTray({
   // keep a folded hat held after the pointer left.
   const [hovered, setHovered] = useState(false);
   const [keyboardIn, setKeyboardIn] = useState(false);
+  // The tuck chevron stays away from the moment the hat expands or folds until the pointer leaves it:
+  // its hover reveal on the hat's top edge read as a stray chevron popping in while the hat moved
+  // (Leo, 2026-11-08: "some elements in between"). Its keyboard focus still shows it.
+  const [tuckQuiet, setTuckQuiet] = useState(false);
   const held = (headed && open) || hovered || keyboardIn;
   const holdTo = useRef(onHold);
   useLayoutEffect(() => {
@@ -514,7 +518,13 @@ export const SubagentTray = memo(function SubagentTray({
   // Claude Code's running-tasks list does (trayFoldHead.experiment.ts; Leo, 2026-11-03: "the
   // "running" bar above the composer is currently no longer usable bc it doesn't display much").
   // A narrow pane names only the newest; the rest are a count. Open, the lines name them.
-  const loneHead = lone && !open ? loneHeadOf(t, language, lone, waiting, now, showLatest) : undefined;
+  // Expanding and folding a lone item's hat is one transition (Leo, 2026-11-08: "there's, like, some
+  // elements in between and then things don't balance out"): its end (state and time) stays at the
+  // row's end, open or folded, over the line's own time; its words slide over to the counts and its
+  // muted step narrows away on the same clock, never popping out or in; the line grows in under it on
+  // the shared fold.
+  const loneEnd = lone ? loneHeadOf(t, language, lone, waiting, now, showLatest) : undefined;
+  const loneHead = loneEnd && !open ? loneEnd : undefined;
   const named = !open && !loneHead && foldHead !== "counts" && newest.length > 0;
   const shownNames = named ? newest.slice(0, foldHead === "one" || oneName ? 1 : 2) : [];
   // The plan leads: its progress and the step at work, then what runs (Leo's hat, 2026-11-03).
@@ -557,6 +567,7 @@ export const SubagentTray = memo(function SubagentTray({
       onOpenPanel?.();
       return;
     }
+    setTuckQuiet(true);
     setOpened(!open);
     rememberTrayOpen(chat, !open);
   };
@@ -594,8 +605,15 @@ export const SubagentTray = memo(function SubagentTray({
       data-chevron={headed ? chevronAt : undefined}
       data-row-motion={rowMotion}
       style={gutter > 0 ? ({ "--acpmux-tray-gutter": `${gutter}px` } as CSSProperties) : undefined}
-      onPointerEnter={() => setHovered(true)}
-      onPointerLeave={() => setHovered(false)}
+      data-tuck-quiet={(onTuck && tuckQuiet) || undefined}
+      onPointerEnter={() => {
+        setHovered(true);
+        setTuckQuiet(false);
+      }}
+      onPointerLeave={() => {
+        setHovered(false);
+        setTuckQuiet(false);
+      }}
       onFocus={(event) => setKeyboardIn(focusVisible(event))}
       onBlur={(event) => {
         const to = event.relatedTarget as Node | null;
@@ -607,7 +625,7 @@ export const SubagentTray = memo(function SubagentTray({
           type="button"
           ref={headButton}
           className="acpmux-summary-row acpmux-summary-link acpmux-running-tray__head"
-          data-lone={loneHead ? "" : undefined}
+          data-lone={loneEnd ? "" : undefined}
           aria-expanded={opensPanel === "header" ? undefined : open}
           aria-controls={open && opensPanel !== "header" ? listId : undefined}
           onClick={toggle}
@@ -643,24 +661,26 @@ export const SubagentTray = memo(function SubagentTray({
           {/* Its words slide as a status line hands over: a new name joining, the lone item's task (Leo,
               2026-11-07); its counts roll in place (trayMotion.tsx `Tick`). */}
           <Tick className="acpmux-summary-text acpmux-running-tray__title" text={headText} steadyCounts slide />
-          {loneHead?.latest && loneHead.latest !== loneHead.title && (
+          {/* Kept while the hat is open, faded out in place (subagents.css), so it never leaves or comes
+              back at once; it gives way to the counts first, so its room costs them nothing. */}
+          {loneEnd?.latest && loneEnd.latest !== loneEnd.title && (
             <Tick
-              className={`acpmux-running-tray__latest${loneHead.latestCode ? " is-code" : ""}`}
-              text={loneHead.latest}
+              className={`acpmux-running-tray__latest${loneEnd.latestCode ? " is-code" : ""}`}
+              text={loneEnd.latest}
               slide
             />
           )}
           {loneHead?.agent && <LoneProgress agent={loneHead.agent} fallback={loneHead.progress} />}
           {/* Open (or in the counts arm), what ended failed, in the danger colour, and a subagent of
               another model family by its harness's mark, as its line draws it. */}
-          {!named && !loneHead && counts.failed > 0 && (
+          {!named && !loneEnd && counts.failed > 0 && (
             <span className="acpmux-running-tray__failed">
               {title && <span aria-hidden="true">· </span>}
               {t("summary.subagents.failed", { n: counts.failed })}
             </span>
           )}
           {/* A family the stacked marks already draw is not drawn again here. */}
-          {!named && !loneHead && trailingMarks.length > 0 && (
+          {!named && !loneEnd && trailingMarks.length > 0 && (
             <span className="acpmux-running-tray__marks" data-tray-marks>
               {trailingMarks.map((harness) => (
                 <AgentMark key={harness} agent={harness} size={ROW_ICON} label={harness} />
@@ -671,19 +691,19 @@ export const SubagentTray = memo(function SubagentTray({
             <span className="acpmux-summary-meta acpmux-running-tray__more">{t("tools.more", { n: moreCount })}</span>
           )}
           {/* Quiet meta right after the counts, never a column of its own far from them. */}
-          {loneHead ? (
+          {loneEnd ? (
             // A lone item's state and time end the row, where its line's would (AgentLine.tsx trail).
             // A failed or waiting one's state word takes its line's tone (summary.css): folded, the
             // header is all that says so.
-            <span className="acpmux-summary-meta acpmux-running-tray__time" data-lone data-status={loneHead.status}>
-              {loneHead.status === "done" ? (
-                <DoneMark state={loneHead.state} time={loneHead.time} look={doneLook} checkInSlot />
-              ) : loneHead.status === "running" && !loneHead.retry && loneHead.time !== undefined ? (
-                loneHead.time
+            <span className="acpmux-summary-meta acpmux-running-tray__time" data-lone data-status={loneEnd.status}>
+              {loneEnd.status === "done" ? (
+                <DoneMark state={loneEnd.state} time={loneEnd.time} look={doneLook} checkInSlot />
+              ) : loneEnd.status === "running" && !loneEnd.retry && loneEnd.time !== undefined ? (
+                loneEnd.time
               ) : (
                 <>
-                  <span className="acpmux-running-tray__lone-state">{loneHead.state}</span>
-                  {loneHead.time !== undefined && ` · ${loneHead.time}`}
+                  <span className="acpmux-running-tray__lone-state">{loneEnd.state}</span>
+                  {loneEnd.time !== undefined && ` · ${loneEnd.time}`}
                 </>
               )}
             </span>
