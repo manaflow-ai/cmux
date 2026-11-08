@@ -19,6 +19,10 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "needs-me",
     // `terminal list --agents`: without this it would swallow a following `--json`.
     "agents",
+    // `pane <p> move --new-screen|--new-tab`: without this it would swallow a
+    // following `--help` or `--json`.
+    "new-screen",
+    "new-tab",
     // `agent list --json`: the agents and their counts by state.
     "counts",
     // `agent message release`: the person's decision on a held message.

@@ -269,8 +269,9 @@ run types a command into the terminal's shell, waits for it to finish and
 exits with its status: send --wait prompt --exit-with-status. status also
 names the last command's exit status (terminal show --json:
 extra.last_command). The words after -- reach the shell as the same words:
-run -- sh -c 'exit 7' exits 7. One word is a shell line as it is:
-run -- 'make && make test'.
+run -- sh -c 'exit 7' exits 7 (POSIX quoting, for sh, bash and zsh; for
+cmd.exe or PowerShell pass the line as one word). One word is a shell line
+as it is: run -- 'make && make test'.
 A --pattern (screen wait, send, run) is a regular expression matched line by
 line: ^ and $ match at the start and end of each line, as in grep, so
 --pattern '^BENCH_OK$' matches a line that is only BENCH_OK. Start the

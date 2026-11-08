@@ -33,7 +33,7 @@ fn tab(pane: &str, index: usize, focused: bool, terminal: String) -> Value {
 }
 
 fn snapshot() -> Value {
-    json!({
+    let mut snapshot = json!({
         "workspaces": [
             {"id": WS_A, "name": "main", "focused": true},
             {"id": WS_B, "name": "other", "focused": false},
@@ -55,7 +55,9 @@ fn snapshot() -> Value {
             tab(PANE_T, 0, true, format!("term_{}", "4".repeat(32))),
             tab(PANE_T, 1, false, format!("term_{}", "5".repeat(32))),
         ],
-    })
+    });
+    snapshot["tabs"][5]["name"] = json!("build");
+    snapshot
 }
 
 /// Answers from the snapshot above; records every request.
@@ -96,26 +98,25 @@ impl FakeDaemon {
             .collect()
     }
 
-    fn record(&self, kind: &str, selector: &str) -> Result<Value, Value> {
-        let focused = |kind: &str| {
-            self.snapshot[kind]
-                .as_array()
-                .and_then(|records| records.iter().find(|record| record["focused"] == true))
-                .cloned()
-        };
-        let found = match selector {
-            "current" => focused(kind),
-            selector => self.snapshot[kind].as_array().and_then(|records| {
-                records
-                    .iter()
-                    .find(|record| record["id"] == selector || record["name"] == selector)
-                    .cloned()
-            }),
-        };
-        found.ok_or_else(|| {
-            json!({"code": "selector.not_found", "message": format!("no {selector}"),
-                   "details": {}, "retryable": false})
-        })
+    /// Every request names its objects by id: the command resolves names,
+    /// prefixes, `current` and `focused` itself (a name would make the CLI
+    /// add a caller lookup, which a composite step cannot run).
+    fn assert_ids_only(&self) {
+        for request in self.sent.borrow().iter() {
+            let Some(params) = request["params"].as_object() else { continue };
+            for (key, value) in params {
+                let scope = key.strip_prefix("destination_").unwrap_or(key);
+                if !matches!(scope, "workspace" | "screen" | "pane" | "tab") {
+                    continue;
+                }
+                let id = value.as_str().unwrap_or_default();
+                let payload = id.rsplit_once('_').map_or("", |(_, payload)| payload);
+                assert!(
+                    payload.len() == 32 && payload.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                    "{key} is not an id in {request}"
+                );
+            }
+        }
     }
 
     fn answer(&self, operation: &str, params: &Value) -> Result<Value, Value> {
@@ -128,9 +129,6 @@ impl FakeDaemon {
         };
         match operation {
             "session.snapshot" => Ok(self.snapshot.clone()),
-            "pane.get" => self.record("panes", &selector("pane")),
-            "tab.get" => self.record("tabs", &selector("tab")),
-            "workspace.get" => self.record("workspaces", &selector("workspace")),
             "screen.create" => Ok(created(&selector("workspace"), SCREEN_NEW)),
             "pane.split" => Ok(created(WS_B, SCREEN_B)),
             _ => Ok(json!({"value": {}, "generation": "g", "revision": "3", "replayed": false})),
@@ -243,6 +241,7 @@ fn w4j_pane_move_to_another_pane_appends_every_tab_in_order_and_keeps_the_focus(
     );
     assert_eq!(result["created"], Value::Null);
     assert_eq!(result["focused_pane"], PANE_F);
+    daemon.assert_ids_only();
 }
 
 #[test]
@@ -272,6 +271,7 @@ fn w4j_pane_move_with_split_moves_into_the_new_pane_and_closes_its_shell() {
     assert_eq!(steps.last().map(String::as_str), Some(format!("pane.focus {PANE_NEW}").as_str()));
     assert_eq!(result["created"], json!({"pane": PANE_NEW}));
     assert_eq!(result["focused_pane"], PANE_NEW);
+    daemon.assert_ids_only();
 }
 
 #[test]
@@ -283,6 +283,7 @@ fn w4j_pane_move_to_a_tab_puts_the_tabs_after_it() {
     let indexes =
         moves(&daemon).iter().map(|(_, pane, index)| (pane.clone(), *index)).collect::<Vec<_>>();
     assert_eq!(indexes, vec![(PANE_T.into(), 1), (PANE_T.into(), 2), (PANE_T.into(), 3)]);
+    daemon.assert_ids_only();
 }
 
 #[test]
@@ -302,6 +303,7 @@ fn w4j_pane_move_to_a_workspace_or_a_new_screen_makes_a_screen_without_focus() {
         assert_eq!(daemon.params("tab.close")[0]["tab"], TAB_NEW);
         assert_eq!(result["created"], json!({"screen": SCREEN_NEW, "pane": PANE_NEW}));
         assert_eq!(result["focused_pane"], PANE_F, "{flags:?}");
+        daemon.assert_ids_only();
     }
 }
 
@@ -312,7 +314,6 @@ fn w4j_pane_move_current_is_the_callers_pane_and_the_focus_goes_with_it() {
     let result =
         move_pane(&daemon, &request("current", &["--to-pane", PANE_T]), "pane-move-test-key")
             .expect("moved");
-    assert_eq!(daemon.params("pane.get")[0]["pane"], PANE_F);
     assert_eq!(moves(&daemon), vec![(tab_id(PANE_F, 0), PANE_T.to_owned(), 2)]);
     // The moved pane had the focus: there is no pane to give it back to.
     assert!(daemon.params("pane.focus").is_empty());
@@ -359,5 +360,61 @@ fn w4j_pane_move_failure_names_the_step_and_the_tabs_already_moved() {
     let step = format!("move-{}", tab_id(PANE_S, 1));
     assert_eq!(error.error["details"]["step"], step);
     assert_eq!(error.error["details"]["made"]["moved_tabs"], json!([tab_id(PANE_S, 0)]));
-    assert_eq!(error.error["details"]["idempotency_key"], "pane-move-test-key");
+    // Running it again would not resume it: no retry key, a retry note.
+    assert_eq!(error.error["details"].get("idempotency_key"), None);
+    assert!(
+        error.error["details"]["retry"].as_str().is_some_and(|retry| retry.contains("tab move"))
+    );
+}
+
+/// Names, `name:`, unique id prefixes and `focused` resolve from the
+/// snapshot, and only ids reach the daemon.
+#[test]
+fn w4j_pane_move_resolves_names_prefixes_and_focused_itself() {
+    let target = tab_id(PANE_T, 1);
+    for (pane, flags, destination) in [
+        ("logs", vec!["--to-workspace", "name:other"], PANE_NEW),
+        ("name:logs", vec!["--to-tab", "build"], PANE_T),
+        (&PANE_S[..12], vec!["--to-pane", &PANE_T[..12]], PANE_T),
+        ("logs", vec!["--to-pane", "focused"], PANE_F),
+        ("logs", vec!["--to-tab", target.as_str()], PANE_T),
+    ] {
+        let daemon = FakeDaemon::new();
+        let result = move_pane(&daemon, &request(pane, &flags), "pane-move-test-key")
+            .unwrap_or_else(|error| panic!("{pane} {flags:?}: {:?}", error.error));
+        assert_eq!(result["pane"], PANE_S, "{pane} {flags:?}");
+        assert_eq!(result["destination"]["pane"], destination, "{pane} {flags:?}");
+        daemon.assert_ids_only();
+    }
+}
+
+/// Outside a cmux terminal (or routed with --socket/--session) `current` is
+/// the focused pane, and `caller` is refused.
+#[test]
+fn w4j_pane_move_without_a_caller_terminal_takes_current_as_the_focused_pane() {
+    let mut without = parse("current", &strings(&["--to-pane", PANE_T])).expect("parsed");
+    without.caller_terminal = None;
+    let daemon = FakeDaemon::new();
+    let result = move_pane(&daemon, &without, "pane-move-test-key").expect("moved");
+    assert_eq!(result["pane"], PANE_F);
+    daemon.assert_ids_only();
+    let mut caller = parse("caller", &strings(&["--new-screen"])).expect("parsed");
+    caller.caller_terminal = None;
+    let daemon = FakeDaemon::new();
+    let error = move_pane(&daemon, &caller, "pane-move-test-key").expect_err("refused");
+    assert_eq!(error.exit, 2);
+    assert!(daemon.params("screen.create").is_empty());
+}
+
+#[test]
+fn w4j_pane_move_names_a_missing_or_ambiguous_selector() {
+    let daemon = FakeDaemon::new();
+    let error = move_pane(&daemon, &request("nope", &["--new-screen"]), "pane-move-test-key")
+        .expect_err("not found");
+    assert_eq!(error.error["code"], "selector.not_found");
+    // pane_ matches every pane.
+    let error = move_pane(&daemon, &request("pane_", &["--new-screen"]), "pane-move-test-key")
+        .expect_err("ambiguous");
+    assert_eq!(error.error["code"], "selector.ambiguous");
+    assert!(daemon.params("screen.create").is_empty());
 }

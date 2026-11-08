@@ -657,13 +657,16 @@ fn run_with_context(plan: &Plan, context: &Context) -> RunResult {
                     "changed":changed,
                 })),
                 // A read-only status reports one provider's unreadable
-                // config on that provider's row; the others still answer.
+                // config on that provider's row (the `unavailable` /
+                // `unreadable` shape of status_conflict.rs, which the app's
+                // Settings card already reads); the others still answer.
                 Err(error) if plan.action == Action::Status => results.push(json!({
                     "provider":provider.id,
                     "path":path,
-                    "state":"error",
+                    "state":"unavailable",
+                    "reason":"unreadable",
+                    "detail":format!("{error:#}"),
                     "changed":false,
-                    "error":format!("{error:#}"),
                 })),
                 Err(error) => errors.push(format!("{}: {error:#}", provider.id)),
             }
@@ -3285,9 +3288,10 @@ mod tests {
         assert!(!result.failed, "{}", result.value);
         let rows = result.value["providers"].as_array().unwrap();
         let row = |id: &str| rows.iter().find(|row| row["provider"] == id).unwrap();
-        assert_eq!(row("copilot")["state"], "error", "{}", result.value);
-        assert!(row("copilot")["error"].as_str().is_some_and(|error| !error.is_empty()));
-        assert_ne!(row("claude")["state"], "error", "{}", result.value);
+        assert_eq!(row("copilot")["state"], "unavailable", "{}", result.value);
+        assert_eq!(row("copilot")["reason"], "unreadable", "{}", result.value);
+        assert!(row("copilot")["detail"].as_str().is_some_and(|detail| !detail.is_empty()));
+        assert_ne!(row("claude")["state"], "unavailable", "{}", result.value);
         assert_eq!(result.value["errors"], json!([]));
     }
 

@@ -189,7 +189,8 @@ pub(in crate::cli) fn parse_run(target: &str, flags: &[String]) -> Result<SendRe
 
 /// The shell line `terminal run` types for the words after `--`: one word
 /// as it is, more words each POSIX-quoted (sh, bash and zsh read them back
-/// as the same words).
+/// as the same words). cmd.exe and PowerShell quote differently; the help
+/// tells their users to pass one word.
 fn shell_line(argv: &[String]) -> String {
     match argv {
         [line] => line.clone(),

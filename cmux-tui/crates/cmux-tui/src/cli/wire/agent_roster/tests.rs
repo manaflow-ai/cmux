@@ -423,4 +423,16 @@ fn w4j_an_unseen_idle_agent_is_done_and_ranks_after_blocked() {
     let result = shape(rows(), &[], &unseen, done, NOW);
     assert_eq!(ids(&result), ["agent_finished"]);
     assert_eq!(result["counts"]["total"], 1);
+
+    // `--state ended` asks the daemon for its `done` (a session that
+    // ended) and keeps those rows: `status` null.
+    let ended_rows = json!([
+        agent("agent_gone", "done", NOW - 3_000, "term_5"),
+        agent("agent_seen", "idle", NOW - 2_000, "term_3"),
+    ]);
+    let ended = AgentRosterView { status: Some("ended"), ..AgentRosterView::default() };
+    let result = shape(ended_rows, &[], &unseen, ended, NOW);
+    assert_eq!(ids(&result), ["agent_gone"]);
+    assert_eq!(result["agents"][0]["status"], Value::Null);
+    assert_eq!(result["counts"]["ended"], 1);
 }

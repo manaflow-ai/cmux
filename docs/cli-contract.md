@@ -491,7 +491,7 @@ refused. `--window` and `--id-format` are accepted and ignored.
 ### agent
 
 ```text
-cmux agent list [--terminal <term_id>] [--state working|blocked|idle|done|unknown] [--needs-me]
+cmux agent list [--terminal <term_id>] [--state working|blocked|done|idle|unknown|ended] [--needs-me]
                 [--sort needs-me|recent|none] [--limit <n>] [--counts]
 cmux agent report --terminal <term_id> --state <state> --source hook|socket [--source-session <id>]
 cmux agent hook install|uninstall|status [provider...]
@@ -504,10 +504,15 @@ cmux agent plugin use --builtin
 
 `agent list` lists the caller's session: its terminal agents and the acpmux
 chats created in its workspaces (`--all-sessions` for every session and every
-chat on the machine). It puts blocked agents first, then working, then idle and done
-(`--sort recent|none` for recency or the daemon's order). `--json` stays a bare
-array of agents; `--json --counts` adds the counts by state
-(`{"agents": [...], "counts": {...}}`).
+chat on the machine). Each row's `status` is the word `terminal list --agents`
+uses: `blocked`, `done` (idle with an unread notification), `working`, `idle`,
+`unknown`, or null for an ended session; the daemon's `state` field stays, and
+an acpmux chat's own status is `acp_status`. `--state` takes those words and
+`ended` (`--state done` selected ended sessions before; that is `--state ended`
+now). It puts blocked agents first, then done, working, idle, unknown and
+ended (`--sort recent|none` for recency or the daemon's order). `--json` stays
+a bare array of agents; `--json --counts` adds the counts by status, `ended` and
+`total` (`{"agents": [...], "counts": {...}}`).
 
 Hook providers are `codex`, `claude` (also `claude-code`), `gemini`, `opencode`
 and `pi`. `hook emit` reads the native payload from stdin when

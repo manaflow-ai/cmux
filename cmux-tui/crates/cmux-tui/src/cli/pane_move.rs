@@ -18,8 +18,11 @@
 //! view stays (unless that pane was the moved one, which no longer exists);
 //! with `--focus` it focuses the destination pane.
 //!
-//! Each step is its own daemon request; with `--idempotency-key` each step's
-//! key derives from it (worktree_workspace.rs has the same shape).
+//! Every selector resolves against one session snapshot, so each request
+//! names ids only. Each step is its own daemon request, its key derived from
+//! the command's. A failed step names itself and what already moved
+//! (`details.step`, `details.made`); running the command again does not
+//! resume it, because the new snapshot no longer has the moved tabs there.
 
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -182,75 +185,115 @@ fn text(value: &Value, field: &str) -> String {
     value.get(field).and_then(Value::as_str).unwrap_or_default().to_owned()
 }
 
-/// What a selector names before the daemon resolves it: the caller's own
-/// object, a unique id prefix, `focused`, else the selector as it is.
-fn local_selector(
-    snapshot: &Value,
+/// What a failed step's `details.retry` says. A retry would read a new
+/// snapshot (the moved tabs are elsewhere by then), so the command does not
+/// resume; `details.made` lists what already moved.
+const NO_RETRY: &str = "pane move does not resume: `details.made.moved_tabs` moved to \
+                        `details.made.destination`; move the other tabs with `tab move`";
+
+/// `failure` of `step`, with what the steps before it made, and no retry key.
+fn step_failure(failure: super::mcp::CallFailure, step: &str, made: Value) -> StepFailure {
+    let mut failed = StepFailure::step(failure, step, "", made);
+    if let Some(details) = failed.error.get_mut("details").and_then(Value::as_object_mut) {
+        details.remove("idempotency_key");
+        details.insert("retry".into(), json!(NO_RETRY));
+    }
+    failed
+}
+
+/// A selector that names nothing, or more than one record.
+fn selector_failure(code: &str, message: String) -> StepFailure {
+    StepFailure {
+        error: json!({"code": code, "message": message, "details": {}, "retryable": false}),
+        exit: 1,
+    }
+}
+
+/// The snapshot record `selector` names in `scope` (`workspace`, `pane` or
+/// `tab`). The command resolves every selector here and sends only ids: an
+/// id or a unique id prefix, `name:<name>` or an exact name (one match in
+/// the session), `focused`, and `current` / `caller` (the caller's own
+/// object; `current` is the focused one when no caller is known).
+fn resolve<'a>(
+    snapshot: &'a Value,
     scope: &str,
     selector: &str,
     caller_terminal: Option<&str>,
-) -> Result<String, StepFailure> {
+) -> Result<&'a Value, StepFailure> {
     let kind = match scope {
         "workspace" => "workspaces",
         "pane" => "panes",
         _ => "tabs",
     };
-    match selector {
-        "current" | "caller" => {
-            let caller_tab = caller_terminal.and_then(|terminal| {
-                records(snapshot, "tabs").iter().find(|tab| tab["content_id"] == terminal)
-            });
-            let Some(tab) = caller_tab else {
-                if selector == "caller" {
-                    return Err(StepFailure::usage(format!(
-                        "{scope} caller needs a cmux terminal; outside one, name the {scope}"
-                    )));
-                }
-                // The daemon's `current` is the focused object.
-                return Ok("current".into());
-            };
-            let pane = text(tab, "pane_id");
-            let screen = find(snapshot, "panes", &pane).map(|pane| text(pane, "screen_id"));
-            Ok(match scope {
-                "tab" => text(tab, "id"),
-                "pane" => pane,
-                _ => screen
-                    .and_then(|screen| find(snapshot, "screens", &screen))
-                    .map(|screen| text(screen, "workspace_id"))
-                    .unwrap_or_else(|| "current".into()),
-            })
+    let focused = || -> Option<&'a Value> {
+        let pane = records(snapshot, "panes").iter().find(|pane| pane["focused"] == true);
+        match scope {
+            "workspace" => records(snapshot, "workspaces")
+                .iter()
+                .find(|workspace| workspace["focused"] == true),
+            "pane" => pane,
+            _ => records(snapshot, "tabs").iter().find(|tab| {
+                tab["focused"] == true && Some(&tab["pane_id"]) == pane.map(|p| &p["id"])
+            }),
         }
-        "focused" => Ok("current".into()),
-        prefix if prefix.contains('_') && !prefix.starts_with("name:") => {
+    };
+    let caller = || -> Option<&'a Value> {
+        let tab = records(snapshot, "tabs")
+            .iter()
+            .find(|tab| caller_terminal.is_some_and(|terminal| tab["content_id"] == terminal))?;
+        let pane = find(snapshot, "panes", &text(tab, "pane_id"))?;
+        match scope {
+            "tab" => Some(tab),
+            "pane" => Some(pane),
+            _ => find(snapshot, "screens", &text(pane, "screen_id"))
+                .and_then(|screen| find(snapshot, "workspaces", &text(screen, "workspace_id"))),
+        }
+    };
+    let found = match selector {
+        "caller" if caller_terminal.is_none() => {
+            return Err(StepFailure::usage(format!(
+                "{scope} caller is the {scope} of the cmux terminal this command runs in; \
+                 outside one (or with --socket/--session), name the {scope}"
+            )));
+        }
+        "caller" | "current" => caller().or_else(focused),
+        "focused" => focused(),
+        _ => {
+            let name = selector.strip_prefix("name:");
             let matches = records(snapshot, kind)
                 .iter()
-                .map(|record| text(record, "id"))
-                .filter(|id| id.starts_with(prefix))
+                .filter(|record| match name {
+                    Some(name) => record["name"] == name,
+                    None => {
+                        (selector.contains('_')
+                            && record["id"].as_str().is_some_and(|id| id.starts_with(selector)))
+                            || record["name"] == selector
+                    }
+                })
                 .collect::<Vec<_>>();
             match matches.as_slice() {
-                [id] => Ok(id.clone()),
-                // No match or several: the daemon's selector error says why.
-                _ => Ok(prefix.to_owned()),
+                [one] => Some(*one),
+                [] => None,
+                several => {
+                    let ids = several.iter().map(|record| text(record, "id")).collect::<Vec<_>>();
+                    return Err(selector_failure(
+                        "selector.ambiguous",
+                        format!(
+                            "{scope} {selector} names {} {kind}: {}; pass one id",
+                            ids.len(),
+                            ids.join(", ")
+                        ),
+                    ));
+                }
             }
         }
-        other => Ok(other.to_owned()),
-    }
-}
-
-/// The `id` of what `selector` names in `scope` (`pane`, `tab`,
-/// `workspace`), from the daemon's own `show`.
-fn resolve<B: Daemon + ?Sized>(
-    backend: &B,
-    snapshot: &Value,
-    scope: &str,
-    selector: &str,
-    request: &MoveRequest,
-    command_key: &str,
-) -> Result<Value, StepFailure> {
-    let selector = local_selector(snapshot, scope, selector, request.caller_terminal.as_deref())?;
-    backend
-        .request(None, plan(&words(&[scope, &selector, "show"]), None)?)
-        .map_err(|failure| StepFailure::step(failure, scope, command_key, Value::Null))
+    };
+    found.ok_or_else(|| {
+        selector_failure(
+            "selector.not_found",
+            format!("no {scope} {selector} in this session (`cmux {scope} list` lists them)"),
+        )
+    })
 }
 
 /// The new pane a split or `screen create` made: `{workspace_id,
@@ -268,9 +311,9 @@ pub(in crate::cli) fn move_pane<B: Daemon + ?Sized>(
 ) -> Result<Value, StepFailure> {
     let snapshot = backend
         .request(None, plan(&words(&["session", "current", "snapshot"]), None)?)
-        .map_err(|failure| StepFailure::step(failure, "snapshot", command_key, Value::Null))?;
-    let source = resolve(backend, &snapshot, "pane", &request.pane, request, command_key)?;
-    let source = text(&source, "id");
+        .map_err(|failure| step_failure(failure, "snapshot", Value::Null))?;
+    let caller = request.caller_terminal.as_deref();
+    let source = text(resolve(&snapshot, "pane", &request.pane, caller)?, "id");
     let source_workspace = find(&snapshot, "panes", &source)
         .and_then(|pane| find(&snapshot, "screens", &text(pane, "screen_id")))
         .map(|screen| text(screen, "workspace_id"))
@@ -298,8 +341,7 @@ pub(in crate::cli) fn move_pane<B: Daemon + ?Sized>(
     // shell tab a new pane started with.
     let (workspace, screen, pane, start, placeholder, created) = match &request.destination {
         Destination::Pane { pane, split } => {
-            let target = resolve(backend, &snapshot, "pane", pane, request, command_key)?;
-            let target = text(&target, "id");
+            let target = text(resolve(&snapshot, "pane", pane, caller)?, "id");
             if target == source {
                 return Err(StepFailure::usage("pane move needs a destination outside the pane"));
             }
@@ -313,9 +355,7 @@ pub(in crate::cli) fn move_pane<B: Daemon + ?Sized>(
                                 Some(step_key(command_key, "split")),
                             )?,
                         )
-                        .map_err(|failure| {
-                            StepFailure::step(failure, "split", command_key, Value::Null)
-                        })?;
+                        .map_err(|failure| step_failure(failure, "split", Value::Null))?;
                     let path = created_path(&split);
                     (
                         text(&path, "workspace_id"),
@@ -342,8 +382,8 @@ pub(in crate::cli) fn move_pane<B: Daemon + ?Sized>(
             }
         }
         Destination::Tab(tab) => {
-            let shown = resolve(backend, &snapshot, "tab", tab, request, command_key)?;
-            let target = text(&shown, "pane_id");
+            let shown = resolve(&snapshot, "tab", tab, caller)?;
+            let target = text(shown, "pane_id");
             if target == source {
                 return Err(StepFailure::usage(
                     "pane move needs a destination outside the pane; that tab is in it",
@@ -361,11 +401,7 @@ pub(in crate::cli) fn move_pane<B: Daemon + ?Sized>(
         }
         Destination::NewScreen { workspace } => {
             let workspace = match workspace {
-                Some(selector) => {
-                    let shown =
-                        resolve(backend, &snapshot, "workspace", selector, request, command_key)?;
-                    text(&shown, "id")
-                }
+                Some(selector) => text(resolve(&snapshot, "workspace", selector, caller)?, "id"),
                 None => source_workspace,
             };
             let mut create = words(&["screen", "create", "--workspace", &workspace]);
@@ -374,9 +410,7 @@ pub(in crate::cli) fn move_pane<B: Daemon + ?Sized>(
             }
             let created = backend
                 .request(None, plan(&create, Some(step_key(command_key, "screen")))?)
-                .map_err(|failure| {
-                    StepFailure::step(failure, "screen", command_key, Value::Null)
-                })?;
+                .map_err(|failure| step_failure(failure, "screen", Value::Null))?;
             let path = created_path(&created);
             (
                 text(&path, "workspace_id"),
@@ -409,21 +443,21 @@ pub(in crate::cli) fn move_pane<B: Daemon + ?Sized>(
             "--index",
             &index,
         ]);
-        backend.request(None, plan(&step_words, Some(step_key(command_key, &step)))?).map_err(
-            |failure| StepFailure::step(failure, &step, command_key, made(&moved[..offset])),
-        )?;
+        backend
+            .request(None, plan(&step_words, Some(step_key(command_key, &step)))?)
+            .map_err(|failure| step_failure(failure, &step, made(&moved[..offset])))?;
     }
     if let Some(placeholder) = &placeholder {
         let close = words(&["tab", placeholder, "close"]);
-        backend.request(None, plan(&close, Some(step_key(command_key, "close-shell")))?).map_err(
-            |failure| StepFailure::step(failure, "close-shell", command_key, made(&moved)),
-        )?;
+        backend
+            .request(None, plan(&close, Some(step_key(command_key, "close-shell")))?)
+            .map_err(|failure| step_failure(failure, "close-shell", made(&moved)))?;
         // The new pane keeps the moved pane's name.
         if let Some(name) = &source_name {
             let rename = words(&["pane", &pane, "rename", "--name", name]);
-            backend.request(None, plan(&rename, Some(step_key(command_key, "rename")))?).map_err(
-                |failure| StepFailure::step(failure, "rename", command_key, made(&moved)),
-            )?;
+            backend
+                .request(None, plan(&rename, Some(step_key(command_key, "rename")))?)
+                .map_err(|failure| step_failure(failure, "rename", made(&moved)))?;
         }
     }
     // The tab that was selected in the pane is selected again (each move
@@ -437,9 +471,7 @@ pub(in crate::cli) fn move_pane<B: Daemon + ?Sized>(
                     Some(step_key(command_key, "select-tab")),
                 )?,
             )
-            .map_err(|failure| {
-                StepFailure::step(failure, "select-tab", command_key, made(&moved))
-            })?;
+            .map_err(|failure| step_failure(failure, "select-tab", made(&moved)))?;
     }
     let focus_target = match focused_before {
         _ if request.focus => Some(pane.clone()),
@@ -453,7 +485,7 @@ pub(in crate::cli) fn move_pane<B: Daemon + ?Sized>(
                 None,
                 plan(&words(&["pane", target, "focus"]), Some(step_key(command_key, "focus")))?,
             )
-            .map_err(|failure| StepFailure::step(failure, "focus", command_key, made(&moved)))?;
+            .map_err(|failure| step_failure(failure, "focus", made(&moved)))?;
     }
     Ok(json!({
         "pane": source,

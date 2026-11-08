@@ -643,7 +643,7 @@ session <selector> config reload
 session <selector> window title set|clear
 session <selector> terminal defaults set
 
-agent list [--needs-me] [--state <state>] [--terminal <id>] [--sort needs-me|recent|none] [--limit <n>] [--counts]
+agent list [--needs-me] [--state working|blocked|done|idle|unknown|ended] [--terminal <id>] [--sort needs-me|recent|none] [--limit <n>] [--counts]
 agent <agent_id|term_id> focus
 agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
 agent message --reply-to <message-id> [--from <name>] [--] <text...|->
@@ -843,8 +843,9 @@ reported none; a timeout still exits 124. `terminal <t> run [OPTIONS] --
 --exit-with-status`: it types the command into the terminal's shell, waits
 for it to finish, prints its output and exits with its status. One word
 after `--` is a shell line as it is (`run -- 'make && ./a.out'`); two or more
-words are an argv: each word is shell-quoted, so the shell gets the same words
-(`run -- sh -c 'exit 7'` exits 7). `terminal <t> status` adds a `LAST
+words are an argv: each word is POSIX shell-quoted, so sh, bash and zsh get
+the same words (`run -- sh -c 'exit 7'` exits 7); for cmd.exe or PowerShell
+pass the line as one word. `terminal <t> status` adds a `LAST
 COMMAND` line for a person; `--json` keeps the record list.
 
 Every `--pattern` regex (`screen wait`, `send`, `run`, and `agents wait
@@ -864,10 +865,13 @@ focuses the pane that had the focus before (`--focus`: the destination pane);
 when the moved pane had the focus, the focus stays with its tabs. A
 destination in the pane itself is a usage error. The result is `{pane,
 moved_tabs, destination: {workspace, screen, pane, index}, created,
-focused_pane}`, `created` being `{screen, pane}`, `{pane}` or null. Each step
-is its own request; with `--idempotency-key` each step's key derives from
-it, and a failed step names itself and what the steps before it moved in
-`details.step` and `details.made`.
+focused_pane}`, `created` being `{screen, pane}`, `{pane}` or null. The
+command resolves every selector (ids, unique id prefixes, `name:` and exact
+names, `focused`, `current`, `caller`) against one `session.snapshot` and
+sends ids only. Each step is its own request. A failed step names itself and
+what already moved in `details.step` and `details.made`; running the command
+again does not resume it (`details.retry`), so move the remaining tabs with
+`tab move`.
 
 `workspace create --worktree <name>` runs `git worktree create --name <name>`
 in the repository `--repo` names (default: the current directory), with
@@ -1163,9 +1167,13 @@ read's own filters. Every row has `status`, one of the words `terminal list
 notification on its terminal), `working`, `idle` or `unknown`, and `null` for
 an agent whose session ended. The daemon's `state` field (`working`,
 `blocked`, `idle`, `done` = ended, `unknown`) stays as it was. `--state` takes
-the status words and `ended`; `--needs-me` lists the blocked agents and is
-refused with any other `--state`. An acpmux chat row keeps its own status in
-`acp_status`.
+the status words and `ended` and asks the daemon for its state: `done` and
+`idle` ask for `idle` (the CLI then keeps the rows with that status), `ended`
+asks for the daemon's `done`, the others for themselves. `--state done` used to
+select the ended sessions; that is `--state ended` now. `--needs-me` lists the
+blocked agents and is refused with any other `--state`. An acpmux chat row's
+`status` is the shared word too (it was acpmux's own status); acpmux's own
+status moved to `acp_status`.
 
 `--sort needs-me`, the default, puts blocked agents first, then done, then
 working, then idle, then unknown, then ended; `recent` ignores status; `none`
