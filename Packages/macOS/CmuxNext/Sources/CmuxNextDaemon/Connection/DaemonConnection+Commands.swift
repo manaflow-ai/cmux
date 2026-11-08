@@ -165,7 +165,7 @@ extension DaemonConnection {
     }
 
     /// Splits `pane` with a new terminal. With `tab`, moves that existing tab
-    /// into the new pane instead (`move-tab-to-split`, right or bottom edge)
+    /// into the new pane instead (`move-tab-to-split`: the right or bottom edge, the left or top one with `before`)
     /// and returns it; `options` then do not apply. `before` puts the new pane
     /// before `pane` on the split axis (`split-before-v1`; callers check the
     /// capability, a daemon without it refuses the field).
@@ -173,7 +173,9 @@ extension DaemonConnection {
     public func split(_ pane: PaneID, direction: SplitDirection, before: Bool = false, movingTab tab: SurfaceID? = nil,
                       options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
         if let tab {
-            let moved = try await moveTabToSplit(tab, pane: pane, edge: direction == .right ? .right : .bottom)
+            // `before` puts the moved tab's pane on the near edge, as it does a new pane (#38602 review F2).
+            let edge: PaneEdge = direction == .right ? (before ? .left : .right) : (before ? .top : .bottom)
+            let moved = try await moveTabToSplit(tab, pane: pane, edge: edge)
             return SurfaceCreated(surface: moved.surface ?? tab)
         }
         if supportsPlacementEnv {
