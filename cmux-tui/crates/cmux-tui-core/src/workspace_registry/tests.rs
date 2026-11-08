@@ -4112,6 +4112,69 @@ fn startup_repairs_legacy_terminal_close_dangling_resource_rows() {
 }
 
 #[test]
+fn startup_repair_retires_a_dangling_terminal_tab_and_selects_its_sibling() {
+    let root = temp_root("terminal-close-dangling-sibling");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        let pane = pane_id(1);
+        let second_terminal = terminal_resource(TERMINAL_TWO);
+        let mut patch = terminal_topology_patch();
+        patch.changes.retain(|change| !matches!(change, ResourceChange::SetTabOrder { .. }));
+        patch.changes.push(ResourceChange::UpsertTerminal {
+            public_id: second_terminal.clone(),
+            terminal: terminal(TERMINAL_TWO, "one"),
+        });
+        patch.changes.push(ResourceChange::UpsertTab(RegistryTab {
+            name_source: Default::default(),
+            name_revision: 0,
+            public_id: tab_id(2),
+            pane_id: pane.clone(),
+            position: 1,
+            content_id: ContentPublicId::Terminal(second_terminal),
+            name: Some("zsh".into()),
+            browser_url: None,
+            terminal_id: Some(TERMINAL_TWO.into()),
+        }));
+        patch.changes.push(ResourceChange::SetTabOrder {
+            pane_id: pane,
+            tab_ids: vec![tab_id(1), tab_id(2)],
+        });
+        registry
+            .commit_resource_patch(
+                &WorkspaceMutation::new("seed-two-tabs", "test").unwrap(),
+                "workspace.create",
+                &json!({"operation":"workspace.create","name":"One"}),
+                None,
+                Some(0),
+                &patch,
+                &json!({"workspace_id":workspace(1, "one", "One").public_id}),
+                &json!([{"kind":"workspace.created"}]),
+            )
+            .unwrap();
+        let mutation = WorkspaceMutation::new("legacy-host-only-close", "legacy-client").unwrap();
+        registry.close_terminal(&mutation, None, Some(0), TERMINAL_ONE, None).unwrap();
+    }
+
+    // The retired tab's sibling moves to its place and becomes the active tab.
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let topology = reopened.resource_topology_snapshot().unwrap();
+    assert_eq!(topology.tabs.len(), 1, "{topology:?}");
+    assert_eq!(topology.tabs[0].public_id, tab_id(2));
+    assert_eq!(topology.tabs[0].position, 0);
+    assert_eq!(topology.panes[0].active_tab, Some(tab_id(2)));
+    let changes = &reopened.resource_events_after(1).unwrap().batches[0].changes;
+    assert_eq!(changes[0]["resource"], "terminal");
+    assert_eq!(changes[0]["id"], terminal_resource(TERMINAL_ONE).as_str());
+    assert_eq!(changes[1]["resource"], "tab");
+    assert_eq!(changes[1]["id"], tab_id(1).as_str());
+    for (sequence, change) in changes.as_array().unwrap().iter().enumerate() {
+        assert_eq!(change["sequence"], sequence);
+    }
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn terminal_close_tombstones_before_kill_and_retries_safely() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
     seed_workspace(&mut registry, "one");
