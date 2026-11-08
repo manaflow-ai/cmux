@@ -585,7 +585,6 @@ import { MissingFolder } from "./missingFolder";
 import { chooseChatFolder } from "./missingFolderModel";
 import { LiveChatChoice } from "./LiveChatChoice";
 import { WatchBanner } from "./WatchBanner";
-import { bridgedWatch } from "./watchBannerModel";
 import { ManagedBanner } from "./ManagedBanner";
 import { PaneNotices } from "./PaneNotices";
 import { setPaneNotices } from "./paneNoticeStore";
@@ -10408,7 +10407,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 // A Claude desktop session acpmux delivers into takes the reply where it runs (`bridgedWatch`).
                 if (
                   snapshot.summary?.watching &&
-                  !bridgedWatch(snapshot.summary) &&
+                  !snapshot.summary.bridged &&
                   !(await directClient.current?.takeOver())
                 ) {
                   throw new Error("watch.notTakenOver");
@@ -11468,7 +11467,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 {underHeader.watching && snapshot.summary?.watching && !snapshot.liveTakeOver && (
                   <WatchBanner
                     family={snapshot.summary.watching}
-                    bridged={bridgedWatch(snapshot.summary)}
+                    bridged={snapshot.summary.bridged === true}
                     onTakeOver={() => void directClient.current?.takeOver().catch(() => undefined)}
                     onContinue={() => void directClient.current?.continueWatched().catch(() => undefined)}
                   />

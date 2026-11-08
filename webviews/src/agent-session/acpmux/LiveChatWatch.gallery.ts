@@ -37,7 +37,7 @@ export default agentPaneEntry({
         summary: {
           ...chat(transcript).summary!,
           watching: "claude",
-          tags: { origin: "claude-desktop", "origin.pid": "4242" },
+          bridged: true,
         },
       }),
     },
