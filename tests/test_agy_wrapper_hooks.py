@@ -28,10 +28,11 @@ def run_case(
     *,
     in_cmux: bool = True,
     custom_real_path: bool = False,
+    custom_dir: str = "custom",
 ) -> dict[str, object]:
     bin_dir = root / "bin"
     bin_dir.mkdir()
-    real_agy = (root / "custom" / "agy") if custom_real_path else (bin_dir / "agy")
+    real_agy = (root / custom_dir / "agy") if custom_real_path else (bin_dir / "agy")
     real_agy.parent.mkdir(parents=True, exist_ok=True)
     real_result = root / "agy-result.json"
     executable(
@@ -99,6 +100,8 @@ def run_shim_case(root: Path, *, custom_points_at_shim: bool = False) -> dict[st
     other_bundle_bin = root / "cmux NIGHTLY.app" / "Contents" / "Resources" / "bin"
     other_bundle_bin.mkdir(parents=True)
     executable(other_bundle_bin / "agy", "#!/bin/sh\nexit 97\n")
+    # A cmux bundle ships its CLI beside its agent wrappers; that is how the wrapper recognizes one.
+    executable(other_bundle_bin / "cmux", "#!/bin/sh\nexit 0\n")
     real_bin = root / "real-bin"
     real_bin.mkdir()
     real_result = root / "agy-result.json"
@@ -187,6 +190,16 @@ def main() -> int:
             raise AssertionError(f"custom agy executable did not run: {result}")
         if "CMUX_AGENT_LAUNCH_KIND" not in result["real"]["env"]:
             raise AssertionError(f"custom agy executable lost launch metadata: {result}")
+
+    with tempfile.TemporaryDirectory(prefix="cmux-agy-wrapper-app-bundle-") as directory:
+        result = run_case(
+            Path(directory),
+            ("--prompt-interactive", "hello"),
+            custom_real_path=True,
+            custom_dir="Antigravity.app/Contents/Resources/bin",
+        )
+        if result["real"]["argv"] != ["--prompt-interactive", "hello"]:
+            raise AssertionError(f"an agy shipped in another app's Resources/bin did not run: {result}")
 
     with tempfile.TemporaryDirectory(prefix="cmux-agy-wrapper-shim-") as directory:
         real = run_shim_case(Path(directory))
