@@ -1067,7 +1067,7 @@ function TranscriptView({
   onColdOpenShown,
   loading = false,
   afterLatest,
-  sinceSeq,
+  sinceKey,
   onJumpToSince,
   showMinimap = true,
   endReserve = 0,
@@ -1166,9 +1166,9 @@ function TranscriptView({
   onColdOpenShown?: (open: number) => void;
   /// Optional content placed immediately after the latest message, outside the scroller.
   afterLatest?: React.ReactNode;
-  /// The mark of "New since you looked" in these rows, if any: Jump to new shows over the top while
+  /// The key of "New since you looked" in these rows, if any: Jump to new shows over the top while
   /// it is out of view (conversation/SinceDivider.tsx), and `onJumpToSince` brings it in.
-  sinceSeq?: number;
+  sinceKey?: string;
   onJumpToSince?: () => void;
   /// The focused chat's palette action can hide this pane's rail without changing the configured
   /// minimap experiment or any other pane's layout.
@@ -4671,12 +4671,12 @@ function TranscriptView({
             <SubagentOfRow row={pinnedPill} />
           </div>
         )}
-        {sinceSeq !== undefined && onJumpToSince && (
+        {sinceKey !== undefined && onJumpToSince && (
           <div
             className="acpmux-over-top"
             style={{ top: topInset + (pinnedPill ? pinAt.top + SUBAGENT_OF_HEIGHT : 0) }}
           >
-            <SinceJump seq={sinceSeq} onJump={onJumpToSince} />
+            <SinceJump mark={sinceKey} onJump={onJumpToSince} />
           </div>
         )}
         {jumpButton && (

@@ -5706,7 +5706,8 @@
           "description": "Turns that ended while no client showed the chat, since a person last showed it\n(`hub/seen.rs`): the sidebar's count. Absent from a peer on an older acpmux.",
           "format": "uint64",
           "minimum": 0,
-          "type": "integer"
+          "type": "integer",
+          "default": 0
         },
         "updatedAt": {
           "format": "uint64",
@@ -5776,7 +5777,6 @@
         "tags",
         "stateSeq",
         "unread",
-        "unreadTurns",
         "attached",
         "shown",
         "pending"
@@ -6343,7 +6343,8 @@
           "description": "Turns that ended while no client showed the chat, since a person last showed it\n(`hub/seen.rs`): the sidebar's count. Absent from a peer on an older acpmux.",
           "format": "uint64",
           "minimum": 0,
-          "type": "integer"
+          "type": "integer",
+          "default": 0
         },
         "updatedAt": {
           "format": "uint64",
@@ -6412,7 +6413,6 @@
         "tags",
         "stateSeq",
         "unread",
-        "unreadTurns",
         "attached",
         "shown"
       ],

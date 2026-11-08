@@ -1530,7 +1530,7 @@ export type SessionDetail = {
    * Turns that ended while no client showed the chat, since a person last showed it
    * (`hub/seen.rs`): the sidebar's count. Absent from a peer on an older acpmux.
    */
-  unreadTurns: number;
+  unreadTurns?: number;
   updatedAt: number;
   usage?: unknown;
   /**
@@ -1818,7 +1818,7 @@ export type SessionSummary = {
    * Turns that ended while no client showed the chat, since a person last showed it
    * (`hub/seen.rs`): the sidebar's count. Absent from a peer on an older acpmux.
    */
-  unreadTurns: number;
+  unreadTurns?: number;
   updatedAt: number;
   /**
    * What its harness spends and holds, from the harness's own records

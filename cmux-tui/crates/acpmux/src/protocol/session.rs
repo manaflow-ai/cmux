@@ -208,6 +208,7 @@ pub struct SessionSummary {
     pub unread: bool,
     /// Turns that ended while no client showed the chat, since a person last showed it
     /// (`hub/seen.rs`): the sidebar's count. Absent from a peer on an older acpmux.
+    #[serde(default)]
     pub unread_turns: u64,
     /// The log seq the person had seen when they last stopped showing the chat: a client
     /// opening it while `unreadTurns` is above 0 draws "New since you looked" after it.

@@ -71,3 +71,25 @@ async fn a_hidden_client_moves_no_mark_and_a_chat_never_left_has_no_since() {
     hub.set_visible(&s, false);
     assert_eq!(s.meta().seen_seq, Some(before));
 }
+
+#[tokio::test]
+async fn turns_that_end_while_background_work_runs_each_count() {
+    let (hub, s) = chat().await;
+    s.subagents.lock().unwrap().annotate_live(
+        &mut json!({"sessionId": s.id, "update": {
+            "sessionUpdate": "subagent_spawned", "subagentSessionId": "background",
+            "background": true
+        }}),
+        true,
+    );
+    hub.refresh_work_below(&s);
+    hub.mark_unread_unless_work_below(&s);
+    hub.mark_unread_unless_work_below(&s);
+    let meta = s.meta();
+    assert!(!meta.unread, "the dot waits for the work");
+    assert_eq!(meta.unread_turns, 2, "each unseen turn counts");
+    hub.end_background_subagents(&s);
+    let meta = s.meta();
+    assert!(meta.unread);
+    assert_eq!(meta.unread_turns, 2, "the work ending adds no turn");
+}

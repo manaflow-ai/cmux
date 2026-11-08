@@ -14,11 +14,11 @@ import { ArrowDown } from "./icons";
 /// virtual transcript drops a row far from the view, so a line not drawn keeps the side it left by
 /// (above at first: a chat opens at its latest message). `seen`: the line was on screen once, after
 /// which Jump to new has done its job and stays away for that mark.
-type SinceView = { seq: number; side: "in" | "above" | "below"; seen: boolean };
+type SinceView = { mark: string; side: "in" | "above" | "below"; seen: boolean };
 let view: SinceView | undefined;
 const listeners = new Set<() => void>();
 function setView(next: SinceView | undefined): void {
-  if (view?.seq === next?.seq && view?.side === next?.side && view?.seen === next?.seen) return;
+  if (view?.mark === next?.mark && view?.side === next?.side && view?.seen === next?.seen) return;
   view = next;
   for (const listener of listeners) listener();
 }
@@ -30,12 +30,12 @@ const readView = () => view;
 
 /// Follows the drawn line's place in the transcript's scroller with one IntersectionObserver, which
 /// goes with the row (a ref callback's cleanup): nothing runs per scroll frame.
-function useSinceObserver(seq: number) {
+function useSinceObserver(mark: string) {
   return useCallback(
     (node: HTMLElement | null) => {
       if (!node) return;
       const root = node.closest(".acpmux-scroll");
-      if (view?.seq !== seq) setView({ seq, side: "above", seen: false });
+      if (view?.mark !== mark) setView({ mark, side: "above", seen: false });
       const observer = new IntersectionObserver(
         ([entry]) => {
           if (!entry) return;
@@ -45,14 +45,14 @@ function useSinceObserver(seq: number) {
             : box && entry.boundingClientRect.bottom <= box.top
               ? "above"
               : "below";
-          setView({ seq, side, seen: (view?.seq === seq && view.seen) || side === "in" });
+          setView({ mark, side, seen: (view?.mark === mark && view.seen) || side === "in" });
         },
         { root: root instanceof HTMLElement ? root : null },
       );
       observer.observe(node);
       return () => observer.disconnect();
     },
-    [seq],
+    [mark],
   );
 }
 
@@ -73,7 +73,7 @@ export function SinceDivider({
   const t = useT();
   const turns = t("since.turns", { n: since.turns });
   return (
-    <div className="cv-since" data-look={look} ref={useSinceObserver(since.seq)}>
+    <div className="cv-since" data-look={look} ref={useSinceObserver(since.key)}>
       <p className="cv-since__line">
         <span className="cv-since__label">{t("since.label")}</span>
         <span className="cv-since__count">{turns}</span>
@@ -86,10 +86,10 @@ export function SinceDivider({
 /// Jump to new: a glass pill over the transcript's top while "New since you looked" is out of view and
 /// the reader has not reached it yet. Mounted with the line's mark and only faded (conversation.css),
 /// so it never pops in; `onJump` brings the line in (App.tsx, the transcript's row reveal).
-export function SinceJump({ seq, onJump }: { seq: number; onJump: () => void }) {
+export function SinceJump({ mark, onJump }: { mark: string; onJump: () => void }) {
   const t = useT();
   const where = useSyncExternalStore(subscribe, readView, readView);
-  const mine = where?.seq === seq ? where : undefined;
+  const mine = where?.mark === mark ? where : undefined;
   const shown = !mine?.seen && mine?.side !== "in";
   const label = t("since.jump");
   return (

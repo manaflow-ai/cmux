@@ -154,7 +154,8 @@ export type AcpmuxRecap = { key: string; text: string; awayMs?: number };
 /// after the record they had seen (acpmux `seenSeq`, `hub/seen.rs`) when turns ended since. The
 /// recap made for the same return (`since` on its record) draws on it instead of on its own row.
 export const SINCE_DIVIDER = "sinceDivider";
-export type AcpmuxSince = { seq: number; turns: number; recap?: AcpmuxRecap };
+/// `key`: the chat and the seq, which Jump to new follows the line by (seqs repeat across chats).
+export type AcpmuxSince = { key: string; seq: number; turns: number; recap?: AcpmuxRecap };
 
 /// A turn the agent ran on its own, which nobody prompted (acpmux `background_turn` records): a
 /// background task or subagent finished (`task_notification`), a scheduled wakeup or /loop tick
@@ -1278,8 +1279,9 @@ export type AcpmuxSnapshot = {
   /// While two or more steers wait: the row of the person's newest one, the only one that offers
   /// Send now (direct.ts `newestOwnSteer`, conversation/PendingSteer.tsx).
   newestOwnSteer?: string;
-  /// The mark of "New since you looked" drawn in the rows (`SINCE_DIVIDER`): Jump to new follows it.
-  sinceSeq?: number;
+  /// The mark of "New since you looked" drawn in the rows (`SINCE_DIVIDER`, its `key`): Jump to new
+  /// follows it.
+  sinceKey?: string;
   permission?: AcpmuxPermission;
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;

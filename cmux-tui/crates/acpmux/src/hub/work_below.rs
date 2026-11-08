@@ -63,22 +63,18 @@ impl Hub {
             *mark = if works { now_ms().max(1) } else { 0 };
             // The turn that ended while the work ran is done now: unread, set before the record
             // so its summary already says so. Every new turn drops the note.
-            // Counted for the sidebar even when the chat was unread already.
-            let counted = !works
+            let unread = !works
                 && session.unread_after_work.swap(false, Ordering::SeqCst)
-                && !self.shown(session);
-            let unread = counted && {
-                let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-                Self::count_unread_turn(&mut meta);
-                !std::mem::replace(&mut meta.unread, true)
-            };
+                && !self.shown(session)
+                && {
+                    let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                    !std::mem::replace(&mut meta.unread, true)
+                };
             // Recorded under the mark, so the records keep the order of the changes.
             let since = (*mark != 0).then_some(*mark);
             self.append(session, "mux", RECORD_KIND, json!({"since": since}));
-            if counted {
-                self.save_meta(session);
-            }
             if unread {
+                self.save_meta(session);
                 let status = session.status().to_string();
                 self.append(session, "mux", "status", json!({"status": status, "read": false}));
             }
@@ -91,14 +87,16 @@ impl Hub {
     /// A turn of `session` ended while no client showed it: the chat is unread, or, while work
     /// it started still runs, it turns unread when that work ends (`refresh_work_below`). The
     /// mark is held, so the work cannot end between the check and the note.
+    /// Each such turn counts for the sidebar now (`unread_turns`), dot or not: several turns that
+    /// end while the work runs are several turns.
     pub(super) fn mark_unread_unless_work_below(&self, session: &Session) {
         let mark = session.work_below_since.lock().unwrap_or_else(|e| e.into_inner());
         let works = *mark != 0;
         session.unread_after_work.store(works, Ordering::SeqCst);
+        let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        Self::count_unread_turn(&mut meta);
         if !works {
-            let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             meta.unread = true;
-            Self::count_unread_turn(&mut meta);
         }
     }
 

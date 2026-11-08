@@ -4572,7 +4572,7 @@ export class AcpmuxDirectClient {
 
   /// "New since you looked" for the chat on screen (`markSeen`): its row, after the record at
   /// `since.seq`. Placed again after a reset clears the rows; O(1) when it is there already.
-  private since?: AcpmuxSince & { sessionId: string };
+  private since?: Omit<AcpmuxSince, "key"> & { sessionId: string };
   private placeSince(): void {
     const since = this.since;
     if (!since || since.sessionId !== this.selectedSessionId) {
@@ -4587,7 +4587,12 @@ export class AcpmuxDirectClient {
       version: (drawn?.version ?? 0) + 1,
       at: drawn?.at ?? Date.now(),
       kind: SINCE_DIVIDER,
-      since: { seq: since.seq, turns: since.turns, ...(since.recap && { recap: since.recap }) },
+      since: {
+        key: `${since.sessionId}:${since.seq}`,
+        seq: since.seq,
+        turns: since.turns,
+        ...(since.recap && { recap: since.recap }),
+      },
     });
   }
 
@@ -8405,7 +8410,7 @@ export class AcpmuxDirectClient {
       // Two or more steers the agent has not read: the transcript draws other sessions' as one card.
       ...(this.waitingSteers.length > 1 ? { waitingSteers: this.steerRowIds() } : {}),
       ...(this.waitingSteers.length > 1 && this.newestOwnSteer() ? { newestOwnSteer: this.newestOwnSteer() } : {}),
-      ...(this.rows.get(SINCE_DIVIDER)?.since && { sinceSeq: this.rows.get(SINCE_DIVIDER)!.since!.seq }),
+      ...(this.rows.get(SINCE_DIVIDER)?.since && { sinceKey: this.rows.get(SINCE_DIVIDER)!.since!.key }),
       permission: this.pendingPermission,
       ...(this.pendingPermission && this.waitingPermissions.size > 0
         ? { permissionsWaiting: this.waitingPermissions.size, permissionsQueued: this.queuedPermissions() }

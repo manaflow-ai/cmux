@@ -19,12 +19,13 @@ function SinceLooks({ look, recap = true, jump = false }: { look: SinceLook; rec
     <div className="acpmux-shell" style={{ position: "relative", padding: 16, display: "grid", gap: 16 }}>
       {jump && (
         <div className="acpmux-over-top" style={{ top: 0 }}>
-          <SinceJump seq={-1} onJump={() => {}} />
+          <SinceJump mark="gallery" onJump={() => {}} />
         </div>
       )}
       <Reply text="I'll start by reading foo.rs to see how absent fields fail." />
       <SinceDivider
         since={{
+          key: `gallery-${look}:41`,
           seq: 41,
           turns: 3,
           ...(recap && { recap: { key: `gallery-${look}`, text: RECAP, awayMs: 38 * 60_000 } }),

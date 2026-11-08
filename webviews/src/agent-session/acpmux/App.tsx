@@ -5140,7 +5140,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   // Jump to new (conversation/SinceDivider.tsx): "New since you looked" is a row like any other, so
   // the transcript brings it in by its place in the chat even when it is far above the view.
-  const sinceSeq = snapshot.sinceSeq;
+  const sinceKey = snapshot.sinceKey;
   const jumpToSince = useCallback(() => {
     const key = Date.now();
     setRevealRow({ rowId: SINCE_DIVIDER, key, toolId: "" });
@@ -9738,7 +9738,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                             expanded={folds}
                                                             showMinimap={minimapVisible}
                                                             reveal={childRows ? undefined : revealRow}
-                                                            sinceSeq={childRows ? undefined : sinceSeq}
+                                                            sinceKey={childRows ? undefined : sinceKey}
                                                             onJumpToSince={jumpToSince}
                                                             coldOpen={
                                                               !childRows && opened.cold ? opened.open : undefined

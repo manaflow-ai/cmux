@@ -17,7 +17,7 @@ const divider = (seq: number, turns: number): AcpmuxRow => ({
   version: 1,
   at: 0,
   kind: SINCE_DIVIDER,
-  since: { seq, turns },
+  since: { key: `s:${seq}`, seq, turns },
 });
 
 function eventRows(seqs: number[]): OrderedRows {
