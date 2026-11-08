@@ -253,6 +253,8 @@ function reaches(input: UserInput, element: Element): boolean {
   // out on the composed path, is.
   for (const node of input.path ?? [target])
     if ((node as Node).nodeType === 1 && element.contains(node as Node)) return true;
+  // Tab moves focus, from a text field too, and the page scrolls the newly focused item into view.
+  if (input.key === "Tab") return true;
   return input.key !== undefined && SCROLLING_KEYS.has(input.key) && !editable(target) && !control(target, input.key);
 }
 
@@ -302,8 +304,11 @@ export function installScrollingMarks(document: Document, timers: ScrollTimers =
     "scroll",
     (event) => {
       const target = event.target;
-      if (target === document) markScrolling(document.documentElement, timers);
-      else if (
+      // The page's own scroller is <html>, and it answers to the same rule as every other.
+      if (target === document) {
+        if (isUserScroll(document.documentElement, lastUserInput.get(document), now()))
+          markScrolling(document.documentElement, timers);
+      } else if (
         target &&
         "setAttribute" in target &&
         isUserScroll(target as Element, lastUserInput.get(document), now())
