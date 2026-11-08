@@ -10,7 +10,7 @@
 //! (habits fade over weeks, plans/cmux-next/palette-ranking.md 5.2). A
 //! stored score is the decayed score as of `last_used_ms`; readers decay it
 //! to their own clock. The ranking rules that read the history live in the
-//! shared ranker (webviews/src/palette/ranker.ts); this module only stores.
+//! shared ranker (cmux-tui/crates/cmux-palette-ranker); this module only stores.
 
 use std::collections::BTreeMap;
 

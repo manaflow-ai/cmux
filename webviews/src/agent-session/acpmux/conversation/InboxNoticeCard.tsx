@@ -22,8 +22,9 @@ import { mentionedRepository } from "../../../githubReferences";
 import { CardCopy } from "./CardCopy";
 import { FindReveal, foldFind } from "./chatFind";
 import { SenderName } from "./IncomingMessageCard";
-import { groupSender, MessageGroupHead } from "./MessageGroupHead";
-import { messageOpened, setMessageOpened } from "./incomingOpened";
+import { MessageGroupHead } from "./MessageGroupHead";
+import { groupSender } from "./messageGroupHeadModel";
+import { messageOpened, setDigestOpened, setMessageOpened } from "./incomingOpened";
 import type { IncomingMessage } from "./incomingMessage";
 import {
   inboxCounts,
@@ -35,6 +36,7 @@ import {
 } from "./inboxNotice";
 import { foldsThreads, useInboxNoticeLook } from "./inboxNoticeLook";
 import { Markdown } from "./Markdown";
+import { SentFromLine } from "./SentFromLine";
 import "./InboxNoticeCard.css";
 
 /// Reads a thread's messages, oldest first (App.tsx `readInboxThread`, `chat.inbox.thread`).
@@ -171,12 +173,20 @@ function InboxThreadLine({
               <Markdown githubRepository={repository} commits="quiet" messageAt={message.at ?? messageAt}>
                 {message.text}
               </Markdown>
+              {message.promptId && thread.sentFrom?.[message.promptId] && (
+                <SentFromLine from={thread.sentFrom[message.promptId]!} />
+              )}
             </section>
           ))
         ) : (
-          <Markdown githubRepository={repository} commits="quiet" messageAt={messageAt}>
-            {thread.preview || t("message.noText")}
-          </Markdown>
+          <>
+            <Markdown githubRepository={repository} commits="quiet" messageAt={messageAt}>
+              {thread.preview || t("message.noText")}
+            </Markdown>
+            {thread.promptIds.length === 1 && thread.sentFrom?.[thread.promptIds[0]!] && (
+              <SentFromLine from={thread.sentFrom[thread.promptIds[0]!]!} />
+            )}
+          </>
         )}
       </div>
     </DisclosureRow>
@@ -266,7 +276,16 @@ export function InboxNoticeCard({
         senders={senders.join(", ")}
         open={open}
         bodyId={bodyId}
-        onToggle={() => show(!open)}
+        onToggle={() => {
+          // The head opens the group with every thread's messages open (incomingOpened.ts).
+          setDigestOpened(
+            session,
+            rowId,
+            notice.threads.map((thread) => inboxThreadKey(rowId, thread.threadId)),
+            !open,
+          );
+          setOpen(!open);
+        }}
         className="cv-inbox__head"
       />
       {open && (

@@ -1446,13 +1446,11 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-cloud-environment",
- "cmux-cloud-wire",
  "cmux-json",
  "cmux-link",
  "cmux-server",
  "cmux-server-core",
  "flate2",
- "futures-util",
  "libc",
  "proptest",
  "ring",
@@ -1462,7 +1460,6 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
- "tokio-tungstenite",
  "url",
  "x25519-dalek",
  "yaml-rust",
@@ -1540,7 +1537,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "zeroize",
 ]
 
 [[package]]
@@ -1596,6 +1592,15 @@ version = "0.1.0"
 dependencies = [
  "ghostty-vt",
  "libc",
+]
+
+[[package]]
+name = "cmux-palette-eval"
+version = "0.1.0"
+dependencies = [
+ "cmux-palette-ranker",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1975,6 +1980,7 @@ dependencies = [
  "cmux-cloud-wire",
  "cmux-config",
  "cmux-conversation",
+ "cmux-focus-core",
  "cmux-git",
  "cmux-holder",
  "cmux-host",
@@ -2087,6 +2093,7 @@ dependencies = [
  "cmux-conversation",
  "cmux-feed-core",
  "cmux-flow-trace",
+ "cmux-focus-core",
  "cmux-git",
  "cmux-history",
  "cmux-holder",

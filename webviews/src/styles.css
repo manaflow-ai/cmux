@@ -1503,11 +1503,16 @@ body[data-loading="true"] #status::before {
   display: inline-flex;
   gap: 2px;
   opacity: 0;
-  transition: opacity var(--cmux-motion-quick) ease;
+  transition: var(--cmux-hover-reveal-out-transition);
 }
 .comment-card:hover .comment-card-actions,
 .comment-card:focus-within .comment-card-actions {
   opacity: 1;
+  transition: var(--cmux-hover-reveal-in-transition);
+}
+/* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
+.comment-card:has(:focus-visible) .comment-card-actions {
+  transition: none;
 }
 .comment-card-action {
   padding: 1px 6px;

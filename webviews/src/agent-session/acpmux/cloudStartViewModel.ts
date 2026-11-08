@@ -4,7 +4,7 @@ import {
   type CloudStartupOperation,
   type CloudStartupSetup,
 } from "./cloudStartProgress";
-import { fileSizeLabel } from "./FileAttachment";
+import { fileSizeLabel } from "./fileAttachmentModel";
 import { paneLanguage, type StringKey, type Translate } from "./i18n";
 
 type ChecklistStatus = "done" | "running" | "pending" | "skipped" | "error";

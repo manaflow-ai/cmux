@@ -94,13 +94,13 @@ struct NewTabSuccession {
 
     /// `snapshot` as `pane`'s strip shows it while a new tab of it is made. A tab the store made for a provisional one (Cmd-T's
     /// New Tab page shows before the store has its tab) takes the provisional tab's cell: the store swaps them in one step, so
-    /// one provisional tab leaving as one tab arrives is that pair. It was a shrink beside a grow on every Cmd-T.
+    /// one provisional tab leaving as one tab arrives is that pair when that tab is the stand-in's (F1 on #38085). It was a shrink beside a grow on every Cmd-T.
     static func order(_ snapshot: PaneController.Snapshot, in pane: PaneController) -> PaneController.Snapshot {
         let shown = Set(pane.stripModel.tabs.map(\.id)), listed = Set(snapshot.items.map(\.id))
         let left = shown.filter { ProvisionalTab.isProvisional($0.rawValue) && !listed.contains($0) }
-        let arrived = snapshot.items.filter { !shown.contains($0.id) }
+        let arrived = snapshot.items.filter { !shown.contains($0.id) }, swapped = arrived.filter { pane.daemon.store.creations.tookAStandInsPlace(tab: $0.id.rawValue, in: pane.pane) }
         var handed: SurfaceID?
-        if left.count == 1, arrived.count == 1, let provisional = left.first {
+        if left.count == 1, arrived.count == 1, let provisional = left.first, pane.daemon.store.creations.handsOver(standIn: provisional.rawValue, to: arrived[0].id.rawValue, in: pane.pane) {
             pane.stripModel.successors[arrived[0].id] = provisional
             handed = pane.pane.tabs.first { $0.id == arrived[0].id.rawValue }?.surface
             // The selection goes with the cell, in the same apply: a selected stand-in never
@@ -110,8 +110,8 @@ struct NewTabSuccession {
         let key = ObjectIdentifier(pane.pane), now = ContinuousClock.now
         let opens = (active[key] ?? []).filter { now < $0.deadline }.map { $0.resolving(pane.pane) } // stand-ins the store replaced: the daemon's tabs
         var snapshot = snapshot, items = snapshot.items, kept: [NewTabSuccession] = [], claimed = Set(opens.compactMap(\.claimed))
-        // Stand-ins swapped in one snapshot (no answer named them yet), in order; each stand-in's tab in this pass, for an open placed after it.
-        var unpaired = left.count == arrived.count ? arrived.map(\.id).filter { !claimed.contains($0) } : [], became: [StripTabID: StripTabID] = [:] // only as many as left: no tab moved in
+        // Stand-ins swapped in one snapshot (no answer named them yet), in order, with as many tabs the daemon named as a creation's (never one moved in, a script's or a closed stand-in's: F3 on #37799); each stand-in's tab in this pass, for an open placed after it.
+        var unpaired = left.count == swapped.count ? swapped.map(\.id).filter { !claimed.contains($0) } : [], became: [StripTabID: StripTabID] = [:]
         for (index, var open) in opens.enumerated() {
             if let leader = open.before.flatMap({ became[$0] }) { open.before = leader }
             // Its own tab, else its surface; the newest also by the store's tab after a provisional one or the tab being selected.

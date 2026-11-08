@@ -1,7 +1,11 @@
-// A huge paste is a chip, as in Claude (Leo 2026-10-21): text of more than PASTE_CHIP_WORDS words
-// or PASTE_CHIP_CHARS characters pasted into the composer becomes a "Pasted text" attachment (its
-// first words and line count) instead of pages of prompt. A click puts it back in the prompt to
-// edit; Paste as Plain Text keeps a raw paste. It goes to the agent as text: its own ACP text block
+// A huge paste is a chip (Leo 2026-10-21): text of more than PASTE_CHIP_WORDS words or PASTE_CHIP_CHARS
+// characters pasted into the composer becomes a "Pasted text" attachment
+// (its first words and line count) instead of pages of prompt. The chip offers both ways on (Leo,
+// 2026-11-07: "you can either just paste it and it just becomes this, like, .txt, kind of like an
+// attachment, um, or you can just make it raw"): Expand puts it back in the prompt to edit, Keep as
+// .txt sends it as a file. Paste as Plain Text keeps a raw paste. In the sent bubble every paste
+// reads as the prompt's own text under its one fold (conversation/sentPasteLook.experiment.ts). It
+// goes to the agent as text: its own ACP text block
 // after the prompt's, marked `_meta.cmux.pasted` so the transcript can tell it from what was typed.
 import type { ComposerAttachment, PromptBlock } from "./attachments";
 import { pasteName, type PasteRange } from "./conversation/promptCollapse";

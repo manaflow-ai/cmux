@@ -28,6 +28,8 @@ export interface CardPlace {
   anchor: CardRow;
   above: number;
   below: number;
+  /** Points per CSS px (the page's zoom): the pointer's screen deltas are points. Absent: 1. */
+  zoom?: number;
 }
 
 export interface CardDragHost {
@@ -83,8 +85,8 @@ export function shownOffset(feel: CardDragFeel, offset: Point, row: CardRow, pla
 /** Presses that never start a drag: the card's controls keep their own clicks. */
 const CONTROLS = "button, a, input, [role='button']";
 
-/** The cards with a press under way (`pressCard`). */
-const pressed = new WeakSet<HTMLElement>();
+/** The press under way on each card (`pressCard`): its pointer, and how to end it. */
+const pressed = new WeakMap<HTMLElement, { pointerId: number; end: (last: PointerEvent | null) => void }>();
 
 /** Starts a drag of `card` (the card's body, its rest box) from `event`, a primary press on it. The
  *  press becomes a drag once it has moved past the slop up or down; across, it is left to select the
@@ -98,8 +100,12 @@ export function pressCard(
 ): void {
   if (event.button !== 0 || (event.target as Element | null)?.closest?.(CONTROLS)) return;
   const target = event.currentTarget instanceof HTMLElement ? event.currentTarget : card;
-  // One press per card: a second pointer pressed while one is active is not a drag of its own.
-  if (pressed.has(target)) return;
+  // One press per card: a second pointer pressed while one is active is not a drag of its own. The
+  // same pointer pressing again means its release was missed (let go over the native sidebar, outside
+  // the card-sized page view): that press ends there and this one starts (review F1 of #37802).
+  const active = pressed.get(target);
+  if (active && active.pointerId !== event.pointerId) return;
+  active?.end(event);
   const place = host.place();
   if (!place) return;
   const rect = card.getBoundingClientRect();
@@ -107,9 +113,11 @@ export function pressCard(
   const screen = { x: event.screenX, y: event.screenY };
   const box = dragBox(place, rect.width, rect.height);
   const drag = createDrag(start, event.timeStamp);
+  // Screen deltas are points; the card's offsets are CSS px at the page's zoom (review F3 of #37790).
+  const zoom = place.zoom && place.zoom > 0 ? place.zoom : 1;
   const at = (next: PointerEvent): Point => ({
-    x: start.x + next.screenX - screen.x,
-    y: start.y + next.screenY - screen.y,
+    x: start.x + (next.screenX - screen.x) / zoom,
+    y: start.y + (next.screenY - screen.y) / zoom,
   });
   // The press listens on the page's window until it ends, so a release off the card before the slop
   // still ends it (review of #37669); the pointer is captured only once the press is a drag, so a
@@ -155,16 +163,18 @@ export function pressCard(
     events.removeEventListener("pointermove", move as EventListener);
     events.removeEventListener("pointerup", up as EventListener);
     events.removeEventListener("pointercancel", cancel as EventListener);
+    events.removeEventListener("blur", blur);
   };
-  const end = (last: PointerEvent, cancelled: boolean) => {
+  /** Ends the press: let go at `last`, or with no event (the window lost focus) put back. */
+  const end = (last: PointerEvent | null, cancelled: boolean) => {
     stop();
-    if (target.hasPointerCapture?.(last.pointerId)) target.releasePointerCapture(last.pointerId);
+    if (target.hasPointerCapture?.(event.pointerId)) target.releasePointerCapture(event.pointerId);
     if (target.dataset.dragging === undefined) return;
     delete target.dataset.dragging;
     host.hold?.(undefined);
-    const result = cancelled ? null : drag.release(at(last), last.timeStamp, box);
+    const result = cancelled || !last ? null : drag.release(at(last), last.timeStamp, box);
     // The card lets go from where the pointer was released, not from the last move's place.
-    if (result) shown = shownOffset(feel, drag.offset, anchorRow(nearestAnchor(at(last), box)), place);
+    if (result && last) shown = shownOffset(feel, drag.offset, anchorRow(nearestAnchor(at(last), box)), place);
     if (result?.kind === "dismiss") {
       host.dismiss();
       return;
@@ -179,7 +189,10 @@ export function pressCard(
   const cancel = (last: PointerEvent) => {
     if (own(last)) end(last, true);
   };
-  pressed.add(target);
+  // A window that loses focus mid-press hears no release: the press ends, the card put back.
+  const blur = () => end(null, true);
+  pressed.set(target, { pointerId: event.pointerId, end: (last) => end(last, false) });
+  events.addEventListener("blur", blur);
   events.addEventListener("pointermove", move as EventListener);
   events.addEventListener("pointerup", up as EventListener);
   events.addEventListener("pointercancel", cancel as EventListener);

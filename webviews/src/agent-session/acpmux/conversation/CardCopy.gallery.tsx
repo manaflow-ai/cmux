@@ -8,11 +8,12 @@ import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { tool } from "../../../gallery/fixtures/acpmux";
-import { CardCopyLookContext, CardCopyWriterContext, type CardCopyLook } from "./CardCopy";
+import { CardCopyLookContext, CardCopyWriterContext, type CardCopyLook } from "./cardCopyModel";
 import { IncomingMessageLine } from "./IncomingMessageCard";
 import { SubsessionCallCard } from "./SubsessionCallCard";
 import { subsessionCall } from "./subsessionCalls";
-import { resetTranscriptDisclosure, TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 type Props = { look: CardCopyLook; card: "prompt" | "message" };
 

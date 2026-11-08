@@ -9,6 +9,29 @@
 .acpmux-shell,
 .ui-positioner {
   --acpmux-dictation-accent: var(--cmux-accent, var(--agent-accent, var(--agent-text)));
+  /* The waveform's pill (Leo 2026-11-08): solid, from the theme. In a dark theme it is the theme's
+     opaque surface a step darker, from opaque tokens only, so it stays solid over New Tab and
+     see-through or art panes, whose page color is clear; in a light theme it is the light
+     counterpart, one step of the theme's ink over the composer. The bars take the theme's ink. */
+  --acpmux-dictation-pill: light-dark(
+    color-mix(in srgb, var(--agent-text) 9%, var(--acpmux-composer-solid, var(--acpmux-base))),
+    oklch(from var(--cmux-surface-solid, var(--acpmux-base)) calc(l * 0.7) c h)
+  );
+  --acpmux-dictation-pill-ink: var(--agent-text);
+}
+
+/* The pill around the waveform: a capsule a little shorter than the row's controls, so the row keeps
+   its height. Its enter and exit are the shared presence motion (ui/popupSurface.css). */
+.acpmux-dictation-pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding-inline: var(--ds-space-2);
+  border-radius: 999px;
+  background: var(--acpmux-dictation-pill);
+  color: var(--acpmux-dictation-pill-ink);
+  pointer-events: none;
 }
 
 /* The waveform: thin bars, dots at both ends. A bar's --level (0...1) is its height above a dot. */
@@ -18,8 +41,6 @@
   align-items: center;
   gap: 2px;
   height: 18px;
-  margin-inline: 2px 4px;
-  color: var(--acpmux-composer-dim, var(--agent-muted));
   pointer-events: none;
 }
 .acpmux-dictation-wave > span {
@@ -69,6 +90,11 @@
     color: var(--agent-text);
   }
 }
+/* Fades out with the leaving pill and keeps its slot until both unmount together. */
+.acpmux-dictation-cancel[data-leaving] {
+  opacity: 0;
+  pointer-events: none;
+}
 .acpmux-dictation-cancel:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--agent-text) 72%, transparent);
   outline-offset: 0;
@@ -77,7 +103,8 @@
   .acpmux-dictation-cancel {
     transition:
       background-color var(--agent-motion-hover) var(--agent-ease-out),
-      color var(--agent-motion-hover) var(--agent-ease-out);
+      color var(--agent-motion-hover) var(--agent-ease-out),
+      opacity calc(var(--agent-motion-out) * 1.25) var(--agent-ease-out);
   }
 }
 
@@ -128,3 +155,73 @@
   border-radius: 4px;
   pointer-events: none;
 }
+
+/* Another app's dictation (outsideDictation.ts), when the host cannot meter it (no microphone
+   permission, which cmux never asks for here): three thin bars drawn in the mic's own place, rising
+   and falling slowly. Only `transform` moves (one
+   compositor layer), the button keeps its size, and motion-off settings hold the bars still
+   (styles.css `data-agent-motion="off"`). */
+.acpmux-mic-outside {
+  display: flex;
+  align-items: center;
+  justify-content: space-evenly;
+  width: 16px;
+  aspect-ratio: 1;
+  pointer-events: none;
+}
+.acpmux-mic-outside > span {
+  width: 2px;
+  height: 75%;
+  background: var(--agent-soft);
+  transform: scaleY(0.35);
+  transform-origin: center;
+  /* The app's shared breathing clock (conversation.css), so it moves with the other live marks. */
+  animation: acpmux-mic-outside var(--cmux-breath-period, 2.4s) var(--cmux-ease-out) infinite;
+}
+.acpmux-mic-outside > span:nth-child(2) { animation-delay: calc(var(--cmux-breath-period, 2.4s) / -3); }
+.acpmux-mic-outside > span:nth-child(3) { animation-delay: calc(var(--cmux-breath-period, 2.4s) * -2 / 3); }
+@keyframes acpmux-mic-outside {
+  0%, 100% { transform: scaleY(0.35); }
+  50% { transform: scaleY(1); }
+}
+/* Static status indicators, the agent's or the app's motion off or reduced, or Reduce Motion: the bars hold still at three heights. */
+:root:is([data-status-indicators="static"], [data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-mic-outside > span {
+  animation: none;
+}
+:root:is([data-status-indicators="static"], [data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-mic-outside > span:nth-child(2) {
+  transform: scaleY(0.8);
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-mic-outside > span { animation: none; }
+  .acpmux-mic-outside > span:nth-child(2) { transform: scaleY(0.8); }
+}
+/* The same, metered (`metered: true`): the waveform's bars (.acpmux-dictation-wave) at the glyph's
+   size, each one's --level the measured input level, newest on the right. They are information,
+   not decoration, so motion-off settings and Reduce Motion keep the level and drop only the
+   transition. */
+.acpmux-mic-level {
+  display: flex;
+  align-items: center;
+  justify-content: space-evenly;
+  width: 16px;
+  aspect-ratio: 1;
+  color: var(--acpmux-composer-dim, var(--agent-muted));
+  pointer-events: none;
+}
+.acpmux-mic-level > [data-bar] {
+  width: 2px;
+  /* A dot (2 of 16) at 0, the mic's full height at 1; scaled, so only `transform` moves. */
+  height: 100%;
+  background: currentColor;
+  transform: scaleY(calc(0.125 + var(--level, 0) * 0.875));
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-mic-level > [data-bar] {
+    transition: transform var(--agent-motion-hover) var(--agent-ease-out);
+  }
+}
+:root:is([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-mic-level > [data-bar] {
+  transition: none;
+}
+/* The wave takes the glyph's place; the glyph stays in the tree so the button never re-lays out. */
+.acpmux-mic[data-outside] > :is(svg, img) { display: none; }

@@ -492,6 +492,9 @@ extension AgentPaneRequest {
         case "pane.sessionInfo.overlays":
             if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]) { self = .sessionInfoOverlays(rects) }
             else { self = .unsupported(method) }
+        case "pane.toastAvoidance":
+            if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]), rects.count <= 1 { self = .toastAvoidance(rects.first?.rect) }
+            else { self = .unsupported(method) }
         case "pane.glass":
             if let surfaces = AgentPaneHostGlassSurface.decode(params?["surfaces"]) { self = .hostGlass(surfaces) }
             else { self = .unsupported(method) }
@@ -521,7 +524,9 @@ extension AgentPaneRequest {
                 self = .btwInline(question: question, sessionId: sessionId)
             } else { self = .unsupported(method) }
         case "chat.sideChat":
-            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .sideChat(id) } else { self = .unsupported(method) }
+            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 {
+                self = .sideChat(id, splitRight: params?["split"] as? String == "right")
+            } else { self = .unsupported(method) }
         case "chat.subagentPane":
             if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
                 // `title`: the subagent's own name, which its pane's tab shows (SubagentTabTitles).
@@ -652,6 +657,8 @@ extension AgentPaneRequest {
         case "dictation.toggle": self = .dictation(.toggle)
         case "dictation.handoff": self = .dictationHandoff
         case "dictation.sources": self = .dictationSources
+        case "dictation.watchMicrophone":
+            if let on = params?["on"] as? Bool { self = .watchMicrophone(on) } else { self = .unsupported(method) }
         case "dictation.start": self = .dictation(.start)
         case "dictation.stop": self = .dictation(.stop)
         case "dictation.cancel": self = .dictation(.cancel)

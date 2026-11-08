@@ -562,6 +562,9 @@ pub mod method {
     pub const MUX_FILE_PUT_FINISH: &str = "_acpmux/file_put_finish";
     pub const MUX_FILE_PUT_CANCEL: &str = "_acpmux/file_put_cancel";
     pub const MUX_FILE_PUT_STATUS: &str = "_acpmux/file_put_status";
+    /// `{sessionId, keep}`: keep a chat's uploads past the age cap while it is pinned or starred,
+    /// or stop keeping them (`hub/file_uploads/store.rs`).
+    pub const MUX_UPLOADS_KEEP: &str = "_acpmux/uploads_keep";
     /// A binary data frame's method (`server/upload_frames.rs`); never a text request.
     pub const MUX_FILE_PUT_DATA: &str = "_acpmux/file_put_data";
     pub const MUX_DISPATCH: &str = "_acpmux/dispatch";
@@ -666,6 +669,9 @@ pub mod method {
     pub const MUX_SECRET_REQUEST: &str = "_acpmux/secret_request";
     pub const MUX_SECRET_SUBMIT: &str = "_acpmux/secret_submit";
     pub const MUX_SECRET_RUN: &str = "_acpmux/secret_run";
+    /// An agent asks to run one command as root (`hub/elevation.rs`); the person's card
+    /// answers with `secret_submit`, the password, and the daemon runs sudo itself.
+    pub const MUX_ELEVATION_REQUEST: &str = "_acpmux/elevation_request";
     /// An agent asks to connect an MCP server (`hub/mcp_connect.rs`); only the person's card
     /// answers, with `mcp_connect_answer`.
     pub const MUX_MCP_CONNECT_REQUEST: &str = "_acpmux/mcp_connect_request";

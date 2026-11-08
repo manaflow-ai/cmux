@@ -17,7 +17,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxAgentPair, AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { AgentPairNote, spelledWindow } from "../src/agent-session/acpmux/conversation/AgentPairNote";
+import { AgentPairNote } from "../src/agent-session/acpmux/conversation/AgentPairNote";
+import { spelledWindow } from "../src/agent-session/acpmux/conversation/agentPairNoteModel";
 import { reduceAgentPair } from "../src/agent-session/acpmux/conversation/agentPairs";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import {

@@ -17,7 +17,7 @@
    "cmux-mux2": 42,
    "cmux-remote": 39,
    "cmux-terminal-client": 1,
-   "cmux-tui": 75,
+   "cmux-tui": 76,
    "cmux-tui-core": 190,
    "cmux-tui-hooks": 11,
    "cmux-tui-platform": 1,
@@ -33,7 +33,7 @@
    "cmux-tui-core": 24
   },
   "unwrap": {
-   "acpmux": 130,
+   "acpmux": 132,
    "chatmux-relay": 7,
    "cmux-remote": 4,
    "cmux-terminal-client": 30,
@@ -101,7 +101,7 @@
    "CmuxNextServerHelper": 5,
    "CmuxNextSettings": 1,
    "CmuxNextTabs": 5,
-   "CmuxNextTerminal": 6,
+   "CmuxNextTerminal": 7,
    "CmuxUpdater": 1,
    "MessagesLabHome": 14,
    "MessagesLabSidebar": 2

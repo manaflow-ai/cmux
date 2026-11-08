@@ -9,7 +9,7 @@ import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { useNow } from "../subagents/SubagentGroup";
+import { useNow } from "../subagents/subagentGroupModel";
 import type { Subagent } from "../subagents/subagentFold";
 import type { WorkflowAgent } from "./workflow";
 import { modelName, tally, workflowOf } from "./foldWorkflows";

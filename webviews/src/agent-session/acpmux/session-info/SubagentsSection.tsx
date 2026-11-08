@@ -16,17 +16,19 @@ import { Icon } from "../icons/Icon";
 
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
+import { useSenderIconLook } from "../subagents/senderIconLook";
 import { useAgentProgress } from "../subagents/agentProgressStore";
-import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/AgentIdentity";
+import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/agentIdentityModel";
 import { subagentProgress } from "../subagents/subagentProgress";
-import { nestAgents } from "../subagents/AgentsPill";
-import { elapsed, running, useNow } from "../subagents/SubagentGroup";
+import { nestAgents } from "../subagents/agentsPillModel";
+import { elapsed, running, useNow } from "../subagents/subagentGroupModel";
 import { agentTone } from "../subagents/agentTones";
 import type { Subagent } from "../subagents/subagentFold";
 import { retrying } from "../subagents/retryState";
 import { subagentStateText, subagentStatus, type SubagentStatus } from "../summary/subagentStatusListModel";
 import { orderedSessions, sessionStatus, sessionStateText } from "./childSessionRowsModel";
 import "./SubagentsSection.css";
+import { heightAbove, useFoldMotion } from "./foldMotion";
 import { SessionInfoFold } from "./SessionInfoSection";
 import { SUBAGENTS_SHOWN, NO_SESSIONS, subagentCounts } from "./subagentsSectionModel";
 import { WindowedRows } from "./WindowedRows";
@@ -118,6 +120,13 @@ export function SubagentsSection({
   const [more, setMore] = useState(false);
   const [endedOpen, setEndedOpen] = useState(false);
   const endedEdges = useScrollEdges();
+  // The badge look picks which subagents show their family mark (foreignHarness): read here, so a
+  // change of the setting draws them again.
+  const senderBadge = useSenderIconLook().badge;
+  // Show more grows the running lines in place, and the ended row opens its list, each as one motion
+  // with the sections under it and the panel's edge (foldMotion.ts).
+  const moreFold = useFoldMotion<HTMLUListElement>(more, (list) => heightAbove(list, list.children[SUBAGENTS_SHOWN]));
+  const endedFold = useFoldMotion<HTMLDivElement>(endedOpen, () => 0);
   const agentLine = (agent: Subagent, depth: number): Line => {
     const status = subagentStatus(agent, waiting, now);
     return {
@@ -137,7 +146,7 @@ export function SubagentsSection({
       task: agent.task,
       icon: SUBAGENT_FALLBACK,
       // Another family's mark; the chat's own subagents keep their toned sparkle (foreignHarness).
-      mark: foreignHarness(agent.harness, harness),
+      mark: foreignHarness(agent.harness, harness, senderBadge),
       depth,
       at: agent.endedAt ?? agent.startedAt,
       open: onOpen && (() => onOpen(agent.id)),
@@ -174,7 +183,7 @@ export function SubagentsSection({
     ...agents.filter((agent) => !live(subagentStatus(agent, waiting, now))).map((agent) => agentLine(agent, 0)),
     ...children.filter((child) => !live(sessionStatus(child))).map(sessionLine),
   ].sort((a, b) => ENDED_RANK[a.status] - ENDED_RANK[b.status] || b.at - a.at);
-  const shown = more ? runningLines : runningLines.slice(0, SUBAGENTS_SHOWN);
+  const shown = moreFold.drawn ? runningLines : runningLines.slice(0, SUBAGENTS_SHOWN);
   const line = (item: Line) => (
     <li key={item.key}>
       <AgentLine
@@ -195,12 +204,16 @@ export function SubagentsSection({
   return (
     <div className="acpmux-session-info-subagents">
       {runningLines.length > 0 && (
-        <ul className="acpmux-summary-list acpmux-session-info-subagents__running">
+        <ul ref={moreFold.ref} className="acpmux-summary-list acpmux-session-info-subagents__running">
           <WindowedRows items={shown} render={line} />
         </ul>
       )}
       {runningLines.length > SUBAGENTS_SHOWN && (
-        <SessionInfoFold className="acpmux-session-info-subagents__more" open={more} onToggle={() => setMore(!more)}>
+        <SessionInfoFold
+          className="acpmux-session-info-subagents__more"
+          open={more}
+          onToggle={() => moreFold.toggle(!more, setMore)}
+        >
           {more
             ? t("sessionInfo.subagents.less")
             : t("sessionInfo.subagents.more", { n: runningLines.length - SUBAGENTS_SHOWN })}
@@ -211,18 +224,20 @@ export function SubagentsSection({
           <SessionInfoFold
             className="acpmux-session-info-subagents__ended"
             open={endedOpen}
-            onToggle={() => setEndedOpen(!endedOpen)}
+            onToggle={() => endedFold.toggle(!endedOpen, setEndedOpen)}
           >
-            <Icon name={endedOpen ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
+            <Icon name="disclosure.collapsed" size={12} />
             {endedCounts(t, endedLines)}
           </SessionInfoFold>
-          {endedOpen && (
-            <ul
-              ref={endedEdges}
-              className="acpmux-summary-list acpmux-session-info-scroll acpmux-session-info-subagents__list ui-scroll-edge-fade"
-            >
-              <WindowedRows items={endedLines} render={line} />
-            </ul>
+          {endedFold.drawn && (
+            <div ref={endedFold.ref} className="acpmux-session-info-fold-box">
+              <ul
+                ref={endedEdges}
+                className="acpmux-summary-list acpmux-session-info-scroll acpmux-session-info-subagents__list ui-scroll-edge-fade"
+              >
+                <WindowedRows items={endedLines} render={line} />
+              </ul>
+            </div>
           )}
         </>
       )}

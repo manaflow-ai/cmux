@@ -28,44 +28,43 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
     var contentHeight: CGFloat { size.height }
     var contentWidth: CGFloat { size.width }
     var overlayHeight: CGFloat { size.overlay }
+    var previewHeight: CGFloat { size.preview }
     var onHeightChange: (() -> Void)?
     var onAction: (() -> Void)?
     var onDismiss: (() -> Void)?
     var onDrag: ((SidebarCardDrag) -> Void)?
     let provider: UpdateSurfaceProvider
-    private var zoom: CGFloat { ((view as? PageWebView)?.webKitView).map { $0.pageZoom * $0.magnification } ?? 1 }
+    var zoom: CGFloat { ((view as? PageWebView)?.webKitView).map { $0.pageZoom * $0.magnification } ?? 1 }
 
     init(kind: SidebarUpdateSurfaceKind, services: AppServices?) {
         let provider = UpdateSurfaceProvider(kind: kind, services: services)
         self.provider = provider
         view = services.flatMap { PageFactory(services: $0).updateSurfacePage(kind: kind, provider: provider) } ?? NSView()
-        provider.onSize = { [weak self] height, width, overlay in
-            guard let self, size.take(height: height, width: width, overlay: overlay, zoom: zoom) else { return }
-            onHeightChange?()
-        }
+        provider.onSize = { [weak self] h, w, overlay, preview in self?.resize { $0.take(height: h, width: w, overlay: overlay, preview: preview, zoom: $1) } }
+        (view as? PageWebView)?.onZoomChange = { [weak self] in self?.resize { $0.rezoom($1) } }
         provider.card.zoom = { [weak self] in self?.zoom ?? 1 }
         provider.card.onDrag = { [weak self] in self?.onDrag?(SidebarCardDrag(offset: $0, drop: $1.flatMap(SidebarCardAnchor.init(rawValue:)))) }
         provider.onAction = { [weak self] in self?.onAction?() }
         provider.onDismiss = { [weak self] in self?.onDismiss?() }
     }
 
+    /// Applies a size change at the page's zoom; the sidebar lays the card out again when it changed.
+    private func resize(_ change: (inout PageSurfaceSize, CGFloat) -> Bool) { if change(&size, zoom) { onHeightChange?() } }
     func close() { (view as? PageWebView)?.close() }
-
     func setPointerInside(_ inside: Bool) { provider.pointer.value = inside }
     func setPlace(_ place: SidebarCardPlace) { provider.card.setPlace(anchor: place.anchor.rawValue, above: place.above, below: place.below) }
 }
 
-/// `cmux.changelog.surface.*`: `get` (the surface's UpdateHighlights or
-/// null), `size {height, width?, overlay?}` (CSS px: the content height, its own width when
-/// narrower than the host, the room an open hover preview needs), `openChangelog` and `dismiss`;
+/// `cmux.changelog.surface.*`: `get` (the surface's UpdateHighlights or null), `size {height, width?, overlay?, preview?}`
+/// (CSS px, ``PageSurfaceSize``), `openChangelog` and `dismiss`;
 /// `cmux.changelog.surface.changes` resends the highlights on each change, `.pointer` the host's pointer;
 /// `.card.*` is the Updated card's drag (``PageCardDrag``).
 @MainActor
 final class UpdateSurfaceProvider: PageProvider {
     let kind: SidebarUpdateSurfaceKind
     private weak var services: AppServices?
-    /// The page's content height, its own width (0: fills the host) and its preview's room, CSS px.
-    var onSize: ((CGFloat, CGFloat, CGFloat) -> Void)?
+    /// The page's content height, its own width (0: fills the host), its preview's room and open height, CSS px.
+    var onSize: ((CGFloat, CGFloat, CGFloat, CGFloat) -> Void)?
     /// The pointer is on the Updated card (the sidebar host's tracking area), streamed to the page.
     let pointer = PageFlagStream(key: "inside")
     let card = PageCardDrag(prefix: "cmux.changelog.surface.card.")
@@ -99,7 +98,8 @@ final class UpdateSurfaceProvider: PageProvider {
         case "cmux.changelog.surface.size":
             guard let height = params["height"]?.doubleValue else { throw PageError.invalidParams("height is required") }
             services.updater.log.append("update surface \(kind.rawValue): height \(Int(height))")
-            onSize?(CGFloat(height), CGFloat(params["width"]?.doubleValue ?? 0), CGFloat(params["overlay"]?.doubleValue ?? 0))
+            let number = { (key: String) in CGFloat(params[key]?.doubleValue ?? 0) }
+            onSize?(CGFloat(height), number("width"), number("overlay"), number("preview"))
             return .null
         case "cmux.changelog.surface.openChangelog":
             _ = kind == .ready ? services.updater.openStagedChangelog() : services.updater.openWhatsNewForLastUpdate()

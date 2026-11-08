@@ -156,10 +156,29 @@ impl Hub {
         // behind adoption's recovered turn below.
         self.session_log(session).await;
         self.wait_adopted(session).await;
+        // A prompt the daemon sends for a session (a workflow's step, its nudge) names that
+        // session: with no provenance its record would read as the person's own.
+        if opts.provenance.is_none()
+            && let Some(agent) = opts.agent.as_deref()
+        {
+            opts.provenance = Some(match self.resolve(agent).ok().filter(|s| s.id == agent) {
+                Some(from) => crate::prompt_provenance::session_message(
+                    &from.id,
+                    &self.session_name(&from.id),
+                    &session.id,
+                ),
+                None => crate::prompt_provenance::named_sender(agent, &session.id),
+            });
+        }
         self.pair_logs(opts.provenance.as_ref()).await;
         // A person's own prompt is the person asking for the chat: what a daemon start held in
-        // its protected folder goes on, ahead of this prompt (`protected_hold.rs`).
-        if opts.agent.is_none() && opts.provenance.is_none() && opts.after_turn.is_none() {
+        // its protected folder goes on, ahead of this prompt (`protected_hold.rs`). Not the
+        // owner's terminal send, which no connection proved (`PromptOptions::unproven_owner`).
+        if opts.agent.is_none()
+            && opts.provenance.is_none()
+            && opts.after_turn.is_none()
+            && !opts.unproven_owner
+        {
             self.release_protected_hold(session);
         }
         let Some(prompt_id) = opts.prompt_id.clone() else {
@@ -966,6 +985,13 @@ impl Hub {
         } else {
             Vec::new()
         };
+        // A person's prompt (a shared chat's guest or participant, not the owner) tells the agent
+        // who sent it (`author::agent_label`); the transcript's record above keeps their words.
+        if super::forum::slash_command(&blocks).is_none()
+            && let Some(label) = crate::author::agent_label(provenance.as_ref())
+        {
+            blocks.insert(0, label);
+        }
         super::team_information::prepend(&mut blocks, &team_messages);
         // A team message, or an inbox notice (`inbox.rs`), counts as delivered only once the
         // harness writer took its prompt: `on_sent` then logs it.
@@ -1333,10 +1359,10 @@ impl Hub {
         }
         // A rule counts as told once the agent answered the prompt that carried it.
         self.forum_turn_end(session, &told, result.is_ok());
-        // A connection error cut the turn off: it goes on by itself (`auto_resume.rs`).
+        // A cut turn goes on by itself (`auto_resume.rs`), unless carried on or cache_compact's.
+        let goes_on = !trigger && !super::idle::cache_compact::is_own(run.provenance.as_ref());
         let cut = match (&result, detached) {
-            // A turn its agent runs on with carried steers was not cut.
-            (Err(e), false) if carried.is_none() && !trigger => Some(super::auto_resume::CutTurn {
+            (Err(e), false) if carried.is_none() && goes_on => Some(super::auto_resume::CutTurn {
                 // A family message's continuation speaks for its sender (`is_family`).
                 from: run
                     .provenance
