@@ -390,6 +390,16 @@ impl Mux {
         Handover::Unreachable
     }
 
+    pub(crate) fn acp_prompt(
+        &self,
+        _session: &str,
+        _prompt_id: &str,
+        _text: String,
+        _meta: Value,
+    ) -> Handover {
+        Handover::Unreachable
+    }
+
     pub(crate) fn acp_withdraw_message(
         &self,
         _session: &str,

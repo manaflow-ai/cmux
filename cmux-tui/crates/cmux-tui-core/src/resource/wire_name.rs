@@ -79,6 +79,7 @@ impl ResourceOperation {
             Self::DiffCommentsDelete => "diff.comments.delete",
             Self::DiffCommentsList => "diff.comments.list",
             Self::DiffCommentsSave => "diff.comments.save",
+            Self::DiffCommentsSend => "diff.comments.send",
             Self::GitBranches => "git.branches",
             Self::GitCommit => "git.commit",
             Self::GitDiff => "git.diff",

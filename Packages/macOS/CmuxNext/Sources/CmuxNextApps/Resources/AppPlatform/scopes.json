@@ -605,6 +605,10 @@
       "scope": "diff:write",
       "class": "mutation"
     },
+    "diff.comments.send": {
+      "scope": "diff:write",
+      "class": "mutation"
+    },
     "diffs.cycle_variant": {
       "scope": "diffs:write",
       "class": "mutation"
