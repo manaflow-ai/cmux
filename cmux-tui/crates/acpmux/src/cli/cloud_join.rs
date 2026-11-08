@@ -11,7 +11,7 @@ pub(crate) mod host_fingerprint;
 mod leave;
 mod recovery;
 
-pub(crate) use enroll::{EnrollOutcome, EnrollRequest, LeaveOutcome, enroll_self, leave_if_auto};
+pub(crate) use enroll::{EnrollOutcome, EnrollRequest, enroll_self, leave_if_auto};
 
 pub const CAPABILITY: &str = "machine.join.stdin.v1";
 /// The hub a join with no `--hub` uses: cmux-platform's production origin
