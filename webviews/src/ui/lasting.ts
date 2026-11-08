@@ -33,3 +33,14 @@ export function useLasting(active: boolean, graceMs: number = defaultGrace): boo
   }, [active, graceMs]);
   return active && (lasting || graceMs <= 0);
 }
+
+/// How long a page's plain "Loading…" waits before it shows: most reads answer well within it,
+/// and a line that flashes on for a moment is noise (Leo, 2026-11-05: "We don't need to have so
+/// much ceremony").
+export const LOADING_SHOWN_MS = 1_000;
+
+/// `useLasting` for a page's loading line: true once `active` has held for `LOADING_SHOWN_MS`. The
+/// gallery's zero grace (`setLastingGrace(0)`) shows it at once, as it does every lasting state.
+export function useLoadingShown(active: boolean): boolean {
+  return useLasting(active, defaultGrace <= 0 ? 0 : LOADING_SHOWN_MS);
+}

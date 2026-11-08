@@ -47,6 +47,9 @@ public struct AccountSignOut {
                 discardChiefOutbox: @escaping @MainActor () -> Void = {
                     ChiefSession.shared.discardOutbox()
                     ChiefSession.cloud.discardOutbox()
+                    // Every kept Chief conversation goes, and neither session shows one.
+                    ChiefSession.shared.discardTranscripts()
+                    ChiefSession.cloud.discardTranscripts()
                 }) {
         self.snapshots = snapshots
         self.feedStore = feedStore

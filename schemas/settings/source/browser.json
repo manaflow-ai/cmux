@@ -1,0 +1,1819 @@
+{
+  "$comment": "HAND-EDITED source of the Browser section's (and General > Files') rows (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants from it (its docstring is the full row format, tabs.json's $comment a summary); schemas/settings/settings-schema.json is still exported from Swift and must not change when rows move here.",
+  "lists": [
+    {
+      "name": "toolbar",
+      "section": "browser",
+      "group": {
+        "key": "settings.group.toolbar",
+        "text": "Toolbar"
+      },
+      "rows": [
+        {
+          "key": "browser.toolbarButtons",
+          "note": "The buttons the browser toolbar pins next to the address bar, in toolbar order (BrowserToolbarButton raw values; More always shows and is not in the list).",
+          "title": {
+            "key": "settings.browser.toolbarButtons",
+            "text": "Toolbar Buttons"
+          },
+          "help": {
+            "key": "settings.browser.toolbarButtons.help",
+            "text": "Buttons shown next to the address bar. The rest are in the More menu, where Show in Toolbar pins them back."
+          },
+          "kind": "choice_set",
+          "swift_owner": "BrowserToolbarButtonsSetting",
+          "choices": [
+            {
+              "value": "media",
+              "title": {
+                "key": "settings.browser.toolbarButtons.media",
+                "text": "Media Controls"
+              }
+            },
+            {
+              "value": "zoom",
+              "title": {
+                "key": "settings.browser.toolbarButtons.zoom",
+                "text": "Zoom Level"
+              }
+            },
+            {
+              "value": "favorites",
+              "title": {
+                "key": "settings.browser.toolbarButtons.favorites",
+                "text": "Bookmarks"
+              }
+            },
+            {
+              "value": "downloads",
+              "title": {
+                "key": "settings.browser.toolbarButtons.downloads",
+                "text": "Downloads"
+              }
+            },
+            {
+              "value": "designMode",
+              "title": {
+                "key": "settings.browser.toolbarButtons.designMode",
+                "text": "Design Mode"
+              }
+            },
+            {
+              "value": "profile",
+              "title": {
+                "key": "settings.browser.toolbarButtons.profile",
+                "text": "Browser Profile"
+              }
+            },
+            {
+              "value": "theme",
+              "title": {
+                "key": "settings.browser.toolbarButtons.theme",
+                "text": "Browser Theme"
+              }
+            },
+            {
+              "value": "devTools",
+              "title": {
+                "key": "settings.browser.toolbarButtons.devTools",
+                "text": "Developer Tools"
+              }
+            }
+          ],
+          "default": [
+            "media",
+            "zoom",
+            "downloads"
+          ],
+          "keywords": [
+            "toolbar",
+            "buttons",
+            "pin",
+            "more",
+            "extensions",
+            "devtools",
+            "bookmarks"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "engine",
+      "section": "browser",
+      "group": {
+        "key": "settings.group.engine",
+        "text": "Engine"
+      },
+      "rows": [
+        {
+          "key": "browser.defaultEngine",
+          "note": "The engine a browser tab uses when it is created without one. BrowserDefaultEngine is hand-written: it parses the browser section.",
+          "title": {
+            "key": "settings.browser.defaultEngine",
+            "text": "Browser Engine"
+          },
+          "help": {
+            "key": "settings.browser.defaultEngine.help",
+            "text": "Browser tabs and cmux pages, such as History and Apps, open in this engine."
+          },
+          "kind": "choice",
+          "swift_owner": "BrowserDefaultEngine",
+          "swift_enum": {
+            "name": "BrowserDefaultEngine",
+            "generated": false
+          },
+          "choices": [
+            {
+              "value": "chromium",
+              "title": {
+                "key": null,
+                "text": "Chromium"
+              }
+            },
+            {
+              "value": "webkit",
+              "title": {
+                "key": null,
+                "text": "WebKit"
+              }
+            }
+          ],
+          "default": "chromium",
+          "keywords": [
+            "chrome",
+            "safari",
+            "cef"
+          ]
+        },
+        {
+          "key": "browser.siteEngines",
+          "name": "siteEngines",
+          "note": "Site to engine; the default sends sites whose protected (DRM) media does not play in Chromium to WebKit. music.youtube.com is not in it: it plays in Chromium.",
+          "title": {
+            "key": "settings.browser.siteEngines",
+            "text": "Site Engines"
+          },
+          "help": {
+            "key": "settings.browser.siteEngines.help",
+            "text": "Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium."
+          },
+          "kind": "string_map",
+          "swift_owner": {
+            "type": "BrowserSiteEngines",
+            "prefixed": true
+          },
+          "default": {
+            "amazon.com/gp/video": "webkit",
+            "disneyplus.com": "webkit",
+            "hulu.com": "webkit",
+            "max.com": "webkit",
+            "music.apple.com": "webkit",
+            "netflix.com": "webkit",
+            "primevideo.com": "webkit",
+            "spotify.com": "webkit",
+            "tv.apple.com": "webkit"
+          },
+          "keywords": [
+            "drm",
+            "widevine",
+            "spotify",
+            "netflix",
+            "site",
+            "webkit",
+            "chromium"
+          ]
+        },
+        {
+          "key": "browser.newTabPage",
+          "title": {
+            "key": "settings.browser.newTabPage",
+            "text": "New Tab Page"
+          },
+          "help": {
+            "key": "settings.browser.newTabPage.help",
+            "text": "An address such as https://example.com. Empty opens a blank page."
+          },
+          "kind": "url",
+          "swift_owner": "BrowserNewTabPage",
+          "default": "",
+          "keywords": [
+            "home",
+            "start page",
+            "url"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bookmarks",
+      "section": "browser",
+      "group": {
+        "key": "settings.group.bookmarks",
+        "text": "Bookmarks"
+      },
+      "rows": [
+        {
+          "key": "browser.showBookmarksBar",
+          "title": {
+            "key": "settings.browser.showBookmarksBar",
+            "text": "Show Bookmarks Bar"
+          },
+          "help": {
+            "key": "settings.browser.showBookmarksBar.help",
+            "text": "A row of bookmarks under each browser toolbar."
+          },
+          "kind": "toggle",
+          "swift_owner": "BookmarksBarSetting",
+          "default": false,
+          "keywords": [
+            "bookmarks",
+            "favorites",
+            "bar"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "browserImport",
+      "section": "browser",
+      "group": {
+        "key": "settings.group.import",
+        "text": "Import"
+      },
+      "rows": [
+        {
+          "key": "browser.import.enabled",
+          "title": {
+            "key": "settings.browser.importEnabled",
+            "text": "Import from Other Browsers"
+          },
+          "help": {
+            "key": "settings.browser.importEnabled.help",
+            "text": "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays."
+          },
+          "kind": "toggle",
+          "swift_owner": "BrowserImportSetting",
+          "default": true,
+          "keywords": [
+            "import",
+            "browser",
+            "chrome",
+            "safari",
+            "arc",
+            "firefox",
+            "bookmarks",
+            "history",
+            "passwords",
+            "cookies",
+            "suggestions"
+          ]
+        },
+        {
+          "key": "browser.import.cookieBanner",
+          "title": {
+            "key": "settings.browser.importCookieBanner",
+            "text": "Offer to Import Cookies"
+          },
+          "help": {
+            "key": "settings.browser.importCookieBanner.help",
+            "text": "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off."
+          },
+          "kind": "toggle",
+          "swift_owner": "BrowserCookieBannerSetting",
+          "default": true,
+          "keywords": [
+            "import",
+            "cookies",
+            "banner",
+            "card",
+            "sign in",
+            "login",
+            "chrome",
+            "safari",
+            "arc",
+            "dismissed",
+            "reset"
+          ]
+        },
+        {
+          "key": "browser.import.cookieSync",
+          "title": {
+            "key": "settings.browser.importCookieSync",
+            "text": "Keep Imported Cookies in Sync"
+          },
+          "help": {
+            "key": "settings.browser.importCookieSync.help",
+            "text": "After you import cookies from Chrome or another Chromium browser, cmux brings over the sites whose cookies changed there, so you stay signed in. It reads only the profile you imported from, on this Mac; nothing leaves it."
+          },
+          "kind": "toggle",
+          "swift_owner": "BrowserCookieSyncSetting",
+          "default": true,
+          "keywords": [
+            "import",
+            "cookies",
+            "sync",
+            "keep",
+            "chrome",
+            "sign in",
+            "login",
+            "signed in"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "agentInput",
+      "section": "browser",
+      "group": {
+        "key": "settings.group.agentInput",
+        "text": "Agent Input"
+      },
+      "rows": [
+        {
+          "key": "browser.showAgentCursor",
+          "title": {
+            "key": "settings.browser.showAgentCursor",
+            "text": "Show Agent Cursor"
+          },
+          "help": {
+            "key": "settings.browser.showAgentCursor.help",
+            "text": "When an agent drives a browser tab, show its cursor, clicks and typed keys on the page. Password fields show dots."
+          },
+          "kind": "toggle",
+          "swift_owner": "AgentCursorSetting",
+          "default": true,
+          "keywords": [
+            "agent",
+            "cursor",
+            "keystrokes",
+            "typing",
+            "automation",
+            "overlay"
+          ]
+        },
+        {
+          "key": "browser.agentMouse.motion",
+          "note": "How an agent's pointer moves in browser tabs.",
+          "title": {
+            "key": "settings.browser.agentMouseMotion",
+            "text": "Agent Pointer Motion"
+          },
+          "help": {
+            "key": "settings.browser.agentMouseMotion.help",
+            "text": "How an agent moves the pointer in browser tabs. Human moves along a curved path and rests before each click, as a person does, so pages see hover and timing like a person's. Instant jumps to the target and clicks at once."
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "AgentMouseMotion"
+          },
+          "choices": [
+            {
+              "value": "human",
+              "title": {
+                "key": "settings.choice.agentMouseHuman",
+                "text": "Human"
+              },
+              "note": "A person's path: curved, slow-fast-slow, a rest before each press."
+            },
+            {
+              "value": "instant",
+              "title": {
+                "key": "settings.choice.agentMouseInstant",
+                "text": "Instant"
+              },
+              "note": "One jump to the target and an instant press, the fastest."
+            }
+          ],
+          "default": "human",
+          "keywords": [
+            "agent",
+            "mouse",
+            "pointer",
+            "cursor",
+            "human",
+            "motion",
+            "automation"
+          ]
+        },
+        {
+          "key": "browser.agentMouse.maxMoveMs",
+          "note": "The longest one human-motion pointer move takes, in ms.",
+          "title": {
+            "key": "settings.browser.agentMouseMaxMove",
+            "text": "Longest Agent Pointer Move"
+          },
+          "help": {
+            "key": "settings.browser.agentMouseMaxMove.help",
+            "text": "The longest time one agent pointer move takes with human motion. Short moves take less."
+          },
+          "kind": "number",
+          "range": {
+            "min": 60,
+            "max": 1000,
+            "step": 10,
+            "unit": "milliseconds"
+          },
+          "default": 350,
+          "keywords": [
+            "agent",
+            "mouse",
+            "pointer",
+            "speed",
+            "duration"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "extensions",
+      "section": "browser",
+      "group": {
+        "key": "settings.group.extensions",
+        "text": "Extensions"
+      },
+      "rows": [
+        {
+          "key": "browser.builtInAdBlocker",
+          "title": {
+            "key": "settings.browser.builtInAdBlocker",
+            "text": "Built-in uBlock Origin"
+          },
+          "help": {
+            "key": "settings.browser.builtInAdBlocker.help",
+            "text": "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts."
+          },
+          "kind": "toggle",
+          "swift_owner": "BuiltInAdBlockerSetting",
+          "default": true,
+          "keywords": [
+            "ublock",
+            "ad blocker",
+            "adblock",
+            "extensions",
+            "trackers"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "memory",
+      "section": "browser",
+      "group": {
+        "key": "settings.group.memory",
+        "text": "Memory"
+      },
+      "rows": [
+        {
+          "key": "browser.hibernation",
+          "note": "Unset is its own behaviour, not moderate: hidden pages only freeze and are never discarded on their own (BrowserHibernationSetting.fallback). Any written value, moderate included, turns automatic discards on, so it shows as customized and Reset returns to unset.",
+          "title": {
+            "key": "settings.browser.hibernation",
+            "text": "Hibernate Hidden Tabs"
+          },
+          "help": {
+            "key": "settings.browser.hibernation.help",
+            "text": "Frees memory; history and position are kept."
+          },
+          "summary": {
+            "key": "settings.browser.hibernation.summary",
+            "text": "Frees memory; history and scroll are kept"
+          },
+          "kind": "choice_or_number",
+          "swift_owner": "BrowserHibernationSetting",
+          "choices": [
+            {
+              "value": "moderate",
+              "title": {
+                "key": "settings.choice.after30Minutes",
+                "text": "After 30 Minutes"
+              }
+            },
+            {
+              "value": "aggressive",
+              "title": {
+                "key": "settings.choice.aggressive",
+                "text": "After 10 Minutes"
+              }
+            },
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.never",
+                "text": "Never"
+              }
+            }
+          ],
+          "range": {
+            "min": 1,
+            "max": 1440,
+            "step": 5,
+            "unit": "minutes",
+            "placeholder": 30
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.neverDiscard",
+            "text": "Never Discard"
+          },
+          "keywords": [
+            "memory saver",
+            "sleep",
+            "discard",
+            "freeze",
+            "reload"
+          ]
+        },
+        {
+          "key": "browser.hibernationExclusions",
+          "name": "exclusions",
+          "title": {
+            "key": "settings.browser.hibernationExclusions",
+            "text": "Never Hibernate"
+          },
+          "help": {
+            "key": "settings.browser.hibernationExclusions.help",
+            "text": "Hosts such as mail.google.com or *.example.com."
+          },
+          "kind": "host_list",
+          "default": [],
+          "keywords": []
+        },
+        {
+          "key": "browser.hibernatePinnedTabs",
+          "name": "includesPinnedTabs",
+          "title": {
+            "key": "settings.browser.hibernatePinnedTabs",
+            "text": "Hibernate Pinned Tabs"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": []
+        },
+        {
+          "key": "browser.freezeHiddenTabs",
+          "name": "freezeSeconds",
+          "note": "Seconds hidden before a page freezes: long enough for a quick switch back, short against the ~1 Hz wakeups of each hidden renderer.",
+          "title": {
+            "key": "settings.browser.freezeHiddenTabs",
+            "text": "Freeze Hidden Tabs"
+          },
+          "help": {
+            "key": "settings.browser.freezeHiddenTabs.help",
+            "text": "Saves power: a hidden Chromium tab stops running until you show it. Pinned tabs and Never Hibernate hosts stay awake."
+          },
+          "kind": "choice_or_number",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.never",
+                "text": "Never"
+              }
+            }
+          ],
+          "range": {
+            "min": 5,
+            "max": 3600,
+            "step": 5,
+            "unit": "seconds",
+            "placeholder": 30
+          },
+          "default": 30,
+          "keywords": [
+            "power",
+            "battery",
+            "energy",
+            "sleep",
+            "suspend"
+          ]
+        },
+        {
+          "key": "browser.keepNeighborTabsAwake",
+          "name": "neighborRadius",
+          "note": "Tabs on each side of each pane's shown tab that stay awake: one by default, so Ctrl-Tab, Cmd-Shift-[ ] and the next click are warm.",
+          "title": {
+            "key": "settings.browser.keepNeighborTabsAwake",
+            "text": "Keep Neighbor Tabs Awake"
+          },
+          "help": {
+            "key": "settings.browser.keepNeighborTabsAwake.help",
+            "text": "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 3,
+            "step": 1,
+            "unit": "count"
+          },
+          "default": 1,
+          "keywords": [
+            "neighbor",
+            "adjacent",
+            "preload",
+            "warm",
+            "instant",
+            "switch",
+            "hibernation",
+            "freeze"
+          ]
+        },
+        {
+          "key": "browser.wakeTabsOnHover",
+          "name": "wakesOnHover",
+          "note": "Off: at 120 Hz it made the cold click slower and gave the sweep no fewer missed refreshes (run 08e33948, cmux-ad m44).",
+          "title": {
+            "key": "settings.browser.wakeTabsOnHover",
+            "text": "Wake Tabs on Hover"
+          },
+          "help": {
+            "key": "settings.browser.wakeTabsOnHover.help",
+            "text": "When the pointer rests on a tab or a workspace, its sleeping pages start to load before you click. Uses more memory."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "hover",
+            "preload",
+            "prerender",
+            "warm",
+            "instant",
+            "hibernation",
+            "sleep"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "remote",
+      "section": "browser",
+      "group": {
+        "key": "settings.group.remote",
+        "text": "Remote Machines"
+      },
+      "rows": [
+        {
+          "key": "browser.remoteLocalhost",
+          "title": {
+            "key": "settings.browser.remoteLocalhost",
+            "text": "Open localhost on the Workspace's Machine"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "ssh",
+            "cloud",
+            "port"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "addressBar",
+      "section": "browser",
+      "group": {
+        "key": "settings.group.addressBar",
+        "text": "Address Bar"
+      },
+      "note": "The address bar's suggestion keys, then its look (cx-gkz5, cx-d0d.101) and size (issue 28734); BrowserOmnibarSetting.parse checks each key against these rows.",
+      "rows": [
+        {
+          "key": "browser.searchEngine",
+          "title": {
+            "key": "settings.browser.searchEngine",
+            "text": "Search Engine"
+          },
+          "help": {
+            "key": "settings.browser.searchEngine.help",
+            "text": "The address bar searches here and asks it for suggestions."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "google",
+              "title": {
+                "key": null,
+                "text": "Google"
+              }
+            },
+            {
+              "value": "duckduckgo",
+              "title": {
+                "key": null,
+                "text": "DuckDuckGo"
+              }
+            },
+            {
+              "value": "bing",
+              "title": {
+                "key": null,
+                "text": "Bing"
+              }
+            },
+            {
+              "value": "brave",
+              "title": {
+                "key": null,
+                "text": "Brave"
+              }
+            },
+            {
+              "value": "kagi",
+              "title": {
+                "key": null,
+                "text": "Kagi"
+              }
+            },
+            {
+              "value": "custom",
+              "title": {
+                "key": "settings.choice.searchEngine.custom",
+                "text": "Custom"
+              }
+            }
+          ],
+          "default": "google",
+          "keywords": [
+            "search",
+            "engine",
+            "omnibox",
+            "address bar"
+          ]
+        },
+        {
+          "key": "browser.customSearchEngine.search",
+          "name": "customSearch",
+          "title": {
+            "key": "settings.browser.customSearch",
+            "text": "Custom Search Address"
+          },
+          "help": {
+            "key": "settings.browser.customSearch.help",
+            "text": "Used when Search Engine is Custom. Put {searchTerms} where the typed text goes."
+          },
+          "kind": "url",
+          "default": "",
+          "keywords": [
+            "search",
+            "engine",
+            "custom",
+            "template"
+          ]
+        },
+        {
+          "key": "browser.customSearchEngine.suggest",
+          "name": "customSuggest",
+          "title": {
+            "key": "settings.browser.customSuggest",
+            "text": "Custom Suggestions Address"
+          },
+          "help": {
+            "key": "settings.browser.customSuggest.help",
+            "text": "Optional. Answers in the OpenSearch suggestions format, with {searchTerms} for the typed text."
+          },
+          "kind": "url",
+          "default": "",
+          "keywords": [
+            "search",
+            "suggest",
+            "custom",
+            "opensearch"
+          ]
+        },
+        {
+          "key": "browser.omnibar.remoteSuggestions",
+          "title": {
+            "key": "settings.browser.omnibar.remoteSuggestions",
+            "text": "Search Suggestions"
+          },
+          "help": {
+            "key": "settings.browser.omnibar.remoteSuggestions.help",
+            "text": "Sends what you type to the search engine for suggestions. Never addresses, files or local hosts."
+          },
+          "summary": {
+            "key": "settings.browser.omnibar.remoteSuggestions.summary",
+            "text": "Sends what you type to the search engine"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "suggest",
+            "search",
+            "omnibox",
+            "privacy"
+          ]
+        },
+        {
+          "key": "browser.omnibar.inlineAutocomplete",
+          "title": {
+            "key": "settings.browser.omnibar.inlineAutocomplete",
+            "text": "Complete Addresses Inline"
+          },
+          "help": {
+            "key": "settings.browser.omnibar.inlineAutocomplete.help",
+            "text": "Completes a site you typed before or visit often."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "autocomplete",
+            "omnibox",
+            "address bar"
+          ]
+        },
+        {
+          "key": "browser.omnibar.maxRows",
+          "title": {
+            "key": "settings.browser.omnibar.maxRows",
+            "text": "Suggestions Shown"
+          },
+          "kind": "number",
+          "range": {
+            "min": 3,
+            "max": 15,
+            "step": 1,
+            "unit": "count"
+          },
+          "default": 8,
+          "keywords": [
+            "suggestions",
+            "rows",
+            "omnibox"
+          ]
+        },
+        {
+          "key": "browser.omnibar.calculator",
+          "title": {
+            "key": "settings.browser.omnibar.calculator",
+            "text": "Calculator Answers"
+          },
+          "help": {
+            "key": "settings.browser.omnibar.calculator.help",
+            "text": "Shows the answer to arithmetic you type. Return copies it."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "calculator",
+            "math",
+            "answer",
+            "omnibox"
+          ]
+        },
+        {
+          "key": "browser.omnibar.showFullURLs",
+          "note": "Chrome's Always show full URLs (the address bar's right-click menu).",
+          "title": {
+            "key": "settings.browser.omnibar.showFullURLs",
+            "text": "Always Show Full URLs"
+          },
+          "help": {
+            "key": "settings.browser.omnibar.showFullURLs.help",
+            "text": "Shows the whole address, with https:// and www., when you are not editing it."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "url",
+            "address",
+            "https",
+            "www",
+            "full",
+            "omnibox"
+          ]
+        },
+        {
+          "key": "browser.omnibar.glass",
+          "title": {
+            "key": "settings.browser.omnibar.glass",
+            "text": "Address Bar Glass"
+          },
+          "help": {
+            "key": "settings.browser.omnibar.glass.help",
+            "text": "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "transparent",
+              "title": {
+                "key": "settings.choice.transparent",
+                "text": "Transparent"
+              }
+            },
+            {
+              "value": "regular",
+              "title": {
+                "key": "settings.choice.glass",
+                "text": "Glass"
+              }
+            },
+            {
+              "value": "clear",
+              "title": {
+                "key": "settings.choice.glassClear",
+                "text": "Clear Glass"
+              }
+            },
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "glass",
+            "liquid glass",
+            "material",
+            "omnibox",
+            "address bar",
+            "blur"
+          ]
+        },
+        {
+          "key": "browser.omnibar.glassTint",
+          "title": {
+            "key": "settings.browser.omnibar.glassTint",
+            "text": "Glass Tint"
+          },
+          "help": {
+            "key": "settings.browser.omnibar.glassTint.help",
+            "text": "The color over the glass, from the terminal theme. Accent is the theme's own accent color, or gray when the theme has none."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "background",
+              "title": {
+                "key": "settings.choice.themeBackground",
+                "text": "Theme Background"
+              }
+            },
+            {
+              "value": "accent",
+              "title": {
+                "key": "settings.choice.themeAccent",
+                "text": "Theme Accent"
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.none",
+                "text": "None"
+              }
+            }
+          ],
+          "default": "background",
+          "keywords": [
+            "tint",
+            "color",
+            "glass",
+            "theme",
+            "address bar"
+          ]
+        },
+        {
+          "key": "browser.omnibar.glassTintStrength",
+          "title": {
+            "key": "settings.browser.omnibar.glassTintStrength",
+            "text": "Tint Strength"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": 0.35,
+          "keywords": [
+            "tint",
+            "opacity",
+            "glass",
+            "address bar"
+          ]
+        },
+        {
+          "key": "browser.omnibar.cornerRadius",
+          "note": "theme: the standard bar radius; capsule: fully rounded ends; else points.",
+          "title": {
+            "key": "settings.browser.omnibar.cornerRadius",
+            "text": "Address Bar Corners"
+          },
+          "help": {
+            "key": "settings.browser.omnibar.cornerRadius.help",
+            "text": "Match Theme uses the standard bar radius. Capsule rounds the ends fully."
+          },
+          "kind": "choice_or_number",
+          "choices": [
+            {
+              "value": "theme",
+              "title": {
+                "key": "settings.choice.matchTheme",
+                "text": "Match Theme"
+              }
+            },
+            {
+              "value": "capsule",
+              "title": {
+                "key": "settings.choice.capsule",
+                "text": "Capsule"
+              }
+            }
+          ],
+          "range": {
+            "min": 0,
+            "max": 16,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 8
+          },
+          "default": "theme",
+          "keywords": [
+            "corner",
+            "radius",
+            "rounded",
+            "capsule",
+            "pill",
+            "address bar"
+          ]
+        },
+        {
+          "key": "browser.omnibar.shadow",
+          "title": {
+            "key": "settings.browser.omnibar.shadow",
+            "text": "Address Bar Shadow"
+          },
+          "help": {
+            "key": "settings.browser.omnibar.shadow.help",
+            "text": "A soft shadow under the glass address bar."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "shadow",
+            "glass",
+            "address bar"
+          ]
+        },
+        {
+          "key": "browser.omnibar.backgroundOpacity",
+          "title": {
+            "key": "settings.browser.omnibar.backgroundOpacity",
+            "text": "Address Bar Opacity"
+          },
+          "help": {
+            "key": "settings.browser.omnibar.backgroundOpacity.help",
+            "text": "How much the address bar covers a see-through window. At 0 it is as see-through as the window, but never so clear that its text stops being readable."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": 0,
+          "keywords": [
+            "opacity",
+            "transparency",
+            "background",
+            "translucent",
+            "address bar",
+            "omnibox"
+          ]
+        },
+        {
+          "key": "browser.omnibar.height",
+          "note": "Points; density (the default) follows the density preset, and the bar still grows to fit its text (OmnibarMetrics).",
+          "title": {
+            "key": "settings.browser.omnibar.height",
+            "text": "Address Bar Height"
+          },
+          "help": {
+            "key": "settings.browser.omnibar.height.help",
+            "text": "Match Density follows the density. The bar always grows to fit its text."
+          },
+          "kind": "choice_or_number",
+          "choices": [
+            {
+              "value": "density",
+              "title": {
+                "key": "settings.choice.matchDensity",
+                "text": "Match Density"
+              }
+            }
+          ],
+          "range": {
+            "min": 20,
+            "max": 56,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 28
+          },
+          "default": "density",
+          "keywords": [
+            "height",
+            "size",
+            "tall",
+            "density",
+            "address bar",
+            "omnibox",
+            "url"
+          ]
+        },
+        {
+          "key": "browser.omnibar.fontSize",
+          "note": "Points; density (the default) follows the density preset.",
+          "title": {
+            "key": "settings.browser.omnibar.fontSize",
+            "text": "Address Bar Text Size"
+          },
+          "help": {
+            "key": "settings.browser.omnibar.fontSize.help",
+            "text": "The size of the address and the suggestions. Match Density follows the density."
+          },
+          "kind": "choice_or_number",
+          "choices": [
+            {
+              "value": "density",
+              "title": {
+                "key": "settings.choice.matchDensity",
+                "text": "Match Density"
+              }
+            }
+          ],
+          "range": {
+            "min": 10,
+            "max": 24,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 14
+          },
+          "default": "density",
+          "keywords": [
+            "font",
+            "text",
+            "size",
+            "url",
+            "density",
+            "address bar",
+            "omnibox"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "links",
+      "section": "browser",
+      "group": {
+        "key": "settings.group.links",
+        "text": "Links"
+      },
+      "note": "What each modified link click does (Chrome's defaults, except Command-click: layout.linkPlacement).",
+      "rows": [
+        {
+          "key": "browser.links.cmdClick",
+          "title": {
+            "key": "settings.browser.links.cmdClick",
+            "text": "Command-Click"
+          },
+          "help": {
+            "key": "settings.browser.links.downloadHelp",
+            "text": "In Chromium tabs, Download keeps Chrome's default."
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "BrowserLinkClickAction",
+            "generated": false
+          },
+          "choices": [
+            {
+              "value": "linkPlacement",
+              "title": {
+                "key": "settings.choice.link.linkPlacement",
+                "text": "Same as Open Links and Files"
+              }
+            },
+            {
+              "value": "backgroundTab",
+              "title": {
+                "key": "settings.choice.link.backgroundTab",
+                "text": "New Background Tab"
+              }
+            },
+            {
+              "value": "foregroundTab",
+              "title": {
+                "key": "settings.choice.link.foregroundTab",
+                "text": "New Tab"
+              }
+            },
+            {
+              "value": "newWindow",
+              "title": {
+                "key": "settings.choice.link.newWindow",
+                "text": "New Window"
+              }
+            },
+            {
+              "value": "currentTab",
+              "title": {
+                "key": "settings.choice.link.currentTab",
+                "text": "Current Tab"
+              }
+            },
+            {
+              "value": "download",
+              "title": {
+                "key": "settings.choice.link.download",
+                "text": "Download"
+              }
+            }
+          ],
+          "default": "linkPlacement",
+          "keywords": [
+            "link",
+            "cmd",
+            "command"
+          ]
+        },
+        {
+          "key": "browser.links.cmdShiftClick",
+          "title": {
+            "key": "settings.browser.links.cmdShiftClick",
+            "text": "Shift-Command-Click"
+          },
+          "help": {
+            "key": "settings.browser.links.cmdShiftClick.help",
+            "text": "Shift-middle-click does the same."
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "BrowserLinkClickAction",
+            "generated": false
+          },
+          "choices": [
+            {
+              "value": "linkPlacement",
+              "title": {
+                "key": "settings.choice.link.linkPlacement",
+                "text": "Same as Open Links and Files"
+              }
+            },
+            {
+              "value": "backgroundTab",
+              "title": {
+                "key": "settings.choice.link.backgroundTab",
+                "text": "New Background Tab"
+              }
+            },
+            {
+              "value": "foregroundTab",
+              "title": {
+                "key": "settings.choice.link.foregroundTab",
+                "text": "New Tab"
+              }
+            },
+            {
+              "value": "newWindow",
+              "title": {
+                "key": "settings.choice.link.newWindow",
+                "text": "New Window"
+              }
+            },
+            {
+              "value": "currentTab",
+              "title": {
+                "key": "settings.choice.link.currentTab",
+                "text": "Current Tab"
+              }
+            },
+            {
+              "value": "download",
+              "title": {
+                "key": "settings.choice.link.download",
+                "text": "Download"
+              }
+            }
+          ],
+          "default": "foregroundTab",
+          "keywords": [
+            "link",
+            "cmd",
+            "shift"
+          ]
+        },
+        {
+          "key": "browser.links.shiftClick",
+          "title": {
+            "key": "settings.browser.links.shiftClick",
+            "text": "Shift-Click"
+          },
+          "help": {
+            "key": "settings.browser.links.downloadHelp",
+            "text": "In Chromium tabs, Download keeps Chrome's default."
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "BrowserLinkClickAction",
+            "generated": false
+          },
+          "choices": [
+            {
+              "value": "linkPlacement",
+              "title": {
+                "key": "settings.choice.link.linkPlacement",
+                "text": "Same as Open Links and Files"
+              }
+            },
+            {
+              "value": "backgroundTab",
+              "title": {
+                "key": "settings.choice.link.backgroundTab",
+                "text": "New Background Tab"
+              }
+            },
+            {
+              "value": "foregroundTab",
+              "title": {
+                "key": "settings.choice.link.foregroundTab",
+                "text": "New Tab"
+              }
+            },
+            {
+              "value": "newWindow",
+              "title": {
+                "key": "settings.choice.link.newWindow",
+                "text": "New Window"
+              }
+            },
+            {
+              "value": "currentTab",
+              "title": {
+                "key": "settings.choice.link.currentTab",
+                "text": "Current Tab"
+              }
+            },
+            {
+              "value": "download",
+              "title": {
+                "key": "settings.choice.link.download",
+                "text": "Download"
+              }
+            }
+          ],
+          "default": "newWindow",
+          "keywords": [
+            "link",
+            "shift"
+          ]
+        },
+        {
+          "key": "browser.links.optionClick",
+          "title": {
+            "key": "settings.browser.links.optionClick",
+            "text": "Option-Click"
+          },
+          "help": {
+            "key": "settings.browser.links.optionClick.help",
+            "text": "Chromium tabs always download."
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "BrowserLinkClickAction",
+            "generated": false
+          },
+          "choices": [
+            {
+              "value": "linkPlacement",
+              "title": {
+                "key": "settings.choice.link.linkPlacement",
+                "text": "Same as Open Links and Files"
+              }
+            },
+            {
+              "value": "backgroundTab",
+              "title": {
+                "key": "settings.choice.link.backgroundTab",
+                "text": "New Background Tab"
+              }
+            },
+            {
+              "value": "foregroundTab",
+              "title": {
+                "key": "settings.choice.link.foregroundTab",
+                "text": "New Tab"
+              }
+            },
+            {
+              "value": "newWindow",
+              "title": {
+                "key": "settings.choice.link.newWindow",
+                "text": "New Window"
+              }
+            },
+            {
+              "value": "currentTab",
+              "title": {
+                "key": "settings.choice.link.currentTab",
+                "text": "Current Tab"
+              }
+            },
+            {
+              "value": "download",
+              "title": {
+                "key": "settings.choice.link.download",
+                "text": "Download"
+              }
+            }
+          ],
+          "default": "download",
+          "keywords": [
+            "link",
+            "option",
+            "alt"
+          ]
+        },
+        {
+          "key": "browser.links.middleClick",
+          "title": {
+            "key": "settings.browser.links.middleClick",
+            "text": "Middle-Click"
+          },
+          "help": {
+            "key": "settings.browser.links.middleClick.help",
+            "text": "Chromium tabs use the Command-Click setting."
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "BrowserLinkClickAction",
+            "generated": false
+          },
+          "choices": [
+            {
+              "value": "linkPlacement",
+              "title": {
+                "key": "settings.choice.link.linkPlacement",
+                "text": "Same as Open Links and Files"
+              }
+            },
+            {
+              "value": "backgroundTab",
+              "title": {
+                "key": "settings.choice.link.backgroundTab",
+                "text": "New Background Tab"
+              }
+            },
+            {
+              "value": "foregroundTab",
+              "title": {
+                "key": "settings.choice.link.foregroundTab",
+                "text": "New Tab"
+              }
+            },
+            {
+              "value": "newWindow",
+              "title": {
+                "key": "settings.choice.link.newWindow",
+                "text": "New Window"
+              }
+            },
+            {
+              "value": "currentTab",
+              "title": {
+                "key": "settings.choice.link.currentTab",
+                "text": "Current Tab"
+              }
+            },
+            {
+              "value": "download",
+              "title": {
+                "key": "settings.choice.link.download",
+                "text": "Download"
+              }
+            }
+          ],
+          "default": "backgroundTab",
+          "keywords": [
+            "link",
+            "middle",
+            "wheel"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "openingLinks",
+      "section": "browser",
+      "group": {
+        "key": "settings.group.openingLinks",
+        "text": "Opening Links"
+      },
+      "rows": [
+        {
+          "key": "browser.enabled",
+          "name": "enabled",
+          "note": "Classic's Disable cmux Browser switch: false sends every link to the system and opens no browser tab for a web page.",
+          "title": {
+            "key": "settings.browser.enabled",
+            "text": "Enable cmux Browser"
+          },
+          "help": {
+            "key": "settings.browser.enabled.help",
+            "text": "When off, cmux opens no browser tabs for web pages and every link opens in your default browser."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "browser",
+            "disable",
+            "turn off",
+            "default browser",
+            "web"
+          ]
+        },
+        {
+          "key": "browser.openLinksInCmuxBrowser",
+          "name": "open",
+          "title": {
+            "key": "settings.browser.openLinks",
+            "text": "Open Links in cmux Browser"
+          },
+          "help": {
+            "key": "settings.browser.openLinks.help",
+            "text": "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "link",
+            "url",
+            "click",
+            "default browser",
+            "terminal",
+            "chat"
+          ]
+        },
+        {
+          "key": "browser.openSignInPagesInCmux",
+          "name": "signInPages",
+          "title": {
+            "key": "settings.browser.openSignInPages",
+            "text": "Open Sign-In Pages in cmux Browser"
+          },
+          "help": {
+            "key": "settings.browser.openSignInPages.help",
+            "text": "Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "sign in",
+            "login",
+            "device code",
+            "oauth",
+            "auth",
+            "passkey",
+            "default browser",
+            "gh auth login"
+          ]
+        },
+        {
+          "key": "browser.openPullRequestsInGitHubPage",
+          "name": "pullRequestsInGitHubPage",
+          "title": {
+            "key": "settings.browser.openPullRequestsInGitHubPage",
+            "text": "Open Pull Requests in cmux GitHub Page"
+          },
+          "help": {
+            "key": "settings.browser.openPullRequestsInGitHubPage.help",
+            "text": "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "github",
+            "github.com",
+            "pull request",
+            "pr",
+            "link",
+            "native page"
+          ]
+        },
+        {
+          "key": "browser.openTerminalLinksInCmuxBrowser",
+          "name": "legacyOpen",
+          "note": "Classic's key: read when browser.openLinksInCmuxBrowser is absent (EffectiveSettings copies it over), never written by Settings. Listed so MDM profiles and team policies written for it still apply.",
+          "title": {
+            "key": "settings.browser.openTerminalLinks",
+            "text": "Open Terminal Links in cmux Browser"
+          },
+          "help": {
+            "key": "settings.browser.openTerminalLinks.help",
+            "text": "When off, links clicked in terminal output open in your default browser."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "link",
+            "url",
+            "click",
+            "default browser"
+          ],
+          "page_hidden": "classic's name for browser.openLinksInCmuxBrowser, read only when that key is absent"
+        },
+        {
+          "key": "browser.hostsToOpenInEmbeddedBrowser",
+          "name": "hosts",
+          "title": {
+            "key": "settings.browser.hostWhitelist",
+            "text": "Hosts to Open in Embedded Browser"
+          },
+          "help": {
+            "key": "settings.browser.hostWhitelist.help",
+            "text": "Only these hosts open in cmux, such as example.com or *.example.com. Empty opens every host in cmux."
+          },
+          "kind": "host_list",
+          "default": [],
+          "keywords": [
+            "allowlist",
+            "whitelist",
+            "domain",
+            "link"
+          ]
+        },
+        {
+          "key": "browser.urlsToAlwaysOpenExternally",
+          "name": "rules",
+          "title": {
+            "key": "settings.browser.externalPatterns",
+            "text": "URLs to Always Open Externally"
+          },
+          "help": {
+            "key": "settings.browser.externalLinkPatterns.help",
+            "text": "Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression."
+          },
+          "summary": {
+            "key": "settings.browser.externalLinkPatterns.summary",
+            "text": "Links that open in your default browser"
+          },
+          "kind": "string_list",
+          "default": [],
+          "placeholder": {
+            "key": null,
+            "text": "*.example.com/*"
+          },
+          "keywords": [
+            "denylist",
+            "blocklist",
+            "regex",
+            "external",
+            "default browser"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "files",
+      "section": "general",
+      "group": {
+        "key": "settings.group.files",
+        "text": "Files"
+      },
+      "rows": [
+        {
+          "key": "files.textEditor",
+          "title": {
+            "key": "settings.files.textEditor",
+            "text": "Text Editor"
+          },
+          "help": {
+            "key": "settings.files.textEditor.help",
+            "text": "The app Open in Text Editor uses for a path: an app name, a bundle ID or the path of an app. Empty uses the app that opens source code."
+          },
+          "kind": "text",
+          "swift_owner": "TextEditorSetting",
+          "default": "",
+          "keywords": [
+            "editor",
+            "open with",
+            "app",
+            "path",
+            "file",
+            "code"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "passwords",
+      "section": "browser",
+      "group": {
+        "key": "settings.group.passwords",
+        "text": "Passwords"
+      },
+      "note": "The password manager's rows; BrowserPasswordsSetting.parse checks each key against them.",
+      "rows": [
+        {
+          "key": "browser.passwords.offerToSave",
+          "title": {
+            "key": "settings.browser.passwords.offerToSave",
+            "text": "Offer to Save Passwords"
+          },
+          "help": {
+            "key": "settings.browser.passwords.offerToSave.help",
+            "text": "A browser tab asks to save a sign-in you submit. Tabs an agent drives never ask."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "password",
+            "save",
+            "sign in",
+            "login",
+            "credentials"
+          ]
+        },
+        {
+          "key": "browser.passwords.generate",
+          "title": {
+            "key": "settings.browser.passwords.generate",
+            "text": "Suggest Strong Passwords"
+          },
+          "help": {
+            "key": "settings.browser.passwords.generate.help",
+            "text": "Offers a generated password when a site asks for a new one, and saves it."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "password",
+            "generate",
+            "strong",
+            "suggest"
+          ]
+        },
+        {
+          "key": "browser.passwords.allowExport",
+          "note": "Off by default (plans/cmux-next/passwords.md, decision P3).",
+          "title": {
+            "key": "settings.browser.passwords.allowExport",
+            "text": "Allow Password Export"
+          },
+          "help": {
+            "key": "settings.browser.passwords.allowExport.help",
+            "text": "Lets the Passwords page write every saved password to a plain-text CSV file, after you confirm with Touch ID or your password."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "password",
+            "export",
+            "csv",
+            "backup"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "verificationAutofill",
+      "section": "browser",
+      "group": {
+        "key": "settings.group.passwords",
+        "text": "Passwords"
+      },
+      "note": "Email verification AutoFill (plans/cmux-next/email-verification-autofill/DESIGN.md); BrowserVerificationAutofillSetting.parse checks the key against it.",
+      "rows": [
+        {
+          "key": "browser.verificationAutofill.enabled",
+          "note": "Off by default: it reads mail the person opted into.",
+          "title": {
+            "key": "settings.browser.verificationAutofill.enabled",
+            "text": "Fill Codes from Verification Emails"
+          },
+          "help": {
+            "key": "settings.browser.verificationAutofill.enabled.help",
+            "text": "When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "email",
+            "verification",
+            "code",
+            "one-time",
+            "otp",
+            "2fa",
+            "autofill",
+            "magic link"
+          ]
+        }
+      ]
+    }
+  ]
+}

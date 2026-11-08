@@ -324,7 +324,8 @@ impl<C: ControlPlane> Server<C> {
         self.attach.supervisor_mut().set_wake(Arc::clone(&wake));
         self.edge.transfers.set_wake(Arc::clone(&wake));
         self.edge.file_jobs.set_wake(Arc::clone(&wake));
-        self.attach.frames.set_wake(wake);
+        self.attach.frames.set_wake(Arc::clone(&wake));
+        self.attach.wake = Some(wake);
     }
 
     /// `op.cancel` from the host: stops the running file job or the waiting

@@ -27,6 +27,8 @@ pub(super) mod agent_session_observe;
 pub(super) mod agent_session_start;
 #[path = "agent_session_trust.rs"]
 mod agent_session_trust;
+#[path = "agent_session_context.rs"]
+mod context;
 #[path = "agent_session_inventory_socket.rs"]
 mod inventory_socket;
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
@@ -52,6 +54,8 @@ pub const AGENT_SESSION_CONTENT_CAPABILITY: &str = "agent-session-content-v1";
 /// to tab-scoped attach/events/prompt/cancel/detach; it never receives a raw
 /// acpmux socket.
 pub const CLOUD_MOBILE_CHAT_CAPABILITY: &str = "cloud-mobile-chat-v1";
+/// `agent-session-fork`: fork the attached chat through its latest completed turn.
+pub const AGENT_SESSION_FORK_CAPABILITY: &str = "agent-session-fork-v1";
 /// `agent-session-typing` and `agent-session-view`, and the `agent-session-presence` event: who
 /// is in the attached chat (chat multiplayer, hq#4389), through acpmux's `_acpmux/typing`,
 /// `_acpmux/view` and `_acpmux/presence`. The event goes only to a connection that echoed the
@@ -67,6 +71,8 @@ pub const AGENT_SESSION_SETTINGS_CAPABILITY: &str = "agent-session-settings-v1";
 /// teammate or link guest and never a read-only attachment. acpmux's refusal reason comes back
 /// in the answer (`refused.reason`), so the card can say why.
 pub const AGENT_SESSION_LOGIN_CAPABILITY: &str = "agent-session-login-v1";
+/// Owner-only context inventory and cmux-added overrides on the attached session.
+pub const AGENT_SESSION_CONTEXT_CAPABILITY: &str = "agent-session-context-v1";
 /// How long a login's finish may wait: Codex's waits for the person's approval in the browser.
 const LOGIN_FINISH_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// The longest login id, code or API key a login step carries, in bytes.
@@ -216,7 +222,10 @@ impl AgentSessions {
         {
             let mut authors = self.proxy_authors.lock().unwrap_or_else(|e| e.into_inner());
             // A client that never bound (all but a proxy's links) changes nothing, so it publishes nothing.
-            if authors.contains_key(&client) {
+            if let Some(author) = authors.get(&client) {
+                // A link guest's end is noted first, so a prune never sees it neither bound nor
+                // just gone (`LinkShares::present`).
+                self.link_shares.left(author);
                 authors.remove(&client);
             }
         }
@@ -396,6 +405,7 @@ enum AgentSessionCommand {
     Permission(PermissionParams),
     Detach(SurfaceParams),
     Children(SurfaceParams),
+    Fork(ForkParams),
     Media(MediaParams),
     Typing(TypingParams),
     View(ViewParams),
@@ -403,6 +413,7 @@ enum AgentSessionCommand {
     SetMode(SetModeParams),
     SetConfig(SetConfigParams),
     Login(LoginParams),
+    Context(context::Params),
 }
 
 impl AgentSessionCommand {
@@ -419,6 +430,7 @@ impl AgentSessionCommand {
             "agent-session-permission" => Self::Permission(from_value(params).ok()?),
             "agent-session-detach" => Self::Detach(from_value(params).ok()?),
             "agent-session-children" => Self::Children(from_value(params).ok()?),
+            "agent-session-fork" => Self::Fork(from_value(params).ok()?),
             "agent-session-media" => Self::Media(from_value(params).ok()?),
             "agent-session-typing" => Self::Typing(from_value(params).ok()?),
             "agent-session-view" => Self::View(from_value(params).ok()?),
@@ -426,6 +438,7 @@ impl AgentSessionCommand {
             "agent-session-set-mode" => Self::SetMode(from_value(params).ok()?),
             "agent-session-set-config" => Self::SetConfig(from_value(params).ok()?),
             "agent-session-login" => Self::Login(from_value(params).ok()?),
+            "agent-session-context" => Self::Context(from_value(params).ok()?),
             _ => return None,
         })
     }
@@ -435,6 +448,15 @@ impl AgentSessionCommand {
 #[serde(deny_unknown_fields)]
 struct SurfaceParams {
     surface: SurfaceId,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ForkParams {
+    surface: SurfaceId,
+    through_seq: u64,
+    #[serde(default)]
+    name: Option<String>,
 }
 
 /// `agent-session-typing`: the person starts (`on`) or stops typing in the attached chat.
@@ -909,6 +931,7 @@ fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
         AgentSessionCommand::Cancel(params)
         | AgentSessionCommand::Detach(params)
         | AgentSessionCommand::Children(params) => params.surface,
+        AgentSessionCommand::Fork(params) => params.surface,
         AgentSessionCommand::Media(params) => params.surface,
         AgentSessionCommand::Typing(params) => params.surface,
         AgentSessionCommand::View(params) => params.surface,
@@ -916,6 +939,7 @@ fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
         AgentSessionCommand::SetMode(params) => params.surface,
         AgentSessionCommand::SetConfig(params) => params.surface,
         AgentSessionCommand::Login(params) => params.surface,
+        AgentSessionCommand::Context(params) => params.surface(),
     }
 }
 
@@ -1121,7 +1145,7 @@ mod media;
 #[path = "agent_session_proxy.rs"]
 mod proxy;
 use media::media;
-pub use proxy::shares::room::start_link_share_bridge;
+pub use proxy::shares::room::{set_link_share_app_scheme, start_link_share_bridge};
 pub(crate) use proxy::shares::{
     close_chat_shares, close_listed_chat_shares, close_unlisted_chat_shares, open_chat_shares,
 };
@@ -1153,17 +1177,20 @@ fn run_on_worker(
                 | AgentSessionCommand::Cancel(_)
                 | AgentSessionCommand::Permission(_)
                 | AgentSessionCommand::Typing(_)
+                | AgentSessionCommand::Fork(_)
                 | AgentSessionCommand::SetModel(_)
                 | AgentSessionCommand::SetMode(_)
                 | AgentSessionCommand::SetConfig(_)
                 | AgentSessionCommand::Login(_)
+                | AgentSessionCommand::Context(_)
         )
     {
         return refuse(writer, id, Refusal::ReadOnly);
     }
     // A teammate or link guest never changes the owner's chat's model, mode or options: a mode
     // can stop the agent asking before it acts on the owner's machine. Nor does it sign the
-    // owner's agent in: that sets whose account the machine's agent runs as.
+    // owner's agent in: that sets whose account the machine's agent runs as. Context includes
+    // the owner's instructions and saved overrides, beyond what sharing a chat grants.
     if attachment.author.is_some()
         && matches!(
             &command,
@@ -1171,6 +1198,7 @@ fn run_on_worker(
                 | AgentSessionCommand::SetMode(_)
                 | AgentSessionCommand::SetConfig(_)
                 | AgentSessionCommand::Login(_)
+                | AgentSessionCommand::Context(_)
         )
     {
         return refuse(writer, id, Refusal::NotTrusted);
@@ -1338,6 +1366,38 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
         // A shared chat covers that chat only: a teammate lists no descendants.
         AgentSessionCommand::Children(_) if attachment.author.is_some() => Err(Refusal::NotTrusted),
         AgentSessionCommand::Children(_) => agent_session_children::list(attachment),
+        // Forking creates a machine/transcript descendant and is owner-only. Shared Cloud
+        // attachments may read and drive their pinned chat, but must not spend owner resources.
+        AgentSessionCommand::Fork(_) if attachment.author.is_some() => Err(Refusal::NotTrusted),
+        AgentSessionCommand::Fork(ForkParams { through_seq, name, .. }) => {
+            if through_seq == 0 || name.as_ref().is_some_and(|name| name.len() > 256) {
+                return Err(Refusal::BadRequest);
+            }
+            let mut params = json!({
+                "sessionId": session,
+                "throughSeq": through_seq,
+            });
+            if let (Some(name), Some(fields)) =
+                (name.filter(|name| !name.trim().is_empty()), params.as_object_mut())
+            {
+                fields.insert("name".to_owned(), Value::String(name));
+            }
+            let forked = attachment
+                .link
+                // Use acp.session.fork, the validated through-turn boundary. A plain session/fork
+                // strips the internal throughSeq metadata and would copy a later snapshot.
+                .call("acp.session.fork", attachment.stamp(params), CALL_TIMEOUT)
+                .map_err(Refusal::of)?;
+            // The fork's id is this machine's acpmux answer, never the request's: follow and
+            // remember it like a listed child, so `new-conversation-tab` admits its sibling tab
+            // (a fork carries `parentId`, which the children walk does not read).
+            if let Some(id) =
+                forked.get("sessionId").and_then(Value::as_str).filter(|id| !id.is_empty())
+            {
+                attachment.follow_children(&[id.to_owned()]);
+            }
+            Ok(forked)
+        }
         AgentSessionCommand::Media(MediaParams { path, .. }) => media(attachment, path),
         // The session is the tab's own; acpmux bounds typing (2 a second, `typing.rate_limited`).
         // acpmux's rate refusal is the attachment's bound (`agent_session.limit`): the pane says
@@ -1376,6 +1436,7 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             setting(attachment, ok, "session/set_config_option", params)
         }
         AgentSessionCommand::Login(params) => login(attachment, params),
+        AgentSessionCommand::Context(params) => context::call(attachment, params),
         AgentSessionCommand::Cancel(_) | AgentSessionCommand::Detach(_) => Ok(json!({})),
     }
 }

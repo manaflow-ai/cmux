@@ -97,6 +97,12 @@ nonisolated enum AcpmuxPaneMethods {
         // Dismiss or Start on a chat's session offer chip (direct.ts dismissOffer, startOffer;
         // cx-807da): acpmux records the answer; Start names the child chat the pane just made.
         "_acpmux/offer_respond",
+        // Session Info's View Prompt (context/ContextScreen.tsx; acpmux server/requests/context.rs):
+        // `_acpmux/context` reads the chat's prompt inventory, `_acpmux/context_override` saves the
+        // guidance new chats get, for every chat or the chat's own folder (no `cwd`: acpmux takes the
+        // chat's). Both only for a chat in scope; the save only on the Save click. Neither changes a
+        // running chat.
+        "_acpmux/context", "_acpmux/context_override",
         // The mode acpmux would start a new chat on a harness in (direct.ts startMode, cx-wx93i),
         // which a pending chat's access chip names. Read only.
         "_acpmux/start_mode",
@@ -150,6 +156,11 @@ nonisolated enum AcpmuxPaneMethods {
         // RulesNotice.tsx; acpmux server/forum.rs, hq#2570). Read only and without params: the
         // rules every agent on this Mac is told already. Posting, acking and retiring stay off the pane.
         "_acpmux/forum/rules",
+        // An agent session link or a HOST/NAME reference in the transcript opens that session
+        // (direct.ts resolveSession, conversation/sessionRefs.ts, #33027): acpmux answers the session
+        // it names (hub/locate.rs). Read only, one `query`; the pane already lists every session
+        // (`_acpmux/sessions`), so it learns nothing new.
+        "_acpmux/resolve",
         // Use tools in the summary's Sources + (direct.ts setTool, cx-thur3): turns one of a chat's
         // MCP servers off or on again for that chat only; acpmux restarts its Claude Code and
         // resumes it (now, after the running turn, or at its next start).
@@ -260,7 +271,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
-        "_acpmux/mcp/reconnect", "_acpmux/subsession/limits",
+        "_acpmux/mcp/reconnect", "_acpmux/subsession/limits", "_acpmux/context", "_acpmux/context_override",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
@@ -333,6 +344,8 @@ nonisolated enum AcpmuxPaneMethods {
         "session/prompt": .always,
         // A side session's question is its first prompt.
         "_acpmux/btw": .always,
+        // A saved guidance edit reaches every new chat's agent.
+        "_acpmux/context_override": .always,
         // Every value until the host has a list of the permissive ones (bypass, auto-approve, yolo).
         "session/set_mode": .always,
         "session/set_config_option": .always,

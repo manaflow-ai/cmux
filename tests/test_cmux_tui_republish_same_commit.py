@@ -236,6 +236,35 @@ class RebuildOfAPublishedCommit(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
+    def test_publish_step_guards_empty_acpmux_array_for_bash32(self) -> None:
+        # macOS's Bash 3.2 reports an empty `${array[@]}` as unbound under
+        # `set -u`; the guarded form must remain in the workflow step.
+        publish_tree = step_script("publish-tree", "Publish the complete tree with the trusted helper")
+        self.assertIn('${acpmux[@]+"${acpmux[@]}"}', publish_tree)
+
+    def test_upload_step_needs_no_bash4_associative_array(self) -> None:
+        # This test runs the step with the runner's bash, Bash 3.2 on a Mac
+        # runner, which has no `local -A` / `declare -A` (9 tests failed there).
+        self.assertNotRegex(self.upload, r"\b(local|declare|typeset)\s+-[a-zA-Z]*A")
+
+    def test_the_manifest_leaves_out_the_debug_symbols_a_mac_build_downloads(self) -> None:
+        # A darwin target built on a Mac also uploads cmux-tui-dsyms-<target>, which the
+        # download's `cmux-tui-*` puts beside the binaries; `sha256sum cmux-tui-*` then
+        # failed on the .dSYM folder (cmux#36966, run 42189372955).
+        assets = self.box.repo / "assets"
+        for prefix in ("cmux-tui", "cmux-relay", "chatmux-relay"):
+            (assets / prefix).mkdir(parents=True)
+            for target in ("aarch64-apple-darwin", "x86_64-apple-darwin",
+                           "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"):
+                (assets / prefix / f"{prefix}-{target}").write_text(f"{prefix} {target}\n")
+        dwarf = assets / "cmux-tui/cmux-tui-hook.dSYM/Contents/Resources/DWARF"
+        dwarf.mkdir(parents=True)
+        (dwarf / "cmux-tui-hook").write_text("dwarf\n")
+        result = self.box.run(step_script("publish", "Build manifest and checksums"))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("dSYM", (assets / "cmux-tui/cmux-tui-checksums.txt").read_text())
+        self.assertFalse((assets / "cmux-tui/cmux-tui-hook.dSYM").exists())
+
     def published(self) -> dict[str, bytes]:
         return {str(p.relative_to(self.box.r2)): p.read_bytes() for p in self.box.r2.rglob("*") if p.is_file()}
 

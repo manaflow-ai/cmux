@@ -7,6 +7,7 @@ pub mod client;
 pub mod connection;
 pub mod crypto;
 pub mod daemon;
+pub mod grant;
 pub mod http;
 pub mod identity;
 pub mod link;
@@ -20,6 +21,7 @@ mod owner_lock;
 mod per_lane;
 pub mod provider;
 pub mod secret_file;
+pub mod secrets;
 pub mod secure_directory;
 pub mod service;
 pub mod services;
@@ -33,7 +35,7 @@ mod ssh_artifacts;
 pub mod ssh_bootstrap;
 mod ssh_payload_proxy;
 #[cfg(unix)]
-mod unix_socket;
+pub mod unix_socket;
 pub mod update_need;
 #[cfg(feature = "wireguard-transport")]
 pub mod wireguard_hub;

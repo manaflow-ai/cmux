@@ -15,7 +15,7 @@ import { useFindReveal } from "../conversation/chatFind";
 import { ChevronRight } from "../conversation/icons";
 import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "../conversation/headerToggle";
 import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRow";
-import { useTranscriptDisclosure } from "../conversation/transcriptDisclosure";
+import { useTranscriptDisclosure } from "../conversation/transcriptDisclosureModel";
 import { useT } from "../i18n";
 import { useAnchoredCollapse } from "../conversation/useAnchoredCollapse";
 import "./DisclosureRow.css";
@@ -62,6 +62,8 @@ export type DisclosureRowProps = {
   lineClassName?: string;
   /// The row's own class, next to `cv-disclosure`.
   className?: string;
+  /// More attributes on the row's root (a sent message's `data-send-state`).
+  attributes?: Record<string, string | undefined>;
 };
 
 export function DisclosureRow({
@@ -87,6 +89,7 @@ export function DisclosureRow({
   below,
   lineClassName,
   className,
+  attributes,
 }: DisclosureRowProps) {
   const [stored, setStored] = useTranscriptDisclosure(disclosureKey, defaultOpen);
   const held = open !== undefined;
@@ -114,9 +117,13 @@ export function DisclosureRow({
       {status && <span className="cv-disclosure__status">{status}</span>}
     </>
   );
-  const chevron = <ChevronRight size={14} strokeWidth={1.2} className={`cv-rotor${collapse.open ? " is-open" : ""}`} />;
+  const chevron = <ChevronRight size={14} className={`cv-rotor${collapse.open ? " is-open" : ""}`} />;
   return (
-    <div className={className ? `cv-disclosure ${className}` : "cv-disclosure"} data-open={collapse.open || undefined}>
+    <div
+      className={className ? `cv-disclosure ${className}` : "cv-disclosure"}
+      data-open={collapse.open || undefined}
+      {...attributes}
+    >
       {/* The line summarizes indexed content in the panel; it adds no Find occurrences. */}
       <TranscriptActivityRowShell
         className={`cv-disclosure__line${lineClassName ? ` ${lineClassName}` : ""}`}

@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextSettings
 
 /// DEBUG ONLY: `debug.home_native_fixture.open` opens the native Home
@@ -24,16 +25,16 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
     /// The open fixture whose transcript is `view`.
     func fixture(showing view: HomeNativeTranscriptView) -> HomeNativeFixture? { fixtures.values.first { $0.shows(view) } }
-    /// The next page shows the attachment fixture (`{"attachments": true}`).
-    var nextAttachments = false
+    /// The next page shows the attachment fixture (`{"attachments": true}`), under the chat column's compose button (`{"compose": true}`).
+    var next = (attachments: false, compose: false)
 
     var page: InternalPageID { .homeNativeFixture }
     var title: String { HomeNativeFixture.title }
     var symbol: String { "bubble.left.and.bubble.right" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let fixture = HomeNativeFixture(attachments: nextAttachments, openPanel: openPanel)
-        nextAttachments = false
+        let fixture = HomeNativeFixture(attachments: next.attachments, openPanel: openPanel, compose: next.compose)
+        next = (false, false)
         fixtures[key] = fixture
         return fixture.container
     }
@@ -57,7 +58,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     /// `debug.home.drive` {action: focus | type | send | tapback | video | scroll
-    /// | chat_colors | menu | geometry | link | texts | typing | rows | resize | nudge | list | presence | live | agent_messages (notes, open, group, step, pill) | faces, text, steps, elapsed, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
+    /// | chat_colors | menu | geometry | link | texts | typing | rows | resize | nudge | list | presence | live | agent_messages (notes, open, group, step, pill) | faces | chief_name (close), text, steps, elapsed, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
     /// field's text system, Return's send, the tapback picker's react, the
     /// scroll view) for screenshots and recordings on a window that is
     /// never key. `tab` (a key from `debug.home` page.tabs) drives that Home tab.
@@ -93,7 +94,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             }
             if params["panel"]?.boolValue == true { services.home.chatColorsPanel.show(conversation: id, name: "", over: view.window) }
             return .object(["ok": .bool(true), "conversation": .string(id), "colors": .string(store.colors(for: id).hexSummary)])
-        case "menu":
+        case "menu": if let row = params["choose"]?.stringValue { return .object(["ok": .bool(view.debugChooseMenuItem(row, onBubble: params["text"]?.stringValue ?? ""))]) } // {choose, text}: that row of the bubble's menu
             let titles = view.debugMenuTitles(mine: params["mine"]?.boolValue ?? false) ?? []
             return .object(["ok": .bool(!titles.isEmpty), "items": .array(titles.map { .string($0) })])
         case "link":
@@ -148,13 +149,14 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             let texts = view.debugMessageTexts(limit: params["limit"]?.intValue ?? 50) + view.debugStreamTexts
             return .object(["ok": .bool(true), "texts": .array(texts.map { .string($0) }),
                             "statusLine": view.debugStatusLine.map { .string($0) } ?? .null, "rebuilds": .number(Double(view.debugRebuilds)), "streams": .number(Double(view.debugStreamTexts.count)), "lineCloseAfterHandOffFires": view.debugLineCloseAfterHandOffFires.map { .number(Double($0)) } ?? .null])
-        case "engine_set", "chief_control":
+        case "engine_set", "chief_control", "chief_name":
             // One pick in the shown conversation's Chief settings panel (`key`: harness, model or effort;
             // no `value`: default), as its popup does (scripts/cmux-next/chief-home-fixes-live.py).
             // "chief_control": the named Chief the shown view's controls name (null: the default Chief).
             guard let host = sequence(first: view as NSView, next: \.superview).lazy.compactMap({ $0 as? HomeHostView }).first else {
                 return .object(["error": .string("no Home host view")])
             }
+            if params["action"]?.stringValue == "chief_name" { return .object(["ok": .bool(host.debugEditChiefName(close: params["close"]?.boolValue == true))]) }
             if params["action"]?.stringValue == "chief_control" {
                 return .object(["ok": .bool(true), "named": host.debugNamedChief.map { .string($0) } ?? .null])
             }
@@ -234,9 +236,9 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         return .object(["ok": .bool(true)])
     }
 
-    static func open(services: AppServices, attachments: Bool = false, fresh: Bool = false) -> JSONValue {
+    static func open(services: AppServices, attachments: Bool = false, compose: Bool = false, fresh: Bool = false) -> JSONValue {
         if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel)) }
-        (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextAttachments = attachments
+        (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.next = (attachments, compose)
         let view = fresh ? services.pages.openNew(.homeNativeFixture, in: services.windows.active, focus: true)
             : services.pages.show(.homeNativeFixture, in: services.windows.active, focus: true)
         return .object(["ok": .bool(view != nil), "page": .string(InternalPageID.homeNativeFixture.rawValue)])

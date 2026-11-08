@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 6f37208dc82e6a7dc146e40a18c300a49a824470d73b8e6e650d9e9e6cf175ea.
+// cmux-tui mux protocol 12, IR b1e4b36789fe19a6f7c3aca80a20320fa7f0c8ed0f1bc9ecd237196bf9d6c91c.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1482,6 +1482,14 @@ pub struct ReattachViewResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RemoteHostAppResult {
+    pub host_pid: u32,
+    pub secret: String,
+    pub socket: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RenderCursor {
     pub blink: bool,
     pub color: Nullable<ColorHex>,
@@ -2772,6 +2780,22 @@ pub struct TerminalKeyInput {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub unshifted_codepoint: Optional<String>,
     pub utf8: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalLastCommand {
+    pub command: String,
+    pub ended_at_ms: String,
+    pub exit_code: Nullable<i32>,
+    pub started_at_ms: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalLastCommandResult {
+    pub last_command: Nullable<TerminalLastCommand>,
+    pub terminal_id: String,
 }
 
 #[rustfmt::skip]

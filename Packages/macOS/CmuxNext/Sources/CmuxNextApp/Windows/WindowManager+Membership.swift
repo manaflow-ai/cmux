@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAppCore
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -140,11 +141,14 @@ extension WindowManager {
             bringToFront(target)
             return
         }
+        // A sidebar pick never files a held normal Cloud workspace into another open window (cmux#37371).
+        if origin == .thisWindow, isHeldCloudWorkspace(workspaceID), value.isIncognito(state.id), !EphemeralWorkspaces.isEphemeral(workspaceID, self), value.mostRecentOpen(incognito: false) != nil { return services.registry.refuse(RefusalStrings.incognitoMismatch) }
+        let openBefore = Set(value.openWindows.map(\.id))
         claim(workspaceID: workspaceID, in: state)
         // An unowned ephemeral workspace went to its own incognito window: that window shows it.
         if let owner = registry.value.owner(of: workspaceID), owner != state.id, let target = controller(for: owner) {
             target.showWorkspace(requested: target.state.workspaceID)
-            bringToFront(target)
+            if origin.raisesOwner(ownerWasOpen: openBefore.contains(owner)) { bringToFront(target) }
             return
         }
         controller(for: state.id)?.showWorkspace(requested: state.workspaceID)
@@ -273,7 +277,9 @@ extension WindowManager {
     }
 
     /// Moves workspaces into an existing window and selects the first there;
-    /// a window left without workspaces closes.
+    /// a window left without workspaces closes. They keep their space, as
+    /// Merge All Windows keeps it: a window on another space switches to the
+    /// first one's space to show them, as a claim does (cmux#37366).
     /// Returns false when nothing moved (a move between an incognito
     /// window and a normal one is refused with a message).
     @discardableResult
@@ -283,6 +289,14 @@ extension WindowManager {
         if registry.value.crossesIncognito(ids, to: windowID) {
             services.registry.refuse(RefusalStrings.incognitoMismatch)
             return false
+        }
+        // Before the move, so the selection repair after it finds them shown there. A window on another space
+        // (New Window opens a new one) used to list them unseen while the window they left closed: in no sidebar.
+        // The first that another space shows decides (one still unreported, or already shown here, switches nothing).
+        // A window on its own incognito space never leaves it (`switchProfile`).
+        if select, incognitoSpaces[windowID] == nil, let state = states[windowID],
+           let room = ids.lazy.compactMap({ WindowProfiles.room(of: $0, current: state.profileID, machines: self.services.machines) }).first {
+            state.enterProfile(room)
         }
         transition(select: select ? [windowID: ids] : [:]) { $0.move(ids, to: windowID) }
         return true

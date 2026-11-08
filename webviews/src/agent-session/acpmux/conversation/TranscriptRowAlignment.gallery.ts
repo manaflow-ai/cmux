@@ -155,7 +155,7 @@ export default agentPaneEntry({
       play: revealFooter,
     },
     finished: {
-      note: "A finished chat at rest: its last reply's buttons are in sight with no pointer, Claude's 16 glyphs in 28 buttons in the muted footer ink, the first glyph on the reply's left edge; the time waits for the pointer (Leo, 2026-11-02, of the 20 glyphs in 32 buttons: \"WHY ARE THESE SO BIG\").",
+      note: "A finished chat at rest: its last reply's buttons are in sight with no pointer, Claude's 16 glyphs in 24 buttons in the muted footer ink, the first glyph on the reply's left edge; the time waits for the pointer (Leo, 2026-11-02, of the 20 glyphs in 32 buttons: \"WHY ARE THESE SO BIG\").",
       snapshot: finished,
     },
     "finished-work": {
@@ -168,7 +168,7 @@ export default agentPaneEntry({
       play: revealLastFooter,
     },
     "finished-button-hover": {
-      note: "The pointer on the last reply's Copy: that button alone takes full ink and its 28 pill; the others stay in the muted footer ink.",
+      note: "The pointer on the last reply's Copy: that button alone takes full ink and its 24 pill; the others stay in the muted footer ink.",
       snapshot: finished,
       play: pointCopy,
     },

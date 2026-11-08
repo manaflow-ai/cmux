@@ -93,6 +93,20 @@ async fn a_move_under_way_is_in_use() {
     assert_ne!(hub.in_use().await, Some("a move under way"), "a committed move");
 }
 
+/// The Cloud activity count holds a chat moving off this machine as at work too, so the machine is
+/// not paused for idleness with the chat frozen mid-move; a committed move releases it.
+#[tokio::test]
+async fn a_move_under_way_is_at_work() {
+    let (hub, session) = chat().await;
+    *session.moving.lock().unwrap() = Some("t-1".into());
+    let detail = hub.sessions_at_work_detail();
+    assert_eq!(detail.len(), 1, "a move under way");
+    assert!(!detail[0].turn && !detail[0].person && detail[0].processes == 0);
+    session.meta.lock().unwrap().moved_to = Some(json!({}));
+    assert!(hub.sessions_at_work_detail().is_empty(), "a committed move");
+    hub.shutdown_all().await;
+}
+
 /// A Cloud machine's activity counts each session at work (`sessions_at_work`): a running turn
 /// (the harness's own), a queued prompt and an agent request each count it once; with none, it
 /// is not at work.

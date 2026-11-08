@@ -5,6 +5,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextWindowRules
 import Foundation
 
 /// What Open Chat does with a daemon plan (Lawrence 2026-10-09): one click on a chat shows it in a
@@ -112,7 +113,7 @@ final class ChatsOpenCoordinator {
         // The key is acpmux's `<harness>:<session id>`, all a running chat is found by.
         let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
         // The index names Claude Code `claude-code`; tabs and terminals name it `claude`.
-        guard let harness = TerminalChatRoute.harness(of: parts.first),
+        guard let harness = WindowRules().agentHarness(parts.first),
               let session = parts.count == 2 ? parts[1] : nil else { return false }
         return services.revealAgentSession(harness: harness, session: session)
     }
@@ -146,7 +147,7 @@ final class ChatsOpenCoordinator {
         }
     }
 
-    /// The New Tab page `page` opens `seed`'s chat in its place (opted in, beside it: NewTabPage.opensBeside);
+    /// The New Tab page `page` opens `seed`'s chat beside it (NewTabPage.opensBeside), else in its place;
     /// the page closes once the chat's tab exists. False when the page is gone.
     private func replace(_ page: String, with seed: AgentPaneSeed) -> Bool {
         guard let services else { return false }

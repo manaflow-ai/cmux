@@ -7,7 +7,7 @@
 // The registry serves only this Mac's clients and keeps output for Claude Code's shells only.
 import { createContext, useContext, useEffect, useState } from "react";
 import { visibleInterval } from "../../../ui/pageClock";
-import { stripAnsi } from "./toolOutput";
+import { stripAnsi } from "./toolOutputModel";
 
 /// How much of the end of a task's output an opened note reads.
 export const BACKGROUND_TAIL_BYTES = 16 * 1024;
@@ -19,6 +19,8 @@ export type BackgroundTaskOutput = {
   cut?: boolean;
   exitCode?: number;
   running?: boolean;
+  /// acpmux keeps no output for this process (a Codex one): nothing to show is not "nothing printed".
+  unavailable?: boolean;
 };
 
 /// The bounded view shown in an expanded tray row. Keeping this at the render edge means a
@@ -100,7 +102,7 @@ export async function readBackgroundTaskOutput(
     ...(process.running ? { running: true } : {}),
   };
   // acpmux keeps no output for a Codex process yet; it refuses the read.
-  if (process.codex) return exit;
+  if (process.codex) return { ...exit, unavailable: true };
   const tail = tailText(await reader.source.tailProcess(process.id, BACKGROUND_TAIL_BYTES));
   return tail && tail.output ? { ...exit, output: tail.output, cut: tail.cut } : exit;
 }

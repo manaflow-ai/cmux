@@ -40,7 +40,7 @@ final class PendingWorkspaceRows {
     @ObservationIgnored var placing = false
     /// The workspaces whose slot `WindowManager.pendingPlacements` holds and has not sent (observed: a rows pass re-runs when one goes).
     private(set) var unsentSlots: Set<String> = []
-    let groupJoins = GroupJoinRows() // `agent.openSessionWorkspace --group`: out of the list until it lists in a group
+    let groupJoins = GroupJoinRows() // `agent.openSessionWorkspace --group`: joined in the pass that first lists it
 
     /// A create's row in its final look (`SidebarMapping.creatingRow`) under its key: Cmd-N's, and an agent's chat open.
     func add(creating id: String, window: String, machine: MachineID, name: String, opensPage: Bool, slot: WorkspaceSlot?, byDefault: NewWorkspaceDefaultSlot?, unpinned: Bool = false) { if unpinned { self.unpinned.insert(id); takenOver.insert(id) }; add(.init(id: id, window: window, machine: machine, face: SidebarMapping.shared.creatingRow(id: id, machine: machine, name: name, opensPage: opensPage), slot: slot, byDefault: byDefault), name: name) }
@@ -102,14 +102,14 @@ final class PendingWorkspaceRows {
             guard unsentSlots.contains(id) || doc.awaitsPlacement(workspace, session: daemon.store.registryID) else { return false }
             takenOver.insert(id)
             return true
-        }.union(doc.isActive ? groupJoins.hidden(in: listed) : []), from: listed)
+        }.union(doc.isActive ? groupJoins.hidden(in: listed, window: window, catchingUp: doc.catchingUp) : []), from: listed)
     }
 
     /// The pending rows of `window` whose workspace the sidebar cannot draw at its slot yet (`unplaced`: Cmd-N's
     /// stand-in, or a workspace the sidebar document does not place yet): the sidebar lists the pending row for them.
     func ids(in window: String, unplaced: (String) -> Bool) -> Set<String> { Set(rows.filter { $0.window == window && unplaced($0.id) }.map(\.id)) }
 
-    func rows(in window: String) -> [Row] { rows.filter { $0.window == window } }
+    func rows(in window: String) -> [Row] { rows.filter { $0.window == window && !groupJoins.holds($0.id) } } // a held grouped create: no slot, so no stand-in
 
     /// An app's `WindowManager.pendingPlacements` went from slots for `old` to slots for `new` (per id: apps share this).
     func placements(from old: [String: PendingPlacement].Keys, to new: [String: PendingPlacement].Keys) {
