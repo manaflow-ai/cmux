@@ -441,9 +441,14 @@ impl Mux {
                 // Hooks already use the durable projector, which decides
                 // events with the same session fence as this fold.
                 // Applying their reducer delta again would duplicate its
-                // projection mutations.
+                // projection mutations. The daemon's own program status
+                // evidence has no projector: its delta is applied here.
                 if record.payload.get("format").and_then(Value::as_str)
                     == Some(crate::journal_reducers::AGENT_PLUGIN_FORMAT)
+                    || crate::journal_reducers::is_program_status_evidence(
+                        &record.producer.id,
+                        &record.payload,
+                    )
                 {
                     deltas.extend(changes.into_iter().map(|delta| (delta, record.kind.clone())));
                 }

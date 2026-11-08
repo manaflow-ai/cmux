@@ -338,6 +338,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 "pid":pid,
                 "generation":generation,
                 "message":crate::localization::catalog().local_server.running,
+                "screen_detection":crate::screen_detection_status::of_daemon(&identity),
             }),
             global.output,
         ),
@@ -418,7 +419,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             {
                 return local_error(
                     "server.end_terminals_unsupported",
-                    &refused_with_fix(
+                    &super::fix_command::refused_with_fix(
                         crate::localization::catalog().local_server.end_terminals_unsupported,
                         &super::fix_command::this_cli(),
                         std::path::Path::new(&socket_output),
@@ -437,7 +438,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             {
                 return local_error(
                     "server.force_unsupported",
-                    &refused_with_fix(
+                    &super::fix_command::refused_with_fix(
                         crate::localization::catalog().local_server.force_unsupported,
                         &super::fix_command::this_cli(),
                         std::path::Path::new(&socket_output),
@@ -1272,13 +1273,6 @@ fn local_error_with_details(
 
 fn print_success(value: Value, output: OutputMode) -> i32 {
     super::wire::print_local_success(&value, output)
-}
-
-/// A stop this daemon refuses (another build): `text` and the one command
-/// that restarts the daemon at `socket` with `cli`'s build
-/// (plans/cmux-next/version-skew.md).
-fn refused_with_fix(text: &str, cli: &std::path::Path, socket: &std::path::Path) -> String {
-    format!("{text} {}", super::fix_command::restart_daemon(cli, socket))
 }
 
 #[cfg(test)]

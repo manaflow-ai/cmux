@@ -259,3 +259,52 @@ fn own_build_wrapper_and_hook_serve_each_daemons_panes() {
     drop(b);
     let _ = fs::remove_dir_all(&root);
 }
+
+#[test]
+fn own_build_status_says_where_it_looked_for_screen_detection() {
+    let root = unique_root();
+    let home = root.join("home");
+    let data = root.join("data");
+    for dir in [&home, &data] {
+        fs::create_dir_all(dir).unwrap();
+    }
+    // A build without the plugin beside it, as the round 3 bench binary was.
+    let exe = install_build(&root.join("build-s"), "build-s", &root.join("hook.log"));
+    let daemon = Daemon::start(&root, &exe, "ob-s", &home, &data, "/usr/bin:/bin");
+    let status = |cli: &Path| -> serde_json::Value {
+        let output = Command::new(cli)
+            .args(["--json", "server", "status", "--session", "ob-s", "--socket"])
+            .arg(&daemon.socket)
+            .env("HOME", &home)
+            .env("XDG_DATA_HOME", &data)
+            .env("CMUX_TUI_CONFIG", root.join("daemon-ob-s/config.json"))
+            .env("LC_ALL", "C")
+            .env_remove("CMUX_TUI_SOCKET")
+            .env_remove("CMUX_MUX_SOCKET")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        serde_json::from_slice(&output.stdout).unwrap()
+    };
+    // Another build's CLI reports the daemon's own folder, not its own.
+    let missing = status(Path::new(env!("CARGO_BIN_EXE_cmux-tui")));
+    let detection = &missing["screen_detection"];
+    assert_eq!(detection["state"], "not-installed", "{missing}");
+    let expected = root.join("build-s/cmux-agent-screen-detection").display().to_string();
+    assert!(
+        detection["looked_in"]
+            .as_array()
+            .is_some_and(|paths| paths.iter().any(|p| p == &*expected)),
+        "{detection}"
+    );
+    let message = detection["message"].as_str().unwrap_or_default();
+    assert!(message.starts_with("screen detection: not installed (looked in "), "{message}");
+    // Once the plugin is there, status says it runs from there.
+    let plugin = root.join("build-s/cmux-agent-screen-detection");
+    write_executable(&plugin, "#!/bin/sh\nexit 0\n");
+    let installed = status(&exe);
+    assert_eq!(installed["screen_detection"]["state"], "installed", "{installed}");
+    assert_eq!(installed["screen_detection"]["path"], plugin.display().to_string());
+    drop(daemon);
+    let _ = fs::remove_dir_all(&root);
+}

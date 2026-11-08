@@ -22,6 +22,13 @@ pub(super) fn restart_daemon_in_place(cli: &Path, socket: &Path) -> String {
     format!("{} daemon restart --socket {}", quote(cli), quote(socket))
 }
 
+/// A stop this daemon refuses (another build): `text` and the one command
+/// that restarts the daemon at `socket` with `cli`'s build
+/// (plans/cmux-next/version-skew.md).
+pub(super) fn refused_with_fix(text: &str, cli: &Path, socket: &Path) -> String {
+    format!("{text} {}", restart_daemon(cli, socket))
+}
+
 /// Stops the daemon at `socket` and starts it again with `cli`'s build.
 pub(super) fn restart_daemon(cli: &Path, socket: &Path) -> String {
     format!(
