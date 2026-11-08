@@ -23,7 +23,12 @@ import {
   type AcpmuxActivity,
 } from "./model";
 import { turnView } from "./conversation/turns";
-import { COLLAPSED_PROMPT_LINES, pasteChipHeight, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
+import {
+  COLLAPSED_PROMPT_LINES,
+  pasteChipHeight,
+  PASTE_ROW_HEIGHT,
+  PROMPT_MORE_HEIGHT,
+} from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
 import { gridLength, TRANSCRIPT_FOOTER_CONTROL } from "./transcriptGrid";
 import { BUBBLE } from "./transcriptSpacing";
@@ -40,6 +45,60 @@ const footer = (id: string) => ({
 });
 const prompt = (id: string) => ({ id, version: 1, at: 0, kind: "user", text: "Next" });
 const heightsOf = (rows: unknown[]) => [...layoutConversation(rows as never, 720).heights];
+
+// An attachment-only prompt has no bubble; its action row is laid in the turn gap as a bubble's is
+// (conversation.css, model.ts userMetaHeight), so its height is its 128px thumbnail row.
+test("an attachment-only prompt reserves its attachment strip", () => {
+  const row = { id: "image", version: 1, at: 0, kind: "user", images: [{ id: "i", mimeType: "image/png" }] };
+  const [height] = heightsOf([row]);
+  expect(height).toBeGreaterThanOrEqual(128);
+});
+
+test("an inline attachment-only prompt reserves its attachment strip", () => {
+  const row = {
+    id: "inline-image",
+    version: 1,
+    at: 0,
+    kind: "user",
+    inlineParts: [{ kind: "image", id: "i", mimeType: "image/png" }],
+  };
+  const [height] = heightsOf([row]);
+  expect(height).toBeGreaterThanOrEqual(128);
+});
+
+// Two wide screenshots draw 320px each and wrap to two rows in a 720px pane's 504px column.
+test("two wide images in an attachment-only prompt reserve two thumbnail rows", () => {
+  const images = [
+    { id: "a", mimeType: "image/png" },
+    { id: "b", mimeType: "image/png" },
+  ];
+  const [one] = heightsOf([{ id: "one", version: 1, at: 0, kind: "user", images: images.slice(0, 1) }]);
+  const [two] = heightsOf([{ id: "two", version: 1, at: 0, kind: "user", images }]);
+  expect(two! - one!).toBe(128);
+});
+
+// A video sent with its frames draws a 120px tile in the thumbnail row, not a 36px file chip.
+test("a video-only prompt reserves its tile's thumbnail row", () => {
+  const poster = "data:image/jpeg;base64,AA==";
+  const video = { width: 1920, height: 1080, durationMs: 4_000, poster, frames: ["f"] };
+  const chip = { id: "v", kind: "link", name: "clip.mp4", path: "/c.mp4", mimeType: "video/mp4", size: 1, video };
+  const [height] = heightsOf([{ id: "video", version: 1, at: 0, kind: "user", retryAttachments: [chip] }]);
+  expect(height).toBeGreaterThanOrEqual(128);
+});
+
+// Its clock sits beside the attachment band (UserBubble.tsx), so the row keeps its height when it lands.
+test("an attachment-only send keeps its height when it lands", () => {
+  const row = {
+    id: "sending-image",
+    version: 1,
+    at: 0,
+    kind: "user",
+    inlineParts: [{ kind: "image", id: "i", mimeType: "image/png" }],
+  };
+  const [sent] = heightsOf([row]);
+  const [sending] = heightsOf([{ ...row, delivery: { state: "sending", promptId: "p", sessionId: "s", sentAt: 0 } }]);
+  expect(sending!).toBe(sent!);
+});
 
 test("a reply over its footer is its text alone, with no 34px floor", () => {
   const long = "A longer answer that wraps. ".repeat(40);
@@ -327,16 +386,16 @@ test("a Chief's waiting steer keeps Send now in its existing action row", () => 
 // bubble leaves its line, transcriptSpacing.ts BUBBLE), with its 28px hover row under it and the
 // 8px message gap. Estimated any taller, the row shrinks once drawn and the rows below jump up.
 // Before: a prompt was estimated at its whole text, 2,000 lines tall.
-test("a 2,000-line prompt is estimated at its collapsed height, at most ten lines", () => {
+test("a 2,000-line prompt is estimated at its collapsed height, at most twenty lines", () => {
   const { lineHeight } = currentChatMetrics();
   const padding = BUBBLE.oneLine - lineHeight;
   const text = Array.from({ length: 2000 }, (_, index) => `line ${index + 1}`).join("\n");
   const [long] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text }]);
   expect(long).toBeCloseTo(padding + COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT, 5);
-  expect(long!).toBeLessThan(padding + 10.5 * lineHeight + 24 + 28 + 8);
+  expect(long!).toBeLessThan(padding + 20.5 * lineHeight + 24 + 28 + 8);
 });
 
-test("a prompt of ten lines or fewer is estimated whole, with no Show more line", () => {
+test("a prompt of twenty lines or fewer is estimated whole, with no Show more line", () => {
   const { lineHeight } = currentChatMetrics();
   const text = Array.from({ length: 3 }, (_, index) => `line ${index + 1}`).join("\n\n");
   const [short] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text }]);
@@ -350,8 +409,29 @@ test("a prompt with a 2,300-line paste is its typed line and one card", () => {
   const paste = Array.from({ length: 2300 }, (_, index) => `frame ${index}`).join("\n");
   const text = `${typed}\n${paste}`;
   const pasted = [{ start: typed.length + 1, end: text.length }];
+  const before = globalThis.cmuxExperiments;
+  try {
+    globalThis.cmuxExperiments = { ...before, "sent-paste-look": "card" };
+    const [card] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text, pasted }]);
+    expect(card).toBeCloseTo(BUBBLE.oneLine + pasteChipHeight(currentChatMetrics().lineHeight), 5);
+    globalThis.cmuxExperiments = { ...before, "sent-paste-look": "row" };
+    const [row] = heightsOf([{ id: "u2", version: 1, at: 0, kind: "user", text, pasted }]);
+    expect(row).toBeCloseTo(BUBBLE.oneLine + PASTE_ROW_HEIGHT, 5);
+  } finally {
+    globalThis.cmuxExperiments = before;
+  }
+});
+
+// The default draws a paste as the bubble's own text (Leo, 2026-11-07: "We want to show the actual
+// characters"): a long one is estimated as the prompt's folded lines and its Show more, as typed text is.
+test("a prompt with a 2,300-line paste drawn as text is estimated at the prompt's fold", () => {
+  const { lineHeight } = currentChatMetrics();
+  const typed = "Why does this fail?";
+  const paste = Array.from({ length: 2300 }, (_, index) => `frame ${index}`).join("\n");
+  const text = `${typed}\n${paste}`;
+  const pasted = [{ start: typed.length + 1, end: text.length }];
   const [height] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text, pasted }]);
-  expect(height).toBeCloseTo(BUBBLE.oneLine + pasteChipHeight(currentChatMetrics().lineHeight), 5);
+  expect(height).toBeCloseTo(BUBBLE.oneLine - lineHeight + COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT, 5);
 });
 
 // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx), so it is

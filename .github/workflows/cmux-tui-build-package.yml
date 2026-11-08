@@ -345,9 +345,23 @@ jobs:
       # packages failed a macOS build (run 37401272899); fetch them first, retried.
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
+        # On a cmux-tui.yml dispatch, save only on an owned mini (GitHub store): a Blacksmith
+        # save was not restored by later dispatch runs.
+        with:
+          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # The Go libtailscale's go.mod asks for (go >= 1.27.1), as cmux-tui.yml's macOS job pins it.
+      # Not daemon/remote/go.mod: that is cmuxd-remote's exact Go (1.26.x), and setup-go
+      # sets GOTOOLCHAIN=local, so cmux-tailnet's build.rs then refused it.
+      - name: Install Go for the embedded tailnet archive
+        if: runner.os == 'macOS' || matrix.darwin_on_linux
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: cmux-tui/crates/cmux-tailnet/go-version
+          cache: false
 
       - name: Install Rust target
         shell: bash
@@ -397,7 +411,8 @@ jobs:
           cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
-          cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }}
+          cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }} \
+            $(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }})
 
       # Warm start for the Linux musl legs (.github/warm-sources.json: actions-cache):
       # dependency builds keyed by the toolchain and Cargo.lock, so a new commit
@@ -480,7 +495,8 @@ jobs:
           cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
-          cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }}
+          cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }} \
+            $(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }})
 
       - name: Build cmux-cloud app server
         # The first-party Cloud app server (cmux/cloud) is its own Cargo
@@ -567,6 +583,7 @@ jobs:
           sha="$(git rev-parse HEAD)"
           ghostty="$(git -C ghostty-next rev-parse HEAD)"
           ./scripts/ci/macos-cross.sh toolchain "$XC_SDK_VERSION"
+          bash tests/test_tailnet_cross_link.sh
           # hosts and bins in one command: every cargo invocation at once.
           ./scripts/ci/macos-cross.sh all "$sha" "$ghostty" "$CMUX_TUI_DISTRIBUTION_VERSION"
 
@@ -810,6 +827,10 @@ jobs:
       # packages failed a macOS build (run 37401272899); fetch them first, retried.
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
+        # On a cmux-tui.yml dispatch, save only on an owned mini (GitHub store): a Blacksmith
+        # save was not restored by later dispatch runs.
+        with:
+          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust

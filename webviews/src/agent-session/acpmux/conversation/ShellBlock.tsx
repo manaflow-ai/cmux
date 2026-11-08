@@ -19,7 +19,8 @@ import { CopyButton } from "./CopyButton";
 import { menuPartRef } from "./menuParts";
 import { moreBelow, useMoreBelowOn } from "./moreBelow";
 import { SHELL_ROLE_COLOR, shellTokens } from "./shellHighlight";
-import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
+import { OutputMore } from "./toolOutput";
+import { previewedOutput, useOutput } from "./toolOutputModel";
 
 export function ShellBlock({
   id,

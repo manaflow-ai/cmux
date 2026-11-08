@@ -102,7 +102,7 @@ import Testing
         --- end of message m-1 ---
         """
         let incoming = AgentIncoming.parse(text: text, provenance: provenance)
-        #expect(incoming?.messages == [.init(sender: "Grid fix", text: "Tests pass.")])
+        #expect(incoming?.messages == [.init(sender: "Grid fix", text: "Tests pass.", senderID: "child-3")])
         #expect(incoming?.messageID == "m-1")
     }
 

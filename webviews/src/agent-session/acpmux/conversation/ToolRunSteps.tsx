@@ -9,7 +9,7 @@ import { StepThought } from "./ThoughtRow";
 import { ToolRow } from "./ToolRow";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { toolGroupKind } from "./toolGroups";
-import { InStep } from "./ToolFailureCause";
+import { InStep } from "./toolFailureCauseModel";
 import { isQuietThought } from "./thoughts";
 import { toolImages } from "../toolImages";
 

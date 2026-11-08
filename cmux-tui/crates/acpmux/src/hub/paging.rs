@@ -23,6 +23,8 @@ const LIVE_TRANSCRIPT_UPDATES: &[&str] = &["prompt_suggestion"];
 /// out because every turn also records `turn_result`.
 pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "_acpmux/message",
+    // A fork whose agent did not start says so in its transcript (`fork.rs` `start_later`).
+    "fork_start_failed",
     "user_message",
     "queued",
     "dequeued",
@@ -48,6 +50,8 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "queue_approved",
     "queue_declined",
     "turn_started",
+    // Where a send says it came from, beside its prompt (`sender_harness.rs`): its row's chip.
+    "sender_claim",
     // Where a chat seeded from a Claude Code transcript's newest page has older turns
     // (`hub/native_history.rs`): the pane that pages back to it reads on from the transcript.
     "native_history",

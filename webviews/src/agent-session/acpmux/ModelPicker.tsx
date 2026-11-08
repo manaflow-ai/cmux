@@ -1179,6 +1179,8 @@ export function ModelPicker(props: ModelPickerProps) {
   const fastModeText = t("picker.fastMode");
   const chipFace = (
     <>
+      {/* The provider's logo left of the model's name (cmux#38053): Claude for Claude models, OpenAI
+          for Codex and GPT, each harness's own mark, in its brand colors as the model menu draws it. */}
       <AgentMark agent={chipHarness} size={16} />
       {sessionAuthChip && (
         <span className="acpmux-model-detail" aria-label={sessionAuthText}>
@@ -1593,6 +1595,19 @@ export function ModelPicker(props: ModelPickerProps) {
                 {selected && !searching && !starredView && selected.notInstalled ? (
                   <>
                     <div className={emptyNote}>{t("harnesses.notInstalled")}</div>
+                    {/* Catalog models remain discoverable before install, while every row is inert. */}
+                    {choicesFor(selected, lang).map((model) => (
+                      <PickerOption
+                        key={model.id}
+                        type="button"
+                        active={false}
+                        disabled
+                        aria-disabled="true"
+                        className={`acpmux-mp-row ${modelRow} ${rowFill(false)} text-muted`}
+                      >
+                        <span className="acpmux-menu-label min-w-0 flex-1 truncate">{model.name}</span>
+                      </PickerOption>
+                    ))}
                     {onAddAgent && (
                       <button
                         type="button"

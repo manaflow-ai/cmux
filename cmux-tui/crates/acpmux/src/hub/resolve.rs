@@ -314,6 +314,8 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         parent_id: None,
         fork_seq: None,
         fork_before: None,
+        history_from: None,
+        history_kept_through: None,
         fork_requests: Default::default(),
         fork_parent_verified: None,
         agent_info: None,
@@ -348,6 +350,8 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         tags: Default::default(),
         unread: false,
         claude_unstored: false,
+        // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
+        wait_start: false,
         hibernated_ms: 0,
         idle_launch: None,
         moved_to: None,

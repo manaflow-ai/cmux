@@ -1,6 +1,8 @@
 import { experimentArm } from "../../experiments/experiment";
 import { backgroundReactionLook, reactsOnCall } from "./conversation/backgroundReaction.experiment";
 import { permissionCardHeight } from "./permissions/cardHeight";
+import type { SentFrom } from "./conversation/sentFromHarness";
+import type { PeerLinkDetail } from "./linkState";
 import { BUBBLE } from "./transcriptSpacing";
 import {
   footerAfter,
@@ -32,6 +34,7 @@ import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
 import type { NextStepAsk } from "./conversation/nextStepAsk";
 import { webSources } from "./conversation/webSourceList";
+import { sentVideosOf } from "./conversation/sentVideos";
 import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
 import type { HandoffClientState } from "./handoff/client";
@@ -60,6 +63,8 @@ import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
 import {
   pasteChipHeight,
+  PASTE_FROM_HEIGHT,
+  PASTE_ROW_HEIGHT,
   type PasteRange,
   HUGE_PROMPT_HEAD_CHARS,
   collapsedPromptHeight,
@@ -68,6 +73,8 @@ import {
   promptHead,
   promptParts,
 } from "./conversation/promptCollapse";
+import { sentPasteLook } from "./conversation/sentPasteLook.experiment";
+import { agentText } from "./agentText";
 import { mcpCall } from "./conversation/mcpCalls";
 import { hidesEveryCall, visibleToolItems } from "./conversation/mcpPresentation";
 import { subsessionCall } from "./conversation/subsessionCalls";
@@ -369,9 +376,18 @@ export type PromptContentPart =
 export type QueuedPromptImage = PromptImage & { src?: string; local?: boolean };
 
 /// A turn's tokens as Anthropic counts them: what the model wrote (`output`) apart from what it read,
-/// which is the fresh input, the prompt cache's reads and its writes. The running line adds up each
-/// model call's (direct.ts `turnTokenSplit`); a finished turn's comes from its `turn_result`.
-export type TurnTokenSplit = { output: number; input: number; cacheRead: number; cacheWrite: number };
+/// which is the fresh input, the prompt cache's reads and its writes, each its calls added up. The
+/// running line adds up each model call's (direct.ts `turnTokenSplit`); a finished turn's comes from
+/// its `turn_result`. `context` is what the chat's context held after the turn's last call, and
+/// `calls` how many calls the counts add up, when acpmux names them (tokenSplit.ts).
+export type TurnTokenSplit = {
+  output: number;
+  input: number;
+  cacheRead: number;
+  cacheWrite: number;
+  context?: number;
+  calls?: number;
+};
 
 /// One retry of a turn's failed model request, as acpmux logs it (`turn_retrying`): Claude Code's
 /// `system/api_retry` (attempt of maxRetries, error, errorStatus) or Codex's stream error.
@@ -479,6 +495,10 @@ export type AcpmuxRow = {
   tasks?: StartedTask[];
   toolCount?: number;
   durationMs?: number;
+  /// When a footer's `durationMs` ended, if not at its own `at`: a stretch the person came in on
+  /// (turns.ts `supersededFooters`) worked until his steer, while its time is its last reply's. Its
+  /// Timeline (conversation/waterfallSpans.ts `waterfall`) starts at this less `durationMs`.
+  workEndedAt?: number;
   /// A turn summary's tokens, when its harness reported them on the `turn_result` (Claude Code:
   /// its main loop's, acpmux hub/turn_usage.rs).
   tokens?: TurnTokenSplit;
@@ -501,6 +521,9 @@ export type AcpmuxRow = {
   /// The machine the person's own `acpmux send` ran on (acpmux records it on the client, as
   /// `acpmux-cli#…@big-red`): "via CLI on big-red" under their prompt.
   viaCli?: string;
+  /// The harness or app the prompt was sent from with `acpmux send` (acpmux's `sender_claim`
+  /// record, conversation/sentFromHarness.ts): a sender chip under it, which never says who sent it.
+  sentFrom?: SentFrom;
   /// Part of the person's typed text reads as another agent's output (acpmux `agentText`, a paste
   /// from a client that marks none): the agent it names, if any. One quiet line under the prompt.
   agentText?: { from?: string };
@@ -651,6 +674,9 @@ export type AcpmuxRow = {
   /// The messages between agents a finished turn's "Worked for" folds, which its label names in the
   /// `messages` arm of workedForMessages.experiment.ts (conversation/turns.ts `shapeTurn`).
   workedMessages?: { sent: number; received: number };
+  /// A finished turn's "Worked for" line: every call the turn made, said after its time (turnFoldStyle.ts
+  /// `countsCalls`).
+  workedCalls?: number;
   /// The prompt of other agents' messages a finished turn's "Worked for" folds (conversation/turns.ts
   /// `shapedTurn`): the line stands for that prompt where the closed fold draws none, so the turn
   /// keeps its minimap tick (threadMinimap/model.ts `minimapTurns`).
@@ -727,6 +753,8 @@ export type AcpmuxRow = {
     promptIds: readonly string[];
     fromSession?: string;
     fromHarness?: string;
+    /// acpmux could not verify its sender (conversation/senderIdentity.ts).
+    unverified?: true;
   };
   laneNoticeBatch?: {
     kind: "report" | "inbox";
@@ -1069,6 +1097,9 @@ export type AcpmuxSnapshot = {
   peerConnected?: Record<string, boolean>;
   /// Each peer's link state (`connected`, `reconnecting`, …), as `_acpmux/status` last said (environments.ts).
   peerStates?: Record<string, string>;
+  /// Each peer's whole link state (`link`, `cause`, `nextRetryAt`, …) as acpmux said it, from a daemon
+  /// that sends it (linkState.ts); the composer's machine row draws it (peerLink.ts).
+  peerLinks?: Record<string, PeerLinkDetail>;
   /// Each peer's cached one-minute resource reading, as bounded by the pane's native status filter.
   peerResources?: Record<string, MachineResources>;
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
@@ -1628,14 +1659,19 @@ export function restRoom(): number {
 /// sending a steer changes no row's height. A waiting prompt of images alone has no bubble to lay
 /// the row under, so its row (Send now first, PendingSteer.tsx) stays in flow.
 const userMetaHeight = (row: AcpmuxRow) => (row.steer === "waiting" && !row.text?.trim() ? META_GAP + metaRow() : 0);
-/// The author line over a shared chat's prompt (multiplayer/multiplayer.css `.cv-author`).
-const AUTHOR_HEIGHT = 22;
+/// The author line over a shared chat's prompt (multiplayer/multiplayer.css `.cv-author`): the taller
+/// of its 18 line and its face (`--cv-author-face`, five grid units, 20 at 1x, scaling with the
+/// interface), and the 4 under it.
+const AUTHOR_LINE = 18;
+const AUTHOR_FACE = 20;
+const AUTHOR_GAP = 4;
+const authorHeight = () => Math.max(AUTHOR_LINE, AUTHOR_FACE * chromeScale) + AUTHOR_GAP;
 const chromeHeight = (row: AcpmuxRow, _actions: boolean) =>
   row.kind === "user"
     ? userBubblePadding() +
       userMetaHeight(row) +
       (row.status ? USER_STATUS_HEIGHT : 0) +
-      (row.author ? AUTHOR_HEIGHT : 0)
+      (row.author ? authorHeight() : 0)
     : 0; // Reply controls overlay the container gap.
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
 const USER_BUBBLE_SHARE = 0.7;
@@ -1663,15 +1699,14 @@ const TABLE_ROW_HEIGHT = 40;
 const SCROLLBAR_HEIGHT = 15;
 /// Where text can't be measured (no canvas), a generous character width.
 const FALLBACK_CHAR_WIDTH = 8;
-/// The chat's one column (`--cv-column` and `--cv-inset` in conversation/conversation.css): 720px,
-/// 62.5% of a wider pane up to 800px (or the cap Debug Settings' `agent.chatWidth` picks, chatWidth.ts),
-/// centered, at least the page edge from each side. `endReserve` is room a card keeps at the
+/// The chat's one column (`--cv-column` and `--cv-inset` in conversation/conversation.css): the pane's
+/// width up to Chat Text Width (chatWidth.ts, 800px by default), at least 720px or that width, centered, at least the page edge from each side. `endReserve` is room a card keeps at the
 /// column's right (the computer use live preview, `--cv-inset-end`): the column's end moves in to
 /// leave it, its start stays.
 const PAGE_EDGE = gridLength("icon-box");
 /// The column's own width (`--cv-column`), before its inset rounds to a whole pixel.
-export const transcriptColumnSpan = (paneWidth: number, { min, max, share }: ChatColumn = chatColumn()) =>
-  Math.min(max, Math.max(min, paneWidth * share));
+export const transcriptColumnSpan = (paneWidth: number, { min, max }: ChatColumn = chatColumn()) =>
+  Math.min(max, Math.max(min, paneWidth));
 export function transcriptColumn(paneWidth: number, chat: ChatColumn = chatColumn(), endReserve = 0) {
   const column = transcriptColumnSpan(paneWidth, chat);
   // A whole pixel, as `round(nearest, ..., 1px)` in conversation.css.
@@ -2057,6 +2092,40 @@ function fallbackRowHeight(
   // An agent a shell call started (subagents/AgentRunCard.tsx): one collapsed disclosure line; its
   // reply and Raw are measured once the reader opens it.
   if (isRunGroup(row)) return finish(cardHeight("working"));
+  // Image/file-only user prompts still draw their attachment strip before the action footer.
+  // Reserve the fixed thumbnail height so virtualization never places the next row over it.
+  if (
+    row.kind === "user" &&
+    !row.text?.trim() &&
+    (row.images?.length || row.retryAttachments?.length || row.inlineParts?.some((part) => part.kind !== "text"))
+  ) {
+    // Sent thumbnails wrap at the 70% user column. Use the widest thumbnail (320px, plus its 6px
+    // gap; userBubbleModel.ts SENT_IMAGE_MAX_WIDTH) when estimating columns so a wide image never
+    // lets a second attachment row overlap the next row.
+    const inlineParts = row.inlineParts ?? [];
+    // A video sent with its frames draws as a 120px tile in the thumbnail row (UserBubble.tsx
+    // SentVideoTiles), not as a file chip.
+    const videoCount = sentVideosOf(row).length;
+    const imageCount =
+      Math.max(
+        row.images?.length ?? 0,
+        inlineParts.filter((part) => part.kind === "image").length,
+        row.retryAttachments?.filter((part) => part.kind === "image").length ?? 0,
+      ) + videoCount;
+    const columns = Math.max(1, Math.floor((width * 0.7 + 6) / 326));
+    const imageRows = imageCount ? Math.ceil(imageCount / columns) : 0;
+    const otherAttachments = Math.max(
+      0,
+      Math.max(
+        row.retryAttachments?.filter((part) => part.kind !== "image").length ?? 0,
+        inlineParts.filter((part) => part.kind !== "text" && part.kind !== "image").length,
+      ) - videoCount,
+    );
+    const attachmentHeight = imageRows * 128 + otherAttachments * 36;
+    // Its sending clock sits beside the last attachment band (UserBubble.tsx), taking no line of
+    // its own, so the row keeps its height when the send lands.
+    return finish(attachmentHeight + messageBelow(beforeFooter) + chromeHeight(row, actions));
+  }
   if (row.kind === SUBAGENTS) return finish(56);
   // A workflow's card (summary/WorkflowCard.css): three fixed lines in a hairline box.
   // WorkflowCard: head, metadata, latest line, progress bar and focus line.
@@ -2277,13 +2346,12 @@ function blockHeight(
   used?: Set<string>,
 ): number {
   switch (block.type) {
-    // Prose (lists, quotes, paragraphs, headings) keeps its measure in a wide column (chatWidth.ts).
     case "list":
-      return listHeight(block as Tokens.List, Math.min(width, chatColumn().prose), prepared, used);
+      return listHeight(block as Tokens.List, width, prepared, used);
     case "blockquote":
       return textHeight(
         measuredText((block as Tokens.Blockquote).tokens, (block as Tokens.Blockquote).text),
-        Math.min(width, chatColumn().prose) - QUOTE_INDENT,
+        width - QUOTE_INDENT,
         prepared,
         used,
       );
@@ -2298,7 +2366,7 @@ function blockHeight(
     case "heading":
       return textHeight(
         measuredText("tokens" in block ? block.tokens : undefined, (block as Tokens.Text).text),
-        Math.min(width, chatColumn().prose),
+        width,
         prepared,
         used,
       );
@@ -2447,7 +2515,10 @@ function measuredRowHeight(
     const line = lineRow();
     // Shut, its first line sits under the sender (stacked look); a tool's notice keeps its title
     // on the line (IncomingMessageCard.tsx).
-    if (!messageOpened(sessionId, row.id)) return finish(line + messagePreviewLine(!row.incoming.message.notice));
+    // A preview-only inbox thread's line (rows/MessageRow.tsx `inboxThread`) keeps its open state
+    // under its thread's key (inboxNotice.ts `inboxThreadKey`), which the digest's head opens too.
+    const openKey = row.inboxThread ? inboxThreadKey(row.id, row.inboxThread.threadId) : row.id;
+    if (!messageOpened(sessionId, openKey)) return finish(line + messagePreviewLine(!row.incoming.message.notice));
     const { lineHeight } = metrics();
     const text = row.incoming.message.text;
     if (receivedPrepared.size > 256) receivedPrepared.clear();
@@ -2527,7 +2598,7 @@ function measuredRowHeight(
   let contentHeight: number;
   if (plainUser) {
     // UserBubble -> PromptText draws this as literal spans, so avoid preparing Markdown tokens.
-    const plainWidth = Math.min(contentWidth, chatColumn().prose);
+    const plainWidth = contentWidth;
     const { measureFont, lineHeight } = metrics();
     const plainKey = `${measureFont}\n${lineHeight}\n${plainWidth}\n${row.text}`;
     if (entry.plainHeight?.key === plainKey) contentHeight = entry.plainHeight.height;
@@ -2543,11 +2614,24 @@ function measuredRowHeight(
       // A prompt with pasted blocks: its typed parts, each a line or more, and a chip per paste
       // however long it is (conversation/UserBubble.tsx).
       const { lineHeight } = metrics();
+      // As the bubble draws each paste (conversation/sentPasteLook.experiment.ts): its own text, a
+      // label row, or a card.
+      const look = experimentArm(sentPasteLook);
       contentHeight = 0;
       for (const part of promptParts(row.text, row.pasted!))
         contentHeight +=
           part.kind === "paste"
-            ? pasteChipHeight(lineHeight)
+            ? look === "text"
+              ? (agentText(part.text).signals.length ? PASTE_FROM_HEIGHT : 0) +
+                Math.max(
+                  lineHeight,
+                  // Folded, it draws only its head (conversation/PromptText.tsx PastedText), more
+                  // than the fold holds; the fold below caps the height.
+                  textHeight(promptHead(part.text, HUGE_PROMPT_HEAD_CHARS), contentWidth, entry.prepared, usedPrepared),
+                )
+              : look === "row"
+                ? PASTE_ROW_HEIGHT
+                : pasteChipHeight(lineHeight)
             : Math.max(
                 lineHeight,
                 // A huge typed part draws collapsed to its head (conversation/PromptText.tsx), so its

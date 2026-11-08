@@ -309,6 +309,9 @@ jobs:
         id: gates
         env:
           BASE: ${{ needs.resolve.outputs.base }}
+          # The lint tools' release-assets API fallback (prepush-gate.py fetch) authenticates with it; unauthenticated,
+          # the shared runner IPs' 60 calls an hour answer 403. The job's token is read-only (contents: read).
+          GH_TOKEN: ${{ github.token }}
           WEB: ${{ steps.prepare.outputs.web }}
           CHECKS: ${{ steps.prepare.outputs.checks }}
         run: python3 scripts/ci/cmux_next_fast_gates.py run --base "$BASE" --web "$WEB" --checks "$CHECKS" --summary "$GITHUB_STEP_SUMMARY"

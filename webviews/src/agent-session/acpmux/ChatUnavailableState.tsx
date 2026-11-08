@@ -3,6 +3,7 @@ import type { ChatUnavailable } from "./chatUnavailable";
 import { Spinner } from "./conversation/icons";
 import { relativeTime } from "./conversation/relativeTime";
 import { currentLanguage, useT } from "./i18n";
+import { shortSession } from "./chatUnavailableStateModel";
 
 /// The tab's chat is not here (`missingSession`): centered in place of the transcript, quiet, in the
 /// new chat hero's type (EmptyState.tsx), it says which case it is. Deleted: Remove from Sidebar
@@ -237,9 +238,4 @@ export function ChatUnavailableState({
       </div>
     </div>
   );
-}
-
-/// The first 13 characters of a session id (an acpmux UUIDv7's time part), enough to tell chats apart.
-export function shortSession(session: string): string {
-  return session.length > 13 ? session.slice(0, 13) : session;
 }

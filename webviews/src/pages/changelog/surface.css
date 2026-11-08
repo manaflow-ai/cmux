@@ -22,17 +22,24 @@ html[data-surface] #root {
 html[data-surface] .wn-pop {
   width: auto;
 }
-/* The popover is at most 60% of its window tall (SidebarUpdateCardView.notesHeight); a longer list
-   scrolls in place, with the wheel or the trackpad, while the popover stays open (Leo 2026-10-19:
-   "you cant even scroll through it"). The popover itself is the scroller (the shared card scroller
-   and edge fades, scrollers.ts); the page reports its whole content height (surface.tsx). The
-   Updated card's slot is the page's height, so it never scrolls. */
+/* The popover is at most 60% of its window tall (SidebarUpdateCardView.notesHeight) and never more
+   than a hover card (--wn-pop-max, updateSurfaces.css; Leo 2026-11-05: "this is too big"). A longer
+   list scrolls in place, with the wheel, the trackpad or the keys, under the pinned heading and
+   above the pinned See all changes, while the popover stays open (Leo 2026-10-19 and 2026-11-05:
+   "i can't even scroll through the changes"). The list is the scroller (the shared card scroller
+   and edge fades, scrollers.ts); the page reports the height it wants, up to the cap (surface.tsx).
+   The Updated card's slot is the page's height, so it never scrolls. */
 html[data-surface="ready"],
-html[data-surface="ready"] body {
+html[data-surface="ready"] body,
+html[data-surface="updated-notes"],
+html[data-surface="updated-notes"] body {
   height: 100%;
   overflow: hidden;
 }
 html[data-surface="ready"] .wn-pop {
+  max-height: min(100vh, var(--wn-pop-max));
+}
+html[data-surface="updated-notes"] .wn-notes {
   max-height: 100vh;
 }
 /* The Updated card stands on its slot's bottom edge: when its hover preview opens, the host grows the

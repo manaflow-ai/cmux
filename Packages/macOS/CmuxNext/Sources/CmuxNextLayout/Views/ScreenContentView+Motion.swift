@@ -119,10 +119,13 @@ extension ScreenContentView {
         return moving
     }
 
-    /// A close's first frame of the pane, divider and (riding them) camera springs, the strip's and
-    /// each row column's, in the change that starts them, once `syncScroll` placed the camera: the
-    /// frame that drops the closed pane already shows its neighbours covering some of its space,
-    /// and the shift the close needs (the last column or row closed) already under way.
+    /// A close's first step of the pane, divider and (riding them) camera springs, the strip's and
+    /// each row column's, in the change that starts them, once `syncScroll` placed the camera. A pane
+    /// close's key turn (`LayoutRootView.syncWithModelForNextFrame`) holds the presentation: the
+    /// step is shown by the first frame tick, which steps again and presents once, so the first
+    /// frame that shows the close already shows its neighbours covering some of the closed pane's
+    /// space and the shift the close needs (the last column or row closed) under way. A change
+    /// that does not hold presentations shows the step in its own turn.
     func leadIfPending(_ dt: Double = 1.0 / 120, policy: MotionPolicy = Motion.panes.policy) {
         guard leadsFrame else { return }
         leadsFrame = false

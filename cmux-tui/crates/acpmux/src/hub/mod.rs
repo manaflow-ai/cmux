@@ -18,6 +18,7 @@ mod away_recap;
 mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
+mod asks_below;
 mod atomic_json;
 mod build;
 pub use build::{build, install_build, version_line};
@@ -52,6 +53,8 @@ pub(crate) mod file_uploads;
 mod gemini_plan;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 #[cfg(test)]
+mod agent_messaging_tests;
+#[cfg(test)]
 mod first_work_tests;
 mod fork;
 #[cfg(test)]
@@ -60,6 +63,8 @@ mod host_notice_tests;
 mod peer_notice_cost_tests;
 #[cfg(test)]
 mod prompt_accept_tests;
+#[cfg(test)]
+mod sender_claim_tests;
 #[cfg(test)]
 mod shutdown_scan_tests;
 #[cfg(test)]
@@ -190,6 +195,7 @@ pub(super) use session::{newest_first, prompt_text, short_text};
 mod shell_readonly;
 mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
+pub(crate) use shutdown::{CREATED as REFUSED_CREATED, shutting_down_before_create};
 pub(crate) mod inbox;
 mod spawn;
 mod start_defaults;
@@ -484,6 +490,10 @@ pub struct PromptOptions {
     /// Connection proof that a person authored this prompt. A `person_message` kind alone is not
     /// enough: local clients may supply that shape without the authenticated person handshake.
     pub human_authenticated: bool,
+    /// The owner's own terminal send (`server/requests.rs` `owner_terminal`): recorded as the
+    /// person's prompt, yet no connection proved the person, so it lifts no protected hold
+    /// (`protected_hold.rs`), as #37497 made it.
+    pub unproven_owner: bool,
     /// Sender identity carried across a peer link. Provenance is intentionally removed at that
     /// boundary, but the additive message event still needs the sender's stable identity.
     pub message_sender: Option<Value>,
@@ -523,6 +533,10 @@ pub struct PromptOptions {
     /// chat's inbox takes it. Every other path that prompts (reports, task cards, a paused pair's
     /// release, a peer's or the mesh relay's forward) keeps the queue.
     pub inbox: bool,
+    /// The sender waits for the reply (`_meta.acpmux.wakeOrFail`): a message the inbox would
+    /// hold in an idle chat that it does not wake is refused at once (`inbox.rs`
+    /// `not_woken`), never left waiting for a turn that does not come.
+    pub wake_or_fail: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -555,6 +569,7 @@ pub struct Hub {
     pub(crate) workflow_runs: crate::workflow_runs::Service,
     pub config: RwLock<Config>,
     pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
+    /// The daemon's store, read through each fork's referenced history (`store/fork_view.rs`).
     pub(super) store: Box<dyn Store>,
     pub(super) mailbox: Mailbox,
     /// The forum log (`forum.rs`, `hub/forum.rs`).
@@ -955,7 +970,7 @@ impl Hub {
             config: RwLock::new(config),
             usage_limits,
             wireguard,
-            store,
+            store: Box::new(crate::store::ForkView::new(store)),
             mailbox,
             forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
@@ -1397,6 +1412,8 @@ impl Hub {
         // A chat that moved away stays frozen after a restart: every prompt, queue, draft and
         // policy change refuses it as while it moved (`queue::moving_error`).
         let moving = meta.moved_to.as_ref().map(|_| transfer_out::MOVED_AWAY.to_owned());
+        // Every start of a session whose creator asked waits on its harness (`SessionMeta::wait_start`).
+        let wait_start = meta.wait_start;
         let session = Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
@@ -1449,6 +1466,7 @@ impl Hub {
             permission_epoch: AtomicU64::new(0),
             input_since: AtomicU64::new(0),
             work_below_since: StdMutex::new(0),
+            asks_below: StdMutex::new((0, 0)),
             unread_after_work: AtomicBool::new(false),
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
@@ -1467,7 +1485,7 @@ impl Hub {
             steering: AtomicBool::new(steering),
             backgrounds_work: AtomicBool::new(backgrounds_work),
             person: AtomicBool::new(false),
-            wait_start: AtomicBool::new(false),
+            wait_start: AtomicBool::new(wait_start),
             steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
@@ -2139,6 +2157,7 @@ impl Hub {
                 | "stopping"
                 | "unstuck"
                 | work_below::RECORD_KIND
+                | asks_below::RECORD_KIND
                 | "queued"
                 | "dequeued"
                 | "queue_removed"
@@ -2460,6 +2479,8 @@ impl Hub {
             self.care_status(status);
             // A sub-session that starts or ends a turn, or closes, changes its parent's work.
             self.refresh_parent_work_below(session);
+            // One that starts or stops waiting on the person changes its parent's asks below.
+            self.refresh_parent_asks_below(session);
             if status == SessionStatus::Closed {
                 self.retention_wake();
             }

@@ -132,12 +132,19 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         await page.locator(".acpmux-turnSummary .cv-turn-action-group").first().waitFor();
         const measured = await footers(page);
         console.log(`REPLY_FOOTER ${theme.file} footer ${JSON.stringify(measured)}`);
-        // The first turn's footer knows its time and tokens; the folded turn's footer does not.
+        // The first turn's footer knows its time and tokens; the folded turn's footer does not, and its
+        // time's tooltip is the exact date and time, so every reply's time hovers (Leo, 2026-11-08: "for
+        // when things are yours, sometimes it's like I can't hover onto yours").
         const withStats = measured.filter((footer) => footer.detail?.includes("Worked for"));
-        const without = measured.filter((footer) => !footer.detail);
+        const without = measured.filter((footer) => !footer.detail?.includes("Worked for"));
         expect(withStats.length, "a footer with the turn's time and tokens").toBeGreaterThan(0);
         expect(without.length, "a footer without them").toBeGreaterThan(0);
-        for (const footer of withStats) expect(footer.detail).toMatch(/Worked for 5s · ↓ .+ out ↑ .+ in/);
+        for (const footer of without) expect(footer.detail).toMatch(/\b20\d\d\b/);
+        // The time on its own line, then one token count per row (turnTokensModel.ts `replyTimeDetail`).
+        for (const footer of withStats)
+          expect(footer.detail).toMatch(
+            /^Worked for 5s\nOutput .+\nInput across calls .+\u00a0uncached · .+\u00a0cached/,
+          );
         for (const footer of measured) {
           expect(footer.first).toContain("cv-turn-action-group");
           expect(footer.glyph).toBeDefined();

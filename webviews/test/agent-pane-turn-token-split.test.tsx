@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { WorkedFor } from "../src/agent-session/acpmux/conversation/TurnRows";
-import { tokenDetail } from "../src/agent-session/acpmux/conversation/TurnTokens";
+import { tokenDetail } from "../src/agent-session/acpmux/conversation/turnTokensModel";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -21,7 +21,7 @@ const text = (html: string) =>
     .replace(/\s+/g, " ")
     .trim();
 const SPLIT_SPAN =
-  /<span class="cv-worked__tokens is-split" title="Output 12\.4K · fresh input 18K · cache reads 2\.1M · cache writes 42K"><span class="cv-worked__tokens-part">↓ 12\.4K out<\/span><span class="cv-worked__tokens-part">↑ 2\.1M in<\/span><\/span>/;
+  /<span class="cv-worked__tokens is-split" title="Output 12\.4K · fresh input 18K · cache reads 2\.1M · cache writes 42K"><span class="cv-worked__tokens-part">↓ 12\.4K out<\/span><span class="cv-worked__tokens-part">↑ 60K in<\/span><\/span>/;
 
 for (const [name, line] of Object.entries(tokenLines))
   test(`${name}: output first, then what the model read, named on hover`, () => {
@@ -35,7 +35,8 @@ for (const [name, line] of Object.entries(tokenLines))
       delete globalThis.cmuxExperiments;
     }
     expect(html).toMatch(SPLIT_SPAN);
-    expect(text(html)).toMatch(/· ↓ 12\.4K out ↑ 2\.1M in$/);
+    // "in" is the uncached input (18K fresh + 42K cache writes), not the 2.1M the calls re-read.
+    expect(text(html)).toMatch(/· ↓ 12\.4K out ↑ 60K in$/);
     // The time is in its own quieter span.
     expect(html).toMatch(/<span class="cv-worked__(label-)?time">35s<\/span>/);
   });

@@ -1,7 +1,7 @@
 {
   "schema": "warm-sources/v1",
   "sources": {
-    "deriveddata-reuse": {"what": "Per-runner build state kept between runs: an owned Mac's admission DerivedData (scripts/ci/owned_build_state.py), the nightly DerivedData seed (scripts/ci/seed_derived_data.py), the scheme and Release compiles' worker-local tree, a tour's claimed warm slot (media_tag_lock.py), the Chief's per-runner cargo target, or a controller warm slot's DerivedData generation", "runbook": "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/WARM-RESOURCES.md#deriveddata-reuse"},
+    "deriveddata-reuse": {"what": "Per-runner build state kept between runs: an owned Mac's admission DerivedData (scripts/ci/owned_build_state.py), the nightly DerivedData seed (scripts/ci/seed_derived_data.py), the scheme and Release compiles' worker-local tree, a tour's claimed warm slot (media_tag_lock.py), the Chief's per-runner cargo target, cmux-tui's macOS job's per-runner cargo target (scripts/ci/cmux-tui-warm-target.sh), or a controller warm slot's DerivedData generation", "runbook": "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/WARM-RESOURCES.md#deriveddata-reuse"},
     "spm-shared": {"what": "The per-mini SwiftPM scratch shared across a mini's slots, so a job resolves and builds packages from what another slot already fetched and built", "runbook": "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/WARM-RESOURCES.md#spm-shared"},
     "ssd-cas": {"what": "glaeda's fleet compiler-CAS node on each owned mini (fleet-cas socket and settings under /Users/Shared/cmux-build-fleet/xcode); its store moves to the controller mini's SSD", "runbook": "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/WARM-RESOURCES.md#ssd-cas"},
     "dev-cas": {"what": "The DEV CAS seed store named by vars.CMUX_NEXT_DEV_CAS_URL (scripts/cmux-next/dev_cas_seed.py)", "runbook": "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/WARM-RESOURCES.md#dev-cas"},
@@ -131,7 +131,7 @@
     "cmux-tui.yml:cdp-browser-smoke": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cmux-tui.yml:go-pane": {"class": "linux-go", "warm": ["actions-cache"]},
     "cmux-tui.yml:lint": {"class": "linux-rust", "warm": ["actions-cache"]},
-    "cmux-tui.yml:macos": {"class": "mac-build", "warm": ["actions-cache"]},
+    "cmux-tui.yml:macos": {"class": "mac-build", "warm": ["actions-cache", "deriveddata-reuse"]},
     "cmux-tui.yml:msrv-check": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cmux-tui.yml:optchat-chief": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cmux-tui.yml:test": {"class": "linux-rust", "warm": ["actions-cache"]},
@@ -197,6 +197,7 @@
     "nightly.yml:publish-nightly": {"class": "mac-sign", "warm": [], "exempt": "publication with the release credentials on an owned Mac it holds whole: consumes what earlier jobs built and signed, compiles nothing"},
     "nightly.yml:publish-nightly-next-github": {"class": "mac-sign", "warm": [], "exempt": "publication with the release credentials on an owned Mac it holds whole: consumes what earlier jobs built and signed, compiles nothing"},
     "nightly.yml:published-in": {"class": "mac-sign", "warm": [], "exempt": "a nightly control on the dedicated nightly mini (#30249): comments the published build on its pull requests through the API; compiles nothing"},
+    "nightly.yml:dispatch-published-in": {"class": "mac-sign", "warm": [], "exempt": "a nightly control on the dedicated nightly mini (#30249): dispatches the post-publication run through the API; compiles nothing"},
     "nightly.yml:retry-nightly-next": {"class": "mac-sign", "warm": [], "exempt": "a nightly control on the dedicated nightly mini (#30249): asks the push group for one more run through the API; compiles nothing"},
     "nightly.yml:published-build": {"class": "mac-sign", "warm": [], "exempt": "a nightly control on the dedicated nightly mini (#30249): reads the published build's record for the jobs after the feed; compiles nothing"},
     "nightly.yml:build-nightly-deltas": {"class": "mac-sign", "warm": [], "exempt": "post-publication deltas on the dedicated nightly mini (#30249): BinaryDelta diffs the published DMG against earlier releases' DMGs; compiles nothing"},
