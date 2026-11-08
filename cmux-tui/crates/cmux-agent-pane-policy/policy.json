@@ -44,7 +44,7 @@
   "optional_scoped_session_params": {"_acpmux/offer_respond": ["childSessionId"]},
   "source_scoped": [
     "acp.session.fork", "_acpmux/handoff_prepare", "_acpmux/handoff_draft", "_acpmux/handoff_start",
-    "_acpmux/handoff_discard", "_acpmux/retry"
+    "_acpmux/handoff_discard", "_acpmux/retry", "_acpmux/review_verdict"
   ],
   "gesture_rules": {
     "session/prompt": "always",

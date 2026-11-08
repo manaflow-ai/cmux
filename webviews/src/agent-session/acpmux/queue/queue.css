@@ -11,7 +11,9 @@
 .wq-rows{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
 .wq-row{display:grid;grid-template-rows:1fr;opacity:1;transition:grid-template-rows var(--cmux-motion-settle,265ms) var(--cmux-ease-settle,cubic-bezier(0.16,1,0.3,1)),opacity var(--cmux-motion-settle,265ms) var(--cmux-ease-settle,cubic-bezier(0.16,1,0.3,1));cursor:default;content-visibility:auto;contain-intrinsic-size:auto 56px}
 .wq-row[data-leaving]{grid-template-rows:0fr;opacity:0;pointer-events:none}
-.wq-row[data-enters]{animation:wq-enter var(--cmux-motion-settle,265ms) var(--cmux-ease-settle,cubic-bezier(0.16,1,0.3,1)) both}
+/* Fill backwards only: once it has run the row's own styles rule again, so an answered row that
+   entered late still collapses ([data-leaving]); a row answered while entering drops it. */
+.wq-row[data-enters]:not([data-leaving]){animation:wq-enter var(--cmux-motion-settle,265ms) var(--cmux-ease-settle,cubic-bezier(0.16,1,0.3,1)) backwards}
 @keyframes wq-enter{from{grid-template-rows:0fr;opacity:0}to{grid-template-rows:1fr;opacity:1}}
 .wq-row-inner{min-height:0;overflow:hidden;display:flex;gap:var(--ds-space-3);padding:var(--ds-space-2) var(--ds-space-3);margin-bottom:var(--ds-space-1);border-radius:var(--radius-control)}
 .wq-row[data-selected] .wq-row-inner{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 10%,transparent)}

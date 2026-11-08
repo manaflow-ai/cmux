@@ -3,7 +3,7 @@
 // you's path (needsYou/useNeedsYou.ts `answerAnotherChat`), and a chat shown the way History's own
 // rows and the New Tab page's open one: in this tab, in place of the page (App.tsx `selectSession`,
 // `chat.select`). Needs you's `chat.asks.open` opens nothing from a New Tab page.
-import { copyText } from "../conversation/clipboard";
+import { copyTextResult } from "../conversation/clipboard";
 import type { WatchedAsk } from "../needsYou/model";
 import { answerAnotherChat } from "../needsYou/useNeedsYou";
 import type { LedgerScreen } from "../ledger/LedgerScreen";
@@ -109,7 +109,8 @@ export function historyPages({
           (params) => connected().audit({ limit: AUDIT_PAGE, ...params }),
           AUDIT_PAGES,
         );
-        await copyText(`${JSON.stringify(entries, null, 2)}\n`);
+        // copyText resolves even when both clipboard paths fail: say so instead of "copied".
+        if (!(await copyTextResult(`${JSON.stringify(entries, null, 2)}\n`))) throw new Error("clipboard refused");
         return entries.length;
       },
       openReview: () => void callNative("action.run", { id: "agentReview.show" }).catch(() => undefined),

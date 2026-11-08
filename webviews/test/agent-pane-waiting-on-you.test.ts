@@ -318,3 +318,55 @@ test("History opens a chat in its own tab (`chat.select`); another machine's pul
   await pages.queue.verdict(pr, "accept");
   expect(verdicts).toEqual([{ prUrl: "https://example.com/pull/1", sessionId: "s1", verdict: "accepted" }]);
 });
+
+test("Export audit fails when neither clipboard path copies, rather than saying it copied", async () => {
+  const scope = globalThis as Record<string, unknown>;
+  const saved = { navigator: Object.getOwnPropertyDescriptor(scope, "navigator"), document: scope.document };
+  let legacyCopies = false;
+  const field = { value: "", style: {}, select: () => {}, remove: () => {} };
+  Object.defineProperty(scope, "navigator", {
+    configurable: true,
+    value: {
+      clipboard: {
+        writeText: async () => {
+          throw new Error("clipboard.denied");
+        },
+      },
+    },
+  });
+  scope.document = {
+    activeElement: null,
+    createElement: () => field,
+    body: { append: () => {} },
+    execCommand: () => legacyCopies,
+  };
+  try {
+    const pages = historyPages({
+      client: () => ({
+        ledger: async () => ({}),
+        reviewQueue: async () => ({}),
+        reviewVerdict: async () => ({}),
+        audit: async () => ({ entries: [{ seq: 1 }] }),
+      }),
+      callNative: async <T>() => undefined as T,
+      selectSession: () => {},
+      asks: [],
+    });
+    await expect(pages.queue.exportAudit()).rejects.toThrow();
+    legacyCopies = true;
+    expect(await pages.queue.exportAudit()).toBe(1);
+  } finally {
+    if (saved.navigator) Object.defineProperty(scope, "navigator", saved.navigator);
+    else delete scope.navigator;
+    if (saved.document === undefined) delete scope.document;
+    else scope.document = saved.document;
+  }
+});
+
+test("a row that entered late still collapses when answered: the entrance never outlasts its run", async () => {
+  const css = await Bun.file(new URL("../src/agent-session/acpmux/queue/queue.css", import.meta.url)).text();
+  const rule = css.split("\n").find((line) => line.includes("animation:wq-enter")) ?? "";
+  // A `forwards`/`both` fill would keep the entrance's last frame (1fr, opaque) over [data-leaving].
+  expect(rule).toContain(":not([data-leaving])");
+  expect(rule).not.toMatch(/\b(both|forwards)\b/);
+});

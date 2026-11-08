@@ -311,9 +311,12 @@ nonisolated enum AcpmuxPaneMethods {
     /// card names that child chat, which the pane shows only as a card, so from outside the scope it
     /// takes the click's scope credit, as an attach of the child would; that attach would let the
     /// same click send it a prompt, which grants more than a Retry of its failed turn.
+    /// `_acpmux/review_verdict` (Waiting on you's Accept and Request changes, which can send the
+    /// chat a prompt) follows it too: History holds no chat, so the verdict's click is what brings
+    /// its chat in, and a click already spent bringing in another chat leaves it refused.
     public static let sourceScoped: Set<String> = [
         "acp.session.fork", "_acpmux/handoff_prepare", "_acpmux/handoff_draft", "_acpmux/handoff_start",
-        "_acpmux/handoff_discard", "_acpmux/retry",
+        "_acpmux/handoff_discard", "_acpmux/retry", "_acpmux/review_verdict",
     ]
 
     /// The error frame that answers a refused request, as the daemon would answer an unknown one.
