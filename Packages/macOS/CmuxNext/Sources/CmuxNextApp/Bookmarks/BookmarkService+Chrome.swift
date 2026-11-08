@@ -134,7 +134,7 @@ extension BookmarkService {
         // task-owner: one bookmarks.folders read; ends with the bubble
         Task { [weak self, weak anchor] in
             guard let self else { return }
-            let folders: JSONValue
+            let folders: BookmarkRoutedClient.JSONValue
             do { folders = try await routed.folders(profile: profile) } catch {
                 return services.registry.refuse(BookmarkAppStrings.failure(error))
             }

@@ -111,7 +111,7 @@ final class BookmarkService {
     /// The daemon's ops in turn; a refusal throws with the rule that refused. Before the home
     /// daemon serves bookmarks it throws ``Unavailable`` with the capability gate's own text.
     @discardableResult
-    func apply(_ ops: [BookmarkRoutedClient.Op]) async throws -> JSONValue {
+    func apply(_ ops: [BookmarkRoutedClient.Op]) async throws -> BookmarkRoutedClient.JSONValue {
         guard usesDaemon else { throw unavailable }
         return try await routed.apply(ops)
     }

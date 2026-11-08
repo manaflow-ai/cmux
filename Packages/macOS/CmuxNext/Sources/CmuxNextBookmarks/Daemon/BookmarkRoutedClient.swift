@@ -1,5 +1,6 @@
 public import CmuxNextDaemon
-import Foundation
+public import CmuxNextSettings
+public import Foundation
 import os
 
 /// The home daemon's routed `bookmarks.*` ops (cmux-tui spec/page-router.md, owner
@@ -7,6 +8,10 @@ import os
 /// omnibar star's status, the edit bubble's folders, a CLI name) and every edit is one op, and the
 /// rules run there (cmux-bookmarks-core and cmux-bookmarks-ops). The app only sends and decodes.
 public nonisolated struct BookmarkRoutedClient: Sendable {
+    /// The app's JSON (literals, `intValue`, `foundationObject`); the relay's wire value is
+    /// converted at ``send(_:_:mutation:)`` only.
+    public typealias JSONValue = CmuxNextSettings.JSONValue
+
     /// The home daemon's connection; nil while it is down.
     public let connection: DaemonConnection?
 
@@ -30,8 +35,9 @@ public nonisolated struct BookmarkRoutedClient: Sendable {
     func send(_ operation: String, _ params: [String: JSONValue], mutation: Bool = false) async throws -> JSONValue {
         guard let connection else { throw DaemonError.notConnected }
         do {
-            return try await ResourceRelayClient(connection: connection).send(
-                operation: operation, params: params, idempotencyKey: mutation ? UUID().uuidString.lowercased() : nil)
+            let reply = try await ResourceRelayClient(connection: connection).send(
+                operation: operation, params: params.mapValues(Self.wire), idempotencyKey: mutation ? UUID().uuidString.lowercased() : nil)
+            return Self.value(reply)
         } catch let error as DaemonError {
             throw Self.refusal(error) ?? error
         }
@@ -266,6 +272,29 @@ public nonisolated struct BookmarkRoutedClient: Sendable {
     }
 
     /// The routed owner's own code (`details.extra.code`), if the daemon refused with one.
+    /// The app's JSON as the relay's wire value, and back.
+    static func wire(_ value: JSONValue) -> CmuxNextDaemon.JSONValue {
+        switch value {
+        case .null: .null
+        case .bool(let flag): .bool(flag)
+        case .number(let number): .number(number)
+        case .string(let text): .string(text)
+        case .array(let items): .array(items.map(wire))
+        case .object(let members): .object(members.mapValues(wire))
+        }
+    }
+
+    static func value(_ wire: CmuxNextDaemon.JSONValue) -> JSONValue {
+        switch wire {
+        case .null: .null
+        case .bool(let flag): .bool(flag)
+        case .number(let number): .number(number)
+        case .string(let text): .string(text)
+        case .array(let items): .array(items.map(value))
+        case .object(let members): .object(members.mapValues(value))
+        }
+    }
+
     static func ownerCode(_ error: DaemonError) -> String? {
         guard case .command(_, _, _, let details, _) = error else { return nil }
         return details?["extra"]?["code"]?.stringValue

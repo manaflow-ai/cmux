@@ -91,7 +91,7 @@ extension IconHistory {
             guard bookmarks.supportsFolderIcons else {
                 throw ActionFailure(message: bookmarks.iconOwner.missingCapabilityMessage(DaemonCapability.bookmarkIcon.rawValue))
             }
-            let icon: JSONValue? = switch update {
+            let icon: BookmarkRoutedClient.JSONValue? = switch update {
             case .unchanged: nil
             case .clear: .null
             case .set(let value): .string(value)

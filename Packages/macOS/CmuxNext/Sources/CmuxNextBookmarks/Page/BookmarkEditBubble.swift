@@ -106,7 +106,7 @@ public final class BookmarkEditBubble {
     private func push(_ content: BrowserChromeWebHost) {
         revision += 1
         content.push(["revision": revision, "isNew": isNew, "title": draft.title, "folder": draft.folder,
-                      "folders": folders.foundationObject ?? [], "width": Self.width])
+                      "folders": folders.foundationObject, "width": Self.width])
     }
 
     private func received(_ kind: String, _ params: [String: Any]) {
