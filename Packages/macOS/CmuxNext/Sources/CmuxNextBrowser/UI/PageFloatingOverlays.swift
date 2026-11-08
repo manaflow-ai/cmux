@@ -44,16 +44,19 @@ final class PageFloatingOverlays {
     private var cards: [Card] = []
     private weak var page: NSView?
     private var pagesObserver: (any NSObjectProtocol)?
+    /// Where `browserChildWindowPagesNeedUpdate` arrives (the default center; a test injects its own).
+    private let notifications: NotificationCenter
 
-    init(page: NSView) {
+    init(page: NSView, notifications: NotificationCenter = .default) {
         self.page = page
+        self.notifications = notifications
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
-            if let pagesObserver { NotificationCenter.default.removeObserver(pagesObserver) }
+            if let pagesObserver { notifications.removeObserver(pagesObserver) }
             for card in cards { card.handle?.dismiss() }
         }
     }
@@ -95,7 +98,7 @@ final class PageFloatingOverlays {
         guard let index = cards.firstIndex(where: { $0.view === view }) else { return }
         cards.remove(at: index).handle?.dismiss()
         if cards.isEmpty, let pagesObserver {
-            NotificationCenter.default.removeObserver(pagesObserver)
+            notifications.removeObserver(pagesObserver)
             self.pagesObserver = nil
         }
     }
@@ -174,7 +177,7 @@ final class PageFloatingOverlays {
     /// chrome (a pane swap of equal size): the cards follow.
     private func observePages() {
         guard pagesObserver == nil else { return }
-        pagesObserver = NotificationCenter.default.addObserver(
+        pagesObserver = notifications.addObserver(
             forName: Notification.Name.browserChildWindowPagesNeedUpdate, object: nil, queue: .main
         ) { [weak self] note in
             // Only the window's identity crosses into the main-actor closure.
