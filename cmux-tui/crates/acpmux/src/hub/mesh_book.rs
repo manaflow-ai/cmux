@@ -13,12 +13,20 @@ use std::collections::BTreeMap;
 /// The most hub rows kept: a person's machines list far fewer, and the list stays bounded.
 const MAX_BOOK_ROWS: usize = 2048;
 
+/// How long a chat this daemon started through the hub (`server/mesh_start.rs`) stays listed
+/// before the hub's book lists it. Its machine heartbeats right after the start, so the next read
+/// of the book has it well within this; one the book never lists leaves at this bound.
+const STARTED_PIN_MS: u64 = 3 * 60 * 1000;
+
 #[derive(Default)]
 pub(crate) struct MeshBook {
     /// `HOST/ID` to the hub's fields of it (`row_of`) and its row.
     rows: BTreeMap<String, (Value, Arc<RemoteSession>)>,
     /// Each machine listed, with its newest heartbeat (ms since the epoch).
     hosts: BTreeMap<String, u64>,
+    /// Chats this daemon started through the hub that the book has not listed yet, `HOST/ID` to
+    /// the row and the time (ms) it stops being kept. A book that lists one ends its pin.
+    started: BTreeMap<String, (BookSession, u64)>,
 }
 
 /// The machines and sessions of `book` this daemon lists: those of the same person (`own_user`)
@@ -71,6 +79,20 @@ fn row_of(s: &BookSession) -> Value {
     })
 }
 
+/// The book row a kept row was made from (`row_of`), so a new pin rebuilds the list unchanged.
+fn book_session(host: &str, bare: &Value) -> Option<BookSession> {
+    let field = |k: &str| bare.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
+    Some(BookSession {
+        name: field("name"),
+        session_id: bare.get("sessionId")?.as_str()?.to_owned(),
+        host: host.to_owned(),
+        daemon_id: String::new(),
+        harness: field("harness"),
+        state: field("status"),
+        last_seen_at: 0,
+    })
+}
+
 impl Hub {
     /// Read the address book's rows of this person's other machines into the list
     /// (`mesh_book::mine`).
@@ -88,10 +110,22 @@ impl Hub {
 
     /// Replace the hub rows: watching clients hear each one that appeared, changed or left, and
     /// the shared list is rebuilt once (`list_guard.rs`). Empty when the relay stops.
-    pub(crate) fn set_mesh_book(&self, hosts: BTreeMap<String, u64>, sessions: Vec<BookSession>) {
+    pub(crate) fn set_mesh_book(
+        &self,
+        hosts: BTreeMap<String, u64>,
+        mut sessions: Vec<BookSession>,
+    ) {
         let now = now_ms();
         let (gone, changed, moved) = {
             let mut book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+            // A chat started here that the book does not list yet stays listed, within its bound
+            // and while its machine is listed; one the book lists is the book's from now on.
+            let listed: std::collections::HashSet<String> =
+                sessions.iter().map(|s| format!("{}/{}", s.host, s.session_id)).collect();
+            book.started.retain(|key, (row, until)| {
+                *until > now && !listed.contains(key) && hosts.contains_key(&row.host)
+            });
+            sessions.extend(book.started.values().map(|(row, _)| row.clone()));
             let mut rows = BTreeMap::new();
             let mut changed = Vec::new();
             for s in &sessions {
@@ -135,6 +169,37 @@ impl Hub {
         for (peer, summary) in changed {
             self.announce_remote(&peer, summary, "status");
         }
+    }
+
+    /// A chat this daemon just started on hub machine `host` (`server/mesh_start.rs`): listed at
+    /// once, as the book lists one, so the app opens it and its first prompt routes there by its
+    /// bare id before the book's next read has it. Kept until the book lists it, at most
+    /// [`STARTED_PIN_MS`].
+    pub(crate) fn mesh_book_started(&self, host: &str, id: &str, name: &str, harness: &str) {
+        let row = BookSession {
+            name: name.to_owned(),
+            session_id: id.to_owned(),
+            host: host.to_owned(),
+            daemon_id: String::new(),
+            harness: harness.to_owned(),
+            state: "idle".into(),
+            last_seen_at: now_ms(),
+        };
+        let (hosts, sessions) = {
+            let mut book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+            if !book.hosts.contains_key(host) {
+                return;
+            }
+            book.started.insert(format!("{host}/{id}"), (row, now_ms() + STARTED_PIN_MS));
+            let sessions: Vec<BookSession> = book
+                .rows
+                .iter()
+                .filter(|(key, _)| !book.started.contains_key(*key))
+                .filter_map(|(_, (bare, r))| book_session(&r.peer, bare))
+                .collect();
+            (book.hosts.clone(), sessions)
+        };
+        self.set_mesh_book(hosts, sessions);
     }
 
     /// The hub rows `keep` takes, cloning no other.

@@ -46,6 +46,14 @@ use control_ledger::{Claim, ControlLedger};
 #[path = "mesh_read.rs"]
 pub(crate) mod read;
 
+/// A chat started on a machine only the hub reaches (`mesh_start.rs`).
+#[path = "mesh_start.rs"]
+pub(crate) mod start;
+
+/// A hub-only chat's records, live in the client that opened it (`mesh_follow.rs`).
+#[path = "mesh_follow.rs"]
+pub(crate) mod follow;
+
 /// The loops' timings.
 #[derive(Debug, Clone)]
 pub struct RelayOptions {

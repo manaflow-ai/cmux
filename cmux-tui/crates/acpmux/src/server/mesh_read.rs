@@ -160,8 +160,9 @@ pub(crate) async fn forward(
     if host.is_empty() || rest.is_empty() || !hub.mesh_may_route(key) {
         return None;
     }
-    // A hub attach holds no stream, so there is nothing to detach.
+    // A detach ends the chat's follower here (`mesh_follow.rs`); nothing there holds a stream.
     if m == method::MUX_DETACH {
+        super::follow::unfollow(conn, key);
         return Some(Ok(json!({})));
     }
     let mut reply = read(mesh.as_ref(), host, rest, m, params).await;
@@ -172,6 +173,17 @@ pub(crate) async fn forward(
     {
         *session = Hub::remote_summary(host, session.take());
         session["via"] = json!("hub");
+        // Its next records reach this client as they come, from after the page it opened on.
+        let after = ["pageThrough", "lastSeq"]
+            .iter()
+            .find_map(|field| reply.get(*field).and_then(Value::as_u64))
+            .unwrap_or_default();
+        let chat = super::follow::Chat {
+            host: host.to_owned(),
+            remote: rest.to_owned(),
+            key: key.to_owned(),
+        };
+        super::follow::follow(hub, conn, chat, after);
     }
     Some(reply)
 }
@@ -199,12 +211,17 @@ pub(crate) async fn prompt(
     if !hub.mesh_may_route(&target) {
         return None;
     }
-    Some(super::super::mesh_send::send(hub, conn, &mesh, params, &target).await)
+    let sent = super::super::mesh_send::send(hub, conn, &mesh, params, &target).await;
+    // Its turn's records come sooner than the follower's next quiet read (`mesh_follow.rs`).
+    if sent.is_ok() {
+        super::follow::nudge(conn, key);
+    }
+    Some(sent)
 }
 
 /// Whether this connection may borrow this daemon's hub identity for a read: its own socket, or
 /// the app's pane. A peer daemon's link, a web client or a paired device never may.
-fn may_read(conn: &Conn) -> bool {
+pub(super) fn may_read(conn: &Conn) -> bool {
     match conn.origin {
         Origin::Local => conn.auth == ConnAuth::LocalSocket,
         Origin::LocalApp => true,
