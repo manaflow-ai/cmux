@@ -148,3 +148,28 @@ test("a sender record with authenticated false is unverified without labelDeclar
   expect(plain?.unverified).toBe(true);
   expect(proven?.unverified).toBeUndefined();
 });
+
+// Review of #37653: a later notice of the same sender that names less about it (no record, no
+// session, no harness, no unverified mark) keeps what the earlier one said; a later notice from
+// another sender speaks for itself.
+test("a joined thread keeps the earlier notice's sender metadata for the same sender", () => {
+  const earlier = thread("pr:9", "lane-a", 1, {
+    sender: { label: "vm-1/lane-a", session: "s-a" },
+    fromSession: "s-a",
+    fromHarness: "codex",
+    unverified: true,
+  });
+  const same = joinNotices({ threads: [earlier] }, { threads: [thread("pr:9", "lane-a")] }).threads[0]!;
+  expect(same).toMatchObject({
+    sender: { label: "vm-1/lane-a", session: "s-a" },
+    fromSession: "s-a",
+    fromHarness: "codex",
+    unverified: true,
+    count: 2,
+  });
+  const other = joinNotices({ threads: [earlier] }, { threads: [thread("pr:9", "lane-b")] }).threads[0]!;
+  expect(other.sender).toBeUndefined();
+  expect(other.fromSession).toBeUndefined();
+  expect(other.fromHarness).toBeUndefined();
+  expect(other.unverified).toBeUndefined();
+});
