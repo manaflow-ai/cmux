@@ -38,7 +38,7 @@ import Testing
     @Test func itIsTheHeaderAndARowPerRequestUpToThree() {
         #expect(FeedNeedsYouSection.height(waiting: 0) == 0, "nothing waits: hidden")
         // The page's CSS px: the page and the card pad 4 each, the header 24, a row 40.
-        #expect(FeedNeedsYouSection.height(waiting: 1) == 8 * 2 + 24 + 40)
+        #expect(FeedNeedsYouSection.height(waiting: 1) == CGFloat(8 * 2 + 24 + 40))
         #expect(FeedNeedsYouSection.height(waiting: 3) == 160, "three rows fit at 100%")
         #expect(FeedNeedsYouSection.height(waiting: 7) == FeedNeedsYouSection.height(waiting: 3), "the page counts the rest")
         let section = FeedNeedsYouSection(page: NSView())
@@ -140,8 +140,9 @@ import Testing
 
         // Off again: nothing pinned and no more reads.
         daemon.reply("feed.view.read", Self.needsYou(["c"]))
+        let updates = host.updates
         toggle.on = false
-        await until { host.pinnedSection == nil }
+        await until { host.updates > updates } // the watch saw the setting go off (it unpins, so it updates)
         let after = daemon.calls.count
         daemon.client.deliver(.init(changed: ["c"]))
         try? await Task.sleep(for: .milliseconds(50))
