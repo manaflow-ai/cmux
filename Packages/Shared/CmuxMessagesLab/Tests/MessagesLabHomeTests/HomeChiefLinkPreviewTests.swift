@@ -20,6 +20,7 @@ import Testing
     static let friends = "https://friend.example.com/page", helpers = "https://helper.example.com/page"
     static let chiefText = "The fix is in [PR 2](\(pr)); the guide is at \(docs) if you want it."
     static let gitHubPR = "https://github.com/manaflow-ai/cmux/pull/38178", bot = "https://bot.example.com/page"
+    static let gitHubRun = "https://github.com/manaflow-ai/cmux/actions/runs/42"
     static let people = [CmuxHomeCore.Participant(id: me, kind: .human, displayName: "Me"),
                          CmuxHomeCore.Participant(id: chief, kind: .agent, displayName: "Chief", agentClass: .chief),
                          CmuxHomeCore.Participant(id: friend, kind: .human, displayName: "Friend"),
@@ -39,7 +40,7 @@ import Testing
                         item(2, helper, "Helper read \(helpers) for you."),
                         item(3, me, "Did you see \(mine) today?\n\(sole)"),
                         item(4, chief, chiefText),
-                        item(5, chief, "I updated README.md for \(gitHubPR) just now"),
+                        item(5, chief, "I updated README.md for \(gitHubPR); CI is [here](\(gitHubRun))."),
                         item(6, me, "[from Grok bot] I read this for you\n\(bot)", key: "agent~grok-1")]
 
     struct Pane { let window: NSWindow; let controller: ChatController }
@@ -84,8 +85,8 @@ import Testing
         // A file name the detector reads as a domain ("README.md") is no card; a GitHub pull request's
         // card is titled from its URL (a private repository's page needs sign-in, so it is never fetched).
         let five = parts(pane, 5)
-        #expect(cardURLs(five) == [Self.gitHubPR])
-        if case let .link(_, title, site, _, _)? = five.last { #expect(title == "manaflow-ai/cmux#38178" && site == "github.com") }
+        #expect(cardURLs(five) == [Self.gitHubPR, Self.gitHubRun])
+        if case let .link(_, title, site, _, _)? = five.dropLast().last { #expect(title == "manaflow-ai/cmux#38178" && site == "github.com") }
         withExtendedLifetime(pane.window) {}
     }
 
@@ -106,7 +107,7 @@ import Testing
         var scanned: Set<IdempotencyKey> = []
         let urls = HomeProjection.previewableCardURLs(items, summary: summary, me: Self.me, asked: [Self.docs], scanned: &scanned, limit: 8, parts: shown)
         // Newest first; an asked URL is not asked again; a friend's, another agent's and an agent's
-        // message through my CLI never fetch; a GitHub card with its local title needs no fetch.
+        // message through my CLI never fetch; a GitHub card (local title, or a page that needs sign-in) is not fetched.
         #expect(urls == [Self.pr, Self.sole])
         // Every message was looked at once: the next pass asks nothing and looks at none of them again.
         #expect(scanned == Set(items.map(\.key)))

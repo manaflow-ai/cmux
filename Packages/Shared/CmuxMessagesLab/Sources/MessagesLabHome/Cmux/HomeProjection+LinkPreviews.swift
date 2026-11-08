@@ -44,6 +44,14 @@ extension HomeProjection {
         return HomeMapping.isChief(item.author, summary)
     }
 
+    /// Whether `url`'s page is GitHub's: most of the Chief's GitHub links are private repositories,
+    /// whose page a signed-out fetch answers with "Page not found", so the card keeps its local title
+    /// (`HomeMapping.gitHubReference`) or the domain and is fetched only on a tap.
+    static func needsSignIn(_ url: String) -> Bool {
+        guard let host = URL(string: url)?.host?.lowercased() else { return false }
+        return host == "github.com" || host.hasSuffix(".github.com")
+    }
+
     /// Whether `item` has a web link to show a card for (a cheap test before its parts are looked up).
     static func mayHaveWebLink(_ item: TranscriptItem) -> Bool {
         item.parts.contains { part in
@@ -57,7 +65,8 @@ extension HomeProjection {
 
     /// The card URLs among `items` (newest first) that may fetch and still show the domain card (no
     /// picture, no title but the site's), not in `asked`, at most `limit`. `parts` gives an item's
-    /// shown parts (the projection store's message; nil: not shown yet, looked at again later). An
+    /// shown parts (the projection store's message; nil: not a message there, looked at again later
+    /// only while it is a send still flying). An
     /// item in `scanned` is skipped; an item whose every card is asked (or that has none that may
     /// fetch) joins it.
     static func previewableCardURLs(_ items: [TranscriptItem], summary: ConversationSummary?, me: ParticipantID,
@@ -70,8 +79,13 @@ extension HomeProjection {
                 scanned.insert(item.key)
                 continue
             }
-            guard let shownParts = parts(item) else { continue }
-            for case let .link(url, title, site, image, _) in shownParts where image == nil && (title == nil || title == site) {
+            // Not in the projection store: a send still flying waits; any other item shows as no
+            // message of its own (a fold row) and has no cards to ask for.
+            guard let shownParts = parts(item) else {
+                if item.seq != nil { scanned.insert(item.key) }
+                continue
+            }
+            for case let .link(url, title, site, image, _) in shownParts where image == nil && (title == nil || title == site) && !needsSignIn(url) {
                 guard seen.insert(url).inserted else { continue }
                 if out.count >= limit { return out } // this item has more: it is looked at again next pass
                 out.append(url)
