@@ -1225,7 +1225,11 @@ impl HybridUnderlay {
             None => true,
             Some(delay) if delay.is_zero() => false,
             Some(delay) => {
-                self.delayed.push_back((Instant::now() + delay, datagram.to_vec(), origin));
+                // In delivery order: a slow (relayed) datagram must not hold
+                // back a fast (direct) one queued after it.
+                let at = Instant::now() + delay;
+                let index = self.delayed.partition_point(|(due, ..)| *due <= at);
+                self.delayed.insert(index, (at, datagram.to_vec(), origin));
                 true
             }
         }

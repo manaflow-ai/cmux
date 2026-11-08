@@ -147,6 +147,11 @@ fn percentiles(values: &mut [u64]) -> String {
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() {
+    // RUST_LOG=cmux_mobile_link=debug shows the route changes, on stderr.
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_writer(std::io::stderr)
+        .try_init();
     let args = args();
     LAN_ONE_WAY_US.store(args.lan_rtt_ms * 500, Ordering::Relaxed);
     RELAY_ONE_WAY_US.store(args.relay_rtt_ms * 500, Ordering::Relaxed);
