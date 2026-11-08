@@ -119,14 +119,12 @@ final class CloseUndoToasts {
     /// A user's close of `ids` in `pane` (its close button, close others or
     /// to the right): announced, then closed, so its undo toast shows.
     /// An action run from automation (CLI, agents) closes without a toast.
-    /// A terminal doing work asks once first (`TabCloseGuard`).
-    static func close(in pane: PaneController, _ ids: [StripTabID]) {
-        close([(pane: pane, ids: ids)])
-    }
+    /// A terminal doing work asks once first (`TabCloseGuard`). `selecting` (`TabStripModel.selectionKeeping`) stays and is selected as the close runs.
+    static func close(in pane: PaneController, _ ids: [StripTabID], selecting: StripTabID? = nil) { close([(pane: pane, ids: ids)], selecting: selecting.map { (pane: pane, id: $0) }) }
 
     /// One gesture over tabs of several panes (a pane's close others): one
     /// question and one toast decision over every closing tab (cx-lb4al).
-    static func close(_ parts: [(pane: PaneController, ids: [StripTabID])]) {
+    static func close(_ parts: [(pane: PaneController, ids: [StripTabID])], selecting: (pane: PaneController, id: StripTabID)? = nil) {
         // A tab still being created is cancelled now and leaves the gesture: no question, read or daemon close for it (CancelledCreation).
         let pending = Set(parts.flatMap { part in part.ids.filter { part.pane.daemon.store.creations.isPending(tab: $0.rawValue) } })
         let resolved: [(pane: PaneController, ids: [StripTabID])] = parts.map { part in part.pane.close(part.ids.filter(pending.contains)); return (part.pane, part.ids.map { part.pane.tab($0).map { StripTabID($0.id) } ?? $0 }) } // a stand-in the store replaced: its tab's id, so that tab's page decides its close (#31837)
@@ -154,7 +152,8 @@ final class CloseUndoToasts {
         let panes = parts.map { part in (pane: { @MainActor [weak pane = part.pane] in pane }, ids: part.ids) }
         // One gesture, one daemon close and one closed group (`PaneController.close(_:)`): one Reopen
         // Closed brings every pane's tabs back, and one undo toast counts them all.
-        let closeAll = { @MainActor (undo: CloseUndoToasts?, costly: Bool) in
+        let closeAll = { @MainActor [weak kept = selecting?.pane, keptID = selecting?.id] (undo: CloseUndoToasts?, costly: Bool) in
+            if let kept, let keptID, kept.stripModel.tab(keptID) != nil { kept.select(keptID) } // after any question, before any tab leaves (cmux-ad i7)
             var closing: [(pane: PaneController, ids: [StripTabID])] = [], deciding: [(pane: PaneController, ids: [StripTabID])] = []
             for part in panes {
                 guard let pane = part.pane() else { continue }
