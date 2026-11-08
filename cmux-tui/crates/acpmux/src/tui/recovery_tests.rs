@@ -128,3 +128,71 @@ async fn a_removed_steer_row_keeps_folds_on_their_rows() {
         "the thought's fold moved with it; the removed row's fold is gone"
     );
 }
+
+fn older_user(seq: u64, text: &str) -> Value {
+    json!({"sessionId": "test-session", "seq": seq, "at": 1_000 + seq, "dir": "mux", "kind": "user_message", "msg": {"text": text}})
+}
+
+/// Scrolling to the top from the keyboard asks for the page before the oldest record shown;
+/// the page goes above it with folds and the rows on screen in place, and once the log has
+/// no more nothing more is asked.
+#[tokio::test]
+async fn reaching_the_top_pages_older_history_until_none_remain() {
+    let (mut app, mut requests) = super::interaction_tests::app().await;
+    let id = "test-session";
+    app.sessions = vec![json!({"sessionId": id})];
+    app.selected = app.drafts.len();
+    app.on_msg(AppMsg::Attached {
+        id: id.into(),
+        detail: json!({"status": "idle", "currentModeId": "plan", "model": "m1"}),
+        events: vec![older_user(20, "three"), older_user(21, "four")],
+        after_seq: None,
+        has_more: true,
+        last_seq: 21,
+    });
+    app.toggled.insert(id.into(), [Toggle::Turn(0), Toggle::Item(1)].into_iter().collect());
+    let v = app.viewport.entry(id.into()).or_default();
+    v.layout(40, 10, ratatui::layout::Rect::default());
+    v.scroll_by(-5);
+
+    // PageUp short of the top asks for nothing; Home reaches it and asks once.
+    app.run_action(Action::PageUp, &[]);
+    assert!(app.history_in_flight.is_empty());
+    app.run_action(Action::ScrollTop, &[]);
+    app.run_action(Action::ScrollTop, &[]);
+    let request = tokio::time::timeout(std::time::Duration::from_secs(5), requests.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(request["method"], method::MUX_EVENTS);
+    assert_eq!(request["params"]["beforeSeq"], 20);
+    assert!(app.history_in_flight.contains(id));
+    assert!(requests.try_recv().is_err(), "one page in flight at a time");
+
+    app.on_msg(AppMsg::Older {
+        id: id.into(),
+        events: vec![older_user(10, "one"), older_user(11, "two")],
+        has_more: false,
+    });
+    let t = &app.transcripts[id];
+    assert_eq!(t.items.len(), 4);
+    assert_eq!(t.mode.as_deref(), Some("plan"));
+    assert_eq!(t.model.as_deref(), Some("m1"));
+    assert_eq!(t.status, "idle");
+    assert_eq!(
+        app.toggled[id],
+        [Toggle::Turn(2), Toggle::Item(3)].into_iter().collect(),
+        "folds stay on the rows they were flipped on"
+    );
+    // The 40 rows shown stay where they were once the taller document is laid out.
+    let v = app.viewport.get_mut(id).unwrap();
+    v.layout(52, 10, ratatui::layout::Rect::default());
+    assert_eq!(v.offset, 12);
+    assert!(!v.follow);
+
+    // With no more history, the top asks for nothing.
+    app.run_action(Action::ScrollTop, &[]);
+    assert!(app.history_in_flight.is_empty());
+    assert!(requests.try_recv().is_err());
+    assert_eq!(app.status, "loaded all available history");
+}
