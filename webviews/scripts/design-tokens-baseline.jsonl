@@ -180,7 +180,6 @@
 {"file":"agent-session/acpmux/dictation.css","kind":"height","property":"height","values":{"18px":1,"2px":1,"calc(2px + var(--level, 0) * 16px)":1}}
 {"file":"agent-session/acpmux/dictation.css","kind":"radius","property":"border-radius","values":{"1px":1}}
 {"file":"agent-session/acpmux/dictation.css","kind":"spacing","property":"gap","values":{"2px":1}}
-{"file":"agent-session/acpmux/dictation.css","kind":"spacing","property":"margin-inline","values":{"2px 4px":1}}
 {"file":"agent-session/acpmux/FileAttachment.gallery.tsx","kind":"spacing","property":"margin-top","values":{"36px":1}}
 {"file":"agent-session/acpmux/FileAttachment.gallery.tsx","kind":"spacing","property":"padding","values":{"20px":1}}
 {"file":"agent-session/acpmux/handoff/styles.css","kind":"font-weight","property":"font-weight","values":{"500":1}}
