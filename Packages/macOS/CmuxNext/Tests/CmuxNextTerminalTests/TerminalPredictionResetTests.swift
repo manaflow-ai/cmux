@@ -12,7 +12,15 @@ struct TerminalPredictionResetTests {
     /// speculative, and waits until the overlay draws them.
     static func speculating() async throws -> TerminalPredictionLatencyTests.Harness {
         let harness = try await TerminalPredictionLatencyTests.harness(roundTripMs: 150, loss: 0, predict: true, seed: 11)
+        try await engage(harness)
+        return harness
+    }
+
+    /// Types echoed keys over the link until the engine has measured it, then cuts the link and types keys that stay
+    /// speculative, waiting until the overlay draws them (or two seconds pass).
+    static func engage(_ harness: TerminalPredictionLatencyTests.Harness) async throws {
         let session = harness.session
+        harness.io.onWrite.withLock { $0 = { [remote = harness.remote] in remote.receive($0) } }
         for key in "echo engaged".map(String.init) {
             session.sendText(key)
             try await Task.sleep(for: .milliseconds(120)) // test: typing cadence
@@ -27,7 +35,6 @@ struct TerminalPredictionResetTests {
         while Self.speculative(session) == 0, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(5)) // test: waits for the overlay's draw
         }
-        return harness
     }
 
     static func speculative(_ session: TerminalSession) -> Int {
@@ -85,6 +92,9 @@ struct TerminalPredictionResetTests {
         #expect(!watch.drewAfter, "a glyph was drawn while prediction was off")
         session.predictsLocalEcho = true
         #expect(harness.engine.status != .disabled, "prediction stayed off after it was turned back on")
+        // On again, the fresh engine engages over the slow link as before and draws.
+        try await Self.engage(harness)
+        #expect(Self.speculative(session) > 0, "prediction drew nothing after it was turned back on")
     }
 
     /// The app's `terminal.predictiveLocalEcho` (``TerminalLocalEchoPreference``): a session made while it is off
