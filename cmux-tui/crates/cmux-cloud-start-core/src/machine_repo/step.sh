@@ -90,6 +90,26 @@ holder() {
     { hx=$(command -v cmux-tui) || hx=$(command -v cmux); } && "$hx" repo hold --help >/dev/null 2>&1 &&
     command -v systemd-run >/dev/null 2>&1
 }
+# The checkout's barrier, by `cmux repo wait DIR 0` (`repo_hold.rs`): `ready` (or no barrier),
+# `failed` (a fill that died: the tree may be whole but no tool may run), `busy` (a fill holds it),
+# or `none` on a machine whose cmux has no `repo wait`.
+barrier() {
+  wx=$(command -v cmux-tui || command -v cmux) || { echo none; return; }
+  c=0; "$wx" repo wait "$dir" 0 >/dev/null 2>&1 || c=$?
+  case $c in 0) echo ready ;; 1) echo failed ;; 124) echo busy ;; *) echo none ;; esac
+}
+# The history fetch (`unshallow`) holds this while it runs, so a later start leaves it alone.
+history_lock="$dir/.git/cmux-history.lock"
+history_busy() { [ -f "$history_lock" ] && ! flock -n "$history_lock" true; }
+# The whole tree and the history, now. A checkout whose barrier failed is filled under it
+# (`repo hold-run`, which opens it only when the fill succeeds), so its tools may run again.
+fill_now() {
+  if [ "$state" = failed ] && "$wx" repo hold --help >/dev/null 2>&1; then
+    "$wx" repo hold-run "$dir" -- "$d/repo" fill-now "$cred" >&2
+  else
+    "$d/repo" fill-now "$cred"
+  fi
+}
 # The fill, in its own scope: the bootstrap's unit ends with this runner, and the hold outlives it.
 # The hold is taken before this returns, so no chat starts on the folder before it.
 fill_later() {
@@ -98,8 +118,7 @@ fill_later() {
     fill=background
   else
     echo "cmux repo: cannot fill $dir in the background; filling it now" >&2
-    g -C "$dir" sparse-checkout disable && g -C "$dir" fetch --quiet --unshallow --filter=blob:none origin ||
-      die "cannot check out all of $url"
+    fill_now || die "cannot check out all of $url"
     fill=done
   fi
 }
@@ -112,6 +131,16 @@ if [ "${1:-}" = fill ]; then
 fi
 if [ "${1:-}" = unshallow ]; then
   use "${2:-anonymous}"
+  exec 9>"$history_lock" && flock 9 || exit 1
+  [ "$(g -C "$dir" rev-parse --is-shallow-repository)" = true ] || exit 0
+  g -C "$dir" fetch --quiet --unshallow --filter=blob:none origin
+  exit
+fi
+# `fill_now`'s fill, run by itself or under `repo hold-run`.
+if [ "${1:-}" = fill-now ]; then
+  use "${2:-anonymous}"
+  g -C "$dir" sparse-checkout disable || exit 1
+  [ "$(g -C "$dir" rev-parse --is-shallow-repository)" = true ] || exit 0
   g -C "$dir" fetch --quiet --unshallow --filter=blob:none origin
   exit
 fi
@@ -132,20 +161,30 @@ if [ -d "$dir/.git" ]; then
     rm -rf "$dir"
   fi
 fi
+state=none
 if [ -d "$dir/.git" ]; then
+  state=$(barrier)
+  # A fill or history fetch from an earlier start still runs in it: nothing here fetches, switches
+  # or fills beside it (its git locks would fail this start). The chat starts on it as it is, and
+  # its tools wait at the barrier.
+  if [ "$state" = busy ] || history_busy; then
+    echo "cmux repo: $dir is still being filled by an earlier start; it is left to that one" >&2
+    [ "$state" = busy ] && fill=background
+    status=kept; sha=$(g -C "$dir" rev-parse --verify --quiet HEAD) || die "no commit checked out in $dir"
+    result; exit 0
+  fi
   net -C "$dir" fetch --quiet --tags origin
   status=updated
   # A checkout with local changes stays as it is.
   changes=$(g -C "$dir" status --porcelain) || die "cannot read $dir"
   if [ -n "$changes" ]; then status=kept; else switch && forward || die "$why"; fi
-  # A head-first clone whose fill did not finish: fill it again.
-  if [ "$(git -C "$dir" config --bool core.sparseCheckout 2>/dev/null)" = true ] && [ -f "$dir/.git/info/sparse-checkout" ]; then
+  # A head-first clone whose fill did not finish (still sparse, or a barrier its fill left failed
+  # after the tree was whole): fill it again, under the barrier.
+  if { [ "$(git -C "$dir" config --bool core.sparseCheckout 2>/dev/null)" = true ] && [ -f "$dir/.git/info/sparse-checkout" ]; } ||
+    [ "$state" = failed ]; then
     if holder; then tip=1; else
-      g -C "$dir" sparse-checkout disable || die "cannot check out all of $url"
-      # And its history, as a whole clone has it.
-      if [ "$(g -C "$dir" rev-parse --is-shallow-repository)" = true ]; then
-        g -C "$dir" fetch --quiet --unshallow --filter=blob:none origin || die "cannot fetch the history of $url"
-      fi
+      fill_now || die "cannot check out all of $url"
+      fill=done
     fi
   fi
 elif [ -e "$dir" ]; then

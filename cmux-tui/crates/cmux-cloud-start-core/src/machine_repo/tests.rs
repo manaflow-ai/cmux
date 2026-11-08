@@ -520,3 +520,136 @@ fn a_symlinked_harness_folder_takes_the_whole_tree_at_once() {
     assert_eq!(machine.git(&["rev-parse", "--is-shallow-repository"]), "false");
     assert!(!machine.0.join("home/held").exists(), "no hold");
 }
+
+#[cfg(unix)]
+/// A machine's `cmux` for the barrier: `repo wait` exits with `$HOME/wait` (0 when absent),
+/// `repo hold` runs its fill in the foreground, and `repo hold-run` records its folder and runs it.
+const BARRIER_CMUX: &str = "#!/bin/sh\ncase \"$1 $2\" in\n\
+    \"repo wait\") exit \"$(cat \"$HOME/wait\" 2>/dev/null || echo 0)\" ;;\n\
+    \"repo hold\") [ \"$3\" = --help ] && exit 0; echo \"$3\" > \"$HOME/held\"; shift 4; exec \"$@\" ;;\n\
+    \"repo hold-run\") echo \"$3\" > \"$HOME/held-run\"; shift 4; echo held; exec \"$@\" ;;\n\
+    esac\nexit 2\n";
+
+#[cfg(unix)]
+impl Machine {
+    /// The barrier on the checkout reads `code` (`repo wait`: 1 failed, 124 busy).
+    fn barrier_reads(&self, code: i32) {
+        std::fs::write(self.0.join("home/wait"), code.to_string()).unwrap();
+    }
+
+    /// Waits for the first start's background history fetch to end (it holds its lock while
+    /// it runs), so the next start is not one that comes during it.
+    fn settle(&self) {
+        let lock = self.checkout().join(".git/cmux-history.lock");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        loop {
+            let free = std::process::Command::new("flock")
+                .arg("-n")
+                .arg(&lock)
+                .arg("true")
+                .status()
+                .map_or(true, |s| s.success());
+            if free && self.git(&["rev-parse", "--is-shallow-repository"]) == "false" {
+                return;
+            }
+            assert!(std::time::Instant::now() < deadline, "the history fetch never ended");
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+
+    fn commit_upstream(&self, file: &str) {
+        let made = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "echo n > src/{file} && git -C src add -A && git -c user.email=t@t -c user.name=t -C src commit -qm n"
+            ))
+            .current_dir(&self.0)
+            .status()
+            .unwrap();
+        assert!(made.success());
+    }
+}
+
+#[cfg(unix)]
+/// cmux#38364: a fill that died after the tree was whole leaves the barrier failed, and only the
+/// next start can open it. With a hold the step fills again in the background; without one (a
+/// start with a script of its own) it fills now under `repo hold-run`, which opens the barrier.
+#[test]
+fn a_failed_fill_is_filled_again_under_the_barrier() {
+    let Some(machine) = Machine::new(true) else { return };
+    machine.cmux(BARRIER_CMUX);
+    let (code, record) = machine.run();
+    machine.settle();
+    assert_eq!((code, record["fill"].as_str()), (0, Some("background")), "{record}");
+    machine.barrier_reads(1);
+    std::fs::remove_file(machine.0.join("home/held")).unwrap();
+    let (code, record) = machine.run();
+    assert_eq!((code, record["fill"].as_str()), (0, Some("background")), "{record}");
+    assert!(machine.0.join("home/held").exists(), "held again");
+    machine.settle();
+    let (code, record) = machine.run_with(None, "#!/bin/sh\ntrue\n");
+    assert_eq!((code, record["fill"].as_str()), (0, Some("done")), "{record}");
+    let held = std::fs::read_to_string(machine.0.join("home/held-run")).unwrap();
+    assert_eq!(held.trim(), machine.checkout().display().to_string());
+    assert!(machine.checkout().join("lib/y.rs").is_file());
+}
+
+#[cfg(unix)]
+/// cmux#38364: a start while an earlier start's fill still holds the checkout fetches, switches
+/// and fills nothing (its git locks would fail this one); the chat starts on the checkout as it is.
+#[test]
+fn a_start_during_a_fill_leaves_the_checkout_to_it() {
+    let Some(machine) = Machine::new(true) else { return };
+    machine.cmux(BARRIER_CMUX);
+    let (code, _) = machine.run();
+    machine.settle();
+    assert_eq!(code, 0);
+    let before = machine.git(&["rev-parse", "HEAD"]);
+    machine.commit_upstream("z.txt");
+    machine.barrier_reads(124);
+    let (code, record) = machine.run();
+    assert_eq!(code, 0, "{record}");
+    assert_eq!((record["status"].as_str(), record["fill"].as_str()), (Some("kept"), Some("background")));
+    assert_eq!(machine.git(&["rev-parse", "HEAD"]), before, "not fetched or forwarded");
+}
+
+#[cfg(unix)]
+/// cmux#38364: the history fetch holds its lock while it runs, and a later start leaves it alone.
+#[test]
+fn a_start_during_the_history_fetch_leaves_the_checkout_to_it() {
+    let Some(machine) = Machine::new(true) else { return };
+    machine.cmux(BARRIER_CMUX);
+    let (code, _) = machine.run();
+    machine.settle();
+    assert_eq!(code, 0);
+    let lock = machine.checkout().join(".git/cmux-history.lock");
+    let (tx, rx) = std::sync::mpsc::channel();
+    let holder = std::process::Command::new("sh")
+        .arg("-c")
+        .arg("exec 9>\"$1\" && flock 9 && echo locked && exec sleep 30")
+        .arg("sh")
+        .arg(&lock)
+        .stdout(std::process::Stdio::piped())
+        .spawn();
+    let Ok(mut holder) = holder else { return };
+    let stdout = holder.stdout.take().unwrap();
+    std::thread::spawn(move || {
+        use std::io::BufRead as _;
+        let mut line = String::new();
+        let _ = std::io::BufReader::new(stdout).read_line(&mut line);
+        let _ = tx.send(line);
+    });
+    let locked = rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap_or_default();
+    if locked.trim() != "locked" {
+        let _ = holder.kill();
+        let _ = holder.wait();
+        return; // no flock(1) on this host
+    }
+    machine.commit_upstream("z.txt");
+    let before = machine.git(&["rev-parse", "HEAD"]);
+    let (code, record) = machine.run();
+    let _ = holder.kill();
+    let _ = holder.wait();
+    assert_eq!((code, record["status"].as_str()), (0, Some("kept")), "{record}");
+    assert_eq!(machine.git(&["rev-parse", "HEAD"]), before);
+}
