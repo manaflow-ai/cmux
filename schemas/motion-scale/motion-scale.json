@@ -10,6 +10,11 @@
     "ms": 2000,
     "for": "one turn of every spinner, app and pages alike: a calm turn, the reference spinner's (Leo 2026-11-07: \"Let's have all our spinners go at that speed.\")"
   },
+  "send": {
+    "ms": 265,
+    "ease": [0.16, 1, 0.3, 1],
+    "for": "a prompt the reader sends: its room opens, the bubble comes in from the right and the thread rises, in one motion that settles (Leo 2026-11-07: \"it's all just one unified motion\"); scaled with the move step by ui.animationSpeed"
+  },
   "easeOut": [0, 0, 0.58, 1],
   "spring": {
     "step": "large",

@@ -55,6 +55,9 @@ def load():
     assert stops == sorted(set(stops)), "the spring's stops run forward"
     spinner = data["spinner"]
     assert set(spinner) == {"ms", "for"} and isinstance(spinner["ms"], int) and spinner["ms"] >= 600, spinner
+    send = data["send"]
+    assert set(send) == {"ms", "ease", "for"} and isinstance(send["ms"], int), send
+    assert len(send["ease"]) == 4 and 0 <= send["ease"][0] <= 1 and 0 <= send["ease"][2] <= 1, send
     return data
 
 
@@ -65,8 +68,9 @@ def spring_linear(data):
     return "linear(%s)" % ", ".join(["0"] + inner + ["1"])
 
 
-def bezier(data):
-    return "cubic-bezier(%s)" % ", ".join("%g" % value for value in data["easeOut"])
+def bezier(data, key="easeOut"):
+    values = data[key] if key == "easeOut" else data[key]["ease"]
+    return "cubic-bezier(%s)" % ", ".join("%g" % value for value in values)
 
 
 def css_block(data):
@@ -77,6 +81,9 @@ def css_block(data):
     lines.append("  --cmux-ease-out: %s;" % bezier(data))
     lines.append("  /* A selection that travels settles on the one spring, run over --cmux-motion-%s. */" % data["spring"]["step"])
     lines.append("  --cmux-ease-spring: %s;" % spring_linear(data))
+    lines.append("  /* A sent prompt's one motion: its room, its bubble and the thread's rise. */")
+    lines.append("  --cmux-motion-send: %sms;" % data["send"]["ms"])
+    lines.append("  --cmux-ease-send: %s;" % bezier(data, "send"))
     lines.append("  /* One turn of every spinner (`cmux-spin`); not a transition. */")
     lines.append("  --cmux-spinner-period: %sms;" % data["spinner"]["ms"])
     lines += ["}", END]
@@ -115,9 +122,22 @@ export const MOTION_SPRING = "{spring}";
 /** The step the spring runs over (`MOTION_MS[MOTION_SPRING_STEP]`). */
 export const MOTION_SPRING_STEP: MotionStep = "{spring_step}";
 
+/**
+ * A sent prompt's one motion (ms, `--cmux-motion-send`): {send_for}.
+ */
+export const MOTION_SEND_MS = {send_ms};
+
+/** The sent prompt's curve (`--cmux-ease-send`): a fast start that settles. */
+export const MOTION_EASE_SEND = "{send_ease}";
+
+/** The same curve's control points, for a scroll stepped from script. */
+export const MOTION_SEND_CURVE = [{send_points}] as const;
+
 /** One turn of every spinner (ms, `--cmux-spinner-period`); a loop, not a step of the scale. */
 export const SPINNER_PERIOD_MS = {spinner};
-""".format(src=SOURCE, steps=steps, ease=bezier(data), spring=spring_linear(data),
+""".format(send_for=data["send"]["for"], send_ms=data["send"]["ms"], send_ease=bezier(data, "send"),
+           send_points=", ".join("%g" % value for value in data["send"]["ease"]),
+           src=SOURCE, steps=steps, ease=bezier(data), spring=spring_linear(data),
            spring_for=data["spring"]["for"], spring_step=data["spring"]["step"], spinner=data["spinner"]["ms"])
 
 

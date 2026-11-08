@@ -10,14 +10,13 @@
 // of any size streams. Quick Look plays it when the host will not grant it, and when the pane's
 // player cannot play what it granted (Leo, 2026-11-03: "i can neither preview a vid in place nor
 // have it pop up anymore"): a click always plays it somewhere, never falls back to the tile silently.
-import { useContext, useMemo, useRef, useState } from "react";
+import { useContext, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { callChipHost } from "../chips/host";
 import { MediaPlayer, VideoViewer } from "../chips/ReplyMedia";
 import { loadPlayableMedia } from "../chips/replyMediaModel";
 import { PlayTriangle } from "./icons";
 import { useStableImage } from "./imageEntries";
-import { sendMorphRef } from "./sendMorph";
 import { TurnActionsContext } from "./turnActions";
 import type { SentVideo } from "./sentVideos";
 
@@ -30,8 +29,6 @@ export function SentVideoTile({ video, width, height }: { video: SentVideo; widt
   const t = useT();
   const [shown, setShown] = useState<Shown>();
   const asked = useRef(0);
-  // The pane's own send: the tile's first frame is over the composer's chip (sendMorph.ts).
-  const morph = useMemo(() => sendMorphRef(`path:${video.path}`), [video.path]);
   const quickLook = () => void callChipHost("video.quickLook", { src: video.path });
   const open = (expanded: boolean) => {
     if (shown) {
@@ -70,7 +67,6 @@ export function SentVideoTile({ video, width, height }: { video: SentVideo; widt
     <>
       <button
         type="button"
-        ref={morph}
         className="cv-user__video"
         /* tooltip-allow: a video's poster shows no name */ title={video.name}
         aria-label={t("composer.playVideo", { name: video.name, length: video.length })}

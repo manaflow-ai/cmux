@@ -25,10 +25,12 @@ export interface MotionScaleJson {
   steps: { name: string; ms: number }[];
   easeOut: number[];
   spring: { step: string; points: [number, number][] };
+  /** A sent prompt's one motion, the scale's one named length past its steps (--cmux-motion-send). */
+  send: { ms: number; ease: number[] };
 }
 
 export const SCALE: MotionScaleJson = JSON.parse(fs.readFileSync(SCALE_JSON, "utf8"));
-const STEPS = new Map(SCALE.steps.map((step) => [step.name, step.ms]));
+const STEPS = new Map([...SCALE.steps.map((step) => [step.name, step.ms] as const), ["send", SCALE.send.ms] as const]);
 const ON_SCALE = new Set([0, ...STEPS.values()]);
 /** A loop (a spinner turn, a breath, a shimmer pass) is at least this long. */
 export const LOOP_MIN_MS = 600;

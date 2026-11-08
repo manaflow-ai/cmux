@@ -26,5 +26,16 @@ export const MOTION_SPRING = "linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0
 /** The step the spring runs over (`MOTION_MS[MOTION_SPRING_STEP]`). */
 export const MOTION_SPRING_STEP: MotionStep = "large";
 
+/**
+ * A sent prompt's one motion (ms, `--cmux-motion-send`): a prompt the reader sends: its room opens, the bubble comes in from the right and the thread rises, in one motion that settles (Leo 2026-11-07: "it's all just one unified motion"); scaled with the move step by ui.animationSpeed.
+ */
+export const MOTION_SEND_MS = 265;
+
+/** The sent prompt's curve (`--cmux-ease-send`): a fast start that settles. */
+export const MOTION_EASE_SEND = "cubic-bezier(0.16, 1, 0.3, 1)";
+
+/** The same curve's control points, for a scroll stepped from script. */
+export const MOTION_SEND_CURVE = [0.16, 1, 0.3, 1] as const;
+
 /** One turn of every spinner (ms, `--cmux-spinner-period`); a loop, not a step of the scale. */
 export const SPINNER_PERIOD_MS = 2000;
