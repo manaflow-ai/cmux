@@ -7368,6 +7368,18 @@
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
+			<string>After you import cookies from Chrome or another Chromium browser, cmux brings over the sites whose cookies changed there, so you stay signed in. It reads only the profile you imported from, on this Mac; nothing leaves it.</string>
+			<key>pfm_name</key>
+			<string>browser.import.cookieSync</string>
+			<key>pfm_title</key>
+			<string>Keep Imported Cookies in Sync</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
 			<string>When an agent drives a browser tab, show its cursor, clicks and typed keys on the page. Password fields show dots.</string>
 			<key>pfm_name</key>
 			<string>browser.showAgentCursor</string>
