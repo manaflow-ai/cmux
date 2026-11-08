@@ -452,7 +452,7 @@ mod tests {
         };
         assert_eq!(caller_terminal(env("term_abc")).as_deref(), Some("term_abc"));
         assert_eq!(caller_terminal(env(" ")), None);
-        assert_eq!(caller_terminal(env("surface:1")), None);
+        assert_eq!(caller_terminal(env("pane_abc")), None);
         assert_eq!(caller_terminal(|_: &str| None), None);
     }
 
