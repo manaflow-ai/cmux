@@ -73,8 +73,15 @@ extension TabStripView {
         if wasShown, let reached = frames.indices.dropFirst().first(where: { k in
             frames[k].indices.contains { index in covers(oldX, frames[k][index]) && frames[0][index].minX >= oldX }
         }) { outEnd = max(2, min(outEnd, reached - 1)) }
-        // In: after the last sample a flying tab covers the new place (at least three samples before the end).
-        let coveredLast = frames.indices.last { k in frames[k].contains { covers(newX, $0) } } ?? -1
+        // In: a tab that lands left of the new place carries it on its trailing edge (the pinned group's end), so it
+        // never draws inside that tab; it shows after the last sample a flying tab covers it (at least three before the end).
+        let ends = frames[last]
+        let inXs = times.indices.map { k in
+            frames[k].indices.reduce(newX) { x, index in
+                ends[index].maxX <= newX ? max(x, frames[k][index].maxX + (newX - ends[index].maxX)) : x
+            }
+        }
+        let coveredLast = frames.indices.last { k in frames[k].contains { covers(inXs[k], $0) } } ?? -1
         let inStart = min(max(outEnd, coveredLast + 1), max(outEnd, last - 3))
         var xs: [CGFloat] = [], opacities: [Float] = []
         for k in times.indices {
@@ -87,7 +94,7 @@ extension TabStripView {
                 xs.append(x)
                 opacities.append(Float(1 - CGFloat(k) / CGFloat(max(1, outEnd))))
             } else {
-                xs.append(newX)
+                xs.append(inXs[k])
                 opacities.append(k <= inStart ? 0 : Float(CGFloat(k - inStart) / CGFloat(max(1, last - inStart))))
             }
         }
