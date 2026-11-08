@@ -94,7 +94,8 @@ export function SteerQueue({
       () => {
         onAct?.(item, act, typed);
         setStep({ sessionId: item.sessionId, act, state: "done" });
-        if (typed !== undefined) setText("");
+        // Only the line that went: words typed while it was on its way stay in the field.
+        if (typed !== undefined) setText((current) => (current.trim() === typed ? "" : current));
         // On down the list: the next chat that may need the person.
         const next = items[nextFocus(items.length, items.indexOf(item))];
         if (next && act !== "fork") setFocusId(next.sessionId);

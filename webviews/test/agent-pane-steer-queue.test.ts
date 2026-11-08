@@ -137,6 +137,32 @@ await requireBrowserLane("agent-pane-steer-queue.test.ts", async () => {
     expect(log).toHaveLength(1);
     expect(log[0]).toMatchObject({ act: "steer", text: line });
     expect(await page.$eval(".acpmux-steer-field", (field) => (field as HTMLInputElement).value)).toBe("");
+    // A line typed while the next step is on its way stays in the field once that step lands.
+    const slow = "Then rebase on the base";
+    const finished = (await rows(page)).findIndex((row) => row.reason === "review");
+    expect(finished).toBeGreaterThanOrEqual(0);
+    await page.keyboard.press(`${finished + 1}`);
+    await page.keyboard.type(slow);
+    await page.evaluate(() => {
+      (globalThis as { cmuxAcpmuxMockSlowMethod?: string; cmuxAcpmuxMockSlowMs?: number }).cmuxAcpmuxMockSlowMethod =
+        "session/prompt";
+      (globalThis as { cmuxAcpmuxMockSlowMs?: number }).cmuxAcpmuxMockSlowMs = 1_500;
+    });
+    await page.keyboard.press("Enter");
+    await page.keyboard.type(" and push");
+    await page.waitForFunction((text) => document.querySelector(".acpmux-thread")?.textContent?.includes(text), slow, {
+      timeout: 30_000,
+    });
+    await page.waitForFunction(
+      () => JSON.parse(localStorage.getItem("cmux.steerQueue.log") ?? "[]").length === 2,
+      null,
+      { timeout: 30_000 },
+    );
+    expect(await page.$eval(".acpmux-steer-field", (field) => (field as HTMLInputElement).value)).toBe(" and push");
+    await page.evaluate(() => {
+      delete (globalThis as { cmuxAcpmuxMockSlowMethod?: string }).cmuxAcpmuxMockSlowMethod;
+    });
+    await page.keyboard.press("Escape");
     // While its row lists, it says what the person did, and the focus has moved on from it.
     const after = await rows(page);
     console.log(`STEER-QUEUE-STEERED ${JSON.stringify(after)}`);
