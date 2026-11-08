@@ -1,5 +1,6 @@
 //! Ultra mode over a link that loses datagrams: FEC rebuilds them below
-//! WireGuard, the peer answers in kind, and duplication needs no peer support.
+//! WireGuard in both directions when both ends turn it on, a peer that did not
+//! turn it on never sends parity, and duplication needs no peer support.
 
 use std::io;
 use std::net::SocketAddr;
@@ -108,16 +109,27 @@ async fn echo(client: &WgNet, server: &WgNet, target: SocketAddr, len: usize) {
 }
 
 #[tokio::test]
-async fn fec_rebuilds_lost_datagrams_and_the_peer_answers_in_kind() {
+async fn fec_on_both_ends_rebuilds_lost_datagrams_both_ways() {
     let fec = UltraMode::Fec { group: 8, parity: 2 };
-    // Only the client has the setting; the server learns it from parity.
-    let (client, server, target) = pair((fec, 9), (UltraMode::Off, 9)).await;
+    let (client, server, target) = pair((fec, 9), (fec, 9)).await;
     echo(&client, &server, target, 512 * 1024).await;
-    let (sent, answered) = (client.ultra_stats(), server.ultra_stats());
-    assert!(sent.parity_sent > 0, "client sends parity: {sent:?}");
-    assert!(answered.recovered > 0, "server rebuilds what the link dropped: {answered:?}");
-    assert!(answered.parity_sent > 0, "server answers with parity: {answered:?}");
-    assert!(sent.recovered > 0, "client rebuilds the echo's losses: {sent:?}");
+    let (client, server) = (client.ultra_stats(), server.ultra_stats());
+    assert!(client.parity_sent > 0, "client sends parity: {client:?}");
+    assert!(server.recovered > 0, "server rebuilds what the link dropped: {server:?}");
+    assert!(server.parity_sent > 0, "server sends parity: {server:?}");
+    assert!(client.recovered > 0, "client rebuilds the echo's losses: {client:?}");
+}
+
+#[tokio::test]
+async fn fec_on_one_end_protects_that_direction_only() {
+    let fec = UltraMode::Fec { group: 8, parity: 2 };
+    // Only the client's direction loses datagrams, and only it sends parity.
+    let (client, server, target) = pair((fec, 9), (UltraMode::Off, 0)).await;
+    echo(&client, &server, target, 512 * 1024).await;
+    let (client, server) = (client.ultra_stats(), server.ultra_stats());
+    assert!(server.recovered > 0, "server rebuilds from the client's parity: {server:?}");
+    assert_eq!(server.parity_sent, 0, "a peer that did not turn it on sends none: {server:?}");
+    assert!(client.parity_sent > 0);
 }
 
 #[tokio::test]

@@ -32,11 +32,14 @@
 //! the mode on never breaks an older peer, it only wastes the parity bytes.
 //! Parity itself is not authenticated, so a receiver acts on parity, and keeps
 //! data datagrams for rebuilding, only from an origin (path and address)
-//! WireGuard has already authenticated a datagram from. A peer answers with
-//! the same mode only once a datagram rebuilt from such parity passes
-//! WireGuard's authentication, so one side's setting protects both
-//! directions, and a forged or spoofed parity (which can only rebuild a
-//! datagram that fails authentication) changes nothing but a bounded buffer.
+//! WireGuard has already authenticated a datagram from. Rebuilding is
+//! automatic: any side rebuilds from trusted parity, whatever its own mode.
+//! Sending repair data is not: each side sends parity or copies only in the
+//! mode it was started with, because the parity header is not authenticated
+//! and an on-path attacker could rewrap a genuine ciphertext as parity whose
+//! rebuilt datagram authenticates, so a mode learned from parity would be the
+//! attacker's choice. To protect both directions, turn the mode on at both
+//! ends; agreeing on it inside the tunnel is a follow-up.
 //!
 //! The mode is the `CMUX_WG_ULTRA` environment variable (`off`, `dup`,
 //! `dup3`, `fec`, `fec:8:2`), read when a tunnel starts.
@@ -266,13 +269,13 @@ fn parity_datagrams(group: &Group, k: u8, m: u8) -> Vec<Vec<u8>> {
         .collect()
 }
 
-/// A parsed parity header.
+/// A parsed parity header. Bytes 3 (high nibble) and 5 carry the sender's
+/// M and K; they are not read, since a mode learned from unauthenticated
+/// parity would be an attacker's choice.
 struct Parity<'a> {
     j: usize,
     parities: usize,
     members: usize,
-    k: u8,
-    m: u8,
     lengths: u16,
     index: [u8; 4],
     first_low: u32,
@@ -293,8 +296,6 @@ fn parse_parity(datagram: &[u8]) -> Option<Parity<'_>> {
         j,
         parities,
         members,
-        k: header[5],
-        m: header[3] >> 4,
         lengths: u16::from_be_bytes([header[6], header[7]]),
         index: [header[8], header[9], header[10], header[11]],
         first_low: u32::from_le_bytes([header[12], header[13], header[14], header[15]]),
@@ -416,12 +417,8 @@ pub(crate) struct UltraUnderlay {
     pending: VecDeque<(Vec<u8>, Origin)>,
     /// Origins WireGuard authenticated a datagram from.
     trusted: Vec<Origin>,
-    /// Rebuilt datagrams for the tunnel, each with the mode its parity
-    /// proposes for this side.
-    rebuilt: VecDeque<(Vec<u8>, Origin, Option<UltraMode>)>,
-    /// The mode proposed by the rebuilt datagram just handed to the tunnel:
-    /// adopted if WireGuard authenticates that datagram.
-    proposed: Option<UltraMode>,
+    /// Rebuilt datagrams for the tunnel, with where their parity came from.
+    rebuilt: VecDeque<(Vec<u8>, Origin)>,
     counters: Arc<UltraCounters>,
 }
 
@@ -441,7 +438,6 @@ impl UltraUnderlay {
             pending: VecDeque::new(),
             trusted: Vec::new(),
             rebuilt: VecDeque::new(),
-            proposed: None,
             counters,
         }
     }
@@ -547,9 +543,7 @@ impl UltraUnderlay {
         // not rebuilt.
         self.decoding = true;
         match self.received.rebuild(&parity) {
-            Rebuild::Done(rebuilt) => {
-                self.on_rebuilt(rebuilt, origin, UltraMode::fec(parity.k, parity.m));
-            }
+            Rebuild::Done(rebuilt) => self.on_rebuilt(rebuilt, origin),
             Rebuild::Whole => {}
             Rebuild::Waiting => {
                 if self.pending.len() >= PENDING {
@@ -560,12 +554,12 @@ impl UltraUnderlay {
         }
     }
 
-    fn on_rebuilt(&mut self, rebuilt: Vec<u8>, origin: Origin, proposed: Option<UltraMode>) {
+    fn on_rebuilt(&mut self, rebuilt: Vec<u8>, origin: Origin) {
         if let Some((index, counter)) = data_id(&rebuilt) {
             self.received.keep(index, counter, rebuilt.get(WG_DATA_HEADER..).unwrap_or_default());
         }
         UltraCounters::add(&self.counters.recovered, 1);
-        self.rebuilt.push_back((rebuilt, origin, proposed));
+        self.rebuilt.push_back((rebuilt, origin));
     }
 
     /// A data datagram arrived from a trusted origin: keep it, and retry the
@@ -594,7 +588,7 @@ impl UltraUnderlay {
             }
             match self.received.rebuild(&parity) {
                 Rebuild::Done(rebuilt) => {
-                    done.push((rebuilt, *origin, UltraMode::fec(parity.k, parity.m)));
+                    done.push((rebuilt, *origin));
                     false
                 }
                 Rebuild::Whole => false,
@@ -602,8 +596,8 @@ impl UltraUnderlay {
             }
         });
         self.pending = waiting;
-        for (rebuilt, origin, proposed) in done {
-            self.on_rebuilt(rebuilt, origin, proposed);
+        for (rebuilt, origin) in done {
+            self.on_rebuilt(rebuilt, origin);
         }
     }
 }
@@ -649,13 +643,10 @@ impl Underlay for UltraUnderlay {
     }
 
     fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {
-        // Whatever the tunnel received last has been handled by now.
-        self.proposed = None;
         loop {
-            if let Some((datagram, origin, proposed)) = self.rebuilt.pop_front() {
+            if let Some((datagram, origin)) = self.rebuilt.pop_front() {
                 if let Some(slot) = buffer.get_mut(..datagram.len()) {
                     slot.copy_from_slice(&datagram);
-                    self.proposed = proposed;
                     return Poll::Ready(Ok(Received { len: datagram.len(), origin }));
                 }
                 continue;
@@ -682,13 +673,6 @@ impl Underlay for UltraUnderlay {
     /// The driver calls this right after handling the datagram `poll_recv`
     /// returned, when WireGuard authenticated it.
     fn authenticated(&mut self, origin: Origin) {
-        // A datagram rebuilt from the peer's parity decrypted: the peer
-        // really sends FEC, so answer in kind.
-        if let Some(mode) = self.proposed.take()
-            && self.mode == UltraMode::Off
-        {
-            self.mode = mode;
-        }
         if !self.trusts(origin) {
             if self.trusted.len() >= TRUSTED {
                 self.trusted.remove(0);
@@ -891,10 +875,10 @@ mod tests {
         assert_eq!(wire.lock().unwrap().len(), 1, "no parity goes out");
     }
 
-    /// From an authenticated origin, the same parity turns rebuilding and
-    /// mirroring on.
+    /// From an authenticated origin, the same parity turns rebuilding on,
+    /// but never this side's own parity.
     #[test]
-    fn parity_from_the_authenticated_origin_mirrors_and_rebuilds() {
+    fn parity_from_the_authenticated_origin_rebuilds_without_sending_parity() {
         let index = [6, 6, 6, 6];
         let peer = origin(1);
         let (first_group, first_parity) = group_of(index, 0, 4);
@@ -904,31 +888,48 @@ mod tests {
         inbox.extend([0, 1, 3].map(|i| (sent[i].clone(), peer)));
         inbox.push((parity[0].clone(), peer));
         // WireGuard accepts every genuine datagram, the rebuilt one too.
-        let (ultra, out, _) = receive(UltraMode::Off, Some(peer), inbox, &sent);
+        let (mut ultra, out, wire) = receive(UltraMode::Off, Some(peer), inbox, &sent);
         assert_eq!(out.last(), Some(&sent[2]), "the lost member is rebuilt");
-        assert_eq!(ultra.mode, UltraMode::Fec { group: 4, parity: 1 }, "the mode is mirrored");
+        assert_eq!(ultra.mode, UltraMode::Off, "the peer's mode is not adopted");
+        ultra.send(&data(index, 1, 40, 0));
+        ultra.flush();
+        assert_eq!(wire.lock().unwrap().len(), 1, "no parity goes out");
     }
 
-    /// A parity whose rebuilt datagram WireGuard refuses (spoofed from the
-    /// peer's address) leaves this side's mode alone.
+    /// An on-path attacker drops a genuine datagram and sends its unchanged
+    /// ciphertext as single-member parity with a costly mode in the header.
+    /// The rebuilt datagram is the genuine one and authenticates, and still
+    /// this side sends nothing extra.
     #[test]
-    fn spoofed_parity_from_the_peer_address_does_not_mirror() {
+    fn rewrapped_genuine_ciphertext_does_not_switch_the_mode() {
         let index = [8, 8, 8, 8];
         let peer = origin(1);
-        let (sent, real_parity) = group_of(index, 0, 1);
-        let forged = parity_datagrams(
-            &Group { index, first: 1, ciphertexts: vec![vec![0xAB; 80]], priority: None },
+        let (sent, _) = group_of(index, 0, 3);
+        let rewrapped = parity_datagrams(
+            &Group {
+                index,
+                first: 1,
+                ciphertexts: vec![sent[1][WG_DATA_HEADER..].to_vec()],
+                priority: None,
+            },
             1,
             1,
         );
         let inbox = vec![
-            (real_parity[0].clone(), peer), // turns rebuilding on; member 0 arrives
             (sent[0].clone(), peer),
-            (forged[0].clone(), peer), // "rebuilds" counter 1 from nothing
+            (rewrapped[0].clone(), peer), // stands in for the dropped counter 1
+            (sent[2].clone(), peer),      // places the counter epoch
         ];
-        let (ultra, out, _) = receive(UltraMode::Off, Some(peer), inbox, &sent);
-        assert_eq!(out.len(), 2, "the forged parity rebuilt a datagram: {out:?}");
-        assert_eq!(ultra.mode, UltraMode::Off, "WireGuard refused it, so nothing is mirrored");
+        let (mut ultra, out, wire) = receive(UltraMode::Off, Some(peer), inbox, &sent);
+        assert_eq!(
+            out,
+            vec![sent[0].clone(), sent[2].clone(), sent[1].clone()],
+            "the genuine datagram is rebuilt and authenticates"
+        );
+        assert_eq!(ultra.mode, UltraMode::Off, "the attacker's mode is not adopted");
+        ultra.send(&data(index, 3, 40, 0));
+        ultra.flush();
+        assert_eq!(wire.lock().unwrap().len(), 1, "no parity goes out");
     }
 
     /// The session's first data datagram is lost and its group of one has a
