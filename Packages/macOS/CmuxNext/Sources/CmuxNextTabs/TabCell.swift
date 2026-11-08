@@ -535,13 +535,10 @@ final class TabCell {
             // The marquee fades glyphs out across the icon-title gap.
             let textWidth = titleWidth()
             let visibleWidth = visibleEnd - titleX
-            // Measured only for a clipped title (a fitting one keeps the middle mode it never uses).
-            let truncation = textWidth <= visibleWidth + 0.5 ? CTLineTruncationType.middle
-                : Self.titleTruncation(textWidth: textWidth, visibleWidth: visibleWidth,
-                                       middleMinimum: middleTruncationMinimum(displayTitle))
+            // Chrome's tab: never a "…"; a long title runs to the trailing end and fades there.
+            let truncation = Self.titleTruncation(textWidth: textWidth, visibleWidth: visibleWidth)
             if titleLayer.truncation != truncation { titleLayer.truncation = truncation }
-            let isMiddleTruncated = truncation == .middle && textWidth > visibleWidth + 0.5
-            let restWidth = isMiddleTruncated ? visibleWidth : span
+            let restWidth = span
             let geometry = TitleFadeGeometry(
                 textWidth: textWidth, span: span, visibleWidth: visibleWidth,
                 leadingPadding: m.iconTitleSpacing, trailingPadding: 0,
