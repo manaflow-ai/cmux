@@ -538,3 +538,66 @@ fn a_refusal_with_no_lost_answer_of_this_token_is_final() {
     assert_eq!(result, BindResult::Refused("auth.forbidden".to_owned()), "another token");
     assert_eq!(store.read(BIND_FILE), None);
 }
+
+/// Review F2 of #38326's P2s: the Cloud role's bind (`hold_then_bind`, the
+/// call `bind_now` makes) takes the updater's connect hold, so the bound
+/// machine's first link is held from any update's restart. Driven through
+/// the real path to `BindResult::Bound`, under a temporary root.
+#[test]
+fn a_bind_that_lands_holds_the_updaters_flip() {
+    use crate::updater::gate::{CONNECT_HOLD, Gate};
+
+    let root = tempfile::tempdir().unwrap();
+    let paths = crate::config::Paths::new(root.path());
+    let fake = Fake::new();
+    let mut store = MemoryStore::default();
+    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+    let key = ensure_install_key(&mut store, "i-aaa", &SystemRandom::new()).unwrap().key;
+    let result = super::client::hold_then_bind(
+        &paths,
+        &mut store,
+        &fake,
+        &key,
+        "AAAA=",
+        &daemon(),
+        None,
+        T0,
+    );
+    assert!(matches!(result, Some(BindResult::Bound(_))), "{result:?}");
+    assert_eq!(
+        Gate::new(&paths).held_left(T0),
+        Some(CONNECT_HOLD),
+        "the bind did not hold the updater's flip"
+    );
+    let mut flipped = false;
+    assert!(Gate::new(&paths).run(T0 + 1_000, true, |_| flipped = true).is_err());
+    assert!(!flipped, "an update flipped during the bound machine's first connect");
+}
+
+/// With a restart of the service pending (queued by any process), the bind
+/// does not go out: no request, and bind.json stays for the restarted service.
+#[test]
+fn a_bind_with_a_restart_pending_waits_for_the_restarted_service() {
+    use crate::updater::gate::Gate;
+
+    let root = tempfile::tempdir().unwrap();
+    let paths = crate::config::Paths::new(root.path());
+    assert!(Gate::new(&paths).run(T0, true, |queued| queued()).is_ok());
+    let fake = Fake::new();
+    let mut store = MemoryStore::default();
+    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+    let key = ensure_install_key(&mut store, "i-aaa", &SystemRandom::new()).unwrap().key;
+    let result = super::client::hold_then_bind(
+        &paths,
+        &mut store,
+        &fake,
+        &key,
+        "AAAA=",
+        &daemon(),
+        None,
+        T0 + 1_000,
+    );
+    assert!(result.is_none(), "{result:?}");
+    assert!(fake.0.borrow().seen.is_empty(), "the bind went out");
+    assert!(store.read(BIND_FILE).is_some(), "bind.json is kept for the restarted service");
+}
