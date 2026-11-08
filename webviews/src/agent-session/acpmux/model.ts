@@ -33,6 +33,7 @@ import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
 import type { NextStepAsk } from "./conversation/nextStepAsk";
 import { webSources } from "./conversation/webSourceList";
+import { sentVideosOf } from "./conversation/sentVideos";
 import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
 import type { HandoffClientState } from "./handoff/client";
@@ -2087,20 +2088,28 @@ function fallbackRowHeight(
     // gap; userBubbleModel.ts SENT_IMAGE_MAX_WIDTH) when estimating columns so a wide image never
     // lets a second attachment row overlap the next row.
     const inlineParts = row.inlineParts ?? [];
-    const imageCount = Math.max(
-      row.images?.length ?? 0,
-      inlineParts.filter((part) => part.kind === "image").length,
-      row.retryAttachments?.filter((part) => part.kind === "image").length ?? 0,
-    );
+    // A video sent with its frames draws as a 120px tile in the thumbnail row (UserBubble.tsx
+    // SentVideoTiles), not as a file chip.
+    const videoCount = sentVideosOf(row).length;
+    const imageCount =
+      Math.max(
+        row.images?.length ?? 0,
+        inlineParts.filter((part) => part.kind === "image").length,
+        row.retryAttachments?.filter((part) => part.kind === "image").length ?? 0,
+      ) + videoCount;
     const columns = Math.max(1, Math.floor((width * 0.7 + 6) / 326));
     const imageRows = imageCount ? Math.ceil(imageCount / columns) : 0;
     const otherAttachments = Math.max(
-      row.retryAttachments?.filter((part) => part.kind !== "image").length ?? 0,
-      inlineParts.filter((part) => part.kind !== "text" && part.kind !== "image").length,
+      0,
+      Math.max(
+        row.retryAttachments?.filter((part) => part.kind !== "image").length ?? 0,
+        inlineParts.filter((part) => part.kind !== "text" && part.kind !== "image").length,
+      ) - videoCount,
     );
     const attachmentHeight = imageRows * 128 + otherAttachments * 36;
-    const deliveryAnchor = row.delivery?.state === "sending" && !row.steer ? metrics().lineHeight : 0;
-    return finish(attachmentHeight + deliveryAnchor + messageBelow(beforeFooter) + chromeHeight(row, actions));
+    // Its sending clock sits beside the last attachment band (UserBubble.tsx), taking no line of
+    // its own, so the row keeps its height when the send lands.
+    return finish(attachmentHeight + messageBelow(beforeFooter) + chromeHeight(row, actions));
   }
   if (row.kind === SUBAGENTS) return finish(56);
   // A workflow's card (summary/WorkflowCard.css): three fixed lines in a hairline box.

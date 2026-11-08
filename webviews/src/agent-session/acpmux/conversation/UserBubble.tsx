@@ -221,17 +221,42 @@ export function UserBubble({
     forkThrough !== undefined ? (
       <ForkButton throughSeq={forkThrough} onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
     ) : null;
+  // No text to read draws no bubble: a prompt of images alone is its images (an empty glass
+  // bubble under them read as a lost message; Leo 2026-10-21).
+  const hasBubble = strip ? shownParts!.some(readsAsText) : hasInterleaved || Boolean(text.trim());
+  // Without a bubble, the sending clock sits beside the last attachment band drawn, as it sits
+  // beside a bubble, and takes no line of its own (model.ts reserves none).
+  const sendingMark =
+    !hasBubble && row.delivery?.state === "sending" && !row.steer ? <DeliveryMark delivery={row.delivery} /> : null;
+  const showsLegacyImages = legacyBands && (Boolean(row.images?.length) || videos.length > 0);
+  const showsLegacyFiles = legacyBands && Boolean(files?.length);
+  const lastBand =
+    stripMedia.length > 0
+      ? "strip"
+      : showsLegacyFiles
+        ? "files"
+        : looseImages.length > 0
+          ? "loose"
+          : showsLegacyImages
+            ? "images"
+            : undefined;
+  const markIn = (band: typeof lastBand) => (band === lastBand ? sendingMark : null);
   return (
     <>
-      {legacyBands && (Boolean(row.images?.length) || videos.length > 0) && (
-        <SentImages images={row.images ?? []} leading={videos.length > 0 ? <SentVideoTiles videos={videos} /> : null} />
+      {showsLegacyImages && (
+        <SentImages
+          images={row.images ?? []}
+          leading={videos.length > 0 ? <SentVideoTiles videos={videos} /> : null}
+          trailing={markIn("images")}
+        />
       )}
-      {looseImages.length > 0 && <SentImages images={looseImages} />}
-      {legacyBands && Boolean(files?.length) && (
+      {looseImages.length > 0 && <SentImages images={looseImages} trailing={markIn("loose")} />}
+      {showsLegacyFiles && (
         <div className="cv-user__files">
           {files!.map((file, index) => (
             <FileAttachment key={index} file={file} />
           ))}
+          {markIn("files")}
         </div>
       )}
       {stripMedia.length > 0 && (
@@ -247,12 +272,11 @@ export function UserBubble({
               </Fragment>
             ),
           )}
+          {markIn("strip")}
         </div>
       )}
       <div className="cv-user__body">
-        {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
-            bubble under them read as a lost message; Leo 2026-10-21). */}
-        {(strip ? shownParts!.some(readsAsText) : hasInterleaved || text.trim()) ? (
+        {hasBubble ? (
           <div className="ui-glass cv-user__bubble selectable">
             {hasInterleaved ? (
               <InlinePromptContent
@@ -268,7 +292,7 @@ export function UserBubble({
             {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
             {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
           </div>
-        ) : row.delivery?.state === "sending" && !row.steer ? (
+        ) : sendingMark && !lastBand ? (
           <div className="cv-user__bubble-wrap is-empty">
             <DeliveryMark delivery={row.delivery} />
           </div>
@@ -388,10 +412,13 @@ export const SentImages = memo(function SentImages({
   images,
   className,
   leading,
+  trailing,
 }: {
   images: readonly PromptImage[];
   className?: string;
   leading?: ReactNode;
+  /// Drawn after the images: an attachment-only prompt's sending clock, positioned beside the band.
+  trailing?: ReactNode;
 }) {
   return (
     <div className={className ? `cv-user__images ${className}` : "cv-user__images"}>
@@ -399,6 +426,7 @@ export const SentImages = memo(function SentImages({
       {images.map((image) => (
         <SentImage key={image.id} image={image} />
       ))}
+      {trailing}
     </div>
   );
 });
