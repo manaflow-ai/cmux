@@ -221,7 +221,7 @@ extension ScreenContentView {
         }
         releaseSnapDeparted()
         #if DEBUG || CMUX_BENCH_HOOKS
-        defer { runFilmZoomPending() }
+        defer { MotionTrace.interval("zk.p.pending") { runFilmZoomPending() } }
         #endif
         // Every presentation shows the latest pan and the frame's input: nothing waits after it.
         (frameInput.panPresentationPending, frameInput.presentationWaiting) = (false, false)

@@ -44,7 +44,7 @@ public final class WindowControlsAvoiders {
             batchDepth -= 1
             if batchDepth == 0, batchedUpdate {
                 batchedUpdate = false
-                update(in: window)
+                MotionTrace.interval("zk.avoid") { update(in: window) }
             }
         }
         return body()

@@ -512,7 +512,7 @@ public final class LayoutRootView: NSView {
     func advanceFrameBatched(_ dt: Double) -> Bool {
         // The frame's input first (a drag's newest pointer, `LayoutFrameInput`): its pass waits for this frame's one pass.
         let input = LayoutFrameInput(root: self), dragging = input.keepsTicking()
-        input.apply()
+        MotionTrace.interval("zk.f.input") { input.apply() }
         // A released resize drag whose layout the observation has not applied yet: apply it before this
         // frame, so the frame that ends the drag for the pane contents is the release's (`ScreenContentView+ResizeGesture`).
         if !model.isGestureActive, screenViews.values.contains(where: { $0.resizeGesture == .releasing }) {
@@ -529,27 +529,29 @@ public final class LayoutRootView: NSView {
         // One motion policy per frame (it reads the animation settings), not one per spring.
         let policy = Motion.panes.policy
         var moving = false, panning = false
-        for view in screenViews.values where !view.isHidden {
-            // Pan events that waited in the last frame show first, then the springs step.
-            if view.displayFrameBegan() { panning = true }
-            if view.step(dt, policy: policy) { moving = true }
-            if view.stepCanvasCamera(dt, policy: policy) { moving = true }
+        MotionTrace.interval("zk.f.step") {
+            for view in screenViews.values where !view.isHidden {
+                // Pan events that waited in the last frame show first, then the springs step.
+                if view.displayFrameBegan() { panning = true }
+                if view.step(dt, policy: policy) { moving = true }
+                if view.stepCanvasCamera(dt, policy: policy) { moving = true }
+            }
         }
-        input.presentWaiting()
+        MotionTrace.interval("zk.f.present") { input.presentWaiting() }
         let screenSpring = policy.spring(.screen)
         for id in Array(screenFrames.keys) {
             if screenFrames[id]?.advance(dt, parameters: screenSpring) == true { moving = true }
         }
-        applyScreenFrames()
+        MotionTrace.interval("zk.f.screens") { applyScreenFrames() }
         if highlight.step(dt) { moving = true }
-        updateVisibility()
+        MotionTrace.interval("zk.f.visibility") { updateVisibility() }
         // A pan with the finger down is layout motion (`userMotionActive`): a frame tick during it
         // is not its landing, so what waits for the landing (page windows, catcher panels) waits on.
         let gesturing = screenViews.values.contains(where: \.userMotionActive)
         // The frame that lands still syncs as part of the motion; observers hear it ended after it.
-        if moving || gesturing { setLayoutInMotion(true) }
-        flushOverlaySync()
-        if !moving && !gesturing { setLayoutInMotion(false) }
+        if moving || gesturing { MotionTrace.interval("zk.f.inmotion") { setLayoutInMotion(true) } }
+        MotionTrace.interval("zk.f.overlay") { flushOverlaySync() }
+        if !moving && !gesturing { MotionTrace.interval("zk.f.still") { setLayoutInMotion(false) } }
         // A strip pan and a divider drag keep the ticks a little after each event (`ScreenContentView.panTickTail`);
         // a gesture with a still pointer needs none after that.
         return moving || panning || dragging
