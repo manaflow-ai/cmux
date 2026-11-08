@@ -22,14 +22,28 @@ fn state(path: &Path) -> &'static str {
     }
 }
 
+/// `state` once it reads `want`, or what it reads after 5 s. Other tests in this process spawn
+/// children, and a forked child holds copies of this process's lock descriptors until it execs,
+/// so a lock this process let go of can read held for a moment. A release can lag, a take never.
+fn settled(path: &Path, want: &str) -> &'static str {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let now = state(path);
+        if now == want || std::time::Instant::now() >= deadline {
+            return now;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
 #[test]
 fn the_head_is_ready_while_the_command_runs_and_the_checkout_after_it() {
     let (_dir, repo) = checkout();
     let mut seen = "";
-    let at_held = || seen = state(&repo.join("src/lib.rs"));
+    let at_held = || seen = settled(&repo.join("src/lib.rs"), "head");
     assert_eq!(hold_run(&repo, &words(&["true"]), at_held), 0);
     assert_eq!(seen, "head");
-    assert_eq!(state(&repo), "ready");
+    assert_eq!(settled(&repo, "ready"), "ready");
 }
 
 #[test]
@@ -50,7 +64,7 @@ fn a_head_with_harness_start_settings_is_never_marked() {
     let mut seen = "";
     assert_eq!(hold_run(&repo, &words(&["true"]), || seen = state(&repo)), 0);
     assert_eq!(seen, "syncing", "a start waits for the whole checkout");
-    assert_eq!(state(&repo), "ready");
+    assert_eq!(settled(&repo, "ready"), "ready");
 }
 
 #[test]
