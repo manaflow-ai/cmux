@@ -866,7 +866,7 @@ impl Hub {
             tokio::spawn(end_pooled(p));
             return Err(e);
         }
-        self.forget_adopted_caller(&session.id);
+        self.forget_adopted_caller(&session.id, &p.record.incarnation);
         self.record_preview_format(session, p.preview);
         let tap = self.session_tap(session);
         let mut started = json!({
