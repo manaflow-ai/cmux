@@ -25,15 +25,17 @@
 // ... through the What's New page, you can just get back to a prior version if you wanted to"): its
 // builds, each with its commit, its changes since the build before, and Install, which asks once,
 // then has the app download that build, check its signature and team, and restart into it.
+// A curated change whose highlight carries a before/after pair shows it under its line
+// (MediaCompare.tsx); the sheet shows no other pictures.
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import { Button } from "../../ui/Button";
 import type { Strings } from "../shared/i18n";
 import { areaOf, byArea, type AreaKey } from "./areas";
-import { dayLabel, groupByDay, isFiller, mergedView, rowKind, type ReleaseView } from "./model";
+import { dayLabel, groupByDay, isFiller, mergedView, rowKind, type MediaRef, type ReleaseView } from "./model";
 import { withoutWorkCodes } from "./readableChange";
 import { journalKeys, loadNear } from "./JournalPage";
-import { Maintenance } from "./ReleaseParts";
+import { Maintenance, Media } from "./ReleaseParts";
 import { publicPullNumber, pullURL } from "./ChangePullRequest";
 import type { ChangelogSnapshot, ChangelogStore } from "./store";
 import type { IndexEntry, ReleaseNotes, SheetLayout, SheetLinks, WhatsNewCategory } from "./types";
@@ -237,6 +239,7 @@ function SheetArea({ area, rows, strings }: { area?: AreaKey; rows: SheetRow[]; 
                 #{row.pr}
               </span>
             )}
+            {row.media && <Media media={row.media} className="cls-row-media" strings={strings} />}
           </li>
         ))}
       </ul>
@@ -282,6 +285,9 @@ export interface SheetRow {
   area?: AreaKey;
   /** Its public manaflow-ai/cmux pull request; none for a change from a private repository. */
   pr?: number;
+  /** A curated change's before/after pair, shown under its line; a lone picture stays off the
+      sheet, which is one tight line per change. */
+  media?: MediaRef;
 }
 
 /** A day's rows: its curated changes (hero first, then New, Improved, Fixed, Security), each with
@@ -305,6 +311,7 @@ export function sheetRows(view: ReleaseView, _strings?: Strings): SheetRow[] {
         line,
         area: areaOf(item.title) ?? (line ? areaOf(line) : undefined),
         pr: publicPullNumber(item.pr) ?? pulls.get(words(item.title)),
+        ...(item.media?.before ? { media: item.media } : {}),
       };
     });
   }
