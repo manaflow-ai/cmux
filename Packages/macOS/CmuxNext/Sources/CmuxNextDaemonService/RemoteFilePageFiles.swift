@@ -32,19 +32,32 @@ extension AgentPaneGitLink: RemoteFileClient {
 }
 
 extension RemoteFileClient {
-    /// Whether `path` (absolute, on the machine) or a folder above it is a symlink there, by each
-    /// prefix's `fs.stat`, which answers a link's own kind. A path a chat's reply names is checked
-    /// against the deny list by its spelling only, so a link in it could name a secret
-    /// (`notes.md -> ~/.ssh/config`): such a path opens nothing. A prefix the machine does not
-    /// serve (outside its roots) cannot be read through, so its failed stat counts as no link. A
-    /// path deeper than ``linkCheckDepth`` folders counts as one: its stats would never end.
+    /// Whether `path` (absolute, on the machine) or a folder above it is a symlink there, or that
+    /// is not known, by each prefix's `fs.stat`, which answers a link's own kind. A path a chat's
+    /// reply names is checked against the deny list by its spelling only, so a link in it could
+    /// name a secret (`notes.md -> ~/.ssh/config`): such a path opens nothing. It fails closed: a
+    /// stat that fails counts as a link, except `fs.permission_denied` (a folder above the
+    /// machine's roots, which the daemon never reads through) and `fs.not_found` (nothing there to
+    /// read). A path deeper than ``RemoteFilePageFiles/linkCheckDepth`` folders counts as one.
+    ///
+    /// What this guards is the reply's text, not the machine: a link made on the machine between
+    /// this check and the page's read needs a process there, which can read the file itself, as
+    /// the chat's agent can and then show it in the reply.
     public func reachesThroughLink(_ path: String) async -> Bool {
         let parts = path.split(separator: "/")
         guard parts.count <= RemoteFilePageFiles.linkCheckDepth else { return true }
         var prefix = ""
         for part in parts {
             prefix += "/" + part
-            if (try? await stat(prefix))?.kind == "symlink" { return true }
+            do {
+                if try await stat(prefix).kind == "symlink" { return true }
+            } catch {
+                switch RemoteFilePageFiles.code(of: error) {
+                case "fs.permission_denied": continue
+                case "fs.not_found": return false
+                default: return true
+                }
+            }
         }
         return false
     }
