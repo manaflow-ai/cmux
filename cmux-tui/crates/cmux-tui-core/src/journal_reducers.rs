@@ -1057,6 +1057,10 @@ use screen_evidence::ScreenEvidence;
 mod blocker_tests;
 
 #[cfg(test)]
+#[path = "journal_reducers_turn_end_tests.rs"]
+mod turn_end_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
