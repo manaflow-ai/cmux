@@ -3,12 +3,12 @@ import type { AcpmuxTimeBreakdown, AcpmuxTimeSpan } from "../model";
 import "./TimeBreakdown.css";
 
 const COLORS: Record<string, string> = {
-  read: "var(--agent-blue, #6ca8ff)",
-  edit: "var(--agent-green, #70c58c)",
-  run: "var(--agent-orange, #e5a35b)",
-  think: "var(--agent-purple, #b18cff)",
-  person: "var(--agent-yellow, #e7c96b)",
-  model: "var(--agent-muted, #8d96a5)",
+  read: "color-mix(in srgb, var(--agent-text) 72%, var(--agent-muted))",
+  edit: "color-mix(in srgb, var(--agent-text) 58%, var(--agent-muted))",
+  run: "color-mix(in srgb, var(--agent-text) 44%, var(--agent-muted))",
+  think: "color-mix(in srgb, var(--agent-text) 86%, var(--agent-muted))",
+  person: "color-mix(in srgb, var(--agent-text) 30%, var(--agent-muted))",
+  model: "var(--agent-muted)",
 };
 const LABELS: Record<string, string> = {
   read: "Reading",
