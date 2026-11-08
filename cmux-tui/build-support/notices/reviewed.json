@@ -117,7 +117,7 @@
       ]
     },
     "cranelift-assembler-x64 0.135.8": {
-      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release; its manifest has no repository, so the review gave the GitHub repository bytecodealliance/wasmtime by hand (the crate's path_in_vcs and sha1 are unchanged)",
       "files": [
         {
           "file": "texts/bytecodealliance-wasmtime-7b6c29ec3e9a/LICENSE",
@@ -632,7 +632,7 @@
       ]
     },
     "pulley-interpreter 48.0.8": {
-      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release; its manifest repository is a /tree/main/pulley URL, so the review gave the GitHub repository bytecodealliance/wasmtime by hand (the crate's path_in_vcs and sha1 are unchanged)",
       "files": [
         {
           "file": "texts/bytecodealliance-wasmtime-7b6c29ec3e9a/LICENSE",
@@ -702,7 +702,7 @@
       ]
     },
     "subsecond 0.7.10": {
-      "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release",
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release; its manifest repository is a /tree/main/packages/subsecond URL, so the review gave the GitHub repository DioxusLabs/dioxus by hand (the crate's path_in_vcs and sha1 are unchanged)",
       "files": [
         {
           "file": "texts/DioxusLabs-dioxus-57d6794ad60b/LICENSE-MIT",
@@ -717,7 +717,7 @@
       ]
     },
     "subsecond-types 0.7.10": {
-      "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release",
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release; its manifest repository is a /tree/main/packages/subsecond URL, so the review gave the GitHub repository DioxusLabs/dioxus by hand (the crate's path_in_vcs and sha1 are unchanged)",
       "files": [
         {
           "file": "texts/DioxusLabs-dioxus-57d6794ad60b/LICENSE-MIT",
@@ -862,7 +862,7 @@
       ]
     },
     "wasmtime-internal-core 48.0.8": {
-      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release; its manifest has no repository, so the review gave the GitHub repository bytecodealliance/wasmtime by hand (the crate's path_in_vcs and sha1 are unchanged)",
       "files": [
         {
           "file": "texts/bytecodealliance-wasmtime-7b6c29ec3e9a/LICENSE",
