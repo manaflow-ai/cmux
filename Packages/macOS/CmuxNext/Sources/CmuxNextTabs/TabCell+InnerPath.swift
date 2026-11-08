@@ -115,10 +115,14 @@ extension TabCell {
 
     /// A pin or an unpin: the parts go from the look the tab showed (`from`: the title, the icon at the leading inset)
     /// to its new rest look (a pinned tab's centred icon, or back) on the width's own progress, so nothing pops on the
-    /// first frame or the last. Each sample lays the parts out in both looks at the sample's width and blends them by
-    /// the width's progress there: positions and sizes in between, a part in one look only fading with it, the title
-    /// too. Chromium lays a pinned tab out in its new look at once and lets BoundsAnimator move the bounds; here the
-    /// look rides the same tween as the bounds instead (cmux-ad m70: "translate properly").
+    /// first frame or the last. Each part goes on the width's progress from where the old look put it at the start
+    /// width to where the new look rests it at the end width: a part anchored the same way in both looks (the pill,
+    /// a trailing x) rides the width exactly as a layout per sample would, and the icon goes straight from the leading
+    /// inset to the pinned centre (or back). Blending the two looks at each sample's width instead put the pinned
+    /// look's icon at the centre of a still wide tab, so it slid across its own title and back (the TAB-PIN film).
+    /// Opacities and the title blend per sample: a part in one look only fades with the width, the title too.
+    /// Chromium lays a pinned tab out in its new look at once and lets BoundsAnimator move the bounds; here the look
+    /// rides the same tween as the bounds instead (cmux-ad m70: "translate properly").
     private func retimePin(_ path: MotionPath, from: TabChromeVisibility, now: CFTimeInterval, end: CFTimeInterval) {
         let times = MotionPath.times(from: now, to: end, count: MotionPath.sampleCount(seconds: end - now))
         let modelWidth = layer.bounds.width
@@ -147,9 +151,15 @@ extension TabCell {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
+        func snapped(_ width: CGFloat) -> CGFloat { (width * scale).rounded() / scale }
+        // The geometry's two ends: the old look at the start width, the new look at rest.
+        layoutParts(slotWidth: snapped(startWidth), onPath: true, form: start)
+        let (startParts, _) = record()
+        layoutParts(slotWidth: snapped(modelWidth), onPath: true, form: to)
+        let (endParts, _) = record()
         var samples: [(parts: [ObjectIdentifier: Part], title: TitleFade.Sample?, titleOpacity: Float)] = []
         for (width, p) in zip(widths, progress) {
-            let slot = (width * scale).rounded() / scale
+            let slot = snapped(width)
             layoutParts(slotWidth: slot, onPath: true, form: start)
             let (a, titleA) = record()
             layoutParts(slotWidth: slot, onPath: true, form: to)
@@ -157,7 +167,7 @@ extension TabCell {
             var blended: [ObjectIdentifier: Part] = [:]
             for id in Set(a.keys).union(b.keys) {
                 let pa = a[id], pb = b[id]
-                guard let from = pa ?? pb, let target = pb ?? pa else { continue }
+                guard let from = startParts[id] ?? pa ?? pb, let target = endParts[id] ?? pb ?? pa else { continue }
                 let opacity = (pa?.opacity ?? 0) * Float(1 - p) + (pb?.opacity ?? 0) * Float(p)
                 blended[id] = Part(position: CGPoint(x: from.position.x + (target.position.x - from.position.x) * p,
                                                      y: from.position.y + (target.position.y - from.position.y) * p),

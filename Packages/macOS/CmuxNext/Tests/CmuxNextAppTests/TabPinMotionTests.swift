@@ -102,6 +102,22 @@ struct TabPinMotionTests {
         return CGRect(x: position.x - layer.anchorPoint.x * size.x, y: 0, width: size.x, height: size.y)
     }
 
+    /// What of `cell` draws at `time`, in the tabs' coordinates: its shown frame cut to its mask's opaque parts (the
+    /// mask itself, or each of its sublayers when it has some), each sampled at `time`.
+    static func drawn(_ cell: TabCell, at time: CFTimeInterval) -> [CGRect] {
+        let frame = shown(cell, at: time)
+        guard let mask = cell.layer.mask else { return [frame] }
+        let sides = mask.sublayers ?? []
+        let parts = sides.isEmpty ? [mask] : sides
+        let origin = sides.isEmpty ? CGPoint.zero : mask.frame.origin
+        return parts.compactMap { part in
+            let center = MotionPath(part, "position").value(at: time), size = MotionPath(part, "bounds.size").value(at: time)
+            let rect = CGRect(x: frame.minX + origin.x + center.x - size.x / 2, y: 0, width: max(0, size.x), height: frame.height)
+                .intersection(frame)
+            return rect.isNull || rect.width <= 0 ? nil : rect
+        }
+    }
+
     static func check(pin: Bool) throws {
         let first = ids[0]
         let (strip, model, window) = try strip(pinned: pin ? [first] : [first, moved])
@@ -128,12 +144,23 @@ struct TabPinMotionTests {
         var path: [CGRect] = []
         var titles: [Float] = []
         var icons: [CGFloat] = []
+        var iconOverTitle = false
         for k in 0...ticks {
             let time = begin + Double(k) / 120
             let frame = shown(cell, at: time)
             path.append(frame)
             titles.append(opacity(cell.titleLayer, at: time))
             icons.append(frame.minX + MotionPath(cell.iconLayer, "position").value(at: time).x)
+            // The icon never draws over its own title while the title shows (the film: the centring icon passed over
+            // its fading title). Both in the cell's coordinates.
+            let iconCenter = MotionPath(cell.iconLayer, "position").value(at: time).x
+            let iconMaxX = iconCenter + MotionPath(cell.iconLayer, "bounds.size").value(at: time).x * (1 - cell.iconLayer.anchorPoint.x)
+            let titleMinX = MotionPath(cell.titleLayer, "position").value(at: time).x
+                - MotionPath(cell.titleLayer, "bounds.size").value(at: time).x * cell.titleLayer.anchorPoint.x
+            if !iconOverTitle, let titleOpacity = titles.last, titleOpacity > 0.05, iconMaxX > titleMinX + 0.5 {
+                iconOverTitle = true
+                failures.append("tick \(k): the icon draws \(iconMaxX - titleMinX) pt over its own title (opacity \(titleOpacity))")
+            }
             // Never clipped by the pinned band's edge: the unpinned tabs' layer clips at it.
             for (id, other) in strip.cells {
                 let shownFrame = shown(other, at: time)
@@ -150,16 +177,24 @@ struct TabPinMotionTests {
             }
             // The moving tab is the selected one: its pill's fill is translucent, so a tab it flies over hides the part
             // under the pill (`TabOcclusion`), or its title and icon show through the pill (the film: a doubled icon).
+            // Only the part under the pill hides: the rest of a tab it passes draws on every tick (the film: the passed
+            // tab's whole label went for 4 frames, also outside the pill, when the mask kept only its larger side).
             let pill = cell.metrics.pillFrame(slotWidth: frame.width, height: frame.height).offsetBy(dx: frame.minX, dy: 0)
+            var throughShown = false, hiddenShown = false
             for (id, other) in strip.cells where id != moved {
                 let otherFrame = shown(other, at: time)
-                var visible = otherFrame
-                if let mask = other.layer.mask {
-                    let center = MotionPath(mask, "position").value(at: time), size = MotionPath(mask, "bounds.size").value(at: time)
-                    visible = CGRect(x: otherFrame.minX + center.x - size.x / 2, y: 0, width: size.x, height: otherFrame.height)
+                let parts = drawn(other, at: time)
+                let through = parts.reduce(0) { $0 + $1.intersection(pill).width }
+                if !throughShown, through > 0.5 {
+                    throughShown = true
+                    failures.append("tick \(k): \(id.rawValue) shows \(through) pt through the moving tab's pill")
                 }
-                let through = visible.intersection(pill).width
-                if through > 0.5 { failures.append("tick \(k): \(id.rawValue) shows \(through) pt through the moving tab's pill"); break }
+                let outside = otherFrame.width - otherFrame.intersection(pill).width
+                let drawnOutside = parts.reduce(0) { $0 + $1.width - $1.intersection(pill).width }
+                if !hiddenShown, outside - drawnOutside > 0.5 {
+                    hiddenShown = true
+                    failures.append("tick \(k): \(id.rawValue) hides \(outside - drawnOutside) pt outside the moving tab's pill")
+                }
             }
             // The divider never draws over the moving tab.
             let divider = strip.pinnedDivider

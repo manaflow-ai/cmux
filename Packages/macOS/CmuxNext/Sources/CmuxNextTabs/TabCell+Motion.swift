@@ -37,18 +37,21 @@ extension TabCell {
         layer.zPosition = isLifted ? 10 : isSelected ? 0.5 : 0
     }
 
-    /// Shows only `visible` (this cell's coordinates) of the tab: the rest is under the selected pill,
-    /// whose translucent fill would otherwise show both tabs' content where they cross. nil: all of it.
-    func occlude(visible: CGRect?) {
-        for key in TabOcclusion.keys { occlusionMaskIfMade?.removeAnimation(forKey: key) }
+    /// Shows only `visible` (this cell's coordinates) of the tab: the parts before and after the selected pill.
+    /// The part under the pill hides, because the pill's translucent fill would otherwise show both tabs' content
+    /// where they cross; nothing outside the pill hides. nil: all of it.
+    func occlude(visible: TabOcclusion.Visible?) {
+        if let occlusionMaskIfMade {
+            for side in occlusionMaskIfMade.sublayers ?? [] { for key in TabOcclusion.keys { side.removeAnimation(forKey: key) } }
+        }
         guard let visible else {
             if layer.mask != nil, layer.mask === occlusionMaskIfMade { layer.mask = nil }
             return
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        occlusionMask.backgroundColor = NSColor.black.cgColor
-        occlusionMask.frame = visible
+        occlusionMask.frame = CGRect(origin: .zero, size: layer.bounds.size)
+        for (side, rect) in zip(occlusionSides, visible.sides) { side.frame = rect }
         if layer.mask !== occlusionMask { layer.mask = occlusionMask }
         CATransaction.commit()
     }
@@ -79,14 +82,26 @@ enum TabOcclusion {
         }
     }
 
-    /// The part of a cell `frame` wide to keep visible under `cover` (both in the cell's layer), in the
-    /// cell's coordinates: the larger side the pill leaves; nil when the pill does not cover it.
-    static func visible(frame: CGRect, cover: CGRect) -> CGRect? {
+    /// What of a covered tab draws, in the cell's coordinates: the part before the pill and the part after it
+    /// (either may be empty). The pill can pass through the middle of a wider tab, so both sides stay.
+    struct Visible: Equatable {
+        var leading: CGRect
+        var trailing: CGRect
+        var sides: [CGRect] { [leading, trailing] }
+
+        /// All of a tab `size` wide: nothing of it under the pill.
+        static func all(_ size: CGSize) -> Visible {
+            Visible(leading: CGRect(origin: .zero, size: size), trailing: CGRect(x: size.width, y: 0, width: 0, height: size.height))
+        }
+    }
+
+    /// The parts of a cell `frame` to keep visible under `cover` (both in the cell's layer), in the cell's
+    /// coordinates: every part the pill leaves; nil when the pill does not cover it.
+    static func visible(frame: CGRect, cover: CGRect) -> Visible? {
         let cover = cover.offsetBy(dx: -frame.minX, dy: -frame.minY).intersection(CGRect(origin: .zero, size: frame.size))
         guard !cover.isNull, cover.width > 0 else { return nil }
-        let leading = CGRect(x: 0, y: 0, width: cover.minX, height: frame.height)
-        let trailing = CGRect(x: cover.maxX, y: 0, width: max(0, frame.width - cover.maxX), height: frame.height)
-        return leading.width >= trailing.width ? leading : trailing
+        return Visible(leading: CGRect(x: 0, y: 0, width: cover.minX, height: frame.height),
+                       trailing: CGRect(x: cover.maxX, y: 0, width: max(0, frame.width - cover.maxX), height: frame.height))
     }
 
     /// `band`: the fixed pinned band (`TabScrollMapping.band`). With one, pinned and unpinned tabs never
@@ -133,24 +148,27 @@ enum TabOcclusion {
             }
             let times = MotionPath.times(from: now, to: end, count: MotionPath.sampleCount(seconds: end - now))
             var crossed = false
-            let rects = times.enumerated().map { index, time -> CGRect in
+            let parts = times.enumerated().map { index, time -> Visible in
                 let last = index == times.count - 1
                 let frame = last ? cell.frame : path.frame(at: time)
-                let rect = visible(frame: frame, cover: pill(last ? cover.frame : coverPath.frame(at: time)))
-                crossed = crossed || rect != nil
-                return rect ?? CGRect(origin: .zero, size: frame.size)
+                let parts = visible(frame: frame, cover: pill(last ? cover.frame : coverPath.frame(at: time)))
+                crossed = crossed || parts != nil
+                return parts ?? .all(frame.size)
             }
-            guard crossed, let last = rects.last else {
+            guard crossed, let last = parts.last else {
                 cell.occlude(visible: nil)
                 continue
             }
             cell.occlude(visible: last)
-            let mask = cell.occlusionMask
-            if let positions = MotionPath.keyframes("position", values: rects.map { NSValue(point: CGPoint(x: $0.midX, y: $0.midY)) }, times: times, on: mask) {
-                mask.add(positions, forKey: keys[0])
-            }
-            if let sizes = MotionPath.keyframes("bounds.size", values: rects.map { NSValue(size: $0.size) }, times: times, on: mask) {
-                mask.add(sizes, forKey: keys[1])
+            for (index, side) in cell.occlusionSides.enumerated() {
+                let rects = parts.map { $0.sides[index] }
+                if let positions = MotionPath.keyframes("position", values: rects.map { NSValue(point: CGPoint(x: $0.midX, y: $0.midY)) },
+                                                        times: times, on: side) {
+                    side.add(positions, forKey: keys[0])
+                }
+                if let sizes = MotionPath.keyframes("bounds.size", values: rects.map { NSValue(size: $0.size) }, times: times, on: side) {
+                    side.add(sizes, forKey: keys[1])
+                }
             }
             masked[id] = end
         }
