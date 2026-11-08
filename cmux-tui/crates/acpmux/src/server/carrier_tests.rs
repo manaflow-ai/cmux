@@ -850,22 +850,55 @@ async fn a_teammates_prompt_to_a_local_claude_chat_it_was_given_is_refused() {
     tokio::time::timeout(WAIT, server).await.unwrap().unwrap();
 }
 
-/// A teammate stops a chat its grant names, one this machine started included (the teammate verb
-/// `agent-session-cancel`), as a request and as a notification; any other chat is refused, by
-/// the carrier gate, before the remote guard's Stop rule.
+/// A memory hub with two chats this machine started (not `remote_origin`), neither spawned:
+/// `local-gemini` (a harness that is not Claude) and `local-claude`, and `other` (not granted).
+fn hub_with_local_chats() -> Arc<Hub> {
+    let dir = std::env::temp_dir();
+    let cfg: Config = serde_json::from_value(json!({
+        "harnesses": {
+            "claude": {"kind": "claude-stdio", "argv": ["claude"]},
+            "gemini": {"argv": ["gemini", "--experimental-acp"]}
+        },
+        "defaultHarness": "gemini", "store": {"mode": "memory"}
+    }))
+    .unwrap();
+    let store = crate::store::open(&cfg.store, &dir).unwrap();
+    for (id, harness) in
+        [("local-gemini", "gemini"), ("local-claude", "claude"), ("other", "gemini")]
+    {
+        let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": id, "harness": harness,
+            "cwd": dir, "status": "idle", "createdAt": 1, "updatedAt": 1,
+            "agentSessionId": format!("s-{id}")
+        }))
+        .unwrap();
+        store.save(&meta).unwrap();
+    }
+    Hub::new(cfg, store)
+}
+
+/// A teammate stops a chat its grant names that this machine started (the teammate verb
+/// `agent-session-cancel`; the remote guard's Stop rule refused it before), and no other chat.
+/// A Claude chat the machine started stays refused, as its prompt is
+/// (`remote.local_claude_session`, intended: `docs/carrier-roles.md`).
 #[tokio::test]
 async fn a_teammate_cancels_a_local_chat_it_was_given_and_no_other() {
-    let hub = hub_with_chats();
-    assert!(!hub.resolve("chat-a").unwrap().meta().remote_origin);
-    // `chat-x` is in the grant but is only a prefix of `chat-xyz`.
-    let who = Attested { chats: vec!["chat-a".into(), "chat-x".into()], ..teammate() };
+    let hub = hub_with_local_chats();
+    assert!(!hub.resolve("local-gemini").unwrap().meta().remote_origin);
+    // `local-` is in the grant but is only a prefix of the granted chats' ids.
+    let chats = vec!["local-gemini".into(), "local-claude".into(), "local-".into()];
+    let who = Attested { chats, ..teammate() };
     let (send, inbound) = tokio::sync::mpsc::channel(8);
     let (out, mut recv) = tokio::sync::mpsc::channel(256);
     let server = tokio::spawn(serve_attested(hub.clone(), inbound, out, who.clone()));
     ask(&send, &mut recv, 0, "initialize", json!({"protocolVersion": 1})).await;
-    let mine = ask(&send, &mut recv, 1, "session/cancel", json!({"sessionId": "chat-a"})).await;
+    let mine =
+        ask(&send, &mut recv, 1, "session/cancel", json!({"sessionId": "local-gemini"})).await;
     assert!(mine.get("error").is_none(), "{mine}");
-    for (id, chat) in [(2, "chat-b"), (3, "chat-x"), (4, "alias")] {
+    let claude =
+        ask(&send, &mut recv, 2, "session/cancel", json!({"sessionId": "local-claude"})).await;
+    assert_eq!(claude["error"]["data"]["reason"], "remote.local_claude_session", "{claude}");
+    for (id, chat) in [(3, "other"), (4, "local-")] {
         let reply = ask(&send, &mut recv, id, "session/cancel", json!({"sessionId": chat})).await;
         assert_eq!(reply["error"]["data"]["reason"], "carrier.team_refused", "{chat}: {reply}");
     }
@@ -876,7 +909,7 @@ async fn a_teammate_cancels_a_local_chat_it_was_given_and_no_other() {
         let params = json!({"sessionId": chat});
         notification_admitted(&hub, Some(&who), method::SESSION_CANCEL, Some(&params))
     };
-    assert!(cancel("chat-a"));
-    assert!(!cancel("chat-b"));
-    assert!(!cancel("chat-x"), "a prefix in the grant never stops chat-xyz");
+    assert!(cancel("local-gemini"));
+    assert!(!cancel("other"));
+    assert!(!cancel("local-"), "a prefix in the grant never stops another chat");
 }

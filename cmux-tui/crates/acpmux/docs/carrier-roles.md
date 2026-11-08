@@ -159,7 +159,8 @@ refused).
 
 **Cancel.** A teammate's `session/cancel` stops the running turn of a chat it was given,
 including a turn the owner started and a chat this machine started (the remote guard's Stop rule,
-`remote_guard/cancel_owner.rs`, admits a teammate for a chat the carrier gate let through). That is the teammate verb `agent-session-cancel` as
+`remote_guard/cancel_owner.rs`, admits a teammate for a chat the carrier gate let through). A Claude chat
+this machine started stays refused (`remote.local_claude_session`), as its prompt is. That is the teammate verb `agent-session-cancel` as
 cmux-tui's proxy has it; whether a teammate should be able to stop the owner's turn is a
 product call, and narrowing it is a change to the shared verb list.
 
