@@ -9,11 +9,15 @@
 // copy cannot read) or reaches across messages copies as the page would copy it.
 //
 // A cmux link drawn as its chip (chips/CmuxLinkChip.tsx: a workspace's or chat's title) copies as
-// the link, as the plain link did before the chips (review of #38166, F3): in a reply's copy, and in
-// any other selection that holds one (a sent prompt's text), whose plain text is then the page's
-// with each chip's words swapped for its link.
+// the link, as the plain link did before the chips (review of #38166): in a reply's copy, and in
+// any other selection that holds one (a sent prompt's text, a reply's code or table), whose plain
+// text is then the page's with each chip's words swapped for its link (chipCopy.ts). With math,
+// mathCopy.ts's copy does the same.
 import { copyHref, htmlMarkdown } from "../richClipboard";
 import { safeHref } from "../replyHref";
+import { chipText, chipsAsLinks, withWholeChips } from "./chipCopy";
+
+export { withWholeChips };
 
 const MATH = "[data-tex]";
 /// Attributes the copy keeps; every other one (classes, styles, data, aria) is the transcript's own.
@@ -22,27 +26,6 @@ const KEEP = new Set(["href", "start", "colspan", "rowspan", "src", "alt"]);
 /// image that opens) is unwrapped, its words and picture kept.
 /// A list's drawn number and bullet are the list's own markers in the copy (`<ol>`, `<ul>`).
 const CHROME = "svg, [aria-hidden='true'], [hidden], .sr-only, .cv-li__num, .cv-li__bullet";
-/// A cmux link's chip, whose words are a title: it copies as its link.
-const LINK_CHIP = "a[data-cmux-link]";
-
-/// Each cmux link chip in `root` as its link's text, a chip the selection cut into included.
-function chipsAsLinks(root: ParentNode) {
-  for (const chip of root.querySelectorAll(LINK_CHIP)) chip.replaceWith(chip.getAttribute("href") ?? "");
-}
-
-/// `range` reaching to the whole of a chip either end is inside (a selection of part of a chip's
-/// title, or of all of it: its clone leaves out the chip's anchor, so its link would be lost; review
-/// of #38166, F3). The same range when neither end is in a chip, so every other copy is base's.
-export function withWholeChips(range: Range): Range {
-  const startChip = elementOf(range.startContainer)?.closest(LINK_CHIP);
-  const endChip = elementOf(range.endContainer)?.closest(LINK_CHIP);
-  if (!startChip && !endChip) return range;
-  const whole = range.cloneRange();
-  if (startChip) whole.setStartBefore(startChip);
-  if (endChip) whole.setEndAfter(endChip);
-  return whole;
-}
-
 /// The document the listener is on: once per page, and again for a new one (a test's next DOM).
 let installedOn: Document | undefined;
 
@@ -112,42 +95,12 @@ export function selectionHtml(selected: Range): string | null {
 }
 
 /** The plain text of a selection outside a reply's copy that holds a cmux link chip, each chip as
- * its link; null when it holds none (the page's own copy), or math or code (theirs). The text
- * between chips is the page's own selection text, read from the live page (`Selection.toString`,
- * which keeps a prompt's line ends and spaces as its white-space lays them out), so it is exactly
- * what the page's copy would give; only each chip's title becomes its link (review of #38166, F1:
- * a detached clone lost the prompt's `pre-wrap`). */
+ * its link (chipCopy.ts: the page's own text around it, code and tables included); null when it
+ * holds none (the page's own copy) or holds math (mathCopy.ts's, which turns chips into links too). */
 export function chipSelectionText(selected: Range): string | null {
   const range = withWholeChips(selected);
-  const chips = [...document.querySelectorAll(LINK_CHIP)].filter((chip) => range.intersectsNode(chip));
-  if (!chips.length) return null;
-  for (const element of document.querySelectorAll(`${MATH}, pre`)) if (range.intersectsNode(element)) return null;
-  const selection = document.getSelection();
-  const kept = selection ? Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index)) : [];
-  /// The page's own text of `piece`, as a selection of it reads.
-  const textOf = (piece: Range) => {
-    if (piece.collapsed) return "";
-    if (!selection) return piece.toString();
-    selection.removeAllRanges();
-    selection.addRange(piece);
-    return selection.toString();
-  };
-  try {
-    let text = "";
-    const piece = range.cloneRange();
-    for (const chip of chips) {
-      piece.setEndBefore(chip);
-      text += textOf(piece) + (chip.getAttribute("href") ?? "");
-      piece.setStartAfter(chip);
-      piece.setEnd(range.endContainer, range.endOffset);
-    }
-    return text + textOf(piece);
-  } finally {
-    if (selection) {
-      selection.removeAllRanges();
-      for (const each of kept) selection.addRange(each);
-    }
-  }
+  for (const element of document.querySelectorAll(MATH)) if (range.intersectsNode(element)) return null;
+  return chipText(range);
 }
 
 function onCopy(event: ClipboardEvent) {

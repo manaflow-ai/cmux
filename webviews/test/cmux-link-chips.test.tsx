@@ -628,6 +628,51 @@ test("an app link inside a web URL stays the web URL's, in a reply and a prompt"
   expect(prompt).toContain(`href="${NESTED}"`);
 });
 
+// A chip beside math or code copies as its link too (review of #38166): each copy path turns a chip
+// into its link, so mathCopy.ts keeps the TeX and the page's code text keeps its whitespace.
+function copyEvent(target: Element): { text?: string; html?: string } {
+  const data = new Map<string, string>();
+  const event = new window.Event("copy", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", {
+    value: { setData: (type: string, value: string) => data.set(type, value) },
+  });
+  target.dispatchEvent(event);
+  return event.defaultPrevented ? { text: data.get("text/plain"), html: data.get("text/html") } : {};
+}
+
+const staticChip = `<a data-cmux-link="workspace" href="${WORKSPACE}"><span class="cv-cmux-link__title">Retry fix</span></a>`;
+
+test("a chip and an equation copy as the link and the TeX", async () => {
+  const { installMathCopy } = await import("../src/agent-session/acpmux/conversation/mathCopy");
+  const { installSelectionCopy } = await import("../src/agent-session/acpmux/conversation/selectionCopy");
+  installSelectionCopy();
+  installMathCopy();
+  host.innerHTML = `<div class="cv-md"><p id="p">See ${staticChip} and <span class="cv-math" data-tex="x^2"><span class="katex">x2</span></span> here</p></div>`;
+  const range = document.createRange();
+  range.selectNodeContents(host.querySelector("#p")!);
+  document.getSelection()!.removeAllRanges();
+  document.getSelection()!.addRange(range);
+  const copied = copyEvent(host.querySelector("#p")!);
+  expect(copied.text).toBe(`See ${WORKSPACE} and $x^2$ here`);
+  expect(copied.html).toContain(WORKSPACE);
+  expect(copied.html).toContain("$x^2$");
+  expect(copied.html).not.toContain("Retry fix");
+  // From inside the chip's title to the equation: the whole link, then the TeX.
+  range.setStart(host.querySelector(".cv-cmux-link__title")!.firstChild!, 3);
+  expect(copyEvent(host.querySelector("#p")!).text).toBe(`${WORKSPACE} and $x^2$ here`);
+});
+
+test("a chip and a code block copy as the link and the code's own text", () => {
+  host.innerHTML = `<div class="cv-md" id="r"><p>See ${staticChip} now</p><div class="cv-codeblock"><pre>  if (a) {\n    b();\n  }</pre></div></div>`;
+  const range = document.createRange();
+  range.selectNodeContents(host.querySelector("#r")!);
+  expect(selectionHtml(range)).toBeNull();
+  const text = chipSelectionText(range)!;
+  expect(text).toContain(WORKSPACE);
+  expect(text).toContain("  if (a) {\n    b();\n  }");
+  expect(text).not.toContain("Retry fix");
+});
+
 test("a selection with no chip is the page's own copy", async () => {
   await mount(<PromptTyped text="Just words" show={(text) => text} />);
   expect(chipSelectionText(selectAll(host))).toBeNull();
