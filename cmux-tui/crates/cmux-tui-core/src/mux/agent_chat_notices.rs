@@ -1402,6 +1402,92 @@ mod tests {
         assert_eq!(keys, ["done-turn-1"]);
     }
 
+    /// What the watch posts for `changes` of one chat, as `apply` runs them; each change is
+    /// heard twice (a replay after a reconnect), so a notice posted twice shows in the result.
+    fn posted(changes: &[Value]) -> Vec<Notice> {
+        let mut before: Option<Chat> = None;
+        let mut notices = Vec::new();
+        for change in changes.iter().flat_map(|change| [change, change]) {
+            let mut next = Chat::of(change).expect("a local chat");
+            next.notified_turn = before.as_ref().and_then(|chat| chat.notified_turn.clone());
+            next.keep_asks(before.as_ref());
+            notices.extend(next.notices(before.as_ref()));
+            before = Some(next);
+        }
+        notices
+    }
+
+    /// One acpmux summary of `chat-1`: `shown` is what acpmux reports for a pane that is on
+    /// screen while cmux is not the active app (the page stays visible behind another app).
+    fn summary(indicator: &str, seq: u64, shown: bool, turn: Option<(&str, &str)>, below: bool) -> Value {
+        json!({
+            "sessionId": "chat-1",
+            "title": "Review",
+            "indicator": indicator,
+            "shown": shown,
+            "unread": false,
+            "lastSeq": seq,
+            "lastMessage": {"text": "All tests pass."},
+            "lastTurn": turn.map(|(id, status)| json!({"turnId": id, "status": status,
+                "errorText": (status == "failed").then_some("You've hit your usage limit")})),
+            "subagentsWorkingSince": if below { json!(1_700_000_000_000_u64) } else { Value::Null },
+        })
+    }
+
+    #[test]
+    fn a_background_app_probe_notifies_every_finish_and_needs_input_once() {
+        // Each transition the person must hear about while cmux is in the background, with
+        // the chat's pane on screen (acpmux `shown`) or not: the notice keys it must post.
+        let working = |shown| summary("working", 8, shown, None, false);
+        let transitions: Vec<(&str, Vec<Value>, Vec<&str>)> = [true, false]
+            .into_iter()
+            .flat_map(|shown| {
+                [
+                    ("finished", vec![working(shown), summary("done", 10, shown, Some(("t1", "completed")), false)],
+                        vec!["done-t1"]),
+                    ("quota error", vec![working(shown), summary("done", 10, shown, Some(("t1", "failed")), false)],
+                        vec!["failed-t1"]),
+                    ("background work ended", vec![
+                        working(shown),
+                        summary("working", 10, shown, Some(("t1", "completed")), true),
+                        summary("done", 12, shown, Some(("t1", "completed")), false),
+                    ], vec!["done-t1"]),
+                    ("permission", vec![working(shown), summary("input", 10, shown, None, false)], vec!["input-10"]),
+                    ("question", vec![working(shown), summary("input", 11, shown, None, false)], vec!["input-11"]),
+                ]
+            })
+            .collect();
+        let (mut notified, mut duplicates, mut missed) = (0, 0, Vec::new());
+        for (name, changes, want) in &transitions {
+            let keys: Vec<String> = posted(changes).into_iter().map(|notice| notice.key).collect();
+            let unique: HashSet<&String> = keys.iter().collect();
+            duplicates += keys.len() - unique.len();
+            if want.iter().all(|key| unique.contains(&key.to_string())) {
+                notified += 1;
+            } else {
+                missed.push(format!("{name} {:?}: {keys:?}", changes[0]["shown"]));
+            }
+        }
+        let total = transitions.len();
+        println!(
+            "agent chat notices, background app: notified {notified}/{total} ({}%), duplicates {duplicates}",
+            notified * 100 / total
+        );
+        assert_eq!(missed, Vec::<String>::new(), "transitions with no notice");
+        assert_eq!(duplicates, 0, "notices posted twice");
+    }
+
+    #[test]
+    fn a_failed_turn_says_why_it_failed() {
+        let notices = posted(&[
+            summary("working", 8, false, None, false),
+            summary("done", 10, false, Some(("t1", "failed")), false),
+        ]);
+        assert_eq!(notices.len(), 1);
+        assert_eq!(notices[0].title, "Review failed");
+        assert_eq!(notices[0].body, "You've hit your usage limit");
+    }
+
     #[test]
     fn the_ask_that_starts_a_wait_notifies_through_the_wait_alone() {
         let working = chat("working", 8);
