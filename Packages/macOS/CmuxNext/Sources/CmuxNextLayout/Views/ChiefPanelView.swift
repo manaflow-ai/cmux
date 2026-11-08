@@ -30,18 +30,25 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         public var stop: @MainActor () -> Void
         /// The eye: turn "sees your screen" off or on.
         public var toggleSeesScreen: @MainActor () -> Void = {}
+        /// The panel came on screen (opened, or back after Home).
+        public var opened: @MainActor () -> Void = {}
 
         /// - Parameters:
         ///   - toggleDock: Dock or Float.
         ///   - hide: Hide.
         ///   - moved: A drag or resize ended at this floating place.
         ///   - stop: Stop the Chief's answer; nothing by default.
+        ///   - toggleSeesScreen: The eye's click; nothing by default.
+        ///   - opened: The panel came on screen; nothing by default.
         public init(toggleDock: @escaping @MainActor () -> Void, hide: @escaping @MainActor () -> Void,
-                    moved: @escaping @MainActor (ChiefPanelFrame) -> Void, stop: @escaping @MainActor () -> Void = {}) {
+                    moved: @escaping @MainActor (ChiefPanelFrame) -> Void, stop: @escaping @MainActor () -> Void = {},
+                    toggleSeesScreen: @escaping @MainActor () -> Void = {}, opened: @escaping @MainActor () -> Void = {}) {
             self.toggleDock = toggleDock
             self.hide = hide
             self.moved = moved
             self.stop = stop
+            self.toggleSeesScreen = toggleSeesScreen
+            self.opened = opened
         }
     }
 
@@ -68,11 +75,13 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     /// Where a press moves the panel (and, resting, a click opens it), in this view's coordinates (y down).
     public var gripRect: NSRect { bar.frame }
     /// Whether the Chief gets a look at the screen when the panel opens (the eye).
-    public var seesScreen = true
+    public var seesScreen = true {
+        didSet { if seesScreen != oldValue { applyEye() } }
+    }
     /// Whether the panel's glass shows behind the chat.
-    public var showsPanelGlass: Bool { true }
+    public var showsPanelGlass: Bool { !backdrop.isHidden }
     /// The glass plate under the message box (see-through styles), in this view's coordinates; nil without one.
-    public var composerPlate: NSRect? { nil }
+    public var composerPlate: NSRect? { plate.isHidden ? nil : plate.frame }
     /// The Chief view this panel shows now; nil while it is in Home's pane.
     public private(set) weak var chief: NSView?
 
@@ -82,6 +91,10 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     private let title: NSTextField
     private let dockButton = NSButton()
     private let hideButton = NSButton()
+    private let eyeButton = NSButton()
+    /// The see-through styles' glass under the message box: the one surface they keep, so what is typed stays
+    /// readable over any workspace.
+    private let plate = Glass.makeOverlayPanel(cornerRadius: Metrics.surfaceCornerRadius, interactive: true)
     private let gripMark = NSImageView()
     private let chiefMark = NSImageView()
     private let body = NSView()
@@ -91,7 +104,7 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     private var holdsOpen = false
     private var press: (start: NSPoint, frame: NSRect, expanded: NSRect, edges: Set<NSRectEdge>, moved: Bool)?
     private var styleTask: Task<Void, Never>?
-    private var sourcedStyle: ChiefPanelStyle?
+    private var sourced: Look?
 
     /// - Parameters:
     ///   - title: The bar's name of the Chief.
@@ -109,7 +122,7 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         backdrop.autoresizingMask = [.width, .height]
         self.title.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
         self.title.textColor = .secondaryLabelColor
-        for (button, id) in [(dockButton, "window.chiefPanel.dock"), (hideButton, "window.chiefPanel.hide")] {
+        for (button, id) in [(dockButton, "window.chiefPanel.dock"), (hideButton, "window.chiefPanel.hide"), (eyeButton, "window.chiefPanel.seesScreen")] {
             button.bezelStyle = .accessoryBarAction
             button.isBordered = false
             button.imagePosition = .imageOnly
@@ -119,6 +132,8 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         }
         dockButton.action = #selector(toggleDockPressed)
         hideButton.action = #selector(hidePressed)
+        eyeButton.action = #selector(eyePressed)
+        applyEye()
         let hide = String(localized: "layout.chiefPanel.hide", defaultValue: "Hide the Chief", bundle: .module)
         hideButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: hide)
         hideButton.toolTip = hide
@@ -131,9 +146,11 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
                                   accessibilityDescription: String(localized: "layout.chiefPanel.open", defaultValue: "Open the Chief", bundle: .module))
         chiefMark.contentTintColor = .controlAccentColor
         chiefMark.symbolConfiguration = .init(scale: .large)
-        for view in [self.title, dockButton, hideButton, gripMark, chiefMark] { bar.addSubview(view) }
+        for view in [self.title, eyeButton, dockButton, hideButton, gripMark, chiefMark] { bar.addSubview(view) }
         body.wantsLayer = true
+        plate.isHidden = true
         addSubview(backdrop)
+        addSubview(plate)
         addSubview(body)
         addSubview(bar)
         setFloating(true)
@@ -144,6 +161,9 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
 
     override public var isFlipped: Bool { true }
     override public var mouseDownCanMoveWindow: Bool { false }
+    /// The grip and the rim (the presses ``hitTest(_:)`` keeps for the panel) move or resize it on the first click,
+    /// as a title bar does, even while another window holds the keys: without it that click only made the window key.
+    override public func acceptsFirstMouse(for event: NSEvent?) -> Bool { floating }
 
     /// A press in the window's top row on a floating panel moves the panel, never the window; on a docked panel's
     /// bar it moves the window, as any titlebar background does.
@@ -151,18 +171,33 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         !floating && bar.frame.contains(convert(windowPoint, from: nil)) && press == nil ? .movesWindow : .staysPut
     }
 
-    /// Follows `source` (the style setting) live: its value now, then each change.
-    public func follow(_ source: @escaping @MainActor @Sendable () -> ChiefPanelStyle) {
+    /// Follows the settings live: the style from `source` and the eye from `seesScreen`, their values now, then each
+    /// change.
+    public func follow(_ source: @escaping @MainActor @Sendable () -> ChiefPanelStyle,
+                       seesScreen: @escaping @MainActor @Sendable () -> Bool = { true }) {
         styleTask?.cancel()
-        let (first, later) = ObservationStream.current(source)
-        sourcedStyle = first
-        style = first
+        let (first, later) = ObservationStream.current { Look(style: source(), seesScreen: seesScreen()) }
+        apply(first)
         styleTask = Task { [weak self] in
             for await next in later {
                 guard let self else { return }
-                if next != self.sourcedStyle { self.sourcedStyle = next; self.style = next }
+                if next != self.sourced { self.apply(next) }
             }
         }
+    }
+
+    /// What the settings say: kept, so a direct change of ``style`` stands until the settings change.
+    private struct Look: Equatable, Sendable { var style: ChiefPanelStyle; var seesScreen: Bool }
+
+    private func apply(_ look: Look) {
+        sourced = look
+        style = look.style
+        seesScreen = look.seesScreen
+    }
+
+    override public func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        if superview != nil { actions.opened() }
     }
 
     /// Floating or docked: the corners, the shadow and the Dock/Float button follow.
@@ -184,7 +219,7 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         view.removeFromSuperview()
         view.autoresizingMask = []
         body.addSubview(view)
-        needsLayout = true
+        applyShape()
     }
 
     /// Lets the held view go, for Home's pane to take back; the view it held, nil when none.
@@ -194,6 +229,8 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         chief = nil
         if view.superview === body { view.removeFromSuperview() }
         view.autoresizingMask = [.width, .height]
+        view.shadow = nil
+        (view as? any ChiefPanelContent)?.chiefShowsThrough = false
         return view
     }
 
@@ -274,20 +311,23 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     /// The resting shape's size for the style.
     private var restSize: CGSize {
         switch style {
-        case .composeBar: CGSize(width: 240, height: 52)
+        case .composeBar, .seeThroughBar: CGSize(width: 240, height: 52)
         case .pill: CGSize(width: 200, height: 40)
         default: CGSize(width: 44, height: 44)
         }
     }
 
+    /// Whether the style rests as a message bar along its place's bottom (the compose bar, glass or see-through).
+    private var restsAsBar: Bool { style == .composeBar || style == .seeThroughBar }
+
     /// The smallest floating place the style keeps: a collapsing style's place may be as small as its resting shape.
     private var leastFloating: CGSize { style.collapses ? restSize : ChiefPanelFrame.minimumSize }
 
-    /// The resting shape in `place` (y up): along its bottom, the compose bar full width, the pill and the bubble
+    /// The resting shape in `place` (y up): along its bottom, the compose bars full width, the pill and the bubble
     /// at its right.
     private func rest(in place: NSRect) -> NSRect {
         switch style {
-        case .composeBar: return NSRect(x: place.minX, y: place.minY, width: place.width, height: restSize.height)
+        case .composeBar, .seeThroughBar: return NSRect(x: place.minX, y: place.minY, width: place.width, height: restSize.height)
         case .pill:
             let w = min(place.width, 320)
             return NSRect(x: place.maxX - w, y: place.minY, width: w, height: restSize.height)
@@ -299,7 +339,7 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     /// window.
     private func grown(from place: NSRect) -> NSRect {
         let w = max(place.width, Self.grownSize.width), h = max(place.height, Self.grownSize.height)
-        let x = style == .composeBar ? place.minX : place.maxX - w
+        let x = restsAsBar ? place.minX : place.maxX - w
         return inside(NSRect(x: x, y: place.minY, width: w, height: h))
     }
 
@@ -315,7 +355,7 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         let top = superview?.bounds.maxY ?? shape.maxY
         let h = max(shape.height, min(before.height, top - shape.minY))
         switch style {
-        case .composeBar: return NSRect(x: shape.minX, y: shape.minY, width: shape.width, height: h)
+        case .composeBar, .seeThroughBar: return NSRect(x: shape.minX, y: shape.minY, width: shape.width, height: h)
         default:
             let w = max(shape.width, min(before.width, shape.maxX - (superview?.bounds.minX ?? 0)))
             return NSRect(x: shape.maxX - w, y: shape.minY, width: w, height: h)
@@ -327,13 +367,21 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         let chrome = chrome
         let shown = !floating ? expanded : chrome == .rest ? rest(in: expanded) : style.collapses ? grown(from: expanded) : expanded
         if frame != shown { frame = shown }
-        let radius: CGFloat = !floating ? 0 : chrome == .rest ? min(shown.height / 2, style == .composeBar ? 14 : shown.height / 2) : Metrics.surfaceCornerRadius
+        let radius: CGFloat = !floating ? 0 : chrome == .rest ? min(shown.height / 2, restsAsBar ? 14 : shown.height / 2) : Metrics.surfaceCornerRadius
         backdrop.cornerRadius = radius
         body.layer?.cornerRadius = radius
         body.layer?.masksToBounds = floating
+        let clear = floating && style.isSeeThrough
+        backdrop.isHidden = clear
+        plate.isHidden = !clear
+        // Over a see-through panel the Chief's words get a halo (black in dark, white in light), so they read over
+        // any workspace in light and dark.
+        chief?.shadow = clear ? Self.halo : nil
+        if let content = chief as? any ChiefPanelContent, content.chiefShowsThrough != clear { content.chiefShowsThrough = clear }
         body.isHidden = chrome == .rest && style == .bubble
         title.isHidden = chrome != .bar
         dockButton.isHidden = chrome == .rest
+        eyeButton.isHidden = chrome == .rest
         hideButton.isHidden = chrome == .rest
         gripMark.isHidden = chrome != .rest || style == .bubble
         chiefMark.isHidden = !(chrome == .rest && style == .bubble)
@@ -352,10 +400,12 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
             bar.frame = NSRect(x: 0, y: 0, width: w, height: strip)
             hideButton.frame = NSRect(x: w - button - (chrome == .bar ? 6 : 4), y: (strip - button) / 2, width: button, height: button)
             dockButton.frame = hideButton.frame.offsetBy(dx: -button - 2, dy: 0)
+            eyeButton.frame = dockButton.frame.offsetBy(dx: -button - 2, dy: 0)
             title.sizeToFit()
             title.frame.origin = NSPoint(x: 12, y: (strip - title.frame.height) / 2)
             body.frame = NSRect(x: 0, y: strip, width: w, height: max(0, h - strip))
             chief?.frame = body.bounds
+            plate.frame = NSRect(x: 0, y: max(strip, h - Self.plateHeight), width: w, height: min(Self.plateHeight, h - strip))
         case .rest:
             let grip: CGFloat = style == .bubble ? w : style == .pill ? 16 : 20
             bar.frame = NSRect(x: 0, y: 0, width: grip, height: h)
@@ -364,11 +414,35 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
             body.frame = NSRect(x: grip, y: 0, width: max(0, w - grip), height: h)
             // The chat keeps its grown height, its bottom (the message box) showing through the shape.
             chief?.frame = NSRect(x: 0, y: 0, width: body.bounds.width, height: max(h, grown(from: expanded).height - Self.stripHeight))
+            plate.frame = bounds
         }
     }
 
     @objc private func toggleDockPressed() { actions.toggleDock() }
     @objc private func hidePressed() { actions.hide() }
+    @objc private func eyePressed() { actions.toggleSeesScreen() }
+
+    /// The eye's look: open while the Chief gets a look at the screen when the panel opens, crossed out when not.
+    private func applyEye() {
+        let label = seesScreen
+            ? String(localized: "layout.chiefPanel.seesScreen.on", defaultValue: "Chief Sees Your Screen When It Opens", bundle: .module)
+            : String(localized: "layout.chiefPanel.seesScreen.off", defaultValue: "Chief Does Not See Your Screen", bundle: .module)
+        eyeButton.image = NSImage(systemSymbolName: seesScreen ? "eye" : "eye.slash", accessibilityDescription: label)
+        eyeButton.contentTintColor = seesScreen ? .controlAccentColor : .secondaryLabelColor
+        eyeButton.toolTip = label
+    }
+
+    /// The see-through plate's height: the message box and its margin.
+    static let plateHeight: CGFloat = 64
+    /// The halo under the Chief's text on a see-through panel.
+    private static var halo: NSShadow {
+        let halo = NSShadow()
+        // A shadow, not a fill: black under the light text of dark mode, white under the dark text of light mode.
+        halo.shadowColor = NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .black : .white }.withAlphaComponent(0.9)
+        halo.shadowBlurRadius = 3
+        halo.shadowOffset = .zero
+        return halo
+    }
 
     // MARK: Moving and resizing (floating only)
 

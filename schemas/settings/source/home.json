@@ -609,6 +609,20 @@
                 "key": "settings.choice.chiefPanelStyle.bubble",
                 "text": "Bubble"
               }
+            },
+            {
+              "value": "seeThrough",
+              "title": {
+                "key": "settings.choice.chiefPanelStyle.seeThrough",
+                "text": "See-Through"
+              }
+            },
+            {
+              "value": "seeThroughBar",
+              "title": {
+                "key": "settings.choice.chiefPanelStyle.seeThroughBar",
+                "text": "See-Through Bar"
+              }
             }
           ],
           "default": "composeBar",
@@ -622,6 +636,35 @@
             "panel",
             "bubble",
             "minimal",
+            "home"
+          ],
+          "swift_owner": {
+            "type": "ChiefDockSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "home.chiefPanel.seesScreen",
+          "note": "On: the eye in the panel shows it, and a click turns it off (user 2026-11-07, default picked by the Chief).",
+          "title": {
+            "key": "settings.home.chiefPanelSeesScreen",
+            "text": "Chief Sees Your Screen When It Opens"
+          },
+          "help": {
+            "key": "settings.home.chiefPanelSeesScreen.help",
+            "text": "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "chief",
+            "screen",
+            "see",
+            "context",
+            "screenshot",
+            "eye",
+            "floating",
+            "privacy",
             "home"
           ],
           "swift_owner": {

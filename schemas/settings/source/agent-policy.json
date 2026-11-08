@@ -478,6 +478,13 @@
       ]
     },
     {
+      "agent": "userOnly",
+      "why": "On, opening the floating Chief gives it a look at the person's screen; only the person turns it on.",
+      "keys": [
+        "home.chiefPanel.seesScreen"
+      ]
+    },
+    {
       "agent": "settable",
       "why": "Needs you in the agent chat header (an App Store item): a display the person can hide again.",
       "keys": [
