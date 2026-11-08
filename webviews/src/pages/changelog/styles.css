@@ -169,14 +169,15 @@ html[data-cmux-page="changelog"] body {
 .cl-compare[data-mode="side"] .cl-compare-pane[data-side="after"] .cl-compare-tag { right: auto; left: var(--ds-space-2); }
 .cl-compare[data-mode="side"][data-fit="contain"] .cl-compare-pane img { width: 100%; max-width: 50cqw; max-height: 100cqh; object-fit: contain; }
 /* Toggle: Before / After at the bottom; the before fades over the after through the motion gate. */
-.cl-compare[data-mode="toggle"] .cl-compare-pane[data-side="before"] {
-  opacity: 0;
-  transition: opacity var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out);
-}
+.cl-compare[data-mode="toggle"] .cl-compare-pane[data-side="before"] { opacity: 0; }
 .cl-compare[data-showing="before"] .cl-compare-pane[data-side="before"] { opacity: 1; }
-:root:is([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cl-compare-pane { transition: none; }
-@media (prefers-reduced-motion: reduce) {
-  .cl-compare-pane { transition: none; }
+/* The fade exists only while motion is on: off or reduced (the gate, Reduce Motion) switch at once. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"])
+    .cl-compare[data-mode="toggle"]
+    .cl-compare-pane[data-side="before"] {
+    transition: opacity var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out);
+  }
 }
 .cl-compare-switch {
   position: absolute;

@@ -25,6 +25,8 @@ export function MediaCompare({
   fit?: "cover" | "contain";
 }) {
   const mode = useContext(CompareModeContext);
+  // In the page both load as they near the viewport, as a lone picture does; enlarged, at once.
+  const loading = fit === "cover" ? "lazy" : "eager";
   const [split, setSplit] = useState(50);
   const [showBefore, setShowBefore] = useState(false);
   const beforeLabel = strings.t("changelog.compare.before");
@@ -40,11 +42,11 @@ export function MediaCompare({
       style={{ "--cl-split": `${split}%` } as CSSProperties}
     >
       <div className="cl-compare-pane" data-side="after">
-        <img src={after} alt={alt} decoding="async" />
+        <img src={after} alt={alt} loading={loading} decoding="async" />
         {mode !== "toggle" && <span className="cl-compare-tag">{afterLabel}</span>}
       </div>
       <div className="cl-compare-pane" data-side="before">
-        <img src={before.src} alt={before.alt} decoding="async" />
+        <img src={before.src} alt={before.alt} loading={loading} decoding="async" />
         {mode !== "toggle" && <span className="cl-compare-tag">{beforeLabel}</span>}
       </div>
       {mode === "slider" && (
