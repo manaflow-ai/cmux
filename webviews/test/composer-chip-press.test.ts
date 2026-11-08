@@ -295,17 +295,6 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
           await page.evaluate(() =>
             document.addEventListener("click", (event) => event.stopImmediatePropagation(), true),
           );
-          // The picker's columns end in the card scroller's lane (#36304), which the app's WebKit
-          // reserves beside the rows. Linux WebKit draws its own overlay scroller there instead,
-          // over the rows' last pixels, and a press on it scrolls the column: take that overlay out
-          // of hit testing wherever a column reserves no lane.
-          await page.evaluate(() => {
-            for (const list of document.querySelectorAll<HTMLElement>("[data-cmux-card-scroll]")) {
-              const style = getComputedStyle(list);
-              const borders = Math.round(parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth));
-              if (list.offsetWidth - list.clientWidth - borders < 2) list.style.scrollbarWidth = "none";
-            }
-          });
           for (const target of await rows.all()) {
             // The columns scroll independently; bring each row into its own viewport before
             // probing its edges, including legacy models below the initial visible rows.
