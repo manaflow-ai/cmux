@@ -12,6 +12,11 @@ import CmuxNextDesign
 /// window, below the sidebar, and real glass over the live page. A WebKit
 /// page uses the same path, so both engines show one card the same way.
 ///
+/// A pane in front of the page (a zoom growing over it, a docked column) clips the page
+/// (`PaneHostView.setStripClip`), but the overlay host draws above every pane: a card whose
+/// place on the page such a pane covers is taken off until the page shows it again, as the
+/// page itself is cut there (`CEFClipShape`); it never floats over the pane in front.
+///
 /// The chrome owns the cards and places them over `page` (its page area):
 /// bottom center (or bottom left, ``Placement/bottomLeading``, the link
 /// status bubble), `inset` above its bottom edge plus each card's `lift`,
@@ -19,7 +24,8 @@ import CmuxNextDesign
 /// page is in a window and not hidden (a parked tab keeps its cards for when
 /// it shows again). The chrome syncs on layout and window, superview and
 /// hidden changes; a move of the window's pages without a resize (a pane
-/// swap) arrives as `browserChildWindowPagesNeedUpdate`.
+/// swap) and a change of what a pane in front cuts of them (each frame of a
+/// zoom) arrive as `browserChildWindowPagesNeedUpdate`.
 @MainActor
 final class PageFloatingOverlays {
     /// Where a card sits on the page's bottom edge.
@@ -39,6 +45,9 @@ final class PageFloatingOverlays {
         var handle: OverlayHandle?
         /// Fading out: it no longer takes clicks (`release`).
         var isReleased = false
+        /// Its size the last time it was presented: where a card taken off under a pane in front
+        /// would show, without an Auto Layout pass of it on each frame of the motion.
+        var lastSize: CGSize?
     }
 
     private var cards: [Card] = []
@@ -117,10 +126,12 @@ final class PageFloatingOverlays {
         }
         let clip = page.convert(page.bounds, to: nil)
         let scope = page.themeScope
+        let shown = Self.shownArea(of: page)
         for index in cards.indices {
             let view = cards[index].view
             // A hidden card waits for its tab (one chrome per pane): off screen, it takes no clicks.
-            if view.isHidden {
+            // So does a card under a pane in front of the page: the page is cut there too.
+            if view.isHidden || !shown.shows(placedRect(of: cards[index], in: clip)) {
                 dismiss(index)
                 continue
             }
@@ -144,9 +155,46 @@ final class PageFloatingOverlays {
             guard let holder = view.superview, let handle = cards[index].handle else { continue }
             holder.layoutSubtreeIfNeeded()
             let solved = view.frame
+            cards[index].lastSize = solved.size
             handle.update(anchor: NSRect(x: clip.minX + solved.minX, y: clip.minY + solved.minY,
                                          width: solved.width, height: solved.height))
         }
+    }
+
+    /// What a pane in front leaves of `page`, in window coordinates: the rect its square clips
+    /// leave (the column strip's clip, a pane's clip, the window) and the rects cut out of it
+    /// (a pane in front covering a middle part), as its page is clipped (`CEFClipShape`).
+    nonisolated struct ShownArea {
+        var visible: CGRect
+        var cutouts: [CGRect]
+
+        /// Whether a card at `rect` shows whole: inside the visible rect, under no cutout.
+        func shows(_ rect: CGRect) -> Bool {
+            visible.insetBy(dx: -0.5, dy: -0.5).contains(rect)
+                && !cutouts.contains { let shared = $0.intersection(rect); return !shared.isNull && shared.width > 0.5 && shared.height > 0.5 }
+        }
+    }
+
+    static func shownArea(of page: NSView) -> ShownArea {
+        var visible = page.bounds
+        for clip in CEFClipShape.clips(around: page) { visible = visible.intersection(clip.rect) }
+        return ShownArea(visible: visible.isNull ? .zero : page.convert(visible, to: nil),
+                         cutouts: CEFClipShape.cutouts(around: page).map { page.convert($0, to: nil) })
+    }
+
+    /// Where `card` shows in window coordinates over the page area `clip`, at its place
+    /// (``pin(_:in:lift:placement:)``): with its solved size while presented, the size it had when
+    /// last presented while off, its fitting size only before it ever showed.
+    private func placedRect(of card: Card, in clip: CGRect) -> CGRect {
+        let inset = BrowserMetrics.overlayInset
+        let size = if card.handle != nil, card.view.frame.width > 0 { card.view.frame.size } else { card.lastSize ?? card.view.fittingSize }
+        let width = min(size.width, max(0, clip.width - inset * 2))
+        let x = switch card.placement {
+        case .bottomCenter: clip.midX - width / 2
+        case .bottomLeading: clip.minX + inset
+        }
+        // A card taller than a short page shows cut by it, as before: only what of it the page holds counts.
+        return CGRect(x: x, y: clip.minY + inset + card.lift, width: width, height: size.height).intersection(clip)
     }
 
     /// The card's place in its overlay clip, as it was in the chrome.
