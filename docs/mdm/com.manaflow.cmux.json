@@ -22,6 +22,27 @@
       "title" : "Composer Ring",
       "type" : "string"
     },
+    "agentPane.dictationShortcut" : {
+      "default" : "",
+      "description" : "The shortcut the dictation button sends to the app it dictates with, such as ctrl+opt+space, when you set that app to one other than its default. Leave it empty for the app's default.",
+      "title" : "Dictation App Shortcut",
+      "type" : "string"
+    },
+    "agentPane.dictationSource" : {
+      "default" : "cmux",
+      "description" : "What the dictation button uses: cmux's own dictation, or the dictation app you already use. An app's button sends that app's shortcut.",
+      "enum" : [
+        "cmux",
+        "macos",
+        "chatgpt",
+        "claude",
+        "gemini",
+        "wisprFlow",
+        "superwhisper"
+      ],
+      "title" : "Dictate With",
+      "type" : "string"
+    },
     "agentPane.display.code.family" : {
       "description" : "The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font.",
       "title" : "Chat Code Font",
@@ -351,6 +372,20 @@
       "title" : "Seconds Between Retries",
       "type" : "number"
     },
+    "agents.cacheCompact.enabled" : {
+      "default" : false,
+      "description" : "When a Claude chat sits idle, compact it while its prompt cache is still warm, so the next message doesn't reread the whole context uncached. Costs one model call per compaction, read from the cache.",
+      "title" : "Compact Before the Cache Expires",
+      "type" : "boolean"
+    },
+    "agents.cacheCompact.minContextPercent" : {
+      "default" : 50,
+      "description" : "Chats using less of their context window than this are left as they are.",
+      "maximum" : 95,
+      "minimum" : 10,
+      "title" : "Only Above Context Used (%)",
+      "type" : "number"
+    },
     "agents.chats.discovery" : {
       "default" : true,
       "description" : "Find harness chat folders automatically. When off, only the listed folders are used.",
@@ -414,6 +449,20 @@
       "description" : "Skills you put in ~/.config/cmux/skills, one folder each with a SKILL.md, reach every new agent chat.",
       "title" : "Your Skills in Every Chat",
       "type" : "boolean"
+    },
+    "agents.hiddenChats.discard" : {
+      "default" : false,
+      "description" : "A chat you have not looked at for a while gives back its memory, and comes back where you left it when you open it. Chats that are working, waiting on you or holding a draft are never released.",
+      "title" : "Release Hidden Agent Chats",
+      "type" : "boolean"
+    },
+    "agents.hiddenChats.discardAfterMinutes" : {
+      "default" : 15,
+      "description" : "How many minutes a chat stays out of sight before its memory is given back. When the Mac runs low on memory, it happens sooner.",
+      "maximum" : 1440,
+      "minimum" : 1,
+      "title" : "Release Hidden Chats After",
+      "type" : "number"
     },
     "agents.modelRouter.model" : {
       "default" : "deepseek/deepseek-v4.1-flash-1017",
@@ -539,10 +588,9 @@
       "type" : "boolean"
     },
     "app.quitBehavior" : {
-      "default" : "ask",
+      "default" : "keep",
       "description" : "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
       "enum" : [
-        "ask",
         "keep",
         "end-keep-layout",
         "end-everything"
@@ -957,7 +1005,7 @@
       "type" : "string"
     },
     "appearance.chromeStyle" : {
-      "default" : "flat-sidebar-line",
+      "default" : "flat",
       "description" : "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them.",
       "enum" : [
         "default",
@@ -968,7 +1016,8 @@
         "bare",
         "panes",
         "two-tone",
-        "floating"
+        "floating",
+        "blocks"
       ],
       "title" : "Window Style",
       "type" : "string"
@@ -1160,6 +1209,16 @@
       "minimum" : 0,
       "title" : "Hue",
       "type" : "number"
+    },
+    "appearance.iconTheme" : {
+      "default" : "default",
+      "description" : "The icon drawings used by cmux.",
+      "enum" : [
+        "default",
+        "neko"
+      ],
+      "title" : "Icon Theme",
+      "type" : "string"
     },
     "appearance.inactiveWindowDim" : {
       "default" : 0,
@@ -1672,6 +1731,12 @@
       "title" : "Offer to Import Cookies",
       "type" : "boolean"
     },
+    "browser.import.cookieSync" : {
+      "default" : true,
+      "description" : "After you import cookies from Chrome or another Chromium browser, cmux brings over the sites whose cookies changed there, so you stay signed in. It reads only the profile you imported from, on this Mac; nothing leaves it.",
+      "title" : "Keep Imported Cookies in Sync",
+      "type" : "boolean"
+    },
     "browser.import.enabled" : {
       "default" : true,
       "description" : "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays.",
@@ -1873,6 +1938,12 @@
       "title" : "Open Links in cmux Browser",
       "type" : "boolean"
     },
+    "browser.openPullRequestsInGitHubPage" : {
+      "default" : true,
+      "description" : "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way.",
+      "title" : "Open Pull Requests in cmux GitHub Page",
+      "type" : "boolean"
+    },
     "browser.openSignInPagesInCmux" : {
       "default" : true,
       "description" : "Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win.",
@@ -2009,6 +2080,12 @@
       "description" : "When the pointer rests on a tab or a workspace, its sleeping pages start to load before you click. Uses more memory.",
       "title" : "Wake Tabs on Hover",
       "type" : "boolean"
+    },
+    "chat.on" : {
+      "default" : "",
+      "description" : "Where cmux chat starts a chat when neither --on nor CMUX_ON names one: here, cloud, vm:new, vm:NAME, or a device name. Empty is here.",
+      "title" : "Default Chat Target",
+      "type" : "string"
     },
     "chief.autoRouteSubagents" : {
       "default" : false,
@@ -2841,7 +2918,7 @@
     },
     "home.chiefDock.edge" : {
       "default" : "left",
-      "description" : "The window edge the Chief docks to when you press Cmd-I or open a workspace from the Chief. The rest of the window shows the workspace you pick.",
+      "description" : "The window edge the Chief goes to when you dock it. The rest of the window shows the workspace you pick.",
       "enum" : [
         "left",
         "right",
@@ -2852,9 +2929,9 @@
       "type" : "string"
     },
     "home.chiefDock.openBeside" : {
-      "default" : false,
-      "description" : "A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position.",
-      "title" : "Keep Chief Docked When Opening Workspaces",
+      "default" : true,
+      "description" : "A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it.",
+      "title" : "Show Chief When Opening Workspaces",
       "type" : "boolean"
     },
     "home.chiefEngine" : {
@@ -4088,6 +4165,19 @@
       "description" : "A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner.",
       "title" : "Show Group Unread Count",
       "type" : "boolean"
+    },
+    "sidebar.groupPalette" : {
+      "default" : "glass",
+      "description" : "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked.",
+      "enum" : [
+        "glass",
+        "theme",
+        "wallpaper",
+        "grayscale",
+        "vibrant"
+      ],
+      "title" : "Group Colors",
+      "type" : "string"
     },
     "sidebar.hoverCards.delay" : {
       "default" : 400,

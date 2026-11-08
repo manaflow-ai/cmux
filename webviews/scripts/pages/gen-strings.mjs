@@ -68,11 +68,16 @@ export function schemaKeys(schemaFile) {
 }
 
 // Page -> output and catalogs. `keys(catalogKeys)` picks the keys the page uses (all by default).
-// The History table moves next to the page when the Swift page is deleted (react-pages.md H4).
 export const PAGES = {
   "import-history": {
     out: "webviews/src/pages/import-history/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/import-history/Localizable.xcstrings" }],
+  },
+  // The onboarding tool window (Agents, Import from Browsers, Computer Use): the page's own table,
+  // its keys and translations the Swift steps' (CmuxNextOnboarding) it replaces.
+  onboarding: {
+    out: "webviews/src/pages/onboarding/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/onboarding/Localizable.xcstrings" }],
   },
   gallery: {
     out: "webviews/src/gallery/generated/strings.json",
@@ -160,7 +165,11 @@ export const PAGES = {
   },
   history: {
     out: "webviews/src/pages/history/generated/strings.json",
-    catalogs: [{ file: `${sources}/CmuxNextHistory/Resources/Localizable.xcstrings` }],
+    catalogs: [{ file: "webviews/src/pages/history/Localizable.xcstrings" }],
+  },
+  stash: {
+    out: "webviews/src/pages/stash/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/stash/Localizable.xcstrings" }],
   },
   // The App Store page reads the `store.` keys of the app platform's table until the Swift store
   // is deleted (react-pages.md A3); then the table moves next to the page.
@@ -243,6 +252,17 @@ export const PAGES = {
       },
     ],
   },
+  // The right sidebar's Machines section (cmux-page://cmux.machines/) shares the Swift card's table:
+  // the section's `machines.` keys and the check steps its status mark names (`addMachine.step.`).
+  machines: {
+    out: "webviews/src/pages/machines/generated/strings.json",
+    catalogs: [
+      {
+        file: `${sources}/CmuxNextServer/Resources/AddMachine.xcstrings`,
+        keys: (all) => all.filter((key) => key.startsWith("machines.") || key.startsWith("addMachine.step.")),
+      },
+    ],
+  },
   // The Artifacts page (cmux-page://cmux.artifacts/); its table lives next to it.
   artifacts: {
     out: "webviews/src/pages/artifacts/generated/strings.json",
@@ -257,6 +277,17 @@ export const PAGES = {
   github: {
     out: "webviews/src/pages/github/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/github/Localizable.xcstrings" }],
+  },
+  // The Tasks page (cmux-page://cmux.tasks/); its table lives next to it (the Swift pane is gone).
+  tasks: {
+    out: "webviews/src/pages/tasks/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/tasks/Localizable.xcstrings" }],
+  },
+  // The browser's Page Info bubble (cmux-page://cmux.page-info/); its table lives next to its
+  // component in webviews/src/browser-chrome/page-info.
+  "browser-chrome-page-info": {
+    out: "webviews/src/browser-chrome/page-info/generated/strings.json",
+    catalogs: [{ file: "webviews/src/browser-chrome/page-info/Localizable.xcstrings" }],
   },
   // The Chief Usage page (cmux-page://cmux.chief-usage/); its table lives next to it.
   "chief-usage": {
@@ -277,6 +308,12 @@ export const PAGES = {
   "home-channels": {
     out: "webviews/src/pages/home-channels/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/home-channels/Localizable.xcstrings" }],
+  },
+  // The cards drawn in a Home chat (home-messages/cards: agent pills, link previews, MCP connect,
+  // first run, header toggles), with the Swift keys they replace; their table lives next to them.
+  "home-messages-cards": {
+    out: "webviews/src/pages/home-messages/cards/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/home-messages/cards/Localizable.xcstrings" }],
   },
   // The Messages transcript and composer (home-messages/transcript): the Swift transcript's keys, so
   // their translations carry over. The parts it reuses from Channels read Channels' table beside it.
@@ -365,6 +402,12 @@ export const PAGES = {
   "icon-picker": {
     out: "webviews/src/pages/icon-picker/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/icon-picker/Localizable.xcstrings" }],
+  },
+  // Chat Colors (cmux-page://cmux.home-chat-colors/): the `home.chatColors.*` keys moved here from
+  // CmuxNextHome's catalog with the AppKit panel; its table lives next to it.
+  "home-chat-colors": {
+    out: "webviews/src/pages/home-chat-colors/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/home-chat-colors/Localizable.xcstrings" }],
   },
   // The markdown editor (cmux-page://cmux.markdown/) has no Swift page; its table lives next to it.
   markdown: {

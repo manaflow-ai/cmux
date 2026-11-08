@@ -54,6 +54,7 @@ class HotApplyRust(unittest.TestCase):
         self.new = hashlib.sha256(self.new_body).hexdigest()
         self.publish(self.new_body, self.new)
         self.env = dict(os.environ, CMUX_HOT_APPLY_TUI_BASE=(self.tmp / "tree").as_uri(),
+                        CMUX_HOT_APPLY_COMMIT_BASE=(self.tmp / "commits").as_uri(),
                         CMUX_HOT_APPLY_STATE_DIR=str(self.tmp / "state"))
 
     def tearDown(self):
@@ -65,6 +66,21 @@ class HotApplyRust(unittest.TestCase):
         (tree / self.name).write_bytes(body)
         (tree / f"{self.name}.sha256").write_text(f"{digest}  {self.name}\n")
         (tree / "completion.json").write_text(json.dumps({"key": self.key, "binaries": {self.name: listed or digest}}))
+        (tree / "source.json").write_text(json.dumps({"commit": FIX}))
+        self.publish_companions({})
+
+    def publish_companions(self, bodies):
+        """The commit-addressed build source.json names, with these companions (file -> bytes)."""
+        built = self.tmp / "commits" / FIX
+        built.mkdir(parents=True, exist_ok=True)
+        triple = self.name.removeprefix("cmux-tui-")
+        artifacts = {"cmux-app-host": "app-host", "cmux-cloud": "cloud-server", "cmux-holder": "holder"}
+        binaries = {}
+        for file, body in bodies.items():
+            asset = f"cmux-tui-{artifacts[file]}-{triple}"
+            (built / asset).write_bytes(body)
+            binaries[asset] = hashlib.sha256(body).hexdigest()
+        (built / "manifest.json").write_text(json.dumps({"binaries": binaries}))
 
     def hot(self, *args):
         done = subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True, env=self.env)
@@ -190,6 +206,86 @@ class HotApplyRust(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(self.sha(), self.old)
 
+    def side_commit(self, tree_of, message):
+        """A commit on FIX's parent with TREE_OF's tree: a branch that never merged."""
+        tree = run_git("rev-parse", f"{tree_of}^{{tree}}").stdout.strip()
+        done = subprocess.run(["git", "-C", str(ROOT), "-c", "user.name=t", "-c", "user.email=t@localhost",
+                               "commit-tree", tree, "-p", self.base, "-m", message],
+                              capture_output=True, text=True, check=True)
+        return done.stdout.strip()
+
+    def test_a_branch_head_from_before_the_app_takes_its_daemon_with_branch(self):
+        # The app was built after the PR branched, with no Rust change since: the PR's daemon fits it.
+        app = self.side_commit(self.base, "app: no Rust change after the fork")
+        with open(self.app / "Contents/Info.plist", "wb") as handle:
+            plistlib.dump({"CMUXCommit": app}, handle)
+        head = self.side_commit(FIX, "the PR: FIX's Rust")
+        code, receipt, _ = self.hot("apply", head, "--app", str(self.app))
+        self.assertEqual(code, 3)
+        self.assertIn("unrelated", receipt["left"])
+        self.assertEqual(self.sha(), self.old)
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", head, "--branch", "--app", str(self.app)],
+                              capture_output=True, text=True, env=self.env)
+        plan = json.loads(done.stdout)
+        self.assertEqual((plan["parts"], plan["fork"], plan["published"]), (["rust"], self.base, True))
+        code, receipt, err = self.hot("apply", head, "--branch", "--parts", "rust", "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sha(), self.new)
+
+    def test_a_branch_lacking_the_app_s_rust_is_refused(self):
+        # The app has FIX's Rust, which the branch (forked before it) does not: its daemon would drop it.
+        app = self.side_commit(FIX, "app: FIX's Rust after the fork")
+        with open(self.app / "Contents/Info.plist", "wb") as handle:
+            plistlib.dump({"CMUXCommit": app}, handle)
+        head = self.side_commit(self.base, "the PR: no Rust")
+        code, receipt, _ = self.hot("apply", head, "--branch", "--app", str(self.app))
+        self.assertEqual(code, 3)
+        self.assertIn("has Rust that", receipt["left"]["unrelated"][0])
+        self.assertEqual(self.sha(), self.old)
+
+    def test_an_unpublished_tree_says_so_and_binary_swaps_a_given_build(self):
+        subprocess.run(["rm", "-rf", str(self.tmp / "tree")], check=True)
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--app", str(self.app)],
+                              capture_output=True, text=True, env=self.env)
+        self.assertFalse(json.loads(done.stdout)["published"])
+        built = self.tmp / "built-cmux"
+        built.write_bytes(self.new_body)
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app), "--binary", str(built))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sha(), self.new)
+
+    def test_companions_go_in_with_the_daemon_and_come_back_on_rollback(self):
+        # The app host is the build's; the holder the app has is gone from the build; the cloud
+        # server is new in it. The daemon then runs no sibling of another build.
+        app_host = self.app / "Contents/Resources/bin/cmux-app-host"
+        holder = self.app / "Contents/Resources/bin/cmux-holder"
+        app_host.write_bytes(b"old host")
+        holder.write_bytes(b"old holder")
+        self.publish_companions({"cmux-app-host": b"new host", "cmux-cloud": b"new cloud"})
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(app_host.read_bytes(), b"new host")
+        self.assertFalse(holder.exists())
+        self.assertEqual((self.app / "Contents/Resources/bin/cmux-cloud").read_bytes(), b"new cloud")
+        self.assertTrue((self.app / "Contents/Resources/bin/cmux-tui").is_symlink(), "a link is left alone")
+        code, receipt, err = self.hot("rollback")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(app_host.read_bytes(), b"old host")
+        self.assertEqual(holder.read_bytes(), b"old holder")
+        self.assertFalse((self.app / "Contents/Resources/bin/cmux-cloud").exists())
+        self.assertEqual(self.sha(), self.old)
+
+    def test_a_binary_brings_the_companions_beside_it(self):
+        built = self.tmp / "dev/bin"
+        built.mkdir(parents=True)
+        (built / "cmux").write_bytes(self.new_body)
+        (built / "cmux-app-host").write_bytes(b"dev host")
+        app_host = self.app / "Contents/Resources/bin/cmux-app-host"
+        app_host.write_bytes(b"old host")
+        code, _, err = self.hot("apply", FIX, "--app", str(self.app), "--binary", str(built / "cmux"))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(app_host.read_bytes(), b"dev host")
+
     def test_a_commit_the_app_already_has_is_a_no_op(self):
         with open(self.app / "Contents/Info.plist", "wb") as handle:
             plistlib.dump({"CMUXCommit": FIX}, handle)
@@ -198,6 +294,34 @@ class HotApplyRust(unittest.TestCase):
         self.assertEqual(receipt["applied"], [])
         self.assertIn("the app already contains SHA", receipt["notes"])
         self.assertEqual(self.sha(), self.old)
+
+
+class Fetch(unittest.TestCase):
+    """fetch() against files.cmux.com, which answers Python's default user agent with 403."""
+
+    def test_fetch_names_itself_rather_than_python_urllib(self):
+        import importlib.util
+        import io
+        spec = importlib.util.spec_from_file_location("hot_apply_fetch_under_test", SCRIPT)
+        hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_fetch_under_test"] = hot
+        spec.loader.exec_module(hot)
+        sent = []
+
+        def urlopen(request, timeout=None):
+            # The fleet proof, 2026-11-07: completion.json came back "HTTP Error 403: Forbidden".
+            agent = request.get_header("User-agent") if hasattr(request, "get_header") else None
+            sent.append(agent)
+            if not agent or agent.startswith("Python-urllib"):
+                raise hot.urllib.error.HTTPError(str(request), 403, "Forbidden", {}, None)
+            return io.BytesIO(b"{}")
+        real = hot.urllib.request.urlopen
+        hot.urllib.request.urlopen = urlopen
+        try:
+            self.assertEqual(hot.fetch("https://files.cmux.com/cmux-tui/tree/k/completion.json"), b"{}")
+        finally:
+            hot.urllib.request.urlopen = real
+        self.assertTrue(sent[0].startswith("cmux-hot-apply"))
 
 
 class FindSocket(unittest.TestCase):
@@ -283,6 +407,28 @@ class FindSocket(unittest.TestCase):
         self.hot.subprocess.run = run
         self.assertEqual(self.hot.find_sockets(self.app, Path("cmux")), [procs["3002"], procs["3001"]])
         self.assertEqual(self.hot.find_socket(self.app, Path("cmux")), procs["3002"])
+
+    def test_a_hung_app_session_is_not_passed_over_for_the_chiefs(self):
+        prefix = str(self.app / self.hot.BIN)
+        procs = {"3001": "/v/T/cmux-tui-501/cmux-chief-e8875805.sock", "3002": "/v/T/cmux-tui-501/cmux-app--c117.sock"}
+
+        def run(argv, **kwargs):
+            if argv[0] == "ps":
+                return subprocess.CompletedProcess(argv, 0, "".join(f"{pid} {prefix}/cmux-tui --headless\n" for pid in procs), "")
+            if argv[0] == "lsof":
+                pid = argv[argv.index("-p") + 1]
+                return subprocess.CompletedProcess(argv, 0, f"p{pid}\nn{procs[pid]}\n", "")
+            if "cmux-app" in argv[argv.index("--socket") + 1]:
+                raise subprocess.TimeoutExpired(argv, 10)
+            return subprocess.CompletedProcess(argv, 0, '{"pid": 3001}', "")
+        self.hot.subprocess.run = run
+        with self.assertRaises(RuntimeError):
+            self.hot.find_sockets(self.app, Path("cmux"))
+
+    def test_an_app_under_a_folder_holding_the_bin_segment_is_found(self):
+        self.app = Path(f"/Apps/{self.hot.BIN}/old/cmux NIGHTLY.app")
+        self.stub(lambda argv: subprocess.CompletedProcess(argv, 0, '{"pid": 4242}', ""))
+        self.assertEqual(self.hot.find_socket(self.app, Path("cmux")), "/tmp/s.sock")
 
     def test_a_daemon_started_through_a_linked_folder_is_found(self):
         # The fleet proof, 2026-11-07: the copy was given as /private/tmp/..., and its daemon ran as

@@ -75,10 +75,10 @@ test("a thought still coming leaves the latest run; earlier ones stay", () => {
     run("latest", [call("git log", "execute"), thought("Now I should check")]),
   ];
   const shaped = turnView(rows, new Set(), { working: true });
-  // The latest run's one finished step moves up to the live line (turns.ts liftedStep), so the run
-  // draws nothing of its own and the thought never shows in it.
-  expect(shaped.find((entry) => entry.id === "latest")).toBeUndefined();
-  expect(shaped.find((entry) => entry.kind === "thinking")).toMatchObject({ doing: "git log", doingDone: true });
+  // The latest run keeps its finished step, and the thought still coming stays out of it; the live
+  // line reads Thinking the moment the call completed (Leo, 2026-11-07).
+  expect(shaped.find((entry) => entry.id === "latest")!.items!.map((item) => item.kind)).toEqual(["tool"]);
+  expect(shaped.find((entry) => entry.kind === "thinking")!.doing).toBeUndefined();
   expect(shaped.find((entry) => entry.id === "first")!.items).toHaveLength(3);
 });
 

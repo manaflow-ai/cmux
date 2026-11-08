@@ -36,8 +36,12 @@ fn an_argument_check_answers_its_value_or_its_refusal() {
         json!({"value": 3000})
     );
     assert_eq!(
-        ok(c"cloud_handler_arg", json!({"check": "namedPort", "verb": "port-close", "args": {}})),
-        json!({"refusal": {"key": "portInvalid", "args": ["port-close"]}})
+        ok(
+            c"cloud_handler_arg",
+            json!({"check": "namedPort", "verb": "port-close", "args": {},
+                   "names": {"name": "box", "id": "vm-1"}})
+        ),
+        json!({"refusal": {"key": "portInvalid", "args": ["box", "vm-1", "port-close"]}})
     );
     assert_eq!(
         ok(
@@ -165,13 +169,46 @@ fn answers_and_fields_shape_through_the_abi() {
         ok(c"cloud_handler_template_name", json!({"machineId": "vm-1", "unix": 7})),
         json!({"name": "template-vm-1-7"})
     );
-    assert_eq!(ok(c"cloud_handler_share_link", json!({"url": "http://x"})), json!({"ok": false}));
+    let names = json!({"name": "box", "id": "vm-1", "port": 3000});
     assert_eq!(
-        ok(c"cloud_handler_forward", json!({"record": {"port": 1}})),
-        json!({"refusal": {"key": "portFailed", "args": ["no local port"]}})
+        ok(c"cloud_handler_share_link", json!({"url": "https://[::1", "names": names})),
+        json!({"ok": false, "refusal": {"key": "portFailed",
+               "args": ["box", "vm-1", "3000", "the platform returned an invalid share URL"]}})
+    );
+    assert_eq!(
+        ok(c"cloud_handler_share_link", json!({"url": "https://s.dev/l"})),
+        json!({"ok": true, "refusal": null})
+    );
+    assert_eq!(
+        ok(c"cloud_handler_forward", json!({"record": {"port": 1}, "names": names})),
+        json!({"refusal": {"key": "portFailed", "args": ["box", "vm-1", "3000", "no local port"]}})
+    );
+    let no_link = json!({"refusal": {"key": "portNoLink", "args": ["box", "vm-1", "3000"]}});
+    assert_eq!(ok(c"cloud_handler_machine_link_port", json!({"names": names})), no_link);
+    assert_eq!(
+        ok(c"cloud_handler_machine_link", json!({"names": names, "allowsPorts": true})),
+        no_link
+    );
+    assert_eq!(
+        ok(c"cloud_handler_machine_link_port", json!({"names": names, "allowsPorts": true})),
+        json!({})
+    );
+    assert_eq!(
+        ok(c"cloud_handler_port_failure", json!({"code": "cmux.cloud.port_limit", "names": names})),
+        json!({"refusal": {"key": "portLimit", "args": ["box", "vm-1", "3000"]}})
+    );
+    assert_eq!(
+        ok(c"cloud_handler_github_confirm", json!({"name": "Ada", "app": "notConnected"})),
+        json!({"parts": [{"key": "gitHubFallbackNotConnected"},
+                         {"key": "gitHubConfirmBody", "args": ["Ada", "—"]}]})
+    );
+    assert_eq!(
+        ok(c"cloud_handler_arg", json!({"check": "resize", "args": {"disk": 8}}))["value"]["diskGib"],
+        json!(8)
     );
     let constants = ok(c"cloud_handler_constants", json!({}));
     assert_eq!(constants["createSizes"]["xlarge"], json!({"cpu": 12, "memoryMb": 24576}));
+    assert_eq!(constants["resizeSizes"]["xlarge"], json!({"cpu": 16, "memoryMb": 24576}));
 }
 
 #[test]

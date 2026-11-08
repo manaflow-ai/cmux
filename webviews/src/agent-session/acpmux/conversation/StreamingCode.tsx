@@ -6,7 +6,8 @@
 // painted its lines. Same metrics, so nothing moves; only the colors arrive.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CodeBlock } from "./CodeBlock";
-import { CodeHeader, codeHeaderClass, useCodeHeaderLook } from "./CodeHeader";
+import { CodeHeader } from "./CodeHeader";
+import { codeHeaderClass, useCodeHeaderLook } from "./codeHeaderModel";
 import { isDiagram } from "./codeShape";
 import { CopyButton } from "./CopyButton";
 import { useT } from "../i18n";

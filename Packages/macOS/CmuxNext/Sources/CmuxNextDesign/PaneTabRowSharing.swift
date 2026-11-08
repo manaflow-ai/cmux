@@ -62,8 +62,10 @@ extension PaneTabRowSharing {
     }
 }
 
-/// The window's lit top rim where a shared tab row meets the window's top edge: nothing over the row covers its
-/// top `height` points (a Chromium chat's page, #33346; the toolbar's fill, ``NSView/paintTabRowHole(_:rim:)``).
+/// The window's lit rim, `height` points just inside its frame: nothing in the main pane covers it where the pane
+/// meets a window edge (``Metrics/windowEdgeInset(_:in:)``), and where a shared tab row meets the window's top edge
+/// nothing over the row covers its top `height` points (a Chromium chat's page, #33346; the toolbar's fill,
+/// ``NSView/paintTabRowHole(_:rim:)``).
 public struct PaneTabRowRim {
     public init() {}
     public static let height: CGFloat = 1

@@ -241,7 +241,15 @@ impl Hub {
         }
         accept(accepted);
         let fallback = (!opts.steer_only).then(|| blocks.clone());
-        let wire_blocks = super::turns::agent_blocks(self, session, &blocks).await?;
+        // A person's steer tells the agent who sent it (`author::agent_label`), as a turn's
+        // prompt does; the record above and the fallback keep their words alone.
+        let labeled = match crate::author::agent_label(opts.provenance.as_ref()) {
+            Some(label) if super::forum::slash_command(&blocks).is_none() => {
+                std::iter::once(label).chain(blocks.iter().cloned()).collect()
+            }
+            _ => blocks.clone(),
+        };
+        let wire_blocks = super::turns::agent_blocks(self, session, &labeled).await?;
         // Stopped while its copies were made: written now, it would reach no turn, and its
         // fallback would start one after the Stop. Another agent's message goes on: it is kept
         // out of the stopping turn, or comes back if that turn ends before its agent read it
@@ -510,6 +518,15 @@ impl Hub {
             }
             r => r?,
         };
+        // Read: the log says so at once, so a chat stops offering the X on its row then. Until
+        // now a chat learned it only from the agent's next words, which may come a minute later
+        // or never (a reply that is only a tool call), and a take-back meanwhile was refused
+        // with nothing to show why (Leo, 2026-11-06: "I can't ... cancel and edit these
+        // messages").
+        if r.get("stopReason").and_then(Value::as_str) == Some("steered") {
+            let msg = json!({"promptId": prompt_id, "turnId": turn_id});
+            self.append(session, "mux", "steer_read", msg);
+        }
         merge_mux_meta(&mut r, json!({"promptId": prompt_id, "turnId": turn_id, "steer": true}));
         Ok(r)
     }

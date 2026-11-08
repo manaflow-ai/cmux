@@ -10,8 +10,10 @@ import CmuxNextChiefMemory
 import CmuxNextChiefPetWiring
 import CmuxNextDesign
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
+import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextSidebar
 import CmuxNextWakeups
@@ -58,6 +60,7 @@ final class HomeHostView: PaneMotionFollowingView {
     private var showsCloud = false
     private var showsHosted = false
     private var isWorking = false
+    /// The Chief is answering (Esc stops it; the floating Chief panel hides on Esc only when it is not).
     lazy var turnActions = HomeChiefTurnActions(transcript: transcript)
     /// Where this Chief runs and its other host, for the settings card (no floating switch over the chat).
     private var hostWatch: Task<Void, Never>?
@@ -537,6 +540,8 @@ final class HomeHostView: PaneMotionFollowingView {
         loadAvatar()
         return await settingsView.debugEditPicture(source, zoom: zoom, save: save)
     }
+    /// `debug.home.drive` chief_name: the settings open with the keyboard in the name field (`close`: they close, as a click outside).
+    func debugEditChiefName(close: Bool) -> Bool { if close { settings.close(); return true }; return toggleChiefSettings(openOnly: true) && settingsView.beginEditingName() }
     /// `debug.home.drive` chief_control: the named Chief this view's controls name (nil: the default).
     var debugNamedChief: String? { control.named }
     #endif
@@ -592,3 +597,4 @@ extension HomeHostView: PrimaryInputTarget {
         focusTargetShouldTakeKeyboard(from: responder)
     }
 }
+extension HomeHostView: ChiefPanelContent { var chiefIsAnswering: Bool { isWorking } }

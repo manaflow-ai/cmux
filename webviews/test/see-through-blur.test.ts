@@ -303,7 +303,7 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
     });
     afterAll(async () => browser?.close());
 
-    test("the Summary's blocks lose their filter under summary.css's hide rule, even for a Find bar deep inside, and get it back", async () => {
+    test("the Summary's blocks lose their filter under summary.css's hide rule while Find is open, and get it back", async () => {
       const page = await open(browser);
       await page.evaluate(() => document.querySelector(".stage")!.classList.add("acpmux-stage"));
       await attach(page, { owner: "summary" });
@@ -312,11 +312,14 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
         "summary",
       );
       expect(await filter()).toContain("url(");
-      // Find opens inside the scroller: no change to the stage's own children.
+      // Find opens as the scroller's own child (VirtualTranscript.tsx), the scroller the stage's: no change
+      // to the stage's own children. The rule reads only that path, never the whole stage, so a streamed
+      // chunk does not re-check it (test/agent-pane-stream-composer-still.test.ts).
       await page.evaluate(() => {
+        document.querySelector(".chat")!.classList.add("acpmux-scroll");
         const find = document.createElement("div");
         find.className = "acpmux-find";
-        document.querySelector(".bars")!.append(find);
+        document.querySelector(".chat")!.append(find);
       });
       expect(await filter()).toBe("none");
       // Find closes: the blur is back at once, with no event the follow loop would see.

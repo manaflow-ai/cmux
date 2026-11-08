@@ -6,6 +6,7 @@
 // a reply does (`link.openPath`; the host only takes the path, so it opens at its top). The closed row
 // stays one line (ToolRow.tsx). Leo, 2026-11-05: "could we potentially do even better?"; the same web
 // draws it on the Mac and the phone.
+import { cornerAction } from "./cornerActions";
 import { useMemo, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { callChipHost } from "../chips/host";
@@ -13,7 +14,9 @@ import { FileKindIcon } from "../chips/FileKindIcon";
 import { usePathInfo } from "../chips/linkStore";
 import { useMessageScope } from "../chips/messageScope";
 import { isDeniedPath, pathName } from "../chips/paths";
-import { PreviewMore, usePreview } from "./BlockParts";
+import { PreviewMore } from "./BlockParts";
+import { usePreview } from "./blockPartsModel";
+import { ExpandRow } from "./ExpandRow";
 import { CodeLines } from "./CodeBlock";
 import { CopyButton } from "./CopyButton";
 import type { FileCard, ReadPeek, SearchFile, SearchResult } from "./fileResults";
@@ -21,7 +24,7 @@ import { useTranscriptReadOnly } from "./readOnly";
 import "./FileResultCard.css";
 
 /// Rows a search card shows (a file's line and each of its matches) before "Show all N files".
-export const SEARCH_PREVIEW_ROWS = 16;
+const SEARCH_PREVIEW_ROWS = 16;
 
 export function FileResultCard({ id, card, reveal }: { id: string; card: FileCard; reveal: number }) {
   return card.kind === "read" ? (
@@ -93,7 +96,7 @@ function ReadCard({ id, read, reveal }: { id: string; read: ReadPeek; reveal: nu
             ? t("fileCards.oneLine", { n: read.start })
             : t("fileCards.lineRange", { start: read.start, end: read.end })}
         </span>
-        <CopyButton text={read.code} label={t("code.copy")} className="cv-codeblock__action cv-edit-diff__copy" />
+        <CopyButton text={read.code} label={t("code.copy")} className={`${cornerAction()} cv-edit-diff__copy`} />
       </div>
       <div className="cv-filepeek__body" data-preview={preview.attribute}>
         <div className="cv-filepeek__code">
@@ -154,45 +157,45 @@ function SearchCard({
     .join(" · ");
   return (
     <div id={id} className="cv-filematches" data-cut={(long && !all) || undefined}>
-      <div className="cv-filematches__summary" data-find-skip>
-        {summary}
-      </div>
-      {files.map((file) => (
-        <div key={file.path} className="cv-filematches__file">
-          <FileButton path={file.open} className="cv-filematches__path" label={file.open}>
-            <FileKindIcon path={file.path} className="cv-filematches__icon" />
-            <span className="cv-filematches__name">{file.shown}</span>
-            {file.count !== undefined && (
-              <span className="cv-filematches__count" data-find-skip>
-                {file.count}
-              </span>
-            )}
-          </FileButton>
-          {file.matches.map((match, index) => (
-            <FileButton
-              key={index}
-              path={file.open}
-              className="cv-filematches__line"
-              label={match.line === undefined ? file.open : `${file.open}:${match.line}`}
-            >
-              <span className="cv-filematches__number" data-find-skip>
-                {match.line ?? ""}
-              </span>
-              <span className="cv-filematches__text">{match.text}</span>
-            </FileButton>
-          ))}
+      {/* The cut list fades out; Show all is outside the fade, under it (conversation.css). */}
+      <div className="cv-filematches__list">
+        <div className="cv-filematches__summary" data-find-skip>
+          {summary}
         </div>
-      ))}
+        {files.map((file) => (
+          <div key={file.path} className="cv-filematches__file">
+            <FileButton path={file.open} className="cv-filematches__path" label={file.open}>
+              <FileKindIcon path={file.path} className="cv-filematches__icon" />
+              <span className="cv-filematches__name">{file.shown}</span>
+              {file.count !== undefined && (
+                <span className="cv-filematches__count" data-find-skip>
+                  {file.count}
+                </span>
+              )}
+            </FileButton>
+            {file.matches.map((match, index) => (
+              <FileButton
+                key={index}
+                path={file.open}
+                className="cv-filematches__line"
+                label={match.line === undefined ? file.open : `${file.open}:${match.line}`}
+              >
+                <span className="cv-filematches__number" data-find-skip>
+                  {match.line ?? ""}
+                </span>
+                <span className="cv-filematches__text">{match.text}</span>
+              </FileButton>
+            ))}
+          </div>
+        ))}
+      </div>
       {long && (
-        <button
-          type="button"
+        <ExpandRow
           className="cv-output-more"
-          aria-expanded={all}
-          data-find-skip=""
-          onClick={() => setAll((value) => !value)}
-        >
-          {all ? t("shell.showLess") : t("fileCards.showAllFiles", { n: result.files.length })}
-        </button>
+          open={all}
+          onToggle={() => setAll((value) => !value)}
+          label={all ? t("shell.showLess") : t("fileCards.showAllFiles", { n: result.files.length })}
+        />
       )}
     </div>
   );

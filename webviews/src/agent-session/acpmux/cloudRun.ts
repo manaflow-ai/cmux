@@ -8,7 +8,7 @@
 /// opens on the machine.
 
 import { isAgentHome } from "./sessionList";
-import { pickFolder } from "./startFolder";
+import { pickFolder } from "./startFolderModel";
 import type { ComposerAttachment } from "./attachments";
 
 /// What the page hands the host. `home`: the chat has no project folder on this Mac, so nothing is
@@ -121,7 +121,8 @@ export function grantedCloudStart(
 }
 
 /// The host's answer: ok, or a code with the host's own words when it has them.
-export type CloudStartAnswer = { ok: true } | { ok: false; code: string; message?: string };
+/// `retryable`: another try of the same start can help (the machine didn't connect, a copy timed out), so the card offers Retry.
+export type CloudStartAnswer = { ok: true } | { ok: false; code: string; message?: string; retryable?: boolean };
 
 /// Keeps the failed first-send prompt in the composer while Cloud account sign-in runs, then
 /// resumes it once. Concurrent clicks share one browser callback, and a later click after a
@@ -204,16 +205,18 @@ export async function startCloudChat(
     await call(signingIn ? "cloud.signIn" : "cloud.startChat", params);
     return { ok: true };
   } catch (error) {
-    const { code, message, userMessage } = (error ?? {}) as {
+    const { code, message, userMessage, retryable } = (error ?? {}) as {
       code?: unknown;
       message?: unknown;
       userMessage?: unknown;
+      retryable?: unknown;
     };
     const words = typeof userMessage === "string" ? userMessage : typeof message === "string" ? message : undefined;
     return {
       ok: false,
       code: typeof code === "string" && code ? code : "unavailable",
       ...(words ? { message: words } : {}),
+      ...(retryable === true ? { retryable: true } : {}),
     };
   }
 }
@@ -342,10 +345,14 @@ export function cloudStartKeys(
   };
 }
 
-/// A failure the host already said in a toast (it ran the start): the page says nothing more.
-export function cloudStartToasted(answer: CloudStartAnswer): boolean {
+/// A failure the card already says in the host's words (with Retry when another try can help, or the
+/// sign-in's own reason), so the page says nothing more.
+export function cloudStartSaid(answer: CloudStartAnswer): boolean {
   return (
-    !answer.ok && ["cloud_start_failed", "cloud_chat_already_started", "cloud_prompt_changed"].includes(answer.code)
+    !answer.ok &&
+    ["cloud_start_failed", "cloud_plan_required", "cloud_chat_already_started", "cloud_prompt_changed"].includes(
+      answer.code,
+    )
   );
 }
 

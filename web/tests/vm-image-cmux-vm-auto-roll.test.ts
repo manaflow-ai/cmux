@@ -6,10 +6,12 @@ import path from "node:path";
 import {
   AUTO_PREFIX,
   KEEP_AUTO,
+  MAX_BYTES,
   ROLLBACK_DEPLOYS,
   approve,
   locate,
   modeOf,
+  replaceList,
   rollback,
   rolledImage,
   settle,
@@ -18,8 +20,12 @@ import {
 } from "../../images/cmux-vm/auto-roll";
 import { runChild, runChildOk } from "./helpers/run-child";
 
-// images/cmux-vm/auto-roll.ts edits the checked-in workers/cmux-vm/wrangler.jsonc; these run on that file.
-const wrangler = readFileSync(new URL("../../workers/cmux-vm/wrangler.jsonc", import.meta.url), "utf8");
+// images/cmux-vm/auto-roll.ts edits the checked-in workers/cmux-vm/wrangler.jsonc; these run on that file with its
+// auto-rolled entries taken out, since the live roll keeps adding them and the counts below assume none.
+const checkedIn = readFileSync(new URL("../../workers/cmux-vm/wrangler.jsonc", import.meta.url), "utf8");
+const handOnly = (text: string, env: "staging" | "production") =>
+  replaceList(text, env, locate(text, env).images.filter((i) => !i.id.startsWith(AUTO_PREFIX)));
+const wrangler = handOnly(handOnly(checkedIn, "staging"), "production");
 const candidate = { snapshot_id: `sh-${"a".repeat(32)}`, lock_sha256: "0".repeat(64), run: 1 };
 const tui = "1234567890abcdef1234567890abcdef12345678";
 const entry = (run: string, attempt = "1"): BootImage => rolledImage(candidate, `ci-${run}-${attempt}`, tui, run, attempt);
@@ -72,9 +78,28 @@ describe("auto-roll approve", () => {
 
   test("refuses a list the Worker would reject (more than 32 entries)", () => {
     const prod = locate(wrangler, "production").images;
-    const many = Array.from({ length: 32 }, (_, i) => ({ ...prod[0]!, id: `hand-${i}` }));
+    // Short entries, so 32 of them stay under MAX_BYTES and the entry cap is what refuses the 33rd.
+    const many = Array.from({ length: 32 }, (_, i) => ({ ...prod[0]!, id: `h-${i}`, displayName: "h", services: ["s"] }));
     const big = wrangler.replace(/("production": \{[\s\S]*?"VM_BOOT_IMAGES": )("(?:[^"\\\n]|\\.)*")/u, (_, head: string) => head + JSON.stringify(JSON.stringify(many)));
     expect(() => approve(big, entry("8"))).toThrow(/at most 32/);
+  });
+
+  test("refuses a list over Cloudflare's text binding limit, which fails the whole deploy", () => {
+    const staging = locate(wrangler, "staging").images;
+    // Long hand-approved names push staging past MAX_BYTES while it stays under 32 entries.
+    const name = "x".repeat(100);
+    const many = Array.from({ length: 24 }, (_, i) => ({ ...staging[0]!, id: `hand-${i}`, displayName: name }));
+    expect(Buffer.byteLength(JSON.stringify(many))).toBeGreaterThan(MAX_BYTES);
+    const big = wrangler.replace(/("staging": \{[\s\S]*?"VM_BOOT_IMAGES": )("(?:[^"\\\n]|\\.)*")/u, (_, head: string) => head + JSON.stringify(JSON.stringify(many)));
+    expect(() => approve(big, entry("8"))).toThrow(/bytes, at most 5120/);
+    // A list deployed before a trim still reads, so settle can roll that deploy back.
+    expect(locate(big, "staging").images).toHaveLength(24);
+  });
+
+  test("the checked-in lists, plus one more roll, stay under the text binding limit", () => {
+    const { text } = approve(checkedIn, entry("9000"));
+    for (const env of ["staging", "production"] as const)
+      expect(Buffer.byteLength(JSON.stringify(locate(text, env).images))).toBeLessThanOrEqual(MAX_BYTES);
   });
 });
 
@@ -106,6 +131,18 @@ describe("auto-roll rollback", () => {
     expect(gone.reason).toMatch(/in neither list/);
   });
 
+  test("rolls back an auto image only staging lists while production's list is empty, and production keeps its pin", () => {
+    // An image staging lists (approve's staging entry, with staging's services) while production lists none.
+    const both = approve(wrangler, entry("400")).text;
+    const text = replaceList(both, "production", []);
+    const result = rollback(text, entry("400").id);
+    expect(result.rolledBack).toBe(true);
+    expect(result.nowFirst).toBe("");
+    expect(result.reason).toMatch(/boots its pin/);
+    expect(locate(result.text, "staging").images.map((i) => i.id)).not.toContain(entry("400").id);
+    expect(locate(result.text, "production").images).toEqual([]);
+  });
+
   test("never rolls back a hand-approved image", () => {
     const first = locate(wrangler, "production").images[0]!.id;
     const result = rollback(wrangler, first);
@@ -131,10 +168,10 @@ describe("auto-roll settle", () => {
   const image = entry("500").id;
   const previous = locate(wrangler, "production").images[0]!.id;
   const roll = (over: Partial<SettleInput>): SettleInput => ({
-    kind: "roll", image, deploy: "success", product: "success", bootImage: image, deployedFirst: image, tipFirst: image, tipHas: true, deployedHas: true, attempt: 1, ...over,
+    kind: "roll", image, deploy: "success", product: "success", bootImage: image, deployedFirst: image, tipFirst: image, tipHas: true, deployedHas: true, deployedStagingHas: true, attempt: 1, ...over,
   });
   const back = (over: Partial<SettleInput>): SettleInput => ({
-    kind: "rollback", image, deploy: "success", product: "success", bootImage: previous, deployedFirst: previous, tipFirst: previous, tipHas: false, deployedHas: false, attempt: 1, ...over,
+    kind: "rollback", image, deploy: "success", product: "success", bootImage: previous, deployedFirst: previous, tipFirst: previous, tipHas: false, deployedHas: false, deployedStagingHas: false, attempt: 1, ...over,
   });
 
   test("a roll whose deploy and product create booted the image is green", () => {
@@ -170,6 +207,16 @@ describe("auto-roll settle", () => {
       expect(settle(back({ deploy: "failure", product: "", attempt }))).toMatchObject({ outcome: "retry", nextAttempt: attempt + 1 });
     }
     expect(settle(back({ deploy: "cancelled", product: "", attempt: ROLLBACK_DEPLOYS })).outcome).toBe("rollback_failed");
+  });
+
+  test("a staging-only rollback with no production image is verified by the deployed lists, not a production boot", () => {
+    // Production lists nothing (it boots its pin), so no create boots a "first entry".
+    const none = { deployedFirst: "", tipFirst: "", bootImage: "", product: "" };
+    expect(settle(back(none)).outcome).toBe("verified");
+    expect(settle(back(none)).reason).toMatch(/boots its pin/);
+    // Still in staging in the deployed commit, or a deploy that did not succeed: not verified.
+    expect(settle(back({ ...none, deployedStagingHas: true })).outcome).toBe("retry");
+    expect(settle(back({ ...none, deploy: "failure" })).outcome).toBe("retry");
   });
 
   test("a rollback's settle never asks for another rollback commit", () => {
@@ -347,6 +394,11 @@ describe("auto-roll scripts", () => {
       const cut = await plan(shallow, tip);
       expect(cut.status).not.toBe(0);
       expect(cut.stderr).toMatch(/shallow/);
+      // A build outside the shallow history: the branch check would answer "not on the branch" (roll: false) from
+      // the cut alone, so the shallow refusal has to come first (review of #37409, F1).
+      const beyond = await plan(shallow, older);
+      expect(beyond.status).not.toBe(0);
+      expect(beyond.stderr).toMatch(/shallow/);
 
       // Full history without the pinned commit (a pin off the branch that was never fetched).
       writeFileSync(lock, JSON.stringify({ programs: [{ name: "cmux-tui", version: "f".repeat(40) }] }));

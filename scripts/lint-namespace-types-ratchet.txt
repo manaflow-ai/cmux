@@ -73,7 +73,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextFeed/FeedTunables.swift:FeedTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Model/FeedChoiceValidation.swift:FeedChoiceValidation
 Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI/WhichKey/WhichKeyRow.swift:WhichKeyStrings
 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/AgentSession.swift:AgentResume
-Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryPageModel.swift:HistoryPageAddress
 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefAppLinks.swift:ChiefAppLinks
 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefHostStop.swift:ChiefHostStop
 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefMigration.swift:ChiefMigration
@@ -133,7 +132,5 @@ Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Sections/SidebarLayoutPlanner.sw
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Sections/SidebarLayoutReducer.swift:SidebarLayoutReducer
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Sections/SidebarSectionTunables.swift:SidebarSectionTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabTunables.swift:TabTunables
-Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksPaletteCatalog.swift:TasksPaletteCatalog
-Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksTunables.swift:TasksTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/AppcastParser.swift:AppcastParser
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/AppcastSelector.swift:AppcastSelector

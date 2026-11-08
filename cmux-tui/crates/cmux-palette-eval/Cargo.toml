@@ -1,0 +1,16 @@
+[package]
+name = "cmux-palette-eval"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The palette ranker's quality eval, its speed bench and its settings-row cases; kept outside cmux-palette-ranker so they never touch the app FFI pin"
+
+[dependencies]
+cmux-palette-ranker = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
