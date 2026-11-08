@@ -6309,6 +6309,8 @@ jobs:
     needs: [published-build]
     if: "!cancelled() && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.publish_build_sha != '' && needs.published-build.outputs.run_tail == 'true'"
     continue-on-error: true
+    # The environment build-nightly-app gives its own in-job Sentry upload.
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     permissions:
       contents: read
       actions: read
