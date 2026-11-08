@@ -95,6 +95,16 @@ extension LayoutRootView {
         }
         // A retired host's ring is hidden with it and goes with its teardown, not in a close's first frame.
         for view in plane.subviews where view is PaneOverlayView && !shown.contains(ObjectIdentifier(view)) && !context.isRetiredChrome(view) {
+            #if DEBUG || CMUX_BENCH_HOOKS
+            // Z4 key turn step 4 (ZOOM VARIANTS 3, never merged): the ring of a pane a film zoom covers (its host lives on)
+            // stays in the plane at opacity 0, so the key turn changes a layer property, not the view tree (no AppKit layer
+            // tree rebuild in its commit). Its host syncs it again when it shows (no sync key: it is placed and its alpha set).
+            if DesignSettings.shared.filmZoom.active != nil, let host = context.hosts.values.first(where: { $0.chrome === view }) {
+                if view.alphaValue != 0 { view.alphaValue = 0 }
+                host.overlaySyncKey = nil
+                continue
+            }
+            #endif
             view.removeFromSuperview()
         }
         panesMovedInLastOverlaySync = moved
