@@ -1,0 +1,34 @@
+name: Feedback from the app
+description: What you saw in cmux, sent from Help > Send Feedback
+title: "Feedback: "
+labels: ["app-feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for telling us. When a fix ships, we comment here with the NIGHTLY build that has it.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: "What you saw, and what you expected instead. A sentence is fine."
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or screen recordings
+      description: "Drag them in, if you have any."
+    validations:
+      required: false
+
+  - type: input
+    id: cmux-version
+    attributes:
+      label: cmux version
+      description: "cmux > About cmux."
+      placeholder: "e.g. 1.0.0-nightly.4247363298301"
+    validations:
+      required: false
