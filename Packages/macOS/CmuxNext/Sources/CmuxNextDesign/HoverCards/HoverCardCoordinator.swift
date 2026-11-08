@@ -11,8 +11,8 @@ public import CmuxNextDesignTokens
 /// (content can move under a still pointer, and tracking areas then send
 /// nothing), dismissals, suppressions and removed targets. Nothing polls
 /// while no card shows (a pointer resting on a card is the one exception,
-/// below): the only timer is a one-shot `DemandTimer`, armed only in a pending,
-/// leaving, grace or pinned phase; the event monitor for dismissals exists only
+/// below): the only timers are one-shot `DemandTimer`s, armed only in a pending,
+/// leaving, grace or pinned phase (the settle timer only while pending); the event monitor for dismissals exists only
 /// while a card is pending or shown.
 ///
 /// Hover intent (`HoverIntentTiming`): a pointer moving from a shown card's
@@ -99,8 +99,23 @@ public final class HoverCardCoordinator {
     /// gives no target a card, as in Chrome. Tests inject one.
     public var mouseButtonDown: () -> Bool = { NSEvent.pressedMouseButtons != 0 }
 
+    /// Fires a pending card's deadline early once the pointer stops on its target
+    /// (`HoverCardTiming.settleQuiet`); armed only while a card is pending.
+    private let settleTimer: DemandTimer
+    /// Time on the timers' clock, so a test's manual clock moves the pointer's speed too.
+    private let elapsed: () -> Duration
+    /// The last pointer move and its time, for the pointer's speed.
+    private var lastMove: (point: CGPoint, at: Duration)?
+
     public init(clock: any Clock<Duration> = ContinuousClock()) {
         timer = DemandTimer(owner: "HoverCards.delay", clock: clock)
+        settleTimer = DemandTimer(owner: "HoverCards.settle", clock: clock)
+        elapsed = Self.stopwatch(clock)
+    }
+
+    private static func stopwatch<C: Clock<Duration>>(_ clock: C) -> () -> Duration {
+        let start = clock.now
+        return { start.duration(to: clock.now) }
     }
 
     /// App and window notifications, installed with the first source (a
@@ -133,6 +148,7 @@ public final class HoverCardCoordinator {
         MainActor.assumeIsolated {
             if let monitor { NSEvent.removeMonitor(monitor) }
             timer.cancel()
+            settleTimer.cancel()
         }
     }
 
@@ -183,6 +199,38 @@ public final class HoverCardCoordinator {
         // sidebar row's card): a tab's card below its strip still swaps at once, as in Chrome.
         let holdsAim = machine.shownTarget?.leave.hidesAtOnce != true || panel?.escapeGeometry != nil
         send(.hit(hit?.target, moved: true, aiming: aiming && holdsAim, bridging: bridging))
+        settle(at: now)
+    }
+
+    /// A pending card at the default delay opens once the pointer stops on its target
+    /// (`HoverCardTiming.settleQuiet` and friends): this move slow enough after the last one opens it
+    /// now, else it opens if no move follows within the quiet window. Content moving under a still
+    /// pointer sends no move, so it still waits the whole delay.
+    private func settle(at point: CGPoint) {
+        let at = elapsed()
+        let last = lastMove
+        lastMove = (point, at)
+        guard case .pending(let target, let token) = machine.phase, target.delay == HoverCardTiming.showDelay else {
+            settleTimer.cancel()
+            return
+        }
+        if let last, at > last.at, at - last.at <= HoverCardTiming.settleSample {
+            if hypot(point.x - last.point.x, point.y - last.point.y) / (at - last.at).hoverCardSeconds <= HoverCardTiming.settleSpeed {
+                settled(token)
+                return
+            }
+        }
+        settleTimer.schedule(after: HoverCardTiming.settleQuiet) { @MainActor [weak self] in
+            self?.settled(token)
+        }
+    }
+
+    /// The pointer stopped on the target `token`'s card waits for: it shows now, as at its deadline.
+    private func settled(_ token: Int) {
+        settleTimer.cancel()
+        guard case .pending(_, let armed) = machine.phase, armed == token else { return }
+        timer.cancel()
+        send(.deadline(token: token))
     }
 
     /// `point` is between the shown target's own frame and its card, beside the card (a sidebar
