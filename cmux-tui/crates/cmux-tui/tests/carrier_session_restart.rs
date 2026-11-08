@@ -22,8 +22,13 @@ use carrier_support::{BIN, MACHINE, TOKEN, line, wait};
 use serde_json::{Value, json};
 
 fn dial(world: &HostWorld) -> Child {
+    dial_with(world, &[])
+}
+
+fn dial_with(world: &HostWorld, extra: &[&str]) -> Child {
     Command::new(BIN)
         .args(["carrier", "dial", "--machine", MACHINE, "--deadline-ms", "30000"])
+        .args(extra)
         .args(["--cloud-api", &format!("http://{}", world.platform)])
         .env_clear()
         .env("HOME", world.dir.path())
@@ -299,4 +304,33 @@ fn a_carrier_chat_reattached_after_its_session_host_restarts_gets_every_event_ex
     assert_eq!(connected(&routes), 2, "the re-attach rode a fresh session: {routes:?}");
     drop(child.stdin.take());
     assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
+}
+
+/// The session host restarts after the dial's mux-control stream opened and
+/// before its desktop stream does (`--service desktop`): the desktop open
+/// finds the session gone. The dial opens a fresh session and asks for the
+/// desktop again there, so the answer is the restarted host's own: this
+/// test's grants carry no `vmk`, so it refuses the desktop as a service
+/// (exit 6), not a relay failure from the lost session.
+#[test]
+fn a_carrier_desktop_dial_whose_session_host_restarts_before_the_desktop_opens_asks_a_fresh_session()
+ {
+    let world = host_world(Restart::AfterMuxOpen, Mux::Echo);
+    let mut child = dial_with(&world, &["--service", "desktop"]);
+    let mut stderr = BufReader::new(child.stderr.take().unwrap());
+    let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+    assert_eq!(
+        reply["error_code"],
+        "service_refused",
+        "the restarted host answered the desktop on a fresh session: {reply} {}",
+        world.connect_log()
+    );
+    assert!(
+        reply["error_detail"].as_str().unwrap().contains("does not allow local-socket"),
+        "{reply}"
+    );
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(6));
+    assert_eq!(world.starts.load(Ordering::SeqCst), 2, "the session host restarted once");
+    let routes = routes(&world);
+    assert_eq!(connected(&routes), 2, "the first session, then one fresh one: {routes:?}");
 }
