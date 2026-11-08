@@ -270,6 +270,7 @@ mod tests {
         let text = format!("{} {token} and more words after it", "x".repeat(189));
         let ask = queued_ask(&text);
         assert!(!ask.contains("aZ3kQ9"), "{ask}");
-        assert!(ask.chars().count() <= ASK_CHARS);
+        // The cut keeps ASK_CHARS and marks itself with an ellipsis.
+        assert!(ask.chars().count() <= ASK_CHARS + 1, "{ask}");
     }
 }
