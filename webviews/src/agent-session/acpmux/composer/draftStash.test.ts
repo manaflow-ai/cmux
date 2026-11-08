@@ -7,6 +7,7 @@ import {
   readStashed,
   refreshStash,
   resetStashForTests,
+  setStashTransport,
   stashDraft,
   stashedNow,
   stashPreview,
@@ -93,6 +94,24 @@ describe("draft stash", () => {
     expect(await stashDraft("chat", "typed meanwhile", [], newest.id)).toBe(true);
     expect(texts("chat")).toEqual(["typed meanwhile", "draft 3", "draft 2", "draft 1", "draft 0"]);
     expect(daemon.get("chat")?.map((row) => row.text)).toEqual(texts("chat"));
+  });
+
+  test("the page's stack holds at most five, as acpmux does", async () => {
+    for (let index = 0; index < 6; index += 1) await stashDraft("chat", `draft ${index}`, []);
+    expect(texts("chat")).toEqual(["draft 5", "draft 4", "draft 3", "draft 2", "draft 1"]);
+  });
+
+  test("another acpmux starts from no stacks, and the old one's late answers are dropped", async () => {
+    await stashDraft("chat", "old machine's", []);
+    let answer: (value: unknown) => void = () => undefined;
+    setStashTransport({ ...fake, list: () => new Promise((resolve) => (answer = resolve)) });
+    const late = refreshStash("chat");
+    const other = { ...fake, list: async () => ({ drafts: [] }) };
+    setStashTransport(other);
+    expect(texts("chat")).toEqual([]);
+    answer({ drafts: [{ id: "x", text: "late", attachments: [], at: 1 }] });
+    await late;
+    expect(texts("chat")).toEqual([]);
   });
 
   test("a draft acpmux does not take is not stashed", async () => {

@@ -56,9 +56,17 @@ export function promptsFrom(value: unknown): SavedPrompt[] {
 }
 
 /// The pane's acpmux connection, or none. A page without one (a gallery, a test) keeps saves in the page.
+/// Another connection (a reconnect, another machine's acpmux) starts from no list: the old one's
+/// prompts are never shown or inserted, and its answers still on their way are dropped.
 export function setSavedPromptsTransport(next: SavedPromptsTransport | undefined): void {
+  if (next === transport) return;
   transport = next;
   reading = undefined;
+  if (prompts.length) {
+    prompts = [];
+    emit();
+  }
+  if (next) void refreshSavedPrompts();
 }
 
 /// Reads the list again from acpmux; the copy shown stays until the answer comes, and stays on a refusal.
@@ -99,7 +107,9 @@ export async function savePrompt(name: string, text: string): Promise<void> {
 
 /// Deletes the saved prompt `name`. Rejects with acpmux's reason (a cmux-next.json prompt is removed there).
 export async function deletePrompt(name: string): Promise<void> {
-  if (transport) await transport.remove(name);
+  const via = transport;
+  if (via) await via.remove(name);
+  if (via !== transport) return;
   prompts = prompts.filter((prompt) => !sameName(prompt.name, name));
   emit();
 }

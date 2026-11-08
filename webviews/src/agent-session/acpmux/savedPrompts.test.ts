@@ -132,4 +132,20 @@ describe("saved prompts", () => {
     expect(calls).toEqual(["list", "save new", "save bad", "delete kept"]);
     expect(savedPromptsNow().map((prompt) => prompt.name)).toEqual(["new"]);
   });
+
+  test("another acpmux starts from no list, and the old one's late answer is dropped", async () => {
+    let answer: (value: unknown) => void = () => undefined;
+    const old = {
+      list: () => new Promise<unknown>((resolve) => (answer = resolve)),
+      save: async () => ({}),
+      remove: async () => ({}),
+    };
+    setSavedPromptsTransport(old);
+    seedSavedPrompts([{ name: "old machine's", text: "t", source: "saved" }]);
+    setSavedPromptsTransport({ list: async () => ({ prompts: [] }), save: async () => ({}), remove: async () => ({}) });
+    expect(savedPromptsNow()).toEqual([]);
+    answer({ prompts: [{ name: "late", text: "t", source: "saved" }] });
+    await Promise.resolve();
+    expect(savedPromptsNow()).toEqual([]);
+  });
 });

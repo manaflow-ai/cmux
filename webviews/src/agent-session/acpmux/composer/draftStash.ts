@@ -26,6 +26,8 @@ export type StashTransport = {
 };
 
 const NONE: readonly StashedDraft[] = [];
+/// The most drafts one chat holds, as acpmux keeps (`stash.rs` STASH_LIMIT).
+export const STASH_LIMIT = 5;
 let transport: StashTransport | undefined;
 const stacks = new Map<string, readonly StashedDraft[]>();
 /// The chats a composer shows, read again when the transport comes.
@@ -61,11 +63,18 @@ export function draftsFrom(value: unknown): StashedDraft[] {
   return Array.isArray(list) ? list.flatMap((row) => draftFrom(row) ?? []) : [];
 }
 
-/// Connects the page to acpmux's stash (none: the pane closed); every shown chat is read again.
+/// Connects the page to acpmux's stash (none: the pane closed). Another connection (a reconnect,
+/// another machine's acpmux) starts from no stacks: the old one's drafts are never shown or brought
+/// back, and its answers still on their way are dropped. Every shown chat is read again.
 export function setStashTransport(next: StashTransport | undefined): void {
+  if (next === transport) return;
   transport = next;
+  if (stacks.size) {
+    stacks.clear();
+    emit();
+  }
   if (!next) return;
-  for (const chat of new Set([...stacks.keys(), ...wanted])) void refreshStash(chat);
+  for (const chat of wanted) void refreshStash(chat);
 }
 
 /// Reads `chat`'s stack from acpmux. A failed read keeps what the page had.
@@ -73,7 +82,9 @@ export function refreshStash(chat: string): Promise<void> {
   const link = transport;
   if (!link) return Promise.resolve();
   return link.list(chat).then(
-    (answer) => setStack(chat, draftsFrom(answer)),
+    (answer) => {
+      if (link === transport) setStack(chat, draftsFrom(answer));
+    },
     () => undefined,
   );
 }
@@ -93,11 +104,15 @@ export async function stashDraft(
   try {
     const answer = await link.push(chat, text, attachments, replaces);
     const row = draftFrom((answer as { draft?: unknown } | undefined)?.draft);
-    if (!row) return false;
-    setStack(chat, [
-      row,
-      ...(stacks.get(chat) ?? NONE).filter((entry) => entry.id !== row.id && entry.id !== replaces),
-    ]);
+    // A connection that changed meanwhile: the composer keeps the draft (the old acpmux has a copy).
+    if (!row || link !== transport) return false;
+    setStack(
+      chat,
+      [row, ...(stacks.get(chat) ?? NONE).filter((entry) => entry.id !== row.id && entry.id !== replaces)].slice(
+        0,
+        STASH_LIMIT,
+      ),
+    );
     return true;
   } catch {
     return false;
@@ -109,7 +124,8 @@ export async function readStashed(chat: string, id: string): Promise<StashedDraf
   const link = transport;
   if (!link) return undefined;
   try {
-    return draftFrom(((await link.get(chat, id)) as { draft?: unknown } | undefined)?.draft);
+    const draft = draftFrom(((await link.get(chat, id)) as { draft?: unknown } | undefined)?.draft);
+    return link === transport ? draft : undefined;
   } catch {
     return undefined;
   }
@@ -117,11 +133,13 @@ export async function readStashed(chat: string, id: string): Promise<StashedDraf
 
 /// Removes draft `id` from `chat`'s stack, at once in the page.
 export async function dropStashed(chat: string, id: string): Promise<void> {
+  const link = transport;
+  if (!link) return;
   setStack(
     chat,
     (stacks.get(chat) ?? NONE).filter((entry) => entry.id !== id),
   );
-  await transport?.drop(chat, id).catch(() => undefined);
+  await link.drop(chat, id).catch(() => undefined);
 }
 
 /// A new chat's stack follows it once it has a session: each draft is stashed under the session
