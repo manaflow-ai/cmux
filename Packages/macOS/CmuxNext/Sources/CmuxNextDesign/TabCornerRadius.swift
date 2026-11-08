@@ -1,5 +1,5 @@
 public import CoreGraphics
-public import Foundation
+import Foundation
 
 /// The one tab shape: every tab pill, the strip's + and a tab's hover card share
 /// `tabCornerRadius`, concentric with the card the strip sits in, in every window style
