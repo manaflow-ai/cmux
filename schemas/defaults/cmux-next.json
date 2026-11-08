@@ -249,7 +249,6 @@
     "setting.agentPane.display.harnessPlacement": "symbols",
     "setting.agentPane.display.minimap": "compact",
     "setting.agentPane.display.pinnedPlan": false,
-    "setting.agentPane.display.finishSound": false,
     "setting.agentPane.display.presentation": "transcript",
     "setting.agentPane.display.rail.side": "left",
     "setting.agentPane.display.senderIcon.badge": "diamond",
