@@ -25,6 +25,7 @@ const run = () => ({
   sessionId: "session-17",
   turnId: "turn-4",
   commit: COMMIT,
+  repository: "example/atlas",
   kind: "tests",
   tests: { passed: 12, failed: 0, skipped: 1 },
   state: "succeeded",
@@ -214,4 +215,22 @@ void test("a non-finite clock or retention time never yields an actionable saved
     assert.notEqual(saved.level, "verified");
     assert.equal(saved.action, undefined);
   }
+});
+
+void test("a pull request closed without merge is never shown as verified", () => {
+  const input = {
+    ...base(),
+    pullRequest: { ownerRead: true, repository: "example/atlas", number: 7, headCommit: COMMIT, state: "closed" },
+  };
+  const pr = item(input, "pull-request");
+  assert.notEqual(pr.level, "verified");
+  assert.match(pr.detail, /closed without merge/);
+});
+
+void test("a run links to Actions only in its own repository, which must be the source repository", () => {
+  const missing = { ...base(), run: { ...run(), repository: undefined } };
+  const other = { ...base(), run: { ...run(), repository: "someone/else" } };
+  assert.equal(item(missing, "checks").href, undefined);
+  assert.equal(item(other, "checks").href, undefined);
+  assert.match(item({ ...base(), run: run() }, "checks").href, /^https:\/\/github\.com\/example\/atlas\/actions\/runs\/47$/);
 });
