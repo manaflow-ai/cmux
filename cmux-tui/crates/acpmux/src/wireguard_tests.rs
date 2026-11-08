@@ -51,8 +51,14 @@ async fn pair_on(
     };
     let a_peers = BTreeMap::from([("b".into(), peer(b_public, b.listen, b.address))]);
     let b_peers = BTreeMap::from([("a".into(), peer(a_key.public_key_b64(), a.listen, a.address))]);
-    let a = Transport::from_socket(&a, &a_peers, homes[0].path(), target, a_socket).await.unwrap();
-    let b = Transport::from_socket(&b, &b_peers, homes[1].path(), target, b_socket).await.unwrap();
+    let a_lock = KeyHolder::acquire(homes[0].path()).unwrap();
+    let b_lock = KeyHolder::acquire(homes[1].path()).unwrap();
+    let a = Transport::from_socket(&a, &a_peers, homes[0].path(), target, a_socket, a_lock)
+        .await
+        .unwrap();
+    let b = Transport::from_socket(&b, &b_peers, homes[1].path(), target, b_socket, b_lock)
+        .await
+        .unwrap();
     (a, b, homes)
 }
 
@@ -101,6 +107,49 @@ fn disabled_never_binds_udp_or_reads_a_key() {
             Transport::start(&cfg, dir.path(), "127.0.0.1:1".parse().unwrap()).await.is_err(),
             "the occupied UDP socket must prevent enabled startup"
         );
+    });
+}
+
+#[test]
+fn a_held_key_lock_steps_the_transport_down_without_binding() {
+    runtime().block_on(async {
+        // Occupied: a transport that went past the lock would fail to bind.
+        let occupied = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.transport.wireguard = true;
+        cfg.transport.wireguard_static = Some(StaticConfig {
+            listen: occupied.local_addr().unwrap(),
+            address: "10.77.0.1:4100".parse().unwrap(),
+        });
+        let link = KeyHolder::acquire(dir.path()).unwrap();
+        let stepped_down =
+            Transport::start(&cfg, dir.path(), "127.0.0.1:1".parse().unwrap()).await.unwrap();
+        assert!(stepped_down.is_none());
+        assert!(
+            !cmux_link::key_holder::KeyFile::Node.path_in(dir.path()).exists(),
+            "a stepped-down transport read or created the key"
+        );
+        drop(link);
+        assert!(
+            Transport::start(&cfg, dir.path(), "127.0.0.1:1".parse().unwrap()).await.is_err(),
+            "with the lock free, the transport goes on to the (occupied) bind"
+        );
+    });
+}
+
+#[test]
+fn a_stopped_transport_releases_the_key_lock() {
+    runtime().block_on(async {
+        let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let (a, b, homes) = pair(target.local_addr().unwrap(), false).await;
+        assert!(matches!(
+            KeyHolder::acquire(homes[0].path()),
+            Err(KeyHolderError::KeyHeld { pid: Some(pid) }) if pid == std::process::id()
+        ));
+        a.shutdown(tokio::time::Instant::now()).await;
+        b.shutdown(tokio::time::Instant::now()).await;
+        assert!(KeyHolder::acquire(homes[0].path()).is_ok(), "the lock outlived the transport");
     });
 }
 

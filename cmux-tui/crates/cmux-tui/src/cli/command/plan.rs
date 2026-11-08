@@ -15,6 +15,8 @@ pub(in crate::cli) struct RequestPlan {
     pub resolve: Vec<Resolve>,
     /// The part of the result the command prints.
     pub view: ResponseView,
+    /// The rows a list keeps (`--name`, `--cwd`; wire/list_filter.rs).
+    pub filter: super::list_filter::ListFilter,
 }
 
 /// The part of a result a command prints. `TerminalProgramStatus` is
