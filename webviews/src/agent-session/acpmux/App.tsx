@@ -3985,10 +3985,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       if (!sessionId || !client) return;
       const current = snapshot.summary?.harness;
       const target =
-        composerSnapshot.catalog.find(
+        snapshot.catalog.find(
           (entry) =>
             entry.id !== current && entry.pickable !== false && (!entry.unavailable || entry.probeFailed),
-        ) ?? composerSnapshot.catalog.find((entry) => entry.pickable !== false);
+        ) ?? snapshot.catalog.find((entry) => entry.pickable !== false);
       if (!target) return;
       const files = changedFiles.filter(Boolean).slice(0, 40);
       const question = [
@@ -4010,7 +4010,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         target.id,
       );
     },
-    [composerSnapshot.catalog, snapshot.sessionId, snapshot.summary?.harness, turnRowsShown, btwNotes],
+    [snapshot.catalog, snapshot.sessionId, snapshot.summary?.harness, turnRowsShown, btwNotes],
   );
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   /// For a transcript that acts on nothing live (a replay, a read-only subagent's): its recaps draw
