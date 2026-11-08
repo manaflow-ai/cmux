@@ -19,7 +19,7 @@ nonisolated enum AcpmuxPaneMethods {
     /// Requests (`id` present).
     public static let requests: Set<String> = [
         // Sessions (direct.ts).
-        "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option",
+        "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option", "chat.fix_from_link", "chat.fix_from_link.prepare",
         // acpmux extensions (direct.ts). `_acpmux/attachment` reads a sent prompt's image by content hash.
         "_acpmux/watch", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/typing", "_acpmux/warm",
         // The session list's later pages (sessionPages.ts, cx-2lv1k): the same summaries watch answers,
@@ -357,6 +357,9 @@ nonisolated enum AcpmuxPaneMethods {
 
     public static let gestureRules: [String: GestureRule] = [
         "session/prompt": .always,
+        // Fixing a GitHub link creates a worktree and starts an agent turn; it is a person click,
+        // never a scriptable background launch.
+        "chat.fix_from_link": .always,
         // A side session's question is its first prompt.
         "_acpmux/btw": .always,
         // A saved guidance edit reaches every new chat's agent.

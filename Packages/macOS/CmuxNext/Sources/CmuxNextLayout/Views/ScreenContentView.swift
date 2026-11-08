@@ -105,6 +105,9 @@ final class ScreenContentView: NSView {
     var resizeGesture = PaneResizeGesturePhase.idle
     /// The pane contents that heard the drag start; the end goes to them.
     var resizeGestureListeners: [PaneResizeGestureListener] = []
+    /// The pane views a resize drag or a zoom's spring moves post no frame notice until it ends (``FrameNoticeHold``):
+    /// no titlebar drag-shape walk in each of its frames' commits, the zoom key's turn included.
+    let paneFrameNotices = FrameNoticeHold()
     /// Overlay docked columns' glass rims, keyed by column.
     var backdrops: [ColumnID: DockBackdropView] = [:]
     /// The strip scrollbar; created on first use.
@@ -198,6 +201,7 @@ final class ScreenContentView: NSView {
     func settleMotion() {
         // Landed at once (window out of sight, Reduce Motion turned on): the key-resize hold ends with the motion.
         defer { holdsContentForKeyResize = false }
+        defer { releasePaneFrameNoticesIfSettled() }
         defer { if resizeGesture == .landing { finishResizeGesture() } }
         defer { releaseClosing() }
         presentHeldSnap()
@@ -253,6 +257,16 @@ final class ScreenContentView: NSView {
         if activeDrag == nil { rowDragPreview = nil }
         let moving = reconcile(animated: animated, structural: structural, unzooming: unzooming, zooming: zooming, presents: false,
                                snapWaitsForFrame: snapWaitsForFrame)
+        // A zoom or an unzoom on its spring: the zooming pane's views post no frame notice from the key's turn until it
+        // lands (ZOOM VARIANTS 8: 1.25 ms of the key's turn in AppKit's structural regions). Only that pane moves: the
+        // panes it covers stay still under it, and the ones an unzoom finds come back in place.
+        if structural, window != nil, let pane = zoomMotion.pane, let host = context.hosts[pane], host.superview === self,
+           !paneFrameNotices.isHolding || resizeGesture == .idle {
+            paneFrameNotices.hold([host])
+        } else if structural {
+            // The zooming pane left the layout before it landed (closed, moved away): its views post again now.
+            releasePaneFrameNoticesIfSettled()
+        }
         #if DEBUG
         if let shapeBefore { columnWidths.noteChange(from: shapeBefore, to: restColumns, viewportWidth: bounds.width) }
         #endif
@@ -599,6 +613,7 @@ final class ScreenContentView: NSView {
         // A drag on a screen that goes away gets no release either.
         endDrag()
         finishResizeGesture()
+        paneFrameNotices.release()
         holdsGrids = false
         for pane in paneFrames.keys where !context.livePanes.contains(pane) {
             context.release(pane)

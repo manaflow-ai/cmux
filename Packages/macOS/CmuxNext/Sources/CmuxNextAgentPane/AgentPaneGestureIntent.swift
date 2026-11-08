@@ -35,12 +35,18 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
         "session/set_mode": ["modeId"],
         "session/set_config_option": ["configId", "value"],
         "session/prompt": ["promptId"],
+        "chat.fix_from_link": ["url"],
         // A Cloud send reserves its native Send gesture before waiting for the speculative
         // machine lease; the hand-off redeems the ticket once that lease settles.
         "cloud.startChat": ["key"],
         // cx-0q7o: the person's pick of one option of one prompt; only such an allow is signed
         // for another daemon run.
         "_acpmux/permission_respond": ["sessionId", "permissionId", "optionId"],
+    ]
+
+    /// Optional scalar launch selections still participate in exact ticket matching.
+    public static let optionalKeys: [String: Set<String>] = [
+        "chat.fix_from_link": ["cwd", "harness", "model"],
     ]
 
     /// Intent params a method may add to its keys: objects, each held as its canonical digest. A
@@ -61,7 +67,7 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
     /// while the user answers the folder trust question.
     public var lifetime: TimeInterval {
         switch method {
-        case "session/prompt": return AgentPaneUserGestures.heldPromptLifetime
+        case "session/prompt", "chat.fix_from_link": return AgentPaneUserGestures.heldPromptLifetime
         case "cloud.startChat": return AgentPaneUserGestures.cloudStartTicketLifetime
         default: return AgentPaneUserGestures.ticketLifetime
         }
@@ -80,7 +86,7 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
               let intent = gestureParams["intent"] as? [String: Any], Set(intent.keys) == ["method", "params"],
               let method = intent["method"] as? String, let keys = Self.methods[method],
               let raw = intent["params"] as? [String: Any], keys.isSubset(of: raw.keys),
-              Set(raw.keys).subtracting(keys).isSubset(of: (Self.objectKeys[method] ?? []).union(Self.bindingKeys[method] ?? []))
+              Set(raw.keys).subtracting(keys).isSubset(of: (Self.objectKeys[method] ?? []).union(Self.bindingKeys[method] ?? []).union(Self.optionalKeys[method] ?? []))
         else { return nil }
         var params: [String: AgentPaneJSONScalar] = [:]
         for (key, value) in raw {
@@ -89,7 +95,7 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
                 sessionId = session
                 continue
             }
-            if !keys.contains(key) {
+            if !keys.contains(key) && Self.optionalKeys[method]?.contains(key) != true {
                 // A question's answers or annotations: an object, by its canonical digest.
                 guard value is [String: Any], let digest = AcpmuxSecretKey.canonicalDigest(value) else { return nil }
                 params[key] = .string(digest)

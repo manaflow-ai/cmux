@@ -18,6 +18,10 @@
       "await-release-surface-ack": {
         "Record the decision": {"plumbing": true}},
       "promote-nightly-next-acked": {
+        "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Clean this job's workdir on an owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
+        "Claim the whole Mac for the release App key": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Wipe this job's credentials and files from the owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
         "Decide again and check the approver": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly push throttle"},
         "Mint release App token": {"nightly_only": "mints release GitHub App token"},
         "Move nightly-next": {"nightly_only": "moves nightly-next with release token (logic tested by tests/test_nightly_next_promotion_queue.py)"}},
@@ -321,8 +325,13 @@
         "Clean this job's workdir on an owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
         "Wipe this job's credentials and files from the owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"}},
       "sentry-dsyms-nightly": {
-        "Upload the build's dSYMs to Sentry": {"nightly_only": "uploads the build's dSYMs to Sentry with the Sentry token, off build-nightly-app's critical path"}},
+        "Find the attempt that compiled the published build": {"nightly_only": "looks up the published binary's producing run and its dSYM artifacts; a pull request has no published nightly build"},
+        "Upload the build's dSYMs to Sentry": {"nightly_only": "uploads the published build's dSYMs to Sentry with the Sentry token, in the tail run outside the push group"}},
       "keep-published-dsyms": {
+        "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Clean this job's workdir on an owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
+        "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Wipe this job's credentials and files from the owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
         "Mint the release App token for this job's gh calls": {"nightly_only": "mints release GitHub App token"},
         "Send this job's gh calls as the release App, github.token as the fallback": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publish jobs send gh calls as the release App first"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
@@ -351,6 +360,10 @@
         "Select Xcode": {"plumbing": true},
         "Generate deltas and revised appcast": {"nightly_only": "Sparkle key signs deltas (step env, after the claim; generate-nightly-deltas.sh tested by tests/test_generate_nightly_deltas.sh)"}},
       "republish-nightly-deltas": {
+        "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Clean this job's workdir on an owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
+        "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Wipe this job's credentials and files from the owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
         "Mint the release App token that reads the Dev ring switch": {"nightly_only": "mints release GitHub App token"},
         "Read the Dev ring switch live": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the Dev ring switch is read live when publishing"},
         "Mint the release App token for this job's gh calls": {"nightly_only": "mints release GitHub App token"},
