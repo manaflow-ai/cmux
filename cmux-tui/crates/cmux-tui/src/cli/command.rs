@@ -13,6 +13,7 @@ use super::{GlobalArgs, UsageError};
 use flags::{BOOLEAN_FLAGS, usage, validate_one_of};
 
 mod agent_focus;
+mod agent_hook_status;
 mod agent_list;
 mod agent_message_cmd;
 mod browser;
@@ -2966,7 +2967,11 @@ pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
 }
 
 pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_install::Plan) -> i32 {
-    let result = crate::agent_hook_install::run(&plan);
+    let mut result = crate::agent_hook_install::run(&plan);
+    if plan.action == crate::agent_hook_install::Action::Status {
+        result.value =
+            agent_hook_status::with_pane_helper(result.value, agent_hook_status::pane_helper());
+    }
     if result.failed {
         let error = json!({
             "code": "local.agent_hooks",

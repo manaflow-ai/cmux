@@ -193,7 +193,7 @@ fn attention_row_label(entry: &AttentionEntry) -> String {
             },
         ),
         AttentionKind::Blocked => ("!", messages.blocked.to_string()),
-        AttentionKind::Unread => ("•", messages.unread.to_string()),
+        AttentionKind::Unread | AttentionKind::Done => ("•", messages.unread.to_string()),
     };
     let label = format!("{marker} {} › {} · {detail}", entry.workspace, entry.tab);
     crate::ui::truncate(&label, 72)

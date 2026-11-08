@@ -24,6 +24,8 @@ pub(crate) enum AttentionKind {
     Requested,
     /// The tab's agent waits on the person (approval, question, review).
     Blocked,
+    /// An agent finished a turn nobody has viewed (`done`).
+    Done,
     /// An unread notification.
     Unread,
 }
@@ -34,6 +36,7 @@ impl AttentionKind {
         match self {
             Self::Requested => "requested",
             Self::Blocked => "blocked",
+            Self::Done => "done",
             Self::Unread => "unread",
         }
     }
@@ -76,8 +79,11 @@ impl<K> AttentionCandidate<K> {
     pub(crate) fn tier(&self) -> u8 {
         match (self.kind, self.level) {
             (AttentionKind::Requested | AttentionKind::Blocked, _) => 0,
-            (AttentionKind::Unread, AttentionLevel::Error | AttentionLevel::Warning) => 1,
-            (AttentionKind::Unread, AttentionLevel::Info) => 2,
+            (
+                AttentionKind::Unread | AttentionKind::Done,
+                AttentionLevel::Error | AttentionLevel::Warning,
+            ) => 1,
+            (AttentionKind::Unread | AttentionKind::Done, AttentionLevel::Info) => 2,
         }
     }
 
@@ -166,6 +172,21 @@ mod tests {
         later.position = 0;
         let earlier = candidate(3, AttentionKind::Blocked, AttentionLevel::Warning, 10);
         assert_eq!(keys(&attention_queue([earlier, later])), vec![9, 3]);
+    }
+
+    /// W5-Q (bench r4 #5): blocked, then a finished agent turn nobody has
+    /// viewed, then any other unread notification (a bell), each tier oldest
+    /// first.
+    #[test]
+    fn w5q_attention_queue_puts_a_finished_turn_before_other_unread() {
+        let queue = attention_queue([
+            candidate(1, AttentionKind::Unread, AttentionLevel::Info, 5),
+            candidate(2, AttentionKind::Done, AttentionLevel::Info, 50),
+            candidate(3, AttentionKind::Blocked, AttentionLevel::Warning, 900),
+            candidate(4, AttentionKind::Done, AttentionLevel::Info, 40),
+        ]);
+        assert_eq!(keys(&queue), vec![3, 4, 2, 1]);
+        assert_eq!(AttentionKind::Done.as_str(), "done");
     }
 
     #[test]

@@ -1191,6 +1191,7 @@ mod hints;
 mod human;
 mod list_order;
 mod notify_desktop;
+mod program_status_view;
 mod retry;
 mod sanitize;
 mod socket;

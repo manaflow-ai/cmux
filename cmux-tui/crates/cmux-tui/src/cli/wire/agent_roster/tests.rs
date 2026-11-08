@@ -436,3 +436,32 @@ fn w4j_an_unseen_idle_agent_is_done_and_ranks_after_blocked() {
     assert_eq!(result["agents"][0]["status"], Value::Null);
     assert_eq!(result["counts"]["ended"], 1);
 }
+
+/// W5-Q (bench r4 #7): `agent list` rows carry the agent's `name`, the name
+/// `terminal list --agents` shows: the tab's name when it is an agent name.
+#[test]
+fn w5q_agent_list_rows_carry_the_agent_name() {
+    let rows = json!([
+        agent("agent_pong", "idle", NOW - 1_000, "term_1"),
+        agent("agent_plain", "working", NOW - 2_000, "term_2"),
+    ]);
+    let terminals = [
+        json!({"id": "term_1", "tab_id": "tab_1", "title": "claude"}),
+        json!({"id": "term_2", "tab_id": "tab_2", "title": "codex"}),
+    ];
+    let tabs = [
+        json!({"id": "tab_1", "name": "pong", "content_id": "term_1", "pane_id": "pane_1"}),
+        json!({"id": "tab_2", "name": "My Tab", "content_id": "term_2", "pane_id": "pane_1"}),
+    ];
+    let mut result = shape(rows, &terminals, &HashSet::new(), AgentRosterView::default(), NOW);
+    add_names(&mut result, &terminals, &tabs);
+    let row = |id: &str| {
+        result["agents"].as_array().unwrap().iter().find(|row| row["id"] == id).unwrap().clone()
+    };
+    assert_eq!(row("agent_pong")["name"], "pong");
+    assert_eq!(row("agent_plain")["name"], Value::Null, "My Tab is no agent name");
+    let text = human(&result, None);
+    let header = text.lines().nth(1).unwrap_or_default();
+    assert!(header.starts_with("NAME"), "{text}");
+    assert!(text.lines().any(|line| line.starts_with("pong ")), "{text}");
+}

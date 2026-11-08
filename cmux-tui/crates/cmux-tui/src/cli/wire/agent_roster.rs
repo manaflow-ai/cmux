@@ -357,6 +357,9 @@ pub(super) fn shape(
     json!({"agents": agents, "counts": counts})
 }
 
+/// Adds each terminal agent's `name` (W5-Q): not yet.
+pub(super) fn add_names(_result: &mut Value, _terminals: &[Value], _tabs: &[Value]) {}
+
 /// The human roster: a counts line, then one row per agent. `home` is
 /// shown as `~` in FOLDER.
 pub(super) fn human(result: &Value, home: Option<&str>) -> String {

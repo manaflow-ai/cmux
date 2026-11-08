@@ -974,3 +974,52 @@ fn w4j_send_pattern_anchors_match_at_each_line() {
     assert_eq!(receipt["matched"], true, "{receipt}");
     assert_eq!(super::send_exit_code(&receipt, false), 0);
 }
+
+/// W5-Q (bench r4 #7): a list row says one word for the agent. `state` is
+/// the shared status word (`ended` for a session that ended), never the
+/// older `busy` or `waiting-for-input`.
+#[test]
+fn w5q_terminal_list_agents_state_is_the_shared_status_word() {
+    let rows = roster::agent_rows(&snapshot());
+    for row in &rows {
+        let shown = row.to_json(0);
+        assert_eq!(shown["state"].as_str(), Some(row.status_word()), "{shown}");
+    }
+    let words: Vec<String> =
+        rows.iter().map(|row| row.to_json(0)["state"].as_str().unwrap_or("").to_owned()).collect();
+    assert_eq!(words, ["blocked", "working", "idle"]);
+    let mut ended = snapshot();
+    ended["agents"][0]["state"] = json!("done");
+    let ended = roster::agent_rows(&ended);
+    assert_eq!(ended.last().map(|row| row.to_json(0)["state"].clone()), Some(json!("ended")));
+}
+
+/// W5-Q: a send that stops at a dialog and a send refused at a dialog say
+/// `blocked`, the word every list shows for that agent.
+#[test]
+fn w5q_send_at_a_dialog_says_blocked() {
+    let before = "⏺ OLD_ANSWER_ONE\n\n❯ Reply with exactly ALPHA_OK\n\n⏺ ALPHA_OK\n\n❯ ";
+    let daemon = dialog_daemon(&[(1, before), (2, DIALOG_SCREEN)]);
+    let receipt =
+        send::run(&daemon, None, &quick("Run the shell command `touch /tmp/w4i-perm` now."))
+            .expect("sent");
+    assert_eq!(receipt["state"], "blocked", "{receipt}");
+    let daemon = FakeDaemon::new(snapshot(), &[(1, "")]);
+    let request =
+        SendRequest { target: "term_c0dec000000000000000000000000004".into(), ..quick("yes") };
+    let failure = send::run(&daemon, None, &request).expect_err("refused");
+    assert_eq!(failure.failure.error["details"]["state"], "blocked");
+}
+
+/// W5-Q: a send whose wait timed out says the agent still works.
+#[test]
+fn w5q_send_timeout_says_working() {
+    let screens: Vec<(u64, String)> =
+        (1..400).map(|n| (n, format!("> q\n\nworking {n}"))).collect();
+    let screens: Vec<(u64, &str)> = screens.iter().map(|(n, text)| (*n, text.as_str())).collect();
+    let daemon = FakeDaemon::new(snapshot(), &screens);
+    let request = SendRequest { timeout: Duration::from_millis(100), ..quick("q") };
+    let receipt = send::run(&daemon, None, &request).expect("sent");
+    assert_eq!(receipt["timed_out"], true);
+    assert_eq!(receipt["state"], "working");
+}
