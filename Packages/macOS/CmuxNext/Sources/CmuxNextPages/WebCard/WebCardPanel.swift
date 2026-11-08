@@ -179,8 +179,9 @@ public final class WebCardPanel: NSPanel {
         spentClick = up
         let drawn = generation
         guard let downAction = await click.downOn.value, let upAction = await upOn.value else { return false }
-        // The card drew anew or closed while the hit test answered: the click was aimed at what was there before.
-        return generation == drawn && isVisible && downAction == upAction && actions.contains(downAction)
+        // The card drew anew or closed (both move the generation) while the hit test answered: the click was
+        // aimed at what was there before.
+        return generation == drawn && downAction == upAction && actions.contains(downAction)
     }
 
     /// A point of the panel's window in the page's CSS px, top-left origin (what
@@ -245,6 +246,7 @@ public final class WebCardPanel: NSPanel {
     override public func orderOut(_ sender: Any?) {
         pending = nil
         pendingTimeout.cancel()
+        generation += 1 // a click still being checked counts for nothing once the card is gone
         let shown = isVisible ? card : nil
         super.orderOut(sender)
         if let shown { finish(shown) }
