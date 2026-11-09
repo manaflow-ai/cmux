@@ -49,7 +49,6 @@ struct UpdatedCardCloseOverNotesTests {
             coordinator.cardWindow?.closeAfterTest()
         }
 
-        host.setHovered(true)
         host.notes.show(force: true)
         let popup = try #require(coordinator.cardWindow, "the changes popover did not open")
         let popover = try #require(host.notes.frame)
@@ -63,10 +62,22 @@ struct UpdatedCardCloseOverNotesTests {
                 "the card counts the popover's clear band over it as the card")
         let onPopover = CGPoint(x: popover.midX, y: popover.midY)
         #expect(host.hoverPassThroughWindows(at: onPopover).isEmpty, "the popover itself still ends the card's hover")
-        #expect(host.closeShown, "the x shows while the pointer is on the card under the open popover")
 
-        // The x's own hover fill reads the same pass-through.
-        #expect(x.hover.pointer?.passThroughWindows() == host.hoverPassThroughWindows(at: NSEvent.mouseLocation))
+        // The pointer comes onto the x over the popover's band. The move goes to the popover's window, the
+        // window on top there, never to the sidebar's tracking areas: the popover's window recomputes the
+        // sidebar's hover on it, so the card counts the pointer as on it and its x shows. (The synthesized
+        // pointer is set without a refresh of its own, so only that move can light the card.)
+        let windowKey = ObjectIdentifier(window)
+        PointerHover.debugPointers[windowKey] = PointerHover.DebugPointer(point: window.convertPoint(fromScreen: point),
+                                                                          mouse: NSEvent.mouseLocation)
+        defer { PointerHover.debugPointers[windowKey] = nil }
+        #expect(!host.isHovered, "setup: nothing has told the card about the pointer yet")
+        let move = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: popup.convertPoint(fromScreen: point), modifierFlags: [],
+                                                   timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: popup.windowNumber,
+                                                   context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+        popup.sendEvent(move)
+        #expect(host.isHovered, "a move over the popover's band reaches the card's hover")
+        #expect(!x.isHidden, "the x shows while the pointer is on the card under the open popover")
 
         // A press there goes to the sidebar's window at the same point (the popover's window passes it
         // on), and the sidebar's window finds the x there; pressing it dismisses the card. (A synthesized
