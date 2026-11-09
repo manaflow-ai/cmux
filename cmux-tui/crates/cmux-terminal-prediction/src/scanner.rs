@@ -108,8 +108,10 @@ pub struct TerminalOutputScanner {
     /// The conceal state each screen's cursor save holds (primary, alternate):
     /// the terminal keeps one saved cursor, attributes included, per screen.
     saved_concealed: [bool; 2],
-    /// Which screen saves and restores act on.
+    /// Which screen saves and restores act on, and whether that is known: after
+    /// missed output it is not until a seed or a switch says.
     is_on_alternate_screen: bool,
+    is_screen_known: bool,
     /// XTPUSHSGR's stack, as far as conceal goes (bounded like xterm's).
     pushed_concealed: Vec<bool>,
     sgr: SgrScan,
@@ -273,6 +275,7 @@ impl TerminalOutputScanner {
             is_concealed: false,
             saved_concealed: [false; 2],
             is_on_alternate_screen: false,
+            is_screen_known: true,
             pushed_concealed: Vec::new(),
             sgr: SgrScan::default(),
             modes: ModeScan::default(),
@@ -287,14 +290,30 @@ impl TerminalOutputScanner {
     /// A fresh parse state that keeps the conceal state and the copy a cursor
     /// save holds: output went missing (a resize, a replaced screen), the
     /// terminal kept both, and only output the scanner reads can change them.
+    ///
+    /// The missed output may have saved a concealing pen, or switched screens,
+    /// unseen, so until a save is seen each saved pen counts as concealing, and
+    /// the screen is unknown until [`Self::seed_screen`] or a switch.
     pub fn restarted(&self) -> Self {
         Self {
             is_concealed: self.is_concealed,
-            saved_concealed: self.saved_concealed,
+            saved_concealed: [true; 2],
             is_on_alternate_screen: self.is_on_alternate_screen,
-            pushed_concealed: self.pushed_concealed.clone(),
+            is_screen_known: false,
+            pushed_concealed: self.pushed_concealed.iter().map(|_| true).collect(),
             ..Self::new()
         }
+    }
+
+    /// The host read which screen the terminal shows.
+    pub fn seed_screen(&mut self, is_alternate: bool) {
+        self.is_on_alternate_screen = is_alternate;
+        self.is_screen_known = true;
+    }
+
+    fn switch_screen(&mut self, is_alternate: bool) {
+        self.is_on_alternate_screen = is_alternate;
+        self.is_screen_known = true;
     }
 
     fn saved_slot(&self) -> usize {
@@ -302,6 +321,13 @@ impl TerminalOutputScanner {
     }
 
     fn save_cursor(&mut self) {
+        if !self.is_screen_known {
+            // Either screen's save: neither may count as revealing for it.
+            for saved in &mut self.saved_concealed {
+                *saved |= self.is_concealed;
+            }
+            return;
+        }
         let slot = self.saved_slot();
         if let Some(saved) = self.saved_concealed.get_mut(slot) {
             *saved = self.is_concealed;
@@ -309,7 +335,11 @@ impl TerminalOutputScanner {
     }
 
     fn restore_cursor(&mut self) -> OutputSignal {
-        let saved = self.saved_concealed.get(self.saved_slot()).copied().unwrap_or(true);
+        let saved = if self.is_screen_known {
+            self.saved_concealed.get(self.saved_slot()).copied().unwrap_or(true)
+        } else {
+            self.saved_concealed.iter().any(|&saved| saved)
+        };
         self.set_concealed(saved)
     }
 
@@ -336,17 +366,17 @@ impl TerminalOutputScanner {
                 match (mode, set) {
                     (1049, true) => {
                         self.save_cursor();
-                        self.is_on_alternate_screen = true;
+                        self.switch_screen(true);
                     }
                     (1049, false) => {
-                        self.is_on_alternate_screen = false;
+                        self.switch_screen(false);
                         let _ = self.restore_cursor();
                     }
                     (1048, true) => self.save_cursor(),
                     (1048, false) => {
                         let _ = self.restore_cursor();
                     }
-                    _ => self.is_on_alternate_screen = set,
+                    _ => self.switch_screen(set),
                 }
                 if mode != 1048 {
                     switched = Some(set);
@@ -523,7 +553,7 @@ impl TerminalOutputScanner {
                     self.detour_bytes = None;
                     self.is_concealed = false;
                     self.saved_concealed = [false; 2];
-                    self.is_on_alternate_screen = false;
+                    self.switch_screen(false);
                     self.pushed_concealed.clear();
                     Some(OutputSignal::AlternateScreen(false))
                 }

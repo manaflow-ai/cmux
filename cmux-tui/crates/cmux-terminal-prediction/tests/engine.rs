@@ -1553,3 +1553,43 @@ fn a_soft_reset_reveals_text() {
     session.type_key("x");
     assert_eq!(session.drawn(), "x", "status {:?}", session.status());
 }
+
+#[test]
+fn a_restore_after_missed_output_that_left_a_full_screen_program_conceals() {
+    // The lost output left the alternate screen, and may have saved any pen:
+    // the next restore cannot be taken as revealing.
+    let mut session = armed_session();
+    session.remote("\x1b[8m\x1b7\x1b[0m\x1b[?1049h\x1b7");
+    session.engine.missed_output(session.clock);
+    session.engine.seed_alternate_screen(false);
+    let result = conceals_after_more(&mut session, "\x1b8");
+    assert!(result.starts_with("drawn \"\""), "{result}");
+}
+
+#[test]
+fn a_save_seen_after_missed_output_restores_exactly() {
+    let mut session = armed_session();
+    session.engine.missed_output(session.clock);
+    session.engine.seed_alternate_screen(false);
+    session.remote("\x1b7\x1b8");
+    session.advance(ms(2_000));
+    session.type_key("l");
+    session.remote("l");
+    session.type_key("s");
+    session.remote("s");
+    session.engine.presented_frame(session.clock);
+    session.type_key("x");
+    assert_eq!(session.drawn(), "x", "status {:?}", session.status());
+}
+
+fn conceals_after_more(session: &mut Session, output: &str) -> String {
+    session.remote(output);
+    session.advance(ms(2_000));
+    for key in ["h", "u", "n", "t"] {
+        session.type_key(key);
+        session.remote(key);
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key("e");
+    format!("drawn {:?}, status {:?}", session.drawn(), session.status())
+}

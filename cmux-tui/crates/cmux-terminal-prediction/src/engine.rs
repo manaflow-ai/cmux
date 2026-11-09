@@ -400,6 +400,8 @@ impl TerminalPredictionEngine {
     pub fn seed_alternate_screen(&mut self, is_active: bool) {
         if !self.has_observed_alternate_screen_switch {
             self.is_alternate_screen = is_active;
+            // The scanner's cursor saves are per screen; this is the screen.
+            self.scanner.seed_screen(is_active);
         }
     }
 
