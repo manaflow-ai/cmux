@@ -2,7 +2,7 @@
 """Render each What's New highlight's gallery state, and its before, and put them on pr-media.
 
     whats-new-gallery.py plan [--days N] [--all] --out PLAN.json     the states to render
-    whats-new-gallery.py manifest --plan PLAN.json --cases ALL.json [--parent SHA] --out MANIFEST.json
+    whats-new-gallery.py manifest --plan PLAN.json --cases ALL.json [--notes NOTES.json] [--parent SHA] --out MANIFEST.json
     whats-new-gallery.py parents --plan PLAN.json                     the commits to render befores at
     whats-new-gallery.py publish --plan PLAN.json --results DIR       privacy check, then upload
 
@@ -155,13 +155,14 @@ def _key(variant: str) -> re.Pattern:
 
 
 # A variant whose note opens "Selected" is the look its gallery file picked, of the ones it draws.
-SELECTED_NOTE = re.compile(r"""^\s*note:\s*[\"'`]Selected\b""")
+SELECTED_NOTE = re.compile(r"Selected\b")
 
 
-def _noted(variant: str, lines: list[str], mark: re.Pattern) -> bool:
-    """Whether `variant`'s note, within 2 lines of its key, matches `mark`."""
-    start = next((i for i, line in enumerate(lines) if _key(variant).search(line)), None)
-    return start is not None and any(mark.search(line) for line in lines[start + 1:start + 3])
+def _note(notes: dict, entry: str, variant: str) -> str:
+    """A variant's own note, from the entries (webviews/scripts/gallery/notes.ts), never read off its file's text.
+    The notes are HEAD's even for an older highlight's commit: its after and its marked before render at HEAD,
+    so HEAD's notes describe the variants that are drawn."""
+    return (notes.get(entry) or {}).get(variant) or ""
 
 
 def changed_lines(commit: str, path: str) -> set[int]:
@@ -174,7 +175,7 @@ def changed_lines(commit: str, path: str) -> set[int]:
     return lines
 
 
-def infer(row: dict, cases: list[dict], text_at=show, changed=changed_lines) -> str | None:
+def infer(row: dict, cases: list[dict], text_at=show, changed=changed_lines, notes: dict | None = None) -> str | None:
     """The state of the gallery files row["commit"] changed: the first variant the commit added (its key
     is in the file at the commit and not the commit before; the one its note calls "Selected" first, as a new file's
     closed row showed nothing of what agent-file-result-cards opened), else the variant whose lines it changed most,
@@ -198,8 +199,7 @@ def infer(row: dict, cases: list[dict], text_at=show, changed=changed_lines) -> 
         before, after = text_at(f"{commit}^", path) or "", text_at(commit, path) or ""
         added = [v for v in variants if _key(v).search(after) and not _key(v).search(before)]
         if added:
-            lines = after.split("\n")
-            return f"{entry}/{min(added, key=lambda v: not _noted(v, lines, SELECTED_NOTE))}"
+            return f"{entry}/{min(added, key=lambda v: not SELECTED_NOTE.match(_note(notes or {}, entry, v)))}"
         text = after.split("\n")
         starts = sorted((next((i + 1 for i, line in enumerate(text) if _key(v).search(line)), 0), v)
                         for v in variants)
@@ -215,10 +215,10 @@ def infer(row: dict, cases: list[dict], text_at=show, changed=changed_lines) -> 
 
 
 # A variant whose note opens with "Before" is the look its entry's change replaced ("Before: one flat list").
-BEFORE_NOTE = re.compile(r"""^\s*note:\s*[\"'`]Before\s*[:(]""")
+BEFORE_NOTE = re.compile(r"Before\s*[:(]")
 
 
-def marked_before(state: str, cases: list[dict], text: str) -> str | None:
+def marked_before(state: str, cases: list[dict], notes: dict) -> str | None:
     """The variant of `state`'s entry that its gallery file marks as the old look (its note opens with
     "Before", else its name ends in one of OLD_LOOK's words), the one sharing the longest name prefix with
     `state`'s variant, which it must share at least its first word with (`notes-flat` for `notes-sections`,
@@ -227,13 +227,12 @@ def marked_before(state: str, cases: list[dict], text: str) -> str | None:
     entry, _, after = state.partition("/")
     variants = list(dict.fromkeys(c["params"]["variant"] for c in _dark(cases)
                                   if c["params"].get("entry") == entry))
-    lines = text.split("\n")
     family = after.split("-", 1)[0] + "-"
     marked = []
     for order, variant in enumerate(variants):
         if variant == after or variant.startswith(f"{after}-light") or not variant.startswith(family):
             continue
-        noted = _noted(variant, lines, BEFORE_NOTE)
+        noted = bool(BEFORE_NOTE.match(_note(notes, entry, variant)))
         if noted or OLD_LOOK.search(variant):
             shared = len(os.path.commonprefix([variant, after]))
             marked.append((not noted, -shared, order, variant))
@@ -245,13 +244,7 @@ def _source(state: str, cases: list[dict]) -> str | None:
     return next((c["params"].get("source") for c in _dark(cases) if c["params"].get("entry") == entry), None)
 
 
-def _source_text(state: str, cases: list[dict]) -> str:
-    source = _source(state, cases)
-    path = ROOT / "webviews" / source if source else None
-    return path.read_text(encoding="utf-8") if path and path.is_file() else ""
-
-
-def resolve(rows: list[dict], cases: list[dict], text_at=show, source_text=_source_text) -> tuple[list[dict], list[str]]:
+def resolve(rows: list[dict], cases: list[dict], text_at=show, notes: dict | None = None) -> tuple[list[dict], list[str]]:
     """The rows with their inferred states filled in, and the highlights none could be picked for. A before
     with no `before:` line takes the old look its entry marks (``marked_before``), rendered now beside the
     after; only an entry that marks none renders the after's state at the commit before the highlight's, and only
@@ -260,13 +253,13 @@ def resolve(rows: list[dict], cases: list[dict], text_at=show, source_text=_sour
     out, missing = [], []
     for row in rows:
         if not row.get("state"):
-            state = infer(row, cases, text_at)
+            state = infer(row, cases, text_at, notes=notes)
             if state is None:
                 missing.append(f"{row['id']}: no gallery state in {', '.join(row['sources'])}")
                 continue
             row = {**row, "state": state}
         if row["role"] == "before" and row.get("parent"):
-            old = marked_before(row["state"], cases, source_text(row["state"], cases))
+            old = marked_before(row["state"], cases, notes or {})
             if old:
                 row = {key: value for key, value in row.items() if key != "parent"} | {"state": old}
             elif (source := _source(row["state"], cases)) and not _key(row["state"].partition("/")[2]).search(
@@ -444,6 +437,7 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("--plan", type=Path, required=True)
     m.add_argument("--cases", type=Path, required=True)
     m.add_argument("--parent")
+    m.add_argument("--notes", type=Path, help="each variant's note (webviews/scripts/gallery/notes.ts)")
     m.add_argument("--out", type=Path, required=True)
     a = sub.add_parser("parents")
     a.add_argument("--plan", type=Path, required=True)
@@ -470,7 +464,8 @@ def main(argv: list[str] | None = None) -> int:
         cases = json.loads(args.cases.read_text())
         missing = []
         if args.parent is None:
-            rows, missing = resolve(rows, cases)
+            notes = json.loads(args.notes.read_text()) if args.notes else {}
+            rows, missing = resolve(rows, cases, notes=notes)
             args.plan.write_text(json.dumps(rows, indent=2) + "\n")
         out, unmatched = manifest(rows, cases, args.parent)
         args.out.write_text(json.dumps(out, indent=2) + "\n")

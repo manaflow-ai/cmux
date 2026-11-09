@@ -37,12 +37,13 @@ extension MainPaneGutterSuites {
                 let gutter = Metrics.mainPaneGutter
                 try #require(Metrics.mainPaneCurved && windowRadius > gutter, "a curved main pane in a window with round corners")
                 #expect(gutter > 0, "the default keeps a gutter at the window edges")
-                // Lawrence 2026-11-04: the one corner radius of panes and tabs, never rounder than the window's own;
-                // 2026-11-05: its default is the omnibar's 8 pt, never rounder than concentric with the window.
-                #expect(root.contentHost.layer?.cornerRadius == min(Metrics.densityPaneCornerRadius, windowRadius),
-                        "the pane's corner is the one corner radius")
-                #expect(Metrics.densityPaneCornerRadius <= windowRadius - gutter,
-                        "the default main pane is no rounder than concentric with the window")
+                // Lawrence 2026-11-07 (7f3090eb): "make it all concentric with macos windows by default (but still
+                // configurable)": with layout.paneCornerRadius unset the pane's radius is the window's less the inset
+                // it keeps from the window's edge (10 pt in the 16 pt window across the 6 pt gutter), not the 8 pt
+                // pane radius.
+                let inset = Metrics.windowEdgeInset(gutter, in: window)
+                #expect(root.contentHost.layer?.cornerRadius == windowRadius - inset,
+                        "the pane's corner is the window's \(windowRadius) pt less its \(inset) pt inset")
             }
         }
 

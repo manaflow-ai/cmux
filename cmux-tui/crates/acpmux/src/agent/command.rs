@@ -39,9 +39,53 @@ fn claude_name_args(
     if name.is_empty() || remote || own { Vec::new() } else { vec!["--name".into(), name.into()] }
 }
 
+/// `harness_command` for a spawn, the one every spawn path builds: when its
+/// final env plan takes a login value only the shell holds (a cached start),
+/// wait for the shell (at most `login_env::TIMEOUT`) and build it again with
+/// the read's values; a base URL or `${env:X}` it still lacks refuses the
+/// start (`login_env::ChildEnv`). A name the plan sets, unsets or never
+/// inherits (a route's unset, a remote-origin launch) never waits; one a
+/// scrub removes and the login import restores does. A read that ends while
+/// the command is built builds it again (`login_env::build_ready`).
+pub(crate) async fn harness_command_ready(
+    name: &str,
+    profile: &HarnessProfile,
+    cwd: &std::path::Path,
+    command_line: Option<(String, Vec<String>)>,
+    session: Option<(&str, &str)>,
+) -> Result<Command> {
+    let family = crate::config::derive_family(name, profile);
+    let mut plan = crate::login_env::ChildEnv {
+        family: &family,
+        profile: Some(&profile.env),
+        remote: profile.env.get(REMOTE_ENV_POLICY_KEY).map(String::as_str) == Some("1"),
+        explicit: None,
+    };
+    crate::login_env::build_ready(
+        &mut plan,
+        || harness_command(name, profile, cwd, command_line.clone(), session),
+        |cmd| explicit_env(cmd.as_std()),
+        |e| anyhow!(e),
+    )
+    .await
+}
+
+/// The env changes `cmd` makes: a name it sets, or removes (`None`).
+pub(crate) fn explicit_env(cmd: &std::process::Command) -> Vec<(String, Option<String>)> {
+    cmd.get_envs()
+        .map(|(k, v)| {
+            (k.to_string_lossy().into_owned(), v.map(|v| v.to_string_lossy().into_owned()))
+        })
+        .collect()
+}
+
 /// The harness command line and environment, as acpmux runs it: the login
 /// environment, no nested-agent markers, the session's `ACPMUX_*` caller
 /// context, and the profile's env. Shared by direct children and hosts.
+///
+/// Every spawn builds through [`harness_command_ready`], never this directly:
+/// the only direct callers are that function and tests that read the built
+/// command without starting it.
 pub(crate) fn harness_command(
     name: &str,
     profile: &HarnessProfile,
@@ -195,10 +239,11 @@ pub(crate) fn harness_command(
     for k in route_unset.iter().flat_map(|list| list.split(',')) {
         cmd.env_remove(k);
     }
-    // An Anthropic endpoint harness: no inherited ANTHROPIC_* or Claude
-    // provider switch (the login shell's, the daemon's) overrides its own.
-    if own_endpoint == Some(crate::byo_endpoint::Kind::Anthropic) {
-        crate::byo_endpoint::clear_inherited(&mut cmd, &env);
+    // An endpoint harness: no inherited key (CMUX_BYO_API_KEY) and, for an
+    // Anthropic one, no inherited ANTHROPIC_* or Claude provider switch (the
+    // login shell's, the daemon's) overrides its own or reaches its URL.
+    if let Some(kind) = own_endpoint {
+        crate::byo_endpoint::clear_inherited(&mut cmd, kind, &env);
     }
     if let Some((id, sname)) = session {
         cmd.env("ACPMUX_ENV", "1")
@@ -240,6 +285,9 @@ pub(crate) fn harness_command(
     cmd.env_remove("CMUX_HARNESS_SESSION_STORE_DIR");
     cmd.args(crate::harness_limits::launch_args(program, args, session.map(|_| (cwd, &env))))
         .envs(env.iter());
+    // The subagent mark is the daemon's to give (a workflow runner a subagent started,
+    // `hub/workflow_runs.rs`), never a profile's: an agent's MCP servers would send as it.
+    cmd.env_remove(crate::cli::sender::SUBAGENT_ENV);
     // The profile's PATH first, never instead of the login PATH (login_env::with_agent_path).
     if !remote_environment && let Some(own) = env.get("PATH").filter(|p| !p.is_empty()) {
         cmd.env("PATH", crate::login_env::with_agent_path(own));
@@ -858,6 +906,11 @@ mod tests {
             super::super::foreign_login::foreign_login_keys("opencode").any(|k| k == key)
         };
         assert!(!opencode_loses("ANTHROPIC_API_KEY") && !opencode_loses("OPENAI_API_KEY"));
+        // A provider key in the daemon's own env reaches OpenCode, never Claude Code or Codex.
+        for key in ["OPENROUTER_API_KEY", "GROQ_API_KEY"] {
+            assert!(removed(&claude, key) && removed(&codex, key), "{key} reaches Claude or Codex");
+            assert!(!removed(&opencode, key), "OpenCode loses {key}");
+        }
         // A value the profile sets is the person's choice and passes.
         let chosen =
             profile(HarnessKind::Acp, "codex-acp", serde_json::json!({"ANTHROPIC_API_KEY": "own"}));

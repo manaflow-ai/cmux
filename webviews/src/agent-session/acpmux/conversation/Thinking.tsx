@@ -322,12 +322,11 @@ export function Thinking({
   // compaction's clock beside its words) already reads as that word's.
   const own =
     ownTime && timesLook === "labelled" && doing !== undefined ? t("turn.live.stepTime", { time: ownTime }) : ownTime;
-  // "Thinking" past the first step with no thoughts streamed yet: the turn's clock after a dot, named,
-  // never bare beside the word, which would read as that long a think (Leo, 2026-11-03).
-  const bareTurn = decorative && total && own === undefined && timesLook === "labelled";
-  // The turn's clock after it: named when labelled, only in the step time's tooltip on hover.
+  // "Thinking" with no own time stands beside the turn's clock alone, unnamed: "Thinking 1m 24s", never
+  // "Thinking · turn 1m 24s" (Leo, 2026-11-09: "when thinking dont add the turn ... jsut remove the turn").
+  // The turn's clock after an own time: named when labelled, only in the step time's tooltip on hover.
   const turnClock =
-    (own || bareTurn) && turnTime && timesLook === "labelled" ? t("turn.live.turnTime", { time: turnTime }) : turnTime;
+    own && turnTime && timesLook === "labelled" ? t("turn.live.turnTime", { time: turnTime }) : turnTime;
   const turnTitle = own && turnTime && timesLook === "hover" ? t("turn.live.turnTime", { time: turnTime }) : undefined;
   // The compaction's own clock alone (`own` arm), never the turn's: the turn did not think that long.
   const elapsed = compacting
@@ -336,9 +335,7 @@ export function Thinking({
       : compactLook === "turn"
         ? (own ?? turnTime)
         : undefined
-    : bareTurn
-      ? undefined
-      : (own ?? turnTime);
+    : (own ?? turnTime);
   // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
   // running tray off, the work still going in the background, each count opening what it counts
   // (App.tsx counts nothing while the tray lists it).
@@ -473,7 +470,7 @@ export function Thinking({
           )}
         </span>
       )}
-      {(own || bareTurn) && !waiting && timesLook !== "hover" && (
+      {own && !waiting && timesLook !== "hover" && (
         <span className="cv-worked__count cv-worked__total">
           <span className="cv-worked__sep" aria-hidden="true">
             ·

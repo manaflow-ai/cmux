@@ -481,6 +481,10 @@ public final class AgentPaneModel {
         // The composer reports whether its harness takes audio on every mount (dictation.ts), and the
         // header, project notice and New Tab project list read their state on mount: boot traffic too (HQ#5914).
         case .dictation(.recordAudio), .tabState, .projectInstructions, .listProjects: break
+        // Every page reads its tip records on mount (featureTipsModel.ts); counted as a touch, it
+        // kept every subagent, side chat and sender open off the prewarmed page ("touched by
+        // featureTips"), each one making a cold page instead. Keeping or claiming a tip still touches.
+        case .featureTips(.read): break
         case .reply(let reply) where reply.isPassive: break
         case .cloudReservation: break
         case .cloudEnvironment(let request) where request.action != "update": break
