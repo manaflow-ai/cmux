@@ -6,7 +6,7 @@
 //! of another session is seen by no one while that session never starts
 //! again: a normal install's host has no orphan grace (cx-t2sqm D1), so it
 //! kept its shell and PTY until reboot. On a Mac every build keeps its own
-//! state root (`cmux/tags/<tag>/tui`), so the hosts of an old NIGHTLY or a
+//! state root (`cmux/tags/<tag>/tui` or `cmux/builds/<key>/tui`), so the hosts of an old NIGHTLY or a
 //! thrown-away DEV tag sit in roots no other owner read. This owner looks at
 //! the other sessions' roots of its own state root and of its siblings
 //! ([`state_roots`]) off its restore, on its own thread: a first pass a
@@ -207,8 +207,9 @@ impl Mux {
 }
 
 /// The state roots this owner looks in, sorted: its own, and on the app's
-/// per-build layout every build's (`<Application Support>/cmux/tags/<tag>/tui`,
-/// `BuildIdentity::state_dir` in cmux-agent-pane-policy) and the shared root
+/// per-build layout every build's (`<Application Support>/cmux/tags/<tag>/tui`
+/// for a build with kept names, `cmux/builds/<key>/tui` for any other bundled
+/// build: CmuxNextCompat `BuildIdentity.daemonStateDirectory`) and the shared root
 /// of the builds before cx-6so.41 (`<Application Support>/cmux-tui/sessions`,
 /// the platform default `workspace_state_dir`). Each build's owner keeps one
 /// of these; a build that is never launched again leaves its hosts in it.
@@ -221,7 +222,7 @@ fn state_roots(own_state_root: &Path) -> Vec<PathBuf> {
     let tag_dir = own_state_root.parent();
     let tags = tag_dir.and_then(Path::parent);
     let base = if name(Some(own_state_root)) == Some("tui")
-        && name(tags) == Some("tags")
+        && matches!(name(tags), Some("tags" | "builds"))
         && name(tags.and_then(Path::parent)) == Some("cmux")
     {
         tags.and_then(Path::parent).and_then(Path::parent)
@@ -232,15 +233,16 @@ fn state_roots(own_state_root: &Path) -> Vec<PathBuf> {
     };
     let mut roots = vec![own_state_root.to_path_buf()];
     if let Some(base) = base {
-        let tags = base.join("cmux").join("tags");
-        roots.extend(
-            std::fs::read_dir(&tags)
-                .into_iter()
-                .flatten()
-                .flatten()
-                .map(|entry| entry.path().join("tui"))
-                .filter(|root| root.is_dir()),
-        );
+        for builds in ["tags", "builds"] {
+            roots.extend(
+                std::fs::read_dir(base.join("cmux").join(builds))
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .map(|entry| entry.path().join("tui"))
+                    .filter(|root| root.is_dir()),
+            );
+        }
         let shared = base.join("cmux-tui").join("sessions");
         if shared.is_dir() {
             roots.push(shared);
@@ -417,6 +419,29 @@ fn walk_roots<T>(
     (cursor, false)
 }
 
+/// Drops the entries of roots not in `visited` whose root no longer holds
+/// their record. A root whose listing fails keeps its entries.
+fn prune_unvisited_entries(hosts: &HostOps<'_>, store: &mut Store, visited: &HashSet<String>) {
+    let mut held = HashMap::<String, Option<HashSet<String>>>::new();
+    store.hosts.retain(|key, _| {
+        let Some(root) = key_root(key) else { return false };
+        if visited.contains(root) {
+            return true;
+        }
+        let records = held.entry(root.to_string()).or_insert_with(|| {
+            (hosts.load)(Path::new(root)).ok().map(|records| {
+                records
+                    .iter()
+                    .map(|(_, record)| {
+                        format!("{root}|{}|{}", record.terminal_id, record.incarnation)
+                    })
+                    .collect()
+            })
+        });
+        records.as_ref().is_none_or(|records| records.contains(key))
+    });
+}
+
 type LoadedRecords =
     anyhow::Result<Vec<(PathBuf, crate::terminal_host_runtime::TerminalHostRecord)>>;
 
@@ -469,6 +494,7 @@ fn reap_pass_with(
         roots.iter().map(|(_, root, _)| root.display().to_string()).collect::<HashSet<_>>();
     store.hosts.retain(|key, _| key_root(key).is_some_and(|root| present.contains(root)));
     let mut removed = 0;
+    let mut visited = HashSet::new();
     let (cursor, capped) = walk_roots(
         &roots,
         |(_, root, _)| root.as_path(),
@@ -480,6 +506,7 @@ fn reap_pass_with(
             };
             let prefix = format!("{}|", root.display());
             store.hosts.retain(|key, _| !key.starts_with(&prefix));
+            visited.insert(root.display().to_string());
             if records.is_empty() {
                 return Visit::Empty;
             }
@@ -597,6 +624,12 @@ fn reap_pass_with(
             visit
         },
     );
+    // Past the cap, the saved roots this pass did not reach (after the root
+    // cap) drop the entries of hosts they no longer hold, so a root that went
+    // empty never keeps the times of hosts seen since from the store.
+    if store.hosts.len() > MAX_STORE_ENTRIES {
+        prune_unvisited_entries(hosts, &mut store, &visited);
+    }
     report.removed = removed;
     report.capped = capped;
     store.cursor = cursor;
