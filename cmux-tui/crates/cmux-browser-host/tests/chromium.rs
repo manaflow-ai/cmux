@@ -685,7 +685,7 @@ fn verify_flow_walks_through_steps_with_screenshots() {
         .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
     let port = serve();
     // A port nothing listens on: bound, then released.
-    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let closed = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
     let dir = std::env::temp_dir().join(format!("cmux-host-verify-flow-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("host.sock");
