@@ -660,13 +660,13 @@ impl Daemon for Slow {
             self.busy_reads.set(self.busy_reads.get() - 1);
             if self.rejected {
                 return Err(CallFailure::local(
-                    super::super::mcp::FailureKind::Rejected,
+                    FailureKind::Rejected,
                     "terminal.not_found",
                     "no such terminal",
                 ));
             }
             return Err(CallFailure::local(
-                super::super::mcp::FailureKind::NotRun,
+                FailureKind::NotRun,
                 "transport.failed",
                 crate::localization::catalog().cli_connection.no_answer(),
             ));
