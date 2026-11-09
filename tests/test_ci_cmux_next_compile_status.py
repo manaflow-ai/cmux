@@ -25,25 +25,47 @@ REPO = "manaflow-ai/cmux"
 # A curl that answers the compile-check read from $REPLY (exit 22, curl's --fail code, when it is
 # missing: a 404) and appends every status post's body to $POSTS.
 FAKE_CURL = r'''#!/usr/bin/env bash
-out="" body="" url=""
+out="" body="" url="" retry=0 delay=1
 while (($#)); do
   case "$1" in
     -o) out="$2"; shift 2 ;;
     -d) body="$2"; shift 2 ;;
     --max-time) echo "max-time $2" >> "$READS.opts"; shift 2 ;;
-    -X|-H|--connect-timeout|--retry|--retry-delay|--retry-max-time) shift 2 ;;
+    --retry) retry="$2"; shift 2 ;;
+    --retry-delay) delay="$2"; shift 2 ;;
+    -X|-H|--connect-timeout|--retry-max-time) shift 2 ;;
     -*) shift ;;
     *) url="$1"; shift ;;
   esac
 done
 if [[ "$url" == */statuses/* ]]; then
   [[ -n "${POST_FAILS:-}" ]] && exit 22
-  printf '%s\n' "$body" >> "$POSTS"; exit 0
+  # GitHub refuses a post whose state is $REFUSE_STATE, or every post for its first $REFUSE_SECONDS.
+  refused() {
+    [[ -n "${REFUSE_STATE:-}" && "$body" == *"\"state\":\"$REFUSE_STATE\""* ]] && return 0
+    (( $1 < ${REFUSE_SECONDS:-0} ))
+  }
+  # curl's own retries in virtual time: one try every --retry-delay seconds, inside timeout's bound.
+  t=0
+  for ((try = 0; try <= retry; try++)); do
+    (( t > ${TIMEOUT_BOUND:-999999} )) && exit 124
+    if ! refused "$t"; then printf '%s\n' "$body" >> "$POSTS"; exit 0; fi
+    t=$((t + delay))
+  done
+  [[ -n "$out" ]] && printf '%s' "$REFUSAL" > "$out"
+  printf '%s' "$REFUSAL" >> "$REFUSALS"
+  exit 22
 fi
 printf '%s\n' "$url" >> "$READS"
 [[ -f "$REPLY" ]] || exit 22
 cp "$REPLY" "$out"
 '''
+
+# timeout's bound, handed to the curl it runs (the fake curl spends virtual time, not real time).
+FAKE_TIMEOUT = r'''#!/usr/bin/env bash
+TIMEOUT_BOUND="$1" exec "${@:2}"
+'''
+REFUSAL = '{"message":"You have exceeded a secondary rate limit. Please wait a few minutes before you try again."}'
 
 
 def job() -> dict:
@@ -63,6 +85,9 @@ class StatusMapping(unittest.TestCase):
             curl = bin_dir / "curl"
             curl.write_text(FAKE_CURL)
             curl.chmod(0o755)
+            timeout = bin_dir / "timeout"
+            timeout.write_text(FAKE_TIMEOUT)
+            timeout.chmod(0o755)
             if reply is not None:
                 Path(tmp, "reply.json").write_text(json.dumps(reply))
             done = subprocess.run(
@@ -70,7 +95,9 @@ class StatusMapping(unittest.TestCase):
                 env={"PATH": f"{bin_dir}:{os.environ['PATH']}", "RUNNER_TEMP": tmp, "GH_TOKEN": "t", "SHA": SHA,
                      "REPO": REPO, "API": f"https://api.github.com/repos/{REPO}", "RUN_URL": "https://github.com/run/1",
                      "RESULTS": "https://results/v1", "REPLY": str(Path(tmp, "reply.json")),
-                     "POSTS": str(Path(tmp, "posts")), "READS": str(Path(tmp, "reads")), **env})
+                     "POSTS": str(Path(tmp, "posts")), "READS": str(Path(tmp, "reads")), "REFUSAL": REFUSAL,
+                     "REFUSALS": str(Path(tmp, "refusals")), **env})
+            self.output = done.stdout + done.stderr
             posts = [json.loads(line) for line in Path(tmp, "posts").read_text().splitlines()] \
                 if Path(tmp, "posts").exists() else []
             reads = Path(tmp, "reads").read_text().splitlines() if Path(tmp, "reads").exists() else []
@@ -138,6 +165,26 @@ class StatusMapping(unittest.TestCase):
         code, _, _ = self.run_step(self.reply("pass"), POST_FAILS="1")
         self.assertNotEqual(code, 0)
 
+    # On 2026-11-09 GitHub refused cmux-bot's status posts with 403 from 21:40:52Z to 21:41:44Z (run 42704515549 and
+    # three more feat-cmux-next push runs), while the same token posted at 21:40:55Z on another head. Each refused
+    # post had 3 tries in 20 s, so four heads went red, one of them (b208ea9d) after a pass.
+    def test_a_post_refused_for_a_minute_and_a_half_still_lands(self):
+        code, posts, _ = self.run_step(self.reply("pass"), REFUSE_SECONDS="90")
+        self.assertEqual(code, 0, self.output)
+        self.assertEqual([post["state"] for post in posts], ["pending", "success"])
+
+    def test_a_refused_pending_post_does_not_stop_the_check(self):
+        # The pending status is a courtesy: the terminal post decides, and a missing context never admits.
+        code, posts, _ = self.run_step(self.reply("pass"), REFUSE_STATE="pending")
+        self.assertEqual(code, 0, self.output)
+        self.assertEqual([post["state"] for post in posts], ["success"])
+
+    def test_a_refused_post_says_why(self):
+        code, posts, _ = self.run_step(self.reply("pass"), REFUSE_STATE="success")
+        self.assertNotEqual(code, 0)
+        self.assertEqual([post["state"] for post in posts], ["pending"])
+        self.assertIn("secondary rate limit", self.output)
+
     def test_the_script_never_sleeps(self):
         self.assertNotIn("sleep", step_script())
 
@@ -173,6 +220,9 @@ class FastCheckLinuxRoute(unittest.TestCase):
             curl = bin_dir / "curl"
             curl.write_text(FAKE_CURL)
             curl.chmod(0o755)
+            timeout = bin_dir / "timeout"
+            timeout.write_text(FAKE_TIMEOUT)
+            timeout.chmod(0o755)
             if reply is not None:
                 Path(tmp, "reply.json").write_text(json.dumps(reply))
             output = Path(tmp, "output")
@@ -181,7 +231,9 @@ class FastCheckLinuxRoute(unittest.TestCase):
                 env={"PATH": f"{bin_dir}:{os.environ['PATH']}", "RUNNER_TEMP": tmp, "REF": SHA, "REPO": REPO,
                      "GATEWAY": gateway, "RESULTS": "https://results/v1", "GITHUB_OUTPUT": str(output),
                      "HOME": tmp, "RUNNER_NAME": "r", "REPLY": str(Path(tmp, "reply.json")),
-                     "POSTS": str(Path(tmp, "posts")), "READS": str(Path(tmp, "reads")), **env})
+                     "POSTS": str(Path(tmp, "posts")), "READS": str(Path(tmp, "reads")), "REFUSAL": REFUSAL,
+                     "REFUSALS": str(Path(tmp, "refusals")), **env})
+            self.output = done.stdout + done.stderr
             verdict = dict(line.split("=", 1) for line in output.read_text().splitlines()).get("verdict", "") \
                 if output.exists() else ""
             reads = Path(tmp, "reads").read_text().splitlines() if Path(tmp, "reads").exists() else []
