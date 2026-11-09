@@ -21,8 +21,9 @@
 /// Names the sender of every `acpmux send` run with it set and no `--from`.
 pub const FROM_ENV: &str = "ACPMUX_FROM";
 
-/// Set by acpmux's Bash hook (`bg_hook.rs` [`crate::bg_hook::subagent_mark`]) on an `acpmux`
-/// command a Claude Code subagent runs: `TYPE:ID`, from the hook input's `agent_type` and
+/// Set by acpmux's Bash hook (`bg_hook.rs` [`crate::bg_hook::subagent_mark`]) on a command a
+/// Claude Code subagent runs that may run the acpmux CLI (`bg_hook::may_run_acpmux`: not only one
+/// that names acpmux; a wrapper, an alias or another path too): `TYPE:ID`, from the hook input's `agent_type` and
 /// `agent_id`. A subagent runs in its lead's process and inherits the lead's whole environment
 /// (`ACPMUX_SESSION_*`, `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_CHILD_SESSION` too: read on a real
 /// Claude Code 2.1.319, 2026-11-08), so nothing else tells its send from its lead's. A label
@@ -73,35 +74,100 @@ fn subagent_in(env: impl Fn(&str) -> Option<String>) -> Option<Subagent> {
         .then(|| Subagent { kind: kind.to_owned(), id: id.to_owned() })
 }
 
-/// What `acpmux send` prints as `sending as …` for an agent's send on `client`: the session its
-/// caller token proved at initialize, by its name as the daemon has it now
-/// (`ACPMUX_SESSION_NAME` is the name when its agent started; `acpmux run -n` and a rename change
-/// it), and the subagent in it; a token this daemon does not know; or the name it gave, which
-/// proves nothing. `None` for the person's own send.
-pub async fn sending_as_on(client: &crate::client::Client, named: Option<&str>) -> Option<String> {
+/// Who an agent's send goes out as: the line `acpmux send` prints after `sending as`, and the
+/// subagent of the session that sends it (`_meta.acpmux.callerSubagent`), when one is known.
+#[derive(Debug, Default)]
+pub struct SendingAs {
+    /// The `sending as …` text; `None` for the person's own send.
+    pub shown: Option<String>,
+    /// The subagent: the Bash hook's mark (Claude Code), else a Codex thread that is not the
+    /// session's own ([`codex_thread_in`]).
+    pub subagent: Option<Subagent>,
+}
+
+/// Who an agent's send on `client` goes out as: the session its caller token proved at
+/// initialize, by its name as the daemon has it now (`ACPMUX_SESSION_NAME` is the name when its
+/// agent started; `acpmux run -n` and a rename change it), and the subagent in it; a token this
+/// daemon does not know; or the name it gave, which proves nothing. `shown` is `None` for the
+/// person's own send.
+pub async fn sending_as_on(client: &crate::client::Client, named: Option<&str>) -> SendingAs {
     let env = |key: &str| std::env::var(key).ok();
     if !in_session(env) {
-        return sending_as(env, named, None);
+        return SendingAs {
+            shown: sending_as(env, named, None, &CodexThread::None),
+            subagent: None,
+        };
     }
     let Some(id) = client.proven_caller_session() else {
-        return Some(UNPROVEN.to_owned());
+        return SendingAs { shown: Some(UNPROVEN.to_owned()), subagent: subagent_in(env) };
     };
-    let params = serde_json::json!({"sessionId": id});
+    // Only the session list's fields (its name, its harness's own session id): no log wait.
+    let params = serde_json::json!({"sessionId": id, "waitLogs": false});
     let ask = client.request(crate::rpc::method::MUX_INFO, params);
     let info = tokio::time::timeout(std::time::Duration::from_secs(2), ask).await;
-    let current = info.ok().and_then(Result::ok);
-    let current = current.as_ref().and_then(|i| i.get("name")).and_then(serde_json::Value::as_str);
-    sending_as(env, named, current.filter(|n| !n.is_empty()))
+    let info = info.ok().and_then(Result::ok);
+    let field = |key: &str| {
+        info.as_ref()
+            .and_then(|i| i.get(key))
+            .and_then(serde_json::Value::as_str)
+            .filter(|v| !v.is_empty())
+    };
+    let codex = codex_thread_in(env, field("agentSessionId"));
+    let subagent = subagent_in(env).or(match &codex {
+        CodexThread::Subagent(sub) => Some(sub.clone()),
+        _ => None,
+    });
+    SendingAs { shown: sending_as(env, named, field("name"), &codex), subagent }
 }
 
 /// `sending as` for a session whose caller token the daemon did not prove.
 const UNPROVEN: &str = "no proven session: this daemon does not know this session's caller token, \
     so the receiver cannot tell who sent it (`acpmux session restart @` gives the agent a new one)";
 
+/// What `CODEX_THREAD_ID` tells of who runs a command in an acpmux session.
+///
+/// Codex has no hook that could mark a subagent's command as Claude Code's Bash hook does, but it
+/// runs every command with `CODEX_THREAD_ID`, the id of the thread that runs it, and a subagent
+/// it spawns (`spawn_agent`) runs in a thread of its own (read on Codex 0.167.0, 2026-11-08: the
+/// lead's command printed 9862c5b9-…, its subagent's 81ef6aa6-…). acpmux knows the lead's thread
+/// as the session's own id in its harness (`agentSessionId`), so another thread is a subagent. A
+/// label within the session its caller token proves, as the hook's mark is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CodexThread {
+    /// No Codex thread runs this command (or the hook marked a Claude Code subagent).
+    None,
+    /// The session's own thread: its lead.
+    Lead,
+    /// Another thread of the session's Codex: a subagent, `codex` and its thread id.
+    Subagent(Subagent),
+    /// A Codex thread, but the session's own thread id is not known: who it is cannot be told.
+    Unknown,
+}
+
+/// What `CODEX_THREAD_ID` in `env` tells, against `lead`, the session's own thread id.
+pub fn codex_thread_in(env: impl Fn(&str) -> Option<String>, lead: Option<&str>) -> CodexThread {
+    let set = |key: &str| env(key).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
+    let Some(thread) = set("CODEX_THREAD_ID") else { return CodexThread::None };
+    if set(SUBAGENT_ENV).is_some() {
+        return CodexThread::None;
+    }
+    match lead.map(str::trim) {
+        Some(lead) if lead == thread => CodexThread::Lead,
+        Some(_) if subagent_word(&thread) => {
+            CodexThread::Subagent(Subagent { kind: "codex".to_owned(), id: thread })
+        }
+        _ => CodexThread::Unknown,
+    }
+}
+
+/// The note `sending as` adds when a Codex thread cannot be told from its session's lead.
+pub const CODEX_UNKNOWN: &str = "subagent identity not available for codex";
+
 fn sending_as(
     env: impl Fn(&str) -> Option<String>,
     named: Option<&str>,
     current: Option<&str>,
+    codex: &CodexThread,
 ) -> Option<String> {
     let set = |key: &str| env(key).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
     if in_session(&env) {
@@ -110,15 +176,51 @@ fn sending_as(
             .map(str::to_owned)
             .or_else(|| set("ACPMUX_SESSION_NAME"))
             .unwrap_or_else(|| id.chars().take(8).collect());
-        return Some(match subagent_in(&env) {
-            Some(sub) => format!(
-                "{name}'s {} (only a reply to this send reaches it; `acpmux send {name}` reaches its lead)",
-                sub.label()
-            ),
+        // The hook's mark names a Claude Code subagent; a Codex thread, one with no hook.
+        let sub = subagent_in(&env).map(|sub| (sub, true)).or(match codex {
+            CodexThread::Subagent(sub) => Some((sub.clone(), false)),
+            _ => None,
+        });
+        return Some(match sub {
+            Some((sub, hooked)) => subagent_line(&name, &sub, hooked, japanese(&env)),
+            None if *codex == CodexThread::Unknown => format!("{name} ({CODEX_UNKNOWN})"),
             None => name,
         });
     }
     named.map(|name| format!("{name} (a name it gave, not proven)"))
+}
+
+/// `sending as` for subagent `sub` of session `name`, in English or Japanese: where the replies
+/// to its sends go. A Claude Code subagent (`hooked`: acpmux's hook marked it) takes the reports
+/// of the turns it asks for after its next Bash or acpmux MCP call, until it ends
+/// (`hub/lane_report_subagents.rs`); a Codex one has no hook to take them, so only a reply its
+/// send waits for reaches it.
+fn subagent_line(name: &str, sub: &Subagent, hooked: bool, japanese: bool) -> String {
+    let (label, kind) = (sub.label(), &sub.kind);
+    let id = sub.id.chars().take(8).collect::<String>();
+    match (hooked, japanese) {
+        (true, false) => format!(
+            "{name}'s {label} (replies to its sends come back to it after its next Bash command or acpmux MCP call; once it ends they go to {name}; `acpmux send {name}` reaches {name})"
+        ),
+        (true, true) => format!(
+            "{name} の {kind} サブエージェント {id}（送信への返信は次の Bash コマンドまたは acpmux MCP 呼び出しの後にこのサブエージェントに届きます。終了後は {name} に届きます。`acpmux send {name}` は {name} に届きます）"
+        ),
+        (false, false) => format!(
+            "{name}'s {label} (only a reply this send waits for reaches it; other replies go to {name}; `acpmux send {name}` reaches {name})"
+        ),
+        (false, true) => format!(
+            "{name} の {kind} サブエージェント {id}（この送信が待つ返信だけがこのサブエージェントに届きます。他の返信は {name} に届きます。`acpmux send {name}` は {name} に届きます）"
+        ),
+    }
+}
+
+/// Whether `env`'s locale (LC_ALL, LC_MESSAGES, LANG, the first set) is Japanese, as
+/// `cli/harness.rs` `add_help` reads it.
+fn japanese(env: impl Fn(&str) -> Option<String>) -> bool {
+    ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .iter()
+        .find_map(|k| env(k).filter(|v| !v.is_empty()))
+        .is_some_and(|locale| locale.to_ascii_lowercase().starts_with("ja"))
 }
 
 /// The sender this process names, from its environment.
@@ -315,9 +417,12 @@ mod tests {
                 ("CLAUDE_CODE_CHILD_SESSION", "1"),
             ];
             assert_eq!(subagent_in(env(&lead)), None, "the lead's own shell has the same env");
-            assert_eq!(sending_as(env(&lead), None, None).as_deref(), Some("claude-17"));
+            assert_eq!(
+                sending_as(env(&lead), None, None, &CodexThread::None).as_deref(),
+                Some("claude-17")
+            );
             // Renamed after its agent started: the daemon's name now wins over the env's.
-            let renamed = sending_as(env(&lead), None, Some("alpha"));
+            let renamed = sending_as(env(&lead), None, Some("alpha"), &CodexThread::None);
             assert_eq!(renamed.as_deref(), Some("alpha"));
             let mut sub = lead.to_vec();
             sub.push((SUBAGENT_ENV, "general-purpose:a0a68e7af3df5967e"));
@@ -328,8 +433,21 @@ mod tests {
                 found.to_value(),
                 serde_json::json!({"id": "a0a68e7af3df5967e", "type": "general-purpose"})
             );
-            let shown = sending_as(env(&sub), None, None).unwrap();
-            assert!(shown.starts_with("claude-17's general-purpose subagent a0a68e7a"), "{shown}");
+            let shown = sending_as(env(&sub), None, None, &CodexThread::None).unwrap();
+            assert_eq!(
+                shown,
+                "claude-17's general-purpose subagent a0a68e7a (replies to its sends come back to it after its next Bash command or acpmux MCP call; once it ends they go to claude-17; `acpmux send claude-17` reaches claude-17)"
+            );
+            sub.push(("LANG", "ja_JP.UTF-8"));
+            let shown = sending_as(env(&sub), None, None, &CodexThread::None).unwrap();
+            assert_eq!(
+                shown,
+                "claude-17 の general-purpose サブエージェント a0a68e7a（送信への返信は次の Bash コマンドまたは acpmux MCP 呼び出しの後にこのサブエージェントに届きます。終了後は claude-17 に届きます。`acpmux send claude-17` は claude-17 に届きます）"
+            );
+            // LC_ALL, set first, wins over LANG.
+            sub.push(("LC_ALL", "en_US.UTF-8"));
+            let shown = sending_as(env(&sub), None, None, &CodexThread::None).unwrap();
+            assert!(shown.starts_with("claude-17's general-purpose subagent a0a68e7a (replies"));
             // No token: no session to be a subagent of. A mark that is no TYPE:ID word pair: none.
             let unproven = [("ACPMUX_SESSION_ID", "s1"), (SUBAGENT_ENV, "general-purpose:a1")];
             assert_eq!(subagent_in(env(&unproven)), None);
@@ -339,10 +457,73 @@ mod tests {
                 assert_eq!(subagent_in(env(&odd)), None, "{bad:?}");
             }
             assert_eq!(
-                sending_as(env(&[]), Some("reach-lane"), None).as_deref(),
+                sending_as(env(&[]), Some("reach-lane"), None, &CodexThread::None).as_deref(),
                 Some("reach-lane (a name it gave, not proven)")
             );
-            assert_eq!(sending_as(env(&[]), None, None), None, "the person's own send");
+            assert_eq!(
+                sending_as(env(&[]), None, None, &CodexThread::None),
+                None,
+                "the person's own send"
+            );
+        }
+    }
+
+    mod caller_identity {
+        use super::*;
+
+        const LEAD: [(&str, &str); 4] = [
+            ("ACPMUX_SESSION_ID", "01a1b8f4-session"),
+            ("ACPMUX_SESSION_NAME", "coder"),
+            ("ACPMUX_SESSION_TOKEN", "t"),
+            ("CODEX_SANDBOX", "seatbelt"),
+        ];
+
+        fn with(extra: &[(&'static str, &'static str)]) -> Vec<(&'static str, &'static str)> {
+            LEAD.iter().copied().chain(extra.iter().copied()).collect()
+        }
+
+        /// Codex runs each command with its thread's id, and a subagent in a thread of its own:
+        /// the session's own thread is its lead, any other its subagent, and with the session's
+        /// thread unknown the send says it cannot tell.
+        #[test]
+        fn a_codex_thread_other_than_the_sessions_own_is_its_subagent() {
+            let lead = with(&[("CODEX_THREAD_ID", "9862c5b9-f316")]);
+            assert_eq!(codex_thread_in(env(&lead), Some("9862c5b9-f316")), CodexThread::Lead);
+            let shown = sending_as(env(&lead), None, None, &CodexThread::Lead);
+            assert_eq!(shown.as_deref(), Some("coder"));
+
+            let sub = with(&[("CODEX_THREAD_ID", "81ef6aa6-0345-4aad")]);
+            let found = codex_thread_in(env(&sub), Some("9862c5b9-f316"));
+            let expected = Subagent { kind: "codex".into(), id: "81ef6aa6-0345-4aad".into() };
+            assert_eq!(found, CodexThread::Subagent(expected.clone()));
+            let shown = sending_as(env(&sub), None, None, &found).unwrap();
+            assert_eq!(
+                shown,
+                "coder's codex subagent 81ef6aa6 (only a reply this send waits for reaches it; other replies go to coder; `acpmux send coder` reaches coder)"
+            );
+            assert_eq!(
+                expected.to_value(),
+                serde_json::json!({"id": "81ef6aa6-0345-4aad", "type": "codex"})
+            );
+
+            let unknown = codex_thread_in(env(&sub), None);
+            assert_eq!(unknown, CodexThread::Unknown);
+            let shown = sending_as(env(&sub), None, None, &unknown);
+            assert_eq!(shown.as_deref(), Some("coder (subagent identity not available for codex)"));
+            // A thread id that is no plain word names no subagent.
+            let odd = with(&[("CODEX_THREAD_ID", "a b;c")]);
+            assert_eq!(codex_thread_in(env(&odd), Some("9862c5b9")), CodexThread::Unknown);
+        }
+
+        /// No Codex thread: nothing to tell. A Claude Code subagent's hook mark wins over a Codex
+        /// thread its command runs in (`codex exec` from a Claude Code subagent).
+        #[test]
+        fn without_a_codex_thread_or_with_the_hooks_mark_codex_tells_nothing() {
+            assert_eq!(codex_thread_in(env(&LEAD), Some("x")), CodexThread::None);
+            let both = with(&[("CODEX_THREAD_ID", "t-2"), (SUBAGENT_ENV, "Explore:a1")]);
+            assert_eq!(codex_thread_in(env(&both), Some("t-1")), CodexThread::None);
+            let shown = sending_as(env(&both), None, None, &CodexThread::None).unwrap();
+            assert!(shown.starts_with("coder's Explore subagent a1"), "{shown}");
         }
     }
 

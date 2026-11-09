@@ -168,7 +168,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
             if chrome.editing {
                 source.editingBackground(addressEditing)
                     .frame(width: size.width, height: size.height)
-                    .transition(.opacity.animation(.easeInOut(duration: 0.1).delay(0.03)))
+                    .transition(.opacity.animation(theme.motion.resolve(.easeInOut(duration: 0.1).delay(0.03))))
             }
 
             if let tab = activeTab, zoomState.phase == .page, !chrome.swiping, !chrome.editing {
@@ -229,11 +229,12 @@ struct TabsScreen<Source: TabsDataSource>: View {
                     .padding(.top, safeTop + 8)
                     .frame(width: size.width, alignment: .top)
                     .onTapGesture { source.clearNotice() }
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    // Reduce Motion: a fade, no slide.
+                    .transition(UIAccessibility.isReduceMotionEnabled ? .opacity : .opacity.combined(with: .move(edge: .top)))
                     .task(id: notice) {
                         // Toast lifetime (a UI timeout, not synchronization).
                         try? await Task.sleep(for: .seconds(5))
-                        if source.notice == notice { withAnimation { source.clearNotice() } }
+                        if source.notice == notice { withAnimation(theme.motion.resolve(.default)) { source.clearNotice() } }
                     }
                     .accessibilityAddTraits(.isStaticText)
             }
@@ -565,11 +566,11 @@ struct TabsScreen<Source: TabsDataSource>: View {
         menuExpanded = false
         menuContent = false
         withAnimation(theme.motion.resolve(theme.motion.menu)) { menuExpanded = true }
-        withAnimation(.linear(duration: 0.12).delay(0.08)) { menuContent = true }
+        withAnimation(theme.motion.resolve(.linear(duration: 0.12).delay(0.08))) { menuContent = true }
     }
 
     private func closeMenu() {
-        withAnimation(.linear(duration: 0.1)) { menuContent = false }
+        withAnimation(theme.motion.resolve(.linear(duration: 0.1))) { menuContent = false }
         withAnimation(theme.motion.resolve(.spring(response: 0.3, dampingFraction: 0.9))) { menuExpanded = false } completion: {
             chrome.menuOpen = false
         }

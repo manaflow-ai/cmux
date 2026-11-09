@@ -31,23 +31,30 @@ use serde_json::Value;
 /// How long attached carrier sessions may hold one update.
 pub const CARRIER_MAX_HOLD: Duration = Duration::from_secs(30 * 60);
 
-/// The session ids of the attached sessions in a `remote enroll connections
-/// --json` reply (connected, or reconnecting within the resume lease);
-/// `None` when it is not a connection list.
+/// The attached sessions in a `remote enroll connections --json` reply
+/// (connected, or reconnecting within the resume lease), each as
+/// `device/session#generation`. The generation is part of it: a reconnect
+/// inside the resume lease keeps its device and session ids and bumps only
+/// the generation, and it is a new connect the connect hold must cover.
+///
+/// Fails closed: `None` (which holds the update like an unreadable list)
+/// unless the reply is an array whose every entry is an object with a string
+/// `device_id` and `session_id`, a numeric `generation` and a known `state`.
 pub fn attached_sessions_in(json: &str) -> Option<Vec<String>> {
     let v: Value = serde_json::from_str(json.trim()).ok()?;
-    let attached = v
-        .as_array()?
-        .iter()
-        .filter(|c| {
-            matches!(c.get("state").and_then(Value::as_str), Some("connected" | "reconnecting"))
-        })
-        .map(|c| {
-            let device = c.get("device_id").and_then(Value::as_str).unwrap_or("?");
-            let session = c.get("session_id").and_then(Value::as_str).unwrap_or("?");
-            format!("{device}/{session}")
-        })
-        .collect();
+    let mut attached = Vec::new();
+    for c in v.as_array()? {
+        let device = c.get("device_id")?.as_str()?;
+        let session = c.get("session_id")?.as_str()?;
+        let generation = c.get("generation")?.as_u64()?;
+        match c.get("state")?.as_str()? {
+            "connected" | "reconnecting" => {
+                attached.push(format!("{device}/{session}#{generation}"));
+            }
+            "disconnected" | "closed" => {}
+            _ => return None,
+        }
+    }
     Some(attached)
 }
 
@@ -56,7 +63,8 @@ pub fn attached_sessions_in(json: &str) -> Option<Vec<String>> {
 pub struct CarrierLook {
     /// Why the update waits, or `None` when the carrier does not hold it.
     pub busy: Option<String>,
-    /// A session attached that the last look did not see.
+    /// A session attached that the last look that read the list did not see
+    /// (every session, when no look has read it yet).
     pub new_session: bool,
     /// This look is the one that found the bound passed (log it once).
     pub bound_passed: bool,
@@ -76,9 +84,12 @@ pub struct CarrierHold {
 impl CarrierHold {
     /// One look at `now`: the attached sessions, or why they are unknown.
     pub fn look(&mut self, now: Instant, sessions: Result<Vec<String>, String>) -> CarrierLook {
+        // No list read before (the first look, or every look so far failed,
+        // maybe for longer than the bound): every attached session is new.
         let new_session = match (&sessions, &self.seen) {
             (Ok(ids), Some(seen)) => ids.iter().any(|id| !seen.contains(id)),
-            _ => false,
+            (Ok(ids), None) => !ids.is_empty(),
+            (Err(_), _) => false,
         };
         if let Ok(ids) = &sessions {
             self.seen = Some(ids.iter().cloned().collect());

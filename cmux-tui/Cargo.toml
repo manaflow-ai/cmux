@@ -108,6 +108,7 @@ members = [
     "crates/cmux-daemon-conn-core",
     "crates/cmux-daemon-launch-core",
     "crates/cmux-cookie-sync",
+    "crates/cmux-terminal-prediction",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
     "crates/cmux-app-host",
@@ -123,6 +124,7 @@ members = [
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
     "crates/acpmux-hot",
+    "crates/cmux-command-class",
 ]
 default-members = [
     "crates/acpmux",
@@ -201,6 +203,7 @@ default-members = [
     "crates/cmux-local-auth",
     "crates/cmux-daemon-launch-core",
     "crates/cmux-cookie-sync",
+    "crates/cmux-terminal-prediction",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
     "crates/cmux-app-host",
