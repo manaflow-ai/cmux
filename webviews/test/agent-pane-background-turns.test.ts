@@ -985,9 +985,9 @@ test("a subagent done line never draws the chat's reply, in its text or its tool
     const html = renderToStaticMarkup(createElement(SubagentDoneLine, { row }));
     expect(html).not.toContain("Reviewer says SHIP");
     expect(html).not.toContain("cv-reaction-reply");
-    expect(drawn(rows()).some((row) => row.kind === "assistant" && row.text === "Reviewer says SHIP at the head.")).toBe(
-      true,
-    );
+    expect(
+      drawn(rows()).some((row) => row.kind === "assistant" && row.text === "Reviewer says SHIP at the head."),
+    ).toBe(true);
   } finally {
     client.close();
   }

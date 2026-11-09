@@ -70,7 +70,8 @@ await requireBrowserLane("notification-reply-browser.test.ts", async () => {
       const field = (selector: string) => {
         const node = line?.querySelector<HTMLElement>(selector);
         const box = node?.getBoundingClientRect();
-        const shown = !!node && !!box && box.width > 0 && box.height > 0 && node.checkVisibility({ visibilityProperty: true });
+        const shown =
+          !!node && !!box && box.width > 0 && box.height > 0 && node.checkVisibility({ visibilityProperty: true });
         const mid = box ? (box.top + box.bottom) / 2 : NaN;
         return {
           shown,
@@ -151,7 +152,12 @@ await requireBrowserLane("notification-reply-browser.test.ts", async () => {
     const page = await open("collapsed");
     const row = `.acpmux-row[data-row-id="subagentDone:${AGENT}"]`;
     const shut = await placed(page, REPLY.slice(0, 40), row);
-    expect(shut, JSON.stringify(shut)).toMatchObject({ found: true, insideNotification: false, muted: false, below: true });
+    expect(shut, JSON.stringify(shut)).toMatchObject({
+      found: true,
+      insideNotification: false,
+      muted: false,
+      below: true,
+    });
     await page.locator(`${row} .cv-agentmsg__toggle`).click();
     await page.waitForSelector(".cv-subagent-done__report");
     await settled(page);

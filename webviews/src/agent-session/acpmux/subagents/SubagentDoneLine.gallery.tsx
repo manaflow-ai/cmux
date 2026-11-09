@@ -266,7 +266,7 @@ export default componentEntry<Props>({
       props: { names: [SHORT, "Push relay"], reply: REPLY },
     },
     "reply-before": {
-      note: "Before (Leo, 2026-11-09: \"your response was weirdly folded into the rende?\"): the chat's reply drawn muted under the line, as if the subagent said it.",
+      note: 'Before (Leo, 2026-11-09: "your response was weirdly folded into the rende?"): the chat\'s reply drawn muted under the line, as if the subagent said it.',
       props: { names: [SHORT, "Push relay"], reply: REPLY, replyBefore: true },
     },
     "report-collapsed": {

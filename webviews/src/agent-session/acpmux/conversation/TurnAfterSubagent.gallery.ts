@@ -143,10 +143,7 @@ export default agentPaneEntry({
   title: "The agent's turns after a subagent's row",
   area: "Agent pane",
   height: 900,
-  covers: [
-    "agent-session/acpmux/direct.ts#settleReaction",
-    "agent-session/acpmux/transcriptGrid.ts#transcriptGap",
-  ],
+  covers: ["agent-session/acpmux/direct.ts#settleReaction", "agent-session/acpmux/transcriptGrid.ts#transcriptGap"],
   variants: {
     "own-turn": {
       note: "Shipped: the report stays in the subagent's row; each of the agent's three turns is its own, at the reply column, the turn gap over it and its own footer under it.",

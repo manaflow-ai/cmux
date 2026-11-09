@@ -119,9 +119,10 @@ function events(steps: Step[]): Event[] {
 }
 
 const recording = (steps: Step[]) => ({
-  events: async () => `${events(steps)
-    .map((event) => JSON.stringify(event))
-    .join("\n")}\n`,
+  events: async () =>
+    `${events(steps)
+      .map((event) => JSON.stringify(event))
+      .join("\n")}\n`,
   harness: "claude" as const,
 });
 
