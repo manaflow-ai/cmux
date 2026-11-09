@@ -459,7 +459,10 @@ mod tests {
         }
         let at = suspect_at.expect("the slow chosen path turns suspect");
         let refreshed = refreshed.expect("the other paths are probed after the chosen one turns suspect");
-        assert!(refreshed <= ms(20), "others probed {refreshed:?} after suspicion at {at:?}, not at their 30 s turn");
+        assert!(
+            refreshed <= ms(20),
+            "others probed {refreshed:?} after suspicion at {at:?}, not at their 30 s turn"
+        );
     }
 
     #[test]

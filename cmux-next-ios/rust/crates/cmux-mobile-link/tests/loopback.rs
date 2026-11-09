@@ -543,9 +543,7 @@ async fn wireguard_upgrades_from_the_peers_turn_once_direct_works() {
     MAC_LAN_DOWN.store(true, Ordering::Relaxed);
     let phone = DialOptions { ice_servers: vec![turn.udp_only()], ..options() };
     let mac = DialOptions {
-        drop_udp_to: Some(|addr| {
-            MAC_LAN_DOWN.load(Ordering::Relaxed) && !is_test_relay(addr)
-        }),
+        drop_udp_to: Some(|addr| MAC_LAN_DOWN.load(Ordering::Relaxed) && !is_test_relay(addr)),
         ..options()
     };
     let lan_back = tokio::spawn(async {
