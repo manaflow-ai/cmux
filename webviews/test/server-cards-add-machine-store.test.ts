@@ -41,7 +41,9 @@ class FakeHost {
   }
 
   ops(name: string) {
-    return this.calls.filter((call) => call.op === `cmux.addMachine.${name}`).map((call) => call.params);
+    return this.calls
+      .filter((call) => call.op === `cmux.addMachine.${name}`)
+      .map((call) => call.params);
   }
 }
 
@@ -139,9 +141,16 @@ describe("Add Machine store", () => {
 
   test("a run shows its layout; Change Host forgets it and keeps the fields", async () => {
     const host = new FakeHost();
-    host.status = { request: { seq: 2, mode: { kind: "add" }, destination: "leo@huge-blu", name: "lab" } };
+    host.status = {
+      request: { seq: 2, mode: { kind: "add" }, destination: "leo@huge-blu", name: "lab" },
+    };
     const { store } = await opened(host);
-    const fail = JSON.stringify({ step: "reach", state: "fail", detail: "no route", fix: "Check the host name." });
+    const fail = JSON.stringify({
+      step: "reach",
+      state: "fail",
+      detail: "no route",
+      fix: "Check the host name.",
+    });
     host.change({
       ...host.status,
       run: {
@@ -152,7 +161,10 @@ describe("Add Machine store", () => {
         events: [
           { kind: "start" },
           { kind: "line", line: fail },
-          { kind: "line", line: `{"report":{"name":"lab","host":"leo@huge-blu","ok":false,"steps":[${fail}]}}` },
+          {
+            kind: "line",
+            line: `{"report":{"name":"lab","host":"leo@huge-blu","ok":false,"steps":[${fail}]}}`,
+          },
         ],
       },
     });
@@ -160,7 +172,11 @@ describe("Add Machine store", () => {
     const view = viewOf(store.getSnapshot());
     expect(view.phase).toBe("failed");
     expect(view.checklist.failing?.fix).toBe("Check the host name.");
-    expect(view.buttons.map((each) => each.action)).toEqual(["copyDetails", "changeHost", "tryAgain"]);
+    expect(view.buttons.map((each) => each.action)).toEqual([
+      "copyDetails",
+      "changeHost",
+      "tryAgain",
+    ]);
     await store.perform("copyDetails");
     expect(host.ops("copy")).toEqual([
       {
@@ -202,6 +218,46 @@ describe("Add Machine store", () => {
     expect(second.store.getSnapshot().picked).toBeUndefined();
   });
 
+  test("Add stays off until a status read after the press lands, even when a change event supersedes it", async () => {
+    // Status replies held by hand: the read after Add is superseded by a change event's read, so its
+    // reply is dropped. Add must not come back on the old (pick) status and start a second run.
+    class HeldStatusHost extends FakeHost {
+      hold = false;
+      held: (() => void)[] = [];
+      override async call<T>(op: string, params?: unknown): Promise<T> {
+        if (!this.hold || op !== "cmux.addMachine.status") return super.call<T>(op, params);
+        const reply = structuredClone(this.status) as T;
+        this.calls.push({ op, params });
+        return new Promise<T>((resolve) => this.held.push(() => resolve(reply)));
+      }
+    }
+    const host = new HeldStatusHost();
+    host.status = { request: { seq: 1, mode: { kind: "add" }, destination: "hb" } };
+    const { store } = await opened(host);
+    host.hold = true;
+    const press = store.submit();
+    await settle();
+    // The run starts; the host says so with a change event, whose read supersedes the press's own.
+    host.change({
+      ...host.status,
+      run: { id: 1, host: "hb", name: "hb", outcome: "running", events: [] },
+    });
+    await settle();
+    expect(host.held.length).toBe(2);
+    host.held.shift()!();
+    await press;
+    await settle();
+    expect(
+      viewOf(store.getSnapshot()).buttons.find((each) => each.action === "add")?.enabled ?? false,
+    ).toBe(false);
+    await store.submit();
+    expect(host.ops("add").length).toBe(1);
+    host.held.shift()!();
+    await settle();
+    expect(store.getSnapshot().status?.run?.outcome).toBe("running");
+    expect(store.getSnapshot().busy).toBe(false);
+  });
+
   test("a changed field cannot add until its own parse answers", async () => {
     const host = new FakeHost();
     host.status = { request: { seq: 1, mode: { kind: "add" }, destination: "hb" } };
@@ -218,7 +274,14 @@ describe("Add Machine store", () => {
     const host = new FakeHost();
     host.status = {
       request: { seq: 3, mode: { kind: "add" }, destination: "leo@host-a", name: "a" },
-      run: { id: 1, host: "leo@host-b", name: "b", destination: "leo@host-b", outcome: "running", events: [] },
+      run: {
+        id: 1,
+        host: "leo@host-b",
+        name: "b",
+        destination: "leo@host-b",
+        outcome: "running",
+        events: [],
+      },
     };
     const { store } = await opened(host);
     expect(store.getSnapshot().destination).toBe("leo@host-b");
@@ -244,7 +307,9 @@ describe("Add Machine store", () => {
     };
     const second = await opened(peer);
     await second.store.perform("tryAgain");
-    expect(peer.ops("add")).toEqual([{ destination: "huge-blue.tail1.ts.net", name: "hb", peer: "hb" }]);
+    expect(peer.ops("add")).toEqual([
+      { destination: "huge-blue.tail1.ts.net", name: "hb", peer: "hb" },
+    ]);
   });
 
   test("Escape cancels a run and closes; with no Escape button the card just closes", async () => {
