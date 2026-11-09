@@ -10,13 +10,17 @@ use serde_json::{Map, Value, json};
 use super::*;
 
 /// Steps whose task ends as `outcome` (or, `None`, only at a cancel) and whose removals answer
-/// `removals` in turn (then `Gone`). Its scope is `team:team_1`, and every remove's is kept.
+/// `removals` in turn (then `Gone`). The app's account is `account` (`team:team_1` unless a test
+/// switches it; `None`: signed out), after the answers queued in `accounts`; every remove's
+/// scope is kept.
 struct Fake {
     outcome: Mutex<Option<Outcome>>,
     removals: Mutex<Vec<Removal>>,
     ran: Mutex<Vec<Task>>,
     removed: Mutex<Vec<(String, Option<String>)>>,
     scopes: Mutex<Vec<Option<String>>>,
+    account: Mutex<Option<String>>,
+    accounts: Mutex<Vec<Option<String>>>,
     removes: AtomicUsize,
 }
 
@@ -28,6 +32,8 @@ impl Fake {
             ran: Mutex::new(Vec::new()),
             removed: Mutex::new(Vec::new()),
             scopes: Mutex::new(Vec::new()),
+            account: Mutex::new(Some("team:team_1".into())),
+            accounts: Mutex::new(Vec::new()),
             removes: AtomicUsize::new(0),
         })
     }
@@ -35,7 +41,8 @@ impl Fake {
 
 impl Steps for Fake {
     fn scope(&self) -> Option<String> {
-        Some("team:team_1".into())
+        let mut queued = self.accounts.lock().unwrap();
+        if queued.is_empty() { self.account.lock().unwrap().clone() } else { queued.remove(0) }
     }
 
     fn run(&self, task: &Task, cancel: &AtomicBool) -> Outcome {
@@ -67,6 +74,7 @@ fn quick() -> Timing {
         give_up: Duration::from_secs(60),
         keep_ended: Duration::from_secs(60),
         start_settle: Duration::ZERO,
+        account_ttl: Duration::ZERO,
     }
 }
 
@@ -78,22 +86,17 @@ fn create(engine: &Arc<Engine>, key: &str) -> Value {
     engine
         .perform(
             "runs.create",
-            Some("team_1"),
             &args(json!({ "task": "say hi", "agent": "claude", "timeoutMs": 30_000, "idempotencyKey": key })),
         )
         .unwrap()
 }
 
-/// Waits (at most 5 s) until `id`'s receipt says the cleanup is `cleanup`, as `team_1`.
+/// Waits (at most 5 s) until `id`'s receipt says the cleanup is `cleanup`.
 fn settled(engine: &Arc<Engine>, id: &str, cleanup: &str) -> Value {
-    settled_as(engine, "team_1", id, cleanup)
-}
-
-fn settled_as(engine: &Arc<Engine>, owner: &str, id: &str, cleanup: &str) -> Value {
     let began = Instant::now();
     loop {
         let snapshot = engine
-            .perform("runs.wait", Some(owner), &args(json!({ "id": id, "timeoutMs": 200 })))
+            .perform("runs.wait", &args(json!({ "id": id, "timeoutMs": 200 })))
             .unwrap();
         if snapshot["receipt"]["cleanup"] == cleanup || began.elapsed() > Duration::from_secs(5) {
             return snapshot;
@@ -160,7 +163,7 @@ fn a_cancel_stops_the_task_and_deletes_the_machine() {
         std::thread::sleep(Duration::from_millis(2));
     }
     let cancelled =
-        engine.perform("runs.cancel", Some("team_1"), &args(json!({ "id": id }))).unwrap();
+        engine.perform("runs.cancel", &args(json!({ "id": id }))).unwrap();
     assert_eq!(cancelled["run"]["status"], "cancelled");
     assert_eq!(cancelled["receipt"]["status"], "cancelled");
     assert!(cancelled["run"]["cancelRequestedAt"].is_string());
@@ -238,7 +241,7 @@ fn a_restart_ends_a_run_that_was_going_and_resumes_its_cleanup() {
         "the scope read at the start is the cleanup's after a restart"
     );
     assert!(fake.ran.lock().unwrap().is_empty(), "nothing runs again");
-    first.perform("runs.cancel", Some("team_1"), &args(json!({ "id": id }))).unwrap();
+    first.perform("runs.cancel", &args(json!({ "id": id }))).unwrap();
 }
 
 #[test]
@@ -249,7 +252,7 @@ fn the_same_key_answers_the_same_run_and_another_body_is_a_conflict() {
     let again = create(&engine, "same");
     assert_eq!(first["id"], again["id"]);
     let conflict = engine
-        .perform("runs.create", Some("team_1"), &args(json!({ "task": "other", "agent": "claude", "timeoutMs": 30_000, "idempotencyKey": "same" })))
+        .perform("runs.create", &args(json!({ "task": "other", "agent": "claude", "timeoutMs": 30_000, "idempotencyKey": "same" })))
         .unwrap_err();
     assert_eq!(
         conflict,
@@ -259,13 +262,12 @@ fn the_same_key_answers_the_same_run_and_another_body_is_a_conflict() {
             Some("this idempotency key named another Run".into())
         )
     );
-    // Another team's same key is another Run.
-    let other = engine
-        .perform("runs.create", Some("team_2"), &args(json!({ "task": "say hi", "agent": "claude", "timeoutMs": 30_000, "idempotencyKey": "same" })))
-        .unwrap();
-    assert_ne!(other["id"], first["id"]);
     settled(&engine, first["id"].as_str().unwrap(), "destroyed");
-    settled_as(&engine, "team_2", other["id"].as_str().unwrap(), "destroyed");
+    // Another account's same key is another Run.
+    *fake.account.lock().unwrap() = Some("team:team_2".into());
+    let other = create(&engine, "same");
+    assert_ne!(other["id"], first["id"]);
+    settled(&engine, other["id"].as_str().unwrap(), "destroyed");
     assert_eq!(fake.ran.lock().unwrap().len(), 2);
 }
 
@@ -282,14 +284,14 @@ fn a_create_that_is_not_one_is_refused_and_runs_nothing() {
         (json!({ "task": "hi" }), "run_idempotency_required"),
     ];
     for (body, code) in cases {
-        let failure = engine.perform("runs.create", None, &args(body)).unwrap_err();
+        let failure = engine.perform("runs.create", &args(body)).unwrap_err();
         assert!(
             matches!(&failure, Failure::Http { status: 400, code: Some(c), .. } if c == code),
             "{failure:?}"
         );
     }
     let missing =
-        engine.perform("runs.wait", None, &args(json!({ "id": "run_nope" }))).unwrap_err();
+        engine.perform("runs.wait", &args(json!({ "id": "run_nope" }))).unwrap_err();
     assert!(matches!(missing, Failure::Http { status: 404, .. }));
     assert!(fake.ran.lock().unwrap().is_empty());
 }
@@ -301,12 +303,12 @@ fn a_wait_holds_at_most_its_bound_and_answers_no_receipt_while_running() {
     let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
     let began = Instant::now();
     let snapshot = engine
-        .perform("runs.wait", Some("team_1"), &args(json!({ "id": id, "timeoutMs": 50 })))
+        .perform("runs.wait", &args(json!({ "id": id, "timeoutMs": 50 })))
         .unwrap();
     assert!(began.elapsed() < Duration::from_secs(2));
     assert_eq!(snapshot["receipt"], Value::Null);
     assert!(matches!(snapshot["run"]["status"].as_str(), Some("queued" | "running")));
-    engine.perform("runs.cancel", Some("team_1"), &args(json!({ "id": id }))).unwrap();
+    engine.perform("runs.cancel", &args(json!({ "id": id }))).unwrap();
 }
 
 #[test]
@@ -316,7 +318,6 @@ fn run_sandbox_answers_the_final_snapshot() {
     let snapshot = engine
         .perform(
             "runs.sandbox",
-            None,
             &args(json!({ "task": "hi", "timeoutMs": 30_000, "idempotencyKey": "k" })),
         )
         .unwrap();
@@ -340,23 +341,55 @@ fn times_are_iso_8601() {
 }
 
 #[test]
-fn another_owners_wait_or_cancel_finds_no_run() {
+fn another_accounts_wait_or_cancel_finds_no_run() {
     let fake = Fake::new(None, vec![]);
-    let engine = Engine::open(None, fake, quick());
+    let engine = Engine::open(None, fake.clone(), quick());
     let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
     let not_found =
         || Failure::http(404, Some("run_not_found".into()), Some("no such Run on this Mac".into()));
-    for owner in [Some("team_2"), None] {
-        let wait = engine.perform("runs.wait", owner, &args(json!({ "id": id, "timeoutMs": 10 })));
-        assert_eq!(wait.unwrap_err(), not_found(), "{owner:?}");
-        let cancel = engine.perform("runs.cancel", owner, &args(json!({ "id": id })));
-        assert_eq!(cancel.unwrap_err(), not_found(), "{owner:?}");
+    // Signed in to another account, or signed out: the Run is not there.
+    for account in [Some("team:team_2"), None] {
+        *fake.account.lock().unwrap() = account.map(str::to_owned);
+        let wait = engine.perform("runs.wait", &args(json!({ "id": id, "timeoutMs": 10 })));
+        assert_eq!(wait.unwrap_err(), not_found(), "{account:?}");
+        let cancel = engine.perform("runs.cancel", &args(json!({ "id": id })));
+        assert_eq!(cancel.unwrap_err(), not_found(), "{account:?}");
     }
-    let snapshot = engine
-        .perform("runs.wait", Some("team_1"), &args(json!({ "id": id, "timeoutMs": 10 })))
-        .unwrap();
-    assert!(snapshot["run"]["cancelRequestedAt"].is_null(), "the other owner's cancel did nothing");
-    engine.perform("runs.cancel", Some("team_1"), &args(json!({ "id": id }))).unwrap();
+    // Back on the Run's own account: it is there, and the other account's cancel did nothing.
+    *fake.account.lock().unwrap() = Some("team:team_1".into());
+    let snapshot =
+        engine.perform("runs.wait", &args(json!({ "id": id, "timeoutMs": 10 }))).unwrap();
+    assert!(snapshot["run"]["cancelRequestedAt"].is_null());
+    engine.perform("runs.cancel", &args(json!({ "id": id }))).unwrap();
+}
+
+#[test]
+fn a_create_with_no_signed_in_app_is_refused() {
+    let fake = Fake::new(None, vec![]);
+    *fake.account.lock().unwrap() = None;
+    let engine = Engine::open(None, fake.clone(), quick());
+    let body = json!({ "task": "hi", "timeoutMs": 30_000, "idempotencyKey": "k" });
+    let failure = engine.perform("runs.create", &args(body)).unwrap_err();
+    assert!(
+        matches!(&failure, Failure::Http { status: 401, code: Some(code), .. } if code == "run_not_signed_in"),
+        "{failure:?}"
+    );
+    assert!(fake.ran.lock().unwrap().is_empty());
+}
+
+#[test]
+fn a_run_whose_account_changed_before_its_launch_never_runs() {
+    let fake = Fake::new(Some(Outcome::Replied { reply: "x".into(), machine: None }), vec![]);
+    // The create reads team_1; by the launch the app is on team_2.
+    *fake.accounts.lock().unwrap() = vec![Some("team:team_1".into()), Some("team:team_2".into())];
+    let engine = Engine::open(None, fake.clone(), quick());
+    let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
+    let snapshot = settled(&engine, &id, "destroyed");
+    assert_eq!(snapshot["receipt"]["status"], "failed");
+    assert!(snapshot["receipt"]["error"].as_str().unwrap().starts_with("run.account_changed"));
+    assert_eq!(snapshot["receipt"]["cleanup"], "destroyed", "nothing started, nothing to delete");
+    assert!(fake.ran.lock().unwrap().is_empty(), "the task never reached the other account");
+    assert_eq!(fake.removes.load(Ordering::Acquire), 0);
 }
 
 #[test]

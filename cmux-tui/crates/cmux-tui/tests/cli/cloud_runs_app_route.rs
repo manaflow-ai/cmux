@@ -4,8 +4,9 @@
 //! command reads `--socket` as an app socket, pings it, and refuses a daemon's as
 //! `socket.wrong_kind`, so every Run failed at its first list and its cleanup never ran. Here a
 //! real headless daemon starts with `CMUX_SOCKET_PATH` naming a recording socket, the way the app
-//! starts its daemon, and one `cloud.runs.create` must make the daemon's own children send their
-//! Cloud requests to that socket.
+//! starts its daemon, and one `cloud.runs.create` must make the daemon's own child ask that socket
+//! which account the Run is (a Run is the app's signed-in account, never the caller's claim). The
+//! stand-in answers nothing, so the create is refused as not signed in: no Run starts on a guess.
 
 use super::*;
 
@@ -96,14 +97,10 @@ fn a_runs_steps_reach_the_app_that_started_the_daemon() {
             String::from_utf8_lossy(&output.stderr)
         )
     });
-    assert_eq!(answer["ok"], true, "{answer}");
-    assert!(answer["body"]["id"].as_str().is_some_and(|id| id.starts_with("run_")), "{answer}");
+    assert_eq!(answer["ok"], false, "{answer}");
+    assert_eq!(answer["error"]["code"], "run_not_signed_in", "{answer}");
 
-    // The Run's first step (`cloud list-machines`, for its scope) reaches the app's socket.
-    let began = Instant::now();
-    while app.lines().is_empty() && began.elapsed() < Duration::from_secs(30) {
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    // The create's account read (`cloud list-machines`) reached the app's socket.
     let lines = app.lines();
     assert!(
         lines.iter().any(|line| !line.contains("system.ping") && !line.trim().is_empty()),

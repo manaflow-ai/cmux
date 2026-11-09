@@ -31,7 +31,7 @@
 mod direct;
 mod directory;
 mod proxy;
-pub(crate) mod session;
+mod session;
 
 use std::io::Seek as _;
 use std::path::PathBuf;

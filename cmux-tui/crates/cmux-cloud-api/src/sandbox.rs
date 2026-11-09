@@ -113,6 +113,8 @@ pub struct Timing {
     pub keep_ended: Duration,
     /// After a cut-off start: how long past the task's timeout the app may still be making the machine.
     pub start_settle: Duration,
+    /// How long a wait or a cancel reuses the app's account it read last.
+    pub account_ttl: Duration,
 }
 
 impl Default for Timing {
@@ -123,6 +125,7 @@ impl Default for Timing {
             give_up: Duration::from_secs(3 * 24 * 60 * 60),
             keep_ended: Duration::from_secs(24 * 60 * 60),
             start_settle: Duration::from_secs(120),
+            account_ttl: Duration::from_secs(5),
         }
     }
 }
@@ -187,6 +190,8 @@ pub struct Engine {
     steps: Arc<dyn Steps>,
     store: Option<PathBuf>,
     timing: Timing,
+    /// The app's account as read last ([`Steps::scope`]), and when.
+    account: Mutex<Option<(Instant, Option<String>)>>,
 }
 
 fn now_ms() -> i64 {
@@ -310,6 +315,7 @@ impl Engine {
             steps,
             store,
             timing,
+            account: Mutex::new(None),
         });
         {
             let mut state = engine.lock();
@@ -329,19 +335,16 @@ impl Engine {
         self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// `runs.create|start|wait|cancel|sandbox` for `owner`, the person and team the call speaks for
-    /// ([`crate::run_owner`]). A Run is its owner's: another owner's wait or cancel finds no Run.
-    pub fn perform(
-        self: &Arc<Self>,
-        call: &str,
-        owner: Option<&str>,
-        args: &Map<String, Value>,
-    ) -> Result<Value, Failure> {
+    /// `runs.create|start|wait|cancel|sandbox`. Nothing the caller says names whose Run it is: a
+    /// Run is the account the app is signed in to when it is created ([`Steps::scope`], which the
+    /// app answers over its own socket). A create with no account is refused, and a wait or a
+    /// cancel finds a Run only while the app is signed in to that same account.
+    pub fn perform(self: &Arc<Self>, call: &str, args: &Map<String, Value>) -> Result<Value, Failure> {
         match call {
-            "runs.create" | "runs.start" => self.create(owner, args),
+            "runs.create" | "runs.start" => self.create(args),
             "runs.wait" => {
                 let id = id_arg(args)?;
-                self.owned(id, owner)?;
+                self.owned(id)?;
                 let held = optional_int(args, "timeoutMs").unwrap_or(WAIT_LIMIT_MS);
                 self.wait(
                     id,
@@ -350,29 +353,43 @@ impl Engine {
             }
             "runs.cancel" => {
                 let id = id_arg(args)?;
-                self.owned(id, owner)?;
+                self.owned(id)?;
                 self.cancel(id)
             }
-            "runs.sandbox" => self.sandbox(owner, args),
+            "runs.sandbox" => self.sandbox(args),
             other => Err(Failure::Transport(format!("no cloud api call {other:?}"))),
         }
     }
 
-    /// The Run `id` when `owner` made it (its key's scope), else `run_not_found`.
-    fn owned(&self, id: &str, owner: Option<&str>) -> Result<(), Failure> {
+    /// The app's account now: read again once [`Timing::account_ttl`] has passed (`fresh`: always).
+    fn account(&self, fresh: bool) -> Option<String> {
+        let mut last = self.account.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !fresh
+            && let Some((at, account)) = last.as_ref()
+            && at.elapsed() < self.timing.account_ttl
+        {
+            return account.clone();
+        }
+        let account = self.steps.scope();
+        *last = Some((Instant::now(), account.clone()));
+        account
+    }
+
+    /// `run_not_found` unless the Run `id` is the account the app is signed in to now.
+    fn owned(&self, id: &str) -> Result<(), Failure> {
+        if !self.lock().runs.contains_key(id) {
+            return Err(not_found());
+        }
+        let account = self.account(false);
         let state = self.lock();
         let run = state.runs.get(id).ok_or_else(not_found)?;
-        if run.key.split('\u{0}').next() != Some(owner.unwrap_or_default()) {
+        if account.is_none() || run.scope != account {
             return Err(not_found());
         }
         Ok(())
     }
 
-    fn create(
-        self: &Arc<Self>,
-        team: Option<&str>,
-        args: &Map<String, Value>,
-    ) -> Result<Value, Failure> {
+    fn create(self: &Arc<Self>, args: &Map<String, Value>) -> Result<Value, Failure> {
         let task = optional_text(args, "task").map(str::trim).unwrap_or_default();
         if task.is_empty() || task.chars().count() > TASK_MAX_CHARS {
             return Err(refused(400, "run_task_required", "task: the task, 1 to 16000 characters"));
@@ -400,7 +417,14 @@ impl Engine {
                 "idempotencyKey: 1 to 128 characters",
             ));
         }
-        let scoped = format!("{}\u{0}{key}", team.unwrap_or_default());
+        let Some(account) = self.account(true) else {
+            return Err(refused(
+                401,
+                "run_not_signed_in",
+                "the cmux app is not signed in to Cloud (or not running)",
+            ));
+        };
+        let scoped = format!("{account}\u{0}{key}");
         let digest = hex(&Sha256::digest(
             serde_json::to_vec(&json!([task, agent, timeout_ms])).unwrap_or_default(),
         ));
@@ -438,7 +462,7 @@ impl Engine {
             cancel_requested_ms: None,
             cleanup: "pending".into(),
             settle_ms: now,
-            scope: None,
+            scope: Some(account),
         };
         let answer = created(&run);
         let cancel = Arc::new(AtomicBool::new(false));
@@ -460,14 +484,24 @@ impl Engine {
 
     /// The Run's whole life on its own thread: the task, its end, then the cleanup.
     fn drive(&self, id: &str, prompt: String, cancel: &AtomicBool) {
-        let scope = if cancel.load(Ordering::Acquire) { None } else { self.steps.scope() };
+        // The task runs as the app's account at its launch: it must still be the Run's own, or the
+        // task (which may be private) would reach another account's machine.
+        let now_account = if cancel.load(Ordering::Acquire) { None } else { self.account(true) };
+        let mut refused = None;
         let task = {
             let mut state = self.lock();
             let Some(run) = state.runs.get_mut(id) else { return };
             if cancel.load(Ordering::Acquire) {
                 None
+            } else if now_account.is_none() || now_account != run.scope {
+                refused = Some(Outcome::Failed {
+                    code: "run.account_changed".into(),
+                    message: "the cmux app's Cloud account changed before the Run started".into(),
+                    reply: None,
+                    machine: None,
+                });
+                None
             } else {
-                run.scope = scope;
                 run.status = "running".into();
                 run.started_ms = Some(now_ms());
                 run.updated_ms = now_ms();
@@ -483,9 +517,10 @@ impl Engine {
                 Some(task)
             }
         };
-        let outcome = match &task {
-            Some(task) => self.steps.run(task, cancel),
-            None => Outcome::Cancelled { machine: None },
+        let outcome = match (&task, refused) {
+            (Some(task), _) => self.steps.run(task, cancel),
+            (None, Some(refused)) => refused,
+            (None, None) => Outcome::Cancelled { machine: None },
         };
         // A cancel that came while the task ran is a cancel, whatever the steps said.
         let outcome = if cancel.load(Ordering::Acquire) {
@@ -499,6 +534,17 @@ impl Engine {
             outcome
         };
         self.finish(id, outcome);
+        if task.is_none() {
+            // Nothing started, so no machine can exist: there is nothing to delete.
+            let mut state = self.lock();
+            if let Some(run) = state.runs.get_mut(id) {
+                run.cleanup = "destroyed".into();
+                run.updated_ms = now_ms();
+            }
+            self.save(&state);
+            self.changed.notify_all();
+            return;
+        }
         self.clean(id);
     }
 
@@ -625,15 +671,11 @@ impl Engine {
         self.wait(id, CANCEL_WAIT)
     }
 
-    fn sandbox(
-        self: &Arc<Self>,
-        team: Option<&str>,
-        args: &Map<String, Value>,
-    ) -> Result<Value, Failure> {
+    fn sandbox(self: &Arc<Self>, args: &Map<String, Value>) -> Result<Value, Failure> {
         let timeout_ms = optional_int(args, "timeoutMs").unwrap_or(DEFAULT_TIMEOUT_MS);
         let teardown = optional_int(args, "teardownMs").unwrap_or(DEFAULT_TEARDOWN_MS);
         let margin = optional_int(args, "callsMarginMs").unwrap_or(DEFAULT_CALLS_MARGIN_MS);
-        let created = self.create(team, args)?;
+        let created = self.create(args)?;
         let id = created.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
         let bound = timeout_ms.max(0).saturating_add(teardown.max(0)).saturating_add(margin.max(0));
         let deadline = Instant::now() + Duration::from_millis(u64::try_from(bound).unwrap_or(0));
