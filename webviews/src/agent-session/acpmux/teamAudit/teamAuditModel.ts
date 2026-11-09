@@ -155,9 +155,12 @@ export function formatHitRate(rate: number | null, locale?: string): string {
 /// platform's `none` as `none` (localized by the screen), anything else as the key.
 export function auditRowLabel(group: TeamAuditGroup, row: TeamAuditRow, locale?: string): string {
   if (group === "day" && /^\d{4}-\d{2}-\d{2}$/.test(row.key)) {
-    return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", weekday: "short", timeZone: "UTC" }).format(
-      new Date(`${row.key}T12:00:00Z`),
-    );
+    return new Intl.DateTimeFormat(locale, {
+      month: "short",
+      day: "numeric",
+      weekday: "short",
+      timeZone: "UTC",
+    }).format(new Date(`${row.key}T12:00:00Z`));
   }
   return row.label ?? row.key;
 }

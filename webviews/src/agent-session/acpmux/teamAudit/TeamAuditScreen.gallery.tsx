@@ -101,8 +101,7 @@ export default componentEntry<Props>({
   area: "Agent pane",
   experimental: true,
   covers: ["agent-session/acpmux/teamAudit/TeamAuditScreen.tsx#TeamAuditScreen"],
-  styles: () =>
-    Promise.all([import("../styles.css"), import("../ledger/ledger.css"), import("./teamAudit.css")]),
+  styles: () => Promise.all([import("../styles.css"), import("../ledger/ledger.css"), import("./teamAudit.css")]),
   load: () => import("./TeamAuditScreen").then((module) => module.TeamAuditScreen),
   widths: { narrow: 380, normal: 720, wide: 960 },
   height: 520,
