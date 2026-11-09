@@ -47,12 +47,16 @@ test("load the chat keeps meeting goes minimal; one long task or a page back fro
   expect(state.minimal).toBe(true);
 });
 
-test("the page's mark: the gate moves nothing, the loop stops when idle, and dispose takes it away", () => {
-  const dom = new JSDOM("<!doctype html><html><body><div id=chat></div></body></html>", { pretendToBeVisual: true });
+test("the chat's mark: its gate moves nothing, the rest of the page moves on, the loop stops when idle, and dispose takes it away", () => {
+  const dom = new JSDOM(
+    "<!doctype html><html><body><div id=chat class=acpmux-shell><div id=row></div></div><nav id=sidebar></nav></body></html>",
+    { pretendToBeVisual: true },
+  );
   const doc = dom.window.document;
+  const chat = doc.getElementById("chat")!;
   const queue: ((time: number) => void)[] = [];
   let now = 0;
-  const budget = createFrameBudget(doc, {
+  const budget = createFrameBudget(chat, {
     now: () => now,
     frame: (callback) => queue.push(callback),
     cancel: () => {},
@@ -66,14 +70,19 @@ test("the page's mark: the gate moves nothing, the loop stops when idle, and dis
   budget.poke();
   for (let index = 0; index < 10; index += 1) run(60);
   expect(budget.minimal).toBe(true);
-  expect(doc.documentElement.getAttribute("data-chat-motion")).toBe("minimal");
-  expect(minimalMotion(doc.getElementById("chat"))).toBe(true);
-  expect(motionMode(doc)).toBe("none");
+  expect(chat.getAttribute("data-chat-motion")).toBe("minimal");
+  expect(doc.documentElement.hasAttribute("data-chat-motion")).toBe(false);
+  expect(minimalMotion(doc.getElementById("row"))).toBe(true);
+  expect(motionMode(doc, doc.getElementById("row"))).toBe("none");
+  // The rest of the page keeps its motion (a view swap, the sidebar, depth).
+  expect(minimalMotion(doc.getElementById("sidebar"))).toBe(false);
+  expect(motionMode(doc, doc.getElementById("sidebar"))).not.toBe("none");
+  expect(motionMode(doc)).not.toBe("none");
   // Healthy again: the mark goes, and with no poke the loop stops.
   let frames = 0;
   while (run(FRAME) > 0 && frames < 2000) frames += 1;
   expect(budget.minimal).toBe(false);
-  expect(doc.documentElement.hasAttribute("data-chat-motion")).toBe(false);
+  expect(chat.hasAttribute("data-chat-motion")).toBe(false);
   expect(frames).toBeLessThan(2000);
   expect(queue.length).toBe(0);
   // Idle: a poke reads IDLE_FRAMES frames and stops.
@@ -82,15 +91,18 @@ test("the page's mark: the gate moves nothing, the loop stops when idle, and dis
   while (run(FRAME) > 0) idle += 1;
   expect(idle).toBe(IDLE_FRAMES);
   budget.dispose();
-  expect(doc.documentElement.hasAttribute("data-chat-motion")).toBe(false);
+  expect(chat.hasAttribute("data-chat-motion")).toBe(false);
 });
 
 test("a page that pins its motion is never marked minimal", () => {
-  const dom = new JSDOM("<!doctype html><html data-chat-motion=full><body></body></html>", { pretendToBeVisual: true });
+  const dom = new JSDOM("<!doctype html><html data-chat-motion=full><body><div id=chat></div></body></html>", {
+    pretendToBeVisual: true,
+  });
   const doc = dom.window.document;
+  const chat = doc.getElementById("chat")!;
   const queue: ((time: number) => void)[] = [];
   let now = 0;
-  const budget = createFrameBudget(doc, {
+  const budget = createFrameBudget(chat, {
     now: () => now,
     frame: (callback) => queue.push(callback),
     cancel: () => {},
@@ -101,8 +113,8 @@ test("a page that pins its motion is never marked minimal", () => {
     for (const callback of queue.splice(0)) callback(now);
   }
   expect(budget.minimal).toBe(true);
-  expect(doc.documentElement.getAttribute("data-chat-motion")).toBe("full");
-  expect(motionMode(doc)).not.toBe("none");
+  expect(chat.hasAttribute("data-chat-motion")).toBe(false);
+  expect(motionMode(doc, chat)).not.toBe("none");
   budget.dispose();
   expect(doc.documentElement.getAttribute("data-chat-motion")).toBe("full");
 });

@@ -1,22 +1,24 @@
 // How much a primitive in ui/motion may move right now. One reading for every primitive here, so a
 // sliding indicator, a view swap and the depth layer agree: the host's motion switch
-// (`data-agent-motion` / `data-cmux-motion` on the root, a zero `--agent-motion-in` token), a chat's
-// minimal motion under load (`data-chat-motion="minimal"`), Reduce Motion, and a hidden page.
+// (`data-agent-motion` / `data-cmux-motion` on the root, a zero `--agent-motion-in` token), Reduce
+// Motion, and a hidden page. Given the `node` that moves, also a chat's minimal motion under load
+// (`data-chat-motion="minimal"` on the chat over it, agent-session/acpmux/conversation/frameBudget.ts):
+// the chat's own motion stops, and the rest of the page (a view swap, the sidebar, depth) moves on.
 
 export type MotionMode = "full" | "reduced" | "none";
 
 /** "none": animations are off or the page is hidden; "reduced": Reduce Motion; else "full". */
 export function motionMode(
   doc: Document | undefined = typeof document === "undefined" ? undefined : document,
+  node?: Element | null,
 ): MotionMode {
   const root = doc?.documentElement;
   const view = doc?.defaultView;
   if (!doc || !root || !view) return "none";
   if (doc.visibilityState === "hidden") return "none";
   if (root.dataset.agentMotion === "off" || root.dataset.cmuxMotion === "off") return "none";
-  // A chat that missed its frame budget moves nothing until its frames are healthy again
-  // (agent-session/acpmux/conversation/frameBudget.ts).
-  if (root.dataset.chatMotion === "minimal") return "none";
+  // A chat that missed its frame budget moves nothing of its own until its frames are healthy again.
+  if (node?.closest('[data-chat-motion="minimal"]')) return "none";
   const token = view.getComputedStyle(root).getPropertyValue("--agent-motion-in").trim();
   if (token && !(Number.parseFloat(token) > 0)) return "none";
   if (root.dataset.agentMotion === "reduced" || root.dataset.cmuxMotion === "reduced") return "reduced";

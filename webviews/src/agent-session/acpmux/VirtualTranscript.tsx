@@ -1432,7 +1432,10 @@ function TranscriptView({
   /// budget every chat motion goes minimal until they are healthy again.
   const frameBudget = useRef<FrameBudget>(undefined);
   useEffect(() => {
-    const budget = shareFrameBudget(document);
+    // The chat's own pane is marked, never the page: the rest of the app keeps its motion.
+    const node = ref.current;
+    if (!node) return;
+    const budget = shareFrameBudget(node.closest(".acpmux-shell") ?? node);
     frameBudget.current = budget;
     budget.poke();
     return () => {

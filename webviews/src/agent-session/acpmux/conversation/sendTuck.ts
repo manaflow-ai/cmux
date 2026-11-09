@@ -72,7 +72,7 @@ export function tuckSent(box: HTMLElement | null | undefined, sent: HTMLElement 
   const editor = box.querySelector<HTMLElement>(".acpmux-composer-prompt [contenteditable]");
   if (!view || !main || !editor) return;
   const style = tuckStyle(box);
-  if (style === "none" || motionMode(doc) !== "full" || !entranceAllowed(doc)) return;
+  if (style === "none" || motionMode(doc, box) !== "full" || !entranceAllowed(doc)) return;
   const duration = sendMs(box);
   if (!(duration > 0)) return;
   const ghost = sent;
