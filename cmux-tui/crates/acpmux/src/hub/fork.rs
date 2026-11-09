@@ -510,7 +510,6 @@ impl Hub {
             composer_draft: None,
             // It runs the parent's mode: a spawn from other preset contents leaves it too.
             preset_mode_approval: parent_meta.preset_mode_approval.clone(),
-            preset_policy_approval: parent_meta.preset_policy_approval.clone(),
             // The chat's marks on the history the fork shows by reference, under their own seqs;
             // a copy fills them below with the fork's seqs of the marked prompts it copies.
             bookmarks: if referenced {

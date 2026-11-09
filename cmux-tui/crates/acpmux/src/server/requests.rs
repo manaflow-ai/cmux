@@ -1608,10 +1608,6 @@ async fn dispatch_request_with_identity(
                     &params,
                 ),
                 keep_harness_mode: hub.keeps_harness_mode(agent, &params).await,
-                names_mode: mux_meta(&params)
-                    .and_then(|m| m.get("mode"))
-                    .or_else(|| params.get("mode"))
-                    .is_some_and(|v| !v.is_null()),
                 starter: hub.starter_of(conn.origin.web_class(), agent),
                 route,
                 subsession: None,

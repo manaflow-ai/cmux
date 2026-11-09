@@ -7,8 +7,9 @@
 //! peer's remote guard), whatever its preset's policy, and its first tool call waited on a prompt
 //! only the person's app could answer: a handed-off chat stopped on its first command.
 //!
-//! - A no-prompt preset is one whose policy is not ask or deny-all
-//!   ([`crate::config::Preset::policy_skips_asking`]). Only the person sets such a policy
+//! - A no-prompt preset is one whose policy settles every tool call with no person, approve-all
+//!   or review ([`crate::config::Preset::policy_skips_asking`]): approve-reads and approve-edits
+//!   still ask for the rest, so such a chat would still wait. Only the person sets such a policy
 //!   (`hub/person.rs`), and only the person approves it: `_acpmux/presets {name, approveMode:
 //!   true}` records the digest of the preset's contents (`Preset::approval_digest`, as for a
 //!   mode, (b) in `hub/person.rs`). An approval counts only while the contents still hash to it,
@@ -32,14 +33,8 @@
 //!   - unchanged: a start with no proven caller (the CLI outside any chat), one whose starter
 //!     runs in full access (it gets approve-all there anyway), and a preset this daemon does not
 //!     have, are forwarded as before: the peer resolves the name.
-//! - A start on this machine already takes a preset's policy when its starter's limits do not
-//!   apply (`lifecycle.rs`); under `holdAgentStartsToStarter` an approved no-prompt preset's
-//!   policy holds too, except for a sub-session, which stays within its parent, and only for a
-//!   request that adds nothing of its own. The contents are read again at the spawn (args, env,
-//!   system prompt), so the exception holds only when the agent spawned from the approved digest
-//!   (`preset_bind.rs` `spawned_from`), else the starter's limits apply after all; the session
-//!   records the digest (`preset_policy_approval`), and a later spawn from other contents runs
-//!   it under `ask`.
+//! - A start on this machine is unchanged: it already takes a preset's policy when its starter's
+//!   limits do not apply (`lifecycle.rs`), and `holdAgentStartsToStarter` keeps holding it.
 
 use super::*;
 use cmux_json::JsonSet as _;

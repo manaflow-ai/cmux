@@ -79,42 +79,6 @@ impl Hub {
             self.append(s, "mux", "preset_mode_dropped", json!({"preset": s.meta().preset}));
             self.save_meta(s);
         }
-        // A policy an approved preset gave over the starter's limits holds only for the approved
-        // contents (`hub/unattended_presets.rs`): a spawn from others runs asking.
-        let policy_dropped = {
-            let mut m = s.meta.lock().unwrap_or_else(|e| e.into_inner());
-            let kept = match (m.preset_policy_approval.as_deref(), digest.as_deref()) {
-                (None, _) => true,
-                (Some(approved), Some(now)) => cmux_local_auth::tokens_match(now, approved),
-                (Some(_), None) => false,
-            };
-            if !kept {
-                m.preset_policy_approval = None;
-                m.permission_policy = Some(crate::config::PermissionPolicy::Ask.to_string());
-            }
-            !kept
-        };
-        if policy_dropped {
-            self.append(s, "mux", "preset_policy_dropped", json!({"preset": s.meta().preset}));
-            self.save_meta(s);
-        }
-    }
-
-    /// Whether session `s` resolved and its agent spawned from the preset contents `digest`.
-    pub(in crate::hub) fn spawned_from(&self, s: &Session, digest: &str) -> bool {
-        let a = s.applied.lock().unwrap_or_else(|e| e.into_inner());
-        let same = |d: &Option<String>| {
-            d.as_deref().is_some_and(|d| cmux_local_auth::tokens_match(d, digest))
-        };
-        same(&a.preset_resolved) && same(&a.preset_spawned)
-    }
-
-    /// The policy session `s` took from its approved preset over its starter's limits, bound to
-    /// the approved contents `digest` (`fresh_agent` above).
-    pub(in crate::hub) fn note_policy_approval(&self, s: &Session, digest: &str) {
-        s.meta.lock().unwrap_or_else(|e| e.into_inner()).preset_policy_approval =
-            Some(digest.to_owned());
-        self.save_meta(s);
     }
 
     /// `session/new`'s start mode, with the preset approval held against

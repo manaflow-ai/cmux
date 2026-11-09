@@ -88,7 +88,7 @@ impl Preset {
     pub fn apply_mode_approval(&mut self, approve: Option<bool>) -> Result<(), String> {
         match approve {
             Some(true) if self.mode.is_none() && !self.policy_skips_asking() => Err(
-                "this preset has no mode or policy to approve: set mode, or a policy other than ask or deny-all, first"
+                "this preset has no mode or policy to approve: set mode, or policy approve-all or review, first"
                     .into(),
             ),
             Some(true) => {
@@ -111,10 +111,11 @@ impl Preset {
         }
     }
 
-    /// Whether the preset's policy answers tool calls with no person (anything but ask or
-    /// deny-all): the no-prompt preset of `hub/unattended_presets.rs`.
+    /// Whether the preset's policy settles every tool call with no person: approve-all, or review
+    /// (what it does not approve it denies). Approve-reads and approve-edits still ask for the rest,
+    /// so a chat on another machine would wait on them (`hub/unattended_presets.rs`).
     pub fn policy_skips_asking(&self) -> bool {
-        !matches!(self.policy, None | Some(PermissionPolicy::Ask | PermissionPolicy::DenyAll))
+        matches!(self.policy, Some(PermissionPolicy::ApproveAll | PermissionPolicy::Review))
     }
 
     /// Whether the person approved this preset's policy for its current contents

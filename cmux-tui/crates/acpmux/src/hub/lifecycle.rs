@@ -101,7 +101,6 @@ impl Hub {
             env: session_env,
             workspace_id,
             keep_harness_mode,
-            names_mode,
             starter,
             route,
             subsession,
@@ -120,16 +119,6 @@ impl Hub {
             .and_then(|id| self.resolve(&id).ok().filter(|s| s.id == id))
             .filter(|s| !s.meta().remote_origin)
             .map(|s| s.id.clone());
-        // The request adds nothing of its own to its preset: what an approved preset's exception
-        // below needs (`unattended_presets.rs`; review F2 of #39333).
-        let preset_only = !names_mode
-            && harness.is_none()
-            && model.is_none()
-            && effort.is_none()
-            && policy.is_none()
-            && route.is_none()
-            && adopt.is_none()
-            && session_env.is_empty();
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
         // Resolution is a lookup, never a guess: preset → head (family or
@@ -157,24 +146,7 @@ impl Hub {
         // the chat starts at the person's configured default, as a start with no starter does
         // (user 2026-11-03: an agent in Manual left the chats it opened in Manual).
         let held = self.config.read().await.hold_agent_starts_to_starter;
-        // A no-prompt preset the person approved for the contents this start resolved, with
-        // nothing of the request's own (`unattended_presets.rs`): its policy holds whatever the
-        // starter's, but in a sub-session.
-        // Checked here on the resolved contents, and again on the spawned ones below.
-        let approved_digest = match preset_name.as_deref().filter(|_| preset_only) {
-            Some(n) => self.config.read().await.presets.get(n).and_then(|p| {
-                let fits = p.policy_approved()
-                    && p.approval_digest() == preset_digest
-                    && p.policy == defaults.policy;
-                fits.then(|| p.mode_approval.clone()).flatten()
-            }),
-            None => None,
-        };
-        let excepted = held && approved_digest.is_some() && subsession.is_none();
-        // The starter whose limits hold after all when the agent spawned from other contents.
-        let excepted_starter = if excepted { starter.clone() } else { None };
         let limits_from = match starter.as_deref() {
-            Some(_) if excepted => None,
             Some(id) if !held && subsession.is_none() => {
                 let full = self.resolve(id).ok().is_some_and(|s| {
                     self.caller_access(&s.meta()) == super::subsession_guard::Access::Full
@@ -537,16 +509,6 @@ impl Hub {
             let starter = limits_from.as_deref();
             Box::pin(self.hold_to_starter(&session, starter, inherits_policy, mode_eligible))
                 .await?;
-            // An approved preset's exception holds only for the contents the agent spawned from
-            // (review 2 F1 of #39333): else the starter's limits apply after all.
-            if let (Some(theirs), Some(digest)) = (excepted_starter.as_deref(), &approved_digest) {
-                if self.spawned_from(&session, digest) {
-                    self.note_policy_approval(&session, digest);
-                } else {
-                    Box::pin(self.hold_to_starter(&session, Some(theirs), true, mode_eligible))
-                        .await?;
-                }
-            }
             // Every chat, eligible or not: a preset's or a pinned profile's policy holds too.
             let default = self.config.read().await.permission_policy;
             if must_hold {

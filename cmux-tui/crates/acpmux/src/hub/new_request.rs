@@ -86,9 +86,6 @@ pub struct NewRequest {
     /// Keep the harness's own start mode (`start_mode.rs`): a handoff target
     /// of a source that is not in full access is never wider than it.
     pub keep_harness_mode: bool,
-    /// The request names a start mode of its own (`_meta.acpmux.mode`): an approved preset's
-    /// policy then never holds over its starter's limits (`unattended_presets.rs`).
-    pub names_mode: bool,
     /// The acpmux session whose agent asked for this one, as the connection
     /// proved it with its caller token (`Conn::caller`, never a request
     /// value), and never the person. A start that names no policy or mode
