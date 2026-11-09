@@ -4,6 +4,7 @@ import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextRemote
 import CmuxNextTabs
 import Foundation
 
@@ -133,7 +134,7 @@ struct CloudStartChat {
         // The chat's harness login (DEV and dogfood builds, +Login): it runs alongside the copy and is
         // awaited before the chat opens, so its first prompt starts signed in. It never fails the start.
         let size = AgentPaneCloudStart.sizeText(machine.machine.size)
-        let copy: (CloudMoveCLI.Answer, (chat: String, folder: String, copied: Bool, sourceTrusted: Bool)) = try await withApprovals(machine, account: account) {
+        let copy: (CloudMoveCLI.Answer, (chat: String, folder: String, copied: Bool, sourceTrusted: Bool)) = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account } }) {
             async let loginPassed = passHarnessLogin(harness: start.harness, machine: machine)
             report(.init(name: "folder", folder: folderName, machine: name, size: size))
             // Each copy goes to a new folder of the send's own, under its account as its pin; a retry whose
@@ -243,19 +244,11 @@ struct CloudStartChat {
                                                      cli: CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout), invocation: invocation) { await CloudChatPick(services: services).read(folder: nil, tab: tab) }
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         // The harness login before the first prompt, as for a chat with a project (+Login), and remote approvals meanwhile.
-        _ = try await withApprovals(machine, account: account) { await passHarnessLogin(harness: start.harness, machine: machine) }
+        _ = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account } }) { await passHarnessLogin(harness: start.harness, machine: machine) }
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         report(.init(name: "opening", machine: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size),
                      start: .init(environmentId: plan.environmentId, setup: plan.setup)))
         return try await open(start, from: origin, on: machine, cwd: nil, tabKey: plan.tabKey, targetPane: plan.targetPane,
                               cli: CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout))
-    }
-
-    /// Runs `body` while remote approvals turn on beside it (an idle daemon only), so the chat's first start carries its
-    /// key. The prep belongs to the start: cancelled and awaited on every error exit, and its restart begins only while
-    /// the start's account (`account`) is still the one signed in and the start not cancelled (#39069's review).
-    func withApprovals<T>(_ machine: CloudMachineSession, account: [String?], _ body: () async throws -> T) async throws -> T {
-        let approvals = Task { [services] in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { [weak services] in account == services?.cloud.account } } // task-owner: cancelled and awaited on every exit of `body`
-        do { let value = try await body(); _ = await approvals.value; return value } catch { approvals.cancel(); _ = await approvals.value; throw error }
     }
 }

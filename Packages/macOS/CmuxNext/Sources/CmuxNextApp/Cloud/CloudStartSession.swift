@@ -4,6 +4,7 @@ import CmuxNextCloud
 import CmuxNextCloudCredentials
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextRemote
 import CmuxNextSettings
 import Foundation
 
@@ -230,9 +231,8 @@ struct CloudStartSession {
         try await connected(session, request, account: account, byPerson: byPerson)
         steps.done("connect")
         try still(name)
-        // Remote approvals turn on beside the login (an idle daemon only), so the chat's first start carries its key; the
-        // prep is awaited on every exit, so the start gate above is never released under it.
-        try await CloudStartChat(services: services).withApprovals(session, account: account) {
+        // Remote approvals turn on beside the login (an idle daemon only), awaited on every exit: the gate is never released under them.
+        try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(session, .checkStatus) { account == services.cloud.account } }) {
             try await passHarnessLogin(session, agent: agent, login: request.login) { try still(name) }
             steps.done("login")
         }

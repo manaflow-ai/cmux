@@ -33,8 +33,7 @@ extension CloudService {
     /// preparation actor serializes starts per machine; a busy or failed machine quietly falls
     /// back to the unkeyed chat start so the user's Allow flow can show its normal restart notice.
     /// `proceed`: a start's check, right before the restart, that its account is still signed in; a cancelled ask never restarts.
-    func restartWithApprovalsIfIdle(_ session: CloudMachineSession, _ preparation: AgentPaneRemoteApprovals.Preparation,
-                                    proceed: @escaping @MainActor @Sendable () -> Bool = { true }) async -> Bool {
+    func restartWithApprovalsIfIdle(_ session: CloudMachineSession, _ preparation: AgentPaneRemoteApprovals.Preparation, proceed: @escaping @MainActor @Sendable () -> Bool = { true }) async -> Bool {
         await RemoteApprovalPreparations.shared.prepare(machine: session.machineID, daemonSaidSafe: preparation == .daemonSaidSafe,
                                                         held: AcpmuxRemotePersonKeys.shared.instance(machine: session.machineID) != nil,
                                                         idle: { [machineAPI] in await RemoteAgentDaemonStatus.read(cloudMachine: session.machineID, api: machineAPI)?.idleForKeyedRestart == true },
