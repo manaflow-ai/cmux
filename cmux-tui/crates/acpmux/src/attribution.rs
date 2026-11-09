@@ -135,11 +135,11 @@ impl TurnEdits {
 /// the range is not in the file.
 fn range_hash(lines: &[&str], start: u32, end: u32) -> Option<u64> {
     let (from, to) = (start.checked_sub(1)? as usize, end as usize);
-    if from >= to || to > lines.len() {
+    if from >= to {
         return None;
     }
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for line in &lines[from..to] {
+    for line in lines.get(from..to)? {
         for byte in line.bytes().chain(std::iter::once(b'\n')) {
             hash ^= u64::from(byte);
             hash = hash.wrapping_mul(0x0100_0000_01b3);
@@ -168,7 +168,7 @@ pub fn locate(text: &str, block: &EditBlock) -> Vec<(u32, u32)> {
     if found.next().is_some() {
         return vec![];
     }
-    let first = text[..at].bytes().filter(|b| *b == b'\n').count();
+    let first = text.bytes().take(at).filter(|b| *b == b'\n').count();
     let new_lines: Vec<&str> = new.lines().collect();
     let old_lines: Vec<&str> =
         block.old_text.as_deref().map(|o| o.lines().collect()).unwrap_or_default();
@@ -190,43 +190,42 @@ const MAX_DIFF_CELLS: usize = 1 << 20;
 /// The indexes of `new`'s lines that are not in a longest common subsequence with `old`: the lines
 /// an edit added or changed. The lines the two share at their start and end are trimmed first.
 fn added_lines(old: &[&str], new: &[&str]) -> Vec<usize> {
-    let mut prefix = 0;
-    while prefix < new.len() && prefix < old.len() && new[prefix] == old[prefix] {
-        prefix += 1;
-    }
-    let mut suffix = 0;
-    while suffix < new.len() - prefix
-        && suffix < old.len() - prefix
-        && new[new.len() - 1 - suffix] == old[old.len() - 1 - suffix]
-    {
-        suffix += 1;
-    }
-    let (o, n) = (&old[prefix..old.len() - suffix], &new[prefix..new.len() - suffix]);
+    let prefix = old.iter().zip(new).take_while(|(a, b)| a == b).count();
+    let (old, new) = (old.get(prefix..).unwrap_or_default(), new.get(prefix..).unwrap_or_default());
+    let suffix = old.iter().rev().zip(new.iter().rev()).take_while(|(a, b)| a == b).count();
+    let o = old.get(..old.len() - suffix).unwrap_or_default();
+    let n = new.get(..new.len() - suffix).unwrap_or_default();
     if o.is_empty() || n.is_empty() || o.len().saturating_mul(n.len()) > MAX_DIFF_CELLS {
         return (prefix..prefix + n.len()).collect();
     }
-    // lcs[i][j]: the longest common subsequence of o[i..] and n[j..].
+    // lcs[i][j]: the longest common subsequence of o[i..] and n[j..]; out of range reads 0.
     let w = n.len() + 1;
     let mut lcs = vec![0u32; (o.len() + 1) * w];
-    for i in (0..o.len()).rev() {
-        for j in (0..n.len()).rev() {
-            lcs[i * w + j] = if o[i] == n[j] {
-                lcs[(i + 1) * w + j + 1] + 1
+    let at = |lcs: &[u32], i: usize, j: usize| lcs.get(i * w + j).copied().unwrap_or(0);
+    for (i, a) in o.iter().enumerate().rev() {
+        for (j, b) in n.iter().enumerate().rev() {
+            let cell = if a == b {
+                at(&lcs, i + 1, j + 1) + 1
             } else {
-                lcs[(i + 1) * w + j].max(lcs[i * w + j + 1])
+                at(&lcs, i + 1, j).max(at(&lcs, i, j + 1))
             };
+            if let Some(slot) = lcs.get_mut(i * w + j) {
+                *slot = cell;
+            }
         }
     }
     let (mut i, mut j, mut out) = (0, 0, vec![]);
-    while j < n.len() {
-        if i < o.len() && o[i] == n[j] {
-            i += 1;
-            j += 1;
-        } else if i < o.len() && lcs[(i + 1) * w + j] >= lcs[i * w + j + 1] {
-            i += 1;
-        } else {
-            out.push(prefix + j);
-            j += 1;
+    while let Some(b) = n.get(j) {
+        match o.get(i) {
+            Some(a) if a == b => {
+                i += 1;
+                j += 1;
+            }
+            Some(_) if at(&lcs, i + 1, j) >= at(&lcs, i, j + 1) => i += 1,
+            _ => {
+                out.push(prefix + j);
+                j += 1;
+            }
         }
     }
     out
@@ -252,7 +251,7 @@ impl Author {
     pub fn first_line(prompt: &str) -> Option<String> {
         let line = prompt.lines().map(str::trim).find(|l| !l.is_empty())?;
         Some(match line.char_indices().nth(MAX_PROMPT_CHARS) {
-            Some((cut, _)) => format!("{}…", &line[..cut]),
+            Some((cut, _)) => format!("{}…", line.get(..cut).unwrap_or(line)),
             None => line.to_owned(),
         })
     }
@@ -335,7 +334,10 @@ impl Index {
         }
         for &(start, end) in ranges {
             let Some(hash) = range_hash(lines, start, end) else { continue };
-            let first = line_hash(lines[(start - 1) as usize]);
+            let Some(first) = lines.get(start.saturating_sub(1) as usize).map(|l| line_hash(l))
+            else {
+                continue;
+            };
             let seq = self.next;
             self.next += 1;
             self.files.entry(key.clone()).or_default().push(Written {
@@ -488,7 +490,7 @@ pub fn query_ranges(value: Option<&Value>) -> Result<Vec<(u32, u32)>, String> {
         .map(|r| {
             let pair = r.as_array().filter(|p| p.len() == 2).ok_or("a range is [start, end]")?;
             let n = |v: &Value| v.as_u64().and_then(|n| u32::try_from(n).ok()).filter(|n| *n >= 1);
-            match (n(&pair[0]), n(&pair[1])) {
+            match (pair.first().and_then(n), pair.get(1).and_then(n)) {
                 (Some(s), Some(e)) if s <= e => Ok((s, e)),
                 _ => Err("a range is [start, end], 1-based, start <= end".into()),
             }
@@ -540,9 +542,10 @@ pub fn shown_ranges(
         .iter()
         .zip(texts)
         .filter(|((start, end), shown)| {
-            let (from, to) = ((*start - 1) as usize, *end as usize);
-            to <= lines.len()
-                && lines[from..to].iter().zip(shown.iter()).all(|(a, b)| *a == b.as_str())
+            let (from, to) = (start.saturating_sub(1) as usize, *end as usize);
+            lines
+                .get(from..to)
+                .is_some_and(|got| got.iter().zip(shown.iter()).all(|(a, b)| *a == b.as_str()))
         })
         .map(|(range, _)| *range)
         .collect()
