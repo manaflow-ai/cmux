@@ -2493,10 +2493,22 @@ class DiffBenchVersionTests(unittest.TestCase):
                       "stream": {"p95Ms": 19.0}, "bench_versions": {"sidecar": 1, "stream": stream_version}}
             return cron.rows_of_part(part, report, budgets_mod, {"rows": {}, "_animations": {}})
         base = rows(1)
-        self.assertEqual(base["diff.stream.p95"]["measure_version"], 1)
-        legacy = {n: {k: v for k, v in r.items() if k != "measure_version"} for n, r in base.items()}
-        self.assertEqual(cron.version_changed(rows(1), legacy), [], "a reference stored before versions is version 1")
+        self.assertEqual(base["diff.stream.p95"]["measure_version"], 1 + 100 * cron.DIFF_LOAD_VERSION)
+        self.assertEqual(cron.version_changed(rows(1), base), [])
         self.assertEqual(cron.version_changed(rows(2), base), ["diff.stream.p95"])
+
+    def test_a_change_of_load_normalization_rebases_every_diff_row(self):
+        """#39353 F1: a sidecar reference scaled by #39309 (22.3 ms/GiB at factor 4) is not compared with a raw 74."""
+        part = cron.PART_BY_NAME["diff-viewer"]
+        report = {"sidecar": {"manifestDecodeP95Micros": 3, "sequentialReadMibPerSecond": 1024 * 1000 / 74.03},
+                  "stream": {"p95Ms": 19.0}, "bench_versions": {"sidecar": 1, "stream": 1}}
+        now = cron.rows_of_part(part, report, budgets_mod, {"rows": {}, "_animations": {}})
+        scaled = {n: {**r, "measure_version": 101} for n, r in now.items()}
+        scaled["diff.sidecar.read_ms_per_gib"]["p95"] = 22.305
+        legacy = {n: {k: v for k, v in r.items() if k != "measure_version"} for n, r in now.items()}
+        every = sorted(now)
+        self.assertEqual(cron.version_changed(now, scaled), every)
+        self.assertEqual(cron.version_changed(now, legacy), every, "a reference stored before versions is unscaled v1")
 
 
 

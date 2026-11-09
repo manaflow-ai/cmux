@@ -523,8 +523,9 @@ def rows_of_part(part, report, budgets_mod, budgets):
                 out[name]["load"] = factor
                 if scaled != v:
                     out[name]["raw_p95"] = v
-            version = versions.get(name.split(".")[1])  # sidecar or stream
-            out[name]["measure_version"] = version if isinstance(version, int) else DIFF_LEGACY_VERSION
+            version = versions.get(bench)
+            out[name]["measure_version"] = (version if isinstance(version, int) else DIFF_LEGACY_VERSION) \
+                + 100 * DIFF_LOAD_VERSION
     elif part["kind"] == "webui":
         # web-ui-suite.ts's rows (webviews/bench/perfRow.ts): its target is the row's budget, its floor the noise on
         # a shared runner (10 % of p95 when the bench names none: a change must pass both that and the 10 % rule).
@@ -681,6 +682,10 @@ def version_changed(rows, base_rows):
 # keep the factor as load, unscaled.
 CONTENTION_SPIN_S, CONTENTION_SPINS, CONTENTION_MAX = 0.02, 9, 8.0
 LOAD_SCALED_BENCHES = {"stream"}
+# How a diff row is normalized, as part of its measure_version (bench version + 100 x this): a change of it rebases the
+# bench's rows instead of comparing a scaled value with a raw one (#39353 F1: an old 22.3 scaled sidecar value made the
+# next raw 74 a regression). 1: #39309 scaled every diff row; 2: only LOAD_SCALED_BENCHES' rows.
+DIFF_LOAD_VERSION = 2
 
 
 def spin_ratio(spin_s=CONTENTION_SPIN_S):
