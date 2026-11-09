@@ -420,8 +420,15 @@ def publish(rows: list[dict], results: Path, exists=published) -> list[str]:
         # One check for all of them: a refusal names paths and kinds only, and uploads nothing.
         pr_media.check_privacy([(row["path"], local) for row, local in files], REPO)
         for row, local in files:
-            pr_media.put_file(REPO, BRANCH, row["path"], local,
-                              f"What's New picture: {row['id']} ({row['role']}, {row['state']})", checked=True)
+            # Create-only, checked again on the tip the commit builds on: a picture another run put there
+            # since `exists` read it stays (its bytes may be pinned by signed notes already).
+            try:
+                pr_media.put_files(REPO, BRANCH, {row["path"]: local},
+                                   f"What's New picture: {row['id']} ({row['role']}, {row['state']})",
+                                   checked=True, expect={row["path"]: None})
+            except pr_media.MediaConflict as error:  # any other failure stops the run, its pictures not up
+                problems.append(f"{row['id']} {row['role']}: kept the copy already there ({error})")
+                continue
             print(row["url"])
     return problems
 

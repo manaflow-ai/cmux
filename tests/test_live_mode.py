@@ -557,6 +557,14 @@ class LiveModeTests(unittest.TestCase):
         _, built, _ = self.start_with(tree, fresh=True, head=head)
         self.assertEqual(len(built), 1)
 
+    def test_heads_own_cached_build_is_rebuilt_when_it_was_not_marked_reusable(self):
+        tree, _ = self.app_tree()
+        head = "abcdef1234567890abcdef1234567890abcdef12"  # the app's commit, so the commit check passes
+        entry = self.live_build(live_mode.cache_root("t"), head, tree)
+        (entry / "reusable").unlink()  # built while another input was uncommitted
+        _, built, _ = self.start_with(tree, fresh=False, head=head)
+        self.assertEqual(len(built), 1)
+
     def test_status_line_says_what_the_reused_build_was_patched_up_to(self):
         line = live_mode.line({"mode": "live", "tag": "t", "commit": "2222222222222222", "since": "now",
                                "built_commit": "1111111111111111"})
