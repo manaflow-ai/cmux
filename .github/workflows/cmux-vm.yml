@@ -298,10 +298,11 @@ jobs:
       - name: Store tests on PGlite against the migration
         if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.roll.outputs.short != 'true' }}
         run: bun run test:pg
-      # Both modes: each environment's list parses and passes the Worker's schema (auto-roll.ts locate), and stays
-      # within Cloudflare's 5,120-byte text binding limit (MAX_BYTES), so a list the deploy would refuse fails here.
-      - name: Boot image lists and the image lock parse, within the binding limit
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+      # The short check's own step: each environment's list parses and passes the Worker's schema (auto-roll.ts
+      # locate) and stays within Cloudflare's 5,120-byte text binding limit (MAX_BYTES), so a list the deploy
+      # would refuse fails here.
+      - name: Boot image lists and the image lock parse, within the binding limit (short check)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.roll.outputs.short == 'true' }}
         working-directory: .
         run: |
           bun -e '
