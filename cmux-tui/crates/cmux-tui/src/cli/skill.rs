@@ -171,6 +171,17 @@ pub(super) const RECIPES: &[Recipe] = &[
                text without Enter: `cmux terminal <term> write --text '...'`.",
     },
     Recipe {
+        ask: "Find the workspace called api. / Which workspaces are in ~/src/app?",
+        commands: &[
+            "cmux --json workspace list --name api",
+            "cmux --json workspace list --cwd ~/src/app",
+            "cmux --json terminal list --cwd ~/src/app",
+        ],
+        read: "--name keeps exact names (two workspaces may share one, which a `name:api` \
+               selector refuses as ambiguous); --cwd keeps the workspaces with a terminal in \
+               that folder or below it. No match is `[]`, exit 0. pane list takes both flags.",
+    },
+    Recipe {
         ask: "Zoom that pane. / Rename this workspace. / Open a new screen called api.",
         commands: &[
             "cmux pane <pane> zoom",

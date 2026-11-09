@@ -651,5 +651,5 @@ pub(super) async fn dial(
 ) -> Result<Dialed, Failure> {
     let resume = Arc::new(Resume { machine: plan.machine.clone(), log: plan.log.clone() });
     let mut rounds = DialRounds { plan, jitter, resume, backoff: Backoff::default(), attempts: 0 };
-    run_route_rounds(&mut rounds, None).await
+    run_route_rounds(&mut rounds).await
 }

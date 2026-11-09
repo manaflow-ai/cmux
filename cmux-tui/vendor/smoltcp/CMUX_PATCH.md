@@ -18,6 +18,17 @@ controller of the same kind, so a reused socket gets the initial window again.
 A listening socket that an RST sends from SYN-RECEIVED back to LISTEN drops
 that peer's MSS and window the same way.
 
+The patch also adds tail-loss probes (RFC 8985 section 7), off by default:
+`Socket::set_tail_loss_probe(Some(max_ack_delay))`. With no selective ACKs, a
+segment lost at the end of a burst draws no duplicate ACKs, so only the RTO
+resends it, and the RTO then collapses the congestion window and resends
+everything in flight. A probe resends the oldest unacknowledged segment once
+`max(2 * SRTT, 10 ms) + max_ack_delay` passes with no ACK of new data,
+keeps the congestion window, and leaves the RTO's deadline as it was. It runs
+only in ESTABLISHED and CLOSE-WAIT, only after an RTT measurement, only when it
+would fire before the RTO, and at most once per ACK of new data. cmux-wg turns
+it on with a 25 ms allowance.
+
 The changes are in `src/socket/tcp/congestion/cubic.rs` and `src/socket/tcp.rs`,
 each marked `cmux patch`, with tests next to them. Reno's own start is unchanged;
 cmux does not enable it.
@@ -29,6 +40,15 @@ unchanged:
 
 - smoltcp-rs/smoltcp#1211 (c7595c577fed, 7d961a1af84e, 51c662c23e2b):
   per-socket `set_min_rto` and `set_initial_rto`. cmux-wg sets a 200 ms floor.
+- smoltcp-rs/smoltcp#1216 (bd424c843f51): retry a fast retransmit whose
+  emit failed, instead of waiting for the RTO.
+- smoltcp-rs/smoltcp#1219 (bfe5f95404c0): the RTO and zero-window-probe
+  timers no longer cancel each other.
+- 336a1dd1aaf0: clamp a scaled receive window at the edge already
+  advertised. With cmux-wg's 256 KiB buffers (window shift 3) a peer could
+  otherwise send past the buffer and hit `assert!(count <= self.window())`
+  (smoltcp-rs/smoltcp#1227).
+- e707719e03e2: clear the keep-alive timer when keep-alive is turned off.
 
 Remove this vendor copy when the smoltcp version used by cmux starts at the
 RFC 6928 window and has these commits.
