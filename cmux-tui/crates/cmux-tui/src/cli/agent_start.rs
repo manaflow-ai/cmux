@@ -401,28 +401,29 @@ pub(in crate::cli) fn apply_outcome(report: &mut Value, outcome: &Outcome, who: 
 }
 
 /// Adds a blocked start's dialog `options` and, for the folder-trust
-/// dialog, the `accept_keys` that trust the folder, with a reason that
-/// names them. The person decides; the keys only say how to answer.
+/// dialog, the `accept_keys` that trust the folder and the `accept_label`
+/// they pick, with a localized reason that names the terminal, the keys
+/// and the label (and warns when that option turns approvals off). The
+/// person decides; the keys only say how to answer.
 fn add_dialog_options(report: &mut Value, dialog: &str, screen: &str, who: &str) {
     let options = dialog_options::options(screen);
-    if options.is_empty() {
-        return;
+    if !options.is_empty() {
+        let listed: Vec<Value> =
+            options.iter().map(dialog_options::DialogOption::to_json).collect();
+        report.set("options", Value::Array(listed));
     }
-    let listed: Vec<Value> = options.iter().map(dialog_options::DialogOption::to_json).collect();
-    report.set("options", Value::Array(listed));
     if dialog != "folder_trust" {
         return;
     }
-    let Some(keys) = dialog_options::accept_keys(&options) else { return };
-    let typed = keys.join(" ");
-    report.set("accept_keys", json!(keys));
-    report.set(
-        "reason",
-        json!(format!(
-            "the agent asks whether you trust this folder; ask the person, and when they \
-             agree run cmux terminal {who} keys {typed} (cmux never answers it on its own)"
-        )),
-    );
+    let keys = dialog_options::accept_keys(&options);
+    let label = dialog_options::accept_label(&options);
+    let accept = keys.as_deref().zip(label);
+    if let Some((keys, label)) = accept {
+        report.set("accept_keys", json!(keys));
+        report.set("accept_label", json!(label));
+    }
+    let messages = &crate::localization::catalog().pane_cli;
+    report.set("reason", json!(dialog_options::folder_trust_reason(messages, who, accept)));
 }
 
 fn humantime(duration: Duration) -> String {

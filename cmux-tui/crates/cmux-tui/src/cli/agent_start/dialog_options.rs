@@ -71,8 +71,7 @@ pub(in crate::cli) fn options(screen: &str) -> Vec<DialogOption> {
 /// whose label starts with "Yes" and press Enter; `None` without such an
 /// option.
 pub(in crate::cli) fn accept_keys(options: &[DialogOption]) -> Option<Vec<&'static str>> {
-    let accept =
-        options.iter().position(|option| option.label.to_lowercase().starts_with("yes"))?;
+    let accept = options.iter().position(accepts)?;
     let selected = options.iter().position(|option| option.selected).unwrap_or(0);
     let (key, moves) =
         if accept < selected { ("up", selected - accept) } else { ("down", accept - selected) };
@@ -81,32 +80,54 @@ pub(in crate::cli) fn accept_keys(options: &[DialogOption]) -> Option<Vec<&'stat
     Some(keys)
 }
 
-/// The label of the option [`accept_keys`] picks; `None` without one.
-#[cfg_attr(not(test), allow(dead_code))]
-pub(in crate::cli) fn accept_label(_options: &[DialogOption]) -> Option<&str> {
-    None
+/// Whether [`accept_keys`] picks `option`: the first label that starts
+/// with "yes" is picked.
+fn accepts(option: &DialogOption) -> bool {
+    option.label.to_lowercase().starts_with("yes")
 }
+
+/// The label of the option [`accept_keys`] picks; `None` without one.
+pub(in crate::cli) fn accept_label(options: &[DialogOption]) -> Option<&str> {
+    options.iter().find(|option| accepts(option)).map(|option| option.label.as_str())
+}
+
+/// Words of an option that also lets the agent act without approval (a
+/// Codex "... without asking for approval" choice), lower case.
+const NO_APPROVAL: &[&str] = &[
+    "without asking",
+    "without approval",
+    "bypass",
+    "dangerous",
+    "don't ask",
+    "do not ask",
+    "full access",
+    "auto-approve",
+    "auto approve",
+];
 
 /// The folder-trust `reason` for the terminal `who`: ask the person, then
 /// answer with `cmux terminal WHO keys`. With `accept` (the keys and the
 /// label they pick) it names both, and it warns when that label also turns
 /// approvals off.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::cli) fn folder_trust_reason(
-    _messages: &crate::localization::PaneCliMessages,
+    messages: &crate::localization::PaneCliMessages,
     who: &str,
     accept: Option<(&[&str], &str)>,
 ) -> String {
-    match accept {
-        Some((keys, _)) => format!(
-            "the agent asks whether you trust this folder; ask the person, and when they \
-             agree run cmux terminal {who} keys {} (cmux never answers it on its own)",
-            keys.join(" ")
-        ),
-        None => "the agent asks whether you trust this folder; ask the person, then answer \
-                 it with cmux terminal NAME keys (cmux never answers it on its own)"
-            .to_owned(),
+    let Some((keys, label)) = accept else {
+        return messages.folder_trust_ask.replace("{who}", who);
+    };
+    let mut reason = messages
+        .folder_trust_keys
+        .replace("{who}", who)
+        .replace("{keys}", &keys.join(" "))
+        .replace("{label}", label);
+    let lower = label.to_lowercase();
+    if NO_APPROVAL.iter().any(|words| lower.contains(words)) {
+        reason.push_str("; ");
+        reason.push_str(&messages.folder_trust_no_approval.replace("{label}", label));
     }
+    reason
 }
 
 #[cfg(test)]

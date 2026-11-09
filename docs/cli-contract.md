@@ -443,8 +443,11 @@ reattaches to a running terminal host, the prompt and command state come back
 only with the shell's next mark. `--until ready` waits until the terminal's
 agent can take a message, as `cmux agent start` does (spec/cli.md "Agent start
 and resume"): a startup dialog such as Claude's folder-trust question ends it
-as `blocked` with `dialog` and `reason` (exit 4); `agent start` also gives the
-dialog's `options` and, for folder trust, `accept_keys`.
+as `blocked` with `dialog` and `reason` (exit 4). Both `agent start` and
+`--until ready` also give the dialog's numbered `options` and, for folder
+trust, `accept_keys` and `accept_label` (the option those keys pick); the
+`reason` names the terminal and warns when that option also turns approvals
+off.
 
 `list --agents` lists the terminals that run a coding agent, from one
 `session.snapshot`: the harness (Claude Code, Codex, … from hook or plugin

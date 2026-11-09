@@ -26,6 +26,14 @@ pub(crate) struct PaneCliMessages {
     pub app_heading_outer: &'static str,
     /// `cmux skill` without a known verb.
     pub skill_usage: &'static str,
+    /// The `agent start` / `terminal wait --until ready` reason for a
+    /// folder-trust dialog whose options cmux cannot read: `{who}` is the
+    /// agent's terminal.
+    pub folder_trust_ask: &'static str,
+    /// The same with the option the accept keys pick: `{label}` and `{keys}`.
+    pub folder_trust_keys: &'static str,
+    /// Added when `{label}` also lets the agent act without approval.
+    pub folder_trust_no_approval: &'static str,
 }
 
 pub(super) const ENGLISH: PaneCliMessages = PaneCliMessages {
@@ -45,6 +53,9 @@ pub(super) const ENGLISH: PaneCliMessages = PaneCliMessages {
     app_heading_unreachable: "CMUX APP (these scopes need the cmux app; none answers here)",
     app_heading_outer: "CMUX APP (the cmux app around this session; it does not own this session)",
     skill_usage: "usage: cmux skill show [--json]\n\n`cmux skill show` prints the agent guide for this cmux CLI, built from the\nCLI that runs it. --json prints it as {\"name\", \"version\", \"markdown\"}.\n",
+    folder_trust_ask: "the agent asks whether you trust this folder; ask the person, then answer it with cmux terminal {who} keys (cmux never answers it on its own)",
+    folder_trust_keys: "the agent asks whether you trust this folder; ask the person, and when they agree to \"{label}\" run cmux terminal {who} keys {keys} (cmux never answers it on its own)",
+    folder_trust_no_approval: "warning: \"{label}\" also lets the agent act without asking for approval; tell the person",
 };
 
 pub(super) const JAPANESE: PaneCliMessages = PaneCliMessages {
@@ -64,4 +75,7 @@ pub(super) const JAPANESE: PaneCliMessages = PaneCliMessages {
     app_heading_unreachable: "CMUX アプリ (これらのスコープには cmux アプリが必要です。ここでは応答するアプリがありません)",
     app_heading_outer: "CMUX アプリ (このセッションの外側の cmux アプリ。このセッションの所有者ではありません)",
     skill_usage: "使い方: cmux skill show [--json]\n\n`cmux skill show` は、この cmux CLI のエージェントガイドを、実行中の CLI から\n生成して表示します。--json は {\"name\", \"version\", \"markdown\"} として表示します。\n",
+    folder_trust_ask: "エージェントがこのフォルダーを信頼するか尋ねています。本人に確認してから cmux terminal {who} keys で答えてください (cmux が自動で答えることはありません)",
+    folder_trust_keys: "エージェントがこのフォルダーを信頼するか尋ねています。本人に確認し、「{label}」に同意したら cmux terminal {who} keys {keys} を実行してください (cmux が自動で答えることはありません)",
+    folder_trust_no_approval: "警告: 「{label}」を選ぶと、エージェントは承認を求めずに操作します。本人に伝えてください",
 };

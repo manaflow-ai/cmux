@@ -50,8 +50,10 @@ const DIALOGS: &[(Dialog, &[&str])] = &[
     (
         Dialog {
             id: "folder_trust",
+            // agent_start.rs (add_dialog_options) replaces it with a
+            // localized reason that names the agent's terminal.
             reason: "the agent asks whether you trust this folder; ask the person, then answer \
-                     it with cmux terminal NAME keys (cmux never answers it on its own)",
+                     it with cmux terminal keys (cmux never answers it on its own)",
         },
         &[
             "do you trust the files in this folder",
