@@ -387,9 +387,14 @@ impl Hub {
         // A held agent message released, or a queued one sent now, may still name its uploads.
         let mut blocks = blocks;
         let web = opts.control == Control::Web;
-        crate::prompt_uploads::resolve_off_runtime(&session.id, web, &mut blocks).await?;
-        // A stop after this prompt came ends the agent start it waits on (`ensure_child`).
+        // Capture this before guard validation: a stop racing the final setup fence must
+        // still prevent the prompt from starting.
         let stops = session.stops.load(Ordering::SeqCst);
+        crate::prompt_uploads::resolve_off_runtime(&session.id, web, &mut blocks).await?;
+        if let Some(guard) = opts.race_guard.as_ref() {
+            guard()?;
+        }
+        // A stop after this prompt came ends the agent start it waits on (`ensure_child`).
         let control = opts.control;
         let trust_gate = opts.trust_gate;
         let no_queue = opts.no_queue;
@@ -423,7 +428,13 @@ impl Hub {
         let from_agent =
             super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref()).is_some()
                 && !opts.send_now;
+        let race_guard = opts.race_guard.clone();
         let mut accept = |mut v: Value| {
+            if let Some(race_guard) = race_guard.as_ref()
+                && let Err(error) = race_guard()
+            {
+                v = json!({"raceCancelled": true, "error": error.message});
+            }
             if let Some(f) = on_accepted.take() {
                 if supersede.is_some() {
                     super::queue::supersede::mark(&mut v, replaced.get());
@@ -756,6 +767,15 @@ impl Hub {
         } else {
             None
         };
+        // Admission can wait through queueing and dispatch checks. A cancelled race
+        // must refuse the prompt itself, not merely change its acceptance response.
+        if let Some(race_guard) = race_guard.as_ref()
+            && let Err(e) = race_guard()
+        {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
+        }
         if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, retry, turn) {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
@@ -1078,7 +1098,7 @@ impl Hub {
             return Err(e);
         }
         // Its stalled count starts once its prompt is written (`stalled_turn.rs`).
-        Self::hold_stalled_count(session);
+        self.hold_stalled_count(session);
         // A new turn: its own end decides the dot, not an earlier one's (`work_below.rs`).
         if !trigger {
             self.clear_deferred_unread(session);
@@ -1190,7 +1210,7 @@ impl Hub {
                 );
                 // The turn goes on, on the fallback. A new agent: the old one's silence and
                 // tools are not its own, and its count starts once the prompt is written to it.
-                Self::hold_stalled_count(session);
+                self.hold_stalled_count(session);
                 // The conversation the chat's own profile resumes, if the fallback cannot start.
                 let kept = super::fallback_start::ConversationMark::of(session);
                 let turn = session.turn();
@@ -2307,6 +2327,12 @@ impl Hub {
         } else {
             None
         };
+        // Its approvals audit entries go first (`audit_log.rs`), before anything of the chat is
+        // stopped or marked purged: a purge that fails or times out fails the delete with the
+        // chat as it was, still recording (the writer lifts its own fence again).
+        if purge {
+            self.audit_purge(&session.id).await?;
+        }
         // Counted first: a start for a request from before this stop ends (`ensure_child`).
         session.stops.fetch_add(1, Ordering::SeqCst);
         session.closing.store(true, Ordering::SeqCst);
@@ -2361,6 +2387,8 @@ impl Hub {
             // Its background tasks end with it (`bg_tasks.rs`); a stop keeps them.
             self.bg_purge(session).await?;
             session.purged.store(true, Ordering::SeqCst);
+            // Its spend, title and folder leave the cost ledger with it (`hub/ledger`).
+            self.ledger.purge(&session.id);
             self.remove_cached_closed_summary(&session.id);
             let replaced = session.replaced.load(Ordering::SeqCst);
             if !self

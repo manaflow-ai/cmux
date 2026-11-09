@@ -503,6 +503,7 @@ Inspector, or Chrome DevTools in Chromium) shows one warning, once per place:
 | `live-intervals` | More than 20 `setInterval` handles are live; names the call site holding most | The page clock: `subscribePageSecond`, `usePageNow`, `visibleInterval` (`ui/pageClock.ts`) |
 | `long-frame` | A frame takes over 50 ms; names the longest script (Chromium) | Do less per frame: render the visible window, defer off-screen work |
 | `react-commit` | A React root commits more than 120 times in a second, or renders for more than 16 ms in one update | Re-render only what changed: a streamed item reads its own value, batch to one commit a frame |
+| `still-surface` | A surface marked `data-perf-still` (the agent pane's composer and the hat over it) has its nodes or attributes rewritten in more than 6 of the last 10 seconds with no key or pointer input: a clock tick or another chat's event draws it again | Memoize it on what it shows (`composer/composerView.ts`); a ticking value is a leaf of its own (`subagents/Elapsed.tsx`) |
 
 The page's load and the second after each hot update are not budgeted for shifts, frames and
 commits. Mark an element that must stay wide with `data-perf-budget-allow="<why>"`. Turn the

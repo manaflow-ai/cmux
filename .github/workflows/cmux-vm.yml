@@ -83,6 +83,12 @@
 #   sweep-orphans-production  list provider VMs of production that no cmux_vm ownership row records, older than
 #                         15 minutes, with our exact slug and metadata (cmux#35013); dry_run=false then deletes them
 #                         and logs each id. The Worker's 5-minute cron runs the same sweep (src/upstream/orphan-sweep.ts).
+#   journey-machines-staging  list the staging agent test account's Cloud machines (its own team and
+#                         CMUX_JOURNEY_PRODUCT_TEAM), one JSON line each with `eligible` by the leaked journey machine
+#                         rule (cloud-journey.ts journeyMachineEligible); machine_ids (at most 5 `vm_ID@JOB_ID`, JOB_ID
+#                         a deploy-staging job of a push or dispatch run on feat-cmux-next or main whose log shows its
+#                         journey made the machine and its cleanup delete failed) then
+#                         deletes exactly those, each only when proven, listed and eligible, logged before the delete.
 
 name: cmux VM
 
@@ -113,7 +119,7 @@ on:
       action:
         description: Manual action
         type: choice
-        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production, migrate-production, tail-production, sweep-orphans-production]
+        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production, migrate-production, tail-production, sweep-orphans-production, journey-machines-staging]
         default: cloudflare-preflight
       environment:
         description: Environment for hyperdrive-ensure
@@ -132,6 +138,10 @@ on:
         description: migrate-production with dry_run=false only, apply without the point-in-time rehearsal copy (push and deploy-production always skip it); every other check still runs
         type: boolean
         default: false
+      machine_ids:
+        description: journey-machines-staging only, at most 5 vm_ID@JOB_ID to delete (JOB_ID the deploy-staging job that leaked it), comma separated; empty lists only
+        type: string
+        default: ""
       tail_minutes:
         description: tail-production only, minutes to stream the production Worker's events (at most 25)
         type: string
@@ -170,6 +180,10 @@ jobs:
     if: (github.event_name != 'workflow_dispatch' || inputs.action == 'deploy-staging' || inputs.action == 'deploy-production') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 15
+    # actions: read finds an earlier run's check for an image roll commit (step roll).
+    permissions:
+      contents: read
+      actions: read
     defaults:
       run:
         working-directory: workers/cmux-vm
@@ -177,6 +191,50 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+      # An image roll or rollback commit (cloud-vm-image-roll.yml, image-roll-settle; the subject migrate-production
+      # skips on) gets the short check: the boot image lists, the bundle dry run and its size budget, not the 2.7 min
+      # of typecheck, lint and tests (goal cloud-fix-to-machine). Only when the push changes nothing but
+      # inputs.lock.json and wrangler.jsonc, and an earlier feat-cmux-next push run's check passed on a tree whose
+      # checked paths differ from this one only in wrangler.jsonc. Anything it cannot confirm runs the full check.
+      - name: Image roll commit with a passed check on the same code (short check)
+        id: roll
+        if: >-
+          github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' &&
+          startsWith(github.event.head_commit.message, 'cmux-vm: image roll')
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -uo pipefail
+          full() { echo "::notice title=cmux-vm check::full check: $1"; echo "short=false" >> "$GITHUB_OUTPUT"; exit 0; }
+          { [ -n "$BEFORE" ] && ! [[ "$BEFORE" =~ ^0+$ ]]; } || full "no previous tip"
+          git fetch --quiet --no-tags --depth=1 origin "$BEFORE" || full "cannot fetch the previous tip $BEFORE"
+          pushed="$(git diff --name-only "$BEFORE" HEAD)" || full "cannot diff the push"
+          [ -n "$pushed" ] || full "the push changes no file"
+          while IFS= read -r f; do
+            case "$f" in images/cmux-vm/inputs.lock.json|workers/cmux-vm/wrangler.jsonc) ;; *) full "the push changes $f" ;; esac
+          done <<< "$pushed"
+          # Every path check reads; between the passed run's commit and this one only wrangler.jsonc may differ.
+          checked=(workers/cmux-vm libs/svix-webhook libs/vm-instance-identity .github/workflows/cmux-vm.yml scripts/cmux-next/release)
+          runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/cmux-vm.yml/runs?branch=feat-cmux-next&event=push&per_page=20" \
+            --jq ".workflow_runs[] | select(.id != $GITHUB_RUN_ID) | \"\(.id) \(.head_sha)\"")" || full "cannot list earlier runs"
+          # At most 20 runs (one page) and 5 job reads.
+          reads=0
+          while read -r id sha; do
+            if [ -z "$id" ] || [ "$reads" -ge 5 ]; then break; fi
+            git fetch --quiet --no-tags --depth=1 origin "$sha" || continue
+            diff="$(git diff --name-only "$sha" HEAD -- "${checked[@]}")" || continue
+            [ -z "$diff" ] || [ "$diff" = workers/cmux-vm/wrangler.jsonc ] || continue
+            reads=$((reads + 1))
+            check="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs?filter=latest&per_page=100" --jq '[.jobs[] | select(.name == "check") | .conclusion] | first // ""')" || continue
+            if [ "$check" = success ]; then
+              echo "::notice title=cmux-vm check::short check: run $id passed check on ${sha:0:12}, the same code but wrangler.jsonc"
+              echo "short=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done <<< "$runs"
+          full "no earlier passed check on the same code"
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -189,7 +247,7 @@ jobs:
         run: bun install --frozen-lockfile
       # Every check below runs whenever install succeeded, so one run reports all failures.
       - name: Migration lint (expand-only, schema cmux_vm only, numbering, hash lock)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.roll.outputs.short != 'true' }}
         working-directory: scripts/cmux-next/release
         env:
           BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
@@ -204,16 +262,16 @@ jobs:
           fi
           bun lint.ts --tree cmux-vm --base "$BASE"
       - name: Typecheck (includes compile-time proof misuse cases)
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.roll.outputs.short != 'true' }}
         run: bun run typecheck
       - name: Oxlint with the gdp-ts preset
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.roll.outputs.short != 'true' }}
         run: bun run lint
       - name: gdp-ts preset rejects forged proofs (self-test)
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.roll.outputs.short != 'true' }}
         run: bun run lint:selftest
       - name: openapi.json matches the HttpApi definition
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.roll.outputs.short != 'true' }}
         run: bun run openapi:check
       # PRs compare with their base branch; check-only pushes compare with the previous commit.
       # Add the label cmux-vm-breaking-change-ok to accept them deliberately.
@@ -224,32 +282,50 @@ jobs:
           ACCEPT_BREAKING: ${{ contains(github.event.pull_request.labels.*.name, 'cmux-vm-breaking-change-ok') }}
         run: bash scripts/openapi-breaking.sh "$BASE_REF"
       - name: Upstream coverage (every upstream operation wrapped, planned or denied)
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.roll.outputs.short != 'true' }}
         run: bun run coverage:upstream
       - name: Integration tests in workerd (fake upstream)
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.roll.outputs.short != 'true' }}
         run: bun run test:workers
       - name: Generated creation storage survives an older ledger
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.roll.outputs.short != 'true' }}
         run: bun scripts/test-generated-creation-compat.ts
       - name: Snapshot capture storage survives an older ledger
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.roll.outputs.short != 'true' }}
         run: bun scripts/test-snapshot-capture-compat.ts
       - name: Snapshot key fences survive the previous capture engine
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.roll.outputs.short != 'true' }}
         run: bun scripts/test-snapshot-key-fence-compat.ts
       - name: Fork capture intent survives the previous ledger
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.roll.outputs.short != 'true' }}
         run: bun scripts/test-fork-capture-compat.ts
       - name: Pending history discovers slots from the previous writer
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.roll.outputs.short != 'true' }}
         run: bun scripts/test-pending-history-compat.ts
       - name: Service key scope grants merge only declared, known scopes
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.roll.outputs.short != 'true' }}
         run: bun scripts/test-key-grants.ts
       - name: Store tests on PGlite against the migration
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.roll.outputs.short != 'true' }}
         run: bun run test:pg
+      # The short check's own step: each environment's list parses and passes the Worker's schema (auto-roll.ts
+      # locate) and stays within Cloudflare's 5,120-byte text binding limit (MAX_BYTES), so a list the deploy
+      # would refuse fails here.
+      - name: Boot image lists and the image lock parse, within the binding limit (short check)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.roll.outputs.short == 'true' }}
+        working-directory: .
+        run: |
+          bun -e '
+            const { readFileSync } = await import("node:fs");
+            const { DEFAULT_LOCK, DEFAULT_WRANGLER, MAX_BYTES, locate } = await import(`${process.cwd()}/images/cmux-vm/auto-roll.ts`);
+            JSON.parse(readFileSync(DEFAULT_LOCK, "utf8"));
+            const text = readFileSync(DEFAULT_WRANGLER, "utf8");
+            for (const env of ["staging", "production"]) {
+              const bytes = Buffer.byteLength(JSON.stringify(locate(text, env).images), "utf8");
+              console.log(`${env} VM_BOOT_IMAGES: ${bytes} bytes (at most ${MAX_BYTES})`);
+              if (bytes > MAX_BYTES) throw new Error(`${env} VM_BOOT_IMAGES is ${bytes} bytes, over ${MAX_BYTES}`);
+            }
+          '
       - name: Bundle (staging config, dry run)
         id: bundle
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
@@ -681,9 +757,13 @@ jobs:
         run: bun db-release.ts gate --tree cmux-vm --target production --url-env CMUX_VM_DATABASE_URL
       # The headless Cloud journey (scripts/cmux-next/cloud-journey.ts: create machine, start agent, chat,
       # reply, delete) on the version serving now, so the run after the deploy can tell the deploy's own
-      # reds from ones that were already there (plans/cloud/ARCHITECTURE-2026-11.md, M1).
+      # reds from ones that were already there (plans/cloud/ARCHITECTURE-2026-11.md, M1). Not for an image roll
+      # or rollback (its commit, or the retried deploy image-roll-settle dispatches): only the boot image list
+      # changes, and smoke-production's product create boots the new image.
       - name: Cloud journey baseline (before the deploy)
-        if: steps.gate.outputs.enabled == 'true'
+        if: >-
+          steps.gate.outputs.enabled == 'true' &&
+          !startsWith(github.event.head_commit.message, 'cmux-vm: image roll') && inputs.image_rollback == ''
         continue-on-error: true
         working-directory: .
         env:
@@ -1175,6 +1255,45 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$DRY_RUN" = false ]; then bun scripts/sweep-orphans.ts --delete; else bun scripts/sweep-orphans.ts; fi
+
+  journey-machines-staging:
+    # A staging Cloud journey whose cleanup delete got mutation.indeterminate leaves its `cloud journey jr-*` machine
+    # behind; five of them fill the agent test account's quota and every later journey fails at create with
+    # cloud.quota.exceeded. This lists the account's machines and, with machine_ids, deletes exactly those ids, each
+    # only when the live list has it and the rule allows it (paused or failed, or older than 24 h and idle; never a
+    # kept or any other machine). Never scheduled. feat-cmux-next only: checked-out code with the staging account.
+    name: journey machines (staging agent test account)
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'journey-machines-staging' && github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # 35 min: at most 5 ids (MAX_DELETE_IDS), each delete bounded at 5 min (180 s of retries, 120 s of read back),
+    # plus sign-in, the list and the job log reads.
+    timeout-minutes: 35
+    environment: cmux-vm-staging
+    permissions:
+      contents: read
+      # Each id's proof: its journey job's log (cloud-journey.ts provenLeak).
+      actions: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: List (and with machine_ids delete) the journey's machines
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+          MACHINE_IDS: ${{ inputs.machine_ids }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          args=(--backend staging --machines)
+          if [ -n "$PRODUCT_TEAM" ]; then args+=(--also-team "$PRODUCT_TEAM"); fi
+          # cloud-journey.ts refuses anything but vm_ID@JOB_ID, and any id its job's log does not prove leaked, before it signs in.
+          if [ -n "$MACHINE_IDS" ]; then args+=(--delete-ids "$MACHINE_IDS"); fi
+          bun scripts/cmux-next/cloud-journey.ts "${args[@]}"
 
   migrate-production:
     # Production cmux_vm migrations (release-rails.md, "Production migrations from CI"): every push to

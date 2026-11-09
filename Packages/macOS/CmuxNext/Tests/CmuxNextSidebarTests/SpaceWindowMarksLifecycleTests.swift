@@ -49,7 +49,7 @@ import Testing
         var marks: SpaceWindowMarks? = SpaceWindowMarks()
         marks?.install(source: windows) { "here" }
         marks?.isActive = true
-        let task = try #require(marks?.observationTask)
+        let task = try #require(marks?.observation.withLock { $0 })
         #expect(!task.isCancelled)
         marks = nil
         #expect(task.isCancelled, "the released marks left their observation task running")

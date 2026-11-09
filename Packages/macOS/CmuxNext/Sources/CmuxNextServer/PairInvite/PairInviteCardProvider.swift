@@ -5,9 +5,10 @@ public import Foundation
 
 extension PageDescriptor {
     /// The server cards (webviews/src/pages/server-cards): cmux-page://cmux.server-cards/, one card
-    /// per route in one floating ``WebCardPanel``. A new card adds its ops' prefix here.
+    /// per route in one floating ``WebCardPanel`` (and the server panel's routes in the menu bar
+    /// item's popover). A new card adds its ops' prefix here.
     public static let serverCards = PageDescriptor(id: "cmux.server-cards", resource: "server-cards",
-                                                   namespaces: ["cmux.card.", "cmux.pairInvite."])
+                                                   namespaces: ["cmux.card.", "cmux.pairInvite.", "cmux.addMachine.", "cmux.server."])
 }
 
 /// "Pair Another Machine…" on the server card page (`#/pair-invite`, webviews/src/pages/server-cards):
@@ -100,7 +101,7 @@ public final class PairInviteCardProvider: WebCard {
         generation += 1
         stopSocket()
         // A result from this opening never greets the next one.
-        approver.perform(.cancel)
+        approver.dismissApproval()
         (mint, failure, invite, frames, arrivedCode, typedName) = (.idle, nil, nil, [], nil, nil)
         changed()
     }
@@ -114,7 +115,7 @@ public final class PairInviteCardProvider: WebCard {
         generation += 1
         let mine = generation
         // A new code starts clean: the last machine's result or refusal never shows on it.
-        approver.perform(.cancel)
+        approver.dismissApproval()
         (mint, failure, invite, frames, arrivedCode, typedName) = (.minting, nil, nil, [], nil, nil)
         changed()
         let result = await service.mint()

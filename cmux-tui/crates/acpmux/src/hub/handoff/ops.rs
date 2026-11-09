@@ -598,6 +598,7 @@ impl Hub {
         }
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
         let opts = PromptOptions {
+            race_guard: None,
             cloud_turn: None,
             prompt_id: Some(prompt_id.to_owned()),
             message_id: None,

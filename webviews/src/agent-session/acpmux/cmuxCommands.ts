@@ -125,12 +125,12 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
   },
   // Claude Code's own /resume and /login need its terminal UI; these are the GUI's (Lawrence:
   // "in gui, having /resume would be nice, maybe /login as well"). /resume opens the chats search;
-  // `/resume <session id>` resumes that chat (resumeCommand.ts).
+  // `/resume <session-id>` resumes that chat (resumeCommand.ts).
   {
     name: "resume",
     description: "",
     descriptionKey: "composer.slashResume",
-    hint: "[session id]",
+    hint: "[session-id]",
     source: "cmux",
     action: "resume",
   },
@@ -259,7 +259,7 @@ export function cmuxCommandRefusal(
   state: {
     summary: boolean;
     forkable: boolean;
-    /// Why `/side` cannot fork the chat now (`forkRefusal`), undefined when it can: unlike `/fork`,
+    /// Why `/side` cannot fork the chat now (`sideChatRefusal`), undefined when it can: unlike `/fork`,
     /// a working chat forks as it is now and its own turn goes on (#38042).
     sideFork?: "unavailable" | "nothingYet";
     sideAvailable: boolean;

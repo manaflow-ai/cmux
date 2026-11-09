@@ -1107,9 +1107,111 @@ class GatewayRoute(unittest.TestCase):
         lines = self.run_main(self.light(True, True), **rerun)
         self.assertEqual((lines["fleet_jobs"], lines["gateway_runner"], lines["gateway_attempt"]), ("", "", ""))
 
+    def test_the_pr_app_compile_takes_an_idle_gateway_before_the_quiet_period_ends(self):
+        # Leo, 2026-11-08: the Linux checks start at once and only the Mac jobs wait. cmux-next.yml's
+        # app-compile-placement judges the app compile's gateway at once; macos-placement places the Mac
+        # jobs after the PR quiet period from its own reading.
+        early = {"PLACEMENT": "app-compile", "GITHUB_RUN_ATTEMPT": "1", "GATEWAY_LABEL": LIGHT_SIDE,
+                 "GATEWAY_JOBS": "app-compile-fleet"}
+        lines = self.run_main(self.light(True, False), **early)
+        self.assertEqual(lines, {"gateway_runner": LIGHT_SIDE, "gateway_attempt": "1"})
+        # A busy light gateway spills to an idle std side runner, as gateway_route() does.
+        self.assertEqual(placement.app_compile_gateway(early, self.light(True) + self.std(False))[0], SIDE)
+        for why, values, runners in (
+                ("no idle gateway runner", early, self.light(True, True)),
+                ("runners unread", early, None),
+                ("a re-run", {**early, "GITHUB_RUN_ATTEMPT": "2"}, self.light(False)),
+                ("no gateway variable", {**early, "GATEWAY_LABEL": ""}, self.light(False))):
+            with self.subTest(why=why):
+                self.assertEqual(placement.app_compile_gateway(values, runners)[0], "")
+        self.assertEqual(self.run_main(self.light(True, True), **early), {"gateway_runner": "", "gateway_attempt": ""})
+
     def test_a_rerun_lists_no_fleet_job(self):
         self.assertEqual(placement.fleet_gateway(self.fleet_placed("fast-tier"), {}, self.light(False, False), "")
                          .fleet_jobs, ())
+
+
+class FastTierHandback(unittest.TestCase):
+    """The fast tier's queued hand-back (cmux-next.yml's fast-tier-handback-placement, cmux#38627): a fleet step
+    still queued after the client's wait hands the tier back, and it is placed again then, from a fresh
+    reading: its own idle label, an idle owned side runner, Blacksmith 6 vCPU unless that is excluded, else
+    the owned route. #38627's review: an unconditional Blacksmith 6 vCPU queued on a label under a declared
+    outage, with no verdict and its timeout not yet started."""
+
+    SMALL = "blacksmith-6vcpu-macos-26"
+    NOW = __import__("datetime").datetime(2026, 11, 8, 15, 0, tzinfo=__import__("datetime").timezone.utc)
+
+    def seen(self, outage: bool = False):
+        shot = {"generated_at": "2026-11-08T14:58:00Z",
+                "pools": {self.SMALL: {"queued": 3 if outage else 0, "running": 0, "oldest_queued_minutes": 0}}}
+        if outage:
+            shot["bs_health"] = {"label_outages": [{"pool": self.SMALL, "queued": 3, "last_start_s": 3600}]}
+        return placement.cascade.seen(shot, self.NOW)
+
+    def place(self, runners, outage: bool = False, read: bool = True, **values: str) -> tuple[str, str]:
+        live, waiting = ({self.SMALL: 0}, {self.SMALL: 3 if outage else 0}) if read else (None, None)
+        return placement.handback({"SIDE_LABEL": SIDE, "FAST_LABEL": FAST, **values}, runners, live, waiting,
+                                  self.seen(outage) if read else None)
+
+    def test_an_idle_owned_mac_wins_over_blacksmith(self):
+        self.assertEqual(self.place([runner("mini-f-glaeda-1", labels=(FAST,)), runner("mini-a-glaeda-1")])[0], FAST)
+        self.assertEqual(self.place([runner("mini-f-glaeda-1", busy=True, labels=(FAST,)),
+                                     runner("mini-a-glaeda-1")])[0], SIDE)
+
+    def test_no_idle_mini_takes_blacksmith_while_it_is_live(self):
+        busy = [runner("mini-a-glaeda-1", busy=True), runner("mini-b-glaeda-1", busy=True)]
+        self.assertEqual(self.place(busy)[0], self.SMALL)
+        # Unread runners vouch for no idle mini; an unread Blacksmith reading excludes nothing.
+        self.assertEqual(self.place(None)[0], self.SMALL)
+        self.assertEqual(self.place(busy, read=False)[0], self.SMALL)
+
+    def test_an_excluded_blacksmith_keeps_the_owned_route(self):
+        busy = [runner("mini-a-glaeda-1", busy=True), runner("mini-b-glaeda-1", busy=True)]
+        label, why = self.place(busy, outage=True)
+        self.assertEqual(label, SIDE)
+        self.assertIn("declared outage", why)
+        # Runners unread too: the side label itself, never the excluded Blacksmith.
+        self.assertEqual(self.place(None, outage=True)[0], SIDE)
+        # No owned side label to wait on (unset, or not an owned label): Blacksmith 6 vCPU, as before.
+        self.assertEqual(self.place(busy, outage=True, SIDE_LABEL="")[0], self.SMALL)
+        self.assertEqual(self.place(None, outage=True, SIDE_LABEL=self.SMALL)[0], self.SMALL)
+
+    def test_a_full_blacksmith_keeps_the_owned_route(self):
+        # #38646's review: the pool snapshot macos-placement reads carries only queued and running counts (no
+        # cap, capacity or bs_health), so label_full_or_dead() never calls 6 vCPU full there, and the hand-back
+        # queued behind a full pool. A full label or pool (no slot free now) keeps the owned route.
+        busy = [runner("mini-a-glaeda-1", busy=True), runner("mini-b-glaeda-1", busy=True)]
+        shot = {"generated_at": "2026-11-08T14:58:00Z",
+                "pools": {self.SMALL: {"queued": 0, "running": 10, "oldest_queued_minutes": 0}}}
+        seen = placement.cascade.seen(shot, self.NOW)
+        capacity = placement.cascade.CAPACITY[self.SMALL]
+        values = {"SIDE_LABEL": SIDE, "FAST_LABEL": FAST}
+        for live, waiting, expected in (
+                ({self.SMALL: capacity}, {self.SMALL: 0}, SIDE),           # every slot running
+                ({self.SMALL: capacity - 1}, {self.SMALL: 1}, SIDE),       # the last slot already promised
+                # The shared 60 vCPU pool full on 12 vCPU: no 6 vCPU slot either.
+                ({self.SMALL: 0, "blacksmith-12vcpu-macos-26": 5}, {self.SMALL: 0}, SIDE),
+                ({self.SMALL: capacity - 1}, {self.SMALL: 0}, self.SMALL)):  # one slot free
+            with self.subTest(live=live, waiting=waiting):
+                label, why = placement.handback(values, busy, live, waiting, seen)
+                self.assertEqual(label, expected, why)
+                if expected == SIDE:
+                    self.assertIn("full", why)
+
+    def test_main_writes_the_runner(self):
+        busy = [runner("mini-a-glaeda-1", busy=True)]
+        for outage, expected in ((False, self.SMALL), (True, SIDE)):
+            with self.subTest(outage=outage), tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "out"
+                values = {"PLACEMENT": "handback", "SIDE_LABEL": SIDE, "GITHUB_OUTPUT": str(output),
+                          "ROUTE_TOKEN": "t", "GITHUB_REPOSITORY": "manaflow-ai/cmux"}
+                read = ({self.SMALL: 0}, {self.SMALL: 3 if outage else 0}, self.seen(outage))
+                with mock.patch.object(placement.pool, "GitHub") as github, \
+                        mock.patch.object(placement.cascade, "read", return_value=read), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    github.return_value.runners.return_value = busy
+                    placement.main(values)
+                self.assertEqual(output.read_text(), f"runner={expected}\n")
 
 
 class SpillToCompatiblePool(unittest.TestCase):

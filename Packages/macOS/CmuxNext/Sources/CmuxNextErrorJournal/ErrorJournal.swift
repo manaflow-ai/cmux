@@ -46,21 +46,39 @@ public actor ErrorJournal {
         flushTimer = DemandTimer(owner: "error-journal.flush", clock: clock)
         self.now = now
         normalizer = ErrorNormalizer(maxBytes: limits.maxMessageBytes)
-        redactor = ErrorRedactor()
-        store = ErrorSegmentStore(directory: directory, segmentBytes: limits.segmentBytes)
+        let redactor = ErrorRedactor()
+        self.redactor = redactor
+        store = ErrorSegmentStore(directory: directory, segmentBytes: limits.segmentBytes, redaction: redactor.rulesDigest)
     }
 
-    /// Reads what earlier launches kept, once, on the actor: re-redacts every entry with today's
-    /// rules, merges entries whose fingerprints now agree, and rewrites the file when that changed
-    /// anything. Every isolated entry point calls it first.
+    /// Reads what earlier launches kept, once, on the actor. A line stamped with today's rules
+    /// (``ErrorRedactor/rulesDigest``) was redacted by them when it was written, so it is only
+    /// decoded. Otherwise (a line from before the stamp, an older build, or other rules) the newest
+    /// line per fingerprint is re-redacted with today's rules, entries whose fingerprints now agree
+    /// merge, and the file is rewritten with every line stamped, which drops shadowed history too.
+    /// Re-redacting every line on every open cost ~18 s of CPU for a 2 MB journal in a debug build.
+    /// Every isolated entry point calls it first.
     private func openIfNeeded() {
         guard !opened else { return }
         opened = true
-        let snapshots = store.load()
+        // The newest line per fingerprint wins (lines come oldest first); only winners are redacted.
+        var newest: [String: StoredErrorEntry] = [:]
+        var stale = false
+        for line in store.load() {
+            if line.redaction != redactor.rulesDigest { stale = true }
+            newest[line.entry.fingerprint] = line
+        }
+        guard stale else {
+            table = newest.mapValues(\.entry)
+            return
+        }
         var latestByOriginalFingerprint: [String: ErrorEntry] = [:]
-        var changed = false
-        for var entry in snapshots {
-            let original = entry
+        for (originalFingerprint, line) in newest {
+            guard line.redaction != redactor.rulesDigest else {
+                latestByOriginalFingerprint[originalFingerprint] = line.entry
+                continue
+            }
+            var entry = line.entry
             let template = redactor.redact(entry.template).utf8Prefix(limits.maxMessageBytes)
             let sample = redactor.redact(entry.sample).utf8Prefix(limits.maxMessageBytes)
             let topFrame = entry.topFrame.map { redactor.redact($0).utf8Prefix(256) }
@@ -76,18 +94,15 @@ public actor ErrorJournal {
                 template: template,
                 topFrame: topFrame
             ).hex
-            if entry != original { changed = true }
-            latestByOriginalFingerprint[original.fingerprint] = entry
+            latestByOriginalFingerprint[originalFingerprint] = entry
         }
         var loaded: [String: ErrorEntry] = [:]
         for originalFingerprint in latestByOriginalFingerprint.keys.sorted() {
             guard let entry = latestByOriginalFingerprint[originalFingerprint] else { continue }
             loaded[entry.fingerprint] = Self.mergeLoaded(loaded[entry.fingerprint], with: entry)
         }
-        if changed {
-            do { try store.compact(loaded.values.sorted { $0.lastMs < $1.lastMs }) }
-            catch { lastWriteError = String(describing: error) }
-        }
+        do { try store.compact(loaded.values.sorted { $0.lastMs < $1.lastMs }) }
+        catch { lastWriteError = String(describing: error) }
         table = loaded
     }
 

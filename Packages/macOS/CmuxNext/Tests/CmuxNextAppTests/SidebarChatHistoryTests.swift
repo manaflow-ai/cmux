@@ -5,6 +5,7 @@ import CmuxNextActions
 @testable import CmuxNextAgentPane
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -155,7 +156,7 @@ import Testing
 
     private static func defaults() throws -> UserDefaults {
         let suite = "SidebarChatHistoryTests.\(UUID().uuidString)"
-        return try #require(UserDefaults(suiteName: suite))
+        return try #require(UserDefaults(testSuiteName: suite))
     }
 
     @Test func pinsAndTheFoldAreKeptAcrossLaunchesAndPagesAreNot() throws {

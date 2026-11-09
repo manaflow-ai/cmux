@@ -215,6 +215,10 @@ public final class AgentPaneModel {
     @ObservationIgnored var dictationUploads = AgentPaneDictationUploads()
     /// Opens a changed file the page names; false when it could not.
     @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
+    /// Opens a file of a Cloud chat's machine (an absolute path there) in cmux's file pages, read
+    /// through that machine's daemon, never this Mac's file of the same path; false when it could
+    /// not, or when the path reaches through a symlink there.
+    @ObservationIgnored public var onOpenMachineFile: (@MainActor (String) async -> Bool)?
     /// Opens a turn's local web page in a browser tab beside the agent;
     /// false when it could not.
     @ObservationIgnored public var onOpenPreview: (@MainActor (URL) -> Bool)?
@@ -537,8 +541,8 @@ public final class AgentPaneModel {
             if remoteChat { return Self.unsupported("shell") }
             return await respondToShellComplete(line: line, cwd: cwd)
         case .newTabContext:
-            AgentPaneLaunchTimings.shared.mark("agent_pane.newtab_context")
-            // Only a page with no chat yet is a New Tab page; the handshake still sends the same context.
+            // Only a page with no chat yet is a New Tab page, and marks so; the handshake still sends the same context.
+            if sessionId == nil { AgentPaneLaunchTimings.shared.mark("agent_pane.newtab_context") }
             guard sessionId == nil, let newTab = newTabForPage, let data = try? JSONEncoder().encode(newTab),
                   let object = try? JSONSerialization.jsonObject(with: data) else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["newTab": object])

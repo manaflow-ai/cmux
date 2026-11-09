@@ -95,6 +95,54 @@ export function replyMenuTime(at: number, now: number, locale?: string): string 
   }
 }
 
+/// The age every message row writes, a prompt's and a reply's alike (Leo, 2026-11-08: "the
+/// timestamps for the agent and then the timestamps for the user, they need to be congruent"):
+/// "just now" under a minute, then whole minutes ("59 minutes ago"), whole hours up to a day
+/// ("23 hours ago"), days ("yesterday", "6 days ago") up to a week, then the date ("Oct 18"; the
+/// year only when it is not `now`'s). Counts are floored, so a label never reads ahead of its unit
+/// ("24 hours ago", "60 minutes ago"). The exact time is the row's tooltip (exactTime).
+const MESSAGE_UNITS: readonly (readonly [Intl.RelativeTimeFormatUnit, number])[] = [
+  ["day", 86_400],
+  ["hour", 3_600],
+  ["minute", 60],
+];
+/// A week, in seconds: from here a message's age is its date.
+const MESSAGE_DATE_AFTER = 7 * 86_400;
+
+/// `at`'s age at `now` in a message row, in `locale`.
+export function messageAge(at: number, now: number, locale?: string): string {
+  // A time past `now` (the minute clock behind, another computer's clock ahead) is just sent.
+  const age = Math.floor(Math.max(0, now - at) / 1000);
+  if (age >= MESSAGE_DATE_AFTER || !Number.isFinite(age)) return messageDate(at, now, locale);
+  const words = relativeWords(locale);
+  const unit = MESSAGE_UNITS.find(([, size]) => age >= size);
+  // l10n-allow: English only by design (Claude's wording); every other language gets Intl's own word.
+  if (!unit) return words.englishNow ? "just now" : words.formatter.format(0, "second");
+  return words.formatter.format(-Math.floor(age / unit[1]), unit[0]);
+}
+
+/// A message's date once it is a week old: "Oct 18", or "Oct 18, 2025" in another year.
+function messageDate(at: number, now: number, locale?: string): string {
+  const sameYear = new Date(at).getFullYear() === new Date(now).getFullYear();
+  const fields: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", year: sameYear ? undefined : "numeric" };
+  try {
+    return new Date(at).toLocaleDateString(locale, fields);
+  } catch {
+    return new Date(at).toLocaleDateString(undefined, fields);
+  }
+}
+
+/** First shared wall-clock minute where messageAge's text changes. Once it is a date, that is only
+ * the new year, when its year appears (nextReplyTime); a date from an earlier year holds no timer. */
+export function nextMessageAge(at: number, now: number): number {
+  if (!Number.isFinite(at)) return Infinity;
+  const age = Math.max(0, now - at);
+  if (age >= MESSAGE_DATE_AFTER * 1000) return nextReplyTime(at, now);
+  const size = (MESSAGE_UNITS.find(([, length]) => age >= length * 1000)?.[1] ?? 60) * 1000;
+  const change = Math.min(at + (Math.floor(age / size) + 1) * size, at + MESSAGE_DATE_AFTER * 1000);
+  return Math.max(now + 60_000, Math.ceil(change / 60_000) * 60_000);
+}
+
 /** First shared wall-clock minute where relativeTime's unit or rounded count changes. */
 export function nextRelativeTime(at: number, now: number): number {
   if (!Number.isFinite(at)) return Infinity;

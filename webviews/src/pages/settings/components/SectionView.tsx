@@ -23,6 +23,7 @@ import { AdvancedInfo, BACKDROP_ROWS, Backdrops, TerminalInfo, useBackdropsShown
 import { DENSITY_ROWS } from "../density";
 import { DensityCard } from "./DensityCard";
 import { BrowserProfiles, MACHINE_COLORS_KEY, MachinesSection, SpacesSection } from "./HostSections";
+import { PersonalizationCard } from "./PersonalizationCard";
 import { PlaceholderSection } from "./PlaceholderSection";
 import { AppUpdateCard } from "./AppUpdateCard";
 import { WebUpdatesCard } from "./WebUpdatesCard";
@@ -79,6 +80,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   sharedLinks: (_focus, _workspace, reveal) => <SharedLinksCard reveal={reveal} />,
   tailnet: () => <TailnetCard />,
   contextMenus: (focus) => <ContextMenusCard focus={focus} />,
+  personalization: (focus, workspace) => <PersonalizationCard focus={focus} workspace={workspace} />,
 };
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */

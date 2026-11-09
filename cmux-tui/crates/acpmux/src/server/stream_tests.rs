@@ -186,3 +186,31 @@ async fn replies_still_go_out_after_the_client_stops_sending() {
     assert_eq!(all, "reply\n");
     task.await.unwrap();
 }
+
+/// The Cloud carrier's header names a person on the carrier socket only (`carrier.rs`): an HTTP
+/// upgrade that carries it on the daemon's own socket ends the connection, and nothing it sent
+/// reaches the server, the JSON-RPC line after it included.
+#[tokio::test]
+async fn an_http_upgrade_with_the_carrier_header_ends_the_connection() {
+    let (mut client, mut in_rx, last, task) = reader(256);
+    let head = concat!(
+        "GET / HTTP/1.1\r\n",
+        "Host: carrier\r\n",
+        "Upgrade: websocket\r\n",
+        "Connection: Upgrade\r\n",
+        "x-acpmux-carrier: {\"vmk\":\"owner\",\"sub\":\"u\",\"team\":\"t\"}\r\n",
+        "\r\n",
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}\n",
+    );
+    client.write_all(head.as_bytes()).await.unwrap();
+    assert_eq!(in_rx.recv().await, None);
+    task.await.unwrap();
+    let reply: serde_json::Value =
+        serde_json::from_str(&last.await.expect("an error before the connection ends")).unwrap();
+    assert_eq!(reply["error"]["data"]["reason"], "carrier.wrong_socket", "{reply}");
+    // A JSON-RPC first line is no HTTP request.
+    for line in ["{\"jsonrpc\":\"2.0\"}", "GET", "get / HTTP/1.1", "GET / HTTP/1.1 x"] {
+        assert!(!super::http_request_line(line), "{line}");
+    }
+    assert!(super::http_request_line("POST /x HTTP/1.0\r"));
+}

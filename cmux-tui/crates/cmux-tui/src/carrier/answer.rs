@@ -211,7 +211,7 @@ impl Credential {
 }
 
 /// cmux-platform over HTTPS with the person's credential.
-pub(super) struct HttpSource {
+pub(crate) struct HttpSource {
     api: String,
     credential: Credential,
     /// A credential handed over later (`carrier serve`'s stdin), used in
@@ -252,6 +252,25 @@ impl HttpSource {
         }
     }
 
+    /// POSTs `body` to `path` on the platform with the person's credential
+    /// (and the team header): the status and the JSON body (`Null` when the
+    /// body is not JSON). No answer at all is a retry.
+    pub(super) async fn post(&self, path: &str, body: &Value) -> Result<(u16, Value), SourceError> {
+        let credential = self.current()?;
+        let mut request = self
+            .client
+            .post(format!("{}{path}", self.api))
+            .bearer_auth(credential.as_str())
+            .json(body);
+        if let Some(team) = &self.team {
+            request = request.header(TEAM_HEADER, team);
+        }
+        let response =
+            request.send().await.map_err(|_| SourceError::retry("cmux-platform did not answer"))?;
+        let status = response.status().as_u16();
+        Ok((status, response.json().await.unwrap_or(Value::Null)))
+    }
+
     /// Who the current credential names, read afresh (a stdin token, else
     /// the token file re-read now, else the environment's): `sub:<sub>` for
     /// a JWT with a `sub` ([`token_subject`]), else `token:<sha-256 hex>` of
@@ -274,11 +293,22 @@ impl HttpSource {
 /// The `sub` claim of a JWT credential, read without checking its
 /// signature (the platform checks the credential; this only tells whether a
 /// refreshed credential is the same person's). `None` for anything that is
-/// not a JWT with a string `sub`.
+/// not a JWT with a string `sub`: a JWT has exactly three segments and its
+/// first is a JSON header naming an `alg`, so an opaque dotted credential
+/// whose middle segment happens to decode never borrows a `sub`.
 pub(super) fn token_subject(token: &str) -> Option<String> {
-    let payload = token.split('.').nth(1)?;
-    let bytes = Zeroizing::new(URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).ok()?);
-    let claims: Value = serde_json::from_slice(&bytes).ok()?;
+    let mut segments = token.split('.');
+    let (Some(header), Some(payload), Some(_), None) =
+        (segments.next(), segments.next(), segments.next(), segments.next())
+    else {
+        return None;
+    };
+    let decode = |segment: &str| -> Option<Value> {
+        let bytes = Zeroizing::new(URL_SAFE_NO_PAD.decode(segment.trim_end_matches('=')).ok()?);
+        serde_json::from_slice(&bytes).ok()
+    };
+    decode(header)?.get("alg")?.as_str()?;
+    let claims = decode(payload)?;
     claims.get("sub")?.as_str().filter(|sub| !sub.is_empty()).map(str::to_owned)
 }
 
@@ -289,23 +319,12 @@ impl CarrierSource for HttpSource {
         machine: &str,
         noise_key: Option<&[u8; 32]>,
     ) -> Result<CarrierAnswer, SourceError> {
-        let credential = self.current()?;
         let body = match noise_key {
             Some(key) => json!({ "noise_key": key_text(key) }),
             None => json!({}),
         };
-        let mut request = self
-            .client
-            .post(format!("{}/v1/cloud/machines/{machine}/carrier", self.api))
-            .bearer_auth(credential.as_str())
-            .json(&body);
-        if let Some(team) = &self.team {
-            request = request.header(TEAM_HEADER, team);
-        }
-        let response =
-            request.send().await.map_err(|_| SourceError::retry("cmux-platform did not answer"))?;
-        let status = response.status().as_u16();
-        let body: Value = response.json().await.unwrap_or(Value::Null);
+        let (status, body) =
+            self.post(&format!("/v1/cloud/machines/{machine}/carrier"), &body).await?;
         read_reply(status, &body)
     }
 }
