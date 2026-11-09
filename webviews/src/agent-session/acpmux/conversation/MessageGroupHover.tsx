@@ -16,6 +16,7 @@ import { withoutRelayLabelOfMessage } from "./relayEnvelope";
 import { senderName } from "./senderIdentity";
 import { UnverifiedMark } from "./UnverifiedMark";
 import "./MessageGroupHover.css";
+import { signed } from "../../../ui/Typography";
 
 /// How the hover lays its messages out. `messages`, the default: the sender's line, then two lines
 /// of the message under it. `lines`: one line each, "sender  first line". `names`: the senders only,
@@ -150,7 +151,7 @@ export function MessageGroupHover({ list }: { list: GroupHoverList }) {
           </div>
         );
       })}
-      {rest > 0 && <div className="cv-group-hover__more">{t("tools.more", { n: rest })}</div>}
+      {rest > 0 && <div className="cv-group-hover__more">{signed(t("tools.more", { n: rest }))}</div>}
     </div>
   );
 }

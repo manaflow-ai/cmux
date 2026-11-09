@@ -42,6 +42,7 @@ import { SenderIcon } from "./SenderIcon";
 import { useAgentProgress } from "./agentProgressStore";
 import { Tick } from "./trayMotion";
 import { DoneCheck, DoneMark, type DoneLook } from "./DoneMark";
+import { Clock } from "../../../ui/Typography";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -253,7 +254,7 @@ export function AgentLine({
               )}
             </span>
             <span className="acpmux-summary-meta acpmux-agent-line__time" aria-hidden={time === undefined}>
-              {time}
+              {time !== undefined && <Clock text={time} />}
             </span>
           </span>
           {/* Stop's track (the stop slot, outside this button, lies over it), then the chevron's,
@@ -274,7 +275,7 @@ export function AgentLine({
         </>
       ) : lean ? (
         <>
-          {time !== undefined && <span className="acpmux-summary-meta acpmux-agent-line__time">{time}</span>}
+          {time !== undefined && <Clock className="acpmux-summary-meta acpmux-agent-line__time" text={time} />}
           {time === undefined || status === "waiting" || status === "failed" || status === "stopped" ? (
             <span className="acpmux-summary-meta acpmux-summary-agent__state">{state}</span>
           ) : (
@@ -283,7 +284,7 @@ export function AgentLine({
         </>
       ) : (
         <>
-          {time !== undefined && <span className="acpmux-summary-meta acpmux-agent-line__time">{time}</span>}
+          {time !== undefined && <Clock className="acpmux-summary-meta acpmux-agent-line__time" text={time} />}
           {/* Running turns to Waiting or Done with a tick, never a jump (trayMotion.tsx). */}
           <Tick className="acpmux-summary-meta acpmux-summary-agent__state" text={state} />
           {chevron && onOpen && (

@@ -14,7 +14,8 @@
 //   and the new fading in, never a positional jump.
 // Reduce Motion, the host's motion switch (`data-agent-motion="off"`, a 0 ms token) and a page that
 // is away apply every change at once, and no copy is made.
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Sign, signed } from "../../../ui/Typography";
 import { cssTimeMs } from "../conversation/fold";
 import { motionAllowed, sameWords } from "./trayMotionModel";
 /// Text that ticks when it changes: the old words leave up as the new ones rise in, in one cell, on
@@ -127,7 +128,7 @@ export function Tick({
           aria-hidden="true"
           ref={onAnimationDone(settled("previous"))}
         >
-          {shown.previous}
+          {signed(shown.previous)}
         </span>
       )}
       <span
@@ -135,7 +136,7 @@ export function Tick({
         className={shown.entering ? "acpmux-tick__in" : undefined}
         ref={shown.entering ? onAnimationDone(settled("entering")) : undefined}
       >
-        {shown.rolled !== undefined ? rolling(shown.rolled, shown.text, settled("rolled")) : shown.text}
+        {shown.rolled !== undefined ? rolling(shown.rolled, shown.text, settled("rolled")) : signed(shown.text)}
       </span>
     </span>
   );
@@ -147,9 +148,20 @@ export function Tick({
 function rolling(from: string, text: string, done: () => void): ReactNode {
   const before = from.split(/(\d+)/);
   let first = true;
-  return text.split(/(\d+)/).map((part, index) => {
+  const parts = text.split(/(\d+)/);
+  return parts.map((part, index) => {
     const old = before[index];
-    if (index % 2 === 0 || old === undefined || old === part) return part;
+    // Words; a "+" that ends them signs the number after (Typography.tsx `Sign`).
+    if (index % 2 === 0)
+      return part.endsWith("+") && index + 1 < parts.length ? (
+        <Fragment key={index}>
+          {part.slice(0, -1)}
+          <Sign />
+        </Fragment>
+      ) : (
+        part
+      );
+    if (old === undefined || old === part) return part;
     const ref = first ? onAnimationDone(done) : undefined;
     first = false;
     return (
@@ -180,4 +192,48 @@ function onAnimationDone(done: () => void) {
       node.removeEventListener("animationcancel", ended);
     };
   };
+}
+
+/// The glides `useGlide` starts, told apart from a node's other animations.
+const GLIDE = "acpmux-glide";
+
+/// The parts of `row` that `selector` names move to a new place as one glide instead of a jump (Leo,
+/// 2026-11-09, on the hat's "+2 more" and time: "the animations don't track properly to squishy"):
+/// whatever moves them (a count that grows a digit, a mark or a failed count joining before them), each
+/// slides from where it was drawn to where it now lies, on transform alone, on the slide's clock. Where
+/// it was drawn is read while rendering, before React commits, glide in flight included, so a change
+/// mid-glide carries on from the drawn place (interruptible); where it lies is read after this commit's
+/// own width eases have started (`Tick` slide, a child's layout effect, which runs first), so a part
+/// those eases already carry is not moved twice. A row that changed width (a window resize) moves at
+/// once, and so does every change while motion may not run.
+export function useGlide(row: { readonly current: HTMLElement | null }, selector: string): void {
+  const before = useRef<{ width: number; at: Map<Element, number> } | undefined>(undefined);
+  const node = row.current;
+  if (node) {
+    const origin = node.getBoundingClientRect();
+    const at = new Map<Element, number>();
+    for (const part of node.querySelectorAll(selector)) at.set(part, part.getBoundingClientRect().left - origin.left);
+    before.current = { width: origin.width, at };
+  }
+  useLayoutEffect(() => {
+    const first = before.current;
+    before.current = undefined;
+    const node = row.current;
+    if (!first || !node || !motionAllowed(node)) return;
+    const origin = node.getBoundingClientRect();
+    if (Math.abs(origin.width - first.width) >= 0.5) return;
+    const style = node.ownerDocument.defaultView?.getComputedStyle(node);
+    const duration = cssTimeMs(style?.getPropertyValue("--agent-motion-move") ?? "") ?? 180;
+    if (duration <= 0) return;
+    const easing = style?.getPropertyValue("--agent-ease-out").trim() || "ease-out";
+    for (const part of node.querySelectorAll<HTMLElement>(selector)) {
+      const from = first.at.get(part);
+      if (from === undefined) continue;
+      for (const glide of part.getAnimations()) if (glide.id === GLIDE) glide.cancel();
+      const shift = from - (part.getBoundingClientRect().left - origin.left);
+      if (Math.abs(shift) < 0.5) continue;
+      const glide = part.animate([{ translate: `${shift}px 0` }, { translate: "0 0" }], { duration, easing });
+      glide.id = GLIDE;
+    }
+  });
 }

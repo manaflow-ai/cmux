@@ -78,6 +78,7 @@ import {
 } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
+import { Clock } from "../../../ui/Typography";
 import { foldMotion, useFold } from "../conversation/fold";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { formatDuration } from "../conversation/turns";
@@ -126,7 +127,7 @@ import { traySurfaceLook } from "./traySurface.experiment";
 import { trayLatestLook } from "./trayLatest.experiment";
 import { hatChevronLook, hatDoneCheckPlace, hatDoneLook, hatRowMotionLook } from "./hatParts.experiment";
 import { DoneCheck, DoneMark } from "./DoneMark";
-import { Tick } from "./trayMotion";
+import { Tick, useGlide } from "./trayMotion";
 import { useTrayMotion } from "./trayMotionModel";
 import { useTraySeen } from "./traySeen";
 import type { StartedSession } from "../started/startedSessions";
@@ -353,6 +354,9 @@ export const SubagentTray = memo(function SubagentTray({
   // motion the fold leaves in the same commit and takes the focused line with it, so whether focus
   // was in the list is kept as it moves (onFocus/onBlur below), not read after the commit.
   const headButton = useRef<HTMLButtonElement | null>(null);
+  // "+N more" and the time move as one trailing segment: a width change before them glides them to
+  // their new place instead of jumping (trayMotion.tsx `useGlide`).
+  useGlide(headButton, ":scope > .acpmux-running-tray__more, :scope > .acpmux-running-tray__time");
   const focusInList = useRef(false);
   useLayoutEffect(() => {
     if (open || !focusInList.current) return;
@@ -705,8 +709,14 @@ export const SubagentTray = memo(function SubagentTray({
               ))}
             </span>
           )}
+          {/* The rest of the names, one word space after them (subagents.css); its count rolls in place
+              and its "+" sits on the figures' centre (Typography.tsx `Sign`). */}
           {named && moreCount > 0 && (
-            <span className="acpmux-summary-meta acpmux-running-tray__more">{t("tools.more", { n: moreCount })}</span>
+            <Tick
+              className="acpmux-summary-meta acpmux-running-tray__more"
+              text={t("tools.more", { n: moreCount })}
+              steadyCounts
+            />
           )}
           {/* Quiet meta right after the counts, never a column of its own far from them. */}
           {loneEnd ? (
@@ -717,7 +727,7 @@ export const SubagentTray = memo(function SubagentTray({
               {loneEnd.status === "done" ? (
                 <DoneMark state={loneEnd.state} time={loneEnd.time} look={doneLook} checkInSlot place={checkPlace} />
               ) : loneEnd.status === "running" && !loneEnd.retry && loneEnd.time !== undefined ? (
-                loneEnd.time
+                <Clock text={loneEnd.time} />
               ) : (
                 <>
                   <span className="acpmux-running-tray__lone-state">{loneEnd.state}</span>
@@ -727,7 +737,7 @@ export const SubagentTray = memo(function SubagentTray({
             </span>
           ) : (
             <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
-              {starts.length > 0 ? formatDuration(Math.max(0, now - Math.min(...starts))) : undefined}
+              {starts.length > 0 ? <Clock text={formatDuration(Math.max(0, now - Math.min(...starts)))} /> : undefined}
             </span>
           )}
           {/* The panel button's room, in the lines' Stop column: the button lies over it, outside the
