@@ -255,10 +255,40 @@ pub(crate) fn resolve_resource_selectors(
     }
 
     require_target_selector(selectors, target)?;
-    // Prefixes and bare ids become full ids first, so every rule below sees
-    // the same id whatever form the caller typed (id_forms.rs).
-    let expanded = id_forms::expand(state, context.in_process_host, selectors)?;
-    let selectors = expanded.as_ref().unwrap_or(selectors);
+    // Every request that resolved before selects the same object
+    // (`cmux.protocol/2` takes additions only), so the id forms come in
+    // three steps (id_forms.rs):
+    // 1. prefixes (`pane_3f`) and a tab or pane id as a terminal: they were
+    //    never names, so they become full ids first;
+    // 2. full ids and names, as before, then a name in the whole session
+    //    (name_scope.rs);
+    // 3. only when step 2 finds nothing: bare ids, host ids and `focused`,
+    //    which were names (a tab named `focused` keeps its old answer).
+    let host = context.in_process_host;
+    let prefixed = id_forms::expand(state, host, selectors, id_forms::IdForms::Prefixed)?;
+    let selectors = prefixed.as_ref().unwrap_or(selectors);
+    let error = match resolve_path(state, target, selectors, &machine, &session) {
+        Err(error) if error.code != "selector.ambiguous" => error,
+        resolved => return resolved,
+    };
+    match id_forms::expand(state, host, selectors, id_forms::IdForms::Unprefixed) {
+        Ok(Some(expanded)) => resolve_path(state, target, &expanded, &machine, &session),
+        Ok(None) => Err(error),
+        // The word is neither a name nor an id: the name's answer says more.
+        Err(unexpanded) if unexpanded.code == "selector.not_found" => Err(error),
+        Err(unexpanded) => Err(unexpanded),
+    }
+}
+
+/// Step 2 of [`resolve_resource_selectors`]: `selectors` (full ids, names
+/// and `current`) under the resolved machine and session.
+fn resolve_path(
+    state: &State,
+    target: ResourceTarget,
+    selectors: &ResourceSelectors,
+    machine: &MachinePublicId,
+    session: &SessionPublicId,
+) -> Result<ResolvedResourceSlots, ResourceError> {
     validate_contiguous_name_current_chains(selectors, target)?;
 
     let mut supplied_workspace = None;
@@ -266,7 +296,7 @@ pub(crate) fn resolve_resource_selectors(
     let mut supplied_pane = None;
     let mut supplied_tab = None;
     // A name the scoped rule does not find under implicit (`current`)
-    // parents is looked up in the whole session (name_scope.rs); the found
+    // parents is looked up further (name_scope.rs); the found
     // object's own place then scopes what follows.
     let rescope_pane = |pane: Option<PaneId>| {
         let screen = pane.and_then(|pane| state.resource_indexes.pane_screen.get(&pane).copied());
@@ -312,7 +342,8 @@ pub(crate) fn resolve_resource_selectors(
                 if error.code == "selector.not_found"
                     && name_scope::implicit_parents(selectors, 5) =>
             {
-                let tab = name_scope::tab(state, raw)?.ok_or(error)?;
+                let tab = name_scope::tab(state, raw, supplied_screen, supplied_workspace)?
+                    .ok_or(error)?;
                 supplied_pane = state.resource_indexes.tab_pane.get(&tab).copied();
                 (supplied_screen, supplied_workspace) = rescope_pane(supplied_pane);
                 tab
@@ -426,8 +457,8 @@ pub(crate) fn resolve_resource_selectors(
         }
         return Ok(ResolvedResourceSlots {
             path: ResolvedResourcePath {
-                machine,
-                session: Some(session),
+                machine: machine.clone(),
+                session: Some(session.clone()),
                 workspace: None,
                 screen: None,
                 pane: None,
@@ -544,8 +575,8 @@ pub(crate) fn resolve_resource_selectors(
         .transpose()?;
     Ok(ResolvedResourceSlots {
         path: ResolvedResourcePath {
-            machine,
-            session: Some(session),
+            machine: machine.clone(),
+            session: Some(session.clone()),
             workspace: Some(workspace_id),
             screen: screen_id,
             pane: pane_id,
