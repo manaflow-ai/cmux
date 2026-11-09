@@ -129,7 +129,7 @@ struct TabReadsTests {
     /// An agent's mark cleared while the daemon is down stays cleared; a refusal brings it back.
     @Test func anAttentionClearStaysUntilRefused() async throws {
         let (_, tab, reads) = try Self.unreadTab()
-        let mark = TabAttention(reason: "approve", atMs: 1, requestID: "req-1")
+        let mark = TabAttention(reason: "approve", atMs: 1, requestID: String(repeating: "a", count: 32))
         tab.applyState(SessionStateMirror.TabRecord(attention: mark), progress: nil)
         let request = try #require(tab.expectAttentionClear())
         var tries = 0, shownAtATry = 0
