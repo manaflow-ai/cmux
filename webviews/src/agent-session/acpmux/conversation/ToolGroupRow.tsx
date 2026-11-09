@@ -393,12 +393,11 @@ export function ToolGroupRow({
   // A call in the group the reader opened, before or after it was grouped, keeps the group open when
   // its run finishes; a choice inside the group pins it (`pin`).
   const members = useMemo(() => callDisclosureKeys(items), [items]);
-  const [open, setOpen] = useTranscriptDisclosure(
-    disclosureKey,
-    (kind !== "edits" && !folded) || holdsThought,
-    true,
-    { inherits, members, closedBy },
-  );
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, (kind !== "edits" && !folded) || holdsThought, true, {
+    inherits,
+    members,
+    closedBy,
+  });
   const pin = useFoldPin(disclosureKey);
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   // Whether the reader's click opened the run: only then do its rows past the window draw after the

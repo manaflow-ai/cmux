@@ -73,12 +73,12 @@ export function ToolRun({
   // A call in the run the reader opened keeps the run open when it folds (`members`); a choice inside
   // the run pins it (`pin`).
   const members = useMemo(() => callDisclosureKeys(items), [items]);
-  const [open, setOpen] = useTranscriptDisclosure(
-    disclosureKey,
-    defaultOpen || holdsThought,
-    true,
-    { inherits, passesDown, members, closedBy },
-  );
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, defaultOpen || holdsThought, true, {
+    inherits,
+    passesDown,
+    members,
+    closedBy,
+  });
   const pin = useFoldPin(disclosureKey);
   useFindReveal(items, () => setOpen(true));
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });

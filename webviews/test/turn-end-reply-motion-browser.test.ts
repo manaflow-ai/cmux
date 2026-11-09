@@ -218,7 +218,15 @@ await requireBrowserLane("turn-end-reply-motion-browser.test.ts", async () => {
 
   /// Where the reply is drawn in the view on each painted frame around the end, the first row drawn
   /// at the view's top (its id and where it is), and whether the fold plays.
-  type Sample = { reply: number; topId: string; top: number; folding: boolean; ended: boolean; line: boolean; gap: number };
+  type Sample = {
+    reply: number;
+    topId: string;
+    top: number;
+    folding: boolean;
+    ended: boolean;
+    line: boolean;
+    gap: number;
+  };
   type Route = "bottom" | "words" | "motion-off" | "scrolled-up";
   async function playEnd(route: Route) {
     withTools = route !== "words";
@@ -303,13 +311,21 @@ await requireBrowserLane("turn-end-reply-motion-browser.test.ts", async () => {
 
   test("a turn with calls, followed at the bottom: the reply never steps at the end", async () => {
     const { page, samples } = await playEnd("bottom");
-    expectEased(samples, samples.findIndex((sample) => !sample.line), "bottom");
+    expectEased(
+      samples,
+      samples.findIndex((sample) => !sample.line),
+      "bottom",
+    );
     await page.close();
   });
 
   test("a turn of words alone: the reply never steps at the end", async () => {
     const { page, samples } = await playEnd("words");
-    expectEased(samples, samples.findIndex((sample) => sample.ended), "words");
+    expectEased(
+      samples,
+      samples.findIndex((sample) => sample.ended),
+      "words",
+    );
     await page.close();
   });
 
