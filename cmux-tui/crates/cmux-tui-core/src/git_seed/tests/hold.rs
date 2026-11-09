@@ -224,6 +224,7 @@ fn a_write_that_names_its_hold_lands_only_while_the_hold_runs() {
     let service = service(&home);
     let folder = home.join("work/notes");
     let job = hold(&service, &folder, json!({ "lease_ms": 100 })).unwrap();
+    std::fs::create_dir_all(&folder).unwrap();
     let write_one = |name: &str| {
         let request = json!({ "hold": job, "path": folder.join(name) });
         let request = request.as_object().cloned().unwrap();
