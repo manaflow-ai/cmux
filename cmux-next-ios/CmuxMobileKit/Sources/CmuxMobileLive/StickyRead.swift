@@ -15,8 +15,8 @@ import Foundation
 /// changed it, or the Mac went away from this phone.
 @MainActor
 struct StickyRead {
-    static let initial: Duration = .milliseconds(250)
-    static let maximum: Duration = .seconds(5)
+    nonisolated static let initial: Duration = .milliseconds(250)
+    nonisolated static let maximum: Duration = .seconds(5)
 
     /// Waits out one spacing; tests replace it.
     var pause: @MainActor (Duration) async -> Void = { delay in try? await Task.sleep(for: delay) }
