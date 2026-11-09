@@ -5,7 +5,7 @@ import Foundation
 /// A scratch home folder as the daemon's `classic_import.*` operations see it (the test daemon
 /// runs with `HOME` set to it): classic's saved sessions, classic's state folder, and the
 /// migration's folder with its ledger.
-struct ClassicTestHome {
+nonisolated struct ClassicTestHome: Sendable {
     let root: URL
 
     /// `~/Library/Application Support`.
