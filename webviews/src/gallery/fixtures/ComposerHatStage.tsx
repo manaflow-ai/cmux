@@ -34,52 +34,54 @@ export function ComposerHatStage({
   // --acpmux-composer-tray) are the shell's, so without it the card drew no ring at all.
   return (
     <div className="acpmux-shell" style={{ height: "100vh" }}>
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, background: "var(--agent-page-bg)" }}>
       <div
-        style={{
-          display: "flex",
-          gap: "var(--ds-space-2)",
-          padding: "var(--ds-space-2)",
-          borderBottom: "1px solid var(--agent-border)",
-        }}
+        style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, background: "var(--agent-page-bg)" }}
       >
-        <button type="button" data-stage="idle" onClick={() => set(0)}>
-          Nothing runs
-        </button>
-        <button type="button" data-stage="count" onClick={() => set(3)}>
-          Three run
-        </button>
-        <button type="button" data-stage="more" onClick={() => set(running + 1)}>
-          One more
-        </button>
-        <button type="button" data-stage="ten" onClick={() => set(12)}>
-          Twelve run
-        </button>
-        <button type="button" data-stage="waiting" onClick={() => set(running, 1)}>
-          One waits on you
-        </button>
-      </div>
-      <main
-        className="acpmux-main"
-        data-dock="float"
-        style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
-      >
-        <div style={{ flex: 1 }} />
-        <div className="acpmux-dock" style={{ "--cv-inset": "16px" } as CSSProperties}>
-          <TrayPullTab chat="gallery-chat" waiting={waiting} running={running} working={false} side={side} />
-          {before && <span hidden />}
-          {/* The real card's classes, so its ring and lit top rim (composerStates.css) are the
-              line the hat sits on (Leo, 2026-11-09: "theres a line behind the hat toggle"). */}
-          <div className="acpmux-composer">
-            <div
-              className="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box"
-              data-stage-composer=""
-              style={{ height: 72, background: "var(--acpmux-composer-tray)" }}
-            />
-          </div>
+        <div
+          style={{
+            display: "flex",
+            gap: "var(--ds-space-2)",
+            padding: "var(--ds-space-2)",
+            borderBottom: "1px solid var(--agent-border)",
+          }}
+        >
+          <button type="button" data-stage="idle" onClick={() => set(0)}>
+            Nothing runs
+          </button>
+          <button type="button" data-stage="count" onClick={() => set(3)}>
+            Three run
+          </button>
+          <button type="button" data-stage="more" onClick={() => set(running + 1)}>
+            One more
+          </button>
+          <button type="button" data-stage="ten" onClick={() => set(12)}>
+            Twelve run
+          </button>
+          <button type="button" data-stage="waiting" onClick={() => set(running, 1)}>
+            One waits on you
+          </button>
         </div>
-      </main>
-    </div>
+        <main
+          className="acpmux-main"
+          data-dock="float"
+          style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
+        >
+          <div style={{ flex: 1 }} />
+          <div className="acpmux-dock" style={{ "--cv-inset": "16px" } as CSSProperties}>
+            <TrayPullTab chat="gallery-chat" waiting={waiting} running={running} working={false} side={side} />
+            {before && <span hidden />}
+            {/* The real card's classes, so its ring and lit top rim (composerStates.css) are the
+                line the hat sits on (Leo, 2026-11-09: "theres a line behind the hat toggle"). */}
+            <div className="acpmux-composer">
+              <div
+                className="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box"
+                data-stage-composer=""
+                style={{ height: 72, background: "var(--acpmux-composer-tray)" }}
+              />
+            </div>
+          </div>
+        </main>
+      </div>
     </div>
   );
 }
