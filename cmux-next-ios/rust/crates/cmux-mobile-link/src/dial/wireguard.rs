@@ -1208,10 +1208,13 @@ impl HybridUnderlay {
         }
     }
 
-    /// Plain UDP to every usable candidate but `except`.
+    /// Plain UDP to every usable candidate and learned peer address but
+    /// `except`.
     fn spray(&mut self, datagram: &[u8], except: Option<SocketAddr>) {
         let mut refused = Vec::new();
-        for candidate in self.candidates.clone() {
+        let learned = self.learned.iter().copied().filter(|addr| !self.candidates.contains(addr));
+        let targets: Vec<SocketAddr> = self.candidates.iter().copied().chain(learned).collect();
+        for candidate in targets {
             if Some(candidate) != except
                 && !self.refused.contains(&candidate)
                 && !self.send_udp(datagram, candidate)
@@ -2271,6 +2274,56 @@ mod tests {
         underlay.authenticated(Origin { path: UDP_PATH, addr: Some(mapped) });
         answer_all(&mut underlay, now + Duration::from_millis(10));
         assert_eq!(underlay.paths.current(), Some(Route { carrier: Carrier::Udp, addr: mapped }));
+    }
+
+    /// The selector holds a learned (peer-reflexive) address and it turns
+    /// suspect: datagrams go on every route, the learned one among them, so
+    /// a working route that missed one probe still carries the stream.
+    #[tokio::test]
+    async fn a_suspect_learned_route_still_gets_the_spray() {
+        let relayed: SocketAddr = "203.0.113.7:50000".parse().unwrap();
+        let peer = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let mapped = peer.local_addr().unwrap();
+        let (reach_out, _reaches) = mpsc::unbounded_channel();
+        let (_control, control) = mpsc::unbounded_channel();
+        let mut underlay = HybridUnderlay::new(
+            UnderlaySpec {
+                socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                peer_endpoints: &[relayed.to_string()],
+                peer_relayed: &[relayed.to_string()],
+                peer_relayed_tls: &[],
+                peer_version: WG_VERSION,
+                turn: None,
+                reach_out,
+                path: watch::channel(LinkPath::NoPath).0,
+                control,
+            },
+            &DialOptions::default(),
+        );
+        let start = Instant::now();
+        underlay.authenticated(Origin { path: UDP_PATH, addr: Some(mapped) });
+        for (path, probe) in underlay.poll_probes(start).pings {
+            underlay.on_pong(path, probe, start + Duration::from_millis(1));
+        }
+        let learned = Route { carrier: Carrier::Udp, addr: mapped };
+        assert_eq!(underlay.paths.current(), Some(learned));
+        // Sent on, nothing back, the probe unanswered: suspect.
+        underlay.paths.sent(learned, start);
+        let mut at = start;
+        while !underlay.paths.suspect() && at < start + Duration::from_secs(2) {
+            at += Duration::from_millis(20);
+            let _ = underlay.poll_probes(at);
+        }
+        assert!(underlay.paths.suspect(), "the learned route turns suspect");
+        // A new socket's sends would block until the reactor saw it writable.
+        underlay.socket.writable().await.unwrap();
+        underlay.transmit(b"stream datagram", SendClass::Bulk);
+        let mut buffer = [0u8; 64];
+        let (len, _) = tokio::time::timeout(Duration::from_secs(1), peer.recv_from(&mut buffer))
+            .await
+            .expect("the spray reaches the learned address")
+            .unwrap();
+        assert_eq!(&buffer[..len], b"stream datagram");
     }
 
     /// A Mac on Ethernet and Wi-Fi with Tailscale (the user's laptop: en7
