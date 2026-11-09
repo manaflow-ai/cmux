@@ -37,6 +37,7 @@ mod classic;
 mod http;
 mod machine;
 pub mod machine_io;
+mod network;
 mod owner;
 mod previews;
 mod runs;
@@ -98,6 +99,7 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
     match request.call.as_str() {
         "machine.io" if request.auth == Auth::Stack => machine::classic(&http, args).await,
         "machine.io" => machine::worker(request).await,
+        "vm.networks" => network::networks(&http, request.auth).await,
         call if call.starts_with("vm.") => classic::run(&http, call, args).await,
         "runs.create" => runs::create(&http, args).await,
         "runs.start" => runs::start(&http, args).await,

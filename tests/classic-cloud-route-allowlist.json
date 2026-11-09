@@ -32,13 +32,13 @@
     {
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudAPIClient.swift",
       "pattern": "route:/api/vm",
-      "count": 14,
+      "count": 13,
       "reason": "debt: the NEXT Cloud REST client's machine calls still use classic /api/vm until cmux-platform's machine API replaces them"
     },
     {
       "file": "cmux-tui/crates/cmux-cloud-api/src/classic.rs",
       "pattern": "route:/api/vm",
-      "count": 7,
+      "count": 6,
       "reason": "keep: a move from Swift to Rust: CloudAPIClient.swift's classic /api/vm machine calls, which the app moves onto through the daemon's cloud.vm.* operations (#37350); goes when cmux-platform's machine API replaces them"
     },
     {

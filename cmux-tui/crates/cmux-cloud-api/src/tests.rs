@@ -240,16 +240,57 @@ fn a_worker_refusal_names_its_nested_code_and_the_header_code_wins() {
 
 #[test]
 fn classic_calls_send_the_stack_session_and_the_team() {
-    let (origin, seen) = fake(|_| ok(r#"{"networks":[{"id":"net-1"}]}"#));
-    let answer = go(&request(&origin, Auth::Stack, "vm.networks", json!({}))).unwrap();
-    assert_eq!(answer, json!([{ "id": "net-1" }]));
+    let (origin, seen) = fake(|_| ok(r#"{"domains":[{"id":"dom-1"}]}"#));
+    let answer = go(&request(&origin, Auth::Stack, "vm.domains", json!({}))).unwrap();
+    assert_eq!(answer, json!([{ "id": "dom-1" }]));
     let seen = seen.lock().unwrap();
-    assert_eq!(seen[0].target(), "GET /api/vm/network");
+    assert_eq!(seen[0].target(), "GET /api/vm/domains");
     assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer access"));
     assert_eq!(seen[0].header("x-stack-refresh-token").as_deref(), Some("refresh"));
     assert_eq!(seen[0].header("x-cmux-team-id").as_deref(), Some("team-1"));
     assert_eq!(seen[0].header("x-cmux-client").as_deref(), Some("cmux-mac"));
     assert_eq!(seen[0].header("x-cmux-app-version").as_deref(), Some("cmux-next"));
+}
+
+// MARK: the team's network (cmux-platform)
+
+const MESH: &str = "mesh_0123456789abcdefghjkmnpqrs";
+const TARGET: &str = r#"{"team":"team_1","tenant":"t1","project":"p1","origin":"https://vm.invalid","mesh":"mesh_0123456789abcdefghjkmnpqrs","ipv4_cidr":"10.128.16.0/20"}"#;
+const NO_MESH: &str = r#"{"code":"selector.not_found","message":"no available network mesh"}"#;
+const NOT_INSTALL: &str = r#"{"code":"auth.forbidden","message":"an install is required"}"#;
+
+fn networks(origin: &str, auth: Auth) -> Result<Value, Failure> {
+    go(&request(origin, auth, "vm.networks", json!({})))
+}
+
+#[test]
+fn the_network_list_is_the_platforms_network_target_as_the_install() {
+    let (origin, seen) = fake(|_| ok(TARGET));
+    let network = json!({ "id": MESH, "cidr": "10.128.16.0/20", "cidrV6": null, "scope": "team" });
+    assert_eq!(networks(&origin, Auth::Worker).unwrap(), json!([network]));
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].target(), "GET /v1/host/network/target");
+    assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer access"));
+    assert_eq!(seen[0].header("x-cmux-team").as_deref(), Some("team-1"));
+    assert_eq!(seen[0].header("x-stack-refresh-token"), None);
+}
+
+#[test]
+fn a_team_with_no_mesh_yet_has_no_network_and_a_refusal_is_read() {
+    let (origin, _seen) = fake(|_| Some((404, NO_MESH.into())));
+    assert_eq!(networks(&origin, Auth::Worker).unwrap(), json!([]));
+    let (origin, _seen) = fake(|_| Some((403, NOT_INSTALL.into())));
+    let failure = networks(&origin, Auth::Worker).unwrap_err();
+    assert!(matches!(failure, Failure::Http { status: 403, .. }), "{failure:?}");
+}
+
+#[test]
+fn the_network_list_never_goes_to_classic() {
+    let (origin, seen) = fake(|_| ok(r#"{"networks":[{"id":"net-1"}]}"#));
+    let failure = networks(&origin, Auth::Stack).unwrap_err();
+    assert!(matches!(failure, Failure::Transport(_)), "{failure:?}");
+    assert!(seen.lock().unwrap().is_empty());
 }
 
 #[test]

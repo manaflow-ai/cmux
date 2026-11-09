@@ -1,7 +1,8 @@
 //! Classic cmux.com's `/api/vm` routes the NEXT app still calls (tunnel, firewall, SCP, domains
 //! and publications): none has a NEXT route yet, so each is sent as it was, with the same body,
 //! deadline and answer. A machine's resize, snapshots, restore and fork are the Cloud app server's
-//! `cloud.machine.resize` and `cloud.snapshot.*` ops, on cmux-platform.
+//! `cloud.machine.resize` and `cloud.snapshot.*` ops, on cmux-platform; `vm.networks` is
+//! cmux-platform's network target (network.rs).
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -113,12 +114,6 @@ pub(crate) async fn run(
             http.classic(Method::DELETE, &["api", "vm", "firewall"], &query, None, None, secs(60))
                 .await
                 .map(|_| Value::Null)
-        }
-        "vm.networks" => {
-            let list = http
-                .classic(Method::GET, &["api", "vm", "network"], &[], None, None, DEFAULT)
-                .await?;
-            field(list, "networks", "/api/vm/network")
         }
         "vm.domains" => {
             let list = http
