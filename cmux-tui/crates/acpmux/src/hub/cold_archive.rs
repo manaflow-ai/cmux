@@ -242,6 +242,7 @@ impl Hub {
             || meta.watching.is_some()
             || session.moving().is_some()
             || importing
+            || self.has_auto_resume_mark(session)
         {
             return Err("busy");
         }
@@ -259,6 +260,7 @@ impl Hub {
             && session.attached.load(Ordering::SeqCst) == 0
             && session.turn().is_none()
             && session.queued() == 0
+            && !self.has_auto_resume_mark(session)
             && !session.purged.load(Ordering::SeqCst)
             && !session.replaced.load(Ordering::SeqCst)
             && !session.loading.load(Ordering::SeqCst)

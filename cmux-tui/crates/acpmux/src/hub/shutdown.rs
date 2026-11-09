@@ -144,8 +144,12 @@ impl Hub {
         // retry its journal held that the startup had not restored yet.
         if !preserve_auto_resume {
             let budget = tokio::time::Instant::now() + RETRY_STOP_BUDGET;
-            let (marked, unmarked): (Vec<_>, Vec<_>) =
-                sessions.iter().partition(|s| self.has_auto_resume_mark(s));
+            // A cold-archived chat holds no retry (`cold_archive.rs` archives none with a mark),
+            // and a read of its log would bring it back.
+            let (marked, unmarked): (Vec<_>, Vec<_>) = sessions
+                .iter()
+                .filter(|s| s.meta.lock().unwrap_or_else(|e| e.into_inner()).cold.is_none())
+                .partition(|s| self.has_auto_resume_mark(s));
             let total = marked.len() + unmarked.len();
             for (done, s) in marked.into_iter().chain(unmarked).enumerate() {
                 if tokio::time::Instant::now() >= budget {
