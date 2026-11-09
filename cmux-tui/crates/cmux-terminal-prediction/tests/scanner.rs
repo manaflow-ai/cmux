@@ -1,7 +1,8 @@
 //! Port of classic cmux's `TerminalOutputScannerTests.swift`.
 
 use cmux_terminal_prediction::OutputSignal::{
-    AlternateScreen, ClearAtCursor, CursorLeft, CursorLeftBy, Disruptive, Ignorable, Printable,
+    AlternateScreen, ClearAtCursor, Concealed, CursorLeft, CursorLeftBy, Disruptive, Ignorable,
+    Printable,
 };
 use cmux_terminal_prediction::{OutputSignal, TerminalOutputScanner};
 
@@ -209,4 +210,41 @@ fn designating_another_character_set_is_disruptive() {
     // matches the key that was typed.
     assert_eq!(scan("\x1b(0x"), [Disruptive, Printable(0x78)]);
     assert_eq!(scan("\x1b#8x"), [Disruptive, Printable(0x78)]);
+}
+
+#[test]
+fn conceal_and_reveal_are_reported_once_each() {
+    assert_eq!(scan("\x1b[8m"), [Concealed(true)]);
+    assert_eq!(
+        scan("\x1b[8ma\x1b[8m\x1b[0m"),
+        [Concealed(true), Printable(0x61), Ignorable, Concealed(false)]
+    );
+    assert_eq!(scan("\x1b[8m\x1b[28m"), [Concealed(true), Concealed(false)]);
+    assert_eq!(scan("\x1b[8m\x1b[m"), [Concealed(true), Concealed(false)]);
+    assert_eq!(scan("\x1b[8m\x1bc"), [Concealed(true), AlternateScreen(false)]);
+}
+
+#[test]
+fn conceal_after_a_long_parameter_list_is_still_read() {
+    let mut scanner = TerminalOutputScanner::new();
+    scanner.scan(b"\x1b[38;2;255;255;255;48;2;10;20;30;1;8m");
+    assert!(scanner.is_concealed());
+}
+
+#[test]
+fn colour_operands_are_not_conceal() {
+    for text in ["\x1b[38;5;8m", "\x1b[48;2;8;8;8m", "\x1b[38:5:8m", "\x1b[58;5;8m", "\x1b[>8m"] {
+        let mut scanner = TerminalOutputScanner::new();
+        scanner.scan(text.as_bytes());
+        assert!(!scanner.is_concealed(), "{text:?}");
+    }
+}
+
+#[test]
+fn a_cursor_restore_brings_back_the_saved_conceal_state() {
+    let mut scanner = TerminalOutputScanner::new();
+    scanner.scan(b"\x1b7\x1b[8mX\x1b8");
+    assert!(!scanner.is_concealed());
+    scanner.scan(b"\x1b[8m\x1b7\x1b[0mX\x1b8");
+    assert!(scanner.is_concealed());
 }

@@ -1357,3 +1357,94 @@ fn a_redraw_with_only_held_confirmations_does_not_re_arm_by_matching_new_keys() 
         session.status()
     );
 }
+
+#[test]
+fn concealed_echo_never_draws_a_predicted_glyph() {
+    // `printf '\033[8m'; cat` on a slow link: the remote echoes every key
+    // concealed, and its echoes confirm the keys, but a predicted glyph would
+    // print in the clear what the remote hides.
+    let mut session = armed_session();
+    session.remote("\x1b[8m");
+    for key in ["h", "u", "n", "t"] {
+        session.type_key(key);
+        assert_eq!(session.drawn(), "", "status {:?}", session.status());
+        session.remote(key);
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key("e");
+    assert_eq!(session.drawn(), "", "status {:?}", session.status());
+    assert_eq!(session.status(), Status::Listening);
+}
+
+#[test]
+fn turning_conceal_on_withdraws_what_is_drawn() {
+    let mut session = armed_session();
+    session.type_key("x");
+    assert_eq!(session.drawn(), "x");
+    session.remote("\x1b[1;8m");
+    assert_eq!(session.drawn(), "");
+}
+
+#[test]
+fn revealing_text_predicts_again() {
+    let mut session = armed_session();
+    session.remote("\x1b[8m");
+    session.type_key("q");
+    session.remote("q");
+    session.remote("\x1b[28m");
+    session.engine.presented_frame(session.clock);
+    session.type_key("w");
+    assert_eq!(session.drawn(), "w", "status {:?}", session.status());
+}
+
+#[test]
+fn colour_number_eight_is_not_conceal() {
+    // Colour index 8 and a truecolour prompt longer than the parameter cap.
+    let mut session = armed_session();
+    session.remote("\x1b[38;5;8m\x1b[48;2;8;28;8;38;2;255;255;255m\x1b[38:5:8m");
+    session.type_key("x");
+    assert_eq!(session.drawn(), "x", "status {:?}", session.status());
+}
+
+#[test]
+fn concealment_survives_missed_output() {
+    // A resize or a replaced screen: the terminal still conceals what it
+    // prints, so echoes after it must not arm prediction.
+    let mut session = armed_session();
+    session.remote("\x1b[8m");
+    session.engine.missed_output(session.clock);
+    session.advance(ms(2_000));
+    for key in ["h", "u", "n", "t"] {
+        session.type_key(key);
+        session.remote(key);
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key("e");
+    assert_eq!(session.drawn(), "", "status {:?}", session.status());
+}
+
+#[test]
+fn a_replay_read_after_missed_output_sets_concealment() {
+    // The host passes the bytes that replaced the screen after missed output;
+    // with nothing in flight they only set modes.
+    let mut session = armed_session();
+    session.engine.missed_output(session.clock);
+    session.remote("$ secret: \x1b[8m");
+    session.advance(ms(2_000));
+    for key in ["h", "u", "n", "t"] {
+        session.type_key(key);
+        session.remote(key);
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key("e");
+    assert_eq!(session.drawn(), "", "status {:?}", session.status());
+    session.remote("\x1b[0m\r\n$ ");
+    session.advance(ms(2_000));
+    session.type_key("l");
+    session.remote("l");
+    session.type_key("s");
+    session.remote("s");
+    session.engine.presented_frame(session.clock);
+    session.type_key("x");
+    assert_eq!(session.drawn(), "x", "status {:?}", session.status());
+}

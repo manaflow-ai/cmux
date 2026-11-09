@@ -52,7 +52,8 @@ pub enum Status {
     Disabled = 0,
     /// The surface's shell runs on this Mac, or the host has not said otherwise.
     LocalSurface = 1,
-    /// No confirmed echo yet, or the last remote output ended the run.
+    /// No confirmed echo yet, the last remote output ended the run, or the
+    /// remote conceals what it prints (SGR 8): a glyph would show it.
     Listening = 2,
     /// The link is fast enough that there is no lag to hide.
     LinkIsFastEnough = 3,
@@ -381,7 +382,7 @@ impl TerminalPredictionEngine {
         if self.suspended_until.is_some_and(|until| now < until) {
             return Status::Suspended;
         }
-        if !self.is_echo_run_active() {
+        if !self.is_echo_run_active() || self.scanner.is_concealed() {
             return Status::Listening;
         }
         match self.smoothed_echo_latency {
@@ -595,7 +596,7 @@ impl TerminalPredictionEngine {
                 break;
             }
             if let Some(signal) = self.scanner.next(byte) {
-                if signal != OutputSignal::Ignorable {
+                if !matches!(signal, OutputSignal::Ignorable | OutputSignal::Concealed(_)) {
                     moved_cursor = true;
                 }
                 changed = self.observe(signal, now) || changed;
@@ -611,13 +612,18 @@ impl TerminalPredictionEngine {
     /// Output was lost before reaching the engine: nothing drawn can be placed
     /// any more, and a sequence may have been cut in half. A mode switch in the
     /// lost output went unseen too, so the next seed (the host's read of the
-    /// screen it replaced) counts again.
+    /// screen it replaced) counts again. Concealment stays as it was; a host
+    /// that has the bytes that replaced the screen passes them to
+    /// [`Self::observed_output`] next, which reads their modes with nothing in
+    /// flight to confirm.
     pub fn missed_output(&mut self, now: Duration) -> bool {
         self.has_observed_alternate_screen_switch = false;
         if !self.is_active() {
             return false;
         }
-        self.scanner = TerminalOutputScanner::new();
+        // The terminal kept its pen through a resize, and a replaced screen
+        // may still conceal: concealment lasts until output ends it.
+        self.scanner = self.scanner.restarted();
         let changed = self.withdraw_all(false, now, false);
         self.mark_opaque_echo(now);
         self.extend_untracked_deadline(now);
@@ -670,7 +676,7 @@ impl TerminalPredictionEngine {
         if let Some(deadline) = self.untracked_echo_deadline {
             if now < deadline
                 && signal != OutputSignal::Ignorable
-                && !matches!(signal, OutputSignal::AlternateScreen(_))
+                && !matches!(signal, OutputSignal::AlternateScreen(_) | OutputSignal::Concealed(_))
             {
                 match self.classify_untracked_output(signal, now) {
                     UntrackedOutput::Older => {
@@ -696,7 +702,9 @@ impl TerminalPredictionEngine {
             }
         }
         match signal {
-            OutputSignal::Ignorable => false,
+            OutputSignal::Ignorable | OutputSignal::Concealed(false) => false,
+            // What was drawn would echo concealed; nothing new draws until it ends.
+            OutputSignal::Concealed(true) => self.withdraw_all(false, now, false),
             OutputSignal::AlternateScreen(entered) => {
                 self.is_alternate_screen = entered;
                 self.has_observed_alternate_screen_switch = true;

@@ -16,6 +16,10 @@ pub enum OutputSignal {
     /// Entered (`true`) or left (`false`) the alternate screen. A full reset
     /// (`ESC c`) leaves it too: the terminal is back on a cleared primary screen.
     AlternateScreen(bool),
+    /// Turned concealed text (SGR 8) on (`true`) or off (`false`: SGR 0 or 28,
+    /// or a full reset). Concealed cells print nothing visible, so a glyph drawn
+    /// over one would show what the remote is hiding.
+    Concealed(bool),
     /// Moved the cursor exactly one cell left: BS, `CSI D` or `CSI 1 D`.
     /// Disruptive unless the engine waits for the erase of a glyph the user
     /// backspaced over; this is the first half of every common form.
@@ -98,6 +102,97 @@ pub struct TerminalOutputScanner {
     /// past the cap count as overflow rather than being stored.
     parameters: Vec<u8>,
     parameters_overflowed: bool,
+    /// Whether printed text is concealed (SGR 8), read from every SGR whatever
+    /// its length, and the copy a cursor save (`ESC 7`) keeps for its restore.
+    is_concealed: bool,
+    saved_concealed: bool,
+    sgr: SgrScan,
+}
+
+/// Reads an SGR's parameters as they arrive for what they do to concealment,
+/// so a long one (a truecolour prompt) is never cut off by the parameter cap.
+/// Colour operands (`38;5;8`, `48;2;r;g;b`) and colon subparameters are
+/// skipped, so a colour number 8 or 28 is not taken for conceal or reveal.
+#[derive(Clone, Copy, Debug, Default)]
+struct SgrScan {
+    /// The current parameter's value, if it has digits yet.
+    value: Option<u16>,
+    /// Past a colon: the rest of the parameter is subparameters.
+    in_subparameters: bool,
+    /// A private marker or an intermediate: not a plain SGR.
+    is_other: bool,
+    /// Operands still to skip after `38`, `48` or `58`.
+    colour: ColourOperands,
+    /// The last conceal (`true`) or reveal (`false`) the sequence asks for.
+    effect: Option<bool>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum ColourOperands {
+    #[default]
+    None,
+    /// The next parameter says which form: 5 (one index) or 2 (three channels).
+    Selector,
+    Skip(u8),
+}
+
+impl SgrScan {
+    fn byte(&mut self, byte: u8) {
+        match byte {
+            b'0'..=b'9' if !self.in_subparameters => {
+                let digit = u16::from(byte - b'0');
+                self.value = Some(self.value.unwrap_or(0).saturating_mul(10).saturating_add(digit));
+            }
+            b'0'..=b'9' => {}
+            b':' => {
+                // `38:5:8` and `4:3` carry their operands in the one parameter.
+                if !self.in_subparameters && matches!(self.value, Some(38 | 48 | 58)) {
+                    self.value = None;
+                }
+                self.in_subparameters = true;
+            }
+            b';' => self.end_parameter(),
+            _ => self.is_other = true,
+        }
+    }
+
+    fn end_parameter(&mut self) {
+        // An empty parameter is 0, a reset.
+        let value = self.value.take().unwrap_or(0);
+        let had_subparameters = std::mem::take(&mut self.in_subparameters);
+        match self.colour {
+            ColourOperands::Selector => {
+                self.colour = match value {
+                    5 => ColourOperands::Skip(1),
+                    2 => ColourOperands::Skip(3),
+                    _ => ColourOperands::None,
+                };
+                return;
+            }
+            ColourOperands::Skip(count) => {
+                self.colour =
+                    if count > 1 { ColourOperands::Skip(count - 1) } else { ColourOperands::None };
+                return;
+            }
+            ColourOperands::None => {}
+        }
+        if had_subparameters {
+            // A colon colour carries its operands; `38:` with none read as 38.
+            return;
+        }
+        match value {
+            38 | 48 | 58 => self.colour = ColourOperands::Selector,
+            0 | 28 => self.effect = Some(false),
+            8 => self.effect = Some(true),
+            _ => {}
+        }
+    }
+
+    /// The conceal state after the SGR this scan read, given the state before.
+    fn finish(mut self, before: bool) -> bool {
+        self.end_parameter();
+        if self.is_other { before } else { self.effect.unwrap_or(before) }
+    }
 }
 
 impl Default for TerminalOutputScanner {
@@ -116,7 +211,30 @@ impl TerminalOutputScanner {
             detour_bytes: None,
             parameters: Vec::with_capacity(MAXIMUM_PARAMETER_BYTES),
             parameters_overflowed: false,
+            is_concealed: false,
+            saved_concealed: false,
+            sgr: SgrScan::default(),
         }
+    }
+
+    /// Whether text the remote prints now is concealed (SGR 8).
+    pub fn is_concealed(&self) -> bool {
+        self.is_concealed
+    }
+
+    /// A fresh parse state that keeps the conceal state: output went missing
+    /// (a resize, a replaced screen), and only an SGR the scanner reads can
+    /// say concealment ended.
+    pub fn restarted(&self) -> Self {
+        Self { is_concealed: self.is_concealed, ..Self::new() }
+    }
+
+    fn set_concealed(&mut self, concealed: bool) -> OutputSignal {
+        if concealed == self.is_concealed {
+            return OutputSignal::Ignorable;
+        }
+        self.is_concealed = concealed;
+        OutputSignal::Concealed(concealed)
     }
 
     /// Classifies one chunk: one signal per byte-or-sequence, in order.
@@ -128,7 +246,7 @@ impl TerminalOutputScanner {
     pub fn next(&mut self, byte: u8) -> Option<OutputSignal> {
         let signal = self.consume(byte);
         let Some(bytes) = self.detour_bytes else { return signal };
-        if let Some(OutputSignal::AlternateScreen(_)) = signal {
+        if let Some(OutputSignal::AlternateScreen(_) | OutputSignal::Concealed(_)) = signal {
             return signal;
         }
         if bytes >= MAXIMUM_DETOUR_BYTES {
@@ -158,7 +276,7 @@ impl TerminalOutputScanner {
             let Some((&byte, after)) = rest.split_first() else { break };
             rest = after;
             match self.next(byte) {
-                None | Some(OutputSignal::Ignorable) => {}
+                None | Some(OutputSignal::Ignorable | OutputSignal::Concealed(_)) => {}
                 Some(OutputSignal::AlternateScreen(entered)) => {
                     skim.alternate_screen = Some(entered);
                     skim.touched_the_screen = true;
@@ -215,6 +333,7 @@ impl TerminalOutputScanner {
                     self.state = State::ControlSequence;
                     self.parameters.clear();
                     self.parameters_overflowed = false;
+                    self.sgr = SgrScan::default();
                     None
                 }
                 b']' => {
@@ -228,14 +347,16 @@ impl TerminalOutputScanner {
                     None
                 }
                 b'7' => {
+                    // DECSC saves the attributes with the cursor, conceal included.
                     self.state = State::Ground;
                     self.detour_bytes = Some(0);
+                    self.saved_concealed = self.is_concealed;
                     None
                 }
                 b'8' => {
                     self.state = State::Ground;
                     self.detour_bytes = None;
-                    Some(OutputSignal::Ignorable)
+                    Some(self.set_concealed(self.saved_concealed))
                 }
                 b'c' => {
                     // RIS, a full reset: the terminal clears both screens and
@@ -244,6 +365,8 @@ impl TerminalOutputScanner {
                     // snapshot, which may be of the primary screen.
                     self.state = State::Ground;
                     self.detour_bytes = None;
+                    self.is_concealed = false;
+                    self.saved_concealed = false;
                     Some(OutputSignal::AlternateScreen(false))
                 }
                 // Another ESC restarts the escape, as it does in ghostty.
@@ -288,6 +411,7 @@ impl TerminalOutputScanner {
             State::ControlSequence => {
                 // Parameter and intermediate bytes accumulate; 0x40..=0x7E ends it.
                 if (0x20..=0x3F).contains(&byte) {
+                    self.sgr.byte(byte);
                     if self.parameters.len() < MAXIMUM_PARAMETER_BYTES {
                         self.parameters.push(byte);
                     } else {
@@ -306,6 +430,10 @@ impl TerminalOutputScanner {
                 if self.parameters.is_empty() && byte == b'u' {
                     self.detour_bytes = None;
                     return Some(OutputSignal::Ignorable);
+                }
+                if byte == b'm' {
+                    let concealed = std::mem::take(&mut self.sgr).finish(self.is_concealed);
+                    return Some(self.set_concealed(concealed));
                 }
                 Some(classify_control_sequence(&self.parameters, self.parameters_overflowed, byte))
             }
