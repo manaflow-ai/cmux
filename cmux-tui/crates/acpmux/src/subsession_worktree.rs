@@ -137,6 +137,17 @@ fn git<'a>(dir: impl Into<Dir<'a>>, args: &[&str]) -> Result<String, String> {
     run(hardened(dir.into()), args)
 }
 
+/// [`git`] for a command that writes the repository's shared `.git/config` (a branch's
+/// `cmuxBase`, `branch -D`, which drops the branch's section): one at a time in this process.
+/// Git takes `config.lock` without waiting, so the two candidates of one model race that
+/// record their bases at once failed the second ("could not lock config file .git/config").
+fn git_config_write<'a>(dir: impl Into<Dir<'a>>, args: &[&str]) -> Result<String, String> {
+    // A plain std mutex: the callers are synchronous and it is held only for one git run.
+    static CONFIG_WRITE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _held = CONFIG_WRITE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    git(dir, args)
+}
+
 /// Git that runs nothing from the repository at `dir` ([`hardened`]), ended at `by`.
 pub(crate) fn git_by(dir: &Path, args: &[&str], by: Instant) -> Result<String, String> {
     run_by(hardened(dir.into()), args, Some(by))
@@ -509,8 +520,8 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
             tracing::warn!(registration = %registration.path.display(), "worktree registration kept: {e}");
             return;
         }
-        if git(folder, &["branch", "-D", &worktree.branch]).is_ok() {
-            let _ = git(
+        if git_config_write(folder, &["branch", "-D", &worktree.branch]).is_ok() {
+            let _ = git_config_write(
                 folder,
                 &["config", "--unset", &format!("branch.{}.cmuxBase", worktree.branch)],
             );
@@ -523,8 +534,11 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
     }
     let root = worktree.root.to_string_lossy();
     let _ = git(folder, &["worktree", "remove", "--force", &root]);
-    let _ = git(folder, &["branch", "-D", &worktree.branch]);
-    let _ = git(folder, &["config", "--unset", &format!("branch.{}.cmuxBase", worktree.branch)]);
+    let _ = git_config_write(folder, &["branch", "-D", &worktree.branch]);
+    let _ = git_config_write(
+        folder,
+        &["config", "--unset", &format!("branch.{}.cmuxBase", worktree.branch)],
+    );
 }
 
 /// The administrative folder the `.git` file in the open worktree folder `dir` names, read
@@ -768,8 +782,8 @@ fn fill(
     let filled = check_out_without_config(&layout.objects, &layout.format, at, commit, None)
         .and_then(|()| git(at, &["read-tree", commit]).map(drop))
         .and_then(|()| {
-            git(folder, &["config", &format!("branch.{}.cmuxBase", made.branch), &made.base])
-                .map(drop)
+            let key = format!("branch.{}.cmuxBase", made.branch);
+            git_config_write(folder, &["config", &key, &made.base]).map(drop)
         });
     if let Err(e) = filled {
         if kept_branch {
