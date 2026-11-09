@@ -134,6 +134,38 @@ pub(crate) fn owed_handover_after_fallback(
     websocket_is_open(ready_state) && replaced_by_register(other, slot)
 }
 
+/// Whether `other`, another control socket on `slot` in `ready_state`, is
+/// owed the slot's unjoined circuits when `closed`, a control socket on the
+/// slot, closes (its peer closed it or went away, or the cleanup alarm
+/// closed it past its idle deadline).
+///
+/// While two or more legacy registrations (number 0) are open, none is
+/// current, and an unjoined circuit may be waiting on any of them: the relay
+/// before registration numbers gave each Connect to the first live one, and
+/// `live_daemon`'s fallback still does. When that daemon is dead, the circuit
+/// waits for a hand-over. A surviving legacy registration becomes current
+/// only when the others close, and its next Ping is then a heartbeat that
+/// hands over nothing, so the circuit would wait out its deadline. So when a
+/// legacy registration closes, every other open legacy registration on the
+/// slot gets `pending_handover`, and its first current Ping hands it the
+/// unjoined circuits. This covers circuits given out before the upgrade,
+/// which no fallback allocation after it recorded.
+///
+/// A numbered registration is never owed this way: it is current from its
+/// Register, which handed it every unjoined circuit and closed every other
+/// registration, and while it is open every Connect goes to it.
+pub(crate) fn owed_handover_after_close(
+    closed: &SlotAttachment,
+    other: &SlotAttachment,
+    ready_state: u16,
+    slot: &str,
+) -> bool {
+    closed.generation == 0
+        && replaced_by_register(closed, slot)
+        && other.generation == 0
+        && owed_handover_after_fallback(other, ready_state, slot)
+}
+
 /// Whether a new daemon `Register` on `slot` closes this existing control
 /// socket: one slot has one daemon registration at a time.
 pub(crate) fn replaced_by_register(attachment: &SlotAttachment, slot: &str) -> bool {
@@ -500,6 +532,45 @@ mod tests {
         let current = current_registration(&survivor, OPEN, [(CLOSED, dead)]);
         let ping = record_ping(&mut survivor, current, connect_ms + 15_000);
         assert_eq!(ping, PingHandover { unjoined: true, parked: true });
+    }
+
+    /// The relay was upgraded while a legacy daemon that had just died (still
+    /// inside the liveness window) held an unjoined circuit, and another
+    /// legacy registration survives. No Connect fell back after the upgrade,
+    /// so nothing owed the survivor a hand-over: its Pings are heartbeats
+    /// while the dead one's socket is open. When that socket closes, the
+    /// survivor is owed one, and its first current heartbeat hands over the
+    /// inherited circuit.
+    #[test]
+    fn a_closed_legacy_registration_owes_the_survivor_its_inherited_circuits() {
+        let dead = registration(0, T - 5_000);
+        let mut survivor = registration(0, T - 2_000);
+        assert!(!survivor.pending_handover);
+
+        // A heartbeat while the dead one is still open: not current, and
+        // not resumed, so nothing is owed yet.
+        let current = current_registration(&survivor, OPEN, [(OPEN, dead.clone())]);
+        let ping = record_ping(&mut survivor, current, T + 6_000);
+        assert_eq!(ping, PingHandover { unjoined: false, parked: false });
+        assert!(!survivor.pending_handover);
+
+        // The dead one's socket closes: the survivor is owed a hand-over.
+        assert!(owed_handover_after_close(&dead, &survivor, OPEN, SLOT));
+        survivor.pending_handover = true;
+        let current = current_registration(&survivor, OPEN, [(CLOSED, dead.clone())]);
+        let ping = record_ping(&mut survivor, current, T + 16_000);
+        assert_eq!(
+            ping,
+            PingHandover { unjoined: true, parked: true },
+            "the circuit inherited from before the upgrade was never handed over"
+        );
+
+        // Only open legacy registrations are owed, and only for a legacy close.
+        assert!(!owed_handover_after_close(&dead, &survivor, CLOSING, SLOT));
+        assert!(!owed_handover_after_close(&dead, &registration(1, T), OPEN, SLOT));
+        assert!(!owed_handover_after_close(&registration(1, T), &survivor, OPEN, SLOT));
+        let pending = SlotAttachment { phase: SlotPhase::Pending, ..registration(0, T) };
+        assert!(!owed_handover_after_close(&pending, &survivor, OPEN, SLOT));
     }
 
     /// A Connect chose the current registration, then waited on storage. A

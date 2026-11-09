@@ -621,7 +621,7 @@ impl Platform for LinuxPlatform {
                         let mut wake = crate::agent::clock_set_wake(self.clock_offset_ns, offset);
                         self.clock_offset_ns = offset;
                         if wake == Wake::ClockSet {
-                            crate::agent::PAUSES.found(clock_ns(libc::CLOCK_BOOTTIME));
+                            crate::agent::PAUSES.found();
                         }
                         if wake == Wake::ClockSet
                             && !self.resume_once.first(clock_ns(libc::CLOCK_REALTIME))

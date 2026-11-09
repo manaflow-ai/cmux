@@ -102,14 +102,16 @@ pub fn paused_for(before_ns: i128, after_ns: i128) -> Option<Duration> {
 }
 
 /// What the pause watch has seen, for every thread of this process: the boot
-/// clock at its last look and at the last pause it found (ns, 0 for never).
-/// It is the one record of stops: the pause watch's looks and the clock-set
-/// resumes go in, and the updater's hold before a flip reads it
-/// ([`PauseWatch::stopped_since`]).
+/// clock at its last look (ns, 0 for never) and how many pauses it found. The
+/// supervisor's `Wake::Paused` comes from the same looks; the updater holds a
+/// flip on a pause counted after the last one it handled
+/// ([`PauseWatch::pause_seq`]), or while the watch is still waking from one
+/// ([`PauseWatch::waking`]). A restore that stops the boot clock moves
+/// neither: the updater's own `realtime - boottime` look covers that.
 #[derive(Debug, Default)]
 pub struct PauseWatch {
     last_look_ns: std::sync::atomic::AtomicI64,
-    last_pause_ns: std::sync::atomic::AtomicI64,
+    pauses: std::sync::atomic::AtomicU64,
     /// Where this watch writes its record ([`PauseWatch::persist_to`]).
     file: std::sync::OnceLock<std::path::PathBuf>,
     /// Where this watch reads its record from at every look ([`PauseWatch::load`]).
@@ -123,7 +125,7 @@ impl PauseWatch {
     pub const fn new() -> Self {
         Self {
             last_look_ns: std::sync::atomic::AtomicI64::new(0),
-            last_pause_ns: std::sync::atomic::AtomicI64::new(0),
+            pauses: std::sync::atomic::AtomicU64::new(0),
             file: std::sync::OnceLock::new(),
             source: std::sync::OnceLock::new(),
         }
@@ -132,25 +134,39 @@ impl PauseWatch {
     /// One look of the watch at boot time `now_ns`: whether it found a pause.
     pub fn looked(&self, now_ns: i128, paused: bool) {
         use std::sync::atomic::Ordering;
-        let now = i64::try_from(now_ns).unwrap_or(i64::MAX);
         if paused {
-            self.last_pause_ns.store(now, Ordering::SeqCst);
+            self.pauses.fetch_add(1, Ordering::SeqCst);
         }
-        self.last_look_ns.store(now, Ordering::SeqCst);
+        self.last_look_ns.store(i64::try_from(now_ns).unwrap_or(i64::MAX), Ordering::SeqCst);
         self.write();
     }
 
-    /// A resume another way found at boot time `now_ns` (a clock set that
-    /// moved realtime against the boot clock, where the boot clock stops).
-    pub fn found(&self, now_ns: i128) {
-        let now = i64::try_from(now_ns).unwrap_or(i64::MAX);
-        self.last_pause_ns.store(now, std::sync::atomic::Ordering::SeqCst);
+    /// A resume another way found (a clock set that moved realtime against
+    /// the boot clock, where the boot clock stops).
+    pub fn found(&self) {
+        self.pauses.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.write();
+    }
+
+    /// How many pauses were found so far: a reader that keeps the count it
+    /// last handled sees every newer one, whenever it was found.
+    pub fn pause_seq(&self) -> u64 {
+        self.refresh();
+        self.pauses.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Whether the watch has not looked for longer than a pause takes to find
+    /// ([`paused_for`] from its last look) at boot time `now_ns`: it is still
+    /// waking from one. False while no watch runs.
+    pub fn waking(&self, now_ns: i128) -> bool {
+        self.refresh();
+        let look = i128::from(self.last_look_ns.load(std::sync::atomic::Ordering::SeqCst));
+        look != 0 && paused_for(look, now_ns).is_some()
     }
 
     /// From now on, every look and pause found is also written to `path`, so
-    /// the processes that flip or restart outside this one (the operator's
-    /// `cmux host update check`) read the same record ([`PauseWatch::load`]).
+    /// the processes that flip outside this one (the operator's `cmux host
+    /// update check`) read the same record ([`PauseWatch::load`]).
     pub fn persist_to(&self, path: std::path::PathBuf) {
         let _ = self.file.set(path);
         self.write();
@@ -173,15 +189,15 @@ impl PauseWatch {
         self.last_look_ns.load(std::sync::atomic::Ordering::SeqCst) != 0
     }
 
-    /// The record as `{"last_look_ns", "last_pause_ns"}`, written beside and
-    /// renamed so a reader never sees half of it. Errors are dropped: a
-    /// record that can't be written leaves the other processes reading none.
+    /// The record as `{"last_look_ns", "pauses"}`, written beside and renamed
+    /// so a reader never sees half of it. Errors are dropped: a record that
+    /// can't be written leaves the other processes reading none.
     fn write(&self) {
         use std::sync::atomic::Ordering;
         let Some(path) = self.file.get() else { return };
         let body = serde_json::json!({
             "last_look_ns": self.last_look_ns.load(Ordering::SeqCst),
-            "last_pause_ns": self.last_pause_ns.load(Ordering::SeqCst),
+            "pauses": self.pauses.load(Ordering::SeqCst),
         });
         let part = path.with_extension("json.part");
         if std::fs::write(&part, body.to_string()).is_ok() {
@@ -196,26 +212,11 @@ impl PauseWatch {
         let read = std::fs::read(path)
             .ok()
             .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
-        let field = |name: &str| {
-            read.as_ref().and_then(|v| v.get(name)).and_then(serde_json::Value::as_i64).unwrap_or(0)
-        };
-        self.last_look_ns.store(field("last_look_ns"), Ordering::SeqCst);
-        self.last_pause_ns.store(field("last_pause_ns"), Ordering::SeqCst);
-    }
-
-    /// Whether the machine was stopped between boot times `since_ns` and
-    /// `now_ns`: the watch found a pause at or after `since_ns`, or it has not
-    /// looked for longer than a pause takes to find ([`paused_for`] from its
-    /// last look), so it is still waking from one. False while no watch runs.
-    pub fn stopped_since(&self, since_ns: i128, now_ns: i128) -> bool {
-        use std::sync::atomic::Ordering;
-        self.refresh();
-        let look = i128::from(self.last_look_ns.load(Ordering::SeqCst));
-        if look == 0 {
-            return false;
-        }
-        let pause = i128::from(self.last_pause_ns.load(Ordering::SeqCst));
-        (pause != 0 && pause >= since_ns) || paused_for(look, now_ns).is_some()
+        let field = |name: &str| read.as_ref().and_then(|v| v.get(name));
+        let look = field("last_look_ns").and_then(serde_json::Value::as_i64).unwrap_or(0);
+        let pauses = field("pauses").and_then(serde_json::Value::as_u64).unwrap_or(0);
+        self.last_look_ns.store(look, Ordering::SeqCst);
+        self.pauses.store(pauses, Ordering::SeqCst);
     }
 }
 
