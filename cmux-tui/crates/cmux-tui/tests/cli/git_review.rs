@@ -451,7 +451,7 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     let params = serde_json::json!({
         "root": review_root, "ids": [kept_id], "versions": {kept_text: kept_version},
     });
-    let stale_post = post(&server, params, "post-stale");
+    let stale_post = post(&server, params, "post-stale-refused");
     assert_eq!(stale_post["ok"], false, "{stale_post}");
     assert!(stale_post.to_string().contains("not_a_review"), "{stale_post}");
     let now = fs::read_to_string(&posts).unwrap().lines().count();
