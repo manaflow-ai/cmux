@@ -14,7 +14,6 @@
 //!
 //! A full id stays as it is, and so does any other word (a name, `current`).
 
-use crate::SurfaceId;
 use crate::model::State;
 use crate::resource::{
     ContentPublicId, PanePublicId, ResourceError, TabPublicId, id_prefix_parts, is_bare_id,
