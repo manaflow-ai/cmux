@@ -84,19 +84,40 @@
   display: none;
 }
 /* A rail longer than its room fades at an edge with more rows past it: 2.5rem, less in a short rail
-   (--acpmux-minimap-fade, model.ts railFade), and never over the prompts on screen (railFades). */
+   (--acpmux-minimap-fade, model.ts railFade), and never over the prompts on screen (railFades). Each
+   edge deepens as the list leaves that end (--acpmux-minimap-fade-*-reach, 0 to 1, model.ts
+   railFadeReach): none at the very top or bottom, so the ticks roll under the edge like a wheel. The
+   reaches do not inherit, so a scroll's new reach restyles the list and none of its ticks. */
+@property --acpmux-minimap-fade-top-reach {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
+@property --acpmux-minimap-fade-bottom-reach {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
 .acpmux-minimap__list[data-fade-top] {
-  mask-image: linear-gradient(to bottom, transparent, #000 var(--acpmux-minimap-fade, 2.5rem));
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 calc(var(--acpmux-minimap-fade, 2.5rem) * var(--acpmux-minimap-fade-top-reach))
+  );
 }
 .acpmux-minimap__list[data-fade-bottom] {
-  mask-image: linear-gradient(to top, transparent, #000 var(--acpmux-minimap-fade, 2.5rem));
+  mask-image: linear-gradient(
+    to top,
+    transparent,
+    #000 calc(var(--acpmux-minimap-fade, 2.5rem) * var(--acpmux-minimap-fade-bottom-reach))
+  );
 }
 .acpmux-minimap__list[data-fade-top][data-fade-bottom] {
   mask-image: linear-gradient(
     to bottom,
     transparent,
-    #000 var(--acpmux-minimap-fade, 2.5rem),
-    #000 calc(100% - var(--acpmux-minimap-fade, 2.5rem)),
+    #000 calc(var(--acpmux-minimap-fade, 2.5rem) * var(--acpmux-minimap-fade-top-reach)),
+    #000 calc(100% - var(--acpmux-minimap-fade, 2.5rem) * var(--acpmux-minimap-fade-bottom-reach)),
     transparent
   );
 }

@@ -49,7 +49,7 @@ import {
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
 import { animateScroll, MOTION_SCROLL_EVENT, stopScroll } from "./threadMinimap/scrollMotion";
-import { JUMP_CURVE, jumpDuration, jumpGlideStart } from "./threadMinimap/model";
+import { JUMP_CURVE, jumpDuration, jumpGlideStart, transcriptFadeReach } from "./threadMinimap/model";
 import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
 import type { RowsChange } from "./threadMinimap/model";
@@ -4775,13 +4775,18 @@ function TranscriptView({
           // A subagent's view keeps its "Subagent of" pill pinned over the top (pinnedPill below): rows
           // pass out of sight under it.
           data-pinned-top={pinnedPill ? "" : undefined}
+          // How deep each soft edge draws (threadMinimap/model.ts transcriptFadeReach): none at that end
+          // of the chat, deeper the farther the view is from it. Non-inherited (conversation.css), so a
+          // scroll restyles the scroller alone.
           style={
-            dockSpace > 0 || pinnedPill
-              ? ({
-                  ...(dockSpace > 0 ? { "--acpmux-dock-space": `${dockSpace}px` } : {}),
-                  ...(pinnedPill ? { "--acpmux-view-top": `${pinAt.pad + topInset + SUBAGENT_OF_HEIGHT}px` } : {}),
-                } as React.CSSProperties)
-              : undefined
+            {
+              "--acpmux-fade-top-reach": transcriptFadeReach(renderScroll.top - origin),
+              "--acpmux-fade-bottom-reach": renderFollowing
+                ? 0
+                : transcriptFadeReach(below - FOLLOW_BOTTOM_DEADBAND_PX),
+              ...(dockSpace > 0 ? { "--acpmux-dock-space": `${dockSpace}px` } : {}),
+              ...(pinnedPill ? { "--acpmux-view-top": `${pinAt.pad + topInset + SUBAGENT_OF_HEIGHT}px` } : {}),
+            } as React.CSSProperties
           }
         >
           {showMinimap && (

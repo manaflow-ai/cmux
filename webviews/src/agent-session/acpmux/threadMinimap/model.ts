@@ -446,6 +446,24 @@ export function railFades(
   };
 }
 
+/// How deep each edge fade of the list draws, 0 to 1 of its full size: none at the very end, growing
+/// with how far the list has scrolled from that end until it is full RAIL_FADE_RAMP fades on, so the
+/// rows roll under the edge like a wheel turning (Leo, 2026-11-07: "if you scroll to the very top, there
+/// should be no fade. But then as you scroll down, like gradually, there's more and more of a fade on
+/// the top edges" and, from the bottom, "the bottom should gradually have that same kind of fade").
+export const RAIL_FADE_RAMP = 2;
+export function railFadeReach(count: number, height: number, top: number, pitch = ROW_PITCH) {
+  const ramp = Math.max(1, railFade(height) * RAIL_FADE_RAMP);
+  const reach = (distance: number) => Math.max(0, Math.min(1, distance / ramp));
+  return { top: reach(top), bottom: reach(count * pitch - top - height) };
+}
+
+/// The transcript's edge fades (conversation.css `--acpmux-fade-*-reach`) the same way: none at either
+/// end of the chat, full once the view is TRANSCRIPT_FADE_RAMP px from it.
+export const TRANSCRIPT_FADE_RAMP = 96;
+export const transcriptFadeReach = (distance: number) =>
+  Math.max(0, Math.min(1, Math.round((distance / TRANSCRIPT_FADE_RAMP) * 100) / 100));
+
 /// Where the rail's list scrolls (its `scrollTop`) so the band, the prompts on screen (`first` to
 /// `last`), shows whole and clear of the fades: `current` while it already does; else the band's
 /// first row a third of the way down, as the Codex rail puts it, moved as little as it takes to show
@@ -1095,6 +1113,34 @@ export function foldIncoming(
   }
   for (; at < turns.length; at += 1) folded.push(turns[at]!);
   return { turns: folded, ticks: runs.ticks };
+}
+
+/// Whose prompts the rail shows, picked from its right-click menu (Leo, 2026-11-07: "when you
+/// right-click the left scroll rail, you should be able to ... filter out the other agent messages to
+/// only your own, or filtering out your own to only the agent messages"): every prompt, the person's
+/// own, or only other agents' messages (a tick with a sender, promptSender).
+export type RailFilter = "all" | "mine" | "agents";
+
+/// The turns and ticks a filter keeps, in order, and where the loaded ones now start (`loadedStart`
+/// counts the earlier, indexed turns kept before it). Pending ticks are not here: they have no sender
+/// yet, so a filtered rail draws none (ThreadMinimap).
+export function filterTurns(
+  turns: readonly MinimapTurn[],
+  ticks: readonly MinimapTick[],
+  loadedStart: number,
+  filter: RailFilter,
+): { turns: readonly MinimapTurn[]; ticks: readonly MinimapTick[]; loadedStart: number } {
+  if (filter === "all") return { turns, ticks, loadedStart };
+  const keptTurns: MinimapTurn[] = [];
+  const keptTicks: MinimapTick[] = [];
+  let start = 0;
+  for (let at = 0; at < ticks.length; at += 1) {
+    if ((ticks[at]!.from !== undefined) !== (filter === "agents")) continue;
+    if (at < loadedStart) start += 1;
+    keptTurns.push(turns[at]!);
+    keptTicks.push(ticks[at]!);
+  }
+  return { turns: keptTurns, ticks: keptTicks, loadedStart: start };
 }
 
 const runsByTicks = new WeakMap<

@@ -6293,6 +6293,26 @@ a.cv-sha:focus-visible {
    through the composer's tinted card or the gutters around it. The scrollbar is not: a second
    layer keeps the scroller's right edge, where rows never reach (they sit --cv-inset in), so its
    track runs to the pane's bottom corner (Leo 2026-10-19). */
+/* Each edge deepens as the view leaves that end of the chat (VirtualTranscript sets the reach, 0 to 1,
+   threadMinimap/model.ts transcriptFadeReach): no fade at the very top or bottom, a full one a few
+   lines from it, like rows rolling over a wheel (Leo, 2026-11-07: "if you scroll to the very top,
+   there should be no fade. But then as you scroll down, like gradually, there's more and more of a
+   fade"). The reach and the mask that reads it do not inherit, so a scroll's new reach restyles the
+   scroller and none of its rows. */
+@property --acpmux-fade-top-reach {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
+@property --acpmux-fade-bottom-reach {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
+@property --acpmux-view-mask {
+  syntax: "*";
+  inherits: false;
+}
 .acpmux-scroll[data-fade-top] {
   --acpmux-fade-top: 18px;
 }
@@ -6331,8 +6351,8 @@ a.cv-sha:focus-visible {
   --acpmux-view-mask: linear-gradient(
     to bottom,
     transparent var(--acpmux-view-top, 0px),
-    #000 calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px)),
-    #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px)),
+    #000 calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach)),
+    #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px) * var(--acpmux-fade-bottom-reach)),
     transparent var(--acpmux-view-foot)
   );
   -webkit-mask-image:
