@@ -2027,6 +2027,11 @@ async fn dispatch_request_with_identity(
                 send_now: false,
                 thread,
                 wake_or_fail: flag("wakeOrFail") == Some(true),
+                // Only a caller that waits for the reply and prints it reads it
+                // (`hub/question_replies.rs`); an outbox delivery's open request reads nothing.
+                reply_reader: (flag(crate::cli::output::READS_REPLY_META) == Some(true)
+                    || flag("wakeOrFail") == Some(true))
+                .then(|| conn.ended.subscribe()),
                 inbox: inbox_on
                     && crate::hub::inbox::plain_send(
                         conn.origin == super::Origin::Peer,

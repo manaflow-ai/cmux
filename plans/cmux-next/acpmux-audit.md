@@ -303,3 +303,24 @@ changed, with no process scanning (`plans/cmux-next/pty-holder.md` section 4):
   with no caller, an unproven agent included. It is older code and never was a person-only check
   (proven agents use it under their own name), but it is the same class as review 1's B1. Proposed
   follow-up: `conn.unproven_agent()` -> `conn.refusal("mesh controls", ...)`.
+
+## Notice to PL-acpmux: a no-wait question's reply goes back to its asker (2026-11-08)
+
+From bench round 4 (tui-parity A5 defect 2, owner W5-S). A subagent sent `--no-wait --class
+question` to a session it did not start; the reply reached no one, and the receiver's notice said
+the subagent was "waiting for it" (the outbox's delivery keeps a request open, so
+`answer.receiver_count() > 0` was true). What changed:
+- `PromptOptions::reply_reader` (new): the connection's end watch of a caller that reads the reply
+  (`readsReply` or `wakeOrFail`, `server/requests.rs`); the inbox `Item` keeps it (`reader`).
+  `inbox::reader_waits` needs it, so "waiting for it" is said only of a caller that waits.
+- `hub/question_replies.rs` (new): when a notice that carried a question or block from a session
+  ends and no caller reads its reply (`reply_goes_back_at_end`), the receiver's turn reports to
+  the asker as a lane report (`lane_capture_reply`, `lane_report_to_parent`), or to the asking
+  subagent's notice folder (`lane_report_to_subagent(.., question: true)`); a sweep hands an
+  untaken one to the lead through `question_reply_deliver`, not `lane_deliver` (no lane link).
+  A steered notice reports at the end of the turn it went into (`Inbox::replies_due`).
+- The receiver's notice says "End your turn with your answer: acpmux sends this turn's reply to
+  X when it ends". Guide table row added.
+- Limits: replies due at a turn end are memory only (a daemon restart drops them); one report per
+  asker and subagent per notice.
+- Tests: `tests/question_replies.rs` (red first).

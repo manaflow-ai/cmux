@@ -487,6 +487,7 @@ impl Hub {
                     opts.provenance.as_ref(),
                     opts.human_authenticated,
                     opts.wake_or_fail,
+                    opts.reply_reader.clone(),
                     &mut accept,
                 ))
                 .await;
@@ -577,6 +578,19 @@ impl Hub {
         let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         // What it asks of this chat: another agent's only, `result` when it named none.
         let class = crate::prompt_class::of_message(opts.class, agent.is_some());
+        // A question no caller reads the reply of, from a session that did not start this chat
+        // and that the inbox did not take: its reply goes back when the turn that answers it ends
+        // (`question_replies.rs`). A steer is answered by the running turn; a queued prompt by
+        // its own turn, so it is noted once that turn is this prompt's (below).
+        let reply_due = {
+            let provenance = opts.provenance.as_ref();
+            let subagent = provenance
+                .and_then(|p| p.get(crate::prompt_provenance::FROM_SUBAGENT))
+                .filter(|s| s.is_object())
+                .cloned();
+            let reads = opts.reply_reader.is_some() || opts.wake_or_fail;
+            (super::inbox::sender_session(provenance), subagent, reads)
+        };
         if steer_now {
             if cloud_turn.is_some() {
                 return Err(RpcError::invalid_params(
@@ -587,8 +601,14 @@ impl Hub {
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
             // Boxed: the steer's future stays out of this one, which every prompt's caller holds
             // on its stack (a debug build's test thread has little room).
-            return Box::pin(self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept))
-                .await;
+            let steered =
+                Box::pin(self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept))
+                    .await;
+            if steered.is_ok() {
+                let (asker, subagent, reads) = reply_due;
+                self.question_reply_on_turn(session, asker, subagent, class, reads);
+            }
+            return steered;
         }
         // An automatic continuation runs only while its chat still ends on the cut turn: no await
         // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
@@ -624,6 +644,8 @@ impl Hub {
                 Ok(slot) => slot,
                 Err(done) => return done,
             };
+        let (asker, subagent, reads) = reply_due;
+        self.question_reply_on_turn(session, asker, subagent, class, reads);
         // A normal Stop releases the next queued prompt. Its cancellation epoch starts
         // when it acquires the turn; an immediately admitted prompt keeps its entry epoch.
         if waiting {
