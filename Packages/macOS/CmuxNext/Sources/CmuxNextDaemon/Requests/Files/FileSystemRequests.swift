@@ -53,6 +53,29 @@ public nonisolated struct FileSystemReadRequest: DaemonRequest {
     }
 }
 
+/// `fs.read {path, offset, max_bytes, no_follow: true}` (`fs-read-nofollow-v1`): a
+/// ``FileSystemReadRequest`` that follows no symlink. The daemon enters every folder on the way
+/// and opens the file one name at a time with `O_NOFOLLOW`, so a symlink as any component, one
+/// swapped in after the caller looked included, is `fs.symlink_in_path` and nothing is read
+/// through it.
+public nonisolated struct FileSystemReadNoFollowRequest: DaemonRequest {
+    public static let command = "fs.read"
+    public static let requiredCapability: String? = "fs-read-nofollow-v1"
+
+    public let path: String
+    public let offset: UInt64
+    public let maxBytes: UInt64
+    public let noFollow = true
+
+    public init(path: String, offset: UInt64 = 0, maxBytes: Int = FileSystemReadRequest.maximumBytes) {
+        self.path = path
+        self.offset = offset
+        self.maxBytes = UInt64(clamping: maxBytes)
+    }
+
+    public typealias Response = FileSystemReadRequest.Response
+}
+
 /// `fs.stat {path}`: what `path` is (its last component not followed) and its revision, a token of
 /// its size and modification time that changes with every write.
 public nonisolated struct FileSystemStatRequest: DaemonRequest {
@@ -103,4 +126,25 @@ public nonisolated struct FileSystemReplaceRequest: DaemonRequest {
             public let revision: String?
         }
     }
+}
+
+/// `fs.write {path, text, mode: "replace", expected, no_follow: true}` (`fs-write-nofollow-v1`): a
+/// ``FileSystemReplaceRequest`` that writes through no symlink (`fs.symlink_in_path` instead).
+public nonisolated struct FileSystemReplaceNoFollowRequest: DaemonRequest {
+    public static let command = "fs.write"
+    public static let requiredCapability: String? = "fs-write-nofollow-v1"
+
+    public let path: String
+    public let text: String
+    public let mode = "replace"
+    public let expected: String
+    public let noFollow = true
+
+    public init(path: String, text: String, expected: String) {
+        self.path = path
+        self.text = text
+        self.expected = expected
+    }
+
+    public typealias Response = FileSystemReplaceRequest.Response
 }

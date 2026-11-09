@@ -214,6 +214,7 @@ pub fn build_capabilities() -> Vec<&'static str> {
             && *capability != crate::fs_ops::FS_SYMLINK_CAPABILITY
             && *capability != crate::fs_ops::FS_WRITE_DEFLATE_CAPABILITY
             && *capability != crate::fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY
+            && *capability != crate::fs_ops::FS_READ_NOFOLLOW_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_EXPORT_CAPABILITY
             && *capability != crate::blob_fetch::BLOB_FETCH_CAPABILITY
