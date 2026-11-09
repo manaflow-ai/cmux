@@ -134,6 +134,19 @@ function hookName(node: ts.Expression): string | undefined {
   return /^use[A-Z]/.test(name) ? name : undefined;
 }
 
+/** A method call's callee (`x.sessions()`), or a list a scan call already counts (`x.sessions.find(…)`). */
+function isCalleeOrScanned(node: ts.PropertyAccessExpression): boolean {
+  const parent = node.parent;
+  if (ts.isCallExpression(parent) && parent.expression === node) return true;
+  return (
+    ts.isPropertyAccessExpression(parent) &&
+    parent.expression === node &&
+    SCANS.has(parent.name.text) &&
+    ts.isCallExpression(parent.parent) &&
+    parent.parent.expression === parent
+  );
+}
+
 /** The statement a node sits in: its lines are where a marker may go. */
 function statementOf(node: ts.Node): ts.Node {
   let at = node;
@@ -158,12 +171,13 @@ export function findWholeListRows(file: string, text: string): string[] {
     return false;
   };
   const mapped = mappedComponents(source);
-  const hits = new Set<number>();
+  // Nodes, not lines: two reads on one line are two reads, so a new one cannot hide beside an old one.
+  const hits = new Set<ts.Node>();
 
   const checkComponent = (fn: ts.SignatureDeclaration & { body?: ts.Node }) => {
     if (markedAt(fn, fn.getStart(source))) return;
     const hit = (node: ts.Node) => {
-      if (!markedAt(node)) hits.add(line(node.getStart(source)));
+      if (!markedAt(node)) hits.add(node);
     };
     // Props: `({ sessions })`, `({ snapshot: { sessions } })`.
     const props = fn.parameters[0];
@@ -181,7 +195,7 @@ export function findWholeListRows(file: string, text: string): string[] {
         listName(node.expression.expression)
       )
         hit(node);
-      else if (ts.isPropertyAccessExpression(node) && isListRead(node) && !ts.isCallExpression(node.parent)) hit(node);
+      else if (ts.isPropertyAccessExpression(node) && isListRead(node) && !isCalleeOrScanned(node)) hit(node);
       ts.forEachChild(node, visit);
     };
     if (fn.body) ts.forEachChild(fn.body, visit);
@@ -196,7 +210,10 @@ export function findWholeListRows(file: string, text: string): string[] {
   };
   walk(source);
   const name = path.relative(root, file);
-  return [...hits].sort((a, b) => a - b).map((at) => `${name}:${at + 1}`);
+  return [...hits]
+    .map((node) => line(node.getStart(source)))
+    .sort((a, b) => a - b)
+    .map((at) => `${name}:${at + 1}`);
 }
 
 export function readBaseline(

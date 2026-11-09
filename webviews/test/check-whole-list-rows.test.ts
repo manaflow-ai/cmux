@@ -24,6 +24,17 @@ test("a row that takes, binds, reads or scans a whole list is named", () => {
   expect(lines(findWholeListRows(file, source))).toEqual([1, 2, 6, 8, 9, 11]);
 });
 
+test("two reads on one line count twice, and a scanned list counts once", () => {
+  const source = [
+    "function SessionRow({ id, store }: Props) {",
+    "  const pair = [store.sessions.find((s) => s.id === id), store.asks.filter((a) => a.session === id)];",
+    "  const all = count(store.sessions);",
+    "  return <div>{pair.length + all}</div>;",
+    "}",
+  ].join("\n");
+  expect(lines(findWholeListRows(file, source))).toEqual([2, 2, 3]);
+});
+
 test("a component the file renders inside a .map is a row too", () => {
   const source = [
     "function Entry({ id }: { id: string }) {",
