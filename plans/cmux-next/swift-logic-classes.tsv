@@ -4830,7 +4830,6 @@ CmuxNextCloud	enum	CloudLinkPhase	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/
 CmuxNextCloud	class	CloudLinkOwnership	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkRedial.swift	from class CloudLinkRedial:8: redial state from client snapshots
 CmuxNextCloud	class	CloudLinkRedial	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkRedial.swift	from class CloudLinkRedial:8: redial state from client snapshots
 CmuxNextCloud	protocol	CloudLinkResolver	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkResolver.swift	resolver seam protocol
-CmuxNextCloud	struct	CloudTerminalLinkResolver	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkResolver.swift	from protocol CloudLinkResolver:19: resolver seam protocol
 CmuxNextCloud	actor	CloudLinkSession	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkSession.swift	app link session state machine with generations
 CmuxNextCloud	struct	CloudLinkTicket	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkSession.swift	from actor CloudLinkSession:13: app link session state machine with generations
 CmuxNextCloud	enum	CloudLinkSocketPolicy	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkSocketPolicy.swift	link socket path acceptance rule (name, length, owner)

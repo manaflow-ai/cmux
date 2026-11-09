@@ -84,6 +84,9 @@ pub(crate) mod heap_future;
 pub mod host_load;
 pub mod host_pressure;
 pub mod hub;
+/// The live stream to one's own machines through the platform's relay (`hub_carrier.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod hub_carrier;
 #[cfg(windows)]
 mod job;
 pub mod launch_credential;

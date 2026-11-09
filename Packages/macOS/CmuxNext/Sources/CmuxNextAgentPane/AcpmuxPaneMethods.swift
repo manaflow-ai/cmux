@@ -157,6 +157,14 @@ nonisolated enum AcpmuxPaneMethods {
         // runs under its parent's policy), so no gesture; acpmux takes it only from a connection that
         // proved the person key (hub/subsessions.rs, `set_subsession_limits`).
         "_acpmux/subsession/limits",
+        // The plan approval card's Build menu (direct.ts planBuild, planCompare, planKeep; acpmux
+        // server/plan_build.rs) for a chat in the pane's scope. Build answers the chat's pending plan
+        // approval (here) or starts the plan as sub-sessions in new worktrees under the chat's own
+        // policy, so it needs the person's fresh click (``gestureRules``, ``answerAllowed``) and
+        // names no harness, folder or command. Compare reads the builds' diffs; Keep archives the
+        // other builds' chats, never their worktrees. acpmux takes all three only from a
+        // connection that proved the person key, never a remote device or a peer.
+        "_acpmux/plan/build", "_acpmux/plan/compare", "_acpmux/plan/keep",
         // Model races: candidates and reviewer run only under the selected parent chat's
         // existing authorization and isolated worktree guard (acpmux hub/races.rs).
         "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
@@ -284,6 +292,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
         "_acpmux/mcp/reconnect", "_acpmux/subsession/limits", "_acpmux/context", "_acpmux/context_override",
+        "_acpmux/plan/build", "_acpmux/plan/compare", "_acpmux/plan/keep",
         "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
     ]
 
@@ -403,6 +412,9 @@ nonisolated enum AcpmuxPaneMethods {
         // for the failed prompt's resend. Cancel stops work: none.
         "_acpmux/agent_login/start": .always,
         "_acpmux/agent_login/api_key": .always,
+        // Build answers the plan approval or starts the plan in new worktrees. Compare and Keep
+        // need none: Keep only archives chats the person's Build started.
+        "_acpmux/plan/build": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
         // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work
         // Start begins is its session/prompt, which has one).
@@ -417,6 +429,7 @@ nonisolated enum AcpmuxPaneMethods {
     /// the person's fresh click or permission shortcut, never a typing gesture (cx-ocdz).
     @MainActor static func answerAllowed(_ method: String?, _ gestures: AgentPaneUserGestures) -> Bool {
         let answers = method == "_acpmux/permission_respond" || method == "_acpmux/permission_group_respond"
+            || method == "_acpmux/plan/build"
         return !answers || gestures.hasFreshAnswerGesture
     }
 
