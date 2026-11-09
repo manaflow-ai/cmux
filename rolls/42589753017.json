@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42589753017",
+  "recorded_at": "2026-11-09T09:05:05Z",
+  "reason": "cmux-tui 6942a3f4c116 changes the image's cmux-tui (pinned bb9a6d562edc)",
+  "dry_run": false,
+  "cmux_tui": "6942a3f4c116bbe2aa11ddf1feefa34d74c1cf75",
+  "fixes": [
+    {
+      "sha": "6942a3f4c116bbe2aa11ddf1feefa34d74c1cf75",
+      "mergedAt": "2026-11-09T00:44:13-08:00",
+      "subject": "acpmux: a worktree revive takes the per-repository lock for its worktree changes (#39399)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T09:05:05Z",
+    "snapshot_id": "sh-019b2b889bb544c5b51482637cd8afb8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42589753017): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "09ad141a5350dc46064666c208df1c8ac32f32be",
+    "image": "cloud-native-auto-6942a3f4-42589753017-1",
+    "revision": "ci-42589753017-1",
+    "at": "2026-11-09T09:05:05Z"
+  },
+  "rolled_back": false
+}
