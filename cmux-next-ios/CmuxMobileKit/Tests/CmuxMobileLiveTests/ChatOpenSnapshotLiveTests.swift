@@ -80,7 +80,7 @@ import Testing
         return (collected, task)
     }
 
-    static func userMessages(_ events: [AgentSessionEvent]) -> [String] {
+    nonisolated static func userMessages(_ events: [AgentSessionEvent]) -> [String] {
         events.compactMap { if case .userMessage(_, _, let turn, _, _) = $0 { turn } else { nil } }
     }
 
