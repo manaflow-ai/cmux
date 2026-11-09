@@ -6,6 +6,9 @@ use super::*;
 #[path = "agent_roster_worker.rs"]
 mod agent_roster_worker;
 pub(super) use agent_roster_worker::AgentRosterWorker;
+// A stale roster's background rebuild, on that owner.
+#[path = "agent_roster_rebuild.rs"]
+mod agent_roster_rebuild;
 
 /// The roster owner's fold state ([`AgentRosterWorker`]): its own journal
 /// reader. Only the owner's passes take it, so it orders folds and snapshot
@@ -521,6 +524,11 @@ impl Mux {
     /// projection is a separately committed compatibility view for clients.
     /// Compare durable values first so a healthy restart emits no mutations.
     pub(super) fn reconcile_agent_roster_projections(&self) {
+        // A stale roster (a reducer bump) can disagree with projections the
+        // current reducer would make. The rebuild reconciles when it is done.
+        if self.agent_roster_rebuilding() {
+            return;
+        }
         let entries = self
             .agent_roster
             .lock()
@@ -541,6 +549,9 @@ impl Mux {
         &self,
         terminal_id: &TerminalPublicId,
     ) {
+        if self.agent_roster_rebuilding() {
+            return;
+        }
         let entry = self
             .agent_roster
             .lock()

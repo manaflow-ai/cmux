@@ -129,6 +129,16 @@ impl RosterControl {
         true
     }
 
+    /// Asks the owner for another pass of unfinished background work, unless
+    /// it is stopping: work left then resumes at the next start.
+    fn continue_later(&self) {
+        let mut requests = self.lock();
+        if !requests.stopping {
+            requests.pending = true;
+            self.wake.notify_one();
+        }
+    }
+
     /// The owner finishes the work recorded so far, then ends.
     fn stop(&self) {
         self.lock().stopping = true;
@@ -160,6 +170,13 @@ pub(in crate::mux) struct AgentRosterWorker {
     pub(in crate::mux) fold: Mutex<AgentRosterFold>,
     control: Arc<RosterControl>,
     thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// The rebuild of a stale roster from the whole journal
+    /// (`agent_roster_rebuild.rs`); only the owner takes it, a slice after
+    /// each pass.
+    pub(in crate::mux) rebuild: Mutex<Option<agent_roster_rebuild::AgentRosterRebuild>>,
+    /// A rebuild is under way: the roster is stale, so the projection
+    /// reconcile waits for it.
+    pub(in crate::mux) rebuilding: AtomicBool,
 }
 
 impl Drop for AgentRosterWorker {
@@ -205,8 +222,13 @@ fn run_owner(control: &RosterControl, mux: &Weak<Mux>) {
         let Some(session) = mux.upgrade() else { return };
         // A pass that panics must not end the roster's only owner: every later
         // request would wait for a fold that never comes.
+        // A stale roster's rebuild takes a slice after the pass, before the
+        // pass counts as done: a caller that waits for a pass sees its
+        // progress.
         let left = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            session.run_roster_pass(pass)
+            let left = session.run_roster_pass(pass);
+            session.run_agent_roster_rebuild_slice();
+            left
         }))
         .unwrap_or_else(|_| {
             eprintln!("cmux-tui: an agent roster pass panicked; the next request folds again");
@@ -270,6 +292,11 @@ impl Mux {
                 STOP_WAIT.as_secs()
             );
         }
+    }
+
+    /// Asks the owner for another pass of the roster rebuild.
+    pub(in crate::mux) fn continue_agent_roster_rebuild_later(&self) {
+        self.agent_roster_worker.control.continue_later();
     }
 
     /// Records roster work for the owner and wakes it: a fold through

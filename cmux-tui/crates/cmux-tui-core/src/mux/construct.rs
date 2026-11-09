@@ -178,6 +178,7 @@ impl Mux {
         let agent_roster_restore::RestoredAgentRoster {
             host: agent_roster,
             diagnostic: agent_roster_diagnostic,
+            rebuild: agent_roster_rebuild,
         } = agent_roster_restore::restore_agent_roster(&registry)?;
         let feed_local = Mutex::new(registry.open_feed_local()?);
         let presentation = registry.presentation_snapshot()?;
@@ -458,6 +459,11 @@ impl Mux {
         mux.exit_settles.bind(Arc::downgrade(&mux));
         // The agent roster's one owner: every fold and snapshot save runs there.
         mux.start_agent_roster_worker()?;
+        // A stale roster (a reducer version bump) is served now and rebuilt
+        // from the whole journal in the owner while the daemon serves.
+        if agent_roster_rebuild {
+            mux.start_agent_roster_rebuild();
+        }
         mux.start_command_history_for_persistent_registry();
         let weak_mux = Arc::downgrade(&mux);
         mux.journal_plugin.set_exit_handler(Some(Arc::new(move |plugin_id, generation| {

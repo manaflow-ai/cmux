@@ -107,15 +107,16 @@ fn interleave(agents: Vec<TestJournalRecord>, churn: usize) -> Vec<TestJournalRe
     records
 }
 
-/// What one roster restore after a reducer version change cost.
+/// What one roster restore that folds the journal from its first record cost.
 struct ReplayCost {
     steps: u64,
     elapsed: Duration,
 }
 
 /// A registry whose journal holds the agent lifecycles among `churn`
-/// session puts, and a roster snapshot of the previous reducer version at
-/// the head: the start replays from the first record.
+/// session puts, and an empty roster snapshot at sequence 0: the start
+/// replays from the first record, as the background rebuild after a reducer
+/// version bump does (`agent_roster_rebuild.rs`).
 fn replay_after_version_bump(churn: usize) -> ReplayCost {
     let registry = WorkspaceRegistry::in_memory("roster-kind-scope-cost").unwrap();
     registry.append_journal_records_for_test(&interleave(agent_lifecycles(), churn));
@@ -123,9 +124,9 @@ fn replay_after_version_bump(churn: usize) -> ReplayCost {
     registry
         .put_journal_reducer_state(
             AGENT_ROSTER_REDUCER_ID,
-            AGENT_ROSTER_REDUCER_VERSION - 1,
-            head,
-            "{}",
+            AGENT_ROSTER_REDUCER_VERSION,
+            0,
+            &AgentRoster::default().snapshot().to_string(),
         )
         .unwrap();
     let mut restored = None;

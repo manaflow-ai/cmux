@@ -206,3 +206,128 @@ fn an_agent_with_events_in_a_skipped_range_is_not_reported_working() {
     drop(reopened);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// A journal with one agent working, and its roster snapshot saved as
+/// `previous_version` after `edit` changed it. Returns the terminal and the
+/// snapshot's cursor.
+fn store_with_a_previous_version_snapshot(
+    session: &str,
+    root: &Path,
+    previous_version: u32,
+    edit: impl FnOnce(&mut Value, &TerminalPublicId),
+) -> (TerminalPublicId, u64) {
+    use crate::journal_reducers::AGENT_ROSTER_REDUCER_ID;
+    let mux = open_persistent_test_mux(session, root);
+    let terminal = mux.new_workspace(None, None).unwrap().terminal_public_id().cloned().unwrap();
+    append_journal_hook(&mux, &terminal, "SessionStart", Some("bump"));
+    append_journal_hook(&mux, &terminal, "UserPromptSubmit", Some("bump"));
+    assert_eq!(roster_agent_state(&mux, &terminal).as_deref(), Some("working"));
+    mux.shutdown();
+    drop(mux);
+    let registry = WorkspaceRegistry::open(root, session).unwrap();
+    let (_, cursor, snapshot) =
+        registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID).unwrap().unwrap();
+    let mut snapshot: Value = serde_json::from_str(&snapshot).unwrap();
+    edit(&mut snapshot, &terminal);
+    registry
+        .put_journal_reducer_state(
+            AGENT_ROSTER_REDUCER_ID,
+            previous_version,
+            cursor,
+            &snapshot.to_string(),
+        )
+        .unwrap();
+    (terminal, cursor)
+}
+
+/// After an agent roster reducer version bump the start serves the old
+/// snapshot (migrated) from its own cursor, with no fold of the history, and
+/// marks it stale; the roster's owner then folds the whole journal again in
+/// the background and replaces it with the current reducer's roster, saved
+/// at the current version with the mark cleared. The bumps so far fixed the
+/// fold's logic, so the migrated roster can be wrong until then: here it
+/// says idle where the journal says working.
+#[test]
+fn a_version_bump_serves_the_migrated_roster_and_rebuilds_it_in_the_background() {
+    use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION};
+    let session = "roster-bump-migrate";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-roster-bump-migrate-{}", crate::workspace_registry::new_uuid_v4()));
+    let (terminal, cursor) = store_with_a_previous_version_snapshot(
+        session,
+        &root,
+        AGENT_ROSTER_REDUCER_VERSION - 1,
+        |snapshot, terminal| {
+            snapshot["entries"][terminal.as_str()]["state"] = serde_json::json!("idle");
+        },
+    );
+    let registry = WorkspaceRegistry::open(&root, session).unwrap();
+    let head = registry.session_journal_head().unwrap();
+    assert!(cursor > 0 && cursor <= head);
+    let restored = crate::mux::agent_roster_restore::restore_agent_roster(&registry).unwrap();
+    assert!(restored.rebuild, "a migrated roster is stale");
+    // The tail after the old cursor holds no agent record: the migrated
+    // state stands until the rebuild.
+    assert_eq!(restored.host.cursor, head, "the start folds the tail");
+    assert_eq!(restored.host.roster.entries[terminal.as_str()].state, "idle");
+    assert_eq!(
+        registry.journal_reducer_rebuild_pending(AGENT_ROSTER_REDUCER_ID).unwrap(),
+        Some(AGENT_ROSTER_REDUCER_VERSION - 1)
+    );
+    drop(registry);
+
+    // The saved snapshot is the migrated one, still marked stale: this
+    // start rebuilds it.
+    let reopened = open_persistent_test_mux(session, &root);
+    assert_eq!(roster_agent_state(&reopened, &terminal).as_deref(), Some("working"));
+    assert!(!reopened.agent_roster_rebuilding());
+    {
+        let registry = reopened.workspace_registry.lock().unwrap();
+        assert_eq!(
+            registry.journal_reducer_rebuild_pending(AGENT_ROSTER_REDUCER_ID).unwrap(),
+            None
+        );
+        let (version, _, snapshot) =
+            registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID).unwrap().unwrap();
+        assert_eq!(version, AGENT_ROSTER_REDUCER_VERSION);
+        let saved = crate::journal_reducers::AgentRoster::restore(&snapshot).unwrap();
+        assert_eq!(saved.entries[terminal.as_str()].state, "working");
+    }
+    reopened.shutdown();
+    drop(reopened);
+
+    // The next start has nothing to rebuild.
+    let again = open_persistent_test_mux(session, &root);
+    assert!(!again.agent_roster_rebuilding());
+    assert_eq!(roster_agent_state(&again, &terminal).as_deref(), Some("working"));
+    again.shutdown();
+    drop(again);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// A snapshot whose format no longer restores (a version before the hook
+/// session fences) is not folded from zero at start either: the roster is
+/// served empty from the journal head, takes live events, and the rebuild
+/// fills it.
+#[test]
+fn a_version_bump_without_a_migratable_snapshot_serves_live_events_and_rebuilds() {
+    let session = "roster-bump-empty";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-roster-bump-empty-{}", crate::workspace_registry::new_uuid_v4()));
+    let (terminal, _) = store_with_a_previous_version_snapshot(session, &root, 5, |_, _| {});
+    let registry = WorkspaceRegistry::open(&root, session).unwrap();
+    let head = registry.session_journal_head().unwrap();
+    let restored = crate::mux::agent_roster_restore::restore_agent_roster(&registry).unwrap();
+    assert!(restored.rebuild);
+    assert_eq!(restored.host.cursor, head, "the start serves from the head");
+    assert!(restored.host.roster.entries.is_empty());
+    drop(registry);
+
+    let reopened = open_persistent_test_mux(session, &root);
+    assert_eq!(roster_agent_state(&reopened, &terminal).as_deref(), Some("working"));
+    append_journal_hook(&reopened, &terminal, "Stop", Some("bump"));
+    assert_eq!(roster_agent_state(&reopened, &terminal).as_deref(), Some("idle"));
+    reopened.shutdown();
+    drop(reopened);
+    std::fs::remove_dir_all(root).unwrap();
+}
