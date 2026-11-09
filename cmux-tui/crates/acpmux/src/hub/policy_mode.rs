@@ -785,19 +785,32 @@ mod tests {
         // A folder profile, or an entry removed since.
         meta.harness = "acme".to_owned();
         assert_eq!(claim_distrust(&meta, &cfg), Some("not_a_config_entry"));
-        // A remote start of an entry runs its program by its canonical path: still that entry.
-        cfg.harnesses.insert("py".to_owned(), cfg.harnesses["lane"].clone());
-        cfg.harnesses.get_mut("py").unwrap().argv = vec!["python3".to_owned()];
-        let mut remote = cfg.harnesses["py"].clone();
-        super::super::resolve::fix_remote_executable(&mut remote).unwrap();
-        assert_ne!(remote.argv, cfg.harnesses["py"].argv);
-        meta.harness = "py".to_owned();
-        meta.launch_digest = Some(remote.launch_digest());
-        assert_eq!(claim_distrust(&meta, &cfg), None);
         // No claim at all: nothing to believe.
         meta.harness = "lane".to_owned();
         meta.agent_capabilities = Some(json!({}));
         assert!(!claims_asks(&meta));
+    }
+
+    /// The claim is judged by the recorded launch alone, with no look at the filesystem: a start
+    /// records the digest of its config entry as the entry is written, a remote start too (lead,
+    /// 2026-11-09). A launch whose program is some other path than the entry's (here the
+    /// canonical path a remote start resolves the entry's bare program to) is another launch.
+    #[test]
+    fn a_launch_with_another_program_path_is_not_the_entrys_launch() {
+        let cfg: Config =
+            serde_json::from_value(json!({"harnesses": {"py": {"argv": ["python3", "agent.py"]}}}))
+                .unwrap();
+        let mut resolved = cfg.harnesses["py"].clone();
+        super::super::resolve::fix_remote_executable(&mut resolved).unwrap();
+        assert_ne!(resolved.argv, cfg.harnesses["py"].argv, "python3 resolves to a path");
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "s", "name": "s", "harness": "py",
+            "cwd": "/w", "status": "ready", "createdAt": 0, "updatedAt": 0,
+            "launchDigest": resolved.launch_digest(),
+            "agentCapabilities": {"_meta": {"acpmux": {"asksBeforeTools": true}}},
+        }))
+        .unwrap();
+        assert_eq!(claim_distrust(&meta, &cfg), Some("entry_changed"));
     }
 
     fn ids(modes: &[&str]) -> Vec<String> {
