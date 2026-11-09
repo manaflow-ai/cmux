@@ -397,6 +397,138 @@
         }
       }
     },
+    "run.ask.lines": {
+      "comment": "Question in a code block before a command read from several lines of a terminal session runs",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This runs several lines read from a terminal session. Run them?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يشغّل هذا عدة أسطر مأخوذة من جلسة طرفية. هل تريد تشغيلها؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovo pokreće više redova iz terminalske sesije. Pokrenuti ih?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette kører flere linjer fra en terminalsession. Kør dem?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dies führt mehrere Zeilen aus einer Terminalsitzung aus. Ausführen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esto ejecuta varias líneas de una sesión de terminal. ¿Ejecutarlas?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ceci exécute plusieurs lignes d’une session de terminal. Les exécuter ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo esegue più righe di una sessione del terminale. Eseguirle?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ターミナルセッションの複数行を実行します。実行しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វានឹងដំណើរការបន្ទាត់ច្រើនពីវគ្គស្ថានីយ។ ដំណើរការពួកវាទេ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "터미널 세션의 여러 줄을 실행합니다. 실행할까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette kjører flere linjer fra en terminaløkt. Kjøre dem?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "To uruchamia kilka wierszy z sesji terminala. Uruchomić je?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isto executa várias linhas de uma sessão de terminal. Executá-las?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Будет выполнено несколько строк из сеанса терминала. Выполнить их?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การดำเนินการนี้จะรันหลายบรรทัดจากเซสชันเทอร์มินัล รันเลยไหม?"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu, bir terminal oturumundan birkaç satır çalıştırır. Çalıştırılsın mı?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Буде виконано кілька рядків із сеансу термінала. Виконати їх?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thao tác này chạy nhiều dòng từ một phiên terminal. Chạy chúng?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这会运行终端会话中的多行。要运行吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這會執行終端機工作階段中的多行。要執行嗎？"
+          }
+        }
+      }
+    },
     "run.confirm": {
       "comment": "Button that runs a destructive command after the question",
       "extractionState": "manual",

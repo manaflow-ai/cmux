@@ -97,6 +97,7 @@ export const L = {
   run: "run.button",
   runTitle: "run.title",
   runAsk: "run.ask",
+  runAskLines: "run.ask.lines",
   runConfirm: "run.confirm",
   runCancel: "run.cancel",
   runSent: "run.sent",

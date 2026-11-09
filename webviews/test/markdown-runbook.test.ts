@@ -4,6 +4,7 @@
 // from the editor (test/markdown-run-buttons.test.ts, with the fixture runbooks).
 import { describe, expect, test } from "bun:test";
 import {
+  fromTranscript,
   isRunnableLanguage,
   runAsks,
   runbookPrompt,
@@ -88,6 +89,14 @@ describe("runbook steps", () => {
     // Inside an open quote or heredoc only `> ` lines continue: a bare line is output.
     expect(runnableCommand("console", "$ echo 'a\ntouch marker'")).toBe("echo 'a");
     expect(runnableCommand("console", "$ cat <<EOF\ntouch marker\nEOF")).toBe("cat <<EOF");
+    // `$'…'` takes `\\'` as an escaped quote, so the quote closes where the shell's does.
+    expect(
+      runnableCommand("console", "$ printf $'> rm important.txt # it\\'s output\\n'\n> rm important.txt # it's output"),
+    ).toBe("printf $'> rm important.txt # it\\'s output\\n'");
+    // A heredoc header continued with `\\` goes on before its body, and the body's end closes it.
+    expect(runnableCommand("console", "$ cat <<EOF \\\n> -\n> rm important.txt\n> EOF\nrm important.txt")).toBe(
+      "cat <<EOF \\\n-\nrm important.txt\nEOF",
+    );
     // A heredoc's delimiter is its whole word, quoted or not, and heredocs on one line close in order.
     expect(runnableCommand("console", "$ cat <<EOF.txt\n> touch marker\n> EOF.txt\ntouch marker")).toBe(
       "cat <<EOF.txt\ntouch marker\nEOF.txt",
@@ -121,6 +130,15 @@ describe("runbook steps", () => {
     );
     // A reserved word as an argument opens nothing.
     expect(runnableCommand("console", "$ echo if do {\n> touch marker")).toBe("echo if do {");
+  });
+
+  test("a command read from several transcript lines asks first, and Run all marks it", () => {
+    expect(fromTranscript("console", "make \\\ntest")).toBe(true);
+    expect(fromTranscript("console", "make")).toBe(false);
+    expect(fromTranscript("bash", "make\ntest")).toBe(false);
+    const [step] = runbookSteps([block("$ cat <<EOF\n> hi\n> EOF\nhi", { language: "console" })]);
+    expect(step!.risks).toEqual(["transcript"]);
+    expect(runbookPrompt("/doc.md", [step!])).toContain("ASK FIRST (several lines read from a terminal transcript");
   });
 
   test("the Run button asks before destructive commands only", () => {

@@ -57,9 +57,9 @@ export function runnableCommand(language: string, text: string): string {
   return commands.join("\n").trim();
 }
 
-/** A quoting or substitution scope the shell is inside: `'…'`, `"…"`, `` `…` ``, `$(…)` (and a
+/** A quoting or substitution scope the shell is inside: `'…'`, `$'…'` (where `\\` escapes), `"…"`, `` `…` ``, `$(…)` (and a
  * `(…)` inside it) or `${…}`. */
-type Scope = "'" | '"' | "`" | "$(" | "(" | "${";
+type Scope = "'" | "$'" | '"' | "`" | "$(" | "(" | "${";
 
 /** What a shell still waits for after a line: the end of its open scopes or heredocs, a next line
  * after a `\\` or an operator, or the end of `depth` open compound commands. */
@@ -98,11 +98,12 @@ const CLOSES = new Set(["fi", "esac", "done", "}"]);
 const LEADS = new Set(["then", "else", "elif", "do", "while", "until", "if", "!", "{", "time"]);
 
 function shellOpen(line: string, before: ShellOpen): ShellOpen {
-  // A heredoc line is its body. Trimmed, it may close a little early (the shell would wait then), never late.
-  if (before.heredocs.length > 0)
+  // A heredoc's body starts after its header's last line (a header continued with `\\` goes on first).
+  // Trimmed, a body line may close it a little early (the shell would wait then), never late.
+  if (before.heredocs.length > 0 && !before.escaped)
     return { ...before, heredocs: line.trim() === before.heredocs[0] ? before.heredocs.slice(1) : before.heredocs };
   const scopes = [...before.scopes];
-  const heredocs: string[] = [];
+  const heredocs = [...before.heredocs];
   let depth = before.depth;
   let escaped = false;
   // The current top-level word, whether a word may be a reserved word here, and the last operator.
@@ -153,6 +154,11 @@ function shellOpen(line: string, before: ShellOpen): ShellOpen {
       if (char === "'") scopes.pop();
       continue;
     }
+    if (scope === "$'") {
+      if (char === "\\") at++;
+      else if (char === "'") scopes.pop();
+      continue;
+    }
     if (char === "\\") {
       // A `\\` that ends the line continues it; any other escapes the next character.
       if (at === line.length - 1) escaped = true;
@@ -161,6 +167,12 @@ function shellOpen(line: string, before: ShellOpen): ShellOpen {
       continue;
     }
     // Opening a scope: quotes everywhere but in `"…"` (where only `"` closes), substitutions everywhere.
+    if (char === "$" && line[at + 1] === "'" && scope !== '"') {
+      scopes.push("$'");
+      at++;
+      inWord();
+      continue;
+    }
     if (char === "$" && line[at + 1] === "(") {
       scopes.push("$(");
       at++;
@@ -281,7 +293,7 @@ function heredocWord(line: string, from: number): { word: string; end: number } 
 }
 
 /** Why the agent, or the Run button, asks before a step runs. */
-export type StepRisk = "destructive" | "credentials" | "decision";
+export type StepRisk = "destructive" | "credentials" | "decision" | "transcript";
 
 /** Where a command word starts: the line's start, a separator, a subshell, a quote (the body of a
  * wrapper: `bash -c 'rm -rf build'`), or a path or escape before it (`/bin/rm`, `\\rm`). */
@@ -406,6 +418,13 @@ export function runAsks(command: string): boolean {
   return stepRisks(command).includes("destructive");
 }
 
+/** Whether a block's command was read from several lines of a session block (`console`): reading a
+ * transcript is a guess about where the command ends and its output starts, so such a command asks
+ * first however sure the scan is, and the person sees what runs. */
+export function fromTranscript(language: string, command: string): boolean {
+  return SESSION_LANGUAGES.has(fenceLanguage(language)) && command.includes("\n");
+}
+
 /** One runnable block of a runbook. */
 export interface RunbookStep {
   /** 1-based, in document order. */
@@ -448,7 +467,7 @@ export function runbookSteps(blocks: Iterable<RunbookBlock>): RunbookStep[] {
       language,
       command,
       line: block.line,
-      risks: stepRisks(command, lead),
+      risks: [...stepRisks(command, lead), ...(fromTranscript(language, command) ? (["transcript"] as const) : [])],
     });
   }
   return steps;
@@ -467,6 +486,7 @@ const utf8 = new TextEncoder();
 
 const RISK_NOTE: Record<StepRisk, string> = {
   destructive: "destructive",
+  transcript: "several lines read from a terminal transcript: check where the command ends",
   credentials: "needs credentials",
   decision: "a decision in the doc",
 };

@@ -127,6 +127,18 @@ describe("Run buttons", () => {
     click(block.querySelector(".md-run-confirm"));
     expect(sent).toEqual(["rm -rf dist"]);
   });
+
+  test("a command read from several transcript lines asks first and shows its lines", async () => {
+    const { root, sent } = await setup("```console\n$ cat <<EOF\n> hi\n> EOF\nhi\n```\n");
+    const block = root.querySelector(".md-code")!;
+    click(block.querySelector(".md-run-button"));
+    expect(sent).toEqual([]);
+    const ask = block.querySelector(".md-run-ask")!;
+    expect(ask.textContent).toBe("runAskLines");
+    expect(ask.getAttribute("title")).toBe("cat <<EOF\nhi\nEOF");
+    click(block.querySelector(".md-run-confirm"));
+    expect(sent).toEqual(["cat <<EOF\nhi\nEOF"]);
+  });
 });
 
 describe("Run all steps", () => {
@@ -162,7 +174,7 @@ describe("Run all steps", () => {
       "export GITHUB_TOKEN=<your-token>",
     ]);
     expect(steps.map((step) => [step.section, step.lead, step.risks])).toEqual([
-      ["Onboarding", "Clone the repository:", []],
+      ["Onboarding", "Clone the repository:", ["transcript"]],
       ["Onboarding", "Set your token:", ["credentials"]],
     ]);
   });

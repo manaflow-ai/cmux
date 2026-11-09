@@ -67,6 +67,7 @@ const RUN_LABELS: Record<RunLabel, string> = {
   run: L.run,
   runTitle: L.runTitle,
   runAsk: L.runAsk,
+  runAskLines: L.runAskLines,
   runConfirm: L.runConfirm,
   runCancel: L.runCancel,
   runSent: L.runSent,

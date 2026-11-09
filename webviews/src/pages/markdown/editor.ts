@@ -1179,7 +1179,7 @@ class CodeBlockView {
         const host = this.host.run;
         const language = () => String(this.node.attrs.language ?? "");
         if (!host || this.run || !isRunnableLanguage(language())) return;
-        this.run = runControls(host, () => runnableCommand(language(), this.node.textContent));
+        this.run = runControls(host, () => ({ language: language(), text: this.node.textContent }));
         this.dom.prepend(this.run);
       });
     } else if (!runnable) {

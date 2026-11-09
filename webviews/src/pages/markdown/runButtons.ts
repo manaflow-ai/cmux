@@ -2,9 +2,9 @@
 // screen of the viewport, so a long runbook builds the buttons the reader can reach and none of
 // the rest. The button sits in the block's language row, absolutely placed, so mounting it and its
 // confirm state never moves the code. A destructive command asks first, in the same row.
-import { runAsks } from "./runbook";
+import { fromTranscript, runAsks, runnableCommand } from "./runbook";
 
-export type RunLabel = "run" | "runTitle" | "runAsk" | "runConfirm" | "runCancel" | "runSent";
+export type RunLabel = "run" | "runTitle" | "runAsk" | "runAskLines" | "runConfirm" | "runCancel" | "runSent";
 
 export interface RunButtonHost {
   /** Sends `command` to a new terminal in the doc's repository (the host op needs this click);
@@ -64,10 +64,15 @@ export class NearRunBlocks {
 }
 
 /**
- * The controls of one block: Run, or for a destructive command the question and its Run and
- * Cancel. `command` reads the block's command at click time, so an edited block runs what it shows.
+ * The controls of one block: Run, or for a destructive command or one read from several transcript
+ * lines the question and its Run and Cancel. `block` reads the block at click time, so an edited
+ * block runs what it shows.
  */
-export function runControls(host: RunButtonHost, command: () => string): HTMLElement {
+export function runControls(host: RunButtonHost, block: () => { language: string; text: string }): HTMLElement {
+  const command = () => {
+    const { language, text } = block();
+    return runnableCommand(language, text);
+  };
   const row = document.createElement("span");
   row.className = "md-run";
   row.contentEditable = "false";
@@ -109,11 +114,14 @@ export function runControls(host: RunButtonHost, command: () => string): HTMLEle
   const run = button("md-run-button", host.label("run"), () => {
     const text = command();
     if (!text) return;
-    if (!runAsks(text)) return send();
+    const lines = fromTranscript(block().language, text);
+    if (!runAsks(text) && !lines) return send();
     row.dataset.state = "ask";
     const ask = document.createElement("span");
     ask.className = "md-run-ask";
-    ask.textContent = host.label("runAsk");
+    ask.textContent = host.label(runAsks(text) ? "runAsk" : "runAskLines");
+    // The lines that would run, on hover.
+    ask.title = text;
     const confirm = button("md-run-button md-run-confirm", host.label("runConfirm"), () => {
       idle();
       send();
