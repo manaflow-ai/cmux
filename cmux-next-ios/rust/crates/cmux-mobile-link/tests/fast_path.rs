@@ -106,3 +106,65 @@ async fn a_cut_direct_path_moves_to_the_relay_without_a_long_stall() {
     assert!(matches!(after, LinkPath::Turn), "ends on the relay, not {after:?}");
     assert!(stall < Duration::from_secs(3), "stalled {stall:?} after the cut");
 }
+
+/// The Mac's direct address reaches the phone only in its datagrams (no
+/// announcement names it, as with a peer-reflexive NAT mapping): the phone
+/// starts on the relay, learns the address, probes it, and moves direct.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_unannounced_direct_address_still_wins_over_the_relay() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
+    let turn = TestTurn::start().await;
+    let options = DialOptions {
+        include_loopback: true,
+        timeout: Duration::from_secs(20),
+        ice_servers: vec![turn.udp_only()],
+        ..DialOptions::default()
+    };
+    let server =
+        FakeSignaling::start(FakeOptions { strip_answer_direct_endpoints: true, ..FakeOptions::default() })
+            .await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    let mac_options = options.clone();
+    tokio::spawn(async move {
+        let Some(session) = mac.next_session().await else { return };
+        let events = SessionEvents {
+            backend: mac.events(),
+            session_id: session.first.session_id.clone(),
+            session: session.events,
+        };
+        let connected =
+            dial::answer(&mac, session.first, events, &mac_options, LinkConfig::default()).await.unwrap();
+        while let Some(mut incoming) = connected.link.accept().await {
+            tokio::spawn(async move {
+                while let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
+                    let _ = incoming.channel.send(bytes).await;
+                }
+            });
+        }
+    });
+    let phone_id = uuid::Uuid::new_v4().to_string();
+    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+    let connected = dial::connect(&phone, &mac_id, TransportKind::WireGuard, &options, LinkConfig::default())
+        .await
+        .unwrap();
+    let channel = connected.link.open("echo", serde_json::json!({})).await.unwrap();
+    let (sender, mut receiver) = channel.split();
+    let started = Instant::now();
+    let mut direct = false;
+    while started.elapsed() < Duration::from_secs(8) {
+        sender.send(Bytes::from(vec![7u8; 200])).await.unwrap();
+        let _ = tokio::time::timeout(Duration::from_millis(500), receiver.recv()).await;
+        if *connected.path.borrow() == LinkPath::Direct {
+            direct = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let path = *connected.path.borrow();
+    connected.link.close("done");
+    assert!(direct, "still {path:?} after {:?}", started.elapsed());
+}

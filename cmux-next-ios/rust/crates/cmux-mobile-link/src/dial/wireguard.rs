@@ -601,12 +601,18 @@ struct HybridUnderlay {
     /// answer goes back the way the probe came.
     last_udp_source: Option<SocketAddr>,
     last_turn_source: Option<SocketAddr>,
+    /// Peer addresses its authenticated datagrams came from that no
+    /// announcement named (a peer-reflexive NAT mapping), newest last: paths
+    /// too, so a direct route found that way can still win.
+    learned: Vec<SocketAddr>,
     /// Test support (`DialOptions::impair_inbound`): received datagrams
     /// held until their delivery time, and the timer for the first.
     delayed: std::collections::VecDeque<(Instant, Vec<u8>, Origin)>,
     delay_timer: Option<std::pin::Pin<Box<tokio::time::Sleep>>>,
 }
 
+/// Peer-reflexive addresses kept as paths at once (newest win).
+const MAX_LEARNED: usize = 4;
 const UDP_PATH: PathId = PathId(0);
 const TURN_PATH: PathId = PathId(2);
 
@@ -675,6 +681,7 @@ impl HybridUnderlay {
             selector_held: false,
             last_udp_source: None,
             last_turn_source: None,
+            learned: Vec::new(),
             delayed: std::collections::VecDeque::new(),
             delay_timer: None,
         };
@@ -700,6 +707,8 @@ impl HybridUnderlay {
     fn apply(&mut self, control: Control) {
         match &control {
             Control::Rebind { .. } => {
+                // New mappings: what the old socket learned is stale.
+                self.learned.clear();
                 self.paths.forget_carrier(Carrier::Turn);
                 self.paths.on_network_change();
             }
@@ -718,7 +727,7 @@ impl HybridUnderlay {
         if !no_plain_udp(&self.options) {
             let mut relayed: Vec<SocketAddr> = self.labels.peer_relayed.iter().copied().collect();
             relayed.sort();
-            for addr in self.candidates.iter().copied().chain(relayed) {
+            for addr in self.candidates.iter().copied().chain(self.learned.iter().copied()).chain(relayed) {
                 let route = Route { carrier: Carrier::Udp, addr };
                 if !self.refused.contains(&addr)
                     && !wanted.iter().any(|want: &paths::Wanted| want.route == route)
@@ -733,6 +742,27 @@ impl HybridUnderlay {
             }
         }
         self.paths.sync(&wanted);
+    }
+
+    /// An authenticated datagram came on plain UDP from a direct address
+    /// no announcement named: make it a path, probed like the others.
+    fn learn(&mut self, route: Route) {
+        let addr = route.addr;
+        if route.carrier != Carrier::Udp
+            || no_plain_udp(&self.options)
+            || self.labels.peer_relayed.contains(&addr)
+            || self.refused.contains(&addr)
+            || self.candidates.contains(&addr)
+            || self.learned.contains(&addr)
+        {
+            return;
+        }
+        if self.learned.len() >= MAX_LEARNED {
+            self.learned.remove(0);
+        }
+        tracing::debug!(%addr, "WireGuard learned a peer address from its datagrams");
+        self.learned.push(addr);
+        self.sync_paths();
     }
 
     fn apply_one(&mut self, control: Control) {
@@ -1485,6 +1515,7 @@ impl Underlay for HybridUnderlay {
         // The peer answered (or sent anything authenticated): the path works.
         self.handshake_repeat = None;
         let route = Route { carrier, addr };
+        self.learn(route);
         self.paths.heard(route, now);
         if let Some(roam) = &self.roam {
             roam.mark("roam_first_packet");
