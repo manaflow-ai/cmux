@@ -1365,7 +1365,7 @@ fn w5r_settle_stalls_a_silent_hook_agent_at_the_limit_only() {
     let mut settle =
         Settle::new(Wait::Idle, Duration::from_millis(100), start).expecting_report(stall);
     let dialog = Sample { waiting_for_input: true, ..idle_sample("4") };
-    assert_eq!(settle.observe(&dialog, at(200)), Verdict::Done(AgentState::WaitingForInput));
+    assert_eq!(settle.observe(&dialog, at(200)), Verdict::Done(AgentState::Blocked));
     let exited = Sample { exited: true, ..idle_sample("4") };
     assert_eq!(settle.observe(&exited, at(300)), Verdict::Exited);
 }
