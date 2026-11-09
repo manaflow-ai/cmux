@@ -22,10 +22,12 @@ public final class FirstRunSetup {
 
     /// At launch, after the classic migration: a first run starts the card and marks the windows it replaces
     /// (`replacedKeys`: their once flags) shown. True when the card started now. Never twice, and never on an
-    /// upgrade (`isFirstRun` false) or when the first-run Agents window already showed on this channel.
+    /// upgrade (`isFirstRun` false) or when the first-run Agents window already showed on this channel. With
+    /// VoiceOver on (`screenReader`) the windows show as before: VoiceOver can press the Agents window's
+    /// Chromium page, not the card's WebKit one (manaflow-ai/cmux#37809).
     @discardableResult
-    public func begin(isFirstRun: Bool, replacedKeys: [String]) -> Bool {
-        guard isFirstRun, defaults.string(forKey: Self.stateKey) == nil,
+    public func begin(isFirstRun: Bool, replacedKeys: [String], screenReader: Bool = false) -> Bool {
+        guard isFirstRun, !screenReader, defaults.string(forKey: Self.stateKey) == nil,
               !defaults.bool(forKey: OnboardingWindowPresenter.agentsShownKey) else { return false }
         for key in [OnboardingWindowPresenter.agentsShownKey] + replacedKeys { defaults.set(true, forKey: key) }
         defaults.set("pending", forKey: Self.stateKey)

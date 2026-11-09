@@ -30,9 +30,7 @@ extension HomeHostView {
             setupCard = nil
             return transcript.setSetupCard(nil, height: 0)
         }
-        let services = control.services
-        let auth = services.cloud.auth, registry = services.registry
-        // The rows' App-only halves: the account and the `cmux` on the login PATH, with their actions.
+        let services = control.services, auth = control.services.cloud.auth, registry = control.services.registry
         let environment = SetupCardEnvironment(
             account: { (auth.isSignedIn, auth.user?.primaryEmail) },
             signInAccount: { _ = registry.perform("palette.auth.signIn", invocation: ActionInvocation(origin: .user)) },
@@ -43,7 +41,8 @@ extension HomeHostView {
                 case .missing, .dangling: "missing"
                 }
             },
-            installCLI: { await CLIInstallHandlers.install(.cmux, replacing: $0, in: NSApp.keyWindow) })
+            installCLI: { await CLIInstallHandlers.install(.cmux, replacing: $0, in: NSApp.keyWindow) },
+            openAgents: { [weak services] in services?.onboarding.show(step: .agents) })
         guard setupCard == nil, let card = SetupCardHost(setup: services.onboarding.setup, agents: services.onboarding.signInHarnesses,
                                                          environment: environment, overlayProcess: services.overlayProcess) else { return }
         setupCard = card

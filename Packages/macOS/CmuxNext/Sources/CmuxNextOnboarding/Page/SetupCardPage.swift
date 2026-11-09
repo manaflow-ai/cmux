@@ -27,13 +27,21 @@ public struct SetupCardEnvironment {
     public var cliState: @MainActor () async -> String
     /// Installs this app's `cmux` (`replacing` another), the person's click; returns once its toast showed.
     public var installCLI: @MainActor (_ replacing: Bool) async -> Void
+    /// Opens the Agents window (Chromium), where a VoiceOver press counts as the person's (``SetupCardPageProvider``).
+    public var openAgents: @MainActor () -> Void
+    /// Whether VoiceOver runs now.
+    public var screenReader: @MainActor () -> Bool
 
     public init(account: @escaping @MainActor () -> (signedIn: Bool, email: String?), signInAccount: @escaping @MainActor () -> Void,
-                cliState: @escaping @MainActor () async -> String, installCLI: @escaping @MainActor (_ replacing: Bool) async -> Void) {
+                cliState: @escaping @MainActor () async -> String, installCLI: @escaping @MainActor (_ replacing: Bool) async -> Void,
+                openAgents: @escaping @MainActor () -> Void,
+                screenReader: @escaping @MainActor () -> Bool = { NSWorkspace.shared.isVoiceOverEnabled }) {
         self.account = account
         self.signInAccount = signInAccount
         self.cliState = cliState
         self.installCLI = installCLI
+        self.openAgents = openAgents
+        self.screenReader = screenReader
     }
 }
 
@@ -163,6 +171,17 @@ public final class SetupCardPageProvider: PageProvider {
         default: break
         }
         guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
+            // A VoiceOver press reaches this WebKit page with no click or key (manaflow-ai/cmux#37809), so it is
+            // refused here; with VoiceOver on, a press on a row opens the Agents window, a Chromium page where the
+            // same press counts (`ChromiumAccessibilityPress`), and Hide only takes the card away.
+            if environment.screenReader(), !context.userGesture {
+                switch op {
+                case "cmux.setup.run": environment.openAgents()
+                case "cmux.setup.hide": setup.end()
+                default: throw PageError.unknownOp(op)
+                }
+                return [:]
+            }
             throw PageError(code: PageNativeOp.userOnlyCode, message: "\(op) runs only on its own click or key in Home")
         }
         spentGesture = event
