@@ -136,4 +136,27 @@ import Testing
         let unnamed = Self.unnamed(under: window)
         #expect(unnamed.isEmpty, "Agents window: \(unnamed.count) unnamed controls:\n\(unnamed.joined(separator: "\n"))")
     }
+
+    /// A scroller's arrow and page parts carry names: a stock one through `SystemScrollers.follow`
+    /// (the Home list's, four unnamed buttons in the probe's read) and the thin one of its own.
+    @Test(arguments: [false, true])
+    func scrollerPartsAreNamed(_ thin: Bool) throws {
+        _ = NSApplication.shared
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        scrollView.hasVerticalScroller = true
+        scrollView.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 2000))
+        if thin { SystemScrollers.followThin(scrollView) } else { SystemScrollers.follow(scrollView) }
+        let window = NSWindow(contentRect: scrollView.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = scrollView
+        scrollView.layoutSubtreeIfNeeded()
+        let scroller = try #require(scrollView.verticalScroller)
+        let parts = (scroller.accessibilityChildren() ?? []).compactMap { $0 as? any NSAccessibilityProtocol }
+            .filter { $0.accessibilityRole() == .button }
+        #expect(!parts.isEmpty || thin, "a stock scroller has its arrow and page parts")
+        for part in parts {
+            #expect(!(part.accessibilityLabel() ?? "").isEmpty, "\(String(describing: part.accessibilitySubrole())) has no name")
+        }
+    }
 }
