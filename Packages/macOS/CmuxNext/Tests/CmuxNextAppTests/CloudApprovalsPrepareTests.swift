@@ -111,4 +111,54 @@ struct CloudApprovalsPrepareTests {
         #expect(await prep.ended)
         #expect(await !prep.cancelled)
     }
+
+    /// #39208's review (F1): `prepare` runs its status read and restart in the machine's shared task, so cancelling the
+    /// owned waiter never reached it, and a failed login could still restart. The owner's cancel now carries into the
+    /// restart's permission. Through the real `prepare` path, with a status read still out when the login fails.
+    @MainActor @Test func aFailedLoginThroughTheRealPrepareNeverRestarts() async {
+        let machine = "cloud-approvals-owned-\(UUID().uuidString)"
+        let starts = Counter()
+        await #expect(throws: LoginFailed.self) {
+            try await RemoteApprovalPreparations.owned({
+                await RemoteApprovalPreparations.shared.prepare(machine: machine, daemonSaidSafe: false, held: false, idle: {
+                    try? await Task.sleep(for: .milliseconds(300)) // the shared task is not cancelled: the read answers idle
+                    return true
+                }) {
+                    await starts.increment()
+                    return true
+                }
+            }) {
+                try await Task.sleep(for: .milliseconds(20))
+                throw LoginFailed()
+            }
+        }
+        #expect(await starts.read() == 0, "no keyed restart after the start that asked failed")
+    }
+
+    /// The prep stays shared: a second start on the machine that is still live restarts it, though the first one ended.
+    @MainActor @Test func aSharedPrepRestartsForTheOwnerStillLive() async throws {
+        let machine = "cloud-approvals-shared-\(UUID().uuidString)"
+        let starts = Counter()
+        let prep: @MainActor @Sendable () async -> Bool = {
+            await RemoteApprovalPreparations.shared.prepare(machine: machine, daemonSaidSafe: false, held: false, idle: {
+                try? await Task.sleep(for: .milliseconds(300))
+                return true
+            }) {
+                await starts.increment()
+                return true
+            }
+        }
+        async let live: Bool = RemoteApprovalPreparations.owned(prep) {
+            try await Task.sleep(for: .milliseconds(20))
+            return true
+        }
+        await #expect(throws: LoginFailed.self) {
+            try await RemoteApprovalPreparations.owned(prep) {
+                try await Task.sleep(for: .milliseconds(20))
+                throw LoginFailed()
+            }
+        }
+        #expect(try await live)
+        #expect(await starts.read() == 1)
+    }
 }
