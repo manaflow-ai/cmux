@@ -339,7 +339,11 @@ impl Engine {
     /// Run is the account the app is signed in to when it is created ([`Steps::scope`], which the
     /// app answers over its own socket). A create with no account is refused, and a wait or a
     /// cancel finds a Run only while the app is signed in to that same account.
-    pub fn perform(self: &Arc<Self>, call: &str, args: &Map<String, Value>) -> Result<Value, Failure> {
+    pub fn perform(
+        self: &Arc<Self>,
+        call: &str,
+        args: &Map<String, Value>,
+    ) -> Result<Value, Failure> {
         match call {
             "runs.create" | "runs.start" => self.create(args),
             "runs.wait" => {

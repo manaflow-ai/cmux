@@ -95,9 +95,8 @@ fn create(engine: &Arc<Engine>, key: &str) -> Value {
 fn settled(engine: &Arc<Engine>, id: &str, cleanup: &str) -> Value {
     let began = Instant::now();
     loop {
-        let snapshot = engine
-            .perform("runs.wait", &args(json!({ "id": id, "timeoutMs": 200 })))
-            .unwrap();
+        let snapshot =
+            engine.perform("runs.wait", &args(json!({ "id": id, "timeoutMs": 200 }))).unwrap();
         if snapshot["receipt"]["cleanup"] == cleanup || began.elapsed() > Duration::from_secs(5) {
             return snapshot;
         }
@@ -162,8 +161,7 @@ fn a_cancel_stops_the_task_and_deletes_the_machine() {
     while fake.ran.lock().unwrap().is_empty() && began.elapsed() < Duration::from_secs(5) {
         std::thread::sleep(Duration::from_millis(2));
     }
-    let cancelled =
-        engine.perform("runs.cancel", &args(json!({ "id": id }))).unwrap();
+    let cancelled = engine.perform("runs.cancel", &args(json!({ "id": id }))).unwrap();
     assert_eq!(cancelled["run"]["status"], "cancelled");
     assert_eq!(cancelled["receipt"]["status"], "cancelled");
     assert!(cancelled["run"]["cancelRequestedAt"].is_string());
@@ -290,8 +288,7 @@ fn a_create_that_is_not_one_is_refused_and_runs_nothing() {
             "{failure:?}"
         );
     }
-    let missing =
-        engine.perform("runs.wait", &args(json!({ "id": "run_nope" }))).unwrap_err();
+    let missing = engine.perform("runs.wait", &args(json!({ "id": "run_nope" }))).unwrap_err();
     assert!(matches!(missing, Failure::Http { status: 404, .. }));
     assert!(fake.ran.lock().unwrap().is_empty());
 }
@@ -302,9 +299,8 @@ fn a_wait_holds_at_most_its_bound_and_answers_no_receipt_while_running() {
     let engine = Engine::open(None, fake, quick());
     let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
     let began = Instant::now();
-    let snapshot = engine
-        .perform("runs.wait", &args(json!({ "id": id, "timeoutMs": 50 })))
-        .unwrap();
+    let snapshot =
+        engine.perform("runs.wait", &args(json!({ "id": id, "timeoutMs": 50 }))).unwrap();
     assert!(began.elapsed() < Duration::from_secs(2));
     assert_eq!(snapshot["receipt"], Value::Null);
     assert!(matches!(snapshot["run"]["status"].as_str(), Some("queued" | "running")));
@@ -384,6 +380,11 @@ fn a_run_whose_account_changed_before_its_launch_never_runs() {
     *fake.accounts.lock().unwrap() = vec![Some("team:team_1".into()), Some("team:team_2".into())];
     let engine = Engine::open(None, fake.clone(), quick());
     let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
+    // The launch takes the queued team_2 read; only then does a wait read the app (team_1).
+    let began = Instant::now();
+    while !fake.accounts.lock().unwrap().is_empty() && began.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(2));
+    }
     let snapshot = settled(&engine, &id, "destroyed");
     assert_eq!(snapshot["receipt"]["status"], "failed");
     assert!(snapshot["receipt"]["error"].as_str().unwrap().starts_with("run.account_changed"));
