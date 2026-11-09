@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42558237450",
+  "recorded_at": "2026-11-09T03:55:17Z",
+  "reason": "cmux-tui 4d3f0bef1be5 changes the image's cmux-tui (pinned d3619f16901d)",
+  "dry_run": false,
+  "cmux_tui": "4d3f0bef1be5e81cb3bf86289cd51f3814379c3e",
+  "fixes": [
+    {
+      "sha": "61dc3378e149e97f60ed577aab36ff27b1a895af",
+      "mergedAt": "2026-11-09T03:32:36Z",
+      "subject": "cmux mcp: cmux_exec takes its script as code too (#39128)"
+    },
+    {
+      "sha": "0e2ab8c6433588864d33f76a7d4514e3737bb3f8",
+      "mergedAt": "2026-11-09T03:32:20Z",
+      "subject": "Agent chats: New since you looked (#38492)"
+    },
+    {
+      "sha": "4c3cbbe5feb93ca1f47c12db30713e4265c55c63",
+      "mergedAt": "2026-11-08T19:30:13-08:00",
+      "subject": "acpmux tests: use a neutral host name in the outbox attribution fixture (#38913)"
+    },
+    {
+      "sha": "de30bb0347fd9b57eb76d13800ee3cf1bb363954",
+      "mergedAt": "2026-11-08T19:26:49-08:00",
+      "subject": "cmux-wg: a late version-1 hello after the peer upgraded cannot split two version-2 sides (#39144)"
+    },
+    {
+      "sha": "e922dccc07e45eca6ae6a8d9c7be3a01325ea75d",
+      "mergedAt": "2026-11-09T03:26:25Z",
+      "subject": "chore(next): base autofix at 71c0ca1f7b18"
+    },
+    {
+      "sha": "71c0ca1f7b1832f716fe4f508f359af8602273cd",
+      "mergedAt": "2026-11-08T19:23:19-08:00",
+      "subject": "cmux carrier tunnel: the Mac's tunnel into the team's provider Cloud mesh (S6 G3) (#39011)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T03:55:17Z",
+    "snapshot_id": "sh-52ecc3db0a704d8583dad7ad59b8041a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42558237450): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "60e554161379d1445793eb76958061f4232bbdea",
+    "image": "cloud-native-auto-4d3f0bef-42558237450-1",
+    "revision": "ci-42558237450-1",
+    "at": "2026-11-09T03:55:17Z"
+  },
+  "rolled_back": false
+}
