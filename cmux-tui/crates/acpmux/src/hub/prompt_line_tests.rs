@@ -232,3 +232,37 @@ async fn context_inventory_requeues_an_unstarted_request_once_from_its_log() {
     assert_eq!(queued[0].msg["restored"], "unstarted");
     assert_eq!(queued[0].msg["prompt"], json!([{"type":"text", "text":"original request"}]));
 }
+
+/// A native fork keeps the rules its parent's turn recorded while the fork was being made: the
+/// fork reads them at its cut, not from the meta it read first (review of #39768), so its first
+/// prompt does not get them again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn context_inventory_a_fork_keeps_rules_its_parent_recorded_while_it_was_made() {
+    let hub = hub();
+    let parent = hub
+        .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..Default::default() })
+        .await
+        .unwrap();
+    hub.prompt(&parent, vec![json!({"type":"text", "text":"first"})], "test", false).await.unwrap();
+    assert!(!parent.meta().cmux_rules_in_transcript);
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel();
+    *hub.fork_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let fork = {
+        let (hub, parent) = (hub.clone(), parent.clone());
+        tokio::spawn(async move {
+            hub.fork(&parent, None, None, Default::default(), None, None, true).await
+        })
+    };
+    let wait = std::time::Duration::from_secs(10);
+    tokio::time::timeout(wait, arrived).await.expect("the fork reaches its pause").unwrap();
+    // The parent's last turn carried the rules, and its write is confirmed now.
+    let turn_seq = parent.seq.load(Ordering::SeqCst);
+    crate::context_inventory::record_rules_in_transcript(
+        &mut parent.meta.lock().unwrap(),
+        turn_seq,
+    );
+    release.send(()).unwrap();
+    let fork = tokio::time::timeout(wait, fork).await.unwrap().unwrap().unwrap();
+    assert!(fork.meta().cmux_rules_in_transcript, "the fork lost its parent's recorded rules");
+}
