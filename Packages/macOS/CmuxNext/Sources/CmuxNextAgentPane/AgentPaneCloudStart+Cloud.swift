@@ -71,16 +71,22 @@ extension AgentPaneCloudStart {
     /// /repo/project never uploads /repo, its siblings and its history).
     /// The tab's own folder also never when it is the home folder or above it, by its canonical
     /// path too (a tab in /Users would copy every home folder's credentials).
+    ///
+    /// The rule is Rust's (cmux-cloud-start-core `start::uploads`); this reads the disk for it: the
+    /// canonical and standardized spellings, and the working copy's git folders only when asked.
     public nonisolated func uploads(_ folder: CloudMoveFolder, home: String? = NSHomeDirectory()) -> Bool {
-        guard cwd != nil else {
-            guard folder.subpath.isEmpty else { return false }
+        func standard(_ path: String) -> String { (path as NSString).standardizingPath }
+        var paths: [String] = [], homes: [String] = []
+        if cwd == nil, folder.subpath.isEmpty {
             let canonicalHome = home.flatMap(AgentHome.canonical) ?? home
-            for path in [folder.root, AgentHome.canonical(folder.root)].compactMap({ $0 })
-            where AgentHome.isHomeOrAbove(path, home: canonicalHome) || AgentHome.isHomeOrAbove(path, home: home) {
-                return false
-            }
-            return Self.gitFoldersAreInside(folder.root) // its git folders are copied too
+            paths = [folder.root, AgentHome.canonical(folder.root)].compactMap { $0 }.map(standard)
+            homes = [canonicalHome, home].compactMap { $0 }.map(standard)
         }
-        return uploadRoot == folder.root
+        switch CloudStartCore().uploads(cwdGiven: cwd != nil, uploadRoot: uploadRoot, root: folder.root, subpath: folder.subpath,
+                                        paths: paths, homes: homes) {
+        case .yes: return true
+        case .no: return false
+        case .ifGitFoldersInside: return Self.gitFoldersAreInside(folder.root) // its git folders are copied too
+        }
     }
 }

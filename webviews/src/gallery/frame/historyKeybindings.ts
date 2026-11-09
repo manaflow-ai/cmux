@@ -35,6 +35,7 @@ function historyMatches(entry: HistoryEntry, params: { kinds?: string[]; text?: 
 
 export function historyFixtureOps(state: HistoryPageVariant, changed: () => void = () => {}): Record<string, HostOp> {
   let entries = [...(state.entries ?? [])];
+  let backups = [...(state.cookieBackups ?? [])];
   const failure = historyError(state);
   return {
     [HistoryOps.list]: (params: { kinds?: string[]; text?: string; limit?: number }) => {
@@ -69,6 +70,13 @@ export function historyFixtureOps(state: HistoryPageVariant, changed: () => void
       if (before !== entries.length) changed();
       return { removed: before - entries.length };
     },
+    [HistoryOps.cookieBackupsList]: () => ({ backups }),
+    [HistoryOps.cookieBackupsDelete]: (params: { ids: string[] }) => {
+      // The gallery answers the app's confirmation with Delete.
+      const before = backups.length;
+      backups = backups.filter((backup) => !params.ids.includes(backup.id));
+      return { confirmed: true, deleted: before - backups.length };
+    },
     ["cmux.app.action.run"]: () => ({}),
     ["cmux.app.clipboard.write"]: () => ({}),
   };
@@ -92,6 +100,10 @@ export async function mountHistoryPage(state: HistoryPageVariant, _context: Stag
         input.value = query.text;
         input.dispatchEvent(new Event("input", { bubbles: true }));
       }
+      if (query.cookieBackups)
+        [...document.querySelectorAll<HTMLButtonElement>(".history-menu-button")]
+          .find((button) => button.textContent?.startsWith("Cookie Backups"))
+          ?.click();
       if (query.filter) {
         const index = (HISTORY_FILTERS as readonly HistoryFilter[]).indexOf(query.filter);
         document.querySelectorAll<HTMLButtonElement>(".history-chip")[index]?.click();

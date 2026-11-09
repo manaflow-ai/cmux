@@ -28,6 +28,14 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         return true
     }
 
+    /// A terminal shown again, and one still blank 500 ms later: crash-telemetry breadcrumbs (numbers only).
+    func terminalSession(_ session: TerminalSession, revealed report: TerminalRevealReport) {
+        services?.crashReporting.reporter.addBreadcrumb(category: "terminal.reveal", message: "revealed", warning: report.isSuspect, data: report.fields)
+    }
+    func terminalSession(_ session: TerminalSession, blankAfterReveal report: TerminalRevealReport) {
+        services?.crashReporting.reporter.addBreadcrumb(category: "terminal.reveal", message: "blank after reveal", warning: true, data: report.fields)
+    }
+
     /// The declared terminal context menu (`ContextMenuCatalog`), targeted at the right-clicked
     /// terminal's tab, led by the rows of the link or path Ghostty underlines (``linkMenu``).
     func terminalSession(_ session: TerminalSession, contextMenuFor event: NSEvent) -> NSMenu? {
@@ -194,15 +202,17 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         let router = LinkRouter.shared
         router.routing = { [weak services] in services?.settings?.snapshot.linkRouting ?? .fallback }
         router.textEditor = { [weak services] in services?.settings?.snapshot.textEditor.application ?? "" }
-        router.appLink = { [weak services] url in services.map { CmuxAppLinks.open(url, services: $0) } ?? false }
+        router.appLink = { [weak services] url, click in services.map { CmuxAppLinks.open(url, services: $0, click: click) } ?? false }
         // A click in a chat or page view opens beside the pane showing it (not the focused pane).
         router.sourceTab = { [weak services] view in services?.linkOpener.source(containing: view)?.currentTabKey }
         router.openInCmux = { [weak services] url, background, source in
             guard let services else { return }
-            // Beside the source pane (`layout.linkPlacement`, LinkOpener), never in its place.
-            guard let pane = services.linkOpener.source(tab: source) else { services.externalOpen.perform(.browserTab(url)); return }
+            // Beside the source pane (`layout.linkPlacement`, LinkOpener), never in its place; behind in a caller's workspace no window shows.
+            guard let pane = services.linkOpener.source(tab: source) else {
+                if case .hidden(let tab) = services.linkOpener.route(tab: source), services.registry.perform("openBrowser", invocation: .opening(url, behind: tab)) { return }
+                services.externalOpen.perform(.browserTab(url)); return }
             // A link clicked in an agent chat (its chips) reuses the page's tab on the right, as its card's Open does.
-            let fromChat = source.map(services.agentTabs.isAgentTab) ?? false
+            let fromChat = source.map { services.agentTabs.isAgentTab($0) } ?? false
             services.linkOpener.openWeb(url, from: pane, background: background, reusesTab: fromChat)
         }
     }

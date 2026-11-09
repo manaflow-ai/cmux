@@ -6,6 +6,10 @@ use tokio::io::AsyncReadExt;
 
 const LIMIT: usize = 8 * 1024;
 
+/// The remote host answered TCP but not ssh's banner in time: it is slow (loaded, or a route that
+/// wakes it), not gone, and the next attempts give it the long connect deadline (`Peer::ssh_connect_secs`).
+pub(super) const BANNER_TIMEOUT: &str = "SSH connection timed out during the banner exchange";
+
 pub(super) fn reason(bytes: &[u8]) -> Option<&'static str> {
     let text = String::from_utf8_lossy(bytes.get(..LIMIT).unwrap_or(bytes)).to_ascii_lowercase();
     [
@@ -17,6 +21,7 @@ pub(super) fn reason(bytes: &[u8]) -> Option<&'static str> {
         ),
         ("permission denied", "Permission denied (SSH authentication failed)"),
         ("no supported authentication methods", "SSH authentication failed (no supported methods)"),
+        ("timed out during banner exchange", BANNER_TIMEOUT),
         ("connection timed out", "SSH connection timed out"),
         ("operation timed out", "SSH connection timed out"),
         ("connection refused", "SSH connection refused"),

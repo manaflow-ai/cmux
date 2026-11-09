@@ -32,6 +32,8 @@ extension SidebarModel {
         // As the list draws its rows, without the selection: the active workspace keeps its place in a fold when the
         // list draws it, but it is no stop of its own, so no number moves when it is selected.
         var options = rowOptions() // hidesWorkspaces stays off: Cmd-1…9 reach workspaces with the Projects list hidden
+        // Every project is a stop, past the first five too: the order ignores the projects list's Show more.
+        options.openShowMore.insert(.projects)
         // The session tree moves a started workspace under its parent: the numbers follow the drawn order.
         options.sessionTree = SidebarSessionTree.shared.drawn?.shape
         // The sidebar document draws its sections in the list: a block's items are stops where the block draws.
@@ -103,7 +105,6 @@ nonisolated struct SidebarItemOrderInputs: Equatable, Sendable {
     var transientTopItems: [SidebarTransientItem]
     var grouping: SidebarGrouping
     var collapsedLayoutSections: Set<LayoutSectionID>
-    var foldsDone: Bool
     var rowLimit: Int
     var openDoneFolds: Set<SidebarDoneFoldID>
     var openShowMore: Set<SidebarDoneFoldID>
@@ -119,7 +120,7 @@ nonisolated struct SidebarItemOrderInputs: Equatable, Sendable {
         transientTopItems = model.transientTopItems
         grouping = model.grouping
         collapsedLayoutSections = model.collapsedLayoutSections
-        (foldsDone, rowLimit) = (SidebarTunables.doneFold.value, SidebarTunables.rowLimit)
+        rowLimit = SidebarTunables.rowLimit
         (openDoneFolds, openShowMore) = (model.openDoneFolds, model.openShowMore)
         treeShape = SidebarSessionTree.shared.drawn?.shape
     }

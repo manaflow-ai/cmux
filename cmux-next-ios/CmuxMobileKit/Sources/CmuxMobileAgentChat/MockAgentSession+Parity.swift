@@ -6,6 +6,64 @@ import Foundation
 /// The mock session's history turn with subagents and artifacts, and its
 /// offline checkpoints and handoff (the acpmux shapes, local data).
 extension MockAgentSession {
+    /// Two turns other agents' messages started, as acpmux records them: a lane VM's report the
+    /// lane-gh broker relayed (its label left out of the card), then three that waited for the busy
+    /// chat and went in as one digest (a stack). Read by the same parser the live chat uses.
+    func replayAgentMessageTurns(at start: Date) {
+        let label = { (id: String, from: String, body: String) in
+            "[message \(id) from \(from) (an agent, not Leo), relayed by the lane-gh broker; its text ends at \"[end of message \(id)]\"]\n\(body)\n[end of message \(id)]"
+        }
+        let report = label("4f4d68ff", "build-box/lane-3",
+                           "**#36125 is green** at `64d6b1b`; the exact-head review is a SHIP.\n\n- the send relay lists other machines' sessions\n- the audit names sender and target, never the text")
+        let digest = """
+        3 messages from other agents arrived while you were busy. Each follows as it was sent, oldest first.
+
+        [agent message 1 of 3] from build-box/lane-3
+
+        \(label("a1b2c3d4", "build-box/lane-3", "Rebased on `feat-cmux-next`; CI is running."))
+
+        [agent message 2 of 3] from coordinator
+
+        Take the iOS half next; the parser is shared.
+
+        [agent message 3 of 3] from studio-mac/codex-1
+
+        \(label("9e8f7a6b", "studio-mac/codex-1", "**Review:** SHIP at `64d6b1b`."))
+        """
+        let named: JSONValue = .object(["kind": .string("agent_message"), "from": .string("fromAgent"),
+                                        "fromName": .string("build-box/lane-3")])
+        // As hub/digest.rs `digest_provenance` writes it: each part's own provenance names its
+        // sending chat. Two of these sessions' ids hash to one tone, so the chat moves the second to
+        // the next (AgentTones), as the Mac does.
+        let part = { (from: String, session: String?) -> JSONValue in
+            var part: [String: JSONValue] = ["from": .string(from)]
+            if let session {
+                part["provenance"] = .object(["kind": .string("agent_message"), "from": .string("acp:\(session)"),
+                                              "fromName": .string(from)])
+            }
+            return .object(part)
+        }
+        let digested: JSONValue = .object(["kind": .string("agent_digest"), "messages": .array([
+            part("build-box/lane-3", "0193a6f2-7c41-7e0b-9d2a-5f1e8c3b4a02"),
+            part("coordinator", "0193a6f2-7c41-7e0b-9d2a-5f1e8c3b4a09"),
+            part("studio-mac/codex-1", nil),
+        ])])
+        for (index, (text, provenance, answer)) in [
+            (report, named, "Noted: #36125 lands once its base-only reds are confirmed."),
+            (digest, digested, "Taking the iOS half; the review's SHIP is at the head."),
+        ].enumerated() {
+            let turnID = "history-agent-\(index)"
+            let at = start.addingTimeInterval(Double(index) * 120)
+            emit(.userMessage(text: text, promptId: "p-\(turnID)", turnId: turnID, attachments: [], at: at))
+            if let incoming = AgentIncoming.parse(text: text, provenance: provenance) {
+                emit(.promptFrom(turnId: turnID, incoming: incoming))
+            }
+            emit(.turnStarted(turnId: turnID, at: at))
+            emit(.update(.agentMessageChunk(text: answer, messageId: "\(turnID)-m")))
+            emit(.turnResult(turnId: turnID, status: .completed, errorText: nil, at: at.addingTimeInterval(8)))
+        }
+    }
+
     /// A finished turn that fanned out to three subagents and left a report,
     /// a screenshot, a recording, a PDF and links behind.
     func replaySubagentTurn(at start: Date) {
@@ -67,6 +125,53 @@ extension MockAgentSession {
         ))))
         emit(.update(.agentMessageChunk(text: S.subagentAnswer, messageId: "h2-m1")))
         emit(.turnResult(turnId: turnID, status: .completed, errorText: nil, at: start.addingTimeInterval(41)))
+    }
+
+    /// Claude's acpmux `who_else` MCP call (`mcp__acpmux__who_else`) before it reads a file: three
+    /// other sessions, a peer's named with its machine, one matched by topic, and one machine that did
+    /// not answer (the Mac's `WhoElseCard.gallery.ts` claude state). Draws as the who-else card.
+    func replayWhoElseCall() {
+        let minute = 60_000.0
+        func file(_ path: String, _ edited: Bool) -> JSONValue {
+            .object(["path": .string("cmux-next-ios/rust/cmux-mobile-link/src/\(path)"), "edited": .bool(edited)])
+        }
+        func session(_ id: String, name: String, host: String? = nil, harness: String, live: Bool, branch: String, pulls: [String],
+                     ago: Double, files: [JSONValue], inCommon: Int, topic: [String] = []) -> JSONValue {
+            var object: [String: JSONValue] = [
+                "sessionId": .string(id), "name": .string(name), "ref": .string(host.map { "\($0)/\(name)" } ?? name),
+                "harness": .string(harness), "status": .string(live ? "running" : "idle"), "live": .bool(live),
+                "branch": .string(branch), "pullRequests": .array(pulls.map { .string("https://github.com/manaflow-ai/cmux/pull/\($0)") }),
+                "agoMs": .number(ago), "filesInCommon": .number(Double(inCommon)),
+                "editedInCommon": .number(Double(files.count(where: { $0["edited"] == .bool(true) }))),
+                "files": .array(files), "sameWorktree": .bool(false), "sameBranch": .bool(false),
+                "topicWords": .array(topic.map(JSONValue.string)),
+            ]
+            if let host { object["host"] = .string(host) }
+            return .object(object)
+        }
+        let answer: JSONValue = .object([
+            "schema": .string(WhoElseCall.schema),
+            "query": .object(["files": .array([.string("cmux-next-ios/rust/cmux-mobile-link/src/frame.rs")]), "fileCount": .number(1),
+                              "topic": .string("link framing")]),
+            "sessions": .array([
+                session("who-dialer", name: "transport-switch", harness: "codex", live: true, branch: "lane/transport-switch",
+                        pulls: ["36001"], ago: 4 * minute, files: [file("frame.rs", true), file("dial.rs", true), file("wg.rs", false)],
+                        inCommon: 4),
+                session("who-relay", name: "relay-probe", host: "my-vm", harness: "opencode", live: true, branch: "lane/relay-probe",
+                        pulls: [], ago: 3 * 60 * minute, files: [file("frame.rs", false)], inCommon: 1),
+                session("who-framing", name: "framing-docs", harness: "claude", live: false, branch: "lane/framing-docs",
+                        pulls: ["35880"], ago: 26 * 60 * minute, files: [], inCommon: 0, topic: ["link", "framing"]),
+            ]),
+            "more": .number(0),
+            "unreached": .array([.object(["host": .string("cosmic-gray"), "error": .string("no answer in 5 s")])]),
+            "lines": .array([]),
+        ])
+        emit(.update(.toolCall(ACPToolCall(
+            id: "h-who", title: "mcp__acpmux__who_else", kind: .other, status: .completed,
+            content: [.content(.text("transport-switch (codex) edited frame.rs 4m ago"))],
+            rawInput: .object(["files": .array([.string("cmux-next-ios/rust/cmux-mobile-link/src/frame.rs")]), "topic": .string("link framing")]),
+            rawOutput: .object(["content": .array([.object(["type": .string("text"), "text": .string("…")])]), "structuredContent": answer])
+        ))))
     }
 
     private func emitSub(_ id: String, _ update: ACPSessionUpdate) {

@@ -24,8 +24,6 @@ public final class AgentPaneDroppedPaths {
 
     /// How long after the drop or paste the page may ask: it asks as soon as it has read the files.
     public nonisolated static let lifetime: TimeInterval = 5
-    /// The most files one ask names.
-    public nonisolated static let maximumNames = 100
 
     struct Item {
         var url: URL
@@ -58,6 +56,12 @@ public final class AgentPaneDroppedPaths {
     /// Exact copies of the person's recording drops, never their parent folders. These remain
     /// usable by this pane's existing file open/drag actions after the preview path disappears.
     private(set) var retainedPaths: [String] = []
+    /// The files and folders this pane handed the page from the person's own drop, paste or
+    /// pick, newest last, bounded to ``linkedLimit``: a new chat's first send to Cloud may carry these
+    /// to the machine (``AgentPaneModel/cloudCarriedFiles(_:)``). Page script can't add one.
+    private(set) var linkedFiles: [String] = []
+    /// Far past any one drop (a batch of a thousand files keeps every one); paths only, no handles.
+    nonisolated static let linkedLimit = 4096
     /// Invalidates async drop work when the pane switches to a different chat.
     private(set) var generation = UUID()
 
@@ -73,7 +77,7 @@ public final class AgentPaneDroppedPaths {
     public func stash(_ urls: [URL], kind: Kind) {
         held.removeValue(forKey: kind)?.expiry.cancel()
         let paths = urls.map { url in (url as NSURL).isFileReferenceURL() ? (url as NSURL).filePathURL ?? url : url }
-        guard !paths.isEmpty, paths.count <= Self.maximumNames else { return }
+        guard !paths.isEmpty else { return }
         // A preview's file of any size is pinned: its copy is a clone, never read into memory.
         let items = paths.map { url -> Item in
             let needsSnapshot = AgentPaneRecordingSnapshot.needsSnapshot(url)
@@ -159,6 +163,14 @@ public final class AgentPaneDroppedPaths {
         if retainedPaths.count > 100 { retainedPaths.removeFirst(retainedPaths.count - 100) }
     }
 
+    /// Records files handed to the page as link items, keeping the newest ``linkedLimit``.
+    func linked(_ paths: [String]) {
+        let fresh = Set(paths)
+        linkedFiles.removeAll { fresh.contains($0) }
+        linkedFiles.append(contentsOf: paths)
+        if linkedFiles.count > Self.linkedLimit { linkedFiles.removeFirst(linkedFiles.count - Self.linkedLimit) }
+    }
+
     /// A pane can move between chat sessions. Clear pending drops as well as already-retained
     /// copies so the next chat cannot consume or open the prior chat's recording.
     func clearForSessionChange() {
@@ -167,6 +179,7 @@ public final class AgentPaneDroppedPaths {
         held.removeAll()
         sourced.removeAll()
         retainedPaths.removeAll()
+        linkedFiles.removeAll()
     }
 
     /// Whether WebKit names the file at `url` `name`. String equality is canonical: a name WebKit

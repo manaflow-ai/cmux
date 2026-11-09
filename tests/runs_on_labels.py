@@ -43,8 +43,13 @@ GITHUB_HOSTED = re.compile(r"(?:ubuntu|macos|windows)(?:-.*)?")
 # What scripts/ci/cloud_overflow_switch.py points LINUX_RUNNER at while Blacksmith is down (HOSTED_LINUX).
 OVERFLOW_HOSTED_LINUX = "ubuntu-24.04"
 
+# The GCP fleet's Linux label. tree-preflight's linux-placement step (scripts/ci/portable_job_placement.py
+# with REQUIRE_LIVE_CAPACITY) emits it only when the runner census shows an idle Linux member, else ''.
+GCP_FLEET_LINUX = "cmux-fleet-linux-x64"
+FLEET_LINUX_OUTPUTS = ("needs.tree-preflight.outputs.linux_runner",)
+
 TOKEN = re.compile(
-    r"\s*(?:(?P<str>'(?:[^']|'')*')|(?P<op>&&|\|\||==|!=|<=|>=|[!(),<>])"
+    r"\s*(?:(?P<str>'(?:[^']|'')*')|(?P<op>&&|\|\||==|!=|<=|>=|[!(),<>])|(?P<prop>\.[A-Za-z_][A-Za-z0-9_]*)"
     r"|(?P<num>-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?)|(?P<ident>[A-Za-z_][A-Za-z0-9_.*-]*))"
 )
 
@@ -168,7 +173,10 @@ class _Parser:
                     if self.peek() == ("op", ","):
                         self.take()
                 self.take(")")
-                return ("call", value.lower(), args)
+                node = ("call", value.lower(), args)
+                while self.peek() and self.peek()[0] == "prop":
+                    node = ("prop", node, self.take()[1][1:])
+                return node
             return ("ctx", value)
         raise ValueError(f"unexpected {value!r}")
 
@@ -261,6 +269,11 @@ class _Evaluator:
             return out
         if kind == "call":
             return _call(node[1], [self(arg) for arg in node[2]])
+        if kind == "prop":
+            target = node[1]
+            if target[:2] == ("call", "fromjson") and target[2] == [("ctx", "vars.RUNNER_POOLS")]:
+                return set(pool_members(node[2]))
+            return {EMPTY, NULL, False, 0.0, Unknown(f"{target[1]}(...).{node[2]}")}
         raise ValueError(f"unknown node {node!r}")
 
 
@@ -296,6 +309,49 @@ def resolve_labels(runs_on, owner: str = OWNER, variables: Mapping[str, Iterable
     return out
 
 
+# A pool read wrapped for forks: `(<fork pull request> && '<label>' || fromJSON(vars.RUNNER_POOLS).<pool>)`. A fork's
+# pull_request run gets no repository variables, so it keeps the label; every other run reads the pool.
+FORK_WRAPPED_POOL_READ = re.compile(
+    r"\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name"
+    r" != github\.repository && 'blacksmith-[a-z0-9-]+' \|\| (fromJSON\(vars\.RUNNER_POOLS\)\.[a-z0-9_]+)\)")
+
+
+def unwrap_fork_pool_reads(value: str) -> str:
+    """`value` with each fork-wrapped pool read replaced by the read: what every run but a fork's takes."""
+    return FORK_WRAPPED_POOL_READ.sub(r"\1", value)
+
+
+# A job that holds signing or release material (scripts/ci/runner_routing_table.py's `sensitive`). It keeps its
+# route under runner trust policy: a RUNNER_POOLS read would let whoever writes that variable choose the machine
+# that holds the keys.
+SIGNING_JOB = re.compile(
+    r"secrets\.(?:APPLE|SIGN|CMUX_RELEASE|NOTARY)|codesign|notarytool|signing-keychain|gh release upload"
+    r"|softprops/action-gh-release", re.IGNORECASE)
+
+
+def holds_signing_material(job) -> bool:
+    import yaml
+    return SIGNING_JOB.search(yaml.safe_dump(job)) is not None
+
+
+def declared_pools(root: Path = ROOT) -> dict[str, list[str]]:
+    """pool -> its members, from .github/runners.json `pools` (main's copy is the one runner_pools.py reads)."""
+    runners = json.loads((root / ".github/runners.json").read_text(encoding="utf-8"))
+    return {name: list(spec["members"]) for name, spec in runners.get("pools", {}).items() if not name.startswith("$")}
+
+
+def pool_members(name: str, root: Path = ROOT) -> list[str]:
+    """What `fromJSON(vars.RUNNER_POOLS).<name>` can hold: one of the pool's members, never ''.
+
+    runner_pools.py keeps every declared pool set to one of its members, and an unset RUNNER_POOLS fails the
+    run at fromJSON() (a red run, not an empty runs-on). An undeclared pool name is an error, not an unknown:
+    the job would read '' and queue forever."""
+    pools = declared_pools(root)
+    if name not in pools:
+        raise ValueError(f"fromJSON(vars.RUNNER_POOLS).{name} names no pool in .github/runners.json `pools`")
+    return pools[name]
+
+
 def declared_fleet_linux_labels(root: Path = ROOT) -> set[str]:
     """The Linux labels the manaflow-ai fleet declares in .github/runners.json."""
     runners = json.loads((root / ".github/runners.json").read_text(encoding="utf-8"))
@@ -320,10 +376,15 @@ def disallowed_labels(runs_on, variables: Mapping[str, Iterable[str]] | None = N
                       root: Path = ROOT) -> dict[str, str]:
     """label -> why it may not run this job; empty when every label is Blacksmith or declared fleet Linux.
 
+    A FLEET_LINUX_OUTPUTS step output reads as the GCP fleet Linux label it can only hold.
+
     GitHub-hosted labels and the personal workstation are refused first, even if a fleet declares them.
     """
-    fleet_linux = declared_fleet_linux_labels(root)
+    fleet_linux = declared_fleet_linux_labels(root) | {GCP_FLEET_LINUX}
     personal = personal_machine_names()
+    if isinstance(runs_on, str):
+        for output in FLEET_LINUX_OUTPUTS:
+            runs_on = runs_on.replace(output, f"'{GCP_FLEET_LINUX}'")
     labels = resolve_labels(runs_on, variables=variables)
     if not labels:
         return {"[]": "no label at all: an empty runs-on never schedules"}

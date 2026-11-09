@@ -37,7 +37,7 @@ nonisolated extension AcpmuxEnvironment {
         return resolve(build: build, bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome,
                        uid: uid, isExecutable: isExecutable, launchEnvironment: launchEnvironment,
                        executableOverride: executableOverride, teamIdentifier: AcpmuxServerPeer.ownTeam,
-                       isTrustedExecutable: AcpmuxServerPeer.executableSignedByAppTeam)
+                       isTrustedExecutable: { AcpmuxServerPeer.executableSignedByAppTeam($0, team: $1) })
     }
 
     /// ``resolve(build:bundledBinDirectory:environment:userHome:uid:isExecutable:launchEnvironment:)`` with
@@ -64,6 +64,7 @@ nonisolated extension AcpmuxEnvironment {
         let ownHome = build?.acpmuxHome(root: root) ?? root
         let home: URL
         let customHome = environment["ACPMUX_HOME"].flatMap { $0.isEmpty ? nil : $0 }
+            .flatMap { AcpmuxEnvironment.inheritsAnotherBuildsHome($0, ownHome: ownHome, root: root) ? nil : $0 }
         if let customHome {
             home = URL(fileURLWithPath: customHome, isDirectory: true)
         } else {

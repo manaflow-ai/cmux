@@ -15,6 +15,7 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
 import { PNG } from "pngjs";
 import { backdropBlurRadius, drawsBackdropOver, holeIn, holeMask } from "../src/ui/glass/seeThroughBlur";
+import { REFRACTIONS } from "../src/ui/glass/rimRefraction";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("see-through-blur.test.ts", async () => {
@@ -55,14 +56,14 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
     test("puts the hole in the covered element's own box, its corner no larger than the hole", () => {
       const surface = new DOMRectReadOnlyLike(300, 60, 200, 100);
       const target = new DOMRectReadOnlyLike(20, 10, 600, 400);
-      expect(holeIn(surface, target, { radius: 80, blur: 24, opacity: 1.4 })).toEqual({
+      expect(holeIn(surface, target, { radius: 80, blur: 24 })).toEqual({
         x: 280,
         y: 50,
         width: 200,
         height: 100,
         radius: 50,
         blur: 24,
-        opacity: 1,
+        refraction: REFRACTIONS.none,
       });
     });
 
@@ -181,6 +182,21 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
     return sum / count;
   }
 
+  /** The luminance spread (standard deviation) along row `y` from `x0` to `x1`, over mid grey: any
+   * stripes left there, wherever they fall, against an even veil's none. */
+  async function rowSpread(page: Page, y: number, x0: number, x1: number): Promise<number> {
+    const png = PNG.sync.read(await page.screenshot({ omitBackground: true }));
+    const values: number[] = [];
+    for (let x = x0; x < x1; x++) {
+      const i = (y * png.width + x) * 4;
+      const alpha = png.data[i + 3]! / 255;
+      const channel = (c: number) => png.data[i + c]! * alpha + 128 * (1 - alpha);
+      values.push(0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2));
+    }
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    return Math.sqrt(values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length);
+  }
+
   const MIDDLE = POPOVER.y + POPOVER.height / 2;
   const INSIDE = [POPOVER.x + 24, POPOVER.x + POPOVER.width - 24] as const;
   const OUTSIDE = [20, POPOVER.x - 24] as const;
@@ -208,6 +224,98 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
       await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeGreaterThan(before * 0.95);
       expect(await page.evaluate(() => document.querySelectorAll("[data-glass-under], svg filter").length)).toBe(0);
+      await page.close();
+    });
+
+    // The rim bends what is under it (rimRefraction.ts; Leo, 2026-11-07: "are we able to get the
+    // edge refraction like in ios?"). Before (none): the band at the popover's left edge is as
+    // frosted as its middle. After (the default, ios): the bars there are pulled in from further
+    // inside and only lightly blurred, so they read as lensed stripes; the middle keeps its frost.
+    test("the rim lenses the bars under it; the middle stays frosted; none is the plain blur", async () => {
+      const RIM = [POPOVER.x + 1, POPOVER.x + 12] as const;
+      const contrasts = async (refract: string) => {
+        const page = await open(browser);
+        await page.evaluate(
+          (value) => document.getElementById("popover")!.style.setProperty("--glass-refract", value),
+          refract,
+        );
+        await attach(page);
+        const result = {
+          rim: await rowSpread(page, MIDDLE, ...RIM),
+          middle: await rowSpread(page, MIDDLE, ...INSIDE),
+        };
+        await page.close();
+        return result;
+      };
+      const none = await contrasts("none");
+      const ios = await contrasts("ios");
+      expect(none.rim).toBeLessThan(1);
+      expect(ios.rim).toBeGreaterThan(8);
+      expect(Math.abs(ios.middle - none.middle)).toBeLessThan(0.5);
+    });
+
+    // No in-between blur (Leo, 2026-10-26: "If we're doing blur, we're doing blur. If we're not
+    // doing blur, we're not doing blur. We shouldn't have in-between states ever. That cause
+    // flicker"). A popover caught mid-fade blurred the bars only part way, mixing them with their
+    // sharp selves by its opacity: they are blurred in full while it shows at all, sharp once it is
+    // gone.
+    // The rail's preview card follows the pointer from row to row by its own inline transform, with
+    // no resize or child change (threadMinimap/PreviewCard.tsx): the blur follows it there.
+    test("a surface moved by its inline transform takes its blur with it", async () => {
+      const page = await open(browser);
+      await attach(page);
+      expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeLessThan(5);
+      const before = await barContrast(page, MIDDLE, ...OUTSIDE);
+      await page.evaluate(() => (document.getElementById("popover")!.style.transform = "translateX(-200px)"));
+      await settle(page);
+      // Its new place, over the left bars, is blurred; its old place is sharp again.
+      expect(await barContrast(page, MIDDLE, 48, 232)).toBeLessThan(5);
+      expect(await barContrast(page, MIDDLE, 268, 436)).toBeGreaterThan(before * 0.9);
+      await page.close();
+    });
+
+    // The rail's preview card and the Summary popover both cover the transcript: each keeps its own
+    // hole, and the card closing leaves the Summary's blur (and its owner word) in place.
+    test("two surfaces over one element each keep their blur; one detaching leaves the other's", async () => {
+      const page = await open(browser);
+      await attach(page, { owner: "summary" });
+      await page.evaluate(() => {
+        const target = window as unknown as {
+          attachSeeThroughBlur(e: HTMLElement, candidates?: (e: HTMLElement) => Iterable<Element>): () => void;
+          detachCard?: () => void;
+        };
+        const card = document.createElement("aside");
+        card.id = "card";
+        card.style.cssText = "position:absolute;left:24px;top:40px;width:160px;height:100px;border-radius:12px";
+        document.querySelector(".stage")!.append(card);
+        target.detachCard = target.attachSeeThroughBlur(card, () => document.querySelectorAll(".chat"));
+      });
+      await settle(page);
+      const owners = () => page.evaluate(() => document.querySelector(".chat")!.getAttribute("data-glass-under"));
+      expect(await owners()).toBe("summary");
+      expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeLessThan(5);
+      expect(await barContrast(page, MIDDLE, 48, 160)).toBeLessThan(5);
+      await page.evaluate(() => {
+        (window as unknown as { detachCard(): void }).detachCard();
+        document.getElementById("card")!.remove();
+      });
+      await settle(page);
+      expect(await owners()).toBe("summary");
+      expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeLessThan(5);
+      expect(await barContrast(page, MIDDLE, 48, 160)).toBeGreaterThan(40);
+      await page.close();
+    });
+
+    test("a popover mid-fade blurs the bars in full, never part way", async () => {
+      const page = await open(browser);
+      const before = await barContrast(page, MIDDLE, ...INSIDE);
+      await page.evaluate(() => (document.getElementById("popover")!.style.opacity = "0.3"));
+      await attach(page);
+      expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeLessThan(before * 0.08);
+      await page.evaluate(() => (document.getElementById("popover")!.style.opacity = "0"));
+      await page.evaluate(() => document.getElementById("popover")!.dispatchEvent(new Event("transitionrun")));
+      await settle(page);
+      expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeGreaterThan(before * 0.95);
       await page.close();
     });
 
@@ -239,7 +347,7 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
     });
     afterAll(async () => browser?.close());
 
-    test("the Summary's blocks lose their filter under summary.css's hide rule, even for a Find bar deep inside, and get it back", async () => {
+    test("the Summary's blocks lose their filter under summary.css's hide rule while Find is open, and get it back", async () => {
       const page = await open(browser);
       await page.evaluate(() => document.querySelector(".stage")!.classList.add("acpmux-stage"));
       await attach(page, { owner: "summary" });
@@ -248,17 +356,48 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
         "summary",
       );
       expect(await filter()).toContain("url(");
-      // Find opens inside the scroller: no change to the stage's own children.
+      // Find opens as the scroller's own child (VirtualTranscript.tsx), the scroller the stage's: no change
+      // to the stage's own children. The rule reads only that path, never the whole stage, so a streamed
+      // chunk does not re-check it (test/agent-pane-stream-composer-still.test.ts).
       await page.evaluate(() => {
+        document.querySelector(".chat")!.classList.add("acpmux-scroll");
         const find = document.createElement("div");
         find.className = "acpmux-find";
-        document.querySelector(".bars")!.append(find);
+        document.querySelector(".chat")!.append(find);
       });
       expect(await filter()).toBe("none");
       // Find closes: the blur is back at once, with no event the follow loop would see.
       await page.evaluate(() => document.querySelector(".acpmux-find")!.remove());
       expect(await filter()).toContain("url(");
       expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeLessThan(5);
+      await page.close();
+    });
+
+    test("in an opaque page a hover card blurs only its own hole, never another surface's kept one", async () => {
+      // The Summary keeps its holes while Find hides it (summary.css's hide rule covers only a
+      // see-through page); a hover card over the same blocks must not switch them back on.
+      const page = await open(browser);
+      await page.evaluate(() => document.documentElement.removeAttribute("data-cmux-see-through"));
+      await attach(page, { owner: "summary" });
+      await page.evaluate(() => {
+        const target = window as unknown as {
+          attachSeeThroughBlur(
+            e: HTMLElement,
+            candidates?: (e: HTMLElement) => Iterable<Element>,
+            options?: { owner?: string },
+          ): () => void;
+        };
+        const card = document.createElement("aside");
+        card.style.cssText = "position:absolute;left:24px;top:40px;width:160px;height:100px;border-radius:12px";
+        document.querySelector(".stage")!.append(card);
+        target.attachSeeThroughBlur(card, () => document.querySelectorAll(".chat"), { owner: "hover-card" });
+      });
+      await settle(page);
+      expect(await page.evaluate(() => document.querySelector(".chat")!.getAttribute("data-glass-under"))).toBe(
+        "summary hover-card",
+      );
+      expect(await barContrast(page, MIDDLE, 48, 160)).toBeLessThan(5);
+      expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeGreaterThan(40);
       await page.close();
     });
 

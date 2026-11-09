@@ -12,8 +12,8 @@ import Foundation
 ///
 /// `browser.page.*` without `tab` runs on this tab, `system.identify` and
 /// `snapshot.get` report it (`browser`), and the cmux CLI and MCP server put
-/// it in place of a `current` browser selector. A call that names no caller,
-/// or one the topology does not show, keeps the focused tab.
+/// it in place of a `current` browser selector. A call without a caller keeps
+/// the focused tab. A supplied caller that the topology no longer shows is refused.
 struct BrowserCallerTarget: Sendable, Equatable {
     var workspace: ControlWorkspaceInfo
     var screen: ControlScreenInfo
@@ -45,13 +45,33 @@ struct BrowserCallerTarget: Sendable, Equatable {
         return nil
     }
 
-    /// `params`' caller's browser: nil when the call names no caller the topology shows, else the
-    /// nearest browser, or `not_found` when none is near it (an agent never falls through to the
-    /// person's focused tab in another window).
+    /// The caller's exact live location, or nil when no caller was provided.
+    /// An explicitly supplied stale or empty caller must never select the person's focused tab.
+    static func callerLocation(params: [String: JSONValue], in topology: ControlTopology) throws -> ControlCallerLocation? {
+        guard let caller = try ControlCaller(params) else {
+            if let provided = params["caller"], !provided.isNull {
+                throw ControlError.invalidParams("caller must name agent_session, terminal_id, or home_chat")
+            }
+            return nil
+        }
+        guard let location = ControlCallerLocation.resolve(caller, in: topology) else {
+            throw missingCaller(caller)
+        }
+        return location
+    }
+
+    /// The browser nearest the exact caller, or nil only when the request names no caller.
     static func resolve(params: [String: JSONValue], in topology: ControlTopology) throws -> Self? {
-        guard let caller = try ControlCaller(params), let location = ControlCallerLocation.resolve(caller, in: topology) else { return nil }
+        guard let location = try callerLocation(params: params, in: topology) else { return nil }
         guard let found = resolve(near: location, in: topology) else { throw notFound(near: location) }
         return found
+    }
+
+    /// A lost caller cannot transfer its authorization or page intent to the focused tab.
+    static func missingCaller(_ caller: ControlCaller) -> ControlError {
+        ControlError(code: "caller_unavailable",
+                     message: "The caller's chat or terminal is no longer available; name an existing browser tab",
+                     data: ["agent_session": .optional(caller.agentSession), "terminal_id": .optional(caller.terminalID)])
     }
 
     static func notFound(near location: ControlCallerLocation) -> ControlError {
@@ -169,7 +189,9 @@ extension ControlRouter {
               request.callerAgentSession != nil || request.callerTerminal != nil || request.callerHomeChat else { return }
         let caller = ControlCaller(agentSession: request.callerAgentSession, terminalID: request.callerTerminal,
                                    homeChat: request.callerHomeChat)
-        guard let location = ControlCallerLocation.resolve(caller, in: topology) else { return }
+        guard let location = ControlCallerLocation.resolve(caller, in: topology) else {
+            throw BrowserCallerTarget.missingCaller(caller)
+        }
         guard let near = BrowserCallerTarget.resolve(near: location, in: topology) else {
             throw BrowserCallerTarget.notFound(near: location)
         }

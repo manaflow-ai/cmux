@@ -39,6 +39,8 @@
 #                          every fleet host)
 #   CMUX_CEF_NO_STORE=1    skip the controller artifact store
 #   CMUX_CEF_NO_R2=1       skip R2 (test the GitHub fallback)
+#   CMUX_CEF_NO_GITHUB=1   skip the GitHub release (check-pinned-assets.sh: prove
+#                          the R2 copy exists, which is what fleet hosts read)
 #   GH_TOKEN/GITHUB_TOKEN  used when `gh` is not logged in (private repo)
 #
 # Cache layout: <root>/<version>/ holds the extracted artifact and a
@@ -233,6 +235,7 @@ fetch_r2() {
 }
 
 fetch_github() {
+  [[ "${CMUX_CEF_NO_GITHUB:-0}" == "1" ]] && return 1
   echo "==> downloading $asset ($version) from GitHub $repo" >&2
   if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
     gh release download "$tag" --repo "$repo" --pattern "$asset" --dir "$tmp" --clobber >&2 &&

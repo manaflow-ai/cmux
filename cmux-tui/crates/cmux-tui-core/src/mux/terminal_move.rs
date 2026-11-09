@@ -136,7 +136,7 @@ impl Mux {
         let Some(runtime) = self.catalog_terminal_by_host(state, terminal_id)? else {
             // Still validate the in-memory projection while both writer locks
             // are held; a missing destination indicates registry/state drift.
-            if state.workspaces.iter().all(|workspace| workspace.key != workspace_key) {
+            if state.workspace_by_key(workspace_key).is_none() {
                 anyhow::bail!("unknown workspace key {workspace_key}");
             }
             return Ok((None, false));
@@ -150,9 +150,7 @@ impl Mux {
         let active_at = self.next_active_at();
         let preserved_focus = current_focus_identity(state);
         let destination = state
-            .workspaces
-            .iter()
-            .position(|workspace| workspace.key == workspace_key)
+            .workspace_index_by_key(workspace_key)
             .ok_or_else(|| anyhow::anyhow!("unknown workspace key {workspace_key}"))?;
         if let Some(current) = run_placement_for_surface(state, surface)
             && current.workspace == state.workspaces[destination].id

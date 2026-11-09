@@ -73,14 +73,12 @@ import Testing
 
     private static func ids(_ names: [String]) -> [SidebarItem] { names.map { .workspace(WorkspaceID($0)) } }
 
-    /// Runs `body` with `sidebar.doneFold` on and `sidebar.groupRowLimit` at `limit`, then restores both.
+    /// Runs `body` with `sidebar.groupRowLimit` at `limit` (Done folds are always on), then restores it.
     private static func withFolds(limit: Double = 0, _ body: () throws -> Void) rethrows {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all) // an unregistered tunable keeps its default
-        TunableStore.shared.set(SidebarTunables.doneFold.key, .bool(true))
         TunableStore.shared.set(SidebarTunables.groupRowLimit.key, .number(limit))
         defer {
-            TunableStore.shared.set(SidebarTunables.doneFold.key, nil)
             TunableStore.shared.set(SidebarTunables.groupRowLimit.key, nil)
         }
         try body()

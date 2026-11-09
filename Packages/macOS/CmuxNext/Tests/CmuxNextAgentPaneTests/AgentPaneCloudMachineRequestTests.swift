@@ -19,6 +19,8 @@ struct AgentPaneCloudMachineRequestTests {
         #expect(Self.request("cloudMachine.resume", ["id": "machine_0123"]) == .cloudMachine(.resume(id: "machine_0123")))
         #expect(Self.request("cloudMachine.attach", ["id": "vm-1"]) == .cloudMachine(.attach(id: "vm-1")))
         #expect(Self.request("cloudMachine.pause", ["id": "vm_0123"]) == .cloudMachine(.pause(id: "vm_0123")))
+        #expect(Self.request("cloudMachine.prewarm", ["id": "vm_0123"]) == .cloudMachine(.prewarm(id: "vm_0123")))
+        #expect(Self.request("cloudMachine.delete", ["id": "vm_0123"]) == .cloudMachine(.delete(id: "vm_0123")))
         for method in AgentPaneCloudMachineRequest.methods { #expect(AgentPageOps.methods[method] == method) }
         #expect(String(describing: Self.request("cloudMachine.open", ["id": "vm-1"])) == "cloudMachine")
     }
@@ -33,6 +35,8 @@ struct AgentPaneCloudMachineRequestTests {
             #expect(Self.request("cloudMachine.resume", params) == .unsupported("cloudMachine.resume"))
             #expect(Self.request("cloudMachine.attach", params) == .unsupported("cloudMachine.attach"))
             #expect(Self.request("cloudMachine.pause", params) == .unsupported("cloudMachine.pause"))
+            #expect(Self.request("cloudMachine.prewarm", params) == .unsupported("cloudMachine.prewarm"))
+            #expect(Self.request("cloudMachine.delete", params) == .unsupported("cloudMachine.delete"))
         }
     }
 
@@ -62,6 +66,10 @@ struct AgentPaneCloudMachineRequestTests {
         _ = await model.respond(to: .cloudMachine(.list))
         #expect(!model.userTouched)
         _ = await model.respond(to: .cloudMachine(.recoveryList))
+        #expect(!model.userTouched)
+        machines.prewarm = { _ in true }
+        model.cloudMachines = machines
+        _ = await model.respond(to: .cloudMachine(.prewarm(id: "vm-1")))
         #expect(!model.userTouched)
     }
 
@@ -96,6 +104,35 @@ struct AgentPaneCloudMachineRequestTests {
         #expect(ran == ["resume vm-1", "open vm-2", "pause vm-3"])
     }
 
+    /// Delete Machine… (Leo, 2026-11-08: "how would I be able to shut it down?") takes the
+    /// person's click like Pause; the App's Kill Machine then asks before it deletes.
+    @Test func deleteTakesOneGesture() async {
+        let machines = AgentPaneCloudMachines()
+        let gestures = AgentPaneUserGestures()
+        var ran: [String] = []
+        machines.delete = { ran.append("delete " + $0); return true }
+        #expect(await AgentPaneCloudMachineRequest.delete(id: "vm-4").reply(machines, gestures: gestures)["ok"] as? Bool != true)
+        #expect(ran.isEmpty)
+        gestures.record(click: true)
+        #expect(await AgentPaneCloudMachineRequest.delete(id: "vm-4").reply(machines, gestures: gestures)["ok"] as? Bool == true)
+        #expect(await AgentPaneCloudMachineRequest.delete(id: "vm-4").reply(machines, gestures: gestures)["ok"] as? Bool != true)
+        #expect(ran == ["delete vm-4"])
+    }
+
+    @Test func theListCarriesTheDeleteDateWhenKnown() async throws {
+        let machines = AgentPaneCloudMachines()
+        machines.list = {
+            .init(signedIn: true, loaded: true, machines: [
+                .init(id: "vm-1", name: "box", stage: "paused", evictAt: Date(timeIntervalSince1970: 1_800_000_000)),
+                .init(id: "vm-2", name: "gpu", stage: "ready"),
+            ])
+        }
+        let value = try #require(await AgentPaneCloudMachineRequest.list.reply(machines, gestures: AgentPaneUserGestures())["value"] as? [String: Any])
+        let rows = try #require(value["machines"] as? [[String: Any]])
+        #expect(rows[0]["evictAt"] as? Double == 1_800_000_000_000)
+        #expect(rows[1]["evictAt"] == nil)
+    }
+
     @Test func aMachineTheAppRefusesIsAVisibleFailure() async {
         let machines = AgentPaneCloudMachines()
         let gestures = AgentPaneUserGestures()
@@ -104,6 +141,18 @@ struct AgentPaneCloudMachineRequestTests {
         let reply = await AgentPaneCloudMachineRequest.resume(id: "vm-running").reply(machines, gestures: gestures)
         #expect(reply["ok"] as? Bool != true)
         #expect((reply["error"] as? [String: Any])?["code"] as? String == "unavailable")
+    }
+
+    @Test func typingPrewarmIsPassiveAndDoesNotConsumeAGesture() async {
+        let machines = AgentPaneCloudMachines()
+        let gestures = AgentPaneUserGestures()
+        var hinted: [String] = []
+        machines.prewarm = { id in hinted.append(id); return true }
+        gestures.record(click: true)
+        let reply = await AgentPaneCloudMachineRequest.prewarm(id: "vm-paused").reply(machines, gestures: gestures)
+        #expect(reply["ok"] as? Bool == true)
+        #expect(hinted == ["vm-paused"])
+        #expect(gestures.isAvailable)
     }
 
     @Test func withoutTheAppTheGestureIsKept() async {
@@ -125,6 +174,17 @@ struct AgentPaneCloudMachineRequestTests {
         #expect(await request.reply(machines, gestures: gestures)["ok"] as? Bool == true)
         #expect(await request.reply(machines, gestures: gestures)["ok"] as? Bool != true)
         #expect(attached == ["vm-1"])
+    }
+
+    /// A send in a chat whose machine is paused wakes it with the Enter that sent the prompt: the
+    /// attach takes that gesture's scope-add credit and leaves its grant for the prompt itself.
+    @Test func aWakeLeavesTheSendsGrant() async {
+        let machines = AgentPaneCloudMachines()
+        let gestures = AgentPaneUserGestures()
+        machines.attach = { _ in true }
+        gestures.record()
+        #expect(await AgentPaneCloudMachineRequest.attach(id: "vm-1").reply(machines, gestures: gestures)["ok"] as? Bool == true)
+        #expect(gestures.consumeForSend())
     }
 
     /// Review of cmux#27031: a refresh that was superseded or failed leaves the earlier registry in

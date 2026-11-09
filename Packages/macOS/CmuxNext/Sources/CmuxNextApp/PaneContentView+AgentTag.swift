@@ -10,7 +10,7 @@ import CmuxNextTabs
 /// WebKit pages; the tab chip's dot covers Chromium tabs.
 extension PaneContentView {
     func observeAgentTag(_ model: TabStripModel) -> Task<Void, Never> {
-        addSubview(agentTag)
+        [agentTag, zoomIndicator].forEach(addSubview) // the corner controls (layoutAgentTag)
         return Task { [weak self] in
             for await presence in ObservationStream({ model.tabs.first { $0.id == model.selectedID }?.presence }) {
                 self?.agentTag.configure(presence)
@@ -19,14 +19,12 @@ extension PaneContentView {
         }
     }
 
+    /// The corner controls at the content's top-right: the zoom indicator under the strip and the
+    /// pane's header (a toolbar's buttons, a chat's header), the agent tag left of it.
     func layoutAgentTag() {
-        guard !agentTag.isHidden, !isBandActive else {
-            agentTag.frame = .zero
-            return
-        }
-        let inset = Metrics.space2
-        let host = contentHost.frame
-        let size = agentTag.fittingSize(maxWidth: max(0, host.width / 2 - inset))
-        agentTag.frame = NSRect(x: host.maxX - inset - size.width, y: (ChromeTunables.tabRowTools.value && barPosition == .top && !isBandActive && !stripView.isHidden && host.minY < stripView.frame.maxY ? stripView.frame.maxY : host.minY) + inset, width: size.width, height: size.height)
+        let host = contentHost.frame, top = barPosition == .top && !isBandActive && stripView.frame.height > 0 && host.minY < stripView.frame.maxY ? stripView.frame.maxY : host.minY
+        let trailing = zoomIndicator.place(in: host, top: max(top, paneHeaderHeight))
+        guard !agentTag.isHidden, !isBandActive else { agentTag.frame = .zero; return }
+        agentTag.place(in: host, top: top, trailing: trailing)
     }
 }

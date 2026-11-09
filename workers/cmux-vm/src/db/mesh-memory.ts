@@ -7,6 +7,7 @@ import { Effect, Layer, Option } from "effect";
 import { TenantId } from "../lib/ids.ts";
 import type { OverlayServerRow } from "./overlay-servers.ts";
 import type { OverlayServerCodeRow } from "./overlay-server-codes.ts";
+import { memoryDeviceIntents } from "./mesh-intents.ts";
 import { MeshStore, type MeshAclVersion, type MeshDeviceRow, type MeshEnrollmentCodeRow, type MeshMemberRow, type MeshRuleRow } from "./mesh.ts";
 
 /** A code row as tests may age it (expiresAt is writable here only). */
@@ -23,10 +24,32 @@ export function makeMemoryMeshStore() {
   const acls: Array<MeshAclVersion & { readonly tenantId: string; readonly meshId: string }> = [];
   const rules: Array<MeshRuleRow & { readonly tenantId: string; deletedAt: Date | null }> = [];
   const signed = new Map<string, Date>();
+  /** Signed enroll message -> the intent it was first accepted for. */
+  const nonceIntents = new Map<string, { readonly tenantId: string; readonly meshId: string; readonly intentId: string }>();
   const codes: Array<MemoryEnrollmentCode> = [];
   const serverCodes: Array<OverlayServerCodeRow> = [];
+  const intents = memoryDeviceIntents((tenantId, device) => void devices.push({ ...device, tenantId, deletedAt: null }));
 
   const layer = Layer.succeed(MeshStore, {
+    findDeviceIntent: intents.findDeviceIntent,
+    listOpenAttempts: intents.listOpenAttempts,
+    findAttempt: intents.findAttempt,
+    claimDeviceIntent: intents.claimDeviceIntent,
+    markAttemptSent: intents.markAttemptSent,
+    recordAttemptAnswer: intents.recordAttemptAnswer,
+    beginReconcile: intents.beginReconcile,
+    renewReconcile: intents.renewReconcile,
+    endReconcile: intents.endReconcile,
+    resolveFencedAttempt: intents.resolveFencedAttempt,
+    releaseCommitOfDevice: intents.releaseCommitOfDevice,
+    finishAttempt: intents.finishAttempt,
+    resolveUnsentAttempt: intents.resolveUnsentAttempt,
+    resolveAttempt: intents.resolveAttempt,
+    commitDeviceIntent: intents.commitDeviceIntent,
+    releaseDeviceIntent: intents.releaseDeviceIntent,
+    uncommitDeviceIntent: intents.uncommitDeviceIntent,
+    revokeDeviceIntent: intents.revokeDeviceIntent,
+    revokeIntentOfDevice: intents.revokeIntentOfDevice,
     insertOverlayServerCode: (row) => Effect.sync(() => { serverCodes.push({ ...row }); }),
     findOverlayServerCode: (hash) => Effect.sync(() => Option.fromNullable(serverCodes.find((row) => row.codeSha256 === hash))),
     recentOverlayServerCodes: (tenant, mesh, since) => Effect.sync(() => serverCodes.filter((row) => row.tenantId === tenant && row.meshId === mesh && row.createdAt > since)),
@@ -141,6 +164,19 @@ export function makeMemoryMeshStore() {
         signed.set(messageSha256, expiresAt);
         return true;
       }),
+    claimSignedRequestForIntent: (tenantId, messageSha256, _purpose, expiresAt, now, intent) =>
+      Effect.sync(() => {
+        for (const [hash, expiry] of signed) if (expiry < now) { signed.delete(hash); nonceIntents.delete(hash); }
+        if (!signed.has(messageSha256)) {
+          signed.set(messageSha256, expiresAt);
+          nonceIntents.set(messageSha256, { tenantId, ...intent });
+          return "fresh" as const;
+        }
+        const bound = nonceIntents.get(messageSha256);
+        return bound !== undefined && bound.tenantId === tenantId && bound.meshId === intent.meshId && bound.intentId === intent.intentId
+          ? ("same_intent" as const)
+          : ("replayed" as const);
+      }),
     insertEnrollmentCode: (code) => Effect.sync(() => void codes.push({ ...code, usedAt: null, deviceId: null })),
     enrollmentCodesSince: (tenantId, meshId, since) =>
       Effect.sync(() => codes.filter((row) => row.tenantId === tenantId && row.meshId === meshId && row.createdAt > since).map((row) => row.createdAt)),
@@ -223,9 +259,15 @@ export function makeMemoryMeshStore() {
           .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)),
       ),
     recordRule: (tenantId, rule) => Effect.sync(() => void rules.push({ ...rule, tenantId, deletedAt: null })),
+    recordRules: (tenantId, batch) => Effect.sync(() => void rules.push(...batch.map((rule) => ({ ...rule, tenantId, deletedAt: null })))),
     markRuleDeleted: (tenantId, meshId, key, at) =>
       Effect.sync(() => {
         for (const row of rules) if (row.tenantId === tenantId && row.meshId === meshId && row.key === key && row.deletedAt === null) row.deletedAt = at;
+      }),
+    markRulesDeleted: (tenantId, meshId, keys, at) =>
+      Effect.sync(() => {
+        const wanted = new Set(keys);
+        for (const row of rules) if (row.tenantId === tenantId && row.meshId === meshId && wanted.has(row.key) && row.deletedAt === null) row.deletedAt = at;
       }),
   });
 
@@ -239,5 +281,9 @@ export function makeMemoryMeshStore() {
     /** The stored enrollment codes (hashes only); tests may move `expiresAt`. */
     enrollmentCodes: (): ReadonlyArray<MemoryEnrollmentCode> => codes,
     overlayServerCodes: (): ReadonlyArray<OverlayServerCodeRow> => serverCodes,
+    /** Enroll intents and tombstones (migration 0018). */
+    deviceIntents: intents.intents,
+    /** Every create attempt made under an intent (migration 0018). */
+    deviceIntentAttempts: intents.attempts,
   };
 }

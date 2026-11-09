@@ -63,14 +63,14 @@ class Contract(unittest.TestCase):
         self.assertEqual(DOC["concurrency"]["group"], "git-mirror-bundle-${{ github.ref }}")
         self.assertFalse(DOC["concurrency"]["cancel-in-progress"])
         self.assertEqual(JOB["needs"], "probe")
-        self.assertTrue(re.search(r"blacksmith-\d+vcpu-ubuntu", JOB["runs-on"]))
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_4", JOB["runs-on"])
 
     def test_cheap_probe_is_separate_from_the_32_vcpu_bundle_writer(self) -> None:
         # Frequent pushes require only a HEAD/read; the full 2.36 GB bundle
         # remains on the larger runner and only starts when the probe says due.
         self.assertEqual(PROBE["permissions"], {})
         self.assertEqual(PROBE["outputs"]["due"], "${{ steps.due.outputs.due }}")
-        self.assertIn("'blacksmith-2vcpu-ubuntu-2404'", PROBE["runs-on"])
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", PROBE["runs-on"])
         self.assertNotIn("vars.LINUX_RUNNER", PROBE["runs-on"])
         self.assertIn("vars.LINUX_RUNNER", JOB["runs-on"])
         self.assertNotIn("Fetch the mirrored branches", PROBE_STEPS)

@@ -70,6 +70,12 @@ comes back as a chat that resumes its session. A toast says when it's done and w
 classic. [classic-to-next.md](classic-to-next.md) lists exactly what comes over, and has an agent
 playbook for choosing workspaces or bringing launch commands too.
 
+## Uninstalling
+
+[uninstall.md](uninstall.md) lists everything a build leaves on your Mac (the app, its session
+daemons, acpmux login job, CLI links, data, preferences and Keychain items) and the commands to
+remove each, including which folders it shares with cmux classic.
+
 ## Settings in your dotfiles
 
 Settings live in `~/.config/cmux/cmux-next.json` and key bindings in
@@ -95,7 +101,8 @@ move only the tab. Classic agent chats resume by session id.
 
 ## Hot reload for the web UI
 
-A Debug or NIGHTLY app picks up web UI edits from your own checkout live, with no build or
-relaunch: `scripts/cmux-next/web-overlay.sh server --local`. A NIGHTLY can also follow each merge's
+Every cmux build picks up web UI edits from your own checkout live, with no build or relaunch:
+`cmux live start` in a checkout, or Cmd-Shift-P > **Edit cmux Live…** (also at the end of Settings >
+General). `cmux live stop` goes back. A NIGHTLY can also follow each merge's
 web UI (Settings > Updates > Web UI Updates > Every Merge). Details and troubleshooting are in
 [hot-reload.md](hot-reload.md).

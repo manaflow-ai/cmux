@@ -47,14 +47,34 @@ nonisolated struct SidebarRowIndex: Sendable {
     }
 
     static func set(_ row: SidebarWorkspace, at path: Path, in sections: inout [SidebarSection]) {
-        switch sections[path.section].nodes[path.node] {
+        // The node is swapped out in place first: a `switch` over `sections[s].nodes[n]` holds a copy of the section
+        // while its cases write, so every write copied the section's whole node list (O(rows) per row patch).
+        var node = SidebarNode.workspace(row)
+        swap(&node, &sections[path.section].nodes[path.node])
+        switch node {
         case .workspace:
-            sections[path.section].nodes[path.node] = .workspace(row)
+            return
         case var .group(group):
+            node = .workspace(row) // the group's members are held by `group` alone: the write below is in place
             group.workspaces[path.member ?? 0] = row
             sections[path.section].nodes[path.node] = .group(group)
         case .item:
-            break
+            sections[path.section].nodes[path.node] = node
+        }
+    }
+
+    /// Writes each of `rows` over its listed rows in `sections` in place, through the paths this index holds for
+    /// them (each copy keeps its row state and machine, as `patching` does): a row change visits that row's paths
+    /// only, the same at 3,000 rows as at 10.
+    func patch(_ rows: [SidebarWorkspace], in sections: inout [SidebarSection]) {
+        for row in rows {
+            for path in paths(of: row.id) {
+                let old = Self.workspace(at: path, in: sections)
+                var copy = row
+                copy.rowState = old.rowState
+                copy.machineID = old.machineID
+                Self.set(copy, at: path, in: &sections)
+            }
         }
     }
 
@@ -104,7 +124,8 @@ extension SidebarListView {
         // A height change lays the list out again (outside the timed patch: `reload` times itself), with no
         // motion unless the user asked for it, and not under the pointer (`showModelChange`, calm-sidebar-movement);
         // provisional rows swap in place, as on any reload (`SidebarView.animatesReload`).
-        if SidebarPerfCounters.timed({ patchRowsNow(patched) }) { showModelChange(animates: !model.sections.contains(where: \.hasProvisionalRows)) }
+        // A changed height leaves the shown layout behind the model until that reload: no insert splices onto it.
+        if SidebarPerfCounters.timed({ patchRowsNow(patched) }) { spliceBase = nil; showModelChange(animates: !model.sections.contains(where: \.hasProvisionalRows)) }
     }
 
     /// Patches each row in place; true when one row's height changed.
@@ -115,7 +136,8 @@ extension SidebarListView {
         let shownGroupCard = hoverCard.shownGroupID
         for ws in patched {
             // The hover cards show no "Now:" step: a working agent's new step (many a second) rebuilds no card.
-            let cardChanged = workspaces[ws.id].map { var old = $0; old.agentStep = ws.agentStep; return old != ws } ?? true
+            let previous = workspaces[ws.id]
+            let cardChanged = previous.map { var old = $0; old.agentStep = ws.agentStep; return old != ws } ?? true
             workspaces[ws.id] = ws
             for path in model.rowIndex?.paths(of: ws.id) ?? [] {
                 let section = model.sections[path.section]
@@ -133,8 +155,9 @@ extension SidebarListView {
             }
             if cardChanged, shownCard == ws.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(ws.id)) }
             guard let row = displayed.row(for: .workspace(ws.id)), let section = sections[row.section] else {
-                // A session a folded parent hides: the parent's roll-up counts it, so the list lays out again.
-                if SidebarSessionTree.shared.drawn?.hidesInFold(ws.id) == true { heightChanged = true }
+                // A session a folded parent hides: the parent's roll-up counts its state, so the list lays out
+                // again when that state moves, not on each step or title it reports.
+                if SidebarSessionTree.shared.drawn?.patchChangesRollUp(from: previous, to: ws) == true { heightChanged = true }
                 continue
             }
             let o = options ?? self.options(includeGap: true)
@@ -171,11 +194,14 @@ nonisolated extension SidebarLayout {
     }
 
     /// Whether `section` keeps its header (and its fold) in the one-list sidebar, where other
-    /// computers' sections draw none: a remote group the person made, and the local Chief's
+    /// computers' sections draw none: a remote group the person made, the local Chief's
     /// workspaces, which read as one collapsible "Chief" group of their own, never as the rows
-    /// after the last group above them (Leo 2026-10-21). The one rule for every header kind.
+    /// after the last group above them (Leo 2026-10-21), and a Cloud machine, whose rows otherwise
+    /// floated under this Mac's last group with no machine over them (Leo 2026-10-29: "why is there
+    /// all this weird stuff at the bottom of the sidebar"). A remote group that draws as one sidebar
+    /// group (``SidebarSection/drawsAsGroup``) has its group bar instead. The one rule for every header kind.
     static func keepsHeaderInOneList(_ section: SidebarSection) -> Bool {
-        section.isHostGroup && !section.drawsAsGroup
+        (section.isHostGroup || section.machine?.kind == .cloud) && !section.drawsAsGroup
     }
 
     /// The computer a workspace row of `section` names in the one-list sidebar
@@ -195,5 +221,22 @@ nonisolated extension SidebarSection {
     /// copy of the rows (`SidebarModel.patchWorkspaces` updates the model's).
     public static func patching(_ rows: [SidebarWorkspace], in sections: [SidebarSection]) -> [SidebarSection] {
         SidebarRowIndex.patching(rows, in: sections)
+    }
+
+    /// Where each row of a copy of the rows sits (one walk per structural change), so a row content update writes
+    /// its rows in place instead of walking and copying every section (`SidebarRows.patch` under 3,000 workspaces).
+    public struct RowPlaces: Sendable {
+        private var index: SidebarRowIndex?
+        /// No places yet: the first patch finds them in the sections it patches.
+        public init() {}
+
+        /// `patching`'s result, written into `sections`, which must be the rows of the first patch since this was made
+        /// (rows patched since included: a patch moves no row). Make a new one when the sections change otherwise.
+        public mutating func patch(_ rows: [SidebarWorkspace], in sections: inout [SidebarSection]) {
+            guard !rows.isEmpty else { return }
+            let index = index ?? SidebarRowIndex(sections)
+            self.index = index
+            index.patch(rows, in: &sections)
+        }
     }
 }

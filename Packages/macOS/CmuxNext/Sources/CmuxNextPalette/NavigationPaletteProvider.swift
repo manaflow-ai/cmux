@@ -39,25 +39,50 @@ public final class NavigationPaletteProvider: PaletteProvider {
     static let paneBias = -4
     static let tabBias = -2
 
-    /// The rows of `entries` (pure; the tests call it). The most recently
-    /// used tabs and panes get a recency boost that shrinks by rank, as in
-    /// Search Tabs, so of two equal matches the recent one goes first.
+    /// The rows of `entries` (pure; the tests call it). Recently used tabs and panes get the
+    /// recency bias (``PaletteRecencyPrior``: decaying with time, plus a place boost among the
+    /// recent), so of two equal or near matches the recent one goes first; the tab or pane the
+    /// person is on gets none.
     @MainActor
-    static func items(_ entries: [PaletteNavigationEntry], source: (any PaletteNavigationSource)?) -> [PaletteItem] {
-        let recency = recencyRanks(entries)
-        return entries.map { entry in
-            let boost = recency[entry.itemID].map { max(0, TabSearchPlan.recencyBoost - TabSearchPlan.recencyStep * $0) } ?? 0
-            return item(entry, recencyBoost: boost, source: source)
+    static func items(_ entries: [PaletteNavigationEntry], source: (any PaletteNavigationSource)?, now: Date = Date()) -> [PaletteItem] {
+        let shown = distinctTitles(entries)
+        let recency = PaletteRecencyPrior().biases(shown.compactMap { entry in
+            entry.isCurrent ? nil : entry.lastUsed.map { (id: entry.itemID, lastUsed: $0) }
+        }, now: now)
+        return shown.map { entry in
+            item(entry, recencyBoost: (recency[entry.itemID] ?? 0) + PaletteSidebarPrior().bias(rank: entry.sidebarRank), source: source)
         }
     }
 
-    /// Rank by last use, newest first, of the entries that were ever used.
-    static func recencyRanks(_ entries: [PaletteNavigationEntry]) -> [String: Int] {
-        let used = entries.compactMap { entry in entry.lastUsed.map { (entry.itemID, $0) } }
-            .sorted { $0.1 > $1.1 }
-        var ranks: [String: Int] = [:]
-        for (rank, pair) in used.enumerated() where ranks[pair.0] == nil { ranks[pair.0] = rank }
-        return ranks
+    /// `entries` without the repeats of a workspace's name: a tab that alone repeats its workspace's
+    /// name is that workspace (its row already reads that name, and a default-named workspace reads
+    /// as its front tab), so it has no row of its own (Lawrence 2026-11-07: Cmd-P listed "cmux-tui"
+    /// as a workspace and again as its terminal). Several tabs that repeat it (untitled agent chats)
+    /// stay, titled by their kind, numbered when the workspace holds several of that kind: "Agent
+    /// Chat 1", "Agent Chat 2" (Leo 2026-11-03: "some of these are way too duplicated").
+    static func distinctTitles(_ entries: [PaletteNavigationEntry]) -> [PaletteNavigationEntry] {
+        func repeats(_ entry: PaletteNavigationEntry) -> (workspace: String, kind: PaletteNavigationEntry.TabKind)? {
+            guard case .tab(let kind) = entry.kind, let workspace = entry.workspaceTitle,
+                  PaletteWorkspace.repeatsName(entry.title, of: workspace) else { return nil }
+            return (entry.workspaceID ?? workspace, kind)
+        }
+        var perWorkspace: [String: Int] = [:], perKind: [String: Int] = [:]
+        for entry in entries {
+            guard let (workspace, kind) = repeats(entry) else { continue }
+            perWorkspace[workspace, default: 0] += 1
+            perKind["\(workspace)\u{1F}\(kind.rawValue)", default: 0] += 1
+        }
+        var seen: [String: Int] = [:]
+        return entries.compactMap { entry in
+            guard let (workspace, kind) = repeats(entry) else { return entry }
+            if perWorkspace[workspace] == 1 { return nil }
+            let key = "\(workspace)\u{1F}\(kind.rawValue)"
+            seen[key, default: 0] += 1
+            var titled = entry
+            titled.title = (perKind[key] ?? 0) > 1 ? PaletteStrings.numberedKind(kindLabel(kind), seen[key] ?? 1) : kindLabel(kind)
+            titled.keywords.append(entry.title)
+            return titled
+        }
     }
 
     @MainActor
@@ -72,13 +97,14 @@ public final class NavigationPaletteProvider: PaletteProvider {
             item = PaletteItem(
                 id: entry.itemID, title: entry.title, subtitle: PaletteStrings.groupWorkspaceCount(count),
                 accessory: PaletteStrings.kindGroup, symbol: "folder", section: groupSection,
-                keywords: [PaletteStrings.groupKeyword] + entry.keywords, primary: open, frecencyKey: entry.itemID)
+                keywords: [PaletteStrings.groupKeyword] + entry.keywords, primary: open, frecencyKey: entry.itemID,
+                rankBias: recencyBoost)
             item.ball = entry.color.map(PaletteBall.init)
         case .pane:
             item = PaletteItem(
                 id: entry.itemID, title: entry.title.isEmpty ? PaletteStrings.kindPane : entry.title,
                 subtitle: parents.isEmpty ? nil : parents.joined(separator: " · "),
-                accessory: entry.isCurrent ? PaletteStrings.current : PaletteStrings.kindPane,
+                accessory: PaletteStrings.kindWithState(PaletteStrings.kindPane, state: entry.isCurrent ? PaletteStrings.current : nil),
                 symbol: "rectangle.split.2x1", section: paneSection,
                 keywords: [PaletteStrings.paneKeyword] + entry.keywords, primary: open, frecencyKey: entry.itemID,
                 rankBias: paneBias + recencyBoost)
@@ -88,7 +114,7 @@ public final class NavigationPaletteProvider: PaletteProvider {
             item = PaletteItem(
                 id: entry.itemID, title: entry.title.isEmpty ? PaletteStrings.tabSearchUntitled : entry.title,
                 subtitle: parts.isEmpty ? nil : parts.joined(separator: " · "),
-                accessory: entry.isCurrent ? PaletteStrings.current : kindLabel(kind),
+                accessory: PaletteStrings.kindWithState(kindLabel(kind), state: entry.isCurrent ? PaletteStrings.current : nil),
                 symbol: symbol(kind), brand: entry.agent, section: TabPaletteProvider.section,
                 keywords: [PaletteStrings.tabKeyword, entry.url, entry.cwd, entry.agent].compactMap { $0 } + sessionWords(entry.sessionID)
                     + entry.keywords,
@@ -99,7 +125,7 @@ public final class NavigationPaletteProvider: PaletteProvider {
     }
 
     /// A session id and, for an `acp:` handle, the bare id: either finds the row.
-    static func sessionWords(_ id: String?) -> [String] {
+    public static func sessionWords(_ id: String?) -> [String] {
         guard let id else { return [] }
         let prefix = PaletteNavigationEntry.acpPrefix
         if id.hasPrefix(prefix) { return [id, String(id.dropFirst(prefix.count))] }

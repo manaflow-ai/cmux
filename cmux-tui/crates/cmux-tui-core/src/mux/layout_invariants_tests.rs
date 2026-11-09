@@ -849,6 +849,45 @@ fn check_step(mux: &Mux, before: &State, outcome: &Outcome, rejections: usize) {
     assert_durable_matches_memory(mux);
 }
 
+/// The case `layout_ops_conserve_tabs` shrank to on the base (6f1ef70f,
+/// 1 of 5 runs): a tab move rewrote the positions of the tabs after it but
+/// restated only the moved tab, so the journal kept their old index. After
+/// each step, every stored tab's position must be the index the journal
+/// states (checked directly, so release builds catch it too; debug builds
+/// also run the scoped-vs-full projection cross-check).
+#[test]
+fn a_tab_move_restates_the_indexes_of_the_tabs_it_shifted() {
+    let mux = test_mux("layout-invariants-shrunk-index");
+    build(&mux, &[vec![1], vec![1], vec![1, 3, 1, 1]]);
+    let mut groups = 0;
+    for op in [
+        Op::MoveTab { tab: 24, pane: 0, index: 0, undoable: false },
+        Op::MoveTab { tab: 0, pane: 15, index: 0, undoable: false },
+        Op::Close { tab: 0 },
+        Op::MoveTab { tab: 15, pane: 0, index: 0, undoable: false },
+        Op::Close { tab: 0 },
+        Op::Close { tab: 2 },
+    ] {
+        let mut before = mux.with_state(Clone::clone);
+        let mut rejections = rejections_on_this_thread();
+        let outcome = run(&mux, &op, &mut groups, &mut before, &mut rejections);
+        check_step(&mux, &before, &outcome, rejections);
+        let mut registry = mux.workspace_registry.lock().unwrap();
+        let snapshot = registry.resource_topology_snapshot().unwrap();
+        for tab in &snapshot.tabs {
+            let stated = registry.stated_topology_value_for_test("tab", tab.public_id.as_str());
+            let index = stated.flatten().and_then(|value| value["index"].as_u64());
+            assert_eq!(
+                index,
+                Some(tab.position as u64),
+                "after {op:?} the journal states tab {} at {index:?}, stored at {}",
+                tab.public_id,
+                tab.position
+            );
+        }
+    }
+}
+
 fn proptest_cases() -> u32 {
     std::env::var("PROPTEST_CASES").ok().and_then(|cases| cases.parse().ok()).unwrap_or(64)
 }
@@ -875,5 +914,82 @@ proptest! {
             let outcome = run(&mux, op, &mut groups, &mut before, &mut rejections);
             check_step(&mux, &before, &outcome, rejections);
         }
+    }
+}
+
+/// The case `layout_ops_conserve_tabs` shrank to on feat d8936fb5a11c (census, 2 of 2 runs of
+/// its shard): a tab moved within its pane (step 7) restated the tabs but not their screen, whose
+/// value lists each pane's tabs in order, so the journal kept the old order; a later close
+/// scoped to another workspace then met it ("the scoped projection omits a changed screen").
+/// Debug builds cross-check scoped against full on every step.
+#[test]
+fn a_move_within_a_pane_restates_its_screen_for_a_later_scoped_close() {
+    let mux = test_mux("layout-invariants-shrunk-changed-screen");
+    build(&mux, &[vec![1, 3, 2, 1]]);
+    let mut groups = 0;
+    for op in [
+        Op::NewWorkspace { tab: 8 },
+        Op::Split { tab: 22, pane: 24, edge: TabDropEdge::Left, ratio: None },
+        Op::ReplayedMove { tab: 4, pane: 30, index: 0 },
+        Op::MoveTab { tab: 21, pane: 1, index: 0, undoable: false },
+        Op::TerminalToPane { tab: 1, pane: 34, index: 0 },
+        Op::Split { tab: 0, pane: 41, edge: TabDropEdge::Left, ratio: None },
+        Op::MoveTab { tab: 47, pane: 29, index: 2, undoable: false },
+        Op::Close { tab: 7 },
+        Op::Close { tab: 42 },
+    ] {
+        let mut before = mux.with_state(Clone::clone);
+        let mut rejections = rejections_on_this_thread();
+        let outcome = run(&mux, &op, &mut groups, &mut before, &mut rejections);
+        check_step(&mux, &before, &outcome, rejections);
+    }
+}
+
+/// The case `layout_ops_conserve_tabs` shrank to on feat (78ee0e108e1, 2 of 15 full Linux
+/// runs, BASE RED SUITE 2026-11-04): after a tab moves to another workspace, a close, a
+/// replayed tab move and a second close, the scoped projection's patch left out a pane whose
+/// active tab changed ("only the full projection writes UpsertPane"). Debug builds run the
+/// scoped-vs-full cross-check on every step, so this replays the shrunk sequence as is.
+#[test]
+fn a_close_after_a_replayed_move_restates_the_pane_whose_active_tab_changed() {
+    let mux = test_mux("layout-invariants-shrunk-active-tab");
+    build(&mux, &[vec![2], vec![1, 2], vec![1, 1, 1, 1]]);
+    let mut groups = 0;
+    for op in [
+        Op::ToWorkspace { tab: 5, workspace: Some(28) },
+        Op::Close { tab: 30 },
+        Op::ReplayedMove { tab: 8, pane: 18, index: 0 },
+        Op::Close { tab: 10 },
+    ] {
+        let mut before = mux.with_state(Clone::clone);
+        let mut rejections = rejections_on_this_thread();
+        let outcome = run(&mux, &op, &mut groups, &mut before, &mut rejections);
+        check_step(&mux, &before, &outcome, rejections);
+    }
+}
+
+/// A second case `layout_ops_conserve_tabs` shrank to on feat (c6be943058a, BASE RED SUITE
+/// 2026-11-04): after moves into new workspaces and back, two tab closes left a pane whose
+/// focus changed out of the scoped projection ("the scoped projection omits a changed pane":
+/// the journal states focused true, the full projection false). Debug builds run the
+/// scoped-vs-full cross-check on every step, so this replays the shrunk sequence as is.
+#[test]
+fn closes_after_moves_across_workspaces_restate_the_pane_whose_focus_changed() {
+    let mux = test_mux("layout-invariants-shrunk-focus");
+    build(&mux, &[vec![3], vec![3], vec![1, 1, 1, 1]]);
+    let mut groups = 0;
+    for op in [
+        Op::NewWorkspace { tab: 36 },
+        Op::MoveTab { tab: 0, pane: 0, index: 0, undoable: false },
+        Op::MoveTab { tab: 0, pane: 12, index: 0, undoable: false },
+        Op::NewWorkspace { tab: 0 },
+        Op::MoveTab { tab: 0, pane: 0, index: 0, undoable: false },
+        Op::Close { tab: 0 },
+        Op::Close { tab: 1 },
+    ] {
+        let mut before = mux.with_state(Clone::clone);
+        let mut rejections = rejections_on_this_thread();
+        let outcome = run(&mux, &op, &mut groups, &mut before, &mut rejections);
+        check_step(&mux, &before, &outcome, rejections);
     }
 }

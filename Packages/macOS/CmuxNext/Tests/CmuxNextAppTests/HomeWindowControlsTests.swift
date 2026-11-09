@@ -83,7 +83,7 @@ struct HomeWindowControlsTests {
         let win = Self.window()
         defer { win.close() }
         let suite = "cmux.tests.windowControls.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 700))
         let split = HomeSidebarSplitView(sidebar: home, content: NSView(), widths: HomeSidebarWidth(defaults: defaults))
@@ -155,10 +155,13 @@ struct HomeWindowControlsTests {
         #expect(h.search.maxX + HomeSidebarHeaderLayout.gap == h.filter.minX)
     }
 
-    /// The avatar-only list keeps its band under the lights; an open search sits under them.
+    /// The avatar-only list's search and filter circles sit under the lights, the list under them;
+    /// an open search sits under them too.
     @Test func theAvatarListUnderTheLights() {
         let closed = HomeSidebarHeaderLayout(width: 90, searchOpen: false, windowControls: Self.lightsFrame)
-        #expect(closed.listTop == HomeSidebarHeaderLayout.band)
+        #expect(!closed.filter.isEmpty && !closed.searchIcon.isEmpty)
+        #expect(!closed.filter.intersects(Self.lightsFrame) && !closed.searchIcon.intersects(Self.lightsFrame))
+        #expect(closed.listTop >= closed.filter.maxY)
         let open = HomeSidebarHeaderLayout(width: 90, searchOpen: true, windowControls: Self.lightsFrame)
         #expect(!open.search.intersects(Self.lightsFrame))
         #expect(open.listTop >= open.search.maxY)

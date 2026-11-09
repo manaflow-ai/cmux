@@ -27,7 +27,9 @@ function harness(catalog: ModelCatalog, id: string) {
 describe("projectCatalog", () => {
   const catalog = projectCatalog(feed, NOW);
 
-  test("lists the six composer harnesses in order with names and brand marks", () => {
+  // The six composer harnesses, then every other harness acpmux runs (Leo 2026-10-26: "show all
+  // harnesses, all models (pi, opencode, prime intellect, etc…)"), so the picker lists them uninstalled.
+  test("lists the composer harnesses in order with names and brand marks", () => {
     expect(catalog.harnesses.map((entry) => [entry.id, entry.name, entry.brand, entry.modelSource])).toEqual([
       ["claude", "Claude Code", "claude", "catalog"],
       ["codex", "Codex", "openai", "catalog"],
@@ -35,6 +37,12 @@ describe("projectCatalog", () => {
       ["pi", "Pi", "pi", "probe"],
       ["vercel-ai-gateway", "Vercel AI Gateway", "vercel", "catalog"],
       ["gemini", "Gemini CLI", "gemini", "catalog"],
+      ["prime", "Prime Intellect", "prime", "probe"],
+      ["omp", "oh-my-pi", "omp", "probe"],
+      ["grok", "Grok", "grok", "probe"],
+      ["cursor", "Cursor", "cursor", "probe"],
+      ["hermes", "Hermes Agent", "hermes", "probe"],
+      ["deepseek", "DeepSeek", "deepseek", "probe"],
     ]);
     expect(catalog).toMatchObject({ schemaVersion: 1, generatedAt: NOW.toISOString(), source: "live" });
   });
@@ -184,7 +192,20 @@ describe("the checked-in catalog", () => {
   test("the snapshot is valid, every harness is present, and it is well under the size limit", () => {
     const catalog = bundledSnapshot();
     expect(catalog.source).toBe("snapshot");
-    expect(catalog.harnesses.map((entry) => entry.id)).toEqual(["claude", "codex", "opencode", "pi", "vercel-ai-gateway", "gemini"]);
+    expect(catalog.harnesses.map((entry) => entry.id)).toEqual([
+      "claude",
+      "codex",
+      "opencode",
+      "pi",
+      "vercel-ai-gateway",
+      "gemini",
+      "prime",
+      "omp",
+      "grok",
+      "cursor",
+      "hermes",
+      "deepseek",
+    ]);
     expect(harness(catalog, "claude").models.length).toBeGreaterThan(0);
     expect(Buffer.byteLength(JSON.stringify(catalog))).toBeLessThan(MAX_CATALOG_BYTES);
     expect(MAX_CATALOG_BYTES).toBeLessThan(2 * 1024 * 1024);

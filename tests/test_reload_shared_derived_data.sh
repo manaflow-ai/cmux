@@ -10,9 +10,12 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 # Use the real functions, not copies.
 eval "$(awk '/^tagged_derived_data_path\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
 eval "$(awk '/^resolve_tagged_derived_data\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
+eval "$(awk '/^reload_is_measurement_step\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
+eval "$(awk '/^measurement_derived_data_path\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
+SCRIPT_DIR="$ROOT/scripts"
 declare -F resolve_tagged_derived_data >/dev/null || fail "resolve_tagged_derived_data not found in reload.sh"
 
-unset CMUX_DERIVED_DATA
+unset CMUX_DERIVED_DATA CMUX_CI_STEP_CLASS
 [[ "$(resolve_tagged_derived_data one 0 "")" == "$HOME/Library/Developer/Xcode/DerivedData/cmux-one" ]] \
   || fail "without CMUX_DERIVED_DATA the default must stay one directory per tag"
 [[ "$(resolve_tagged_derived_data one 0 "")" != "$(resolve_tagged_derived_data two 0 "")" ]] \
@@ -33,6 +36,28 @@ fi
 [[ "$(resolve_tagged_derived_data one 1 "/explicit/dd")" == "/explicit/dd" ]] \
   || fail "--derived-data must not be blocked by an invalid CMUX_DERIVED_DATA"
 unset CMUX_DERIVED_DATA
+
+# A fleet measurement step's HOME is per step, so its default is the checkout's .build, which a warm
+# worker checkout keeps; the tags of that checkout share it, and the explicit choices still win.
+measure_dd="$(cd "$ROOT" && pwd -P)/.build/DerivedData/cmux-measure"
+export CMUX_CI_STEP_CLASS=exclusive
+[[ "$(resolve_tagged_derived_data one 0 "")" == "$measure_dd" ]] \
+  || fail "a measurement step must build in the checkout's .build, got $(resolve_tagged_derived_data one 0 "")"
+[[ "$(resolve_tagged_derived_data two 0 "")" == "$measure_dd" ]] || fail "a measurement step's tags must share its DerivedData"
+[[ "$(resolve_tagged_derived_data one 1 "/explicit/dd")" == "/explicit/dd" ]] \
+  || fail "--derived-data must win in a measurement step"
+[[ "$(CMUX_DERIVED_DATA=/warm/dd resolve_tagged_derived_data one 0 "")" == "/warm/dd" ]] \
+  || fail "CMUX_DERIVED_DATA must win in a measurement step"
+# devtools-calls.sh moves the app out and removes "the arm's per-tag DerivedData": a directory named cmux-*.
+[[ "$(basename "$measure_dd")" == cmux-* ]] || fail "the measurement DerivedData must keep a cmux-* name"
+export CMUX_CI_STEP_CLASS=isolated
+[[ "$(resolve_tagged_derived_data one 0 "")" == "$HOME/Library/Developer/Xcode/DerivedData/cmux-one" ]] \
+  || fail "only a measurement step (class exclusive) builds in the checkout"
+unset CMUX_CI_STEP_CLASS
+grep -Fq 'rev-parse HEAD > "$(dirname "$(dirname "$DERIVED_DATA")")/.cmux-ci-built-ref"' "$ROOT/scripts/reload.sh" \
+  || fail "reload.sh no longer marks a finished measurement build for the worker (.build/.cmux-ci-built-ref)"
+grep -Fq 'rm -f "$(dirname "$(dirname "$DERIVED_DATA")")/.cmux-ci-built-ref"' "$ROOT/scripts/reload.sh" \
+  || fail "reload.sh no longer drops the last build's marker before a measurement build (an interrupted build must leave none)"
 
 # The parser must record --derived-data and the tag default must go through the resolver with it.
 awk '/^    --derived-data\)/,/;;/' "$ROOT/scripts/reload.sh" | grep -q 'DERIVED_SET=1' \

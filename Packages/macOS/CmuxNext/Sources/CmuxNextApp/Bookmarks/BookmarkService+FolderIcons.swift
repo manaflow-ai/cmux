@@ -23,8 +23,10 @@ extension BookmarkService {
     /// symbol as a template image the bar tints, an emoji or a stored asset in
     /// its own colors. Nil without one, for a symbol this Mac cannot draw, and
     /// while a stored asset loads: the caller draws the folder symbol.
-    func folderIconImage(of node: BookmarkNode, side: CGFloat) -> NSImage? {
+    /// `awaiting`: a stored asset not read yet is awaited (``awaitFolderIcon(of:)``).
+    func folderIconImage(of node: BookmarkNode, side: CGFloat, awaiting: Bool = false) -> NSImage? {
         guard node.isFolder, let icon = node.icon else { return nil }
+        if awaiting, awaitFolderIcon(of: node) { return nil }
         if case .symbol(let name)? = IconValue(wire: icon) {
             guard NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil else { return nil }
             return NSImage.icon(symbol: name, size: side)

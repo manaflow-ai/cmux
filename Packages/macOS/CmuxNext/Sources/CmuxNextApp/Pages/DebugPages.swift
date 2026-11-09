@@ -23,7 +23,8 @@ import Foundation
 // - `connected` (`value` bool): the owner link state on the page's connection stream;
 // - `scrollers`: `data-scrollers` and every element that shows a scroller at rest under "Always"
 //   (overflowing auto/scroll boxes with their overflow in pixels; SCROLLBARS-THIN audit);
-// - `click` (`selector`, `context_menu`?): clicks (or right-clicks) the first element matching the CSS selector;
+// - `click` (`selector`, `context_menu`?): clicks (or right-clicks) the first element matching the CSS selector
+//   (`click`, `drag`, `press`: an error when the input did not happen, so a capture step fails);
 // - `scroll` (`selector`, `block`? start | center | end | nearest, default start): scrolls the first
 //   matching element into view at once (every scroller that holds it): `{scrolled, top, height,
 //   viewport}` once its box is in view; an error when nothing rendered matches or it is still out of view,
@@ -31,6 +32,7 @@ import Foundation
 // - `hover` (`selector`): moves the mouse onto the first matching element (a capture slot's window
 //   never activates, so no pointer reaches its pages): `{hovered, native, x, y}`;
 // - `query` (`selector`): each matching element's data-* attributes, classes and text, in document order;
+// - `wait` (`selector`, `timeout_ms`, max 90000): one rendered selector match, observed without polling;
 // - `type` (`text`, `selector`?): inserts text as typed input in the matching (else the focused) element;
 // - `call` (`op`, `params`): one call message through the page's router, exactly as the page's
 //   bridge sends it (the host sets the calling page's id). With `page: "cmux.cloud"` and no live
@@ -40,7 +42,8 @@ extension AppControl {
     func registerPageDebugMethods(_ services: AppServices) {
         #if DEBUG || CMUX_BENCH_HOOKS
         service?.router.register([
-            .async("debug.page") { [weak services] call in await DebugPages.handle(call.params, services: services) },
+            .async("debug.page") { [weak services] call in await DebugPages.handle(call.params, services: services) }
+                .withLimit { request, _ in request.params["action"]?.stringValue == "wait" ? .seconds(95) : nil },
         ])
         #endif
     }
@@ -59,7 +62,7 @@ enum DebugPages {
             made.append(cloud)
         }
         if params["action"]?.stringValue == "list" {
-            return ["pages": .array(PageRegistry.pages(id: id).map { .object(identity($0)) })]
+            return ["pages": .array(PageRegistry.pages(id: id, probing: true).map { .object(identity($0)) })]
         }
         let instance = params["instance"]?.intValue.map { UInt64(max($0, 0)) }
         guard let page = PageRegistry.probeTarget(id: id, parked: params["parked"]?.boolValue == true,
@@ -99,18 +102,17 @@ enum DebugPages {
             return ["handled": .bool(page.send(command: command, arguments: arguments))]
         case "click":
             guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
-            return ["clicked": .bool(await page.debugClick(selector, metaKey: params["meta"]?.boolValue == true,
-                                                           contextMenu: params["context_menu"]?.boolValue == true))]
+            return await page.debugClick(selector, metaKey: params["meta"]?.boolValue == true, contextMenu: params["context_menu"]?.boolValue == true)
+                ? ["clicked": .bool(true)] : ["error": .string("no element matches \(selector)")]
         case "drag":
             let numbers = ["x1", "y1", "x2", "y2"].compactMap { params[$0]?.doubleValue }
             guard numbers.count == 4 else { return ["error": "x1, y1, x2, y2 (CSS pixels) are required"] }
-            let dragged = await page.debugDrag(from: CGPoint(x: numbers[0], y: numbers[1]), to: CGPoint(x: numbers[2], y: numbers[3]),
-                                               steps: params["steps"]?.intValue ?? 16)
-            return ["dragged": .bool(dragged)]
+            return await page.debugDrag(from: CGPoint(x: numbers[0], y: numbers[1]), to: CGPoint(x: numbers[2], y: numbers[3]), steps: params["steps"]?.intValue ?? 16)
+                ? ["dragged": .bool(true)] : ["error": "the drag did not reach the page: it shows in WebKit, or DevTools refused an event"]
         case "press":
             let numbers = ["x", "y"].compactMap { params[$0]?.doubleValue }
             guard numbers.count == 2 else { return ["error": "x, y (CSS pixels) are required"] }
-            return ["pressed": .bool(await page.debugPress(x: numbers[0], y: numbers[1]))]
+            return await page.debugPress(x: numbers[0], y: numbers[1], native: params["native"]?.boolValue == true) ? ["pressed": .bool(true)] : ["error": "the press did not reach the page"]
         case "hover":
             guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
             return await page.debugHover(selector)
@@ -129,6 +131,9 @@ enum DebugPages {
             return ["error": .string("no element matches \(selector) (\(reason))")]
         case "query":
             return await page.debugQuery(params["selector"]?.stringValue ?? "*")
+        case "wait":
+            guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
+            return await page.debugWait(selector: selector, timeoutMilliseconds: params["timeout_ms"]?.intValue ?? 30_000)
         case "route":
             page.open(route: params["route"]?.stringValue ?? "/"); return ["ok": true] // a hash route, as a hand-off opens it
         case "type":

@@ -20,13 +20,16 @@ extension CloudAPIClient {
     /// (cmux-platform#89, backend cloud-machine-guest.ts). Only those routes serve there.
     /// `machineIO`: its exec and file routes go through cmux-tui (``CloudMachineIO``), which reaches
     /// the machine's provider directly with a client session when it can and the same routes here
-    /// otherwise; a cmux-tui that gives no answer falls back to these routes.
+    /// otherwise; a cmux-tui that gives no answer falls back to these routes. `installToken`: this Mac's
+    /// install token, for the one route that takes an install, not a session (``listNetworks()``).
     public static func workerMachines(baseURL: URL, accessToken: @escaping @Sendable () async throws -> String,
                                       teamID: @escaping TeamID, session: URLSession = CloudAPIClient.noStoreTransport,
-                                      appVersion: String = "cmux-next", machineIO: CloudMachineIO? = nil) -> CloudAPIClient {
+                                      appVersion: String = "cmux-next", machineIO: CloudMachineIO? = nil,
+                                      installToken: (@Sendable () async throws -> String)? = nil) -> CloudAPIClient {
         var client = CloudAPIClient(baseURL: baseURL, tokens: { (try await accessToken(), "") }, teamID: teamID, session: session,
                                     appVersion: appVersion)
         client.machineIO = machineIO
+        client.installToken = installToken
         return client
     }
 
@@ -41,7 +44,11 @@ extension CloudAPIClient {
 
     /// Lists a guest directory through the authenticated backend wrapper.
     public func listFiles(_ id: String, path: String) async throws -> [CloudFileEntry] {
-        struct List: Decodable { var entries: [CloudFileEntry] }
+        struct List: CloudServerModel {
+            static var cloudModelKind: String { "file_entries" }
+            var entries: [CloudFileEntry]
+            init(from decoder: any Decoder) throws { entries = try [CloudFileEntry](from: decoder) }
+        }
         return try await machine("dir", id, ["path": path], timeout: .seconds(20)) {
             try await send("GET", "\(machinePath)/\(id)/fs/dir?path=\(query(path))", as: List.self)
         }.entries
@@ -121,7 +128,7 @@ extension CloudAPIClient {
         case 0: throw CloudAPIError.transport(answer.code ?? "no answer")
         case 200..<300:
             if T.self == Ignored.self, let ignored = Ignored() as? T { return ignored }
-            do { return try JSONDecoder().decode(T.self, from: answer.body) } catch { throw CloudAPIError.decoding("\(path): \(error)") }
+            return try CloudMachineRules().answer(answer.body, as: T.self, context: path)
         default:
             throw CloudAPIError.from(status: answer.status, data: answer.body, headerCode: answer.code)
         }

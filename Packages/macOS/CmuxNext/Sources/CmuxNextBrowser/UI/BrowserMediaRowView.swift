@@ -36,10 +36,11 @@ public final class BrowserMediaRowView: NSView {
         self.onCommand = onCommand
         self.onReveal = onReveal
         super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 96))
-        artwork.image = image ?? NSImage.icon(.browserToolbarMedia, size: 20)
+        // At the 40 pt it is drawn at: the glyph is a bitmap now, so a smaller one would be stretched up (REOPEN-F7).
+        artwork.image = image ?? NSImage.icon(.browserToolbarMedia, size: 40)
         artwork.imageScaling = .scaleProportionallyUpOrDown
         artwork.wantsLayer = true
-        artwork.layer?.cornerRadius = 6
+        artwork.layer?.cornerRadius = Metrics.controlCornerRadius
         artwork.layer?.masksToBounds = true
         style(titleLabel, title, font: .systemFont(ofSize: TypeScale.body, weight: TypeScale.emphasis), color: .labelColor)
         style(subtitleLabel, subtitle, font: .systemFont(ofSize: TypeScale.caption, weight: TypeScale.regular), color: .secondaryLabelColor)

@@ -18,6 +18,7 @@ They keep the gui label whatever vars.CI_SESSION_LABEL says.
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -32,7 +33,19 @@ from test_seed_derived_data import evaluate, github_context  # noqa: E402
 PR_XCODE = "/Applications/Xcode_26.6.app"
 GUI = "glaeda-gui-std-xcode-26.6"
 SESSION = "glaeda-session-std-xcode-26.6"
-FALLBACK = "blacksmith-6vcpu-macos-26"
+RUNNER_POOLS = json.loads((ROOT / ".github" / "runners.json").read_text(encoding="utf-8"))["pools"]
+FALLBACK = RUNNER_POOLS["macos_26"]["members"][0]
+
+
+def evaluate_runs_on(expression: str, context: dict):
+    """Evaluate a route after resolving its declared pool member.
+
+    The shared expression evaluator handles the Actions subset used by the
+    older routes, but not property access after ``fromJSON``. Resolve this
+    declared pool before evaluating so branch ordering remains under test.
+    """
+    label = RUNNER_POOLS["macos_26"]["members"][0]
+    return evaluate(expression.replace("fromJSON(vars.RUNNER_POOLS).macos_26", f"'{label}'"), context)
 
 
 def load_media_runner():
@@ -86,16 +99,16 @@ class AutofixActionExports(unittest.TestCase):
         for name in self.WORKFLOWS:
             runs_on = self.runs_on(name)
             with self.subTest(workflow=name):
-                self.assertEqual(evaluate(runs_on, self.context()), GUI)
-                self.assertEqual(evaluate(runs_on, self.context(CI_SESSION_LABEL="0")), GUI)
-                self.assertEqual(evaluate(runs_on, self.context(CI_SESSION_LABEL="1")), GUI)
+                self.assertEqual(evaluate_runs_on(runs_on, self.context()), GUI)
+                self.assertEqual(evaluate_runs_on(runs_on, self.context(CI_SESSION_LABEL="0")), GUI)
+                self.assertEqual(evaluate_runs_on(runs_on, self.context(CI_SESSION_LABEL="1")), GUI)
                 self.assertNotIn(SESSION, runs_on)
                 # Owned pools off keeps the hosted fallback whatever the session switch says.
-                self.assertEqual(evaluate(runs_on, self.context(CI_PR_POOL_OWNED="0", CI_SESSION_LABEL="1")),
+                self.assertEqual(evaluate_runs_on(runs_on, self.context(CI_PR_POOL_OWNED="0", CI_SESSION_LABEL="1")),
                                  FALLBACK)
                 other = self.context(CI_SESSION_LABEL="1")
                 other["github"]["repository_owner"] = "someone"
-                self.assertEqual(evaluate(runs_on, other), "macos-26")
+                self.assertEqual(evaluate_runs_on(runs_on, other), "macos-26")
 
 
 if __name__ == "__main__":

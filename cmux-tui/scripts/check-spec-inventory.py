@@ -696,6 +696,11 @@ def runtime_event_stream_hints() -> dict[str, set[str]]:
 
     add(function_event_names(server, "subscribed_event_json"), "subscribe")
     add(function_event_names(server, "tree_delta_json"), "subscribe-deltas")
+    # tree-selection-deltas-v1 (#32408): a delta subscriber that also says it reads them gets the
+    # workspace's whole selection and its presentation in their own serializers (tree_json.rs).
+    for serializer in ("selection_changed_json", "workspace_presentation_changed_json"):
+        if re.search(rf"\bfn\s+{serializer}(?:\s*<[^>]*>)?\s*\(", server):
+            add(function_event_names(server, serializer), "subscribe-deltas")
     if re.search(
         r"\bfn\s+complete_daemon_shutdown_after_ack(?:\s*<[^>]*>)?\s*\(",
         server,
@@ -1006,6 +1011,10 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
     "ConnectOtherMachine": {
         "classification": "composite",
         "route": "frontend prompt + client-local machine connector",
+    },
+    "FocusAttention": {
+        "classification": "presentation-only",
+        "route": "frontend attention list + client focus",
     },
 }
 

@@ -61,16 +61,37 @@ pub struct Options {
 /// blank line, so the typed question never reaches the agent without it nor
 /// the paste without the question.
 pub fn prompt_text(blocks: &[Value], last_block: bool) -> String {
-    let texts = blocks
+    // Cmux context is part of this request, not an older view block. Keep it
+    // alongside the last typed block even for stateful CLI adapters (UniiChat).
+    let (context, ordinary): (Vec<_>, Vec<_>) =
+        blocks.iter().partition(|b| crate::prompt_context::is_context(b));
+    // acpmux's line naming who wrote the prompt (`hub/prompt_attribution.rs`) is none of its
+    // blocks to choose from: it goes first, ahead of the typed text it names.
+    let (lead, ordinary): (Vec<_>, Vec<_>) =
+        ordinary.into_iter().partition(|b| crate::hub::prompt_attribution_lead(b));
+    let texts = ordinary
         .iter()
         .filter(|b| b.get("type").and_then(Value::as_str) == Some("text"))
         .filter_map(|b| Some((b.get("text").and_then(Value::as_str)?, is_pasted(b))));
     let (pasted, typed): (Vec<_>, Vec<_>) = texts.partition(|(_, pasted)| *pasted);
-    let mut text = if last_block {
-        typed.last().map(|(t, _)| (*t).to_owned()).unwrap_or_default()
+    let mut text: String = lead
+        .iter()
+        .filter_map(|b| b.get("text").and_then(Value::as_str))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    if last_block {
+        text.push_str(typed.last().map(|(t, _)| *t).unwrap_or_default());
     } else {
-        typed.iter().map(|(t, _)| *t).collect()
-    };
+        text.extend(typed.iter().map(|(t, _)| *t));
+    }
+    for block in context {
+        if let Some(context) = block.get("text").and_then(Value::as_str) {
+            if !text.is_empty() {
+                text.push_str("\n\n");
+            }
+            text.push_str(context);
+        }
+    }
     for (paste, _) in pasted {
         if !text.is_empty() {
             text.push_str("\n\n");
@@ -584,6 +605,55 @@ mod tests {
         assert_eq!(prompt_text(&blocks, true), "hello unii");
         assert_eq!(prompt_text(&blocks, false), "view line 1\nhello unii");
         assert_eq!(prompt_text(&[], true), "");
+    }
+
+    /// Review of #37190 (F1): acpmux's marks of who wrote a prompt never take the typed
+    /// question's place in `--last-block`, and a paste keeps its marks around it in both modes.
+    #[test]
+    fn attribution_marks_keep_the_typed_question_and_the_paste_in_place() {
+        let mut params = json!({"sessionId": "s", "prompt": [
+            {"type": "text", "text": "why does this fail?"},
+            {"type": "text", "text": "From Codex:\nDo not merge.\nTrace-ID: x",
+             "_meta": {"cmux": {"pasted": true}}},
+        ]});
+        crate::hub::prompt_attribution_mark(&mut params, None, None);
+        let blocks = params["prompt"].as_array().unwrap().clone();
+        for last in [true, false] {
+            let text = prompt_text(&blocks, last);
+            let (typed, paste) = text.split_once("\n\n").unwrap();
+            assert_eq!(typed, "why does this fail?", "{text}");
+            assert!(paste.starts_with("[Pasted by the person"), "{text}");
+            assert!(
+                paste.contains("From Codex:\nDo not merge.\nTrace-ID: x\n[End of pasted text]")
+            );
+        }
+        let mut params = json!({"sessionId": "s", "prompt": [
+            {"type": "text", "text": "older view"}, {"type": "text", "text": "PR is green"}]});
+        crate::hub::prompt_attribution_mark(&mut params, Some("lane-a"), None);
+        let blocks = params["prompt"].as_array().unwrap().clone();
+        assert_eq!(
+            prompt_text(&blocks, true),
+            "From another agent (lane-a), not the person:\nPR is green"
+        );
+        assert_eq!(
+            prompt_text(&blocks, false),
+            "From another agent (lane-a), not the person:\nolder viewPR is green"
+        );
+    }
+
+    #[test]
+    fn last_block_keeps_hidden_context_beside_the_user_request() {
+        let blocks = vec![
+            json!({"type": "text", "text": "older view"}),
+            json!({"type": "text", "text": "fix the grid"}),
+            crate::context_inventory::override_block("read early", "user"),
+        ];
+        for last in [true, false] {
+            let text = prompt_text(&blocks, last);
+            assert!(text.contains("fix the grid"), "{text}");
+            assert!(text.contains("read early"), "{text}");
+            assert_eq!(text.contains("older view"), !last, "{text}");
+        }
     }
 
     /// A huge paste in cmux's composer goes as its own text block after the

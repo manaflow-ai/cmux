@@ -89,11 +89,7 @@ struct ShortcutHintSidebarSlotsTests {
     /// digit may count it: every digit that reaches a workspace has a chip on a drawn row.
     @Test func aGroupWithAFoldedDoneMemberLeavesNoDigitWithoutAChip() {
         Motion.reduceMotionOverride = true
-        TunableStore.shared.set(SidebarTunables.doneFold.key, .bool(true))
-        defer {
-            Motion.reduceMotionOverride = nil
-            TunableStore.shared.set(SidebarTunables.doneFold.key, nil)
-        }
+        defer { Motion.reduceMotionOverride = nil }
         func ws(_ id: String, done: Bool = false) -> SidebarWorkspace {
             var ws = SidebarWorkspace(id: WorkspaceID(id), title: id)
             if done { ws.taskStatus = .done }

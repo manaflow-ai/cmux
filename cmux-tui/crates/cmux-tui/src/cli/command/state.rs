@@ -18,7 +18,7 @@ use super::{
 };
 
 const GROUP_COLORS: &[&str] =
-    &["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
+    &["none", "grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
 const LOG_LEVELS: &[&str] = &["info", "progress", "success", "warning", "error"];
 pub(super) const STATUS_AREAS: &[&str] = &["status", "progress", "log"];
 
@@ -369,14 +369,15 @@ fn status_target(
 
 /// `workspace group …`: personal workspace groups of the home session.
 /// `add` and `remove` place a workspace with `workspace.place`.
-/// `workspace list [--order session|personal]`.
+/// `workspace list [--order session|personal] [--name <name>] [--cwd <path>]`.
 pub(super) fn workspace_list(
     selectors: &Selectors,
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
     let mut params = Params::default();
     insert_optional_string(&mut params.fields, flags, "order", "order");
-    params.send(Op::WorkspaceList, selectors, flags)
+    let filter = super::list_filter::take(flags, true, true)?;
+    params.send(Op::WorkspaceList, selectors, flags).map(|plan| plan.filtered(filter))
 }
 
 pub(super) fn parse_workspace_group(
@@ -397,6 +398,10 @@ pub(super) fn parse_workspace_group(
             optional_index(&mut params, flags)?;
             if flags.boolean("collapse") {
                 params.insert("collapsed", Value::Bool(true));
+            }
+            // The room's group of that name when it has one (find or create).
+            if flags.boolean("reuse") {
+                params.insert("reuse", Value::Bool(true));
             }
             Op::WorkspaceGroupCreate
         }
@@ -927,6 +932,7 @@ mod checklist;
 mod status_flags;
 
 pub(super) use checklist::parse_workspace_checklist;
+pub(in crate::cli) use status_flags::parse_duration_ms;
 
 #[cfg(test)]
 mod tests;

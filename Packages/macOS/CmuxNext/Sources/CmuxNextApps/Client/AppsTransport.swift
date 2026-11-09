@@ -13,6 +13,9 @@ public nonisolated enum AppsTransportEvent: Sendable, Hashable {
     case mountFailed(mountID: String, reason: String)
     /// `apps-host {app, state, reason?}`.
     case host(app: String, state: AppHostState, reason: String?)
+    /// `apps-reload-failed {app, reason}`: a saved script of `app` did not load; its open views keep
+    /// the last script that did.
+    case reloadFailed(app: String, reason: String)
     /// `apps-log {app, level, message, ts_ms}` (after `apps-logs` with follow).
     case log(app: String, level: String, message: String, date: Date?)
 }
@@ -30,6 +33,8 @@ public protocol AppsTransport: AnyObject {
     /// Begins following the daemon (availability events from here on).
     func start()
     func list() async throws(AppsTransportError) -> AppsListReply
+    /// Visible Session Info app sections (`cmux.apps.panels.list`).
+    func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel]
     /// `apps-set`; returns the app's record after the commit.
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord
     func mount(app: String, interface: String, mountID: String, context: AppJSON) async throws(AppsTransportError)

@@ -41,7 +41,7 @@ import { RowFrame, RowStatus, SettingRow, useRowMenu } from "./SettingRow";
 import { ThemeFiles } from "./ThemeFiles";
 import { ThemeOverrides } from "./ThemeOverrides";
 import { ThemePreview } from "./ThemePreview";
-import { ThemePicker } from "./ThemePicker";
+import { ThemePicker, useThemeFavorites } from "./ThemePicker";
 import { ThemeTokens } from "./ThemeTokens";
 
 export const THEME_KEY = "appearance.theme";
@@ -54,6 +54,12 @@ export const ACCENT_KEY = "appearance.accent";
 /** appearance.highlightColor: drawn here as its setting row, after the accent (the App Theme group's
  * last key: without it the page drew a second "App Theme" card for this one row). */
 export const HIGHLIGHT_COLOR_KEY = "appearance.highlightColor";
+/** appearance.rotateFavoriteThemes: drawn here as its setting row under the terminal theme, once a
+ * theme is starred (its App Theme group would draw a second card). */
+export const ROTATE_FAVORITES_KEY = "appearance.rotateFavoriteThemes";
+/** appearance.themeFile: the look from a file in the themes folder, drawn here as its setting row
+ * after the Highlight Color (another App Theme key: its group would draw a second card for it). */
+export const THEME_FILE_KEY = "appearance.themeFile";
 const FOLLOW_TERMINAL = "followTerminal";
 
 export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
@@ -84,6 +90,8 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
   const edits = valueOf(state, THEME_EDITS_KEY) as ThemeEditMap | null;
   const colors = useMemo(() => withAllEdits(state.themeColors, edits), [state.themeColors, edits]);
   const custom = (name: string) => isEdited(edits, name);
+  // The starred themes every picker here lists first (appearance.favoriteThemes).
+  const starred = useThemeFavorites();
   const editsManaged = managedOf(state, THEME_EDITS_KEY);
   // A token's live preview, at most every 80 ms: each one reloads the terminals' config.
   const pendingEdit = useRef<{ timer: ReturnType<typeof setTimeout> | null; next: ThemeEditMap | null }>({
@@ -157,6 +165,8 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
   );
   const accentRow = rowsByKey.get(ACCENT_KEY);
   const highlightRow = rowsByKey.get(HIGHLIGHT_COLOR_KEY);
+  const rotateRow = rowsByKey.get(ROTATE_FAVORITES_KEY);
+  const themeFileRow = rowsByKey.get(THEME_FILE_KEY);
   const accentState = useRowState(ACCENT_KEY);
   // The row `?focus=` names, once the owner's values arrive (before that every control is disabled),
   // revealed once: a row that mounts later (Match System Appearance swapping the rows) never takes
@@ -221,6 +231,8 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
       onPick={onPick}
       onPreview={previewApp}
       custom={custom}
+      favorites={starred.favorites}
+      onToggleFavorite={starred.toggle}
     />
   );
   const previewApp = (name: string | null, owner?: object) => {
@@ -248,6 +260,8 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
       onPick={onPick}
       onPreview={previewTerminal}
       custom={custom}
+      favorites={starred.favorites}
+      onToggleFavorite={starred.toggle}
     />
   );
   const pickSide = (side: "light" | "dark") => (name: string | null) => {
@@ -356,6 +370,14 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
               )}
             </>
           )}
+          {rotateRow && names.length > 0 && (starred.favorites.length > 0 || focused === ROTATE_FAVORITES_KEY) && (
+            // Rotation turns to the next starred theme, so it needs two of them.
+            <SettingRow
+              row={rotateRow}
+              focused={focused === ROTATE_FAVORITES_KEY}
+              inactive={starred.favorites.length < 2}
+            />
+          )}
           <ScopeOverrides />
           {appRow && names.length === 0 && <SettingRow row={appRow} focused={focused === APP_THEME_KEY} />}
           {appRow && names.length > 0 && (
@@ -447,6 +469,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
             </StudioRow>
           )}
           {highlightRow && <SettingRow row={highlightRow} focused={focused === HIGHLIGHT_COLOR_KEY} />}
+          {themeFileRow && <SettingRow row={themeFileRow} focused={focused === THEME_FILE_KEY} />}
         </div>
       </section>
     </div>

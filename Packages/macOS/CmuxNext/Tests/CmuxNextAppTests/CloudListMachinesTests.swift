@@ -53,6 +53,8 @@ struct CloudListMachinesTests {
     @Test func aLoadedListGivesEachMachineAndItsStatus() throws {
         let services = Self.services()
         let running = MachineIconTests.cloudMachine(services, id: "vm-list-run-\(UUID().uuidString.prefix(8))")
+        // The fixture's record has no status (`.unknown`) since its link moved to CloudTestLink (#36498).
+        running.machine.status = .running
         let paused = MachineIconTests.cloudMachine(services, id: "vm-list-pause-\(UUID().uuidString.prefix(8))")
         paused.machine.status = .paused
         paused.machine.displayName = "Paused VM"

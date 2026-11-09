@@ -119,7 +119,7 @@ echoes the token),
 | `DELETE /v1/devices/:deviceId` | → `{deleted:true, deviceId}` (0.7.0). Owner only (`403 not_owner`, `404 not_found`). Deletes the row and its push token; the owner's hub drops the Mac from presence (broadcasting `presence` with `removed:true`), closes the device's signaling socket with code 4002 `removed`, and ends its signaling sessions. A removed device that registers again is a new registration: removal tidies stale devices, it does not ban an id. Used by the phone (Settings → Connection → Macs / Phones) and by the Mac app ("Unpair this Mac") |
 | `PUT /v1/devices/:deviceId/push` | `{token, environment, topic, kinds?}` → `{push:{environment,topic,kinds,updatedAt}}` (0.7.0). Phone only, owner only. `token` is the APNs device token in hex (64 to 200 hex digits), `environment` `sandbox` or `production` (the app's `aps-environment`), `topic` its bundle id, which must be one of the Worker's `APNS_TOPICS`. `kinds` is which events to push (default all): `question`, `permission`, `completed`, `failed`, `chief` |
 | `DELETE /v1/devices/:deviceId/push` | → `{deleted:true}` (0.7.0): stop pushing to this phone (sign-out, notifications turned off) |
-| `POST /v1/devices/:deviceId/notify` | `{eventId, kind, agent?, place?, workspaceId?, tabId?, sessionId?}` → `{configured, sent, failed, dropped, coalesced?}` (0.7.0). `:deviceId` is a Mac the caller owns. Pushes one event to every phone of the same owner that registered a token and wants that `kind`. Content minimization: the Mac sends only a kind, a short agent name (≤ 40 characters) and a short place such as the workspace title (≤ 60); the Worker writes the text itself ("Claude has a question", "Claude needs permission", "Claude finished", "Claude stopped with an error", "Chief replied") with the place as the body, and never forwards agent output, prompts, tool arguments or paths. The payload's `mobile` object carries `{mac, kind, eventId, workspaceId, tabId, sessionId}` so a tap opens that tab. APNs `thread-id` is the `sessionId`, so a phone groups a session's notifications (0.13.0: `<mac>:<sessionId>` and the other fields of "Push notifications" below, which also add the answer's `wants`). The collapse id is `eventId` (≤ 64) for a question or permission; for a finished turn, an error or a Chief reply it is one id per session (`turn-<sessionId>`, hashed when longer than 64), so a newer one replaces the older. The Worker passes at most one turn-ending event per Mac, session and finished-or-error in 15 s, once some phone wants the kind (the user hub's `turnPushAllowed`); the rest answer `{sent: 0, coalesced: true}`. The Mac reports only what a person can act on (`cmux-mobile-host` `notify.rs`): never a Chief's compactor (`cmux.chief.role` `compactor`, or an `optchat-compact-` name, preset or folder); a Chief turn session (`cmux.chief`) as `chief`, once per Chief; no finished turn of a sub-session or a Chief's child (their asks still push); and per session at most one finished turn and one error in 30 s, the newest held one sent when the window ends. `configured:false` when the Worker has no APNs key. Tokens APNs reports as gone are deleted (`dropped`). Rate limited per Mac (`429 rate_limited`) |
+| `POST /v1/devices/:deviceId/notify` | `{eventId, kind, agent?, place?, workspaceId?, tabId?, sessionId?}` → `{configured, sent, failed, dropped, coalesced?, failures?}` (0.7.0; `failures` below). `:deviceId` is a Mac the caller owns. Pushes one event to every phone of the same owner that registered a token and wants that `kind`. Content minimization: the Mac sends only a kind, a short agent name (≤ 40 characters) and a short place such as the workspace title (≤ 60); the Worker writes the text itself ("Claude has a question", "Claude needs permission", "Claude finished", "Claude stopped with an error", "Chief replied") with the place as the body, and never forwards agent output, prompts, tool arguments or paths. The payload's `mobile` object carries `{mac, kind, eventId, workspaceId, tabId, sessionId}` so a tap opens that tab. APNs `thread-id` is the `sessionId`, so a phone groups a session's notifications (0.13.0: `<mac>:<sessionId>` and the other fields of "Push notifications" below, which also add the answer's `wants`). The collapse id is `eventId` (≤ 64) for a question or permission; for a finished turn, an error or a Chief reply it is one id per session (`turn-<sessionId>`, hashed when longer than 64), so a newer one replaces the older. The Worker passes at most one turn-ending event per Mac, session and finished-or-error in 15 s, once some phone wants the kind (the user hub's `turnPushAllowed`); the rest answer `{sent: 0, coalesced: true}`. The Mac reports only what a person can act on (`cmux-mobile-host` `notify.rs`): never a Chief's compactor (`cmux.chief.role` `compactor`, or an `optchat-compact-` name, preset or folder); a Chief turn session (`cmux.chief`) as `chief`, once per Chief; no finished turn of a sub-session or a Chief's child (their asks still push); and per session at most one finished turn and one error in 30 s, the newest held one sent when the window ends. `configured:false` when the Worker has no APNs key. Tokens APNs reports as gone are deleted (`dropped`). Rate limited per Mac (`429 rate_limited`) |
 | `DELETE /v1/me` | → `{deleted:{devices:n}}` (0.7.0): purges everything the Worker stores for the caller (devices with their push tokens, team prefs) and evicts the caller's sockets: the caller's hub closes every socket with 4002 `removed` and forgets its devices and sessions. The app calls it first when the user deletes their account, then deletes the Stack account through cmux's account deletion (`DELETE <cmux API>/api/account`, as the main cmux app) |
 | `POST /v1/me/bootstrap` | `{teamId, devices:[{deviceId,kind,name}]}` (at most 4) → `{devices:[{device}\|{error}], macs:{macs}\|{error}, myMacs:{macs}\|{error}, ice:{iceServers,ttl,turn}\|{error}}`: the phone's launch in one round trip (added in 0.8.0). Each part is the response of its own route (`POST /v1/devices` with `teamId`, `GET /v1/teams/:teamId/macs`, `GET /v1/me/macs`, `GET /v1/ice`), run at once; a part's error does not fail the others. A 404 means an older service: make the separate calls |
 | `GET /v1/health` | → `{ok:true, version, stackProjects:[projectId], colo}` (accepted Stack projects, primary first; `colo` is the Cloudflare colo that received the request, added in 0.6.0) |
@@ -547,7 +547,15 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   256 KiB arrives as several data frames, and the receiver joins frames until
   they parse as one JSON value (at most 32 MiB from the phone).
 - `cloud-directory` (link protocol 2): no arguments; one JSON data frame
-  `{"machines":[{"machine_id","team_id","name"}]}` followed by `eof`.
+  `{"paid","desktops","machines":[{"machine_id","team_id","name","status","ran","linked"}]}`
+  followed by `eof`. `paid` says the account pays for cmux Cloud; `desktops` is the
+  Mac's `phone.cloudDesktop` setting; `status` is the machine's Cloud status
+  (`running`, `paused`, `starting`, ...); `ran` says it has run at least once;
+  `linked` says the Mac holds its live carrier, so a Cloud chat can open on it.
+  A machine that is asleep (no live carrier, `linked` false) is listed too, for the
+  Chief's Computer card only; the Cloud chats list leaves it out. An older Mac sends
+  none of these fields: the phone reads `paid`, `desktops` and `ran` as false,
+  `status` as unknown and `linked` as true (it listed only linked machines).
   Hostd obtains this list from the signed-in Mac app's authenticated owner
   CloudLinkSession objects. Carrier paths and ownership markers are never sent
   to the phone; conflicting duplicate machine/team entries are omitted.
@@ -567,6 +575,17 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   implementation: authenticated owner checks and an atomic asking-mode floor
   through dispatch, queued prompts and the active turn. It cannot replace that
   enforcement or prove the actual Codex bridge profile from a mode name.
+  `session/new` starts a chat on the machine: hostd reads `list-workspaces`,
+  takes the active ordinary workspace (`kind` `normal`; else the first; it sends
+  `create-workspace` when there is none), creates a `registry:<registry_id>`
+  agent tab there with `new-conversation-tab`, then sends `agent-session-start
+  {surface, harness:"claude", vm_kind:"owner"}` with a 90 s deadline. The
+  phone's params may hold only `cwd` (ignored: the machine makes the chat's
+  folder), an empty `mcpServers`, and `_meta.acpmux` with only `harness`
+  `claude` and `policy` `ask`; anything else is refused with -32602. On success the phone
+  gets `_acpmux/session_changed` (`kind: "created"`) and then `{sessionId}`; a
+  refused or timed-out start closes the empty tab. The Mac shows the same tab, since it lives
+  in the machine's own store.
 - `file`: `{"path"}` read-only stream of a file inside a workspace root, for artifact preview.
   Any size: data frames until `eof`, up to the size the file had when it was opened. A host
   before 2026-10-28 refuses a file over 64 MiB with `too_large`.
@@ -695,21 +714,32 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   long press sends a secondary click at that spot (pointer `button` 2) and
   shows the host's `rb.menu.show` of kind `context` as the system menu; rows
   whose command acts on the Mac itself (Copy and Save rows, Paste, Print,
-  Inspect, Look Up, Speech, Cast, Create QR Code) are left out, and so are the
-  rows Chromium opens as a new tab through `OpenURLFromTab` (Open Link in New
-  Tab or Window, Open Image in New Tab, Search for, View Page Source): the browser host forwards only the page's
-  own popups (`OnBeforePopup`) as `rb.open_tab`, so those would open nothing
-  a viewer sees until it forwards them too. The pick goes back as `rb.menu.result
+  Inspect, Look Up, Speech, Cast, Create QR Code) are left out. Rows that open
+  a tab stay (2026-11-01): the browser host forwards the tabs Chromium opens
+  through `OpenURLFromTab` (Open Link in New Tab or Window, Open Image in New
+  Tab, Search for, Cmd-click) as `rb.open_tab`, like the page's own popups
+  (`OnBeforePopup`). View Page Source stays off the phone's menu: the host
+  answers it with an `rb.open_tab` of the page's `view-source:` address, which
+  the Mac's viewer opens but `new-browser-tab` refuses from a phone (http and
+  https only). The pick goes back as `rb.menu.result
   {token, choice: {choice: "command", id}}`, and a menu closed with no pick,
   or one that arrives with no long press waiting (after 1.5 s), as `{choice:
   "cancel"}`. A `<select>` (`rb.menu.show` of kind `select`) shows its options
   in a sheet and answers `{choice: "indices", indices}`. JavaScript dialogs
   (`rb.dialog.show`) show as a system alert (a prompt with a text field) and
   answer `rb.dialog.result {token, accept, text}`. `rb.menu.cancel` and
-  `rb.dialog.cancel` close the sheet or alert with no answer; a new stream
+  `rb.dialog.cancel` close the sheet or alert with no answer (the host sends
+  `rb.dialog.cancel` when Chromium resets its dialogs, when the frame that
+  asked goes away, as when the page removes the iframe whose alert shows, and
+  when the tab closes); a new stream
   session drops whatever was open. Popup surfaces (`rb.surface.show`: date,
   color and datalist pickers) are not shown on the phone yet. The page menu's
-  Hard Reload sends `rb.history reload_no_cache`. Under
+  Hard Reload sends `rb.history reload_no_cache`. Find… (page menu, Cmd-F;
+  Cmd-G and Shift-Cmd-G step) shows the system find bar: each query sends
+  `rb.find {query, forward: true, match_case: false, next: false}`, Next and
+  Previous `{next: true, forward}`, and the host's `rb.find.result {matches,
+  active}` sets the bar's count; Done sends `rb.find.stop {keep_selection:
+  true}`. Under
   `CMUX_MOBILE_CONTROL=stdio` the app starts the hosts: hostd writes
   `{"type":"need_browser","request","tab","url"}` and the app answers
   `{"type":"browser","request","addr":"127.0.0.1:PORT","secret"}` or
@@ -758,6 +788,8 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `localhost-forward-v1` (2026-10-30): the host serves `localhost` (below).
   `cloud-directory-v1` and `cloud-acpmux-v1` (2026-11-01): the host can list
   and drive authenticated owner Cloud machines through the Mac carrier.
+  `cloud-desktop-v1` (2026-11-02): `surface` also streams an owned Cloud
+  machine's desktop, view only, on the key `c~<machine_id>~<team_id>` (below).
 - `localhost` (2026-10-30): `{"port"}` (1 to 65535, a number or a decimal
   string) one TCP connection to that port on the Mac's loopback: `127.0.0.1`,
   then `[::1]`. Data frames are the connection's bytes in each direction;
@@ -770,7 +802,11 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   names a host.
 - `surface`: `{"tab", "video"?, "video_tag"?}` a Mac phone tab showing a
   booted iOS simulator, streamed like a browser tab
-  (verify/simulator-surface.md). `tab` is the phone tab's key `s<surface>`;
+  (verify/simulator-surface.md). With `cloud-desktop-v1`, `tab` may instead be
+  `c~<machine_id>~<team_id>`: the desktop of a Cloud machine the account owns
+  (exactly one owner link from the app, else `forbidden`; not running: `asleep`),
+  view only: hostd sends the source no input from the phone.
+  `tab` is the phone tab's key `s<surface>`;
   hostd opens it only when the daemon's `list-workspaces` lists that surface
   as a page tab with `conversation.page: "phone"` (else `forbidden`; not a
   tab key: `bad_request`; a Mac that streams no simulators: `no_surface_host`,
@@ -1064,6 +1100,16 @@ The answer adds `wants`: the kinds any phone of the owner that has not muted
 this Mac still wants, so the host skips kinds nobody wants. It sends a
 skipped kind again 15 s after the answer, so a phone that turns a kind on
 gets it within about that.
+
+When some send failed, the answer also carries `failures`: one
+`{environment, status, reason}` per failed send, where `environment` is the
+phone's registered `sandbox` or `production`, `status` is APNs' HTTP status
+(0 when no answer came) and `reason` is APNs' reason word
+(`BadEnvironmentKeyInToken`, `TopicDisallowed`, `InvalidProviderToken`, ...),
+`network` when no answer came, or `unknown` for any other body. It never
+carries the device token, the topic or an error's text. Without a failure the
+field is absent, so the rest of the answer is unchanged. Sends APNs reports as
+gone count in `dropped`, not here.
 
 Only `eventId` and `kind` are required. Any other field that is malformed
 (an id outside its pattern, a value of the wrong type, an unknown `state`, an

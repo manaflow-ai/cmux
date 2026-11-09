@@ -21,8 +21,6 @@ export type AutomationHost = {
   selectSession(sessionId: string): void;
   /// The edited-files card's "View changes" path.
   openDiff(rowId: string): void;
-  /// The open changes view: whether it shows and the paths it lists.
-  diff(): { open: boolean; paths: string[] };
   /// The location row's folder pick (startFolder.tsx: the host takes it or asks first).
   pickFolder?(cwd: string): void;
   /// The composer itself: what Return sends, and where a new chat runs (composeSend, runMode).
@@ -82,6 +80,9 @@ export function automationState(host: AutomationHost) {
     harness: snapshot.summary?.harness ?? null,
     isWorking: snapshot.isWorking,
     rows: snapshot.rows.length,
+    /// Whether the chat's first frame drew from a kept tail (tailCache.ts, a fork's forkTail.ts):
+    /// on the frame it opened, with no cold fade (scripts/cmux-next/fork-open-bench.py).
+    drewKeptTail: snapshot.drewKeptTail === true,
     /// Whether older history remains to page in, and the oldest event seq the pane holds.
     canLoadOlder: snapshot.canLoadOlder,
     historyFrom: snapshot.historyFrom ?? null,
@@ -135,7 +136,6 @@ export function automationState(host: AutomationHost) {
     /// with no diff, a Write whose old contents are unknown), as the edited-files card lists them:
     /// once per file (model.ts `pathKey`), as its first path names it.
     changedFiles: changedFiles(snapshot.rows),
-    diff: host.diff(),
     /// What has the page's focus: composer, none, or the focused element.
     focus: focusedArea(typeof document === "undefined" ? null : document.activeElement),
   };

@@ -39,7 +39,7 @@ import { CONTRACT_PATH, lintTree, LOCK_PATH, readJson, readMigrations, rollbackS
 import { actor, receiptsDir, readReceipts, runIdOf, strandedBranches, summaryLine, withLocalLock, writeReceipt, type Receipt } from "./receipts.ts"
 import { compatNow } from "./compat.ts"
 import { describePlan, rehearsalReceipt, rehearseOnCopy, type RehearsalContext } from "./rehearsal.ts"
-import { adopt, applyPending, connectUrl, gate, planOf, planProblems, requirementsOf, schemaProblems, setHashOf, withLock, type Plan, type Sql } from "./runner.ts"
+import { adopt, applyPending, connectRetrying, connectUrl, gate, planOf, planProblems, requirementsOf, schemaProblems, setHashOf, withLock, type Plan, type Sql } from "./runner.ts"
 import { ownerPgRoleOf, REPO_ROOT, targetOf, TREE_NAMES, TREES, treeOf, type Target, type Tree } from "./trees.ts"
 
 export interface Deps {
@@ -60,9 +60,9 @@ export interface Deps {
   readonly ownerPgRole?: string | null
 }
 
-const defaultDeps = (): Deps => ({
+export const defaultDeps = (): Deps => ({
   provider: pscaleProvider(),
-  connect: connectUrl,
+  connect: (url) => connectRetrying(connectUrl, url),
   env: process.env,
   root: REPO_ROOT,
   now: () => new Date(),
@@ -359,12 +359,21 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
                   await staging.close()
                 }
               }
-              // Rehearse this exact set in this run (no receipt from elsewhere is trusted).
-              const context = rehearsalOf(plan, setHash)
-              const outcome = await rehearseOnCopy(context)
-              for (const w of outcome.warnings) deps.log(`warning: ${w}`)
-              emit(rehearsalReceipt(context, outcome, gitSha(deps)))
-              if (outcome.errors.length) throw new Refused(`the rehearsal failed; nothing was applied:\n  ${outcome.errors.join("\n  ")}`)
+              // Rehearse this exact set in this run (no receipt from elsewhere is trusted), unless
+              // --skip-rehearsal: the token cannot make the point-in-time copy (Leo, 2026-11-04: "flick the
+              // switch and yolo"). Every other check above (lint, owner, lock, compat, staging) still runs.
+              let rehearsedOn: string | undefined
+              if (flag("--skip-rehearsal")) {
+                deps.log("rehearsal skipped (skip_rehearsal=true): no restore-backup scope on the token")
+                warnings.push("rehearsal skipped (--skip-rehearsal)")
+              } else {
+                const context = rehearsalOf(plan, setHash)
+                const outcome = await rehearseOnCopy(context)
+                for (const w of outcome.warnings) deps.log(`warning: ${w}`)
+                emit(rehearsalReceipt(context, outcome, gitSha(deps)))
+                if (outcome.errors.length) throw new Refused(`the rehearsal failed; nothing was applied:\n  ${outcome.errors.join("\n  ")}`)
+                rehearsedOn = outcome.branch
+              }
               const sha = gitSha(deps)
               if (verifiedHead) stillAt(realRoot, tree, verifiedHead)
               const result = await applyPending(db.sql, tree, files, { by, allowContract, target })
@@ -373,7 +382,7 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
               const afterPlan = await planOf(db.sql, tree, files)
               emit({
                 action: "apply",
-                what: `apply ${result.applied.join(", ")} to ${tree.database}/${tree.branches[target]} from ${target === "production" ? `git ${verifiedHead?.slice(0, 12)} (on origin/feat-cmux-next ${base?.slice(0, 12)})` : `${deps.root}${sha ? ` (HEAD ${sha.slice(0, 12)})` : ""}`} after rehearsal on ${outcome.branch}`,
+                what: `apply ${result.applied.join(", ")} to ${tree.database}/${tree.branches[target]} from ${target === "production" ? `git ${verifiedHead?.slice(0, 12)} (on origin/feat-cmux-next ${base?.slice(0, 12)})` : `${deps.root}${sha ? ` (HEAD ${sha.slice(0, 12)})` : ""}`} ${rehearsedOn ? `after rehearsal on ${rehearsedOn}` : "with the rehearsal skipped"}`,
                 tree: tree.name,
                 target,
                 before: [...plan.applied.keys()].sort(),

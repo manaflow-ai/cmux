@@ -2,7 +2,7 @@
 """The perf cron's decisions (scripts/cmux-next/perf-cron.py): what a tick runs, when it yields to the fleet,
 what counts as a regression, and when the one issue opens, comments and closes. Pure functions only (no
 network, no git). Run: python3 -I scripts/cmux-next/tests/test_perf_cron.py (not a CI job, Lawrence 2026-10-23)."""
-import argparse, datetime, importlib.util, io, json, os, tempfile, unittest, urllib.error, urllib.request
+import argparse, contextlib, datetime, importlib.util, io, json, os, tempfile, unittest, urllib.error, urllib.request
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -23,7 +23,8 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-FLEET = [n for n in ALL if n not in ("build", "diff-viewer")]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale"]
+FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
 def confirm_all(state, regs, cur, run_url, t, regression):
@@ -148,6 +149,8 @@ class RegressionTests(unittest.TestCase):
         self.assertTrue(cron.over_target("cmd_t.idle.key_to_visible", row(12.0), 16.67))
         self.assertTrue(cron.over_target("perf_gate.tabs.failed_checks", row(1, "checks"), 16.67))
         self.assertIsNone(cron.target_of("anim.tab.over_8_33", row(3.0), 16.67))
+        self.assertIsNone(cron.target_of("workspace_scaling.type.1000", row(99.0), 16.67),
+                          "workspace scaling is advisory ratio-only")
 
     def test_a_new_perf_gate_failure_regresses(self):
         regs = cron.find_regressions({"perf_gate.tabs.failed_checks": row(1, "checks", 0.5)},
@@ -467,9 +470,116 @@ class DiffTests(unittest.TestCase):
         self.assertFalse(cron.over_target("diff.sidecar.manifest_decode_p95", rows["diff.sidecar.manifest_decode_p95"], None))
         self.assertEqual(cron.part_for_row("diff.stream.p95"), "diff-viewer")
 
+    def test_a_busy_runner_divides_the_stream_row_by_its_bench_contention(self):
+        report = {"sidecar": {"manifestDecodeP95Micros": 400, "sequentialReadMibPerSecond": 1024.0},
+                  "stream": {"p95Ms": 120.0}, "load": {"sidecar": 1.0, "stream": 2.0}}
+        rows = cron.rows_of_part(cron.PART_BY_NAME["diff-viewer"], report, budgets_mod, {"rows": {}})
+        self.assertEqual(rows["diff.stream.p95"]["p95"], 60.0)
+        self.assertEqual(rows["diff.stream.p95"]["raw_p95"], 120.0)
+        self.assertEqual(rows["diff.stream.p95"]["load"], 2.0)
+        self.assertEqual(rows["diff.sidecar.manifest_decode_p95"]["p95"], 400, "a factor of 1 leaves the row as measured")
+        self.assertNotIn("load", rows["diff.sidecar.manifest_decode_p95"])
+
+    def test_the_sidecar_medians_of_short_reads_are_never_scaled(self):
+        """#39309 F1: a busy run's 89.22 ms/GiB divided by 4 would make the next idle 74.03 a regression."""
+        report = {"sidecar": {"manifestDecodeP95Micros": 400, "sequentialReadMibPerSecond": 1024 * 1000 / 89.22},
+                  "stream": {"p95Ms": 120.0}, "load": {"sidecar": 4.0, "stream": 1.0}}
+        rows = cron.rows_of_part(cron.PART_BY_NAME["diff-viewer"], report, budgets_mod, {"rows": {}})
+        self.assertEqual(rows["diff.sidecar.read_ms_per_gib"]["p95"], 89.22)
+        self.assertEqual(rows["diff.sidecar.read_ms_per_gib"]["load"], 4.0)
+        self.assertNotIn("raw_p95", rows["diff.sidecar.read_ms_per_gib"])
+        self.assertEqual(rows["diff.sidecar.manifest_decode_p95"]["p95"], 400)
+
+    def test_the_contention_factor_is_the_median_clamped(self):
+        self.assertEqual(cron.contention_factor([1.01, 0.97, 1.0]), 1.0)
+        self.assertEqual(cron.contention_factor([2.1, 1.9, 2.0, 30]), 2.05)
+        self.assertEqual(cron.contention_factor([50, 60]), cron.CONTENTION_MAX)
+        self.assertEqual(cron.contention_factor([]), 1.0)
+        self.assertGreater(cron.spin_ratio(0.005), 0.5)
+
     def test_the_last_json_object_a_bench_printed(self):
         self.assertEqual(cron.last_json_object('Compiling\n{\n "a": 1\n}\nnoise\n{\n "b": 2\n}\n'), {"b": 2})
         self.assertIsNone(cron.last_json_object("no json here"))
+
+
+class WebUiTests(unittest.TestCase):
+    """The web-ui part: webviews/bench/web-ui-suite.ts's report, its rows and the run on Linux."""
+    REPORT = {"rows": [{"name": "chat_switch.unread.latest", "p50": 80, "p95": 140, "unit": "ms", "target": 100},
+                       {"name": "edit_turns.full.20000", "p95": 0.44},
+                       {"name": "chat_open.compact.latest", "p95": 600, "target": 1000, "version": 2, "floor": 25},
+                       {"name": "Bad Name", "p95": 1}, {"name": "no_p95"}],
+              "failed": []}
+
+    def test_rows_carry_target_floor_and_version(self):
+        rows = cron.rows_of_part(cron.PART_BY_NAME["web-ui"], self.REPORT, budgets_mod, {"rows": {}})
+        self.assertEqual(sorted(rows), ["webui.chat_open.compact.latest", "webui.chat_switch.unread.latest",
+                                        "webui.edit_turns.full.20000"], "a malformed row is dropped")
+        switch, edit, load = (rows[f"webui.{n}"] for n in ("chat_switch.unread.latest", "edit_turns.full.20000",
+                                                           "chat_open.compact.latest"))
+        self.assertEqual((switch["p50"], switch["p95"], switch["budget"], switch["floor"]), (80, 140, 100, 14.0))
+        self.assertEqual((edit["p50"], edit["budget"], edit["measure_version"]), (0.44, None, cron.DIFF_LEGACY_VERSION))
+        self.assertEqual((load["floor"], load["measure_version"]), (25, 2))
+        self.assertEqual(cron.target_of("webui.chat_switch.unread.latest", switch, None), 100)
+        self.assertIsNone(cron.target_of("webui.edit_turns.full.20000", edit, None), "no target, not the 10 ms default")
+        self.assertTrue(cron.over_target("webui.chat_switch.unread.latest", switch, None))
+        self.assertFalse(any(cron.frame_sensitive(n, r) for n, r in rows.items()), "judged without a display refresh")
+
+    def test_the_part_is_linux_and_owns_the_webui_rows(self):
+        self.assertTrue(cron.is_linux_part("web-ui"))
+        self.assertEqual(cron.part_for_row("webui.chat_open.compact.latest@blacksmith-4vcpu-ubuntu-2404"), "web-ui")
+        self.assertTrue(cron.linux_row("webui.chat_open.compact.latest@blacksmith-4vcpu-ubuntu-2404"))
+        self.assertIsNone(cron.mac_host("webui.chat_open.compact.latest@blacksmith-4vcpu-ubuntu-2404"))
+        self.assertEqual(cron.part_config("diff-viewer"), "9c9749c7fe76", "the diff-viewer rows are not rebased")
+        self.assertNotEqual(cron.part_config("web-ui"), cron.part_config("diff-viewer"))
+
+    def test_the_update_one_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-scale"))
+        self.assertEqual(cron.part_for_row("webui.update_one.home.status.n3000@linux"), "web-ui-scale")
+        self.assertEqual(cron.part_for_row("webui.update_one.chat.title.growth@linux"), "web-ui-scale")
+        self.assertEqual(cron.part_for_row("webui.chat_open.compact.latest@linux"), "web-ui")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-scale")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "update-one"])
+        self.assertEqual(cwd, "/r/webviews")
+
+    def test_a_regression_of_a_webui_row(self):
+        name = "webui.chat_switch.unread.latest@linux"
+        base = {name: {**row(80.0, floor=8.0), "budget": 100}}
+        regs = cron.find_regressions({name: {**row(95.0, floor=9.5), "budget": 100}}, base, None, None, budgets_mod)
+        self.assertEqual([r["name"] for r in regs], [name])
+        self.assertEqual(cron.find_regressions({name: {**row(86.0, floor=8.6), "budget": 100}}, base, None, None,
+                                               budgets_mod), [], "within 10 %")
+
+    def test_a_failed_bench_makes_the_report_incomplete(self):
+        part = cron.PART_BY_NAME["web-ui"]
+        self.assertFalse(cron.report_is_incomplete(part, self.REPORT))
+        self.assertTrue(cron.report_is_incomplete(part, {**self.REPORT, "incomplete": ["chat-open: exit 1"]}))
+
+    def test_the_summary_is_slowest_first_relative_to_target(self):
+        lines = cron.webui_summary({**self.REPORT, "failed": [{"bench": "chat-open", "why": "exit 1"}]})
+        names = [line.split(" | ")[0].lstrip("| ") for line in lines[2:] if line.startswith("|")]
+        self.assertEqual(names[:3], ["webui.chat_switch.unread.latest", "webui.chat_open.compact.latest",
+                                     "webui.edit_turns.full.20000"])
+        self.assertIn("| webui.chat_switch.unread.latest | 140 ms | 100 ms | 140 % |", lines)
+        self.assertEqual(lines[-1], "failed: chat-open (exit 1)")
+
+    def run_part(self, printed):
+        script = f"import json; print('noise'); print(json.dumps({printed!r}))"
+        with tempfile.TemporaryDirectory() as out, \
+                mock.patch.object(cron, "linux_bench_runs", lambda root, part: {"suite": (["python3", "-c", script], out, {})}), \
+                contextlib.redirect_stdout(io.StringIO()) as printed_out:
+            cron.cmd_run_linux_part(argparse.Namespace(part="web-ui", out=out, runner_class="ubuntu-24.04"))
+            result, report = (json.load(open(os.path.join(out, n))) for n in ("result.json", "report.json"))
+        return result, report, printed_out.getvalue()
+
+    def test_run_linux_part_records_failed_benches(self):
+        result, report, printed = self.run_part({**self.REPORT, "failed": [{"bench": "chat-open", "why": "exit 1"}]})
+        self.assertEqual((result["state"], result["worker"]), ("done", "ubuntu-24.04"))
+        self.assertEqual(report["incomplete"], ["chat-open: exit 1"])
+        self.assertIn("chat-open: exit 1", result["tail"])
+        self.assertIn("perf-cron web-ui: failed: chat-open (exit 1)", printed)
+        self.assertNotIn("bench_versions", report)
+        result, report, _ = self.run_part({"rows": [], "failed": [{"bench": "chat-open", "why": "exit 1"}]})
+        self.assertEqual(result["state"], "failed", "no row at all is no measurement")
 
 
 class IncompleteTests(OneRunRule):
@@ -927,10 +1037,10 @@ class Review2Tests(OneRunRule):
         d = cron.decide(state, T0, "a" * 40, None, lambda sha: ALL, None, mac_disabled=why)
         self.assertEqual((d["part"], d["linux_part"]), ("", "diff-viewer"))
         cur = state["current"]
-        self.assertEqual(cur["parts_todo"], ["diff-viewer"])
+        self.assertEqual(cur["parts_todo"], LINUX_PARTS)
         self.assertEqual(cur["parts"]["stress"], {"state": "disabled", "reason": why})
         cur["parts_todo"] = []
-        cur["parts"]["diff-viewer"] = {"state": "done"}
+        cur["parts"]["diff-viewer"] = cur["parts"]["web-ui"] = {"state": "done"}
         event = cron.finish_measurement(state, {"diff.stream.p95": row(20.0)}, None, "linux", "r", T0, budgets_mod)
         self.assertEqual(event, "first")
         self.assertIsNone(state["last"], "a Linux-only measurement does not reset the stale clock")
@@ -2392,10 +2502,22 @@ class DiffBenchVersionTests(unittest.TestCase):
                       "stream": {"p95Ms": 19.0}, "bench_versions": {"sidecar": 1, "stream": stream_version}}
             return cron.rows_of_part(part, report, budgets_mod, {"rows": {}, "_animations": {}})
         base = rows(1)
-        self.assertEqual(base["diff.stream.p95"]["measure_version"], 1)
-        legacy = {n: {k: v for k, v in r.items() if k != "measure_version"} for n, r in base.items()}
-        self.assertEqual(cron.version_changed(rows(1), legacy), [], "a reference stored before versions is version 1")
+        self.assertEqual(base["diff.stream.p95"]["measure_version"], 1 + 100 * cron.DIFF_LOAD_VERSION)
+        self.assertEqual(cron.version_changed(rows(1), base), [])
         self.assertEqual(cron.version_changed(rows(2), base), ["diff.stream.p95"])
+
+    def test_a_change_of_load_normalization_rebases_every_diff_row(self):
+        """#39353 F1: a sidecar reference scaled by #39309 (22.3 ms/GiB at factor 4) is not compared with a raw 74."""
+        part = cron.PART_BY_NAME["diff-viewer"]
+        report = {"sidecar": {"manifestDecodeP95Micros": 3, "sequentialReadMibPerSecond": 1024 * 1000 / 74.03},
+                  "stream": {"p95Ms": 19.0}, "bench_versions": {"sidecar": 1, "stream": 1}}
+        now = cron.rows_of_part(part, report, budgets_mod, {"rows": {}, "_animations": {}})
+        scaled = {n: {**r, "measure_version": 101} for n, r in now.items()}
+        scaled["diff.sidecar.read_ms_per_gib"]["p95"] = 22.305
+        legacy = {n: {k: v for k, v in r.items() if k != "measure_version"} for n, r in now.items()}
+        every = sorted(now)
+        self.assertEqual(cron.version_changed(now, scaled), every)
+        self.assertEqual(cron.version_changed(now, legacy), every, "a reference stored before versions is unscaled v1")
 
 
 

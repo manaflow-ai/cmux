@@ -3,12 +3,18 @@
 
 use super::*;
 
+mod created_views;
 mod effect_commit;
 
+pub(crate) use created_views::CreatedViewCommit;
+
 impl Mux {
+    /// The registry's id and generation. Both are fixed when the registry
+    /// opens, so this never waits on its lock: about twenty request paths
+    /// (every mutation's reply, `list-workspaces`, `identify`) read them, and
+    /// waited seconds behind durable commits for two constants.
     pub fn registry_identity(&self) -> (String, String) {
-        let registry = self.workspace_registry.lock().unwrap();
-        (registry.registry_id().to_string(), registry.generation().to_string())
+        self.registry_identity.clone()
     }
 
     pub fn install_resource_machine_service(
@@ -277,14 +283,75 @@ impl Mux {
             None,
             |state, registry| {
                 let projection = self.resource_effect_projection_locked(registry, state, result)?;
-                Ok(ResourceMutationPlan::new(
-                    projection.patch,
-                    projection.result,
-                    projection.changes,
-                    |_| {},
-                ))
+                Ok(projection_plan(projection))
             },
         )
+    }
+
+    /// [`Self::commit_full_resource_projection_with_mutation`] for a terminal
+    /// just created as `surface` in the workspace whose key is
+    /// `workspace_key`: once the public fold is seeded, only the workspace
+    /// the surface is in now (a concurrent move can bind it elsewhere) and
+    /// the requested one are projected, as
+    /// [`Self::created_view_projection_locked`] does for an effect commit, so
+    /// the commit and its journal record do not grow with the session. When
+    /// the surface is in no workspace, the projection is full. Each keyed
+    /// `create-terminal` restated every live resource, about 1500 upserts and
+    /// 650 KB on the session stream per create at 290 workspaces in the
+    /// classic import.
+    #[track_caller]
+    pub(crate) fn commit_created_terminal_projection_with_mutation(
+        &self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+        workspace_key: &str,
+        surface: Option<SurfaceId>,
+        result: Value,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        self.commit_resource_mutation_plan(
+            mutation,
+            operation,
+            fingerprint,
+            None,
+            None,
+            |state, registry| {
+                let placed = surface
+                    .and_then(|surface| state.pane_of(surface))
+                    .and_then(|pane| state.screen_of(pane))
+                    .and_then(|(workspace, _)| state.workspaces.get(workspace))
+                    .map(|workspace| workspace.public_id.clone());
+                let scope = placed.filter(|_| registry.public_fold_seeded()).map(|placed| {
+                    let requested = state
+                        .workspace_by_key(workspace_key)
+                        .map(|workspace| workspace.public_id.clone())
+                        .filter(|requested| *requested != placed);
+                    std::iter::once(placed).chain(requested).collect::<Vec<_>>()
+                });
+                let projection = match scope {
+                    Some(scope) => self.resource_effect_projection_scoped_locked(
+                        registry, state, &scope, result,
+                    )?,
+                    None => self.resource_effect_projection_locked(registry, state, result)?,
+                };
+                Ok(projection_plan(projection))
+            },
+        )
+    }
+
+    /// Records why a resource effect's outcome is unknown. A
+    /// `mutation.indeterminate` response carries no cause, so this log line is
+    /// the only evidence of it. `cause` must not hold raw transport text that
+    /// can name private sockets or credentials.
+    pub(crate) fn report_resource_effect_indeterminate(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        cause: &str,
+    ) {
+        self.report_internal_diagnostic(format!(
+            "resource effect {operation} (idempotency key {idempotency_key}) is indeterminate: {cause}"
+        ));
     }
 
     #[track_caller]
@@ -382,4 +449,15 @@ impl Mux {
             .terminal_record(&host_id)?
             .is_some_and(|terminal| terminal.lifecycle != TerminalLifecycle::Tombstoned))
     }
+}
+
+/// The plan that commits `projection`: its commit drops the upserts the
+/// journal already states (a scoped walk still restates every workspace's
+/// row), and a full projection's, unpruned, may seed the public fold.
+fn projection_plan(projection: ResourceEffectProjection) -> ResourceMutationPlan {
+    let mut plan =
+        ResourceMutationPlan::new(projection.patch, projection.result, projection.changes, |_| {});
+    plan.restates_all = projection.restates_all;
+    plan.prunes_stated = true;
+    plan
 }

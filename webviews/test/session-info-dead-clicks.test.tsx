@@ -9,9 +9,11 @@
 // - a chevron (`disclosure.*`) is drawn only inside something that clicks;
 // - a disabled button never takes a hover background (a rule's `:hover` that would match it), so
 //   what cannot be clicked never looks as if it could.
-// A background task's row opens its terminal in a chat on this Mac; a peer's (SSH) or Cloud chat's
-// has none, so the row shows the Bash call that started it, or, with no call to show, is not a
-// button at all and says why (cmux#24116's audit).
+// A background task's row opens its terminal in a chat on this Mac or a Cloud chat (on its machine);
+// a peer's (SSH) chat's has none, so the row shows the Bash call that started it, or, with no call
+// to show, is not a button at all and says why (cmux#24116's audit).
+// Every section in view (`setSessionInfoMore(true)`): the panel's compact default view is
+// session-info-compact-default.test.tsx's.
 import { afterAll, expect, setSystemTime, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -61,7 +63,8 @@ const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { SessionInfo } = await import("../src/agent-session/acpmux/session-info/SessionInfo");
-const { resetSessionInfoState } = await import("../src/agent-session/acpmux/session-info/sessionInfoState");
+const { resetSessionInfoState, setSessionInfoMore } =
+  await import("../src/agent-session/acpmux/session-info/sessionInfoState");
 const { SubagentTray } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
 const { openCommand } = await import("../src/agent-session/acpmux/processTerminal");
 const gallery = (await import("../src/agent-session/acpmux/session-info/SessionInfo.gallery")).default;
@@ -217,9 +220,11 @@ function hoverOnDisabled(container: HTMLElement): string[] {
 
 test("every clickable thing in Session Info does something, and nothing else looks clickable", async () => {
   resetSessionInfoState();
+  setSessionInfoMore(true);
   const container = mount();
   const calls: string[] = [];
-  const busy = gallery.variants["subagents-busy"]!.props as SessionInfoProps;
+  // The pane's own Show more (opened above), so its row is a live toggle here.
+  const busy = { ...(gallery.variants["subagents-busy"]!.props as SessionInfoProps), more: undefined };
   const props = spied<SessionInfoProps>(busy, calls);
   const root = createRoot(container);
   await act(async () => root.render(createElement(SessionInfo, props)));
@@ -231,22 +236,15 @@ test("every clickable thing in Session Info does something, and nothing else loo
   for (const id of ["environment", "context", "connectors", "changes", "subagents", "tasks", "outputs"])
     expect(sections).toContain(id);
   // The dev servers head Background tasks (SessionInfo.tsx RAIL_LAYOUT).
-  expect(container.querySelector('section[data-section="tasks"] .acpmux-session-info-server')).not.toBeNull();
+  expect(container.querySelector('section[data-section="tasks"] [data-kind="server"]')).not.toBeNull();
   expect(container.querySelector(".acpmux-session-info-subagents__more")).not.toBeNull();
   expect(container.querySelector(".acpmux-session-info-subagents__ended")).not.toBeNull();
-  // Ended-agent avatars preview the fold; their containing button owns the click.
-  const avatars = [...container.querySelectorAll(".cv-subagent-avatar")];
-  expect(avatars.length).toBeGreaterThan(0);
-  for (const avatar of avatars) {
-    expect(avatar.closest("button.acpmux-session-info-subagents__ended")).not.toBeNull();
-    expect(avatar.closest('[aria-hidden="true"]')).not.toBeNull();
-  }
   expect(loneChevrons(container)).toEqual([]);
   const { dead, clicked } = await deadClicks(container, calls);
   expect(dead).toEqual([]);
   // The folds opened as it went: every ended subagent's line was clicked too.
   expect(clicked).toBeGreaterThan(150);
-  for (const handler of ["onOpenSubagent", "onOpenSession", "onOpenUrl", "onOpenOutput", "onStopProcess"])
+  for (const handler of ["onOpenSubagent", "onOpenSession", "onOpenUrl", "onStopProcess"])
     expect(calls).toContain(handler);
   // A background task's row opens its terminal through the host.
   expect(native).toContain("chat.processTerminal");
@@ -260,7 +258,7 @@ const agent = (index: number, fields: Partial<Subagent> = {}): Subagent => ({
   id: `tray-${index}`,
   parent: null,
   name: `Lane ${index}`,
-  task: "Land one piece",
+  task: `Land piece ${index}`,
   state: "running",
   startedAt: started - (index + 1) * 60_000,
   action: "Reading SubagentTray.tsx",
@@ -310,8 +308,13 @@ test("every line of the tray, and its header, does something", async () => {
   const { dead } = await deadClicks(container, calls);
   expect(dead).toEqual([]);
   for (const handler of ["onOpen", "onOpenCommand", "onOpenSession"]) expect(calls).toContain(handler);
+  // Folded, the header names what runs; open, it reads the counts (#33104), so the sweep sees it as a
+  // second control and its last round, the one that clicks what closes, folds the tray again. Open it
+  // to reach the lines' menus.
+  const head = container.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+  if (head.getAttribute("aria-expanded") !== "true") await act(async () => head.click());
   // A line's Stop is in its context menu (#28533), and each one there does something too.
-  for (const name of ["Lane 0", "bun run dev"]) {
+  for (const name of ["Land piece 0", "bun run dev"]) {
     const line = [...container.querySelectorAll<HTMLElement>(".acpmux-agent-line")].find((each) =>
       each.textContent?.includes(name),
     )!;
@@ -333,6 +336,7 @@ test("every line of the tray, and its header, does something", async () => {
 
 test("a line that cannot open (no handler) is disabled and never lights on hover", async () => {
   resetSessionInfoState();
+  setSessionInfoMore(true);
   const container = mount();
   const agents: Subagent[] = [agent(0), agent(1, { state: "completed", endedAt: started })];
   const root = createRoot(container);
@@ -364,6 +368,7 @@ const taskProcesses = [
 /// Session Info of a chat whose summary is `place`, its Background tasks open; the rows by command.
 async function tasksOf(place: Partial<NonNullable<SessionInfoProps["summary"]>>, calls: string[]) {
   resetSessionInfoState();
+  setSessionInfoMore(true);
   const container = mount();
   const root = createRoot(container);
   const props = spied<SessionInfoProps>(
@@ -386,10 +391,7 @@ async function tasksOf(place: Partial<NonNullable<SessionInfoProps["summary"]>>,
   return { container, root, row };
 }
 
-for (const [label, place] of [
-  ["an SSH peer's", { peer: "huge-blue", host: "huge-blue" }],
-  ["a Cloud", { host: "cloud-vm-1", hostKind: "cloud" as const }],
-] as const)
+for (const [label, place] of [["an SSH peer's", { peer: "huge-blue", host: "huge-blue" }]] as const)
   test(`${label} chat's background task row shows its Bash call, or is not clickable and says why`, async () => {
     const calls: string[] = [];
     native.length = 0;
@@ -411,27 +413,33 @@ for (const [label, place] of [
     await act(async () => root.unmount());
   });
 
-test("a local chat's background task row opens its terminal, else its Bash call", async () => {
-  const calls: string[] = [];
-  native.length = 0;
-  const { root, row } = await tasksOf({}, calls);
-  await act(async () => row("pytest -x").click());
-  await settle();
-  expect(native).toContain("chat.processTerminal");
-  expect(calls).not.toContain("onShowCall");
-  // Its call not loaded, it still tries the terminal.
-  expect(row("cargo watch").disabled).toBe(false);
-  // The host refuses (no hook): the row shows the call instead.
-  terminalOpens = false;
-  try {
+// "Whatever works on a local chat should work on a Cloud chat" (Leo, cmuxterm-hq#7856): a Cloud
+// chat's terminal opens on its machine (AgentPaneProcessViewer `onChatMachine`).
+for (const [label, place] of [
+  ["a local", {}],
+  ["a Cloud", { host: "cloud-vm-1", hostKind: "cloud" as const }],
+] as const)
+  test(`${label} chat's background task row opens its terminal, else its Bash call`, async () => {
+    const calls: string[] = [];
+    native.length = 0;
+    const { root, row } = await tasksOf(place, calls);
     await act(async () => row("pytest -x").click());
     await settle();
-    expect(calls).toContain("onShowCall");
-  } finally {
-    terminalOpens = true;
-  }
-  await act(async () => root.unmount());
-});
+    expect(native).toContain("chat.processTerminal");
+    expect(calls).not.toContain("onShowCall");
+    // Its call not loaded, it still tries the terminal.
+    expect(row("cargo watch").disabled).toBe(false);
+    // The host refuses (no hook): the row shows the call instead.
+    terminalOpens = false;
+    try {
+      await act(async () => row("pytest -x").click());
+      await settle();
+      expect(calls).toContain("onShowCall");
+    } finally {
+      terminalOpens = true;
+    }
+    await act(async () => root.unmount());
+  });
 
 test("the tray's command line opens the terminal, else the Bash call, else says it opened nothing", async () => {
   native.length = 0;

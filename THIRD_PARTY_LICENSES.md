@@ -1140,12 +1140,15 @@ unchanged, for each rustc that built one of its binaries:
   `bin/cmux-diff-sidecar`
 
 The app (GhosttyNextKit), `bin/cmux` and `bin/cmux-tui-ssh/*` (libghostty-vt)
-and `bin/ghostty` link the Zig 0.16.0 standard library and compiler_rt:
+link the Zig 0.17.0 standard library and compiler_rt, and `bin/ghostty` links
+the Zig 0.16.0 standard library and compiler_rt:
 
 - **License:** MIT License (Expat)
 - **Copyright:** Copyright (c) Zig contributors
-- **Source:** https://ziglang.org/download/0.16.0/zig-0.16.0.tar.xz
-- **License text:** `Contents/Resources/toolchain-licenses/zig-0.16.0/LICENSE`
+- **Source:** https://ziglang.org/download/0.17.0/zig-0.17.0.tar.xz and
+  https://ziglang.org/download/0.16.0/zig-0.16.0.tar.xz
+- **License text:** `Contents/Resources/toolchain-licenses/zig-0.17.0/LICENSE`
+  and `Contents/Resources/toolchain-licenses/zig-0.16.0/LICENSE` (the same text)
 
 The MIT License (Expat)
 
@@ -1174,7 +1177,7 @@ THE SOFTWARE.
 <!-- notices-section: manual-musl-in-the-zig-standard-library -->
 ## musl (in the Zig standard library)
 
-GhosttyNextKit (Ghostty's terminal library in this app) contains code from the Zig standard library that Zig ported from musl: std.math.cbrt (musl src/math/cbrtf.c and src/math/cbrt.c), which Ghostty's terminal I/O uses to generate its 256-color palette. musl is licensed under the MIT license. The text below is the COPYRIGHT file of musl 1.2.5 (https://musl.libc.org/releases/musl-1.2.5.tar.gz), the musl release that Zig 0.16.0 bundles.
+GhosttyNextKit (Ghostty's terminal library in this app) contains code from the Zig standard library that Zig ported from musl: std.math.cbrt (musl src/math/cbrtf.c and src/math/cbrt.c), which Ghostty's terminal I/O uses to generate its 256-color palette. musl is licensed under the MIT license. The text below is the COPYRIGHT file of musl 1.2.5 (https://musl.libc.org/releases/musl-1.2.5.tar.gz), the musl release that Zig 0.17.0 bundles.
 
 ```text
 musl as a whole is licensed under the following standard MIT license:
@@ -1471,6 +1474,319 @@ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
 THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+---
+
+<!-- notices-section: manual-noto-emoji-svg-artwork-gallery-only -->
+## Noto Emoji SVG artwork (gallery only)
+
+Representative cat artwork is vendored for icon-theme comparison only, not enabled in the app.
+Pinned sources and hashes: `design/icons/neko-candidates/manifest.json`.
+
+```text
+Copyright 2013 Google, Inc. All Rights Reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+   Copyright [yyyy] [name of copyright owner]
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+```
+
+---
+
+<!-- notices-section: manual-fluent-emoji-flat-artwork-gallery-only -->
+## Fluent Emoji Flat artwork (gallery only)
+
+Representative cat artwork is vendored for icon-theme comparison only, not enabled in the app.
+Pinned sources and hashes: `design/icons/neko-candidates/manifest.json`.
+
+```text
+    MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+```
+
+---
+
+<!-- notices-section: manual-lucide-cat-icon-gallery-only -->
+## Lucide cat icon (gallery only)
+
+Representative cat artwork is vendored for icon-theme comparison only, not enabled in the app.
+Pinned sources and hashes: `design/icons/neko-candidates/manifest.json`.
+
+```text
+ISC License
+
+Copyright (c) 2026 Lucide Icons and Contributors
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+---
+
+The following Lucide icons are derived from the Feather project:
+
+airplay, alert-circle, alert-octagon, alert-triangle, aperture, arrow-down-circle, arrow-down-left, arrow-down-right, arrow-down, arrow-left-circle, arrow-left, arrow-right-circle, arrow-right, arrow-up-circle, arrow-up-left, arrow-up-right, arrow-up, at-sign, calendar, cast, check, chevron-down, chevron-left, chevron-right, chevron-up, chevrons-down, chevrons-left, chevrons-right, chevrons-up, circle, clipboard, clock, code, columns, command, compass, corner-down-left, corner-down-right, corner-left-down, corner-left-up, corner-right-down, corner-right-up, corner-up-left, corner-up-right, crosshair, database, divide-circle, divide-square, dollar-sign, download, external-link, feather, frown, hash, headphones, help-circle, info, italic, key, layout, life-buoy, link-2, link, loader, lock, log-in, log-out, maximize, meh, minimize, minimize-2, minus-circle, minus-square, minus, monitor, moon, more-horizontal, more-vertical, move, music, navigation-2, navigation, octagon, pause-circle, percent, plus-circle, plus-square, plus, power, radio, rss, search, server, share, shopping-bag, sidebar, smartphone, smile, square, table-2, tablet, target, terminal, trash-2, trash, triangle, tv, type, upload, x-circle, x-octagon, x-square, x, zoom-in, zoom-out
+
+The MIT License (MIT) (for the icons listed above)
+
+Copyright (c) 2013-present Cole Bemis
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
 
 ---
 
@@ -2054,6 +2370,46 @@ Generated by cmux-tui/build-support/notices/rust_notices.py from `cmux-tui/Cargo
 
 ---
 
+<!-- notices-section: rust-cmux-agent-screen-detection -->
+## Rust crates: agent screen-detection plugin (bin/cmux-agent-screen-detection)
+
+Generated by cmux-tui/build-support/notices/rust_notices.py from `cmux-tui/bindings/examples/rust-agent-screen-detection/Cargo.lock at the cmux-tui pin 4a232fc2c61` (roots: cmux-agent-screen-detection; targets: aarch64-apple-darwin, x86_64-apple-darwin; closure: lock text). Each crate lists its license files; identical license texts are printed once, under "License texts".
+
+- **aho-corasick 1.1.5**: Unlicense OR MIT. Source: https://crates.io/api/v1/crates/aho-corasick/1.1.5/download. Files: `COPYING` (text 01c266bced4a), `LICENSE-MIT` (text 0f96a83840e1), `UNLICENSE` (text 7e12e5df4bae)
+- **base64 0.22.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/base64/0.22.1/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 0dd882e53de1)
+- **block-buffer 0.10.4**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/block-buffer/0.10.4/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text d5c22aa3118d)
+- **cfg-if 1.0.4**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/cfg-if/1.0.4/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 378f5840b258)
+- **cmux-agent-screen-detection 0.1.0**: GPL-3.0-or-later AND Apache-2.0. Source: https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-4a232fc2c61/cmux-tui/bindings/examples/rust-agent-screen-detection. Files: `LICENSE` (text 9a430cd033a2)
+- **cmux-sdk 1.0.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-4a232fc2c61/cmux-tui/bindings/rust. Files: `LICENSE` (text 9a430cd033a2)
+- **cpufeatures 0.2.17**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/cpufeatures/0.2.17/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text ae9baa7beea9)
+- **crypto-common 0.1.7**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/crypto-common/0.1.7/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text 3521672491a3)
+- **digest 0.10.7**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/digest/0.10.7/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text 9e0dfd2dd417)
+- **equivalent 1.0.2**: Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/equivalent/1.0.2/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 7365cc8878a1)
+- **generic-array 0.14.7**: MIT. Source: https://crates.io/api/v1/crates/generic-array/0.14.7/download. Files: `LICENSE` (text c09aae9d3c77)
+- **getrandom 0.3.4**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/getrandom/0.3.4/download. Files: `LICENSE-APACHE` (text aaff376532ea), `LICENSE-MIT` (text 29e9fe5074bd)
+- **hashbrown 0.17.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/hashbrown/0.17.1/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text ff8f68cb076c)
+- **indexmap 2.14.1**: Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/indexmap/2.14.1/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text ecc269ef87fd)
+- **itoa 1.0.18**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/itoa/1.0.18/download. Files: `LICENSE-APACHE` (text 62c7a1e35f56), `LICENSE-MIT` (text 23f18e03dc49)
+- **libc 0.2.189**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/libc/0.2.189/download. Files: `LICENSE-APACHE` (text 62c7a1e35f56), `LICENSE-MIT` (text 123a331b5dbf)
+- **memchr 2.8.3**: Unlicense OR MIT. Source: https://crates.io/api/v1/crates/memchr/2.8.3/download. Files: `COPYING` (text 01c266bced4a), `LICENSE-MIT` (text 0f96a83840e1), `UNLICENSE` (text 7e12e5df4bae)
+- **regex 1.13.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/regex/1.13.1/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 6485b8ed310d)
+- **regex-automata 0.4.18**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/regex-automata/0.4.18/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 6485b8ed310d)
+- **regex-syntax 0.8.11**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/regex-syntax/0.8.11/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 6485b8ed310d), `src/unicode_tables/LICENSE-UNICODE` (text 74db5baf44a4)
+- **serde 1.0.229**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/serde/1.0.229/download. Files: `LICENSE-APACHE` (text 62c7a1e35f56), `LICENSE-MIT` (text 23f18e03dc49)
+- **serde_core 1.0.229**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/serde_core/1.0.229/download. Files: `LICENSE-APACHE` (text 62c7a1e35f56), `LICENSE-MIT` (text 23f18e03dc49)
+- **serde_json 1.0.151**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/serde_json/1.0.151/download. Files: `LICENSE-APACHE` (text 62c7a1e35f56), `LICENSE-MIT` (text 23f18e03dc49)
+- **serde_spanned 0.6.9**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/serde_spanned/0.6.9/download. Files: `LICENSE-APACHE` (text c6596eb7be85), `LICENSE-MIT` (text 6efb0476a1cc)
+- **sha2 0.10.9**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/sha2/0.10.9/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text b4eb00df6e2a)
+- **toml 0.8.23**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/toml/0.8.23/download. Files: `LICENSE-APACHE` (text c6596eb7be85), `LICENSE-MIT` (text 6efb0476a1cc)
+- **toml_datetime 0.6.11**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/toml_datetime/0.6.11/download. Files: `LICENSE-APACHE` (text c6596eb7be85), `LICENSE-MIT` (text 6efb0476a1cc)
+- **toml_edit 0.22.27**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/toml_edit/0.22.27/download. Files: `LICENSE-APACHE` (text c6596eb7be85), `LICENSE-MIT` (text 6efb0476a1cc)
+- **toml_write 0.1.2**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/toml_write/0.1.2/download. Files: `LICENSE-APACHE` (text c6596eb7be85), `LICENSE-MIT` (text 6efb0476a1cc)
+- **typenum 1.20.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/typenum/1.20.1/download. Files: `LICENSE` (text db11fec99467), `LICENSE-APACHE` (text 516b24e051bf), `LICENSE-MIT` (text a825bd853ab7)
+- **winnow 0.7.15**: MIT. Source: https://crates.io/api/v1/crates/winnow/0.7.15/download. Files: `LICENSE-MIT` (text cb5aedb296c5)
+- **zmij 1.0.23**: MIT. Source: https://crates.io/api/v1/crates/zmij/1.0.23/download. Files: `LICENSE-MIT` (text 23f18e03dc49)
+
+---
+
 <!-- notices-section: rust-cmux-cloud -->
 ## Rust crates: Cloud app server (bin/cmux-cloud)
 
@@ -2160,10 +2516,10 @@ Generated by cmux-tui/build-support/notices/rust_notices.py from `Native/DiffSid
 - **reqwest 0.13.4**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/reqwest/0.13.4/download. Files: `LICENSE-APACHE` (text 751963a8b88c), `LICENSE-MIT` (text dd87e27dfbaa)
 - **ring 0.17.14**: Apache-2.0 AND ISC. Source: https://crates.io/api/v1/crates/ring/0.17.14/download. Files: `LICENSE` (text b3d734001a94), `LICENSE-BoringSSL` (text 005fc765ddc5), `LICENSE-other-bits` (text f025ccfb7dfb), `src/polyfill/once_cell/LICENSE-APACHE` (text a60eea817514), `src/polyfill/once_cell/LICENSE-MIT` (text 6ee2ed6c7771), `third_party/fiat/LICENSE` (text 9eacbcb81be6)
 - **rustix 1.1.4**: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/rustix/1.1.4/download. Files: `COPYRIGHT` (text 377c2e7c5325), `LICENSE-APACHE` (text a60eea817514), `LICENSE-Apache-2.0_WITH_LLVM-exception` (text 268872b9816f), `LICENSE-MIT` (text 23f18e03dc49)
-- **rustls 0.23.41**: Apache-2.0 OR ISC OR MIT. Source: https://crates.io/api/v1/crates/rustls/0.23.41/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-ISC` (text 7cfafc877ecc), `LICENSE-MIT` (text 709e3175b421)
+- **rustls 0.23.46**: Apache-2.0 OR ISC OR MIT. Source: https://crates.io/api/v1/crates/rustls/0.23.46/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-ISC` (text 7cfafc877ecc), `LICENSE-MIT` (text 709e3175b421)
 - **rustls-pki-types 1.15.0**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/rustls-pki-types/1.15.0/download. Files: `LICENSE-APACHE` (text 45fd05c4865e), `LICENSE-MIT` (text 9117d922e667)
 - **rustls-platform-verifier 0.7.0**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/rustls-platform-verifier/0.7.0/download. Files: `LICENSE-APACHE` (text c71d239df917), `LICENSE-MIT` (text 1c7cf76689c8)
-- **rustls-webpki 0.103.13**: ISC. Source: https://crates.io/api/v1/crates/rustls-webpki/0.103.13/download. Files: `LICENSE` (text 5b698ca13897)
+- **rustls-webpki 0.103.16**: ISC. Source: https://crates.io/api/v1/crates/rustls-webpki/0.103.16/download. Files: `LICENSE` (text 5b698ca13897)
 - **ryu 1.0.23**: Apache-2.0 OR BSL-1.0. Source: https://crates.io/api/v1/crates/ryu/1.0.23/download. Files: `LICENSE-APACHE` (text 62c7a1e35f56), `LICENSE-BOOST` (text c9bff7573892)
 - **same-file 1.0.6**: Unlicense OR MIT. Source: https://crates.io/api/v1/crates/same-file/1.0.6/download. Files: `COPYING` (text 01c266bced4a), `LICENSE-MIT` (text cb3c929a05e6), `UNLICENSE` (text 7e12e5df4bae)
 - **security-framework 3.7.0**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/security-framework/3.7.0/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 91e934255ba3)
@@ -2174,6 +2530,7 @@ Generated by cmux-tui/build-support/notices/rust_notices.py from `Native/DiffSid
 - **serde_path_to_error 0.1.20**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/serde_path_to_error/0.1.20/download. Files: `LICENSE-APACHE` (text 62c7a1e35f56), `LICENSE-MIT` (text 23f18e03dc49)
 - **serde_urlencoded 0.7.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/serde_urlencoded/0.7.1/download. Files: `LICENSE-APACHE` (text 62c7a1e35f56), `LICENSE-MIT` (text b9eb26629432)
 - **sha1 0.10.6**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/sha1/0.10.6/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text b4eb00df6e2a)
+- **sha2 0.10.9**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/sha2/0.10.9/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text b4eb00df6e2a)
 - **signal-hook-registry 1.4.8**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/signal-hook-registry/1.4.8/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 503558bfefe6)
 - **simd_cesu8 1.1.1**: Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/simd_cesu8/1.1.1/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 23f18e03dc49)
 - **simdutf8 0.1.5**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/simdutf8/0.1.5/download. Files: `LICENSE-Apache` (text 0cec06e0e55f), `LICENSE-MIT` (text 1847e0e06981)
@@ -2224,6 +2581,7 @@ Generated by cmux-tui/build-support/notices/rust_notices.py from `Native/OptChat
 
 - **adler2 2.0.1**: 0BSD OR MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/adler2/2.0.1/download. Files: `LICENSE-0BSD` (text 861399f8c21c), `LICENSE-APACHE` (text 8ada45cd9f84), `LICENSE-MIT` (text 23f18e03dc49)
 - **ahash 0.8.12**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/ahash/0.8.12/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 0444c6991eea)
+- **aho-corasick 1.1.5**: Unlicense OR MIT. Source: https://crates.io/api/v1/crates/aho-corasick/1.1.5/download. Files: `COPYING` (text 01c266bced4a), `LICENSE-MIT` (text 0f96a83840e1), `UNLICENSE` (text 7e12e5df4bae)
 - **base64 0.22.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/base64/0.22.1/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 0dd882e53de1)
 - **bitflags 2.13.2**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/bitflags/2.13.2/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 6485b8ed310d)
 - **block-buffer 0.10.4**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/block-buffer/0.10.4/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text d5c22aa3118d)
@@ -2231,9 +2589,12 @@ Generated by cmux-tui/build-support/notices/rust_notices.py from `Native/OptChat
 - **byteorder-lite 0.1.0**: Unlicense OR MIT. Source: https://crates.io/api/v1/crates/byteorder-lite/0.1.0/download. Files: `LICENSE-MIT` (text 0f96a83840e1), `UNLICENSE` (text 7e12e5df4bae)
 - **bytes 1.12.1**: MIT. Source: https://crates.io/api/v1/crates/bytes/1.12.1/download. Files: `LICENSE` (text 45f522cacecb)
 - **cfg-if 1.0.5**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/cfg-if/1.0.5/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 378f5840b258)
+- **chief-kernel 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-4a232fc2c61/Native/OptChat/chief-kernel. Files: `LICENSE` (text 9a430cd033a2)
+- **chief-turn 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-4a232fc2c61/Native/OptChat/chief-turn. Files: `LICENSE` (text 9a430cd033a2)
 - **chrono 0.4.45**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/chrono/0.4.45/download. Files: `LICENSE.txt` (text 946c9835d803)
 - **cmux-chief 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-4a232fc2c61/cmux-tui/crates/cmux-chief. Files: `LICENSE` (text 9a430cd033a2)
 - **cmux-conversation 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-4a232fc2c61/cmux-tui/crates/cmux-conversation. Files: `LICENSE` (text 9a430cd033a2)
+- **cmux-json 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-4a232fc2c61/cmux-tui/crates/cmux-json. Files: `LICENSE` (text 9a430cd033a2)
 - **cmux-sdk 1.0.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-4a232fc2c61/cmux-tui/bindings/rust. Files: `LICENSE` (text 9a430cd033a2)
 - **cmux-server-core 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-4a232fc2c61/cmux-tui/crates/cmux-server-core. Files: `LICENSE` (text 9a430cd033a2)
 - **color_quant 1.1.0**: MIT. Source: https://crates.io/api/v1/crates/color_quant/1.1.0/download. Files: `LICENSE` (text 592dc80f1a86)
@@ -2243,6 +2604,7 @@ Generated by cmux-tui/build-support/notices/rust_notices.py from `Native/OptChat
 - **crypto-common 0.1.7**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/crypto-common/0.1.7/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text 3521672491a3)
 - **curve25519-dalek 4.1.3**: BSD-3-Clause. Source: https://crates.io/api/v1/crates/curve25519-dalek/4.1.3/download. Files: `LICENSE` (text cca0bd3c4fcd)
 - **data-encoding 2.11.1**: MIT. Source: https://crates.io/api/v1/crates/data-encoding/2.11.1/download. Files: `LICENSE` (text b68ad1a3367b)
+- **deranged 0.5.8**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/deranged/0.5.8/download. Files: `LICENSE-Apache` (text edd65bdd8895), `LICENSE-MIT` (text 231c837c45eb)
 - **digest 0.10.7**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/digest/0.10.7/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text 9e0dfd2dd417)
 - **equivalent 1.0.2**: Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/equivalent/1.0.2/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 7365cc8878a1)
 - **fallible-iterator 0.3.0**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/fallible-iterator/0.3.0/download. Files: `LICENSE-APACHE` (text c6596eb7be85), `LICENSE-MIT` (text 0816e154b159)
@@ -2283,6 +2645,7 @@ Generated by cmux-tui/build-support/notices/rust_notices.py from `Native/OptChat
 - **miniz_oxide 0.8.9**: MIT OR Zlib OR Apache-2.0. Source: https://crates.io/api/v1/crates/miniz_oxide/0.8.9/download. Files: `LICENSE` (text 4108245a1f2d), `LICENSE-APACHE.md` (text 0d542e0c8804), `LICENSE-MIT.md` (text 799e9ca9d179), `LICENSE-ZLIB.md` (text 0a54e647fe54)
 - **miniz_oxide 0.9.1**: MIT OR Zlib OR Apache-2.0. Source: https://crates.io/api/v1/crates/miniz_oxide/0.9.1/download. Files: `LICENSE` (text 4108245a1f2d), `LICENSE-APACHE.md` (text 0d542e0c8804), `LICENSE-MIT.md` (text 799e9ca9d179), `LICENSE-ZLIB.md` (text 0a54e647fe54)
 - **moxcms 0.8.1**: BSD-3-Clause OR Apache-2.0. Source: https://crates.io/api/v1/crates/moxcms/0.8.1/download. Files: `LICENSE-APACHE.md` (text 90bf2d659c43), `LICENSE.md` (text 2aa92cada643)
+- **num-conv 0.2.2**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/num-conv/0.2.2/download. Files: `LICENSE-Apache` (text 0d542e0c8804), `LICENSE-MIT` (text e2e245f2b566)
 - **num-traits 0.2.19**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/num-traits/0.2.19/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 6485b8ed310d)
 - **once_cell 1.21.4**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/once_cell/1.21.4/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 23f18e03dc49)
 - **optchat-chief 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-4a232fc2c61/Native/OptChat/optchat-chief. Files: `LICENSE` (text 9a430cd033a2)
@@ -2291,18 +2654,23 @@ Generated by cmux-tui/build-support/notices/rust_notices.py from `Native/OptChat
 - **percent-encoding 2.3.2**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/percent-encoding/2.3.2/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text b38f11f60967)
 - **png 0.18.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/png/0.18.1/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text eaf40297c75d)
 - **potential_utf 0.1.6**: Unicode-3.0. Source: https://crates.io/api/v1/crates/potential_utf/0.1.6/download. Files: `LICENSE` (text f367c1b8e1aa)
+- **powerfmt 0.2.0**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/powerfmt/0.2.0/download. Files: `LICENSE-Apache` (text 155420c6403d), `LICENSE-MIT` (text 070dbc7dda03)
 - **ppv-lite86 0.2.21**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/ppv-lite86/0.2.21/download. Files: `LICENSE-APACHE` (text 0218327e7a48), `LICENSE-MIT` (text 4cada0bd02ea)
+- **pulldown-cmark 0.13.4**: MIT. Source: https://crates.io/api/v1/crates/pulldown-cmark/0.13.4/download. Files: `LICENSE` (text c4f10f55904b)
 - **pxfm 0.1.30**: BSD-3-Clause OR Apache-2.0. Source: https://crates.io/api/v1/crates/pxfm/0.1.30/download. Files: `LICENSE-APACHE.md` (text 90bf2d659c43), `LICENSE.md` (text 2aa92cada643)
 - **quick-error 2.0.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/quick-error/2.0.1/download. Files: `LICENSE-APACHE` (text c6596eb7be85), `LICENSE-MIT` (text 058f01fe1816)
 - **rand 0.9.5**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/rand/0.9.5/download. Files: `COPYRIGHT` (text 90eb64f0279b), `LICENSE-APACHE` (text 35242e7a83f6), `LICENSE-MIT` (text 209fbbe0ad52)
 - **rand_chacha 0.9.0**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/rand_chacha/0.9.0/download. Files: `COPYRIGHT` (text 90eb64f0279b), `LICENSE-APACHE` (text 35242e7a83f6), `LICENSE-MIT` (text 209fbbe0ad52)
 - **rand_core 0.6.4**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/rand_core/0.6.4/download. Files: `COPYRIGHT` (text 90eb64f0279b), `LICENSE-APACHE` (text 6df43f6f4b5d), `LICENSE-MIT` (text 209fbbe0ad52)
 - **rand_core 0.9.5**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/rand_core/0.9.5/download. Files: `COPYRIGHT` (text 90eb64f0279b), `LICENSE-APACHE` (text 6df43f6f4b5d), `LICENSE-MIT` (text 209fbbe0ad52)
+- **regex 1.13.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/regex/1.13.1/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 6485b8ed310d)
+- **regex-automata 0.4.18**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/regex-automata/0.4.18/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 6485b8ed310d)
+- **regex-syntax 0.8.11**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/regex-syntax/0.8.11/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 6485b8ed310d), `src/unicode_tables/LICENSE-UNICODE` (text 74db5baf44a4)
 - **ring 0.17.14**: Apache-2.0 AND ISC. Source: https://crates.io/api/v1/crates/ring/0.17.14/download. Files: `LICENSE` (text b3d734001a94), `LICENSE-BoringSSL` (text 005fc765ddc5), `LICENSE-other-bits` (text f025ccfb7dfb), `src/polyfill/once_cell/LICENSE-APACHE` (text a60eea817514), `src/polyfill/once_cell/LICENSE-MIT` (text 6ee2ed6c7771), `third_party/fiat/LICENSE` (text 9eacbcb81be6)
 - **rusqlite 0.32.1**: MIT. Source: https://crates.io/api/v1/crates/rusqlite/0.32.1/download. Files: `LICENSE` (text f59ba65550f2)
-- **rustls 0.23.45**: Apache-2.0 OR ISC OR MIT. Source: https://crates.io/api/v1/crates/rustls/0.23.45/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-ISC` (text 7cfafc877ecc), `LICENSE-MIT` (text 709e3175b421)
+- **rustls 0.23.46**: Apache-2.0 OR ISC OR MIT. Source: https://crates.io/api/v1/crates/rustls/0.23.46/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-ISC` (text 7cfafc877ecc), `LICENSE-MIT` (text 709e3175b421)
 - **rustls-pki-types 1.15.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/rustls-pki-types/1.15.1/download. Files: `LICENSE-APACHE` (text 45fd05c4865e), `LICENSE-MIT` (text 9117d922e667)
-- **rustls-webpki 0.103.15**: ISC. Source: https://crates.io/api/v1/crates/rustls-webpki/0.103.15/download. Files: `LICENSE` (text 5b698ca13897)
+- **rustls-webpki 0.103.16**: ISC. Source: https://crates.io/api/v1/crates/rustls-webpki/0.103.16/download. Files: `LICENSE` (text 5b698ca13897)
 - **serde 1.0.229**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/serde/1.0.229/download. Files: `LICENSE-APACHE` (text 62c7a1e35f56), `LICENSE-MIT` (text 23f18e03dc49)
 - **serde_core 1.0.229**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/serde_core/1.0.229/download. Files: `LICENSE-APACHE` (text 62c7a1e35f56), `LICENSE-MIT` (text 23f18e03dc49)
 - **serde_json 1.0.151**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/serde_json/1.0.151/download. Files: `LICENSE-APACHE` (text 62c7a1e35f56), `LICENSE-MIT` (text 23f18e03dc49)
@@ -2314,6 +2682,8 @@ Generated by cmux-tui/build-support/notices/rust_notices.py from `Native/OptChat
 - **stable_deref_trait 1.2.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/stable_deref_trait/1.2.1/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 5e05b024f653)
 - **subtle 2.6.1**: BSD-3-Clause. Source: https://crates.io/api/v1/crates/subtle/2.6.1/download. Files: `LICENSE` (text d1fc1bc0d155)
 - **thiserror 2.0.21**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/thiserror/2.0.21/download. Files: `LICENSE-APACHE` (text 62c7a1e35f56), `LICENSE-MIT` (text 23f18e03dc49)
+- **time 0.3.55**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/time/0.3.55/download. Files: `LICENSE-Apache` (text 0d542e0c8804), `LICENSE-MIT` (text 2537228d9a1b)
+- **time-core 0.1.9**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/time-core/0.1.9/download. Files: `LICENSE-Apache` (text 0d542e0c8804), `LICENSE-MIT` (text 2537228d9a1b)
 - **tinystr 0.8.4**: Unicode-3.0. Source: https://crates.io/api/v1/crates/tinystr/0.8.4/download. Files: `LICENSE` (text f367c1b8e1aa)
 - **toml 0.8.23**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/toml/0.8.23/download. Files: `LICENSE-APACHE` (text c6596eb7be85), `LICENSE-MIT` (text 6efb0476a1cc)
 - **toml_datetime 0.6.11**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/toml_datetime/0.6.11/download. Files: `LICENSE-APACHE` (text c6596eb7be85), `LICENSE-MIT` (text 6efb0476a1cc)
@@ -2321,12 +2691,13 @@ Generated by cmux-tui/build-support/notices/rust_notices.py from `Native/OptChat
 - **toml_write 0.1.2**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/toml_write/0.1.2/download. Files: `LICENSE-APACHE` (text c6596eb7be85), `LICENSE-MIT` (text 6efb0476a1cc)
 - **tungstenite 0.29.0**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/tungstenite/0.29.0/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 7fea0ee51a4c)
 - **typenum 1.20.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/typenum/1.20.1/download. Files: `LICENSE` (text db11fec99467), `LICENSE-APACHE` (text 516b24e051bf), `LICENSE-MIT` (text a825bd853ab7)
+- **unicase 2.9.0**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/unicase/2.9.0/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 4f6bd11a0f17)
 - **untrusted 0.9.0**: ISC. Source: https://crates.io/api/v1/crates/untrusted/0.9.0/download. Files: `LICENSE.txt` (text 7abd9b6960dc)
 - **ureq 2.12.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/ureq/2.12.1/download. Files: `LICENSE-APACHE` (text c71d239df917), `LICENSE-MIT` (text 7e5886959f67)
 - **url 2.5.8**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/url/2.5.8/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text b38f11f60967)
 - **utf8_iter 1.0.4**: Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/utf8_iter/1.0.4/download. Files: `COPYRIGHT` (text c30152c94a6d), `LICENSE-APACHE` (text cfc7749b96f6), `LICENSE-MIT` (text 3fa4ca83dcc9)
 - **webpki-roots 0.26.11**: CDLA-Permissive-2.0. Source: https://crates.io/api/v1/crates/webpki-roots/0.26.11/download. Files: `LICENSE` (text e271993808fe)
-- **webpki-roots 1.0.9**: CDLA-Permissive-2.0. Source: https://crates.io/api/v1/crates/webpki-roots/1.0.9/download. Files: `LICENSE` (text e271993808fe)
+- **webpki-roots 1.0.10**: CDLA-Permissive-2.0. Source: https://crates.io/api/v1/crates/webpki-roots/1.0.10/download. Files: `LICENSE` (text e271993808fe)
 - **weezl 0.1.12**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/weezl/0.1.12/download. Files: `LICENSE-APACHE` (text 769f80b5bcb4), `LICENSE-MIT` (text 573f5227db83)
 - **winnow 0.7.15**: MIT. Source: https://crates.io/api/v1/crates/winnow/0.7.15/download. Files: `LICENSE-MIT` (text cb5aedb296c5)
 - **writeable 0.6.4**: Unicode-3.0. Source: https://crates.io/api/v1/crates/writeable/0.6.4/download. Files: `LICENSE` (text f367c1b8e1aa)
@@ -2377,12 +2748,13 @@ Generated by cmux-tui/build-support/notices/rust_notices.py from `cmux-next-ios/
 - **chacha20 0.9.1**: Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/chacha20/0.9.1/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text b6f6f01b03ee)
 - **chacha20poly1305 0.10.1**: Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/chacha20poly1305/0.10.1/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text 3c0dfa33fd2e)
 - **cipher 0.4.4**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/cipher/0.4.4/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text 5c7bd92d1f09)
+- **cmux-mobile-host 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-4a232fc2c61/cmux-next-ios/rust/crates/cmux-mobile-host. Files: `LICENSE` (text 9a430cd033a2)
+- **cmux-mobile-link 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-4a232fc2c61/cmux-next-ios/rust/crates/cmux-mobile-link. Files: `LICENSE` (text 9a430cd033a2)
 - **cmux-rd-core 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-4a232fc2c61/cmux-tui/crates/cmux-rd-core. Files: `LICENSE` (text 9a430cd033a2)
+- **cmux-rd-engine 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-4a232fc2c61/cmux-tui/crates/cmux-rd-engine. Files: `LICENSE` (text 9a430cd033a2)
 - **cmux-rd-proto 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-4a232fc2c61/cmux-tui/crates/cmux-rd-proto. Files: `LICENSE` (text 9a430cd033a2)
 - **cmux-transport 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-4a232fc2c61/cmux-tui/crates/cmux-transport. Files: `LICENSE` (text 9a430cd033a2)
 - **cmux-wg 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-4a232fc2c61/cmux-tui/crates/cmux-wg. Files: `LICENSE` (text 9a430cd033a2)
-- **cmux-mobile-host 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-4a232fc2c61/cmux-next-ios/rust/crates/cmux-mobile-host. Files: `LICENSE` (text 9a430cd033a2)
-- **cmux-mobile-link 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-4a232fc2c61/cmux-next-ios/rust/crates/cmux-mobile-link. Files: `LICENSE` (text 9a430cd033a2)
 - **const-oid 0.9.6**: Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/const-oid/0.9.6/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text bada9e7ed8dc)
 - **cpufeatures 0.2.17**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/cpufeatures/0.2.17/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text ae9baa7beea9)
 - **cpufeatures 0.3.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/cpufeatures/0.3.1/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text 73b9dc2e79c7)
@@ -2517,9 +2889,9 @@ Generated by cmux-tui/build-support/notices/rust_notices.py from `cmux-next-ios/
 - **rtp 0.17.2**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/rtp/0.17.2/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 56cc6c08157f)
 - **rustc-hash 2.1.3**: Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/rustc-hash/2.1.3/download. Files: `LICENSE-APACHE` (text 95bd3988beee), `LICENSE-MIT` (text 30fefc3a7d6a)
 - **rusticata-macros 4.1.0**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/rusticata-macros/4.1.0/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text a5c61b93b6ee)
-- **rustls 0.23.45**: Apache-2.0 OR ISC OR MIT. Source: https://crates.io/api/v1/crates/rustls/0.23.45/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-ISC` (text 7cfafc877ecc), `LICENSE-MIT` (text 709e3175b421)
+- **rustls 0.23.46**: Apache-2.0 OR ISC OR MIT. Source: https://crates.io/api/v1/crates/rustls/0.23.46/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-ISC` (text 7cfafc877ecc), `LICENSE-MIT` (text 709e3175b421)
 - **rustls-pki-types 1.15.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/rustls-pki-types/1.15.1/download. Files: `LICENSE-APACHE` (text 45fd05c4865e), `LICENSE-MIT` (text 9117d922e667)
-- **rustls-webpki 0.103.15**: ISC. Source: https://crates.io/api/v1/crates/rustls-webpki/0.103.15/download. Files: `LICENSE` (text 5b698ca13897)
+- **rustls-webpki 0.103.16**: ISC. Source: https://crates.io/api/v1/crates/rustls-webpki/0.103.16/download. Files: `LICENSE` (text 5b698ca13897)
 - **ryu 1.0.23**: Apache-2.0 OR BSL-1.0. Source: https://crates.io/api/v1/crates/ryu/1.0.23/download. Files: `LICENSE-APACHE` (text 62c7a1e35f56), `LICENSE-BOOST` (text c9bff7573892)
 - **scopeguard 1.2.0**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/scopeguard/1.2.0/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text fb77f0a9c53e)
 - **sdp 0.17.2**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/sdp/0.17.2/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 56cc6c08157f)
@@ -2537,7 +2909,7 @@ Generated by cmux-tui/build-support/notices/rust_notices.py from `cmux-next-ios/
 - **slab 0.4.12**: MIT. Source: https://crates.io/api/v1/crates/slab/0.4.12/download. Files: `LICENSE` (text 8ce0830173fd)
 - **smallvec 1.16.3**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/smallvec/1.16.3/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 0b28172679e0)
 - **smol_str 0.2.2**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/smol_str/0.2.2/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 23f18e03dc49)
-- **smoltcp 0.14.0**: 0BSD. Source: https://crates.io/api/v1/crates/smoltcp/0.14.0/download. Files: `LICENSE-0BSD.txt` (text beb2cad88fab)
+- **smoltcp 0.14.0**: 0BSD. Source: https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-4a232fc2c61/cmux-tui/vendor/smoltcp. Files: `LICENSE-0BSD.txt` (text beb2cad88fab)
 - **socket2 0.5.10**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/socket2/0.5.10/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 378f5840b258)
 - **socket2 0.6.5**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/socket2/0.6.5/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 378f5840b258)
 - **spki 0.7.3**: Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/spki/0.7.3/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text c995204cc6ba)
@@ -2577,7 +2949,7 @@ Generated by cmux-tui/build-support/notices/rust_notices.py from `cmux-next-ios/
 - **waitgroup 0.1.2**: Apache-2.0. Source: https://crates.io/api/v1/crates/waitgroup/0.1.2/download. Files: `LICENSE` (text c71d239df917)
 - **want 0.3.2**: MIT. Source: https://crates.io/api/v1/crates/want/0.3.2/download. Files: `LICENSE` (text a65f5d0a945d)
 - **webpki-roots 0.26.11**: CDLA-Permissive-2.0. Source: https://crates.io/api/v1/crates/webpki-roots/0.26.11/download. Files: `LICENSE` (text e271993808fe)
-- **webpki-roots 1.0.9**: CDLA-Permissive-2.0. Source: https://crates.io/api/v1/crates/webpki-roots/1.0.9/download. Files: `LICENSE` (text e271993808fe)
+- **webpki-roots 1.0.10**: CDLA-Permissive-2.0. Source: https://crates.io/api/v1/crates/webpki-roots/1.0.10/download. Files: `LICENSE` (text e271993808fe)
 - **webrtc 0.17.2**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/webrtc/0.17.2/download. Files: `reviewed-LICENSE-MIT` (text 56cc6c08157f), `reviewed-LICENSE-APACHE` (text a60eea817514)
 - **webrtc-data 0.17.2**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/webrtc-data/0.17.2/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 56cc6c08157f)
 - **webrtc-ice 0.17.2**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/webrtc-ice/0.17.2/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 56cc6c08157f)
@@ -2603,18 +2975,18 @@ Generated by cmux-tui/build-support/notices/rust_notices.py from `cmux-next-ios/
 <!-- notices-section: rust-cmux-remote-browser-host -->
 ## Rust crates: remote browser host (Helpers/cmux-remote-browser-host.app)
 
-Generated by cmux-tui/build-support/notices/rust_notices.py from `cmux-tui/crates/cmux-remote-browser-host/Cargo.lock at ec6a3f8892d (the pinned binary's source)` (roots: cmux-remote-browser-host; targets: aarch64-apple-darwin, x86_64-apple-darwin; closure: lock text). Each crate lists its license files; identical license texts are printed once, under "License texts".
+Generated by cmux-tui/build-support/notices/rust_notices.py from `cmux-tui/crates/cmux-remote-browser-host/Cargo.lock at a1a06082463 (the pinned binary's source)` (roots: cmux-remote-browser-host; targets: aarch64-apple-darwin, x86_64-apple-darwin; closure: lock text). Each crate lists its license files; identical license texts are printed once, under "License texts".
 
 - **adler2 2.0.1**: 0BSD OR MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/adler2/2.0.1/download. Files: `LICENSE-0BSD` (text 861399f8c21c), `LICENSE-APACHE` (text 8ada45cd9f84), `LICENSE-MIT` (text 23f18e03dc49)
 - **bitflags 1.3.2**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/bitflags/1.3.2/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 6485b8ed310d)
 - **cfg-if 1.0.5**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/cfg-if/1.0.5/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 378f5840b258)
-- **cmux-encode 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-rbh-src-ec6a3f8892d/cmux-tui/crates/cmux-encode. Files: `LICENSE` (text 9a430cd033a2)
-- **cmux-rd-core 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-rbh-src-ec6a3f8892d/cmux-tui/crates/cmux-rd-core. Files: `LICENSE` (text 9a430cd033a2)
-- **cmux-rd-engine 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-rbh-src-ec6a3f8892d/cmux-tui/crates/cmux-rd-engine. Files: `LICENSE` (text 9a430cd033a2)
-- **cmux-rd-ffi 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-rbh-src-ec6a3f8892d/cmux-tui/crates/cmux-rd-ffi. Files: `LICENSE` (text 9a430cd033a2)
-- **cmux-rd-proto 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-rbh-src-ec6a3f8892d/cmux-tui/crates/cmux-rd-proto. Files: `LICENSE` (text 9a430cd033a2)
-- **cmux-remote-browser 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-rbh-src-ec6a3f8892d/cmux-tui/crates/cmux-remote-browser. Files: `LICENSE` (text 9a430cd033a2)
-- **cmux-remote-browser-host 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-rbh-src-ec6a3f8892d/cmux-tui/crates/cmux-remote-browser-host. Files: `LICENSE` (text 9a430cd033a2)
+- **cmux-encode 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-rbh-src-a1a06082463/cmux-tui/crates/cmux-encode. Files: `LICENSE` (text 9a430cd033a2)
+- **cmux-rd-core 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-rbh-src-a1a06082463/cmux-tui/crates/cmux-rd-core. Files: `LICENSE` (text 9a430cd033a2)
+- **cmux-rd-engine 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-rbh-src-a1a06082463/cmux-tui/crates/cmux-rd-engine. Files: `LICENSE` (text 9a430cd033a2)
+- **cmux-rd-ffi 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-rbh-src-a1a06082463/cmux-tui/crates/cmux-rd-ffi. Files: `LICENSE` (text 9a430cd033a2)
+- **cmux-rd-proto 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-rbh-src-a1a06082463/cmux-tui/crates/cmux-rd-proto. Files: `LICENSE` (text 9a430cd033a2)
+- **cmux-remote-browser 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-rbh-src-a1a06082463/cmux-tui/crates/cmux-remote-browser. Files: `LICENSE` (text 9a430cd033a2)
+- **cmux-remote-browser-host 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-rbh-src-a1a06082463/cmux-tui/crates/cmux-remote-browser-host. Files: `LICENSE` (text 9a430cd033a2)
 - **crc32fast 1.5.2**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/crc32fast/1.5.2/download. Files: `LICENSE-APACHE` (text c6596eb7be85), `LICENSE-MIT` (text 61d383b05b87)
 - **fdeflate 0.3.7**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/fdeflate/0.3.7/download. Files: `LICENSE-APACHE` (text 0d542e0c8804), `LICENSE-MIT` (text c77a4cf9da72)
 - **flate2 1.1.10**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/flate2/1.1.10/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 025436edff4c)

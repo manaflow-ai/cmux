@@ -167,6 +167,15 @@ const sourceAgentConfig = (home: string, coderouterOrigin: string, fetchOpenCode
   });
 
 describe("devbox image template", () => {
+  test("the bake keeps the current store ahead of user-local acpmux", () => {
+    const bake = readFileSync(path.join(scriptsDir, "cmux-vm-image/bake.ts"), "utf8");
+    expect(bake).toContain('await L.step(vm, "acpmux-current-link", cmuxTuiImageAcpmuxLinkCommand());');
+    expect(bake).toContain('await L.step(vm, "store-user-profile", storeUserProfilePathCommand());');
+    expect(bake).toContain("return `${cmuxTuiLayoutSelector()} && ${cmuxTuiAcpmuxLinkCommand(`${CURRENT_BIN}/acpmux`, true)}`;");
+    expect(bake).toContain('GITHUB_SHIM_DIR + ":" + CURRENT_BIN + \'${PATH:+:$PATH}"\'');
+    expect(bake).not.toContain('PATH="${CURRENT_BIN}${"${PATH:+:$PATH}"}"');
+  });
+
   test("template directory contains exactly the expected files", () => {
     expect(readdirSync(templateDir).sort()).toEqual([
       "Dockerfile",
@@ -592,6 +601,18 @@ describe("devbox image template", () => {
     }
     expect(dockerfile).toContain("/usr/local/share/blesh/cache.d/0");
     expect(readScript("build-devbox-freestyle.ts")).toContain("blesh-cache-seed");
+  });
+
+  test("publishes each ble.sh cache seed atomically", () => {
+    // Shells that start at once must never read a half-copied seed: copy into a
+    // same-directory temp file, then rename it into place (#11348).
+    expect(bashrc).toContain('__cmux_tmp="$(mktemp "${__cmux_dst}.tmp.XXXXXX" 2>/dev/null)"');
+    expect(bashrc).toContain('cp "$__cmux_seed" "$__cmux_tmp"');
+    expect(bashrc).toContain('mv -f "$__cmux_tmp" "$__cmux_dst"');
+    expect(bashrc).not.toContain('cp "$__cmux_seed" "$__cmux_dst"');
+    // A failed attempt removes only the temp file it made, never a stale value.
+    expect(bashrc.indexOf("      __cmux_tmp=\n")).toBeGreaterThan(-1);
+    expect(bashrc.indexOf("      __cmux_tmp=\n")).toBeLessThan(bashrc.indexOf('if mkdir -p "${__cmux_dst%/*}"'));
   });
 
   test("the Dockerfile is the Ubuntu 24.04 recipe the Freestyle bake replays, desktop included", () => {

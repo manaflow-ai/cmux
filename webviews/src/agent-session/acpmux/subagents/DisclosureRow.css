@@ -1,6 +1,7 @@
 /* The transcript family row: one quiet line by default, with its panel growing below the anchored
    header. Incoming messages use the same DisclosureRow API when their shared bridge lands. */
-/* A row's line has the tool rows' 26px height in 2px margins and their regular weight, as the
+/* A row's line has the tool rows' height (--cv-tool-row-height), no outer margin of its own (its
+   container's gap gives the room, as the layout grid has it) and their regular weight, as the
    received-message line it sits among does (conversation.css .cv-received): consecutive rows of the
    family stack with no extra gap and none of them is bold (Leo, 2026-10-29: "why is one of these
    bold? And why is there space, a fucking gap in between them?"). */
@@ -70,6 +71,18 @@
   align-items: center;
   justify-content: center;
   color: var(--cv-text-muted);
+}
+/* A stacked message's line has no label (its first line is under it): no empty slot, so its
+   chevron sits right after the sender, as after any label's words. */
+.cv-disclosure__label:empty {
+  display: none;
+}
+/* Only after a leading part (a received line's sender): a line that starts with its toggle keeps
+   that toggle's inset rule above. */
+.cv-disclosure__line
+  > * + .cv-disclosure__toggle:not(.is-chevron):not(:has(> .cv-disclosure__label:not(:empty), > .cv-disclosure__icon)) {
+  padding-inline-start: 0;
+  margin-inline-start: calc(-1 * var(--ds-space-1));
 }
 .cv-disclosure__label {
   min-width: 0;

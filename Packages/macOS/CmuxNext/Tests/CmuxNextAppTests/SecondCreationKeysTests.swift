@@ -599,4 +599,31 @@ struct SecondCreationKeysTests {
             #expect(inOrder, "the two runs held for the evicted terminal did not arrive as typed (61 62 0d 63 64): \(screen.suffix(300))")
         }
     }
+
+    /// Review of #31865 (its merge with #31707): keys held for the terminal that has the keyboard when the hold ends run
+    /// again as typed. While the person's new-workspace claim holds (its workspace never showed), the claim kept every such
+    /// key that runs no binding, so the line was lost. A held key with its own terminal goes to that terminal; the claim
+    /// keeps only keys typed for no terminal.
+    @Test func keysHeldForTheFocusedTerminalReachItWhileAPersonsNewWorkspaceClaimHolds() async throws {
+        try await Self.withTwoTerminals { p in
+            let coordinator = Self.replayInTestWindow(p)
+            try await Self.focus(p.first.pane, tab: p.first.tab, in: p)
+            // A creation with no early view: the keys typed now wait in its lane (the focused terminal's tab).
+            let creation = try #require(coordinator.begin(in: p.window, generation: p.content.beginFocusIntent(), tab: p.first.tab))
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            let held = try Self.type("echo c2x\(nonce)x$((6*7))\r", in: p)
+            try #require(held.allSatisfy { $0 }, "the test needs the line held: \(held)")
+            // The person asks for a new workspace (a click); it replies, and the window never shows it.
+            let controller = try #require(p.services.windows.active)
+            let workspace = try #require(coordinator.beginWorkspace(in: controller), "the person's new workspace opened no key hold")
+            coordinator.resolve(creation, landed: true, in: p.window)
+            coordinator.resolve(workspace, landed: true, workspace: "never-shown-\(nonce)", in: p.window)
+            try await PinnedPageTests.until({ !coordinator.isHolding(in: p.window) }, report: {
+                "the hold never ended: \(Self.describe(p.content, p.window, p.services))"
+            })
+            let ran = try await Self.ran("c2x\(nonce)x42", on: p.first.surface, in: p)
+            let screen = await Self.screen(p.first.surface, in: p)
+            #expect(ran, "the line held for the focused terminal was lost at the hold's limit while the claim held: \(screen.suffix(300))")
+        }
+    }
 }

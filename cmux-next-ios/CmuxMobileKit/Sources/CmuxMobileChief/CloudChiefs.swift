@@ -114,6 +114,27 @@ struct ChiefCloudHTTP: Sendable {
         }
     }
 
+    /// A file's bytes to the URL an attachment intent answered with (its `method` and
+    /// `headers`). Only the Worker's own URL gets the bearer: a presigned bucket URL is signed
+    /// by its query and must not carry one.
+    func upload(_ url: URL, method: String, headers: [String: String], body: Data, toWorker: Bool) async throws -> Reply {
+        var forceRefresh = false
+        while true {
+            var request = URLRequest(url: url)
+            request.httpMethod = method
+            request.timeoutInterval = 60
+            for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+            if toWorker { request.setValue("Bearer \(try await accessToken(forceRefresh))", forHTTPHeaderField: "authorization") }
+            let (data, response) = try await session.upload(for: request, from: body)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if status == 401, toWorker, !forceRefresh {
+                forceRefresh = true
+                continue
+            }
+            return Reply(status: status, body: data)
+        }
+    }
+
     /// The bearer for a socket upgrade.
     func token(forceRefresh: Bool) async throws -> String {
         try await accessToken(forceRefresh)

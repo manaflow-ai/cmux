@@ -143,7 +143,7 @@ impl AcpmuxOwner {
         let store = acpmux::store::open(&config.store, root).unwrap();
         // The cmux-tui binary installs acpmux's build id at start (main.rs); so
         // does this in-process hub, or it reports `unstamped`.
-        acpmux::hub::install_build(acpmux_build_id::BUILD);
+        acpmux::hub::install_build(acpmux_build_id::build());
         let hub = Hub::new(config, store);
         let program = root.join("claude");
         fs::write(

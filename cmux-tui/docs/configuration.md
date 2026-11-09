@@ -84,6 +84,18 @@ Tabs are numbered by default. A recognized agent program can appear after the nu
 
 The built-in sidebar defaults to the workspace list. Set `"sidebar": {"view": "files"}` for the yazi-style file browser. `Tab` toggles the built-in view while the sidebar is focused, and the configurable `toggle-sidebar-view` action toggles it from anywhere. A configured `sidebar.plugin` still replaces either built-in view.
 
+The workspace list shows agent state with no configuration. Each workspace row starts with the rolled-up status of its agents and shows the git branch of the active tab on its second line (`branch · title`). Below the workspaces, an **agents** section lists every agent across all workspaces as an attention queue: `blocked` first, then `done`, `working`, `idle` and `unknown`, the most recent change first inside each status. Click a row, or select it with the arrow keys in the focused sidebar and press `Enter`, to focus that agent's tab. Tab chips show the same status glyph. The section takes at most half the rail and appears only when an agent runs; set `"sidebar": {"agents": false}` to hide it.
+
+| Status | Glyph | Meaning |
+| --- | --- | --- |
+| `blocked` | `!` | The agent waits on you: an approval, a question, a plan review, or an error |
+| `done` | `✓` | The agent finished a turn that you have not viewed yet |
+| `working` | `●` | The agent runs a turn |
+| `idle` | `○` | The agent waits at its prompt and you saw its last turn |
+| `unknown` | `·` | The state is not known |
+
+A workspace or tab with several agents shows the most urgent status, in the order above. `done` stays until a client shows you the agent's tab: you focus it, type in it, or it finishes while it is the tab you are looking at in a focused terminal window. Then it is `idle`. Reading agent state from the CLI or the socket (`cmux terminal list --agents`, `list-agents`) never clears it, and it survives a daemon restart.
+
 `sidebar.views` is an ordered list of native resource projections, with no fixed column count. Each view has a stable `id`, a `levels` path, and optional native `actions`. A one-level path renders a list. Multi-level paths such as `workspaces → agents` and `workspaces → panes → tabs` render collapsible trees in one column. Nesting is optional. Valid resources are `machines`, `workspaces`, `panes`, `tabs`, and `agents`. Flat pane, tab, and agent views follow the highlighted workspace. Omit a resource to hide it.
 
 `sidebar.profiles` names multiple view lists, and `sidebar.profile` selects the startup layout. Right-click anywhere and open **Sidebar → Layouts** to switch profiles without reconnecting machines. The same menu can hide or restore an individual view for the current session. Runtime visibility changes are keyed by profile and view ID, so switching away and back restores that profile's session-local choices.
@@ -115,6 +127,7 @@ Every view has an independent width and drag handle. Lower `collapse_priority` v
 | `sidebar.row_gap` | integer | `1` | Blank rows between rail entries, `0` through `2` |
 | `sidebar.rail_glyph` | string | `"▎"` | Accent glyph on active rail rows; `"none"` removes it |
 | `sidebar.workspace_label` | string | `"{name}"` | Workspace row template with `{index}` and `{name}` |
+| `sidebar.agents` | boolean | `true` | Show the agents section (every agent, most urgent first) at the bottom of the workspace list |
 | `sidebar.columns` | array of column objects | unset | Compatibility form for one-level `machines`, `workspaces`, and `tabs` views |
 | `sidebar.plugin.command` | array of strings | unset | External sidebar plugin argv; when set, the sidebar hosts this program in a PTY instead of the built-in list |
 | `sidebar.plugin.cwd` | string | unset | Working directory for the sidebar plugin process |
@@ -155,6 +168,14 @@ legacy fallback files when those files appear or disappear. Changing `CMUX_TUI_C
 or `CMUX_MUX_CONFIG` in a separate shell does not change the running process environment.
 `sidebar plugin use` does not send this reload; run `cmux daemon reload-config`
 separately for a running local session whose socket is reachable.
+
+When a daemon starts, cmux checks installed sidebar and agent plugins for a
+newer `HEAD` at most once per day. The check runs in the background and only
+updates clean installs whose origin is HTTPS or SSH. Local paths, `file://`
+origins, symlinked development checkouts, and installs with uncommitted files
+are left alone. A successful update is picked up the next time the plugin
+process starts; use `cmux daemon reload-config` to restart a plugin that is
+already running.
 
 Return to the built-in sidebar with:
 
@@ -211,7 +232,8 @@ not report the bundled detector; the daemon's agent roster shows its rows.
 
 The reference screen detector keeps 21 herdr-derived manifests in its own
 package. `cmux-agent-screen-detection update` checks an HTTPS catalog only when
-the user invokes it. Startup never performs network access. See
+the user invokes it. The daemon's once-daily check applies only to
+user-installed plugins and never updates the bundled detector. See
 [`spec/plugins.md`](../spec/plugins.md) for the journal envelope, lifecycle,
 source precedence, process fallback, and attribution rules.
 
@@ -400,6 +422,17 @@ Terminal panes, the workspace sidebar, and the shortcut modal share the same `�
 
 WebSocket clients pair through a six-digit browser/TUI comparison by default. Approve a pairing with `y` or the Approve button; Enter does not approve. WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-bind`, and every handshake keeps the Host and Origin checks: list the names clients use with `--ws-allow-host` and extra browser origins with `--ws-allow-origin`. The listener has no TLS; use an authenticated TLS reverse proxy for remote access. See the [transport contract](../spec/transports.md#websocket).
 
+## Notifications
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `notifications.desktop` | `"off"`, `"auto"`, or `"always"` | `"auto"` | Passes a notification on to the terminal that hosts the TUI, so it shows as a desktop notification |
+| `notifications.bell` | boolean | `false` | Also rings the host terminal's bell (BEL) with each notification passed on. A terminal bell (BEL) in a tab you cannot see rings the host bell only, with no desktop notification, once until that tab's mark is read |
+
+A tab needs you when an agent marked it (`cmux attention request`), when its agent or program waits on you (`blocked`), or when it has an unread notification. The tab chip shows `!` for a mark, the pane border and the workspace row take the warning color, and the workspace row shows the agent's reason. `Ctrl-b a` (`next-attention`) goes to the next such tab: marked and blocked tabs first, then unread error and warning notifications, then agents that finished a turn nobody viewed yet (`done`), then other unread ones, each oldest first. Pressing it again cycles. `Ctrl-b A` (`attention-list`) opens a searchable list of the same tabs. `cmux attention next [--focus]` and `cmux attention list` answer the same order as JSON for scripts; `next` moves focus only with `--focus`. `next` without `--after` answers the first entry; with `--focus` it starts after the focused tab, so a key bound to `cmux attention next --focus` cycles through the entries.
+
+The TUI passes a notification (OSC 9, 777, or 99 from a program, `cmux notify`, an agent hook, a bell) on to its host terminal only when you cannot see the tab: the tab is not drawn, or the host terminal window does not have focus. `auto` writes only to a host it knows by its environment: OSC 777 to Ghostty, WezTerm, and cmux, OSC 9 to iTerm2, and OSC 99 to kitty. `auto` writes nothing inside tmux or screen, or to an unknown terminal. `always` writes OSC 9 to an unknown terminal too. Nothing is written after the TUI detaches or in `cmux terminal attach` mode. At most one notification goes out each second, and at most one each 5 seconds for the same tab. When the host is a cmux terminal of the same session (a TUI that shows its own session), nothing is written, because that session's own clients already show it.
+
 ## Commands
 
 `commands` is an ordered list of user commands, the cmux-tui equivalent of tmux `bind-key ... command`. Each command names an argv program and optionally binds key chords to it. Pressing a bound chord runs the argv as a new PTY tab in the active pane, exactly like `cmux run`. The child inherits `CMUX_TUI_SOCKET`, so a command script can immediately drive the public CLI against its own session: create workspaces, apply splits, rename tabs, then close its own tab. The working directory defaults to the active pane's current directory; `cwd` values pass through without shell expansion, so use absolute paths or a shell argv for `~`.
@@ -471,14 +504,23 @@ Try the tracked example with `CMUX_TUI_CONFIG=examples/user-commands.json cargo 
 | `keys.zoom-pane` | chord string or array or `"none"` | `"z"` | Toggle zoom for the active pane |
 | `keys.resize-grow` | chord string or array or `"none"` | `["alt+=","shift+="]` | Grow the focused split |
 | `keys.resize-shrink` | chord string or array or `"none"` | `["alt+-","-"]` | Shrink the focused split |
-| `keys.scroll-up` | chord string or array or `"none"` | `["[","pageup"]` | Scroll active PTY up 10 rows |
-| `keys.scroll-down` | chord string or array or `"none"` | `"pagedown"` | Scroll active PTY down 10 rows |
+| `keys.scroll-up` | chord string or array or `"none"` | unbound | Scroll active PTY up 10 rows |
+| `keys.scroll-down` | chord string or array or `"none"` | unbound | Scroll active PTY down 10 rows |
+| `keys.scroll-page-up` | chord string or array or `"none"` | `"pageup"` | Scroll active PTY up one visible page |
+| `keys.scroll-page-down` | chord string or array or `"none"` | `"pagedown"` | Scroll active PTY down one visible page |
+| `keys.scroll-half-page-up` | chord string or array or `"none"` | unbound | Scroll active PTY up half a visible page |
+| `keys.scroll-half-page-down` | chord string or array or `"none"` | unbound | Scroll active PTY down half a visible page |
+| `keys.copy-mode` | chord string or array or `"none"` | `"["` | Enter keyboard copy mode on the active terminal |
+| `keys.search-scrollback` | chord string or array or `"none"` | `"/"` | Enter copy mode and open a backward scrollback search |
+| `keys.copy_mode` | object | built-in copy-mode keys | Copy-mode command bindings; see [Keyboard](keyboard.md#copy-mode) |
 | `keys.clear-history` | chord string or array or `"none"` | `"cmd+k"` | Clear retained PTY history and completed visible rows while preserving active input |
 | `keys.browser-back` | chord string or array or `"none"` | `"<"` | Browser back |
 | `keys.browser-forward` | chord string or array or `"none"` | `">"` | Browser forward |
 | `keys.browser-reload` | chord string or array or `"none"` | `"r"` | Browser reload |
 | `keys.browser-edit-url` | chord string or array or `"none"` | `"u"` | Browser URL prompt |
 | `keys.show-shortcuts` | chord string or array or `"none"` | `"?"` | Open the resolved keyboard shortcut modal |
+| `keys.next-attention` | chord string or array or `"none"` | `"a"` | Go to the next tab that needs you ([Notifications](#notifications)) |
+| `keys.attention-list` | chord string or array or `"none"` | `"A"` | List the tabs that need you; Enter goes to the selected one |
 | `keys.provider-menu` | chord string or array or `"none"` | `"m"` | Open the machine provider menu when the machine rail is focused |
 | `keys.detach` | chord string or array or `"none"` | `"d"` | Quit local TUI or detach attached TUI |
 | `keys.dock-workspace-left` | chord string or array or `"none"` | unbound | Dock the active workspace on the left edge |
@@ -602,7 +644,12 @@ The dock actions have no default keys. Bind them under `keys` (for example `"doc
     "swap-pane-prev": "{",
     "swap-pane-next": "}",
     "show-shortcuts": "?",
+    "next-attention": "a",
     "detach": "d"
+  },
+  "notifications": {
+    "desktop": "auto",
+    "bell": false
   }
 }
 ```

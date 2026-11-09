@@ -3,13 +3,21 @@
 // it might have different env worktree context bg tasks outputs and diffs etc"): while the pane shows
 // a subagent's own view, the panel lists that subagent's environment, context, background tasks and
 // outputs, read from its own rows, never merged with the chat's; the chat's panel keeps its own.
+// Every section in view (`setSessionInfoMore(true)`): the panel's compact default view is
+// session-info-compact-default.test.tsx's.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
-import { SessionInfo, useSessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
-import { resetSessionInfoState, setSessionInfoOpen } from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
+import {
+  resetSessionInfoState,
+  setSessionInfoMore,
+  setSessionInfoOpen,
+  setSessionInfoSection,
+} from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import type { SubagentScope } from "../src/agent-session/acpmux/session-info/subagentScope";
@@ -65,7 +73,13 @@ function installDom(): HTMLElement {
   return dom.window.document.getElementById("root")!;
 }
 
-beforeEach(() => resetSessionInfoState());
+beforeEach(() => {
+  resetSessionInfoState();
+  setSessionInfoMore(true);
+  // Sources and Outputs start folded (sessionInfoState.ts DEFAULT_SECTIONS): open, so their rows show.
+  setSessionInfoSection("sources", true);
+  setSessionInfoSection("outputs", true);
+});
 
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
@@ -113,7 +127,7 @@ function SubagentPane({
   return <>{sessionInfo.panel}</>;
 }
 
-test("the subagent's panel lists its worktree, its tokens and its own edits; the chat's lists its own", async () => {
+test("the subagent's panel lists its worktree and its tokens; the chat's lists its own", async () => {
   const container = installDom();
   root = createRoot(container);
   const sub = agent({ worktree: { path: TREE, branch: "worktree-agent-a3f9c2" }, tokens: 48_200, toolUses: 14 });
@@ -157,7 +171,7 @@ test("the subagent's panel lists its worktree, its tokens and its own edits; the
   expect(text()).toContain("worktree-agent-a3f9c2");
   expect(text()).not.toContain("feat/retries");
   expect(text()).toContain("14 tool uses");
-  expect(text()).toContain("fetch.ts");
+  // Its edits are code: the Changes row and the diff have them, not Outputs (chatOutputs.ts).
   expect(text()).not.toContain("README.md");
   expect(text()).toContain("bun test --watch");
   expect(text()).not.toContain("github");
@@ -181,7 +195,8 @@ test("the subagent's panel lists its worktree, its tokens and its own edits; the
     ),
   );
   expect(text()).toContain("feat/retries");
-  expect(text()).toContain("README.md");
+  // README.md is a code edit: the Changes row has it, not Outputs.
+  expect(text()).not.toContain("README.md");
   expect(text()).not.toContain("agent-a3f9c2");
   // The chat's Subagents card lists the subagent.
   expect(container.querySelector('[data-section="subagents"]')?.textContent).toContain("Fix the timeouts");

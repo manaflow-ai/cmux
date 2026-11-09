@@ -128,7 +128,12 @@ export function optimistic(data: ScopeData, write: Write): ScopeData {
   const apply = (key: string, value: unknown) => {
     const row = rows.get(key);
     if (!row || row.managed) return;
-    rows.set(key, { ...row, value, customized: JSON.stringify(value) !== JSON.stringify(row.default) });
+    rows.set(key, {
+      ...row,
+      value,
+      stored: write.kind === "set" ? value : null,
+      customized: JSON.stringify(value) !== JSON.stringify(row.default),
+    });
   };
   if (write.kind === "set") apply(write.key, write.value);
   else if (write.kind === "reset") apply(write.key, rows.get(write.key)?.default);

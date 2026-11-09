@@ -9,6 +9,9 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { classicField } from "./support/classicNewTabField";
+import { until } from "./support/until";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -25,6 +28,7 @@ const keys = [
   "localStorage",
   "customElements",
   "MutationObserver",
+  "getSelection",
 ] as const;
 const added: string[] = [];
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
@@ -47,14 +51,13 @@ beforeAll(() => {
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
-    Node: window.Node,
     Element: window.Element,
     getComputedStyle: window.getComputedStyle.bind(window),
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
     localStorage: window.localStorage,
     customElements: window.customElements,
-    MutationObserver: window.MutationObserver,
+    ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
   });
   // Pierre's registered elements (App's diff view) read their own DOM constructors at import time.
   for (const key of Object.getOwnPropertyNames(window))
@@ -94,14 +97,9 @@ async function renderPage(
       />,
     ),
   );
-  const field = host.querySelector<HTMLInputElement>("input.acpmux-newtab-field")!;
-  const type = async (text: string) => {
-    const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
-    await act(async () => {
-      setValue.call(field, text);
-      field.dispatchEvent(new window.Event("input", { bubbles: true }));
-    });
-  };
+  // The page's field is the chat composer's prompt editor (MarkdownField).
+  const field = await classicField(host);
+  const type = field.type;
   const submit = async () => {
     await act(async () => {
       host.querySelector("form")!.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
@@ -117,9 +115,9 @@ test("the classic New Tab agent field follows the opt-in spell checking setting"
   setComposerSettings({ spellChecking: false });
   const { root, field } = await renderPage(noop, "agent");
   try {
-    expect(field.getAttribute("spellcheck")).toBe("false");
+    expect(field.editor.getAttribute("spellcheck")).toBe("false");
     await act(async () => setComposerSettings({ spellChecking: true }));
-    expect(field.getAttribute("spellcheck")).toBe("true");
+    expect(field.editor.getAttribute("spellcheck")).toBe("true");
   } finally {
     await act(async () => setComposerSettings({ spellChecking: false }));
     await act(async () => root.unmount());
@@ -142,7 +140,6 @@ test("a terminal from the New Tab page opens before the handshake, and a refusal
   const { root, field, type, submit } = await renderPage(onSubmit);
   try {
     expect(host.querySelector('[role="alert"]')).toBeNull();
-    await act(async () => field.focus());
     await type("echo held");
     expect(host.querySelector('[role="listbox"]')).not.toBeNull();
     await submit();
@@ -150,13 +147,38 @@ test("a terminal from the New Tab page opens before the handshake, and a refusal
       { method: "tab.open", params: { kind: "terminal", text: "echo held", cwd: "/Users/you/src/app" } },
     ]);
     expect(waiting).toHaveLength(0);
-    expect(host.querySelector('[role="alert"]')?.textContent).toBe("The tab didn't open. Press Return to try again.");
-    expect(field.value).toBe("echo held");
+    // Plain words for what did not happen, Retry, and the host's own words under Details (2026-11-08).
+    const alert = host.querySelector('[role="alert"]')!;
+    expect(alert.querySelector(".acpmux-newtab-failed-message")?.textContent).toBe("The terminal didn't open.");
+    expect(alert.querySelector("details")?.textContent).toContain("transport.gesture_required");
+    expect(field.value()).toBe("echo held");
+    const retry = [...alert.querySelectorAll("button")].find((b) => b.textContent === "Retry")!;
+    expect(retry).toBeDefined();
+    await act(async () => retry.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
+    await until(
+      () => calls.length >= 2,
+      () => act(async () => {}),
+    );
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toEqual(calls[0]!);
     // The suggestions that float under the field close, so they never cover the note.
     expect(host.querySelector('[role="listbox"]')).toBeNull();
     // Editing the field clears the note.
     await type("echo held again");
     expect(host.querySelector('[role="alert"]')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a refused browser tab says the page did not open; an empty refusal has no Details", async () => {
+  const { root, type, submit } = await renderPage(() => Promise.reject(new Error("")), "browser");
+  try {
+    await type("example.com");
+    await submit();
+    const alert = host.querySelector('[role="alert"]')!;
+    expect(alert.querySelector(".acpmux-newtab-failed-message")?.textContent).toBe("The page didn't open.");
+    expect(alert.querySelector("details")).toBeNull();
   } finally {
     await act(async () => root.unmount());
   }

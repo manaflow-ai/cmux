@@ -8,7 +8,7 @@ import Testing
 /// and adopt is held before it reaches the daemon, with no clock: a held one goes on only once someone
 /// waits for the document to settle (`SidebarDocStore.settled()`), which is what the import's group
 /// write and the check's read must do. A read that does not wait finds the moves still held.
-@MainActor @Suite(.serialized, .ownsSidebarDocStore, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct ClassicUpgradeHeldDocumentTests {
     /// Holds each change and adopt before it is sent, until ``release()``; one sent while someone waits
     /// in `settled()` (`waiting`) goes on at once.
@@ -75,7 +75,7 @@ struct ClassicUpgradeHeldDocumentTests {
             return held
         })
         let remote = try #require(made, "the simulation did not make its sidebar document")
-        let document = try #require(SidebarDocStore.current)
+        let document = try #require(sim.services.sidebarDoc.store)
         // Someone waits for the document: what is held goes on, and what comes meanwhile is not held.
         remote.waiting = { [weak document] in document?.waitsForSettled ?? false }
         document.onSettledWait = { [weak remote] in remote?.release() }

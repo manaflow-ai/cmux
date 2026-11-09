@@ -30,7 +30,7 @@ public final class LiveCoordinator {
     public private(set) var presenceConnected = false
     public internal(set) var chiefStatus: String?
     /// Pairing with the linked Mac (verify/phone-approvals.md): the Mac asks the
-    /// user the first time; Allow then signs with Face ID.
+    /// user the first time; Allow then signs with the approval key.
     public internal(set) var pairingState: LinkPairing.State = .idle
     /// The last time the phone moved to another team because one of the
     /// account's Macs is there (the shell shows a toast).
@@ -144,6 +144,9 @@ public final class LiveCoordinator {
     @ObservationIgnored private let snapshots: LiveSnapshotStore
     @ObservationIgnored private var snapshot: LiveSnapshot?
     @ObservationIgnored private var snapshotSavePending = false
+    /// The spaces on screen are the launch snapshot's one space, not the account's list yet
+    /// (Stack's team list has not answered): a pairing code is not judged against them.
+    @ObservationIgnored private(set) var spacesFromSnapshot = false
     /// The team whose registration, Macs and presence are running or done.
     @ObservationIgnored private var startedTeamID: String?
     /// The team the Feed's items came from. Feed items carry no Mac, so on a switch they
@@ -211,6 +214,8 @@ public final class LiveCoordinator {
         // The Feed as this phone last saw it; the Mac's history merges in on connect.
         let archive = FeedArchive.forAccount(userID)
         feedStore.useReadMarks(readMarks ?? .forAccount(userID))
+        // Events past the Feed's window wait on disk while the app runs, not in memory.
+        feedStore.useSpill(.inCaches("feed", scope: userID))
         feedStore.replaceAll(archive.load())
         feedStore.onItemsChange = { [weak self] items in
             self?.scheduleFeedSave(archive)
@@ -238,7 +243,9 @@ public final class LiveCoordinator {
             guard let owner, let session else {
                 return UnboundAgentSource(summary: summary, macName: owner?.name ?? self.link.target?.name)
             }
-            return owner.acpmux.source(sessionID: session, summary: summary)
+            var scoped = summary
+            scoped.accountID = self.userID
+            return owner.acpmux.source(sessionID: session, summary: scoped)
         }
         restoreSnapshot()
         watchNetwork()
@@ -311,6 +318,7 @@ public final class LiveCoordinator {
         self.snapshot = snapshot
         store.teams = [Team(id: snapshot.teamID, name: snapshot.teamName, macs: snapshot.macs)]
         store.activeTeamID = snapshot.teamID
+        spacesFromSnapshot = true
         var workspaces: [Workspace] = []
         for mac in snapshot.macs {
             guard let saved = snapshot.workspaces[mac.id] else { continue }
@@ -373,6 +381,7 @@ public final class LiveCoordinator {
         // A team the phone already shows (picked, or followed to a Mac) stays active.
         let keep = list.contains { $0.id == store.activeTeamID } ? store.activeTeamID : selectedID
         store.applyLiveTeams(list, selectedID: keep)
+        spacesFromSnapshot = false
         activeTeamChanged()
         for team in list { loadPrefs(team.id) }
         if discoveryTask == nil { startDiscovery() }
@@ -592,6 +601,7 @@ public final class LiveCoordinator {
         if let macID { lastShown[macID] = ContinuousClock.now }
         pairingState = focused.pairingState
         chiefFollowsFocus()
+        ChiefComputer.shared.macChanged()
         phaseChanged(focused)
     }
 
@@ -665,6 +675,7 @@ public final class LiveCoordinator {
     /// Closes a Mac's link and forgets its session.
     private func closeSession(_ id: String) {
         guard let session = sessions.removeValue(forKey: id) else { return }
+        session.pairingRetry?.cancel()
         for relay in session.cloudChats.values { relay.retire() }
         session.cloudChats.removeAll()
         session.link.send(.target(nil))
@@ -802,7 +813,7 @@ public final class LiveCoordinator {
     }
 
     /// Signs Chief question answers for the linked Mac with this phone's
-    /// approval key (Face ID); nil without pairing keys or a paired Mac.
+    /// approval key; nil without pairing keys or a paired Mac.
     public func chiefAnswerSigner() -> ChiefAnswerSigner? {
         guard let pairing, let macID = link.target?.macID, focused.pairingState == .paired else { return nil }
         return ChiefAnswerSigner(keys: pairing.keys, macDevice: macID, phoneID: pairing.phoneID)

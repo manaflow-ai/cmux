@@ -6,17 +6,16 @@
 //! and closes its own tab; what decides is here:
 //!
 //! - `plan --request JSON`: the machine the send takes ([`pick::destination`]):
-//!   (a new one for a send from a folder with a GitHub repository, on the
+//!   (for a send from a project folder, on the
 //!   personal account, with the cmux credential on stdin
 //!   (`credential_on_stdin`): the platform's workspace machine, as `ensure`
 //!   makes it, pinned like any other and answered with `ensured`; the App
 //!   makes it only when the platform made none)
 //!   the one its first try took while that machine exists; for a send from a
 //!   Mac workspace, the machine that workspace already has; else a new one
-//!   named for chats; and the send's keys ([`Keys`]). For now each workspace
-//!   gets a small machine of its own and no machine serves two workspaces
-//!   (leo-workspace `design/cloud.md`, "One workspace per small machine,
-//!   snapshots, and a Cloud button"). A machine that exists is pinned to the
+//!   named for chats; and the send's keys ([`Keys`]). The platform binds one
+//!   machine per project, shared by that project's workspaces (leo-workspace
+//!   `design/cloud.md`). A machine that exists is pinned to the
 //!   send before anything runs there, so a retry of the send names it.
 //! - `pin --key K --account A --machine ID [--workspace W]`: pins the send
 //!   to the machine the App just made for it, and makes it the workspace's
@@ -28,9 +27,11 @@
 //!   copy already finished there: a second push would overwrite what the chat
 //!   changed since. Answers the chat's folder there, and how it got there:
 //!   `mode` (`seed` or `copy`), `fallback_code`, `fallback_why` and
-//!   `install_url` when a seed copied instead, and `skipped_files`. The push's
+//!   `install_url` when a seed copied instead, `skipped_files`, and `filling`
+//!   when a seed answered at the chat's head while the machine fills the rest
+//!   ([`push`]). The push's
 //!   progress lines go to stderr; `--acpmux-home H` adds `source_trusted` ([`trust`]).
-//! - `ensure --workspace W --key K --repo OWNER/NAME [--ref REF] [--environment env_...]
+//! - `ensure --workspace W --key K [--repo OWNER/NAME] [--project-key KEY] [--ref REF] [--environment env_...]
 //!   [--platform URL]`, the cmux credential on stdin: the workspace's own
 //!   machine from the cmux platform (`POST /v1/workspaces/{W}/machine`), made
 //!   under the plan's `create_key` so a retry gets the same one. With the
@@ -50,6 +51,9 @@
 
 mod ledger;
 mod pick;
+mod project;
+mod reservations;
+mod spare_warm;
 #[cfg(test)]
 mod tests;
 mod trust;
@@ -65,9 +69,14 @@ use pick::{Candidate, Destination};
 
 const USAGE: &str = "usage: cmux link start-chat plan --request JSON\n       \
 cmux link start-chat pin --key KEY --account ACCOUNT --machine ID [--workspace ID]\n       \
-cmux link start-chat ensure --workspace ID --key KEY --repo OWNER/NAME [--ref REF] [--environment env_ID] [--platform URL] (the cmux credential on stdin)\n       \
+cmux link start-chat create-begin --key KEY --account ACCOUNT --name NAME --create-key CREATE_KEY\n       \
+cmux link start-chat create-sent --key KEY --account ACCOUNT --team TEAM --create-key CREATE_KEY\n       \
+cmux link start-chat create-refused --key KEY --account ACCOUNT --create-key CREATE_KEY\n       \
+cmux link start-chat target-pane --key KEY --account ACCOUNT --machine ID --pane PANE\n       \
+cmux link start-chat ensure --workspace ID --key KEY [--repo OWNER/NAME] [--project-key KEY] [--ref REF] [--environment env_ID] [--platform URL] (the cmux credential on stdin)\n       \
 cmux link start-chat import --entries JSON\n       \
-cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH]";
+cmux link start-chat reserve|release|warm-spare --request JSON (the session credential, then the install token, on stdin), wait-copy --machine ID --provider P\n       \
+cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--store PLATFORM|default] (with --store, the cmux credential on stdin)";
 
 /// The error code a work root the machine's user cannot write answers with:
 /// the next root is tried.
@@ -105,9 +114,58 @@ pub(super) fn run(args: &[String]) -> i32 {
             }
             _ => None,
         },
-        "copy" => StartCopy::of(&flags).map(|copy| copy.run(&ledger, &push)),
+        "create-begin" => {
+            match (flags.key(), flags.account(), flags.one("--name"), flags.one("--create-key")) {
+                (Some(key), Some(account), Some(name), Some(create_key)) => {
+                    Some(create_begin(&ledger, &key, account, name, create_key))
+                }
+                _ => None,
+            }
+        }
+        "create-sent" => {
+            match (flags.key(), flags.account(), flags.one("--team"), flags.one("--create-key")) {
+                (Some(key), Some(account), Some(team), Some(create_key)) => {
+                    Some(create_sent(&ledger, &key, account, team, create_key))
+                }
+                _ => None,
+            }
+        }
+        "create-refused" => match (flags.key(), flags.account(), flags.one("--create-key")) {
+            (Some(key), Some(account), Some(create_key)) => {
+                Some(create_refused(&ledger, &key, account, create_key))
+            }
+            _ => None,
+        },
+        "target-pane" => {
+            match (flags.key(), flags.account(), flags.one("--machine"), flags.one("--pane")) {
+                (Some(key), Some(account), Some(machine), Some(pane)) => {
+                    Some(target_pane(&ledger, &key, account, machine, pane))
+                }
+                _ => None,
+            }
+        }
+        "copy" => StartCopy::of(&flags).map(|copy| {
+            // `--store PLATFORM|default`: through the content-addressed store, the cmux
+            // credential on stdin; without one the copy goes over the link as before.
+            if let Some(platform) = flags.one("--store")
+                && let Err(error) =
+                    super::sync_cli::store_from_stdin(platform, &mut std::io::stdin().lock())
+            {
+                eprintln!("{}", json!({"store": {"used": false, "error": error}}));
+            }
+            copy.run(&ledger, &|socket: &Path, local: &Path, remote: &str| {
+                push(socket, local, remote, &copy.subpath)
+            })
+        }),
         "import" => flags.one("--entries").map(|entries| import(&ledger, entries)),
         "ensure" => Ensure::of(&flags).map(|ensure| ensure.run(&mut std::io::stdin().lock())),
+        "reserve" => {
+            reservations::run(&flags, reservations::Action::Reserve, &mut std::io::stdin().lock())
+        }
+        "release" => {
+            reservations::run(&flags, reservations::Action::Release, &mut std::io::stdin().lock())
+        }
+        "warm-spare" | "wait-copy" => spare_warm::cli(action, &flags, &ledger),
         _ => None,
     };
     let Some(answer) = answer else {
@@ -227,10 +285,17 @@ struct PlanRequest {
     /// The cloud environment the send chose (`cloud.startChat`'s `environment`), echoed for `ensure`.
     #[serde(default)]
     environment: Option<String>,
-    /// The cmux credential is the first line of stdin: a new machine for a send from a repository's folder, on the
+    /// The cmux credential is the first line of stdin: a project machine for a send from a local folder, on the
     /// personal account, is the platform's workspace machine.
     #[serde(default)]
     credential_on_stdin: bool,
+    /// Explicit eligibility keeps reservation credentials from enabling project ensure elsewhere.
+    #[serde(default)]
+    ensure_project: Option<bool>,
+    #[serde(default)]
+    reservation_key: Option<String>,
+    #[serde(default)]
+    platform: Option<String>,
 }
 
 /// How `plan` asks the cmux platform for a workspace's machine: `ensure` with a credential.
@@ -245,13 +310,22 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
     })
 }
 
-/// [`plan`], making a new machine through `ensure` when the send's folder has a GitHub repository and the account is
-/// the personal one ([`ensures`]).
+/// [`plan`], ensuring the project's machine for a local folder on the personal account ([`ensures`]).
 pub(super) fn plan_with(
     ledger: &Path,
     request: &str,
     stdin: &mut dyn std::io::BufRead,
     ensure: EnsureCall<'_>,
+) -> Value {
+    plan_with_calls(ledger, request, stdin, ensure, &|call, credential| call.post(credential))
+}
+
+fn plan_with_calls(
+    ledger: &Path,
+    request: &str,
+    stdin: &mut dyn std::io::BufRead,
+    ensure: EnsureCall<'_>,
+    reservation: reservations::Transport<'_>,
 ) -> Value {
     let request: PlanRequest = match serde_json::from_str(request) {
         Ok(request) => request,
@@ -273,8 +347,25 @@ pub(super) fn plan_with(
     if request.environment.as_deref().is_some_and(|id| !valid_environment(id)) {
         return refused("bad_request", "the environment is not a cloud environment id (env_...)");
     }
-    let keys = Keys::of(&request.key);
+    if request.reservation_key.as_deref().is_some_and(|key| !valid_key(key)) {
+        return refused("bad_request", "the reservation key is not a UUID");
+    }
+    let mut keys = Keys::of(&request.key);
     let send = Send::new(&request.key, &request.account);
+    match Ledger::update(ledger, |pins| pins.pending_create(&send)) {
+        Ok(Some(pending)) => {
+            if let Some(key) = &pending.create_key {
+                keys.create = key.clone();
+            }
+            if !pending.refused {
+                return json!({"ok": true, "machine": null, "new_name": pending.name,
+            "create_team": pending.team, "create_sent": pending.sent, "create_key": keys.create,
+            "tab_key": keys.tab, "remote_place": keys.place});
+            }
+        }
+        Ok(None) => {}
+        Err(error) => return refused("ledger_failed", format!("{error:#}")),
+    }
     let planned = Ledger::update(ledger, |pins| {
         let destination = pick::destination(
             &send,
@@ -297,25 +388,51 @@ pub(super) fn plan_with(
         destination
     });
     let repo = request.local.as_deref().and_then(folder_repo);
+    let project_key = if matches!(&planned, Ok(Destination::New)) {
+        match request.local.as_deref().map(|local| project::folder_key(ledger, local)).transpose() {
+            Ok(key) => key.flatten(),
+            Err(error) => return refused("ledger_failed", format!("{error:#}")),
+        }
+    } else {
+        None
+    };
+    // Read the credential once: project ensure and reservation bind use the same human session.
+    let (mut credential, mut install) = (String::new(), String::new());
+    if request.credential_on_stdin
+        && (request.reservation_key.is_some() || ensures(&request, project_key.as_deref()))
+    {
+        let _ = stdin.read_line(&mut credential).and_then(|_| stdin.read_line(&mut install));
+    }
+    let credential = (credential.trim(), install.as_str()); // the bind's team: the install token's
     let mut line = keys.json();
     let fields = match planned {
-        Ok(Destination::Machine(id)) => json!({"ok": true, "machine": id}),
-        Ok(Destination::New) if ensures(&request, repo.as_deref()) => {
-            let mut credential = String::new();
-            let _ = stdin.read_line(&mut credential);
+        Ok(Destination::Machine(id)) => {
+            let pane = match Ledger::update(ledger, |pins| pins.target_pane(&send, &id)) {
+                Ok(pane) => pane,
+                Err(error) => return refused("ledger_failed", format!("{error:#}")),
+            };
+            json!({"ok": true, "machine": id, "target_pane": pane})
+        }
+        Ok(Destination::New) if ensures(&request, project_key.as_deref()) => {
             let ask = Ensure {
                 // A send from no Mac workspace is a workspace of its own.
                 workspace: workspace.map_or_else(|| keys.create.clone(), str::to_string),
                 create_key: keys.create,
-                repo: repo.clone().unwrap_or_default(),
+                repo: repo.clone(),
+                project_key: project_key.clone().unwrap_or_default(),
                 git_ref: None,
                 environment: request.environment.clone(),
-                platform: None,
+                platform: request.platform.clone(),
+                reservation_key: request.reservation_key.clone(),
+                reservation_send_key: request
+                    .reservation_key
+                    .as_ref()
+                    .map(|_| request.key.to_lowercase()),
             };
-            let answer = if credential.trim().is_empty() {
+            let answer = if credential.0.is_empty() {
                 Err(crate::cli::PlatformCallError::Status { status: 401, code: "" })
             } else {
-                ensure(&ask, credential.trim())
+                ensure(&ask, credential.0)
             };
             match answer {
                 Ok(body) => {
@@ -325,7 +442,7 @@ pub(super) fn plan_with(
                     if let Err(error) = Ledger::update(ledger, |pins| {
                         pins.record(id, &send);
                         if let Some(workspace) = workspace {
-                            pick::claim(pins, workspace, &request.account, id);
+                            pick::claim_project(pins, workspace, &request.account, id);
                         }
                     }) {
                         return refused("ledger_failed", format!("{error:#}"));
@@ -337,39 +454,92 @@ pub(super) fn plan_with(
                     }})
                 }
                 // The platform made no machine: the App makes it, as before.
-                Err(error) if made_no_machine(&error) => json!({
-                    "ok": true,
-                    "machine": null,
-                    "new_name": pick::new_machine_name(request.machines.iter().map(|machine| machine.title.as_str())),
-                }),
+                Err(error) if made_no_machine(&error) => reservation_destination(
+                    ledger,
+                    &request,
+                    &send,
+                    workspace,
+                    credential,
+                    reservation,
+                ),
                 // It may have made one: a retry with the same key reaches it, never a second paid machine.
                 Err(error) => return ensure_answer(Err(error)),
             }
         }
-        Ok(Destination::New) => json!({
-            "ok": true,
-            "machine": null,
-            "new_name": pick::new_machine_name(request.machines.iter().map(|machine| machine.title.as_str())),
-        }),
+        Ok(Destination::New) => {
+            reservation_destination(ledger, &request, &send, workspace, credential, reservation)
+        }
         Err(error) => return refused("ledger_failed", format!("{error:#}")),
     };
     if let (Value::Object(line), Value::Object(fields)) = (&mut line, fields) {
         line.extend(fields);
         line.insert("repo".into(), json!(repo));
+        line.insert("project_key".into(), json!(project_key));
         line.insert("environment".into(), json!(request.environment));
     }
     line
 }
 
-/// Whether a new machine for the send is the platform's workspace machine: the send's folder has a GitHub repository
-/// (`repo`), the account is the personal one (the App spells it `user/` with no team: workspace machines are made in
+/// Bind only when the existing destination policy needs a new machine. A timed-out bind may
+/// already own a paid machine: fail the send and retry its same key, never cold-create another.
+fn reservation_destination(
+    ledger: &Path,
+    request: &PlanRequest,
+    send: &Send,
+    workspace: Option<&str>,
+    (credential, install): (&str, &str),
+    transport: reservations::Transport<'_>,
+) -> Value {
+    let cold = || {
+        json!({"ok": true, "machine": null,
+        "new_name": pick::new_machine_name(request.machines.iter().map(|machine| machine.title.as_str()))})
+    };
+    let Some(compose_key) = &request.reservation_key else { return cold() };
+    if credential.is_empty() {
+        return refused("unauthorized", "no session credential for the reserved machine");
+    }
+    let answer = transport(
+        &reservations::Call {
+            action: reservations::Action::Bind,
+            compose_key: compose_key.to_lowercase(),
+            send_key: Some(request.key.to_lowercase()),
+            environment: request.environment.clone(),
+            platform: request.platform.clone(),
+            team: spare_warm::install_team(install),
+        },
+        credential,
+    );
+    let body = match answer {
+        Ok(body) => body,
+        Err(error) if reservations::unbound(&error) => return cold(),
+        Err(error) => return reservations::answer(Err(error)),
+    };
+    let Some(machine) = reservations::machine(&body) else {
+        return refused("bad_answer", "the cmux platform bound no readable machine");
+    };
+    if let Err(error) = Ledger::update(ledger, |pins| {
+        pins.record(machine, send);
+        if let Some(workspace) = workspace {
+            pick::claim(pins, workspace, &request.account, machine);
+        }
+    }) {
+        return refused("ledger_failed", format!("{error:#}"));
+    }
+    json!({"ok": true, "machine": machine})
+}
+
+/// Whether the send uses the platform's project machine: the folder has a project key,
+/// the account is the personal one (the App spells it `user/` with no team: workspace machines are made in
 /// the personal team) and the App handed over the credential.
-fn ensures(request: &PlanRequest, repo: Option<&str>) -> bool {
+fn ensures(request: &PlanRequest, project_key: Option<&str>) -> bool {
     let personal = request
         .account
         .split_once('/')
         .is_some_and(|(user, team)| !user.is_empty() && team.is_empty());
-    repo.is_some() && personal && request.credential_on_stdin
+    project_key.is_some()
+        && personal
+        && request.credential_on_stdin
+        && request.ensure_project.unwrap_or(true)
 }
 
 /// Whether a failed ensure made no machine, so the App may make one: the platform has no workspace machines here (a
@@ -492,10 +662,13 @@ pub(super) fn github_repo(url: &str) -> Option<String> {
 pub(super) struct Ensure {
     workspace: String,
     create_key: String,
-    repo: String,
+    repo: Option<String>,
+    project_key: String,
     git_ref: Option<String>,
     environment: Option<String>,
     platform: Option<String>,
+    reservation_key: Option<String>,
+    reservation_send_key: Option<String>,
 }
 
 impl Ensure {
@@ -514,19 +687,37 @@ impl Ensure {
         {
             return None;
         }
+        let repo = optional("--repo")?;
+        if repo.as_deref().is_some_and(|repo| !valid_repo(repo)) {
+            return None;
+        }
+        let project_key = match optional("--project-key")? {
+            Some(key) => project::normalize_key(&key)?,
+            None => format!("git:github.com/{}", repo.as_deref()?.to_lowercase()),
+        };
         Some(Self {
             workspace: flags.workspace()??.to_string(),
             create_key: Keys::of(&flags.key()?).create,
-            repo: flags.one("--repo").filter(|repo| valid_repo(repo))?.to_string(),
+            repo,
+            project_key,
             git_ref,
             environment,
             platform: optional("--platform")?,
+            reservation_key: None,
+            reservation_send_key: None,
         })
     }
 
     /// The request body: the plan's `create_key` as the client key, so a retry gets the same machine.
     pub(super) fn body(&self) -> Value {
-        let mut body = json!({"clientKey": self.create_key, "repo": self.repo});
+        let mut body = json!({"clientKey": self.create_key, "projectKey": self.project_key});
+        if let Some(key) = &self.reservation_key {
+            body.set("reservationKey", json!(key));
+            body.set("reservationSendKey", json!(self.reservation_send_key));
+        }
+        if let Some(repo) = &self.repo {
+            body.set("repo", json!(repo));
+        }
         if let Some(git_ref) = &self.git_ref {
             body.set("ref", json!(git_ref));
         }
@@ -726,6 +917,44 @@ pub(super) fn pin(
     }
 }
 
+fn create_begin(ledger: &Path, key: &str, account: &str, name: &str, create_key: &str) -> Value {
+    match Ledger::update(ledger, |pins| {
+        pins.begin_create(&Send::new(key, account), name, create_key)
+    }) {
+        Ok(true) => json!({"ok": true}),
+        Ok(false) => refused("not_found", "no matching create key"),
+        Err(error) => refused("ledger_failed", format!("{error:#}")),
+    }
+}
+
+fn create_sent(ledger: &Path, key: &str, account: &str, team: &str, create_key: &str) -> Value {
+    match Ledger::update(ledger, |pins| {
+        pins.mark_create_sent(&Send::new(key, account), team, create_key)
+    }) {
+        Ok(true) => json!({"ok": true}),
+        Ok(false) => refused("not_found", "no pending create"),
+        Err(error) => refused("ledger_failed", format!("{error:#}")),
+    }
+}
+
+fn create_refused(ledger: &Path, key: &str, account: &str, create_key: &str) -> Value {
+    match Ledger::update(ledger, |pins| pins.refuse_create(&Send::new(key, account), create_key)) {
+        Ok(true) => json!({"ok": true}),
+        Ok(false) => refused("not_found", "no matching pending create"),
+        Err(error) => refused("ledger_failed", format!("{error:#}")),
+    }
+}
+
+fn target_pane(ledger: &Path, key: &str, account: &str, machine: &str, pane: &str) -> Value {
+    match Ledger::update(ledger, |pins| {
+        pins.record_target_pane(&Send::new(key, account), machine, pane)
+    }) {
+        Ok(true) => json!({"ok": true}),
+        Ok(false) => refused("not_found", "no pinned send"),
+        Err(error) => refused("ledger_failed", format!("{error:#}")),
+    }
+}
+
 /// `import`: the sends the App kept before cmux-tui did, a JSON list of its
 /// entries ([`ledger::AppEntry`]).
 pub(super) fn import(ledger: &Path, entries: &str) -> Value {
@@ -747,9 +976,20 @@ pub(super) type Push<'a> = dyn Fn(&Path, &Path, &str) -> Result<Value, (String, 
 /// `cmux link seed push` (design/cloud.md, "Getting the project onto the
 /// machine"): a git folder with a GitHub remote is seeded from it, anything
 /// else copied (`cmux link sync push`), which refuses a machine without
-/// `fs-v1` (`machine_outdated`) itself.
-fn push(socket: &Path, local: &Path, remote: &str) -> Result<Value, (String, String)> {
-    super::seed_cli::push(socket, local, remote)
+/// `fs-v1` (`machine_outdated`) itself. A seed answers once the machine has the
+/// head the chat opens on (the root's files, the harness folders and `subpath`),
+/// `filling` while it fills the rest under its sync barrier, so every tool in the
+/// chat still sees the whole checkout. The send's copy counts as finished then
+/// ([`StartCopy::run`]): the chat may open in that folder, so a retry of the send
+/// never pushes over it. What a later delta builds on waits for the fill to be
+/// done (`seed_cli`'s record).
+fn push(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    subpath: &str,
+) -> Result<Value, (String, String)> {
+    super::seed_cli::push(socket, local, remote, Some(subpath))
         .map(|pushed| pushed_fields(&pushed.json()))
         .map_err(|error| super::seed_cli::failure(&error))
 }
@@ -757,10 +997,12 @@ fn push(socket: &Path, local: &Path, remote: &str) -> Result<Value, (String, Str
 /// What the copy's answer carries of the push's own line: how it went
 /// (`mode`: seed or copy), why a seed copied instead (`fallback_code`,
 /// `fallback_why`, and `install_url` when the machine needs the GitHub App),
-/// and the files it left on this Mac, by name.
+/// the files it left on this Mac, by name, and `filling` when the machine
+/// answered at the seed's head.
 fn pushed_fields(line: &Value) -> Value {
     let mut fields = serde_json::Map::new();
-    for key in ["mode", "fallback_code", "fallback_why", "install_url", "skipped_files"] {
+    for key in ["mode", "fallback_code", "fallback_why", "install_url", "skipped_files", "filling"]
+    {
         if let Some(value) = line.get(key).filter(|value| !value.is_null()) {
             fields.insert(key.to_string(), value.clone());
         }
@@ -918,9 +1160,10 @@ impl StartCopy {
         let send = Send::new(&self.key, &self.account);
         let in_flight = match Ledger::update(ledger, |pins| {
             pins.copied_chat(&send, &self.machine)
+                .map(|chat| self.cached_copy(pins, &send, &chat))
                 .map_or_else(|| Err(pins.copy_place(&send, &self.machine)), Ok)
         }) {
-            Ok(Ok(chat)) => return json!({"ok": true, "chat": chat, "copied": false}),
+            Ok(Ok(answer)) => return answer,
             Ok(Err(place)) => place,
             Err(error) => return refused("ledger_failed", format!("{error:#}")),
         };
@@ -941,13 +1184,15 @@ impl StartCopy {
         // first read and the lease (and let it go) is the send's copy now,
         // and its folder may hold a chat; it is never pushed over.
         match Ledger::update(ledger, |pins| {
-            let finished = pins.copied_chat(&send, &self.machine);
+            let finished = pins
+                .copied_chat(&send, &self.machine)
+                .map(|chat| self.cached_copy(pins, &send, &chat));
             if finished.is_none() {
                 pins.start_copy(&send, &self.machine, &place);
             }
             finished
         }) {
-            Ok(Some(chat)) => return json!({"ok": true, "chat": chat, "copied": false}),
+            Ok(Some(answer)) => return answer,
             Ok(None) => {}
             Err(error) => return refused("ledger_failed", format!("{error:#}")),
         }
@@ -957,7 +1202,7 @@ impl StartCopy {
             match push(&self.socket, Path::new(&self.local), &folder) {
                 Ok(fields) => {
                     let recorded = Ledger::update(ledger, |pins| {
-                        pins.record_copy(&chat, &send, &self.machine, &place);
+                        pins.record_copy(&chat, &folder, &send, &self.machine, &place);
                     });
                     lease.release();
                     return match recorded {
@@ -985,6 +1230,16 @@ impl StartCopy {
             }
         }
         refused(&last.0, last.1)
+    }
+
+    fn cached_copy(&self, pins: &Ledger, send: &Send, chat: &str) -> Value {
+        match pins.copied_folder(send, &self.machine) {
+            Some(folder) => json!({"ok": true, "chat": chat, "folder": folder, "copied": false}),
+            None => refused(
+                "ledger_failed",
+                "the finished copy's record does not identify its root folder",
+            ),
+        }
     }
 }
 

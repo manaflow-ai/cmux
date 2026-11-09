@@ -170,6 +170,11 @@ TYPECHECK_EXACT = {
 
 UNIT_TESTS_EXACT = {
     "CHANGELOG.md",
+    # web/tests/next-docs.test.ts and docs-shortcuts tests compare the generated
+    # docs references with these, so a change to either must run the web tests
+    # (#38631 changed action-surfaces.json with Web tests skipped and broke base).
+    "plans/cmux-next/action-surfaces.json",
+    "schemas/settings/settings-schema.json",
     "config/iroh/managed-relay-catalog.json",
     "workers/presence/src/generated/managedRelayCatalog.ts",
 }
@@ -199,8 +204,6 @@ REACT_EXACT = {
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/pane.js",
     "scripts/cmux-next/build-agent-pane-web.sh",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
-    "scripts/cmux-next/build-palette-ranker.sh",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/index.html",
     "scripts/cmux-next/build-agent-activity-web.sh",
     "scripts/cmux-next/regenerate-web-bundles.sh",
@@ -314,6 +317,10 @@ def changed_paths(base: str, head: str) -> list[str] | None:
     return [os.fsdecode(path) for path in result.stdout.split(b"\0") if path]
 
 
+# The push base that runs every web subarea, whatever the push changed.
+EVERY_SUBAREA = "all"
+
+
 def route() -> int:
     output = Path(os.environ["GITHUB_OUTPUT"])
     if os.environ.get("EVENT_NAME") == "workflow_dispatch":
@@ -323,6 +330,11 @@ def route() -> int:
     # A feat-cmux-next push routes from what the push brought (event.before), not its last
     # commit: a multi-commit push can end on a commit that touches no web path.
     push_base = os.environ.get("WEB_SUBAREAS_BASE", "").strip()
+    if push_base == EVERY_SUBAREA:
+        # A coalesced cmux-next-web.yml push run whose covered range is unknown (scripts/ci/web_coalesce.py).
+        print("the range this push covers is unknown; running every web subarea")
+        WebSubareas.all().emit(output)
+        return 0
     base = subprocess.run(
         ["git", "rev-parse", "-q", "--verify", f"{push_base}^{{commit}}" if push_base else "HEAD^1"],
         text=True,

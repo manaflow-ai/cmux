@@ -241,10 +241,10 @@ impl Mux {
                     .get("placement")
                     .and_then(Value::as_str)
                     .and_then(crate::user_settings::NewWorkspacePlacement::from_wire);
-                match placement {
+                crate::state::created_by::scoped_by_fields(fields, || match placement {
                     Some(placement) => placement.scoped(create),
                     None => create(),
-                }
+                })
                 .map(|created| created.path)
             }
             ResourceOperation::WorkspaceClose => {
@@ -514,6 +514,14 @@ impl Mux {
                 };
                 if let Some(name) = optional_owned_string(fields, "name")? {
                     surface.set_name(Some(name));
+                    // Its `tab-added` went out before the name: the name is a `tab-changed` (#32408).
+                    let decorations = self.tree_decorations();
+                    let renamed = self.with_state(|state| {
+                        presentation::tab_changed_delta(state, &decorations, surface.id)
+                    });
+                    if let Some(delta) = renamed {
+                        self.emit(MuxEvent::TreeDelta(delta));
+                    }
                 }
                 self.created_resource_path(surface.id)
             }
@@ -783,7 +791,7 @@ impl Mux {
             surface.set_name(Some(name));
         }
         let active_at = self.next_active_at();
-        let notifications = self.tree_decorations();
+        let notifications = self.tree_decorations_placing(&surface);
         let mut refused = None;
         let attached = {
             let mut state = self.state.lock().unwrap();
@@ -891,12 +899,16 @@ impl Mux {
             ResourceOperation::PaneCreate
         }
         .wire_name();
-        // Split Down (`down`, not swapped above its target) may grow the agent chat dock below
-        // its chat (#29848); every other new pane in the dock is refused.
-        let splits_down = row_height.is_none() && split_direction == Some((SplitDir::Down, false));
+        // Split Down may grow the agent chat dock below its chat (#29848), and so may Split Up
+        // (`up`, split-before-v1) of a pane below the chat: the new pane lands between them, as
+        // `down` then `swap-pane` did. Every other new pane in the dock is refused.
+        let vertical = row_height.is_none() && matches!(split_direction, Some((SplitDir::Down, _)));
+        let up = split_direction == Some((SplitDir::Down, true));
+        let splits_down =
+            |state: &State| vertical && (!up || !pane_is_agent_chat_top(state, target));
         if viewport_width.is_none() {
             self.with_state(|state| {
-                ensure_pane_column_not_agent_chat(operation, state, target, splits_down)
+                ensure_pane_column_not_agent_chat(operation, state, target, splits_down(state))
             })?;
         }
         let workspace_key = self
@@ -932,7 +944,7 @@ impl Mux {
             (viewport_width.is_some() || row_height.is_some()).then(|| self.next_id());
         let base_row_id = row_height.map(|_| self.next_id());
         let active_at = self.next_active_at();
-        let notifications = self.tree_decorations();
+        let notifications = self.tree_decorations_placing(&surface);
         // A conversation tab's split (`conversation-tab-split-v1`): its one
         // `pane-added` carries the client transaction.
         let transaction = intent["fields"].as_object().and_then(frontend_browser_transaction);
@@ -954,7 +966,7 @@ impl Mux {
                 anyhow::bail!("pane disappeared before new pane attachment");
             };
             if viewport_width.is_none() {
-                ensure_pane_column_not_agent_chat(operation, &state, target, splits_down)?;
+                ensure_pane_column_not_agent_chat(operation, &state, target, splits_down(&state))?;
             }
             let workspace_id = state.workspaces[workspace].id;
             let screen_id = state.workspaces[workspace].screens[screen_index].id;

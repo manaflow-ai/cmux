@@ -15,6 +15,8 @@ enum WorkspacesListItem: Equatable {
     case asleep
     /// A Mac workspace group's header.
     case group(WorkspaceGroupHeaderModel)
+    /// Group by Folder: a folder's header over its loose rows.
+    case folder(WorkspaceFolderHeaderModel)
     /// One Mac's folded line (offline, not linked, or failed).
     case fold(WorkspaceFoldLineModel)
     case row(WorkspaceRowModel)
@@ -34,6 +36,11 @@ struct WorkspaceGroupHeaderModel: Equatable {
     var canEdit: Bool
 }
 
+struct WorkspaceFolderHeaderModel: Equatable {
+    var folder: String
+    var count: Int
+}
+
 struct WorkspaceFoldLineModel: Equatable {
     var fold: WorkspaceInbox.Fold
     var isOpen: Bool
@@ -42,7 +49,13 @@ struct WorkspaceFoldLineModel: Equatable {
     var typeSize: DynamicTypeSize
     var canReconnect: Bool
     var sameNames: MacNameDisambiguation
-    var now: Date
+}
+
+/// A view that reads the minute clock in its own body, so a tick redraws it and not the list
+/// that holds it (a Mac line's "Last seen 4m ago").
+struct OnMinute<Content: View>: View {
+    let content: (Date) -> Content
+    var body: some View { content(MinuteClock.shared.now) }
 }
 
 /// The Workspaces list's sections and items, as the collection shows them.
@@ -86,6 +99,11 @@ final class WorkspacesListControl {
 
     /// Where the list's visible area ends (above the tab bar), in the list's space.
     var visibleBottom: CGFloat { controller?.visibleBottom ?? .infinity }
+
+    /// Reveal Workspace in List: the item scrolls to the middle and flashes once.
+    func reveal(_ itemID: String) {
+        controller?.reveal(itemID)
+    }
 }
 
 /// The Workspaces list (SPEC 11.1) as a UIKit collection view: a plain list
@@ -166,6 +184,9 @@ final class WorkspacesHeightCache {
     private(set) var hits = 0
 
     func height(_ key: Key, width: CGFloat) -> CGFloat? {
+        // A Mac line's "Last seen 4m ago" moves on in its own view (`OnMinute`) with no new
+        // value, so its height is measured each time, never cached (a few lines, one per Mac).
+        if case .fold = key.item { return nil }
         if let shape = shape(key.item), let known = shapes[shape], known.width == width {
             hits += 1
             return known.height
@@ -176,6 +197,7 @@ final class WorkspacesHeightCache {
     }
 
     func store(_ key: Key, width: CGFloat, height: CGFloat) {
+        if case .fold = key.item { return }
         if let shape = shape(key.item) {
             shapes[shape] = (width, height)
         } else {
@@ -184,13 +206,15 @@ final class WorkspacesHeightCache {
     }
 
     /// A row's shape: what its height depends on below the accessibility sizes
-    /// (one line each for the name and the status). Nil at accessibility sizes,
+    /// (one line each for the name and the status, or the name alone). Nil at accessibility sizes,
     /// where the name and the status wrap to two lines: measured per row.
     private func shape(_ item: WorkspacesListItem) -> String? {
         guard case let .row(model) = item, !textSize.isAccessibilityCategory else { return nil }
         let icon = model.workspace.icon ?? ""
         let iconKind = icon.isEmpty ? "none" : (WorkspaceSwatch.isSymbol(icon) ? "symbol" : "emoji")
-        return "row.\(iconKind)"
+        // One line (compact, or a blank status line that the row leaves out) or two.
+        let oneLine = !WorkspaceRow.showsStatusLine(model.workspace, status: model.status, macName: model.macName, compact: model.compact)
+        return "row.\(iconKind)\(oneLine ? ".compact" : "")"
     }
 }
 
@@ -357,6 +381,7 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         case .row: EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 20)
         case .title: EdgeInsets(top: 14, leading: 0, bottom: 2, trailing: 20)
         case .group: EdgeInsets(top: 4, leading: 0, bottom: 0, trailing: 20)
+        case .folder: EdgeInsets(top: 10, leading: 0, bottom: 2, trailing: 20)
         case .fold: EdgeInsets(top: 10, leading: 0, bottom: 4, trailing: 20)
         case .asleep: EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20)
         case .loading: EdgeInsets()
@@ -536,6 +561,38 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
     var visibleBottom: CGFloat {
         guard let collectionView else { return .infinity }
         return collectionView.bounds.height - collectionView.adjustedContentInset.bottom
+    }
+
+    /// The item in the middle of the list, then a press fill that fades on its cell.
+    func reveal(_ itemID: String) {
+        guard let collectionView, let indexPath = dataSource?.indexPath(for: itemID) else { return }
+        let flash = { [weak collectionView] in
+            guard let cell = collectionView?.cellForItem(at: indexPath) else { return }
+            let fill = UIView(frame: cell.bounds)
+            fill.backgroundColor = theme.colors.fillPressed.uiColor
+            fill.isUserInteractionEnabled = false
+            fill.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            fill.accessibilityIdentifier = "workspaces.revealed"
+            cell.addSubview(fill)
+            // A fade, not motion: kept under Reduce Motion too. The fill holds a moment first.
+            UIView.animate(withDuration: 1.2, delay: 0.4, options: [.curveEaseOut], animations: { fill.alpha = 0 }) { _ in
+                fill.removeFromSuperview()
+            }
+            UIAccessibility.post(notification: .layoutChanged, argument: cell)
+        }
+        // Reduce Motion: the list jumps there.
+        guard !UIAccessibility.isReduceMotionEnabled else {
+            collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: false)
+            collectionView.layoutIfNeeded()
+            return flash()
+        }
+        let animator = theme.motion.smooth.animator()
+        animator.addAnimations {
+            collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: false)
+            collectionView.layoutIfNeeded()
+        }
+        animator.addCompletion { _ in flash() }
+        animator.startAnimation()
     }
 
     func scrollTo(_ itemID: String, atTop: Bool, animated: Bool, completion: (() -> Void)?) {

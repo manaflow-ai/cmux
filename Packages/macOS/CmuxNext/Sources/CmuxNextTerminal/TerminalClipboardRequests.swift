@@ -60,6 +60,10 @@ final class TerminalClipboardRequests {
         guard let surface = view?.surface else { return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED }
         let pasteboard = TerminalPasteboard.pasteboard(location)
         let imagePaste = location == .standard && userPasteInProgress
+        if imagePaste, wantsText, view?.session?.handOffFilePaste(pasteboard) == true {
+            Self.complete(surface, text: "", available: ["text/plain"], state: state, confirmed: false)
+            return GHOSTTY_CLIPBOARD_READ_STARTED
+        }
         let text: String? = if imagePaste, wantsText {
             TerminalPasteboard.pasteTextSavingImage(from: pasteboard)
         } else if imagePaste, TerminalPasteboard.pasteText(from: pasteboard) == nil,
@@ -87,19 +91,7 @@ final class TerminalClipboardRequests {
             deny(state: state)
             return
         }
-        let spec: CmuxDialogSpec
-        switch kind {
-        case .paste:
-            spec = Self.spec(String(localized: "terminal.clipboard.paste.title", defaultValue: "Paste into the terminal?", bundle: .module),
-                             String(localized: "terminal.clipboard.paste.message", defaultValue: "The text contains line breaks and may run commands immediately.", bundle: .module),
-                             preview: contents)
-        case .osc52Read:
-            spec = Self.spec(String(localized: "terminal.clipboard.read.title", defaultValue: "Allow a program to read the clipboard?", bundle: .module),
-                             String(localized: "terminal.clipboard.read.message", defaultValue: "A program running in this terminal asked for the clipboard contents.", bundle: .module),
-                             preview: contents)
-        case .osc52Write: return  // handled before the visibility guard
-        }
-        CmuxDialogCenter.shared.present(spec, in: .tab(view)) { [weak self] answer in
+        CmuxDialogCenter.shared.present(Self.spec(for: kind, preview: contents), in: .tab(view)) { [weak self] answer in
             guard let self else { return }
             if answer.button == "allow" { complete(state: state, with: contents) } else { deny(state: state) }
         }
@@ -196,21 +188,38 @@ final class TerminalClipboardRequests {
     }
 
     private static func writeSpec(preview: String) -> CmuxDialogSpec {
-        spec(String(localized: "terminal.clipboard.write.title", defaultValue: "Allow a program to change the clipboard?", bundle: .module),
-             String(localized: "terminal.clipboard.write.message", defaultValue: "A program running in this terminal wants to copy text to the clipboard.", bundle: .module),
-             preview: preview)
+        spec(for: .osc52Write, preview: preview)
     }
-    /// Deny on Escape, with a preview of the text. Allow has no key: a
-    /// Return typed into the terminal as the dialog opens must never paste
-    /// or hand over the clipboard (as in the clipboard-read broker dialog).
-    static func spec(_ title: String, _ message: String, preview text: String) -> CmuxDialogSpec {
+
+    /// The dialog for one clipboard request: its question, a preview of the text, Deny on
+    /// Escape. The person's own paste follows the dialog keyboard (`CmuxDialogKeys`), as
+    /// Ghostty's paste confirmation does: Return presses Allow. A program's OSC 52 request
+    /// gives Allow no key: the program picks the moment that dialog opens, so a Return typed
+    /// for the terminal must never hand the clipboard over (as in the clipboard-read broker
+    /// dialog). No dialog opens with the keyboard on a button (the overlay page's dialog focuses its first text field or the card),
+    /// so a typed Space presses neither.
+    static func spec(for kind: TerminalClipboardRequestKind, preview text: String) -> CmuxDialogSpec {
+        let title: String
+        let message: String
+        switch kind {
+        case .paste:
+            title = String(localized: "terminal.clipboard.paste.title", defaultValue: "Paste into the terminal?", bundle: .module)
+            message = String(localized: "terminal.clipboard.paste.message", defaultValue: "The text contains line breaks and may run commands immediately.", bundle: .module)
+        case .osc52Read:
+            title = String(localized: "terminal.clipboard.read.title", defaultValue: "Allow a program to read the clipboard?", bundle: .module)
+            message = String(localized: "terminal.clipboard.read.message", defaultValue: "A program running in this terminal asked for the clipboard contents.", bundle: .module)
+        case .osc52Write:
+            title = String(localized: "terminal.clipboard.write.title", defaultValue: "Allow a program to change the clipboard?", bundle: .module)
+            message = String(localized: "terminal.clipboard.write.message", defaultValue: "A program running in this terminal wants to copy text to the clipboard.", bundle: .module)
+        }
         let limit = 2_000
         let preview = text.count > limit ? String(text.prefix(limit)) + "…" : text
         return CmuxDialogSpec(
             title: title, lines: [message], fields: [.preview(preview)],
             buttons: [
                 CmuxDialogButton(id: "deny", title: String(localized: "terminal.clipboard.deny", defaultValue: "Deny", bundle: .module), role: .cancel),
-                CmuxDialogButton(id: "allow", title: String(localized: "terminal.clipboard.allow", defaultValue: "Allow", bundle: .module), role: .normal),
+                CmuxDialogButton(id: "allow", title: String(localized: "terminal.clipboard.allow", defaultValue: "Allow", bundle: .module),
+                                 role: kind == .paste ? .default : .normal),
             ],
             identifier: "cmux.dialog.terminalClipboard")
     }
@@ -230,36 +239,42 @@ final class TerminalClipboardRequests {
     /// text/plain representation. Every pointer is borrowed for the call.
     private static func complete(_ surface: ghostty_surface_t, text: String?, available: [String],
                                  state: UncheckedPointer, confirmed: Bool) {
-        let mime = strdup("text/plain")
-        let data = text.map { Array($0.utf8) } ?? []
-        let availablePointers: [UnsafePointer<CChar>?] = available.map { UnsafePointer(strdup($0)) }
-        defer {
-            free(mime)
-            availablePointers.forEach { free(UnsafeMutableRawPointer(mutating: $0)) }
-        }
-        data.withUnsafeBufferPointer { bytes in
-            bytes.withMemoryRebound(to: CChar.self) { chars in
-                var item = ghostty_clipboard_content_s(mime: mime, data: chars.baseAddress, len: chars.count)
-                availablePointers.withUnsafeBufferPointer { list in
-                    withUnsafePointer(to: &item) { itemPointer in
-                        var request = ghostty_clipboard_complete_s(
-                            contents: text == nil ? nil : itemPointer,
-                            contents_len: text == nil ? 0 : 1,
-                            available: list.baseAddress,
-                            available_len: list.count,
-                            confirmed: confirmed,
-                            remember: false)
-                        ghostty_surface_complete_clipboard_request(surface, &request, state.raw)
+        guard let raw = state.raw else { return }
+        // `withCString` lends each string's UTF-8 bytes (`utf8.count` of them)
+        // through a non-null pointer, which the struct needs even for no text.
+        let body = text ?? ""
+        withCStrings(available[...]) { availablePointers in
+            "text/plain".withCString { mime in
+                body.withCString { chars in
+                    var item = ghostty_clipboard_content_s(mime: mime, data: chars, len: body.utf8.count)
+                    availablePointers.withUnsafeBufferPointer { list in
+                        withUnsafePointer(to: &item) { itemPointer in
+                            var request = ghostty_clipboard_complete_s(
+                                contents: text == nil ? nil : itemPointer,
+                                contents_len: text == nil ? 0 : 1,
+                                available: list.baseAddress,
+                                available_len: list.count,
+                                confirmed: confirmed,
+                                remember: false)
+                            ghostty_surface_complete_clipboard_request(surface, &request, raw)
+                        }
                     }
                 }
             }
         }
     }
 
+    /// Runs `body` with a C string for each of `strings`, all valid for the call.
+    private static func withCStrings(_ strings: ArraySlice<String>, _ pointers: [UnsafePointer<CChar>] = [],
+                                     _ body: ([UnsafePointer<CChar>]) -> Void) {
+        guard let first = strings.first else { return body(pointers) }
+        first.withCString { withCStrings(strings.dropFirst(), pointers + [$0], body) }
+    }
+
     /// The text of one clipboard representation (binary-safe, with a length,
     /// not NUL-terminated).
     nonisolated static func string(_ item: ghostty_clipboard_content_s) -> String {
-        guard let data = item.data, item.len > 0 else { return "" }
-        return String(decoding: UnsafeRawBufferPointer(start: data, count: item.len), as: UTF8.self)
+        guard item.len > 0 else { return "" }
+        return String(decoding: UnsafeRawBufferPointer(start: item.data, count: item.len), as: UTF8.self)
     }
 }

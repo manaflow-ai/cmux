@@ -63,6 +63,9 @@ public final class AgentChatFind {
     /// The prompt bubble's block key.
     public nonisolated static func promptKey(_ turnID: String) -> String { "\(turnID)|prompt" }
 
+    /// A steered message's block key (`TurnRow.id` of its row).
+    public nonisolated static func steerKey(row: String) -> String { "\(row)|steer" }
+
     /// The key of a message row's (`TurnRow.id`) markdown block (`MarkdownBlock.id`).
     public nonisolated static func blockKey(row: String, block: Int) -> String { "\(row)|\(block)" }
 
@@ -74,6 +77,11 @@ public final class AgentChatFind {
         for turn in turns {
             out.append(Block(key: promptKey(turn.id), text: turn.prompt))
             for row in turn.rows {
+                // A message steered into the turn, where it went in.
+                if case .steer(let message) = row {
+                    out.append(Block(key: steerKey(row: row.id), text: message.incoming?.text ?? message.text))
+                    continue
+                }
                 guard case .message(_, let markdown) = row else { continue }
                 for block in MarkdownDocument(parsing: markdown).blocks {
                     out.append(Block(key: blockKey(row: row.id, block: block.id), text: text(of: block.kind)))

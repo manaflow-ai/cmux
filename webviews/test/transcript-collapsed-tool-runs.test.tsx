@@ -13,7 +13,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/mode
 import { layoutConversation } from "../src/agent-session/acpmux/model";
 import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { mainToolRunCategory } from "../src/agent-session/acpmux/conversation/toolRunSummary";
-import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { turnFoldFor, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { configureToolRunLook } from "../src/agent-session/acpmux/toolRunLook";
 import { isEditRow } from "../src/agent-session/acpmux/turnChanges/sessionRows";
 
@@ -77,7 +77,21 @@ const live = (work: AcpmuxActivity[]) => [
   said("between"),
   row("now", "activity", { items: [command("git status"), command("bun test", { status: "in_progress" })] }),
 ];
-const shaped = (work: AcpmuxActivity[]) => turnView(live(work), new Set(), { working: true, liveRuns: true });
+const shaped = (work: AcpmuxActivity[]) => turnView(live(work), new Set(), { working: true });
+/// The same turn ended, its "Worked for" opened: there each run folds into its line (turns.ts
+/// shapeTurn). A running turn folds nothing (Leo, 2026-11-08: "you only do the overarching fold at
+/// the very end"), so the line is the ended turn's.
+const folded = (work: AcpmuxActivity[]) => {
+  const rows = [
+    ...live(work),
+    said("done"),
+    row("end", "turnSummary", { status: "completed", durationMs: 9_000, toolCount: work.length + 2 }),
+  ];
+  return turnView(rows, new Set([turnFoldFor(rows, 0)!]), { agentFamily: "codex" });
+};
+/// The run's line in the ended turn: a run that edited folds under an id of its own (turns.ts FOLDED).
+const foldedRun = (work: AcpmuxActivity[]) =>
+  folded(work).find((entry) => entry.id === "work" || entry.id === "work:fold")!;
 // Tags to spaces, then one space per gap: a row's verb sits in its own element (ToolVerb.tsx).
 const words = (entry: AcpmuxRow) =>
   renderToStaticMarkup(<ToolRows row={entry} />)
@@ -95,19 +109,39 @@ const mixed = [
 ];
 
 test("a run between two messages is one line naming its work in the order it came, edits too", () => {
-  const work = shaped(mixed).find((entry) => entry.id === "work")!;
+  const work = foldedRun(mixed);
   expect(work.foldRun).toBe(true);
   expect(toggles(work)).toBe(1);
-  expect(words(work)).toContain("Edited 2 files, read 2 files, ran a command");
+  expect(words(work)).toContain("Edited 2 files, ran a command, and performed 2 other actions");
   // Closed: none of its calls draws under the line.
   expect(words(work)).not.toContain("bun test net");
 });
 
+test("while the turn runs, a run keeps its calls in sight and a note between runs keeps its row", () => {
+  const drawn = turnView(
+    [
+      ...live(mixed).slice(0, 3),
+      row("note", "assistant", { text: "Short note." }),
+      row("more", "activity", { items: [read("src/more.ts")] }),
+      row("now2", "activity", { items: [command("bun test", { status: "in_progress" })] }),
+    ],
+    new Set(),
+    { working: true },
+  );
+  const work = drawn.find((entry) => entry.id === "work")!;
+  expect(work.foldRun).toBe(false);
+  expect(toggles(work)).toBeGreaterThan(1);
+  expect(words(work)).toContain("Read src/client.ts");
+  // The note is not folded into the run before it: the rows stay as they streamed.
+  expect(drawn.map((entry) => entry.id)).toEqual(expect.arrayContaining(["work", "note", "more"]));
+});
+
 test("the app routes a folded mixed run to tool rows and estimates one summary line", () => {
-  const work = shaped(mixed).find((entry) => entry.id === "work")!;
+  const work = foldedRun(mixed);
   expect(work.foldRun).toBe(true);
   expect(isEditRow(work)).toBe(false);
-  expect(layoutConversation([work], 760).heights[0]).toBe(28);
+  // One 22px line (design/chat-transcript.md "One-line row pitch", #29965).
+  expect(layoutConversation([work], 760).heights[0]).toBe(22);
 });
 
 test("the line's glyph is the run's main kind of work", () => {
@@ -120,16 +154,17 @@ test("the line's glyph is the run's main kind of work", () => {
 
 test("opened, the line shows the rows it holds as they draw on their own", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   resetTranscriptDisclosure();
-  const work = shaped(mixed).find((entry) => entry.id === "work")!;
+  const work = foldedRun(mixed);
   const root: Root = createRoot(host);
   await act(async () => root.render(<ToolRows row={work} sessionId="collapsed" />));
   const line = host.querySelector<HTMLButtonElement>(".cv-tools > .cv-tool.is-toggle")!;
   expect(line.getAttribute("aria-expanded")).toBe("false");
   await act(async () => line.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
   expect(line.getAttribute("aria-expanded")).toBe("true");
-  // The same rows the run draws when it is not collapsed (Debug toggle codexToolRuns off).
+  // The same rows the run draws when it is not collapsed (`foldRun` unset).
   const open = host.querySelector(".cv-tool-run")!.textContent;
   const flat = words({ ...work, foldRun: false }).replace(/\s+/g, "");
   expect(open?.replace(/\s+/g, "")).toBe(flat);
@@ -143,14 +178,15 @@ test("the run the agent works in keeps its call in flight out, on the live line"
   expect(rows.find((entry) => entry.doing)?.doing).toContain("bun test");
 });
 
-test("a call still running in an earlier run turns the line's glyph", () => {
+// Leo, 2026-10-31: "I FUCKING HATE THESE SPINNERS FOR TOOL CALLS AND SHIT".
+test("a call still running in an earlier run keeps the line's glyph, never a spinner", () => {
   const background = command("bun run dev", { status: "in_progress", background: true });
   const work = shaped([...mixed, background]).find((entry) => entry.id === "work")!;
-  expect(renderToStaticMarkup(<ToolRows row={work} />)).toContain("cv-spinner");
+  expect(renderToStaticMarkup(<ToolRows row={work} />)).not.toContain("cv-spinner");
 });
 
 test("a failed call is counted on the collapsed line", () => {
-  const work = shaped([...mixed, command("bun run lint", { exitCode: 1 })]).find((entry) => entry.id === "work")!;
+  const work = foldedRun([...mixed, command("bun run lint", { exitCode: 1 })]);
   expect(toggles(work)).toBe(1);
   expect(words(work)).toContain("1 failed");
 });
@@ -160,7 +196,7 @@ test("a run with an edit waiting for its permission is not collapsed", () => {
     (entry) => entry.id === "work",
   )!;
   expect(work.foldRun).toBe(false);
-  expect(words(work)).toContain("ls");
+  expect(words(work)).toContain("Listed files");
 });
 
 test("a delete or a move waiting for its permission stays in sight, live and in an ended turn", () => {
@@ -179,7 +215,6 @@ test("a delete or a move waiting for its permission stays in sight, live and in 
         row("s2", "turnSummary", { status: "completed", toolCount: 4 }),
       ],
       new Set(["worked-u2"]),
-      { liveRuns: true },
     ).find((entry) => entry.kind === "activity" && entry.id.startsWith("work2"))!;
     expect(ended.foldRun).toBe(true);
     expect(words(ended)).toContain(`${kind} old.ts`);
@@ -197,12 +232,11 @@ test("an edit waiting for its permission keeps its row in an ended turn's folded
       row("s3", "turnSummary", { status: "completed", toolCount: 3 }),
     ],
     new Set(["worked-u3"]),
-    { liveRuns: true },
   ).find((entry) => entry.kind === "activity" && entry.foldRun === true)!;
   // The opened Worked for's folded run itself, not the edited-files card after it: the edit keeps
   // its own row between the summary lines.
   expect(ended.id).toBe("work3:fold");
-  expect(words(ended)).toContain("Read a file, ran a command");
+  expect(words(ended)).toContain("Read a file and ran a command");
   expect(words(ended)).toContain("Edit src/a.ts");
 });
 
@@ -225,7 +259,6 @@ test("an edit waiting for its permission next to finished edits keeps its row", 
       row("s4", "turnSummary", { status: "completed", toolCount: 5 }),
     ],
     new Set(["worked-u4"]),
-    { liveRuns: true },
   ).find((entry) => entry.kind === "activity" && entry.foldRun === true)!;
   expect(words(ended)).toContain("Edit src/a.ts");
   // The finished edits on each side fold with the work around them.
@@ -234,7 +267,7 @@ test("an edit waiting for its permission next to finished edits keeps its row", 
 });
 
 test("the gallery's quieter versions dim the line", () => {
-  const work = shaped([read("a.ts"), command("ls"), command("pwd")]).find((entry) => entry.id === "work")!;
+  const work = foldedRun([read("a.ts"), command("ls"), command("pwd")]);
   const line = () =>
     renderToStaticMarkup(<ToolRows row={work} />).match(/<button[^>]*class="cv-tool is-toggle[^"]*"/)![0];
   expect(line()).toContain("is-strong");
@@ -242,4 +275,68 @@ test("the gallery's quieter versions dim the line", () => {
   expect(line()).not.toContain("is-strong");
   configureToolRunLook("kind");
   expect(line()).toContain("is-strong");
+});
+
+test("Find highlights an edit step's original full path without changing its normal heading or counts", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { FindReveal, findMatches, paintFindHighlights } =
+    await import("../src/agent-session/acpmux/conversation/chatFind");
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
+  resetTranscriptDisclosure();
+  const work = row("find-edit-path", "activity", { foldRun: true, items: [edit("src/client.ts"), command("pwd")] });
+  const view = (
+    <div data-row-id={work.id}>
+      <ToolRows row={work} sessionId="find-edit-path" />
+    </div>
+  );
+  const highlights = new Map<string, { ranges: Range[] }>();
+  const replacements = {
+    NodeFilter: window.NodeFilter,
+    CSS: {
+      highlights: {
+        set: (name: string, value: { ranges: Range[] }) => highlights.set(name, value),
+        delete: (name: string) => highlights.delete(name),
+      },
+    },
+    Highlight: class {
+      constructor(...ranges: Range[]) {
+        this.ranges = ranges;
+      }
+      ranges: Range[];
+    },
+  };
+  const prior = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
+  Object.assign(scope, replacements);
+  const root: Root = createRoot(host);
+  try {
+    await act(async () => root.render(view));
+    const run = host.querySelector<HTMLButtonElement>(".cv-tools > .cv-tool.is-toggle")!;
+    await act(async () => run.click());
+    const heading = host.querySelector("[data-tool-group] .cv-tool__text")!;
+    expect(heading.textContent?.replace(/\s+/g, "")).toBe("Editedclient.ts+1-1");
+    expect(host.querySelector("pre.cv-mcp-call__body")).toBeNull();
+    for (const needle of ["src/client.ts", "edit src/client.ts"]) {
+      expect(findMatches([work], needle)).toHaveLength(1);
+      await act(async () =>
+        root.render(
+          <FindReveal.Provider value={{ rowId: work.id, card: false, needle, repaint: () => {} }}>
+            {view}
+          </FindReveal.Provider>,
+        ),
+      );
+      const active = paintFindHighlights(host, needle, { rowId: work.id, card: false, occurrence: 0 });
+      expect(active?.toString()).toBe(needle === "src/client.ts" ? "src/client.ts" : "Edit src/client.ts");
+      expect(highlights.get("acpmux-find-active")?.ranges).toHaveLength(1);
+      expect(host.querySelector("[data-tool-group] .cv-tool__text")?.textContent?.replace(/\s+/g, "")).toBe(
+        "Editedclient.ts+1-1",
+      );
+    }
+  } finally {
+    act(() => root.unmount());
+    for (const [key, had, value] of prior) {
+      if (had) scope[key] = value;
+      else delete scope[key];
+    }
+  }
 });

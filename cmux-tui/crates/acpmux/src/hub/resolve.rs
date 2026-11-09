@@ -80,8 +80,8 @@ impl Hub {
                 model: p.model.clone(),
                 effort: p.effort.clone(),
                 policy: p.policy,
-                prefer: vec![],
                 env: p.env.clone(),
+                ..Default::default()
             });
         }
         if remote {
@@ -301,6 +301,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         preset: d.preset,
         model_request: d.model_request,
         cwd: d.cwd,
+        additional_directories: Vec::new(),
         agent_session_id: d.agent_session_id,
         previous_agent_session_ids: Vec::new(),
         retired_agent_session_ids: Vec::new(),
@@ -309,8 +310,13 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         created_at: now,
         updated_at: now,
         last_seq: 0,
+        transcript_seq: 0,
         parent_id: None,
         fork_seq: None,
+        fork_before: None,
+        history_from: None,
+        history_kept_through: None,
+        fork_requests: Default::default(),
         fork_parent_verified: None,
         agent_info: None,
         agent_capabilities: None,
@@ -334,19 +340,29 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         turn_count: 0,
         usage: None,
         context_breakdown: None,
+        cmux_context: None,
+        cmux_preset_prompt: None,
+        cmux_context_delivered: false,
         usage_limits: None,
         available_commands: None,
         goal: None,
         permission_rules: None,
         tags: Default::default(),
         unread: false,
+        seen_seq: None,
+        unread_turns: 0,
+        last_return: None,
         claude_unstored: false,
+        // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
+        wait_start: false,
         hibernated_ms: 0,
         idle_launch: None,
         moved_to: None,
         claude_profile: None,
         last_turn: None,
+        auth_change: None,
         harness_failures: Default::default(),
+        harness_sandbox: Default::default(),
         remote_origin: d.remote,
         vm_boundary: false,
         session_env: Default::default(),
@@ -363,15 +379,47 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         totals: None,
         harness_cost_usd: None,
         pull_requests: vec![],
+        pull_request_times: Default::default(),
+        touched_files: vec![],
         git_branch: None,
         git_head: None,
         worktree: None,
         subsession: None,
         subsession_limits: Default::default(),
+        races: Default::default(),
+        plan_builds: Default::default(),
         lineage: None,
+        created_by: None,
         subagent_retry_open: false,
         turn_cap_ms: None,
         turn_cap_noticed: None,
         delegator: None,
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use crate::config::HarnessKind;
+    use crate::cpu_class::{CpuClass, DEFAULT, default_for};
+
+    /// A remote chain's `argv[0]` is the resolved file (`fix_remote_executable`), and the native
+    /// installer's `claude` resolves to `versions/<version>`: still Claude Code, not a launcher.
+    #[test]
+    fn cpu_class_of_a_resolved_remote_program() {
+        let dir = tempfile::tempdir().unwrap();
+        let installed = dir.path().join(".local/share/claude/versions/2.1.34");
+        std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
+        std::fs::write(&installed, "").unwrap();
+        let claude = dir.path().join("claude");
+        std::os::unix::fs::symlink(&installed, &claude).unwrap();
+        let launcher = dir.path().join("sr2");
+        std::fs::write(&launcher, "").unwrap();
+        let class = |program: &Path| {
+            let resolved = remote_executable(program.to_str().unwrap()).map_err(|_| "refused");
+            default_for(HarnessKind::ClaudeStdio, &[resolved.unwrap()])
+        };
+        assert_eq!(class(&claude), DEFAULT);
+        assert_eq!(class(&launcher), CpuClass::Normal);
     }
 }

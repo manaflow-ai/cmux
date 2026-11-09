@@ -17,7 +17,7 @@ extension TabDragSession {
         var scale: CGFloat = 1
         if let slot = drag.winner?.proposal.ghostFrame {
             presentation = .inline(slot)
-            rect = TabDragGeometry.inlineRect(pointer: drag.point, grabOffset: source.grabOffset, tabSize: tabSize, slot: slot)
+            rect = TabDragGeometry.inlineRect(pointer: drag.point, grabOffset: source.grabOffset, tabSize: tabSize, slot: slot, strip: drag.winner?.proposal.ghostSpan)
         } else {
             presentation = .card
             rect = TabDragGeometry.floatingRect(pointer: drag.point, grabOffset: source.grabOffset, tabSize: tabSize)
@@ -109,7 +109,7 @@ extension TabDragSession {
             moveSourceWorkspace(outcome, drag: drag)
             land(drag, at: drag.source.screenFrame, cardness: 0, opacity: 0, scale: 1)
         default:
-            winner?.provider.dropEnded(committed: winner?.proposal)
+            drag.settleDrop = winner?.provider.dropEnded(committed: winner?.proposal)
             guard let transaction = drag.lifecycle.beginCommit() else { return land(drag, at: drag.motion.targetRect, cardness: 0, opacity: 0, scale: 1) }
             execute(outcome, drag: drag, transaction: transaction)
             if let slot = winner?.proposal.ghostFrame {

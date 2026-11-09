@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileAuth
 import CmuxMobileDesign
+import CmuxSpinner
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -116,13 +117,15 @@ struct EmailSignInSheet: View {
     }
 }
 
-/// Six boxes over a hidden one-time-code field; auto-submits on the sixth
-/// digit; invalid codes shake and clear; resend has a 30 s countdown.
+/// Six boxes over a hidden one-time-code field (``EmailCodeEntry``: letters
+/// and digits); auto-submits on the sixth character; invalid codes shake and
+/// clear; resend has a 30 s countdown.
 struct EmailCodeStep: View {
     let auth: CmuxMobileAuthModel
     let email: String
     let useDifferentEmail: () -> Void
     @State private var code = ""
+    private let entry = EmailCodeEntry()
     @State private var isVerifying = false
     @State private var shakes = 0
     @State private var error: String?
@@ -137,13 +140,13 @@ struct EmailCodeStep: View {
                 .font(theme.type.rowSubtitle)
                 .foregroundStyle(theme.colors.label2)
                 .padding(.top, 6)
-            CodeBoxes(text: $code)
+            CodeBoxes(text: $code, groups: [entry.length], characters: entry.characters)
                 .modifier(ShakeEffect(trigger: shakes))
-                .animation(.linear(duration: theme.motion.shakeDuration), value: shakes)
+                .animation(.linear(duration: theme.motion.shakeDuration).unlessReduceMotion, value: shakes)
                 .disabled(isVerifying)
                 // Verifying: the boxes dim and the spinner sits on them.
                 .opacity(isVerifying ? 0.4 : 1)
-                .overlay { if isVerifying { ProgressView() } }
+                .overlay { if isVerifying { CmuxSpinner() } }
                 .frame(maxWidth: .infinity)
                 .padding(.top, 24)
             if let error {
@@ -173,7 +176,7 @@ struct EmailCodeStep: View {
         .modifier(SignInSheetBackground())
         .navigationBarBackButtonHidden(false)
         .onChange(of: code) { _, value in
-            if value.count == 6 { verify(value) }
+            if entry.isComplete(value) { verify(value) }
         }
         #if DEBUG
         .onChange(of: DemoDirector.shared.serial) {

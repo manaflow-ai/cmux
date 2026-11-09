@@ -79,6 +79,12 @@ function visibleText(node: Node): string {
   return [...node.childNodes].map(visibleText).join(" ");
 }
 const count = (text: string, part: string) => text.split(part).length - 1;
+/// A button's name as read aloud: its text without what it hides from assistive tech (a keycap).
+const readName = (element: Element) => {
+  const copy = element.cloneNode(true) as Element;
+  for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+  return copy.textContent;
+};
 
 const command = "B=1 bun run lint --help";
 const callId = "call-lint";
@@ -176,7 +182,7 @@ test("a pending command asks in one row: its verb and command once, then Allow, 
   const answers = () =>
     [...panel.querySelectorAll<HTMLButtonElement>("button")]
       .filter((button) => !button.hasAttribute("aria-expanded"))
-      .map((button) => button.textContent?.trim());
+      .map((button) => readName(button)?.trim());
   expect(answers()).toEqual(["Allow", "Always", "Deny"]);
 
   // The row opens by a click: the full command and the scope, in plain words.
@@ -191,7 +197,7 @@ test("a pending command asks in one row: its verb and command once, then Allow, 
   expect(details.textContent).not.toMatch(/ACP|Isolation/);
 
   const always = [...panel.querySelectorAll<HTMLButtonElement>("button")].find(
-    (button) => button.textContent?.trim() === "Always",
+    (button) => readName(button)?.trim() === "Always",
   )!;
   await act(async () => always.click());
   expect(responses).toEqual(["allow_chat"]);
@@ -210,7 +216,7 @@ test("a pending command asks in one row: its verb and command once, then Allow, 
     ),
   );
   const answered = document.querySelector<HTMLElement>(".acpmux-permission-panel");
-  expect([...(answered?.querySelectorAll("button") ?? [])].map((button) => button.textContent?.trim())).not.toContain(
+  expect([...(answered?.querySelectorAll("button") ?? [])].map((button) => readName(button)?.trim())).not.toContain(
     "Allow",
   );
   await act(async () => root.unmount());
@@ -292,7 +298,7 @@ test("an ask whose allows the daemon refuses offers only Deny and says where to 
   const buttons = [...panel.querySelectorAll<HTMLButtonElement>("button")].filter(
     (button) => !button.hasAttribute("aria-expanded"),
   );
-  expect(buttons.map((button) => button.textContent?.trim())).toEqual(["Deny"]);
+  expect(buttons.map((button) => readName(button)?.trim())).toEqual(["Deny"]);
   const seen = visibleText(panel).replace(/\s+/g, " ");
   expect(seen).toContain("Only the cmux app can approve this. Approve it in cmux on the Mac that runs this chat.");
   expect(seen).not.toContain("Always also allows");
@@ -306,3 +312,47 @@ test("an ask whose allows the daemon refuses offers only Deny and says where to 
   expect(responses).toEqual(["deny"]);
   await act(async () => root.unmount());
 });
+
+for (const envelope of ["toolCall", "subjectTool", "subjectCommand"] as const) {
+  test(`a grouped argv ${envelope} opens as a shell command with argument boundaries intact`, async () => {
+    const { PermissionPanel } = await import("../src/agent-session/acpmux/permissions/Panel");
+    const state = permissions("pending");
+    const rawInput = {
+      command: ["printf", "%s", "two words", "it's literal", "", "$HOME"],
+      cwd: "/workspace/project",
+    };
+    const toolCall = { title: "Print arguments", kind: "execute", rawInput };
+    state.groups[0]!.items[0]!.request =
+      envelope === "toolCall"
+        ? { toolCall }
+        : envelope === "subjectTool"
+          ? { subject: { type: "tool_call", toolCall } }
+          : { subject: { type: "command", ...rawInput } };
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      await act(async () =>
+        root.render(
+          <PermissionPanel
+            state={state}
+            working
+            onRespond={() => {}}
+            onRetry={() => {}}
+            onRevoke={() => {}}
+            onRefresh={() => {}}
+          />,
+        ),
+      );
+      const panel = document.querySelector<HTMLElement>(".acpmux-permission-panel")!;
+      const toggle = panel.querySelector<HTMLButtonElement>(".acpmux-ask-toggle")!;
+      await act(async () => toggle.click());
+      const command = panel.querySelector(".cv-shell__command");
+      expect(command).not.toBeNull();
+      const expected = String.raw`printf %s 'two words' 'it'\''s literal' '' '$HOME'`;
+      expect(command?.textContent).toBe(`$ ${expected}`);
+      expect(panel.querySelector(".acpmux-ask-subject")?.textContent).toBe(expected);
+      expect(panel.querySelector(".acpmux-ask-input")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+}

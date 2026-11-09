@@ -13,18 +13,19 @@ use std::path::PathBuf;
 use cmux_conversation::{Op, PartRef};
 
 use super::Brain;
-use super::media::{self, MAX_MEDIA_BYTES, MediaRef};
+use super::media::{self, MediaRef};
 use crate::tools::SendCall;
 
 impl Brain {
     /// The `send` tool.
     pub(super) fn send(&mut self, call: SendCall) -> Result<String, String> {
         // The length gate: the first long send of a turn comes back for
-        // Chief to cut; the next one posts (chief_kernel::replies).
+        // Chief to cut; the next one posts (chief_kernel::replies). A send
+        // marked `long` (a list the person asked for) posts the first time.
         if let Some(refusal) = chief_kernel::replies::length_check(
             call.text.as_deref().unwrap_or(""),
             self.chief.reply_max_words,
-            self.length_refused,
+            self.length_refused || call.long,
         ) {
             self.length_refused = true;
             self.trace.emit(
@@ -54,21 +55,13 @@ impl Brain {
             if meta.len() == 0 {
                 return Err(format!("send: attachment {} is empty", path.display()));
             }
-            if meta.len() > MAX_MEDIA_BYTES {
-                return Err(format!(
-                    "send: attachment {} is {} MB; the limit is {} MB",
-                    path.display(),
-                    meta.len() / 1_000_000,
-                    MAX_MEDIA_BYTES / 1_000_000
-                ));
-            }
             if files.iter().any(|f| f.path == path) {
                 continue;
             }
             let mime_type = media::attachment_type(&path);
             files.push(MediaRef {
                 path,
-                mime_type,
+                mime_type: mime_type.into(),
                 image_syntax: None,
             });
         }
@@ -120,6 +113,9 @@ impl Brain {
         if let Some(id) = call.reply_to {
             fingerprint.push_str(&format!("\u{0}reply_to={id}"));
         }
+        if let Some(widget) = &call.widget {
+            fingerprint.push_str(&format!("\u{0}widget={}", serde_json::json!(widget)));
+        }
         let key = format!(
             "send-{conversation}-{turn}-{:016x}",
             super::replies::fnv(fingerprint.as_bytes())
@@ -129,9 +125,9 @@ impl Brain {
         {
             return Ok("outcome: noop. this message is already sent".to_owned());
         }
-        // The text as a reply's (subagent links), then a URL line each, then
-        // one `![name](<path>)` line per file: it leaves the text once the
-        // file is uploaded, and stays as its fallback when the upload fails.
+        // The text as a reply's (subagent links), then a URL line each.
+        // The file manifest stays separate: attachment count must not
+        // consume the message's text allowance.
         let mut text = call
             .text
             .as_deref()
@@ -143,20 +139,6 @@ impl Brain {
             }
             text.push_str(url);
         }
-        for file in &mut files {
-            let name = file
-                .path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("file")
-                .replace([']', '[', '\n'], " ");
-            if !text.is_empty() {
-                text.push('\n');
-            }
-            let start = text.len();
-            text.push_str(&format!("![{name}](<{}>)", file.path.display()));
-            file.image_syntax = Some(start..text.len());
-        }
         if text.len() > super::REPLY_BYTES {
             return Err(format!(
                 "send: the message is {} bytes; the limit is {}: split it into several sends",
@@ -165,6 +147,14 @@ impl Brain {
             ));
         }
         let mut entry = super::reply_entry(conversation, &key, &text);
+        // A widget part after the text (chat-widgets-DESIGN.md); alone when
+        // there is no text, since an empty text part is refused.
+        if let (Some(widget), Op::MessageSend { parts, .. }) = (&call.widget, &mut entry.op) {
+            if text.is_empty() {
+                parts.clear();
+            }
+            parts.push(cmux_conversation::Part::Widget(widget.clone()));
+        }
         if let (
             Some((_, parent, root)),
             Op::MessageSend {
@@ -185,10 +175,13 @@ impl Brain {
         self.state.outbox.push(entry);
         self.save();
         self.flush_outbox();
-        let what = match (files.len(), urls.len()) {
+        let mut what = match (files.len(), urls.len()) {
             (0, 0) => String::new(),
             (f, u) => format!(" with {} attachment(s)", f + u),
         };
+        if call.widget.is_some() {
+            what.push_str(" with a widget");
+        }
         Ok(match (placed, call.reply_to) {
             (Some(placed), _) => format!("outcome: done. {placed}{what}"),
             (None, Some(id)) => format!("outcome: done. sent{what} in the thread of message {id}"),

@@ -10,6 +10,7 @@
 import { experimentArm } from "../../../experiments/experiment";
 import type { AcpmuxRow } from "../model";
 import { type AcpmuxSessionEntry, type SessionPullRequest, sessionMark } from "../sessionList";
+import { sessionIndex } from "../sessionIndex";
 import type { RetryState } from "../subagents/retryState";
 import { startedSessionCards } from "./startedSessions.experiment";
 
@@ -27,13 +28,18 @@ export type StartedState = "running" | "waiting" | "failed" | "idle";
 /// `number` and `tone` are those of the one PR acpmux reads the state of (the chat folder's branch
 /// PR); without one, the newest recorded URL (`pullRequests`, the `gh pr create` calls acpmux
 /// recorded) names it and `tone` is `unknown`. `repo` is the repository's name, from a recorded URL
-/// of that number. `count` is every PR the chat opened.
+/// of that number. `count` is every PR the chat opened; `others` names each one but that PR, newest
+/// first, so the status line draws every pull request on its own instead of a "+N" count.
 export type StartedPullRequests = {
   count: number;
   number: number;
   repo?: string;
   tone: "ready" | "open" | "draft" | "failing" | "merged" | "closed" | "unknown";
+  others?: StartedPullRequestName[];
 };
+
+/// One pull request a chat opened: `repo #N`, or `#N` when its repository is not known.
+export type StartedPullRequestName = { number: number; repo?: string };
 
 export type StartedSession = {
   sessionId: string;
@@ -58,6 +64,10 @@ export type StartedSession = {
   retry?: RetryState;
   /// The harness it runs (`claude`, `codex`, a profile), whose mark its rows draw.
   harness?: string;
+  /// The chat's agent started it with its `start_session` tool (acpmux `startedBy`, hub/subsessions.rs):
+  /// one of the chat's own sub-sessions. A lane a coordinator dispatched (`sessions new`, `acpmux new`
+  /// from its shell, tagged `mux.parent`) has a lineage parent (`spawnedBy`) but no `startedBy`.
+  subsession?: boolean;
 };
 
 export function startedState(entry: AcpmuxSessionEntry): StartedState {
@@ -91,11 +101,16 @@ export function startedPullRequests(entry: AcpmuxSessionEntry): StartedPullReque
   const count = urls.length + (branch && sameNumber.length === 0 ? 1 : 0);
   if (count === 0) return undefined;
   const named = branch ? (sameNumber.length === 1 ? sameNumber[0] : undefined) : urls[urls.length - 1];
+  // Every other one, newest first. A branch PR whose number more than one repository has stands
+  // for one of them (unnamed), so one of those is left out to keep the count.
+  const rest = urls.filter((pr) => pr !== named).reverse();
+  const others: StartedPullRequestName[] = sameNumber.length > 1 ? dropOne(rest, branch!.number) : rest;
   return {
     count,
     number: branch?.number ?? named!.number,
     ...(named ? { repo: named.repo } : {}),
     tone: branch ? pullRequestTone(branch) : "unknown",
+    ...(others.length > 0 ? { others } : {}),
   };
 }
 
@@ -120,6 +135,11 @@ export function sessionStatus(
 /// with no pull request.
 export const hasStatusLine = (child: StartedSession): boolean =>
   child.pullRequests !== undefined || sessionStatus(child.state, child.unread, child.pullRequests) !== "done";
+
+function dropOne(prs: StartedPullRequestName[], number: number): StartedPullRequestName[] {
+  const at = prs.findIndex((pr) => pr.number === number);
+  return at < 0 ? prs : [...prs.slice(0, at), ...prs.slice(at + 1)];
+}
 
 function pullRequestTone(pr: SessionPullRequest): StartedPullRequests["tone"] {
   if (pr.state !== "open") return pr.state;
@@ -156,6 +176,7 @@ export function startedSessions(
         ...(doing && entry.doing && entry.doingTool ? { doingTool: entry.doingTool } : {}),
         ...(entry.retry ? { retry: entry.retry } : {}),
         ...(entry.harness ? { harness: entry.harness } : {}),
+        ...(entry.startedBy === chatId ? { subsession: true } : {}),
       };
     })
     .sort((a, b) => (a.createdAt ?? Infinity) - (b.createdAt ?? Infinity));
@@ -163,7 +184,10 @@ export function startedSessions(
 
 /// The chats chat `chatId` started that are not archived, as the session list gives them.
 export function spawnedSessions(sessions: readonly AcpmuxSessionEntry[], chatId: string): AcpmuxSessionEntry[] {
-  return sessions.filter((entry) => entry.spawnedBy === chatId && !entry.archived);
+  // Among the chats another started only (sessionIndex.ts), not every listed chat.
+  return sessionIndex(sessions)
+    .of("started")
+    .filter((entry) => entry.spawnedBy === chatId && !entry.archived);
 }
 
 /// The chats an offer's started tasks name, which their suggested tasks card draws.

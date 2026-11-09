@@ -25,7 +25,7 @@ jobs:
     # Background lane: dispatch-only and off the PR critical path, so it runs
     # on a fresh hosted VM. A repository variable must never route this
     # secret-bearing publisher onto a persistent owned Mac.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_15 }}
     timeout-minutes: 60
     env:
       GHOSTTYKIT_CRASH_REPORT_SUBDIR: cmux/crash

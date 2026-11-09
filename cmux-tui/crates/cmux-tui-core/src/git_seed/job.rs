@@ -3,6 +3,11 @@
 //! bundle and WORK commit as a running or finished job returns that job, so a
 //! client that lost the answer retries safely. `git.seed.export` runs as a
 //! job the same way ([`super::export`]); one folder has one running job.
+//!
+//! A head-first seed ([`super::params::HeadFirst`]) says `head_ready: true` in its
+//! status once its head is in place and marked on the sync barrier, while it still
+//! runs: a client may open the chat then, and every tool still waits for the whole
+//! checkout. (`head` is the checked-out commit once done, so the mark has its own name.)
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
@@ -71,6 +76,8 @@ struct Status {
     head: Option<(String, Option<String>)>,
     /// When an export is done: its answer's fields.
     exported: Option<serde_json::Map<String, Value>>,
+    /// The seed marked its head on the sync barrier and fills the rest.
+    head_ready: bool,
 }
 
 /// One seed.
@@ -113,6 +120,11 @@ impl Job {
         self.update(|status| status.exported = Some(fields));
     }
 
+    /// The head is in place and marked on the barrier (`Sync::head_ready`).
+    pub(super) fn reached_head(&self) {
+        self.update(|status| status.head_ready = true);
+    }
+
     pub(super) fn note(&self, note: &'static str) {
         self.update(|status| status.notes.push(note));
     }
@@ -145,6 +157,11 @@ impl Job {
             },
             "notes": status.notes,
         });
+        if status.head_ready
+            && let Some(object) = answer.as_object_mut()
+        {
+            object.insert("head_ready".into(), true.into());
+        }
         if let (State::Done, Some((head, head_ref)), Some(object)) =
             (status.state, status.head, answer.as_object_mut())
         {
@@ -270,6 +287,25 @@ impl GitSeedService {
             key: params.retry_key(),
             status: Mutex::new(Status::running(Phase::Clone)),
         });
+        // A delta only applies source changes to a folder already in use: its
+        // dependencies are left alone.
+        let first = params.since.is_none();
+        // Clone-only refuses a nonempty folder without touching it. Do not
+        // replace an existing ready barrier with an incomplete one for that
+        // no-op refusal (the worker repeats this check before cloning).
+        if params.clone_only.is_some()
+            && std::fs::read_dir(&folder).is_ok_and(|mut entries| entries.next().is_some())
+        {
+            job.finish(Err(Failed {
+                code: "seed.folder_not_empty",
+                error: "the folder exists and is not empty".into(),
+                install_url: None,
+            }));
+            jobs.order.push_back(job.id.clone());
+            jobs.by_id.insert(job.id.clone(), job.clone());
+            prune(&mut jobs);
+            return Ok(json!({ "job": job.id }));
+        }
         let credentials =
             self.config.credentials.clone().unwrap_or_else(super::git::machine_credentials);
         let seed = run::Seed::new(
@@ -281,10 +317,28 @@ impl GitSeedService {
             self.config.git.clone(),
             credentials,
         );
+        // Publish the barrier before start answers: no agent may observe a
+        // partially cloned or checked-out repository as ready.
+        let mut barrier = cmux_git::sync_barrier::Sync::begin(&job.folder).map_err(|error| {
+            SeedRefusal::bad_request(format!("cannot begin repository sync: {error}"))
+        })?;
         let worker = job.clone();
         std::thread::Builder::new()
             .name("cmux-git-seed".into())
-            .spawn(move || worker.finish(seed.run()))
+            .spawn(move || {
+                let result = seed.run(&mut barrier).and_then(|()| {
+                    barrier.complete().map_err(|error| Failed {
+                        code: "seed.clone_failed",
+                        error: format!("cannot finish repository sync: {error}"),
+                        install_url: None,
+                    })
+                });
+                let ok = result.is_ok();
+                worker.finish(result);
+                if ok && first {
+                    super::seeded(&worker.folder);
+                }
+            })
             .map_err(|error| SeedRefusal::bad_request(format!("cannot start the seed: {error}")))?;
         jobs.order.push_back(job.id.clone());
         jobs.by_id.insert(job.id.clone(), job.clone());
@@ -311,6 +365,7 @@ impl GitSeedService {
         if let Some(id) = same_job(&jobs, &folder, &params.retry_key())? {
             return Ok(json!({ "job": id }));
         }
+        refuse_while_filling(&folder)?;
         place::output(&self.roots, &params.bundle, &folder)?;
         let id = new_id();
         let job = Arc::new(Job {
@@ -345,6 +400,7 @@ impl Status {
             notes: Vec::new(),
             head: None,
             exported: None,
+            head_ready: false,
         }
     }
 }
@@ -361,11 +417,37 @@ fn same_job(
         if job.key == key && state != State::Failed {
             return Ok(Some(job.id.clone()));
         }
+        if state == State::Running && job.status().head_ready {
+            return Err(filling("the folder's seed is still filling the checkout past its head"));
+        }
         if state == State::Running {
             return Err(SeedRefusal::bad_request("another seed is running in this folder"));
         }
     }
     Ok(None)
+}
+
+fn filling(message: &str) -> SeedRefusal {
+    SeedRefusal { code: "seed.filling", message: message.into() }
+}
+
+/// An export reads the working tree back to the Mac, so it waits for a whole checkout: a
+/// head-first seed whose fill never finished (its daemon restarted) left most of the tree
+/// out, and another producer may still be writing it (`cmux repo hold`). Either would send
+/// the Mac a tree that lacks the person's files.
+fn refuse_while_filling(folder: &std::path::Path) -> Result<(), SeedRefusal> {
+    if run::fill_unfinished(folder) {
+        return Err(filling("the folder's last seed never finished filling it; seed it again"));
+    }
+    use cmux_git::sync_barrier::{Probe, probe};
+    match probe(folder) {
+        Ok(Probe::HeadReady | Probe::Syncing) => {
+            Err(filling("the folder's checkout is still being written"))
+        }
+        // A failed delta's barrier stays incomplete; its record still says what to export.
+        Ok(Probe::Ready(_) | Probe::Incomplete) => Ok(()),
+        Err(error) => Err(filling(&format!("cannot read the folder's sync state: {error}"))),
+    }
 }
 
 /// Drops the oldest finished jobs past [`KEPT_FINISHED`].

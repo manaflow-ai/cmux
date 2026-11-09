@@ -27,6 +27,22 @@ public struct InstallHTTPTransport: InstallAuthTransport {
         let (data, response) = try await session.data(for: request)
         return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
     }
+
+    public func get(_ path: String, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data) {
+        // The path joins the base as `post` does; a query after "?" is kept as given.
+        let parts = path.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        guard var components = URLComponents(url: baseURL.appendingPathComponent(String(parts[0])), resolvingAgainstBaseURL: false)
+        else { throw URLError(.badURL) }
+        if parts.count == 2 { components.percentEncodedQuery = String(parts[1]) }
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "accept")
+        if let bearer { request.setValue("Bearer \(bearer)", forHTTPHeaderField: "authorization") }
+        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+        let (data, response) = try await session.data(for: request)
+        return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
+    }
 }
 
 /// Answers every redirect with "do not follow" (the completion-handler form:

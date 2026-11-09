@@ -558,6 +558,26 @@ fn a_delta_after_the_machine_changed_fails_and_changes_nothing() {
 }
 
 #[test]
+fn a_delta_after_a_stash_on_the_machine_fails_and_keeps_that_stash() {
+    let world = World::new("machine-stash");
+    write(&world.mac.join("a"), "a\none\n");
+    let first = world.snapshot("one", &[&world.base]);
+    let folder = world.home.join("project");
+    assert_eq!(seed(&world, &world.start_params(&folder, &first))["state"], "done");
+    write(&world.mac.join("a"), "a\ntwo\n");
+    let second = world.snapshot("two", &[&first.work, &first.head]);
+    let mut params = world.start_params(&folder, &second);
+    params["since"] = first.work.into();
+    // Only the stash moves: HEAD, the index and the files stay the seed's.
+    let head = git(&folder, &["rev-parse", "HEAD"]);
+    git(&folder, &["update-ref", "refs/stash", &head]);
+    let before = state(&folder);
+    let status = seed(&world, &params);
+    assert_eq!(status["error_code"], "seed.machine_changed", "{status}");
+    assert_eq!(state(&folder), before, "the machine's stash is kept");
+}
+
+#[test]
 fn the_wire_answers_in_the_daemon_envelope() {
     let answer = answer_line(None, true, r#"{"id":1,"cmd":"git.seed.status","job":"x"}"#);
     assert_eq!(answer["ok"], false);
@@ -728,3 +748,94 @@ fn the_bundle_copy_is_private_and_removed() {
 }
 
 mod export;
+mod head_first;
+
+#[test]
+fn clone_job_releases_only_successful_repository_sync() {
+    use cmux_git::sync_barrier::{Probe, probe};
+    let world = World::new("barrier");
+    let ready = world.home.join("ready");
+    assert_eq!(seed(&world, &clone_params(&ready, None))["state"], "done");
+    assert!(matches!(probe(&ready.join("a")).unwrap(), Probe::Ready(_)));
+    assert_eq!(seed(&world, &clone_params(&ready, None))["state"], "failed");
+    assert!(matches!(probe(&ready).unwrap(), Probe::Ready(_)), "a refused clone touched nothing");
+    let failed = world.home.join("failed");
+    assert_eq!(seed(&world, &clone_params(&failed, Some("no-such-branch")))["state"], "failed");
+    assert!(matches!(probe(&failed).unwrap(), Probe::Incomplete));
+}
+
+const HELPER: &str = "!'/opt/cmux/bin/cmux' github credential";
+
+/// A service whose only GitHub path is the Cloud agent's helper.
+fn agent_service(world: &World) -> GitSeedService {
+    let remote = format!("file://{}", world.remote.display());
+    let config = Config {
+        git: Git {
+            extra_config: vec![
+                format!("url.{remote}.insteadOf={URL}"),
+                "protocol.file.allow=always".into(),
+            ],
+        },
+        credentials: Some(vec![Credential::CmuxGithub(HELPER.into())]),
+    };
+    GitSeedService::with_config(Roots::new([world.home.path.clone()]), config)
+}
+
+/// A clone that went through `cmux github credential` leaves the checkout
+/// asking it, so the agent's own `git push` there gets a token; an
+/// anonymous clone leaves no helper.
+#[test]
+fn a_clone_through_the_cloud_agent_keeps_its_helper_for_push() {
+    let world = World::new("keephelper");
+    let service = agent_service(&world);
+    let folder = world.home.join("pushable");
+    let job = start(&service, &clone_params(&folder, None)).unwrap();
+    assert_eq!(wait(&service, &job)["state"], "done");
+    // NUL-separated: the empty reset survives `git`'s trim.
+    let helpers = git(
+        &folder,
+        &["config", "--local", "-z", "--get-all", "credential.https://github.com.helper"],
+    );
+    assert_eq!(helpers, format!("\0{HELPER}\0"), "an empty reset, then the agent's helper");
+    assert_eq!(
+        git(&folder, &["config", "--local", "credential.https://github.com.useHttpPath"]),
+        "true"
+    );
+    // Anonymous: nothing to keep.
+    let anonymous = world.home.join("anonymous");
+    assert_eq!(seed(&world, &clone_params(&anonymous, None))["state"], "done");
+    let none = Command::new("git")
+        .arg("-C")
+        .arg(&anonymous)
+        .args(["config", "--local", "--get-all", "credential.https://github.com.helper"])
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .output()
+        .unwrap();
+    assert!(!none.status.success(), "an anonymous clone keeps no helper");
+}
+
+/// A delta seed reaches no remote, so it keeps no helper: a checkout first
+/// cloned anonymously is left with the person's own GitHub path.
+#[test]
+fn a_delta_seed_keeps_no_helper_it_never_used() {
+    let world = World::new("deltahelper");
+    let first = world.snapshot("one", &[&world.base]);
+    let folder = world.home.join("project");
+    assert_eq!(seed(&world, &world.start_params(&folder, &first))["state"], "done");
+    write(&world.mac.join("a"), "a\nedited\n");
+    let second = world.snapshot("two", &[&first.work, &first.head]);
+    let mut params = world.start_params(&folder, &second);
+    params["since"] = first.work.clone().into();
+    params["base"] = first.work.into();
+    let service = agent_service(&world);
+    let job = start(&service, &params).unwrap();
+    assert_eq!(wait(&service, &job)["state"], "done");
+    let kept = Command::new("git")
+        .arg("-C")
+        .arg(&folder)
+        .args(["config", "--local", "--get-all", "credential.https://github.com.helper"])
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .output()
+        .unwrap();
+    assert!(!kept.status.success(), "no helper written by a seed that reached no remote");
+}

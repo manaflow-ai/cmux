@@ -1,6 +1,6 @@
 //! Part of `Hub`; see `hub/mod.rs`. A chat's inbox through the team mailbox's methods
-//! (`_acpmux/team/inbox`, `/read`, `/ack`), for its own agent while team messaging (Labs
-//! `meshRelay.teamMessaging`) is off (`server/team.rs` `chat_inbox`).
+//! (`_acpmux/team/inbox`, `/read`, `/ack`), for its own agent while team messaging
+//! (`meshRelay.teamMessaging`) is off (`server/team.rs` `chat_inbox`).
 //!
 //! An agent started before the inbox (#27686) has no `inbox_read` tool: its tools are fixed at
 //! its start, and a daemon update does not restart it. Told of its inbox, it reaches for
@@ -23,7 +23,7 @@
 use super::*;
 
 /// The note a page carries: what these messages are, and the tool that reads them.
-const NOTE: &str = "Team messaging is off in Labs: these are this chat's own inbox messages, \
+const NOTE: &str = "Team messaging is off on this daemon: these are this chat's own inbox messages, \
 whole. inbox_read reads a thread (its threadId), inbox_reply answers in it.";
 
 impl Hub {

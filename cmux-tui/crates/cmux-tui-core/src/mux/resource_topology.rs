@@ -86,14 +86,18 @@ use registry_layout::set_layout_split_ratio;
 use registry_layout::swap_layout_panes;
 mod batch_close;
 mod client_ids;
+pub(crate) use client_ids::ensure_client_pane_id_unused;
 mod close_effects;
 mod column_update;
+mod creation_burst_seams;
+mod creation_group;
 mod creation_settlement;
 mod effect_execution;
 mod effectful_operation;
 mod emptied_workspace;
 mod end_terminals_batch;
 mod layout_ops;
+pub(in crate::mux) use layout_ops::LayoutSizesUnchanged;
 mod layout_projection;
 mod pane_browser;
 mod pane_tab_moves;
@@ -106,10 +110,15 @@ mod tab_workspace_move;
 mod topology_operation;
 #[cfg(test)]
 mod topology_test_hooks;
+#[cfg(test)]
+pub(super) use creation_burst_seams::CreationBurstSeams;
+pub(super) use creation_group::CreationGroups;
+pub(crate) use creation_group::with_group_join_notice;
+use creation_group::{StagedCreation, StagedCreationOutcome, creation_shares_group_commit};
 mod unpublished_creation;
 pub(crate) use batch_close::{BatchCloseOutcome, BatchCloseTarget, CloseReason, RoomClose};
 use layout_projection::{remove_pane_from_layout, sync_layout_column_projection};
-pub(crate) use pane_browser::PANE_BROWSER_URL_FIELD;
+pub(crate) use pane_browser::{PANE_BROWSER_URL_FIELD, TabSplit};
 
 /// `pane.split`'s `focus` field: whether the new pane takes the focus. The
 /// resource router sends `false` when a caller omits it, so a programmatic
@@ -120,6 +129,12 @@ pub(crate) const PANE_SPLIT_FOCUS_FIELD: &str = "focus";
 /// `workspace.create`'s `focus` field: whether the new workspace becomes the
 /// focused one. The resource router sends `false` when a caller omits it.
 pub(crate) const WORKSPACE_CREATE_FOCUS_FIELD: &str = "focus";
+
+/// `screen.create`'s `focus` field: whether the new screen becomes its
+/// workspace's focused screen. The resource router sends `false` when a
+/// caller omits it; the daemon's and the user's own new screens omit it and
+/// focus the new screen.
+pub(crate) const SCREEN_CREATE_FOCUS_FIELD: &str = "focus";
 use pane_browser::{creation_identity_kind, effect_browser_cell_size};
 use published_screen::screen_value;
 pub(super) use structural_move::structural_tab_move_plan;
@@ -369,7 +384,24 @@ fn resource_creation_failure(
     })
 }
 
+/// Cause logged when a creation waits on an earlier attempt that is still
+/// running or has an indeterminate outcome.
+const BLOCKED_CREATION_CAUSE: &str =
+    "an earlier attempt of this creation is still running or has an indeterminate outcome";
+
+/// Joins an indeterminate creation's reason with the failure that started its
+/// settlement, when there is one.
+fn creation_cause(reason: &str, failure: Option<&ResourceError>) -> String {
+    match failure {
+        Some(failure) => {
+            format!("{reason}; the attempt failed ({}: {})", failure.code, failure.message)
+        }
+        None => reason.to_string(),
+    }
+}
+
 fn creation_settlement_result(
+    mux: &Mux,
     settlement: ResourceCreationSettlement,
     idempotency_key: &str,
     operation: &str,
@@ -381,6 +413,11 @@ fn creation_settlement_result(
             Err(anyhow::Error::new(resource_effect_indeterminate(idempotency_key, operation)))
         }
         ResourceCreationSettlement::Pending => {
+            mux.report_resource_effect_indeterminate(
+                idempotency_key,
+                operation,
+                "an interrupted attempt of this creation has not settled yet",
+            );
             Err(anyhow::Error::new(resource_effect_indeterminate(idempotency_key, operation)))
         }
     }
@@ -391,3 +428,6 @@ mod structural_tab_move_tests;
 
 #[cfg(test)]
 mod creation_recovery_tests;
+
+#[cfg(all(test, unix))]
+mod launch_activation_tests;

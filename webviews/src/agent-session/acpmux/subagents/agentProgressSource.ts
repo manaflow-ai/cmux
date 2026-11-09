@@ -12,6 +12,9 @@ const same = (a: AgentProgress, b: AgentProgress) =>
   a.agents?.failed === b.agents?.failed &&
   a.agents?.queued === b.agents?.queued;
 
+/// How finely the snapshot follows a subagent's `quietSince` (well under IDLE_AFTER_MS).
+const QUIET_STEP_MS = 30_000;
+
 export class AgentProgressStore {
   private values = new Map<string, AgentProgress>();
   structureVersion = 0;
@@ -61,7 +64,12 @@ export class AgentProgressStore {
       agent.startedAt,
       agent.background,
       agent.command,
+      // The tray line says the agent's last words when its step is only a tool's name (trayDetail.ts).
+      agent.lastMessage,
       retryKey(agent),
+      // Idle (idle.ts) reads `quietSince`: a call opening or closing changes it at once, a line of
+      // text only past the next 30 s step, so streaming text never re-renders the lists per token.
+      agent.quietSince === undefined ? "open" : Math.floor(agent.quietSince / QUIET_STEP_MS),
     ].join("\u0000");
     if (this.structures.get(agent.id) !== structure) {
       this.structures.set(agent.id, structure);

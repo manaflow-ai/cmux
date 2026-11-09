@@ -1,4 +1,6 @@
+import CmuxNextBrowser
 import CmuxNextControl
+import class CmuxNextDaemon.WorkspaceModel
 import CmuxNextSettings
 import CmuxNextResources
 import CmuxNextWakeups
@@ -125,3 +127,48 @@ enum ResourceControl {
         (share * 1000).rounded() / 10
     }
 }
+
+/// `renderers.list` (`cmux app renderers`, Release too): ``CEFEngine/rendererReport(owners:intervalMs:)``
+/// plus each page's owning tab. `interval_ms`: CPU interval, default 500, 0 for none, at most 1500.
+extension ResourceControl {
+    static let renderersDeadline: Duration = .seconds(4)
+
+    @MainActor
+    static func renderers(_ params: [String: JSONValue], services: AppServices?) async throws -> JSONValue {
+        guard let services else { return .null }
+        let (milliseconds, owners) = (min(max(params["interval_ms"]?.intValue ?? 500, 0), 1500), rendererOwners(services))
+        return try await JSONValue.parse(CEFRendererReport.encoded(services.cache.cef.rendererReport(owners: owners, intervalMs: milliseconds)))
+    }
+
+    @MainActor // browser tabs by browser id, agent tabs by the browser showing their page
+    private static func rendererOwners(_ services: AppServices) -> [Int32: CEFRendererOwner] {
+        struct Source {
+            let browser: Int32
+            let key: String
+            let kind: String
+            let scoped: AgentTabKey?
+        }
+        let browsers = services.cache.browsers.compactMap { key, entry in (entry.tab as? CEFTab)?.browserID.map { Source(browser: $0, key: key, kind: "browser", scoped: nil) } }
+        let agents = services.madeAgentTabs?.views.entries.compactMap { entry in
+            services.cache.cef.browserID(showing: entry.value.focusTarget).map { Source(browser: $0, key: entry.key.key, kind: "agent", scoped: entry.key) }
+        } ?? []
+        return Dictionary((browsers + agents).map { source in
+            let browser = source.browser, key = source.key, kind = source.kind
+            var owner = CEFRendererOwner(kind: kind, tab: key)
+            let located = if let scoped = source.scoped { services.locateTab(scoped.key, onMachine: scoped.machine) } else { services.locateTab(key) }
+            if let (tab, pane) = located {
+                let found: (String, WorkspaceModel)?
+                if let scoped = source.scoped,
+                   let daemon = services.machines.daemons.first(where: { $0.machineID == scoped.machine }) {
+                    found = daemon.store.workspace(holdingTab: tab.id).map { (daemon.machineID, $0) }
+                } else {
+                    found = services.machines.daemons.lazy.compactMap { daemon in daemon.store.workspace(holdingTab: tab.id).map { (daemon.machineID, $0) } }.first
+                }
+                (owner.tab, owner.tabTitle, owner.pane, owner.session) = (tab.id, tab.displayTitle, pane.id, tab.agentSession?.session)
+                (owner.workspace, owner.workspaceTitle, owner.machine) = (found?.1.id, found?.1.displayName, found?.0)
+            }
+            return (browser, owner)
+        }, uniquingKeysWith: { $1 })
+    }
+}
+import CmuxNextTabs

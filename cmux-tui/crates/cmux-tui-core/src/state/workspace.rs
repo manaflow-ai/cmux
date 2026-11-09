@@ -68,28 +68,36 @@ impl Mux {
         // update sends no `tree-changed`, which made every delta client
         // refetch and re-apply the whole tree for one workspace's status
         // (the app's sidebar churn: ~10 Hz of `--task-status`).
-        let effects = if update.title.is_some() || update.color.is_some() || update.icon.is_some() {
-            StateEffects::PRESENTATION
-        } else {
-            StateEffects::NOTES
-        };
-        self.commit_state(
+        let shown = update.title.is_some() || update.color.is_some() || update.icon.is_some();
+        // A shown field reaches delta clients as that workspace's entity
+        // (`workspace-presentation-changed`), never as a `tree-changed` that makes
+        // each of them read the whole tree for one workspace (#32408).
+        let changed = std::cell::Cell::new(None);
+        let commit = self.commit_state(
             mutation,
             "workspace.update",
             &fingerprint,
             expected_revision,
-            effects,
+            StateEffects::NOTES,
             |transaction, state| {
                 let resolved =
                     self.resolve_in_state(state, crate::ResourceTarget::Workspace, selectors)?;
                 let (key, public_id) = workspace_identity(state, resolved.workspace)?;
+                changed.set(resolved.workspace);
                 write_workspace_identity(transaction, &key, &update)?;
                 let changes = fresh_upserts(transaction, &[public_id.to_string()], &[], &[])?;
                 let result = upserted_value(&changes, "workspace", public_id.as_str())
                     .context("updated workspace has no public value")?;
                 Ok(StateChanges::new(result, changes))
             },
-        )
+        )?;
+        if shown && !commit.replayed {
+            match changed.get() {
+                Some(workspace) => self.emit(MuxEvent::WorkspacePresentationChanged(workspace)),
+                None => self.emit(MuxEvent::TreeChanged),
+            }
+        }
+        Ok(commit)
     }
 
     /// `workspace_status.*`, `workspace_progress.*`, `workspace_log.*`.
@@ -121,6 +129,15 @@ impl Mux {
                 match &change {
                     WorkspaceStatusChange::Set { key, text, icon, color, meta } => {
                         meta.validate(|id| state.terminal_catalog.contains_key(id))?;
+                        // `tail:term_…` is a terminal tail pin's record
+                        // (`mux/terminal_tail_pins.rs`): only the daemon sets one.
+                        if key.starts_with(RESERVED_TAIL_KEY_PREFIX)
+                            && !matches!(mutation.actor, Actor::Daemon)
+                        {
+                            anyhow::bail!(
+                                "bad request: status keys starting with {RESERVED_TAIL_KEY_PREFIX} are reserved for terminal tail pins"
+                            );
+                        }
                         // Checked here, after the replay check, so a retry of
                         // a committed set returns its stored result.
                         let owner_process = match meta.owner_pid {
@@ -228,6 +245,7 @@ impl Mux {
         // Owned status entries a previous run left: re-arm their watches and
         // drop the ones whose TTL passed while the daemon was down.
         crate::state::status_owners::resume(self);
+        self.clear_stale_terminal_tails();
         let ephemeral = self.read_registry_state(crate::state::store::ephemeral_workspaces)?;
         for workspace_id in ephemeral {
             self.close_ephemeral_workspace(&workspace_id, TerminalCloseGuard::None)?;

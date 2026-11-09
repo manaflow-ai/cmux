@@ -97,12 +97,35 @@ impl Drop for Daemon {
         let deadline = Instant::now() + Duration::from_secs(8);
         while Instant::now() < deadline {
             if self.child.try_wait().ok().flatten().is_some() {
+                self.end_hosts();
                 return;
             }
             std::thread::sleep(Duration::from_millis(50));
         }
         let _ = self.child.kill();
         let _ = self.child.wait();
+        self.end_hosts();
+    }
+}
+
+impl Daemon {
+    /// End every agent host this test's daemon started (`start_with` hosted):
+    /// a host outlives its daemon by design.
+    fn end_hosts(&self) {
+        let Ok(dir) = std::fs::read_dir(self.dir.join("hosts")) else { return };
+        for path in dir.filter_map(|e| e.ok().map(|e| e.path())) {
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let Ok(r) = serde_json::from_slice::<Value>(&std::fs::read(&path).unwrap_or_default())
+            else {
+                continue;
+            };
+            for pid in [r["harness_pid"].as_i64(), r["host_pid"].as_i64()].into_iter().flatten() {
+                // SAFETY: process groups this test's daemon created.
+                unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
+            }
+        }
     }
 }
 
@@ -118,15 +141,24 @@ async fn start(dir: &Path, harnesses: Value, extra: &[(&str, &str)]) -> Daemon {
 }
 
 async fn start_config(dir: &Path, config: Value, extra: &[(&str, &str)]) -> Daemon {
+    start_with(dir, config, extra, false).await
+}
+
+/// `start_config`; `hosted`: a store on disk, with agents under agent hosts as
+/// a daemon runs them by default (`spawn_hosted_child`).
+async fn start_with(dir: &Path, config: Value, extra: &[(&str, &str)], hosted: bool) -> Daemon {
     std::fs::write(dir.join("config.json"), config.to_string()).unwrap();
     let socket = dir.join("s.sock");
     // The stand-in claude (fake_claude.py) is the only agent.
     let mut cmd = daemon_env::command(dir, daemon_env::Agents::StandIn, &[]);
-    cmd.args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "info"])
+    let store: &[&str] = if hosted { &[] } else { &["--memory"] };
+    cmd.args(["daemon", "run"])
+        .args(store)
+        .args(["--ready-fd", "1", "--log", "info"])
         .env("SHELL", dir.join("loginsh"))
         .env("ACPMUX_HOME", dir)
         .env("ACPMUX_SOCKET", &socket)
-        .env("ACPMUX_AGENT_HOSTS", "0")
+        .env("ACPMUX_AGENT_HOSTS", if hosted { "1" } else { "0" })
         .envs(extra.iter().copied())
         .current_dir(dir)
         .stdin(std::process::Stdio::null())
@@ -259,7 +291,8 @@ async fn a_daemon_inside_a_claude_session_gives_agents_the_login_route() {
 }
 
 /// (a3) The daemon's prompt-cache switches never reach an agent; a harness
-/// that sets one on purpose keeps it. Before: an acpmux client run from an
+/// that sets one on purpose keeps it. The one-hour switch an agent does get
+/// is acpmux's own default (`prompt_cache_env.rs`), not the daemon's. Before: an acpmux client run from an
 /// OptChat turn (whose settings env has DISABLE_PROMPT_CACHING=1) started
 /// the NIGHTLY Chief daemon, and every agent it spawned sent no cache marks
 /// (2026-10-19: 277 of 756 sampled requests read and wrote no cache).
@@ -282,7 +315,12 @@ async fn the_daemons_prompt_cache_switches_never_reach_an_agent() {
         [("CLAUDECODE", "1")].into_iter().chain(switches.iter().copied()).collect();
     for (case, extra) in [("inside a turn", inside.as_slice()), ("own env", switches.as_slice())] {
         for (harness, want) in
-            [("claude", json!({})), ("marks", json!({"DISABLE_PROMPT_CACHING": "1"}))]
+            // acpmux's own default is the one-hour cache (prompt_cache_env.rs), never the
+            // daemon's switches; a profile that turns caching off gets none of it.
+            [
+                ("claude", json!({"ENABLE_PROMPT_CACHING_1H": "1"})),
+                ("marks", json!({"DISABLE_PROMPT_CACHING": "1"})),
+            ]
         {
             let d = start(&dir, harnesses.clone(), extra).await;
             let (reply, _) = ask(&d, harness).await;
@@ -430,7 +468,7 @@ async fn no_sign_in_says_so_and_how_to_fix_it() {
         "Claude is not signed in here.",
         "This agent found no sign-in (Claude home ~/.claude).",
         "Your terminal has no Claude sign-in either.",
-        "Run `claude /login` in a terminal",
+        "Run `claude auth login` in a terminal",
         "(Claude said: Not logged in · Please run /login)",
     ] {
         assert!(text.contains(part), "missing {part:?} in {text:?}");
@@ -477,7 +515,7 @@ async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
     let dir = scratch(
         "cache",
         &format!(
-            "{count}export ANTHROPIC_AUTH_TOKEN=s3cret-value\nexport NO_PROXY=plain-value\nexport TEAM_ROUTE_NAME=not-allow-listed\n"
+            "{count}export ANTHROPIC_AUTH_TOKEN=s3cret-value\nexport NO_PROXY=plain-value\nexport TEAM_ROUTE_NAME=not-allow-listed\nexport OPENAI_BASE_URL='https://gateway.invalid/v1?token=route-s3cret'\n"
         ),
     );
     let runs =
@@ -493,7 +531,11 @@ async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
     let text = std::fs::read_to_string(&cache).unwrap();
     assert!(!text.contains("s3cret-value"), "a secret value in the cache: {text}");
     let v: Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(v["secretNames"], json!(["ANTHROPIC_AUTH_TOKEN"]), "{v}");
+    // A base URL with a credential in its query is a secret: only its name is cached.
+    assert!(!text.contains("route-s3cret"), "a base URL in the cache: {text}");
+    let mut names: Vec<String> = serde_json::from_value(v["secretNames"].clone()).unwrap();
+    names.sort();
+    assert_eq!(names, ["ANTHROPIC_AUTH_TOKEN", "OPENAI_BASE_URL"], "{v}");
     assert_eq!(v["vars"]["NO_PROXY"], "plain-value", "{v}");
     assert!(v["vars"].get("TEAM_ROUTE_NAME").is_none(), "only allow-listed names are cached: {v}");
     use std::os::unix::fs::PermissionsExt;
@@ -521,6 +563,87 @@ async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
         let _ = ask(&d, "claude").await;
     }
     assert_eq!(runs(), 3, "an edited rc file runs the shell again");
+}
+
+/// A login shell that exports `ANTHROPIC_BASE_URL={url}` and, once
+/// `~/slow` exists, first sleeps the seconds it holds.
+fn slow_base_url_rc(url: &str) -> String {
+    format!(
+        "[ -f \"$HOME/slow\" ] && sleep \"$(cat \"$HOME/slow\")\"\nexport ANTHROPIC_BASE_URL='{url}'\n"
+    )
+}
+
+/// A cached restart with Claude already signed in, so nothing waits for the
+/// login shell on its account (`Plan::wait`), and a shell slower than the
+/// 3 s wait: a plain base URL is cached by value, so the agent has it at
+/// once, also through a profile's `${env:ANTHROPIC_BASE_URL}`, both as a
+/// direct child and under an agent host.
+#[tokio::test]
+async fn a_cached_restart_keeps_the_login_base_url_while_the_shell_is_slow() {
+    for hosted in [false, true] {
+        let dir = scratch(if hosted { "bu-h" } else { "bu-d" }, &slow_base_url_rc(SUBROUTER));
+        let config = json!({"harnesses": {
+                "claude": claude(json!({})),
+                "claude-ref": claude(json!({"ANTHROPIC_BASE_URL": "${env:ANTHROPIC_BASE_URL}"})),
+            }, "defaultHarness": "claude", "permissionPolicy": "approve-all"});
+        let signed_in = [("ANTHROPIC_API_KEY", "from-the-daemon")];
+        {
+            let d = start_with(&dir, config.clone(), &signed_in, hosted).await;
+            let (reply, _) = ask_as(&d, "claude", "first").await;
+            assert_eq!(found(&reply)["base"], SUBROUTER, "first start, hosted {hosted}");
+        }
+        let text = std::fs::read_to_string(dir.join("login-env.json")).unwrap();
+        assert!(text.contains(SUBROUTER), "a plain base URL is cached by value: {text}");
+        std::fs::write(dir.join("home/slow"), "5").unwrap();
+        let d = start_with(&dir, config, &signed_in, hosted).await;
+        for (harness, name) in [("claude", "restarted"), ("claude-ref", "by-reference")] {
+            let started = Instant::now();
+            let (reply, _) = ask_as(&d, harness, name).await;
+            assert_eq!(found(&reply)["base"], SUBROUTER, "{harness}, hosted {hosted}");
+            let took = started.elapsed();
+            assert!(took < Duration::from_secs(3), "{harness} waited {took:?}, hosted {hosted}");
+        }
+    }
+}
+
+/// A base URL that carries a credential (`?api_key=`) is cached by name
+/// only. On a cached restart the agent waits for the shell and gets it;
+/// when the shell is slower than the wait, the start is refused, naming the
+/// variable, never run on Claude's default endpoint. The same for a
+/// profile's `${env:ANTHROPIC_BASE_URL}`.
+#[tokio::test]
+async fn a_base_url_with_a_credential_waits_for_the_shell_and_never_falls_back() {
+    let url = format!("{SUBROUTER}/v1?api_key=s3cret-in-url");
+    let dir = scratch("bu-key", &slow_base_url_rc(&url));
+    let config = json!({"harnesses": {
+            "claude": claude(json!({})),
+            "claude-ref": claude(json!({"ANTHROPIC_BASE_URL": "${env:ANTHROPIC_BASE_URL}"})),
+        }, "defaultHarness": "claude", "permissionPolicy": "approve-all"});
+    let signed_in = [("ANTHROPIC_API_KEY", "from-the-daemon")];
+    {
+        let d = start_with(&dir, config.clone(), &signed_in, false).await;
+        let (reply, _) = ask_as(&d, "claude", "first").await;
+        assert_eq!(found(&reply)["base"], url);
+    }
+    let text = std::fs::read_to_string(dir.join("login-env.json")).unwrap();
+    assert!(!text.contains("s3cret-in-url"), "a credential in the cache: {text}");
+    assert!(text.contains("ANTHROPIC_BASE_URL"), "its name is cached: {text}");
+    // A shell inside the wait: the agent gets the URL.
+    std::fs::write(dir.join("home/slow"), "1.5").unwrap();
+    {
+        let d = start_with(&dir, config.clone(), &signed_in, false).await;
+        let (reply, _) = ask_as(&d, "claude", "waited").await;
+        assert_eq!(found(&reply)["base"], url);
+    }
+    // A shell slower than the wait: refused, never the default endpoint.
+    std::fs::write(dir.join("home/slow"), "8").unwrap();
+    let d = start_with(&dir, config, &signed_in, false).await;
+    for (harness, name) in [("claude", "refused"), ("claude-ref", "refused-ref")] {
+        let (reply, _) = ask_as(&d, harness, name).await;
+        let error = reply.expect_err(&format!("{harness} started without its base URL"));
+        assert!(error.contains("ANTHROPIC_BASE_URL"), "{harness}: {error}");
+        assert!(!error.contains("s3cret-in-url"), "{harness}: {error}");
+    }
 }
 
 #[tokio::test]
@@ -891,8 +1014,14 @@ async fn current_machine_credentials_survive_nested_claude_cleanup() {
     assert_eq!(found(&current)["auth"], json!(["ANTHROPIC_AUTH_TOKEN"]));
     assert_eq!(found(&current)["base"], "https://current.invalid");
     std::fs::remove_file(file).unwrap();
-    let (revoked, _) = ask_as(&d, "claude", "machine-nested-revoked").await;
-    assert!(revoked.is_err(), "a revoked credential survived nested cleanup");
+    let (revoked, turn) = ask_as(&d, "claude", "machine-nested-revoked").await;
+    let error = revoked.expect_err("a revoked credential survived nested cleanup");
+    // A generic launch or socket failure is an error too. Verify the fake Claude actually
+    // started and rejected the missing auth, rather than rewarding an unrelated failure.
+    assert!(error.contains("Claude is not signed in here."), "{error}");
+    assert!(error.contains("(Claude said: Not logged in · Please run /login)"), "{error}");
+    assert_eq!(turn["status"], "failed", "{turn}");
+    assert_eq!(turn["errorText"], error.as_str(), "{turn}");
 }
 
 /// A version-manager prefix passes, but never a secret under it: the agent
@@ -976,4 +1105,57 @@ async fn a_profile_bedrock_switch_gets_no_aws_secret() {
     let v = found(&reply);
     assert_eq!(v["auth"], json!(["bedrock"]), "{v}");
     assert_eq!(v["awsKeys"], json!(["AWS_PROFILE", "AWS_REGION"]), "{v}");
+}
+
+/// The `/status` card's rows (Leo, 2026-11-03: "how come the status doesn't say anything"): a
+/// Claude chat started from a profile that sets its sign-in, endpoint and Claude home has, in
+/// its session info, the machine, the kind of sign-in and where it came from (never its value),
+/// the route, the settings files in force, and the usage limits Claude Code reported.
+#[tokio::test]
+async fn session_info_names_host_sign_in_route_settings_and_limits() {
+    let dir = scratch("status", "export EDITOR=vi\n");
+    let home = dir.join("home/.claude");
+    std::fs::write(home.join("settings.json"), r#"{"model": "opus"}"#).unwrap();
+    std::fs::create_dir_all(dir.join(".claude")).unwrap();
+    std::fs::write(dir.join(".claude/settings.local.json"), "{}").unwrap();
+    // Not `claude()`: its sign-in mode answers every prompt itself, with no rate_limit_event.
+    let env = json!({
+        "CLAUDE_CONFIG_DIR": home,
+        "ANTHROPIC_AUTH_TOKEN": "status-secret-token",
+        "ANTHROPIC_BASE_URL": "http://sr2-gateway.example:4016",
+    });
+    let profile = json!({"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio", "env": env});
+    let d = start(&dir, json!({"claude": profile}), &[]).await;
+    let mut rpc = Rpc::connect(&d.socket).await;
+    let created = rpc
+        .call(
+            "session/new",
+            json!({"cwd": d.dir, "mcpServers": [], "_meta": {"acpmux": {"harness": "claude"}}}),
+        )
+        .await;
+    let id = created["sessionId"].as_str().unwrap().to_owned();
+    rpc.call(
+        "session/prompt",
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "rate-limits-probe"}]}),
+    )
+    .await;
+    let info = rpc.call("_acpmux/info", json!({"sessionId": id})).await;
+    assert!(info["machine"].as_str().is_some_and(|h| !h.is_empty()), "{info}");
+    // `host` means a chat on another machine to clients: a local chat's detail has none.
+    assert!(info.get("host").is_none_or(Value::is_null), "{info}");
+    assert_eq!(info["authSource"], "Auth token (ANTHROPIC_AUTH_TOKEN, from its profile)", "{info}");
+    assert_eq!(info["route"], "SR2 gateway (sr2-gateway.example:4016)", "{info}");
+    let settings: Vec<&str> = info["settingsSources"]
+        .as_array()
+        .unwrap_or_else(|| panic!("settingsSources: {info}"))
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    let has = |suffix: &str| settings.iter().any(|s| s.ends_with(suffix));
+    // The fake HOME is the daemon's home, so its Claude home reads as `~`.
+    assert!(settings.contains(&"~/.claude/settings.json"), "{settings:?}");
+    assert!(has(".claude/settings.local.json"), "{settings:?}");
+    assert!(settings.contains(&"autocompact at 400K"), "{settings:?}");
+    assert!(info["usageLimits"]["windows"].as_array().is_some_and(|w| !w.is_empty()), "{info}");
+    assert!(!info.to_string().contains("status-secret-token"), "{info}");
 }

@@ -4,6 +4,12 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use super::*;
 
 #[test]
+fn backend_identity_probe_opts_into_revisions_without_changing_other_requests() {
+    assert_eq!(request_value("identify")["revisions"], true);
+    assert!(request_value("server-stats").get("revisions").is_none());
+}
+
+#[test]
 fn connection_limit_probe_bounds_a_peer_that_never_terminates_its_line() {
     use std::io::Read;
     use std::sync::mpsc;
@@ -26,6 +32,22 @@ fn connection_limit_probe_bounds_a_peer_that_never_terminates_its_line() {
 }
 
 #[test]
+fn connection_limit_probe_rejects_an_oversized_busy_refusal() {
+    let (client, mut server) = UnixStream::pair().unwrap();
+    let refusal = br#"{"protocol":"cmux.protocol/2","type":"refused","code":"server.busy"}
+"#;
+    let prefix = (super::super::identify::RESPONSE_LIMIT + 1).saturating_sub(refusal.len());
+    let sender = std::thread::spawn(move || {
+        let _ = io::copy(&mut io::repeat(b' ').take(prefix as u64), &mut server);
+        let _ = server.write_all(refusal);
+    });
+
+    let result = probe(Box::new(client), Instant::now() + Duration::from_secs(1));
+    sender.join().unwrap();
+    assert!(matches!(result, Probe::Answered), "oversized refusals must fail closed");
+}
+
+#[test]
 fn connection_limit_probe_keeps_a_peer_that_sends_a_partial_line() {
     use std::sync::mpsc;
 
@@ -42,6 +64,36 @@ fn connection_limit_probe_keeps_a_peer_that_sends_a_partial_line() {
     assert!(
         matches!(result, Probe::Answered),
         "partial protocol data must not authorize replacement"
+    );
+}
+
+#[test]
+fn connection_limit_probe_deadline_bounds_a_trickling_partial_line() {
+    use std::time::Instant;
+
+    let (client, mut server) = UnixStream::pair().unwrap();
+    let sender = std::thread::spawn(move || {
+        // Keep every read making progress just before its timeout. The probe
+        // must still stop at its absolute deadline without waiting for EOF.
+        for _ in 0..50 {
+            if server.write_all(b"x").is_err() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    });
+    let started = Instant::now();
+    let result = probe(Box::new(client), started + Duration::from_millis(100));
+    let elapsed = started.elapsed();
+    sender.join().unwrap();
+
+    assert!(
+        matches!(result, Probe::Answered),
+        "partial protocol data must not authorize replacement"
+    );
+    assert!(
+        elapsed < Duration::from_millis(400),
+        "probe exceeded its absolute deadline: {elapsed:?}"
     );
 }
 
@@ -74,5 +126,41 @@ fn connection_limit_recovery_gets_a_full_identify_deadline() {
     });
     let stuck = unresponsive(&spec, Box::new(initial));
     server.join().unwrap();
-    assert!(!stuck, "Restart must keep an owner that recovers near the busy deadline");
+    assert_eq!(stuck, None, "Restart must keep an owner that recovers near the busy deadline");
+}
+
+/// An owner that refuses every connection at its limit for the whole probe
+/// reads as saturated, not silent, so its clients' work never keeps it from
+/// being replaced (only a silent, parking owner may be a restoring one).
+#[test]
+fn an_owner_refusing_every_connection_reads_as_saturated() {
+    let dir = tempfile::tempdir_in("/tmp").unwrap();
+    let spec = super::super::recovery_tests::owner_spec(dir.path().join("owner.sock"));
+    let listener = UnixListener::bind(&spec.socket).unwrap();
+    let (initial, first_peer) = UnixStream::pair().unwrap();
+    let refuse = |stream: UnixStream| {
+        let mut connection = BufReader::new(stream);
+        let _ = connection.read_line(&mut String::new());
+        let _ = writeln!(
+            connection.get_mut(),
+            r#"{{"protocol":"cmux.protocol/2","type":"refused","code":"server.busy"}}"#
+        );
+    };
+    let server = std::thread::spawn(move || {
+        refuse(first_peer);
+        listener.set_nonblocking(true).unwrap();
+        let until = Instant::now() + PROBE_DEADLINE + Duration::from_secs(2);
+        while Instant::now() < until {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    stream.set_nonblocking(false).unwrap();
+                    refuse(stream);
+                }
+                Err(_) => std::thread::sleep(Duration::from_millis(10)),
+            }
+        }
+    });
+    let stuck = unresponsive(&spec, Box::new(initial));
+    server.join().unwrap();
+    assert_eq!(stuck, Some(Stuck::Saturated));
 }

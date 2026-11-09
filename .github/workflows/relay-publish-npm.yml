@@ -28,7 +28,7 @@ concurrency:
 jobs:
   version:
     name: derive relay version and dist-tag
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -390,9 +390,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: blacksmith-4vcpu-ubuntu-2404
+          - os: ${{ fromJSON(vars.RUNNER_POOLS).linux_4 }}
             package: cmux-relay-linux-x64
-          - os: blacksmith-6vcpu-macos-15
+          - os: ${{ fromJSON(vars.RUNNER_POOLS).macos_15 }}
             package: cmux-relay-darwin-arm64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15

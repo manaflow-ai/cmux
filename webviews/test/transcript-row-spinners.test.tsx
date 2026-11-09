@@ -8,7 +8,7 @@ import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow"
 import { MessageCard } from "../src/agent-session/acpmux/conversation/MessageCard";
 import { SentMessageLine } from "../src/agent-session/acpmux/conversation/SentMessageLine";
 import { ToolGroupRow } from "../src/agent-session/acpmux/conversation/ToolGroupRow";
-import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
+import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 
 const activity = (n: number, background = false): AcpmuxActivity => ({
   kind: "tool",
@@ -30,18 +30,19 @@ function markup(node: ReactNode) {
 afterEach(() => resetTranscriptDisclosure());
 
 for (const background of [false, true]) {
-  test(`three running commands have only the group header activity mark (background=${background})`, () => {
+  test(`three running commands have no spinner, header or rows (background=${background})`, () => {
     const items = [1, 2, 3].map((n) => activity(n, background && n > 1));
     const view = markup(<ToolGroupRow kind="commands" items={items} disclosureKey="spinner-group" />);
     expect(view.querySelectorAll(".cv-step")).toHaveLength(3);
-    expect(view.querySelectorAll("[data-tool-group] .cv-spinner")).toHaveLength(1);
-    expect(view.querySelectorAll("[data-tool-group-items] .cv-spinner")).toHaveLength(0);
-    expect(view.querySelectorAll(".cv-spinner")).toHaveLength(1);
+    // Leo, 2026-10-31: "I FUCKING HATE THESE SPINNERS FOR TOOL CALLS AND SHIT". The group keeps its
+    // glyph while it runs; the row's live styling says it is running.
+    expect(view.querySelectorAll("[data-tool-group] .cv-spinner")).toHaveLength(0);
+    expect(view.querySelectorAll(".cv-spinner")).toHaveLength(0);
   });
 }
 
-test("a standalone running command retains its activity mark", () => {
-  expect(markup(<CommandRow item={activity(1)} />).querySelectorAll(".cv-spinner")).toHaveLength(1);
+test("a standalone running command has no spinner", () => {
+  expect(markup(<CommandRow item={activity(1)} />).querySelectorAll(".cv-spinner")).toHaveLength(0);
 });
 
 test("a sending message row has no spinner", () => {
@@ -57,7 +58,7 @@ test("a sending message row has no spinner", () => {
     />,
   );
   expect(view.textContent).toContain("reviewer");
-  expect(view.querySelector(".cv-sent.is-live")).not.toBeNull();
+  expect(view.querySelector(".cv-sent-msg.is-live")).not.toBeNull();
   expect(view.querySelectorAll(".cv-spinner")).toHaveLength(0);
 });
 

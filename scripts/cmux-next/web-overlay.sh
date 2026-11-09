@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Point a running Debug, NIGHTLY or NEXT DEV cmux-next at live web code, without an app build or relaunch
-# (plans/cmux-next/web-live-reload.md). It edits web-dev.json next to cmux-next.json, which the
-# app watches (WebDevOverride.swift); every open page and agent pane reloads on a change.
+# Point a running cmux at live web code, without an app build or relaunch (docs/cmux-next/hot-reload.md,
+# plans/cmux-next/web-live-reload.md). It edits web-dev.json next to cmux-next.json, which every
+# build watches while Settings > General > Live Web Reload (updates.liveWebReload) is on, the
+# default (WebDevOverride.swift); every open page and agent pane, WebKit or Chromium, reloads on a change.
 #
 #   web-overlay.sh server --local [--worktree DIR] [--port N]
 #                        # the default: run the webviews Vite server from a checkout on this Mac
@@ -18,7 +19,9 @@
 #                        # build the app on the fleet (cmux-ci; the Linux pool for cmux-next; tag
 #                        # web-overlay, workspace web-overlay:$USER) and install its web bundles
 #   web-overlay.sh build              # build the web bundles in this checkout and install them
-#   web-overlay.sh install DIR        # install a build-web-bundles.sh --out-root DIR
+#   web-overlay.sh install DIR [--commit SHA]
+#                        # install a build-web-bundles.sh --out-root DIR; manifest.json records
+#                        # SHA, else DIR's .web-overlay-source (`build` writes it), else unknown
 #   web-overlay.sh install-app APP    # install the web bundles of a built cmux .app
 #   web-overlay.sh off                # bundled pages again (keeps the overlay files)
 #   web-overlay.sh status
@@ -71,7 +74,7 @@ for key, raw in zip(pairs[::2], pairs[1::2]):
         data.pop(key, None)
     else:
         data[key] = value
-fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".web-dev.")
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".web-dev.")  # 0600: it holds the token
 with os.fdopen(fd, "w") as f:
     json.dump(data, f, indent=2)
     f.write("\n")
@@ -103,12 +106,20 @@ install_dirs() {
     ln -sfn ".gen-$stamp/$name" "$overlay/.$name.next"  # -n: a leftover link is replaced, not entered
     mv -fh "$overlay/.$name.next" "$overlay/$name" 2>/dev/null || mv -fT "$overlay/.$name.next" "$overlay/$name"
   done
-  python3 - "$overlay" "$stamp" "$source_commit" "${installed[@]}" <<'PY'
+  # The native interface the bundles need (their pages/web-abi.json): the app refuses an overlay
+  # whose abi is not its own (WebDevOverride.refusal), as it refuses such a web update.
+  python3 - "$overlay" "$stamp" "$source_commit" "$pages/web-abi.json" "${installed[@]}" <<'PY'
 import json, os, sys, tempfile
-overlay, stamp, commit, names = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+overlay, stamp, commit, abi_file, names = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5:]
+manifest = {"stamp": stamp, "commit": commit, "surfaces": names}
+try:
+    with open(abi_file) as f:
+        manifest["abi"] = int(json.load(f)["abi"])
+except (OSError, ValueError, KeyError, TypeError):
+    pass  # bundles with no web-abi.json: the app checks nothing, as before
 fd, tmp = tempfile.mkstemp(dir=overlay, prefix=".manifest.")
 with os.fdopen(fd, "w") as f:
-    json.dump({"stamp": stamp, "commit": commit, "surfaces": names}, f)
+    json.dump(manifest, f)
     f.write("\n")
 os.replace(tmp, os.path.join(overlay, "manifest.json"))
 PY
@@ -126,9 +137,23 @@ PY
   echo "installed ${installed[*]} ($source_commit) into $overlay"
 }
 
-# An output root of build-web-bundles.sh --out-root, built from this checkout.
+# The file in an output root that names the commit it was built from (`build` writes it).
+SOURCE_FILE=".web-overlay-source"
+
+# An output root of build-web-bundles.sh --out-root; $2 is the commit it was built from, else its
+# $SOURCE_FILE, else unknown. Never this checkout's HEAD: the root may come from another tree.
 install_from() {
-  install_dirs "$1/$PANE" "$1/$PAGES" "$1/$APP" "$(git -C "$ROOT" rev-parse HEAD)"
+  local commit="${2:-}"
+  [[ -n "$commit" ]] || commit="$(head -n 1 "$1/$SOURCE_FILE" 2>/dev/null || true)"
+  install_dirs "$1/$PANE" "$1/$PAGES" "$1/$APP" "${commit:-unknown}"
+}
+
+# This checkout's HEAD, with -dirty when the tree it builds from has changes.
+checkout_commit() {
+  local head
+  head="$(git -C "$ROOT" rev-parse HEAD)"
+  if [[ -n "$(git -C "$ROOT" status --porcelain --untracked-files=no 2>/dev/null)" ]]; then head+="-dirty"; fi
+  echo "$head"
 }
 
 # A built cmux .app: its module bundles and its viewer folder hold the same files. $2 is the
@@ -181,7 +206,7 @@ stop_started() {
     fi
     rm -f "$state/$name.pid"
   done
-  rm -f "$state/dev-server.tree" "$state/follow.pr"
+  rm -f "$state/dev-server.tree" "$state/follow.pr" "$state/dev-server.token"
 }
 
 # A field of web-dev.json's "slot" (host or port), empty when unset.
@@ -220,10 +245,21 @@ start_local() {
   [[ -d "$tree/webviews/node_modules" ]] || (cd "$tree/webviews" && bun install --frozen-lockfile >/dev/null)
   # The generated string tables are gitignored; the dev server imports them.
   (cd "$tree/webviews" && bun scripts/pages/gen-strings.mjs --best-effort >/dev/null 2>&1)
-  # Its own process group (set -m), so `server off` stops bun and its children together.
-  # Every descriptor goes to the log, so the caller's pipe closes when this script exits.
+  # Each module's React Compiler output, kept across starts (webviews/reactCompiler.mjs keys it by
+  # the file's text, path and bun.lock), so a second start serves the agent pane in seconds, not
+  # half a minute. About 50 MB per tree; entries older than 14 days go at each start.
+  local transforms="${CMUX_VITE_TRANSFORM_CACHE:-$state/transforms}"
+  [[ -d "$transforms" ]] && find "$transforms" -type f -mtime +14 -delete 2>/dev/null
+  rm -f "$state/dev-server.exit"
+  # Its own process group (set -m), so `server off` stops bun and its children together, and the
+  # exit watch with them. Every descriptor goes to the log, so the caller's pipe closes when this
+  # script exits.
   ( set -m
-    ( cd "$tree/webviews" && CMUX_WEBVIEWS_DEV_PORT="$port" exec nohup bun run dev ) </dev/null >"$state/dev-server.log" 2>&1 &
+    ( cd "$tree/webviews"
+      self="$(exec sh -c 'echo $PPID')"
+      watch_exit "$self" "$port" &
+      CMUX_WEBVIEWS_DEV_PORT="$port" CMUX_VITE_TRANSFORM_CACHE="$transforms" exec nohup bun run dev
+    ) </dev/null >"$state/dev-server.log" 2>&1 &
     echo $! >"$state/dev-server.pid" )
   echo "$tree:$port" >"$state/dev-server.tree"
   # A server that another process holds the port for answers too; only ours, still running, counts.
@@ -233,8 +269,55 @@ start_local() {
   echo "dev server: http://127.0.0.1:$port/ from $tree (log: $state/dev-server.log)"
 }
 
+# Waits beside the dev server (pid $1, port $2), in its process group: `stop_started` ends both.
+# When the server exits on its own (a crash, a kill of bun alone), the app goes back to its shipped
+# web UI at once (web-dev.json loses `server`, and the app reloads every page), and
+# `$state/dev-server.exit` says when and why for `cmux live status`. Ends when the server does.
+watch_exit() {
+  local pid="$1" port="$2"
+  trap '' HUP
+  while kill -0 "$pid" 2>/dev/null; do sleep 2; done
+  # A server this script started since (another port or checkout) is not this one's to clear.
+  [[ "$(cat "$state/dev-server.pid" 2>/dev/null)" == "$pid" ]] || return 0
+  rm -f "$state/dev-server.pid"
+  # Nor is a server picked since (`server URL`, a slot): only web-dev.json still naming this one, with
+  # the token `point_at` wrote for it, is cleared.
+  points_here "http://127.0.0.1:$port/" "$(cat "$state/dev-server.token" 2>/dev/null)" || return 0
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the dev server on port $port stopped on its own; the app shows the web UI it shipped with (log: $state/dev-server.log)" >"$state/dev-server.exit"
+  set_key server null >/dev/null
+}
+
+# Whether web-dev.json's server is $1 with token $2 (a non-empty one).
+points_here() {
+  [[ -n "$2" ]] || return 1
+  python3 - "$web_dev" "$1" "$2" <<'PY'
+import json, sys
+try:
+    data = json.load(open(sys.argv[1]))
+except (OSError, ValueError):
+    sys.exit(1)
+sys.exit(0 if isinstance(data, dict) and data.get("server") == sys.argv[2] and data.get("token") == sys.argv[3] else 1)
+PY
+}
+
+# A fresh token for web-dev.json on every `server`: the app sends each request a random nonce and
+# loads only answers proving HMAC-SHA256(token, nonce) (webviews/dev-server/plugins.ts reads the token
+# from the same 0600 file, per request), so a process that takes the port of a stopped server serves
+# the app nothing. $1, when long enough, is used instead (a slot's server's token).
+ensure_token() {
+  local token="${1:-}"
+  [[ ${#token} -ge 32 ]] || token="$(python3 -c 'import secrets; print(secrets.token_hex(24))')"
+  echo "$token"
+}
+
+# Points the app at a server on port $1; $2 is the token its answers carry (default: ours).
+# The token is kept in the state folder too, so a dev server's exit watch clears only its own pick.
 point_at() {
-  set_key server "$(json_string "http://127.0.0.1:$1/")" enabled true
+  local token
+  token="$(ensure_token "${2:-}")"
+  mkdir -p "$state"
+  (umask 077 && echo "$token" >"$state/dev-server.token")
+  set_key server "$(json_string "http://127.0.0.1:$1/")" token "$(json_string "$token")" enabled true
 }
 
 cmd="${1:-}"; [[ -n "$cmd" ]] || usage 1; shift
@@ -273,7 +356,19 @@ case "$cmd" in
           echo $! >"$state/tunnel.pid"
           if answers "$port" 15; then
             echo "slot: $host:$port through a tunnel"
-            point_at "$port"; exit 0
+            # The slot's server sends the token of web-dev.json on its own machine.
+            remote_token="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$host" python3 - <<'PY' 2>/dev/null || true
+import json, os
+try:
+    print(json.load(open(os.path.expanduser("~/.config/cmux/web-dev.json"))).get("token") or "")
+except Exception:
+    print("")
+PY
+)"
+            if [[ ${#remote_token} -lt 32 ]]; then
+              echo "warning: $host has no token in ~/.config/cmux/web-dev.json; start its server with CMUX_WEB_DEV_TOKEN set to the \"token\" in $web_dev, or the app keeps the bundled pages" >&2
+            fi
+            point_at "$port" "$remote_token"; exit 0
           fi
           kill "$(cat "$state/tunnel.pid")" 2>/dev/null || true; rm -f "$state/tunnel.pid"
           echo "the slot on $host:$port does not answer; using a local dev server" >&2
@@ -288,7 +383,8 @@ case "$cmd" in
         if ! curl -fsS -o /dev/null --max-time 5 "${url%/}/agent-pane/index.html"; then
           echo "warning: ${url%/}/agent-pane/index.html does not answer yet; the app uses the bundled pages until it does" >&2
         fi
-        set_key server "$(json_string "$url")" enabled true
+        set_key server "$(json_string "$url")" token "$(json_string "$(ensure_token)")" enabled true
+        echo "a webviews dev server on this Mac sends this token itself; any other server needs CMUX_WEB_DEV_TOKEN set to the \"token\" in $web_dev"
         ;;
     esac
     ;;
@@ -342,7 +438,13 @@ case "$cmd" in
     ;;
   install)
     [[ -n "${1:-}" ]] || usage 1
-    install_from "$(cd "$1" && pwd)"
+    dir="$1"; shift
+    commit=""
+    if [[ "${1:-}" == "--commit" ]]; then
+      [[ -n "${2:-}" ]] || usage 1
+      commit="$2"
+    elif [[ -n "${1:-}" ]]; then usage 1; fi
+    install_from "$(cd "$dir" && pwd)" "$commit"
     ;;
   install-app)
     [[ -d "${1:-}" ]] || usage 1
@@ -352,6 +454,7 @@ case "$cmd" in
     out="$(mktemp -d "${TMPDIR:-/tmp}/web-overlay-build.XXXXXX")"
     trap 'rm -rf "$out"' EXIT
     "$ROOT/scripts/cmux-next/build-web-bundles.sh" --force --out-root "$out"
+    checkout_commit > "$out/$SOURCE_FILE"
     install_from "$out"
     ;;
   fleet)
@@ -411,6 +514,30 @@ case "$cmd" in
     cat "$web_dev" 2>/dev/null || echo "(none: the app serves its bundled pages)"
     echo "overlay: $overlay"
     cat "$overlay/manifest.json" 2>/dev/null || echo "(no overlay installed)"
+    # The app's bridge check (WebDevOverride.refusal): an overlay for another web ABI is not served.
+    # CMUX_WEB_OVERLAY_APP names the app; else the installed NEXT builds.
+    apps=("/Applications/cmux NIGHTLY.app" "/Applications/cmux NEXT.app")
+    [[ -z "${CMUX_WEB_OVERLAY_APP:-}" ]] || apps=("$CMUX_WEB_OVERLAY_APP")
+    for app in "${apps[@]}"; do
+      [[ -f "$overlay/manifest.json" && -d "$app" ]] || continue
+      python3 - "$overlay/manifest.json" "$app" <<'PY'
+import json, sys
+manifest, app = sys.argv[1], sys.argv[2]
+try:
+    want = json.load(open(manifest)).get("abi")
+    have = json.load(open(app + "/Contents/Resources/CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages/web-abi.json"))["abi"]
+except (OSError, ValueError, KeyError):
+    sys.exit(0)
+if want is not None and want != have:
+    print(f"refused by {app}: the overlay needs web ABI {want}, the app has {have} (build it from a tree at the app's ABI)")
+elif want is not None:
+    print(f"served by {app}: web ABI {have}")
+PY
+    done
+    # The app's switch for all of this: off means the file above is ignored.
+    if command -v cmux >/dev/null 2>&1; then
+      echo "Live Web Reload (updates.liveWebReload): $(cmux settings get updates.liveWebReload 2>/dev/null || echo unknown)"
+    fi
     ;;
   -h|--help) usage ;;
   *) echo "unknown command: $cmd" >&2; usage 1 ;;

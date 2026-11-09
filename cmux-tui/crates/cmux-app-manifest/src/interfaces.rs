@@ -15,6 +15,7 @@ macro_rules! interfaces {
 }
 
 interfaces! {
+    "cmux.chat.widget/1" => "cmux.chat.widget",
     "cmux.contact.provider/1" => "cmux.contact.provider",
     "cmux.credential.provider/1" => "cmux.credential.provider",
     "cmux.diff.renderer/1" => "cmux.diff.renderer",
@@ -28,6 +29,7 @@ interfaces! {
     "cmux.pane/1" => "cmux.pane",
     "cmux.search.provider/1" => "cmux.search.provider",
     "cmux.section/1" => "cmux.section",
+    "cmux.session.info.section/1" => "cmux.session.info.section",
     "cmux.sidebar.rows/1" => "cmux.sidebar.rows",
     "cmux.status/1" => "cmux.status",
     "cmux.terminal.backend/1" => "cmux.terminal.backend",

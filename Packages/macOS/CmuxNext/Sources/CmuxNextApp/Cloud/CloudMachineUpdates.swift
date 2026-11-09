@@ -49,10 +49,10 @@ final class CloudMachineUpdates {
         }
     }
 
-    /// A key that changes with every new daemon connection of `session`: the connection object,
-    /// the daemon process and boot; `refused` while the app refuses its daemon. Nil while none.
+    /// A key that changes with every new live daemon handshake of `session` (``DaemonService/liveIdentity``): the
+    /// connection object, the daemon process and boot; `refused` while the app refuses its daemon. Nil while none.
     static func handshake(_ session: CloudMachineSession, machines: MachineRegistry) -> String? {
-        if let identity = session.daemon.identity, let connection = session.daemon.connection {
+        if let identity = session.daemon.liveIdentity, let connection = session.daemon.connection {
             return "\(ObjectIdentifier(connection)):\(identity.pid):\(identity.generation)"
         }
         return machines.compatibility(of: session.daemon)?.level == .incompatible ? "refused" : nil
@@ -80,21 +80,23 @@ final class CloudMachineUpdates {
     /// the toggles are off, the app has no `cmux` client, or the machine is gone. Same guarantees as the
     /// automatic update: `--to-bundled --if-older`, never a move back, terminals and chats keep running.
     static func updateNow(_ machineID: String, services: AppServices) async -> Bool {
-        guard let target = target(machineID, services: services) else { return false }
+        // Not held by ``CloudStartGate``: this update is the start's own, which waits for it.
+        guard let target = target(machineID, services: services, holdsForStarts: false) else { return false }
         logger.info("cloud machine \(machineID, privacy: .public): a start was refused by its daemon; updating it before starting again")
         await services.daemonUpdates.policy.updateNow(target)
         return true
     }
 
     /// Machine `machineID` as the shared policy's target; nil while the toggles are off, the app has no
-    /// `cmux` client, or the machine is gone.
-    private static func target(_ machineID: String, services: AppServices) -> CloudMachineUpdateTarget? {
+    /// `cmux` client, or the machine is gone. `holdsForStarts`: it answers busy while a chat start brings the
+    /// machine up (``CloudStartGate``), so the automatic update never restarts the daemon under a start.
+    private static func target(_ machineID: String, services: AppServices, holdsForStarts: Bool = true) -> CloudMachineUpdateTarget? {
         guard CloudTunables.updatesCloudMachines, let session = services.machines.session(machineID),
               let binary = services.cloud.move.cli else { return nil }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
-        return CloudMachineUpdateTarget(machineID: machineID, displayName: session.machine.title,
-                                        source: source(session, machines: services.machines, cli: cli, api: services.cloud.machineAPI,
-                                                       logger: logger))
+        var side = source(session, machines: services.machines, cli: cli, api: services.cloud.machineAPI, logger: logger)
+        if holdsForStarts { side.starting = { [gate = services.cloud.startGate] in await gate.contains(machineID) } }
+        return CloudMachineUpdateTarget(machineID: machineID, displayName: session.machine.title, source: side)
     }
 
     // MARK: The machine's side
@@ -134,26 +136,23 @@ final class CloudMachineUpdates {
         session?.machine.allows(.exec) == true
     }
 
-    /// The machine's daemon as the app sees it: connected (its build and level), refused
-    /// (`incompatible`, no build), or nil.
+    /// The machine's daemon as the app sees it: on a live handshake (its build and level), refused
+    /// (`incompatible`, no build: also a dropped link whose last handshake was refused), or nil.
     static func daemon(of session: CloudMachineSession?, machines: MachineRegistry?) -> CloudMachineUpdateTarget.Daemon? {
         guard let session, let machines else { return nil }
         let level = machines.compatibility(of: session.daemon)?.level
-        if let identity = session.daemon.identity, session.daemon.connection != nil {
+        if let identity = session.daemon.liveIdentity {
             return CloudMachineUpdateTarget.Daemon(build: identity.buildCommit, level: level ?? .current)
         }
         return level == .incompatible ? CloudMachineUpdateTarget.Daemon(build: nil, level: .incompatible) : nil
     }
 
     /// The machine daemon's socket as this Mac reaches it (what Update Machine passes). A refused
-    /// daemon left no connection: the legacy link's socket can be asked again; an app link's is
-    /// read without asking (its connection's second ask would end the link), and the carrier
-    /// dials the machine again for the CLI's own connection.
+    /// daemon left no connection: the app link's socket is read without asking (its connection's
+    /// second ask would end the link), and the carrier dials the machine again for the CLI's own connection.
     private static func socket(of session: CloudMachineSession?) async -> String? {
         guard let session else { return nil }
         if let connection = session.daemon.connection, let path = await connection.endpoint?.socketPath { return path }
-        if let appLink = session.appLink { return await appLink.currentSocket }
-        guard session.link != nil, let endpoint = session.daemon.remoteEndpoint else { return nil }
-        return try? await endpoint().socketPath
+        return await session.appLink.currentSocket
     }
 }

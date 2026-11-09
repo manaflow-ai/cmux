@@ -180,8 +180,16 @@ impl Native {
 
     /// One step's request body.
     pub fn body(&self, messages: &[Value]) -> Value {
+        self.body_for(messages, &self.config.model, self.config.effort.as_deref())
+    }
+
+    pub(crate) fn defaults(&self) -> (&str, Option<&str>) {
+        (&self.config.model, self.config.effort.as_deref())
+    }
+
+    fn body_for(&self, messages: &[Value], model: &str, effort: Option<&str>) -> Value {
         let mut body = json!({
-            "model": self.config.model,
+            "model": model,
             "max_tokens": self.config.max_tokens,
             "stream": true,
             // Marked: compactions send the same system prompt and tools, so
@@ -192,7 +200,7 @@ impl Native {
             // The end of each request: the next step reads it (section 8).
             "cache_control": self.cache_ttl.cache_control(),
         });
-        if let Some(effort) = &self.config.effort {
+        if let Some(effort) = effort {
             body["output_config"] = json!({"effort": effort});
         }
         if self.config.server_fallback {
@@ -264,6 +272,12 @@ impl Native {
         interrupted: &dyn Fn() -> bool,
         gated: &dyn Fn() -> bool,
     ) -> TurnOutcome {
+        let model = start.session.model.as_deref().unwrap_or(&self.config.model);
+        let effort = start
+            .session
+            .effort
+            .as_deref()
+            .or(self.config.effort.as_deref());
         let deadline = start.limit.map(|limit| Instant::now() + limit);
         let shell = Shell::new(
             &self.config.cwd,
@@ -290,7 +304,12 @@ impl Native {
             if interrupted() {
                 deliver(&mut messages, mailbox());
             }
-            let message = match self.call(&self.body(&messages), &start.key, log, interrupted) {
+            let message = match self.call(
+                &self.body_for(&messages, model, effort),
+                &start.key,
+                log,
+                interrupted,
+            ) {
                 Ok(m) => m,
                 Err(e) if e.interrupted => {
                     // The step is dropped whole: its thinking is never
@@ -311,7 +330,7 @@ impl Native {
                         .and_then(Value::as_str)
                         .unwrap_or("")
                         .to_owned(),
-                    model: Some(self.config.model.clone()),
+                    model: Some(model.to_owned()),
                     usage,
                     ..crate::fold::Request::default()
                 });
@@ -418,6 +437,7 @@ impl Native {
             error,
             orphan: None,
             cancelled: false,
+            unstarted: false,
             stats: crate::turn::TurnStats {
                 first: first_usage,
                 totals: Some((totals, "turn total")),

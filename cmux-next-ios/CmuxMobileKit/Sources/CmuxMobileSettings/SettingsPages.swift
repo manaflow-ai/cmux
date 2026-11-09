@@ -3,6 +3,7 @@ import CmuxMobileAuth
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileOnboarding
+import CmuxSpinner
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -56,7 +57,7 @@ struct AccountPage: View {
                 switch methods {
                 case .loading:
                     CmuxMobileGutterRow {
-                        ProgressView()
+                        CmuxSpinner()
                     } content: {
                         Text("Loading").foregroundStyle(theme.colors.label2)
                     }
@@ -92,7 +93,7 @@ struct AccountPage: View {
                         Text("Delete Account").foregroundStyle(theme.colors.danger).cmuxMobileTextColumn()
                         if deleting {
                             Spacer()
-                            ProgressView()
+                            CmuxSpinner()
                         }
                     }
                 }
@@ -198,7 +199,7 @@ struct TeamPage: View {
                 switch members {
                 case .loading:
                     CmuxMobileGutterRow {
-                        ProgressView()
+                        CmuxSpinner()
                     } content: {
                         Text("Loading members").foregroundStyle(theme.colors.label2)
                     }
@@ -275,6 +276,12 @@ struct TerminalPage: View {
                 Text("Choose which device controls the shared terminal's size.")
             }
             Section {
+                Toggle(isOn: $settings.predictiveEcho) { SettingsLabel("Predictive echo", symbol: "bolt.horizontal") }
+                    .accessibilityIdentifier("settings.predictiveEcho")
+            } footer: {
+                Text("On a slow connection, what you type shows at once, underlined until the remote confirms it.")
+            }
+            Section {
                 Toggle(isOn: $settings.wrapCode) { SettingsLabel("Wrap code and diff lines", symbol: "text.word.spacing") }
                 Toggle(isOn: $settings.keyClicks) { SettingsLabel("Key clicks", symbol: "keyboard") }
             } header: {
@@ -304,7 +311,8 @@ struct ComposerPage: View {
                 }
                 .pickerStyle(.menu)
             } footer: {
-                Text("Queue waits for the current turn; Steer interrupts it.")
+                // The Mac's Toggle Prompt Queueing: Send steers either way, as the Mac's Return does.
+                Text("Send steers the running turn. With Queue, a long press on Send can queue a message for after the turn; with Steer, that steers too.")
             }
         }
         .settingsPage("Composer")
@@ -470,6 +478,14 @@ struct TransportPage: View {
                 } else {
                     Text("Switching reconnects to your Macs.")
                 }
+            }
+            Section {
+                Toggle(isOn: $settings.ultraOnCellular) {
+                    Text("Ultra mode on cellular")
+                }
+                .accessibilityIdentifier("settings.transport.ultraOnCellular")
+            } footer: {
+                Text("On cellular, WireGuard sends repair data so a network that drops packets stays fast. Uses about 2 to 3 times the cellular data. Applies at the next connection.")
             }
             #if !DEBUG
             Section {
