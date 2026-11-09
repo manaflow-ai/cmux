@@ -42,11 +42,16 @@ struct Fixture {
 
 impl Fixture {
     fn new(session: &str) -> Self {
+        Self::with_config(session, "{}")
+    }
+
+    /// A fixture whose cmux-tui config file holds `config`.
+    fn with_config(session: &str, config: &str) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir = PathBuf::from("/tmp").join(format!("cmux-hc-{}-{stamp}", std::process::id()));
         fs::create_dir_all(dir.join("home")).unwrap();
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
-        fs::write(dir.join("config.json"), "{}").unwrap();
+        fs::write(dir.join("config.json"), config).unwrap();
         Self { socket: dir.join("mux.sock"), session: session.into(), dir }
     }
 
@@ -282,8 +287,41 @@ fn w5q_tui_never_types_a_late_host_color_reply_into_a_pane() {
 #[test]
 fn w5q_tui_types_every_key_after_alt_right_bracket() {
     let fixture = Fixture::new("alt-right-bracket");
+    assert_typed_lines_reach_cat(
+        &fixture,
+        &[
+            (b"k1:\x1b]a\r", "k1:a"),
+            (b"k2:\x1b]\x1b[A\r", "k2:^[[A"),
+            (b"k3:\x1b]\x1b]\x1b]\r", "k3:"),
+            (b"k4:\x1b]12x\r", "k4:12x"),
+        ],
+    );
+}
+
+/// W5-Q review (PR B): with `next-screen` bound to no key, Alt+] is a plain
+/// key for the pane: the pane gets `ESC ]` and every key after it in the
+/// same read, and a typed `ESC ] 1 2` that is no color reply is not held.
+#[test]
+fn w5q_tui_types_an_unbound_alt_right_bracket_into_the_pane() {
+    let fixture =
+        Fixture::with_config("alt-right-bracket-unbound", r#"{"keys": {"next-screen": "none"}}"#);
+    assert_typed_lines_reach_cat(
+        &fixture,
+        &[
+            (b"k1:\x1b]a\r", "k1:^[]a"),
+            (b"k2:\x1b]\x1b[A\r", "k2:^[]^[[A"),
+            (b"k3:\x1b]\x1b]\x1b]\r", "k3:^[]^[]^[]"),
+            (b"k4:\x1b]12x\r", "k4:^[]12x"),
+        ],
+    );
+}
+
+/// Attaches the client, runs `cat -v` in the first pane, writes each typed
+/// line of `cases` in one write (so the client reads it in one read) and
+/// checks that the pane shows each line as given.
+fn assert_typed_lines_reach_cat(fixture: &Fixture, cases: &[(&[u8], &str)]) {
     fixture.server("ensure", &[]);
-    let mut client = Client::start(&fixture);
+    let mut client = Client::start(fixture);
     wait_for("the client to take the terminal", &client, || client.printed(INPUT_MODES_ENABLED));
     wait_for("the client to attach", &client, || fixture.has_tui_client());
     let mut surface = None;
@@ -302,13 +340,6 @@ fn w5q_tui_types_every_key_after_alt_right_bracket() {
         || fixture.screen(surface).contains("cat-ready"),
         || fixture.screen(surface),
     );
-    // Each case is one write, so the client reads it in one read.
-    let cases: [(&[u8], &str); 4] = [
-        (b"k1:\x1b]a\r", "k1:a"),
-        (b"k2:\x1b]\x1b[A\r", "k2:^[[A"),
-        (b"k3:\x1b]\x1b]\x1b]\r", "k3:"),
-        (b"k4:\x1b]12x\r", "k4:12x"),
-    ];
     for (typed, _) in cases {
         client.host_writes(typed);
     }
@@ -322,7 +353,7 @@ fn w5q_tui_types_every_key_after_alt_right_bracket() {
     let screen = fixture.screen(surface);
     for (typed, shown) in cases {
         assert!(
-            screen.lines().any(|line| line.trim_end() == shown),
+            screen.lines().any(|line| line.trim_end() == *shown),
             "{typed:?} did not reach the pane as {shown:?}:\n{screen}"
         );
     }
