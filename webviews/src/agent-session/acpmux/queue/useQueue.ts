@@ -121,7 +121,7 @@ export function useQueue(load: () => Promise<unknown>, refreshKey: string, cache
     }
     const timer = setTimeout(read, SETTLE_MS);
     return () => clearTimeout(timer);
-  }, [refreshKey, read]);
+  }, [refreshKey, read, cache]);
 
   return { state, refresh: read };
 }

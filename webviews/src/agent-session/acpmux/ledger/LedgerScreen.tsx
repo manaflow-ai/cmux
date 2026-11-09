@@ -251,10 +251,7 @@ function Strip({ totals, locale, t }: { totals?: LedgerTotals; locale: string; t
   const value = (render: (totals: LedgerTotals) => string) => (totals ? render(totals) : "–");
   const tiles: [string, string][] = [
     [t("ledger.total.cost"), value((each) => formatCost(each.costUsd, locale))],
-    [
-      t("ledger.total.tokensIn"),
-      value((each) => formatCount(tokensIn(each), locale)),
-    ],
+    [t("ledger.total.tokensIn"), value((each) => formatCount(tokensIn(each), locale))],
     [t("ledger.total.tokensOut"), value((each) => formatCount(each.outputTokens, locale))],
     [t("ledger.total.turns"), value((each) => formatCount(each.turns, locale))],
     [t("ledger.total.tools"), value((each) => formatCount(each.toolCalls, locale))],
@@ -321,9 +318,7 @@ const Line = memo(function Line({
           {cost}
           <SourceMark source={line.source} />
         </span>
-        <span className="cst-num">
-          {formatCount(tokensIn(totals), locale)}
-        </span>
+        <span className="cst-num">{formatCount(tokensIn(totals), locale)}</span>
         <span className="cst-num">{formatCount(totals.outputTokens, locale)}</span>
         <span className="cst-num">{formatCount(totals.turns, locale)}</span>
         <span className="cst-num">{formatDuration(totals.wallMs, locale)}</span>

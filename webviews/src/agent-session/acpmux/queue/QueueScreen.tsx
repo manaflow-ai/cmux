@@ -245,16 +245,15 @@ export function QueueScreen({
   const status =
     state.phase === "older"
       ? t("waiting.older")
-      : state.phase === "failed" && !reply
+      : // A failed read says so whatever is kept: rows that may be old, or an empty list that may
+        // no longer be empty.
+        state.phase === "failed"
         ? t("waiting.failed")
         : state.phase === "loading" && !reply
           ? t("waiting.loading")
           : items.length === 0
             ? t("waiting.empty")
-            : // A read that failed while rows show: the rows stay, and the line says they may be old.
-              state.phase === "failed"
-              ? t("waiting.failed")
-              : "";
+            : "";
   // acpmux cut the list at the read's limit: say how many more wait (`total` counts them all).
   const more = reply && reply.total > reply.items.length ? reply.total : undefined;
 

@@ -283,6 +283,16 @@ test("a failed read keeps the rows it showed, says it failed and offers a retry"
   expect(host.querySelector(".wq-status button")).not.toBeNull();
 });
 
+test("a failed read after an empty one says it failed, not that nothing waits", async () => {
+  const cache = createQueueCache();
+  await render(async () => ({ items: [], now: 10 }), false, { cache, refreshKey: "a" });
+  expect(host.querySelector(".wq-status")?.textContent).toContain(translate("waiting.empty"));
+  act(() => root?.unmount());
+  await render(async () => Promise.reject(new Error("offline")), false, { cache, refreshKey: "b" });
+  expect(host.querySelector(".wq-status")?.textContent).toContain(translate("waiting.failed"));
+  expect(host.querySelector(".wq-status")?.textContent).not.toContain(translate("waiting.empty"));
+});
+
 test("a list cut at the read limit says how many there were", async () => {
   await render(async () => ({ items, now: 10, total: 250 }));
   expect(host.querySelector(".wq-status")?.textContent).toContain(translate("waiting.more", { shown: 3, total: 250 }));
