@@ -230,6 +230,7 @@ mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
 pub(crate) use shutdown::{CREATED as REFUSED_CREATED, shutting_down_before_create};
 mod caller_registry;
+mod history_timing;
 pub(crate) mod inbox;
 mod spawn;
 mod start_defaults;
@@ -2414,9 +2415,12 @@ impl Hub {
             "turn_end",
             "turn_error",
         ];
+        let kinds: Vec<&str> = KINDS.iter().chain(history_timing::KINDS).copied().collect();
+        let mut timing = history_timing::Timing::default();
         let mut turns: Vec<Value> = Vec::new();
         let mut cur: Option<serde_json::Map<String, Value>> = None;
-        let _ = self.store.scan_kinds(&session.id, KINDS, &mut |e: EventRecord| {
+        let _ = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
+            let mut opened = false;
             match e.kind.as_str() {
                 "user_message" if e.msg.get("steer").and_then(Value::as_bool) != Some(true) => {
                     if let Some(t) = cur.take() {
@@ -2436,6 +2440,7 @@ impl Hub {
                     t.insert("permissions".into(), json!(0));
                     t.insert("status".into(), json!("running"));
                     cur = Some(t);
+                    opened = true;
                 }
                 "tool_call" => {
                     if let Some(t) = cur.as_mut() {
@@ -2499,6 +2504,7 @@ impl Hub {
                 }
                 _ => {}
             }
+            timing.note(&e, cur.as_mut(), opened);
             true
         });
         if let Some(t) = cur.take() {
