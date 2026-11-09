@@ -752,12 +752,14 @@ export function App({ config, initialStatus }: ConfigProps) {
     [reviewBrief, state.items],
   );
   const briefSpotInDiff = useCallback((spot: BriefSpot) => briefSpotsInDiff.has(spot), [briefSpotsInDiff]);
-  const openBriefSpot = useCallback(
-    (spot: BriefSpot) => {
-      const current = latestState.current;
-      const target = spotTarget(current.items, spot, revealItemId);
+  // A spot's file may be collapsed, with no rows (and no lines) to scroll to: it is expanded, and
+  // the spot is opened once the expanded item reaches the code view, as find does
+  // (find/useDiffFind.ts).
+  const pendingBriefSpot = useRef<BriefSpot | null>(null);
+  const scrollToBriefSpot = useCallback(
+    (spot: BriefSpot, items: readonly DiffItem[]) => {
+      const target = spotTarget(items, spot, revealItemId);
       if (!target) return;
-      revealItem(target.itemId);
       if (target.lineNumber != null) {
         codeViewRef.current?.scrollTo({
           type: "line",
@@ -773,11 +775,39 @@ export function App({ config, initialStatus }: ConfigProps) {
       dispatch({
         type: "set-active-item",
         itemId: target.itemId,
-        treePath: current.treeSource?.treePathByItemId.get(target.itemId),
+        treePath: latestState.current.treeSource?.treePathByItemId.get(target.itemId),
       });
     },
-    [latestState, revealItem, scrollToItem],
+    [latestState, scrollToItem],
   );
+  const openBriefSpot = useCallback(
+    (spot: BriefSpot) => {
+      const items = latestState.current.items;
+      const target = spotTarget(items, spot, revealItemId);
+      if (!target) return;
+      if (items.some((item) => item.id === target.itemId && item.collapsed)) {
+        pendingBriefSpot.current = spot;
+        revealItem(target.itemId);
+        return;
+      }
+      pendingBriefSpot.current = null;
+      scrollToBriefSpot(spot, items);
+    },
+    [latestState, revealItem, scrollToBriefSpot],
+  );
+  useLayoutEffect(() => {
+    const spot = pendingBriefSpot.current;
+    if (spot == null) return;
+    const target = spotTarget(state.items, spot, revealItemId);
+    if (!target) {
+      pendingBriefSpot.current = null;
+      return;
+    }
+    if (state.items.some((item) => item.id === target.itemId && !item.collapsed)) {
+      pendingBriefSpot.current = null;
+      scrollToBriefSpot(spot, state.items);
+    }
+  }, [state.items, scrollToBriefSpot]);
   const find = useDiffFind({
     items: visibleItems,
     open: state.findOpen,

@@ -206,6 +206,11 @@ struct Edit {
     chain: u32,
     /// The chain was reverted (its text went back to `origin`).
     reverted: bool,
+    /// The first line it added and where, for a hedge about its file.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    added: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    line: Option<u32>,
 }
 
 /// One file's change in an edit, hashed, with the lines its spots show.
@@ -319,7 +324,13 @@ impl Fold {
                     self.goal = clip(text, MAX_GOAL);
                 }
             }
-            "turn_started" => self.turn_paths.clear(),
+            // A turn's tool call ids are its own: an adapter may number the next turn's from 0
+            // again (`store/superseded.rs`). Edits stay; the calls they came from do not.
+            "turn_started" => {
+                self.turn_paths.clear();
+                self.seen_calls.clear();
+                self.pending.clear();
+            }
             "agent_message_chunk" if rec.dir == "in" => self.chunk(rec),
             "plan" if rec.dir == "in" => {
                 let Some(params) = own_params(rec) else { return };
@@ -380,13 +391,16 @@ impl Fold {
         for sentence in sentences(&open.text) {
             let lower = sentence.to_lowercase();
             if HEDGES.iter().any(|h| lower.contains(h)) {
+                // A hedge about a file points at that file's latest edit.
                 let path = self.mentioned_path(&lower).unwrap_or_default();
+                let edit = self.edits.iter().rev().find(|e| !path.is_empty() && e.path == path);
+                let (snippet, line) = edit.map_or((String::new(), None), |e| (e.added.clone(), e.line));
                 let spot = Spot {
                     kind: SpotKind::Hedge,
                     text: clip(&sentence, MAX_NOTE),
                     path,
-                    line: None,
-                    snippet: String::new(),
+                    line,
+                    snippet,
                     count: 0,
                     seq: open.seq,
                     origin: 0,
@@ -463,18 +477,18 @@ impl Fold {
         let (origin, chain) = earlier.as_ref().map_or((old_h, 1), |e| (e.origin, e.chain + 1));
         let reverted = earlier.is_some() && new_h == origin;
         if let Some(origin) = redo {
-            self.edit_spot(SpotKind::Redone, &path, origin, line, added, 0, seq);
+            self.edit_spot(SpotKind::Redone, &path, origin, line, added.clone(), 0, seq);
         } else if reverted {
             self.edit_spot(SpotKind::Reverted, &path, origin, line, removed, 0, seq);
         } else if chain >= 3 {
-            self.edit_spot(SpotKind::Reworked, &path, origin, line, added, chain - 1, seq);
+            self.edit_spot(SpotKind::Reworked, &path, origin, line, added.clone(), chain - 1, seq);
         }
         if reverted {
             for e in self.edits.iter_mut().filter(|e| e.path == path && e.origin == origin) {
                 e.reverted = true;
             }
         }
-        let edit = Edit { path, old: old_h, new: new_h, origin, chain, reverted };
+        let edit = Edit { path, old: old_h, new: new_h, origin, chain, reverted, added, line };
         push_capped(&mut self.edits, edit, MAX_EDITS);
     }
 

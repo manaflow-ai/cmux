@@ -41,10 +41,10 @@ fn a_chat_s_brief_has_its_goal_plan_dropped_approach_and_unsure_spots() {
             {"kind": "redone", "path": "src/upload.rs", "snippet": "retry(|| send(chunk))?;", "seq": 9},
             // Names its file.
             {"kind": "hedge", "text": "I'm not sure the backoff cap in upload.rs is right for slow links.",
-             "path": "src/upload.rs", "seq": 11},
+             "path": "src/upload.rs", "snippet": "retry(|| send(chunk))?;", "seq": 11},
             // Names none: the last file its turn edited.
             {"kind": "hedge", "text": "The progress clamp is untested on resumed uploads.",
-             "path": "src/progress.rs", "seq": 11},
+             "path": "src/progress.rs", "line": 7, "snippet": "bar.set(done.min(total));", "seq": 11},
         ])
     );
 }
@@ -195,4 +195,24 @@ fn a_relative_path_counts_under_its_root_by_the_canonical_path_the_hub_added() {
     fold.feed(&edit(1, "a", "x();", "y();"));
     fold.feed(&edit(2, "b", "y();", "x();"));
     assert_eq!(fold.brief(Some("/r"))["unsure"][0]["path"], "src/a.rs");
+}
+
+#[test]
+fn a_call_id_used_again_in_a_later_turn_is_a_new_edit() {
+    let mut fold = Fold::default();
+    let turn = |seq: u64| EventRecord {
+        seq,
+        at: seq,
+        dir: "mux".into(),
+        kind: "turn_started".into(),
+        msg: json!({}),
+        host_seq: None,
+    };
+    fold.feed(&turn(1));
+    fold.feed(&tool(2, json!({"toolCallId": "0", "status": "completed",
+        "content": diff("/r/z.rs", "one();", "two();")})));
+    fold.feed(&turn(3));
+    fold.feed(&tool(4, json!({"toolCallId": "0", "status": "completed",
+        "content": diff("/r/z.rs", "two();", "one();")})));
+    assert_eq!(fold.brief(Some("/r"))["unsure"][0]["kind"], "reverted");
 }
