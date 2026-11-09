@@ -30,7 +30,7 @@ pub enum CandidateError {
 /// Encode up to [`MAX_CANDIDATES`] addresses: magic, a count, then per
 /// address its family (4 or 6), its address bytes and its port.
 pub fn encode_candidates(addresses: &[SocketAddr]) -> Vec<u8> {
-    let addresses = &addresses[..addresses.len().min(MAX_CANDIDATES)];
+    let addresses = addresses.get(..MAX_CANDIDATES).unwrap_or(addresses);
     let mut bytes = Vec::with_capacity(5 + addresses.len() * 19);
     bytes.extend_from_slice(&MAGIC);
     bytes.push(addresses.len() as u8);
@@ -55,10 +55,11 @@ pub fn encode_candidates(addresses: &[SocketAddr]) -> Vec<u8> {
 pub fn decode_candidates(bytes: &[u8]) -> Result<Vec<SocketAddr>, CandidateError> {
     let length = || CandidateError::Length(bytes.len());
     let (header, mut rest) = bytes.split_at_checked(5).ok_or_else(length)?;
-    if header[..4] != MAGIC {
+    let (magic, count) = header.split_at_checked(4).ok_or_else(length)?;
+    if magic != MAGIC {
         return Err(CandidateError::Magic);
     }
-    let count = usize::from(header[4]);
+    let count = usize::from(count.first().copied().ok_or_else(length)?);
     if count > MAX_CANDIDATES {
         return Err(CandidateError::Count(count));
     }
@@ -71,7 +72,7 @@ pub fn decode_candidates(bytes: &[u8]) -> Result<Vec<SocketAddr>, CandidateError
             other => return Err(CandidateError::Family(other)),
         };
         let (ip, tail) = tail.split_at_checked(size).ok_or_else(length)?;
-        let (port, tail) = tail.split_at_checked(2).ok_or_else(length)?;
+        let (port, tail) = tail.split_first_chunk::<2>().ok_or_else(length)?;
         let ip = match <[u8; 16]>::try_from(ip) {
             Ok(v6) => IpAddr::V6(Ipv6Addr::from(v6)),
             Err(_) => {
@@ -79,7 +80,7 @@ pub fn decode_candidates(bytes: &[u8]) -> Result<Vec<SocketAddr>, CandidateError
                 IpAddr::V4(Ipv4Addr::from(v4))
             }
         };
-        addresses.push(SocketAddr::new(ip, u16::from_be_bytes([port[0], port[1]])));
+        addresses.push(SocketAddr::new(ip, u16::from_be_bytes(*port)));
         rest = tail;
     }
     if !rest.is_empty() {

@@ -176,7 +176,9 @@ impl MeshPaths {
     ) -> Option<usize> {
         let address = canonical(address);
         if let Some(index) = self.find(address) {
-            self.paths[index].proven |= proven;
+            if let Some(path) = self.paths.get_mut(index) {
+                path.proven |= proven;
+            }
             return Some(index);
         }
         if self.paths.len() >= MAX_PATHS && !self.evict(proven) {
@@ -255,8 +257,10 @@ impl MeshPaths {
         if roams {
             self.latest = Some(source);
         }
-        if let Some(index) = self.add(source, None, true, networks, now) {
-            let path = &mut self.paths[index];
+        if let Some(path) = self
+            .add(source, None, true, networks, now)
+            .and_then(|index| self.paths.get_mut(index))
+        {
             path.watch.heard();
             path.heard_at = Some(now);
         }
@@ -319,8 +323,8 @@ impl MeshPaths {
         }
         let latest = self.latest.or_else(|| self.first_proven());
         if let Some(latest) = latest {
-            if let Some(index) = self.find(latest) {
-                self.paths[index].watch.sent(now);
+            if let Some(path) = self.find(latest).and_then(|index| self.paths.get_mut(index)) {
+                path.watch.sent(now);
             }
             send(latest);
         }
