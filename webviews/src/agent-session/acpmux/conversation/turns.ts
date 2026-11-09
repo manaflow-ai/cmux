@@ -986,7 +986,11 @@ function shapedTurn(
     // A run of background-task notifications folds under one line (backgroundRuns.ts; Leo,
     // 2026-11-02: "why do you still do these").
     // A stretch the person came in after ends there, with the end-of-turn footer (`supersededFooters`).
-    const body = supersededFooters(foldBackgroundRuns(messaged, expanded), turn, endedByPerson, user.at);
+    // While the turn runs no footer comes in above a prompt the person sent into it, which would
+    // move the prompt down under it after it was drawn: the stretches before it end on theirs with
+    // the turn (Leo, 2026-11-09: "i hate the way when i send off a message it seems to move up").
+    const runs = foldBackgroundRuns(messaged, expanded);
+    const body = live ? runs : supersededFooters(runs, turn, endedByPerson, user.at);
     // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
     // waiting for the agent, a prompt that failed to send).
     const liveLine = held.length && body.at(-1)?.below ? body.splice(-1) : [];
@@ -1019,6 +1023,8 @@ function shapedTurn(
       ...held,
       ...line,
     ];
+    // What was still going when the person sent into the running turn draws after the prompt.
+    if (live) shaped = afterSends(shaped);
     // Legacy/history turns can end without a turn_result. Keep the normal turn rhythm at the
     // composer for the latest completed turn without restoring the permanent runway under every
     // turn. The marker is consumed by the row estimator and CSS only for this terminal row.
@@ -2254,16 +2260,79 @@ function codexLiveTurn(
   ];
 }
 
-/// The turn's compaction still running, with nothing from the agent since: no reply, call or prompt
-/// after it. A note after it (a failover, a background task's end) leaves it running. Once it ends,
+/// The turn's compaction still running, with nothing from the agent since: no reply or call after
+/// it. A note after it (a failover, a background task's end) leaves it running, and so does a prompt
+/// the person sent while it runs: the compaction stays the live line, under that prompt, never a
+/// row above it (Leo, 2026-11-09: "im still seeing compacting not be at the bottom"). Once it ends,
 /// its note is a row and the line reads "Thinking" at once, as after any finished step.
 function liveCompaction(drawn: readonly AcpmuxRow[]): AcpmuxRow | undefined {
   for (let index = drawn.length - 1; index >= 0; index -= 1) {
     const row = drawn[index]!;
     if (row.kind === "compaction") return row.compaction?.state === "running" ? row : undefined;
-    if (row.kind === "assistant" || row.kind === "activity" || row.kind === "user") return undefined;
+    if (row.kind === "assistant" || row.kind === "activity" || (row.kind === "user" && !sentByPerson(row)))
+      return undefined;
   }
   return undefined;
+}
+
+/// The person's own prompt (typed here or on another of their devices), not another agent's
+/// message, a task's result or harness bookkeeping.
+const sentByPerson = (row: AcpmuxRow) =>
+  row.kind === "user" && !row.incoming && !row.received && !row.untyped && row.from === undefined;
+
+/// When the person sent `row`: the pane's send time while it has one, else its record's.
+const sentTime = (row: AcpmuxRow) => row.delivery?.sentAt ?? row.at;
+
+/// Whether `item` was still going at `sentAt`: a call running now or one that ended after it, a
+/// thought that streamed on past it.
+function goingAt(item: NonNullable<AcpmuxRow["items"]>[number], sentAt: number): boolean {
+  if (item.tool) return isRunning(item.tool) || (item.tool.endedAt !== undefined && item.tool.endedAt > sentAt);
+  return item.kind === "thought" && item.endedAt !== undefined && item.endedAt > sentAt;
+}
+
+/// The id suffix of the part of a run that ended after a prompt the person sent (`afterSends`).
+export const AFTER_SEND = ":after:";
+
+/// A running turn's drawn rows with what was still going when the person sent a prompt drawn after
+/// that prompt: the transcript only appends, and nothing above the prompt moves once it is drawn
+/// (Leo, 2026-11-09: "i hate the way when i send off a message it seems to move up and under your
+/// current running tool call or whatever"; "these animations all slosh around ... i previously sent
+/// the claude code one, just look at how they do it"). A call that ran at the send leaves its run
+/// for a run of its own right under the prompt (`AFTER_SEND`), so it lands below the prompt when it
+/// ends instead of in its run above it. One pass over the turn's rows per prompt the person sent
+/// into it (a few); a turn with none is returned as it is.
+export function afterSends(rows: AcpmuxRow[]): AcpmuxRow[] {
+  let out: AcpmuxRow[] | undefined;
+  const emptied = new Set<AcpmuxRow>();
+  for (let at = 1; at < (out ?? rows).length; at += 1) {
+    const list = out ?? rows;
+    const sent = list[at]!;
+    if (!sentByPerson(sent) || sent.failed) continue;
+    const sentAt = sentTime(sent);
+    const moved: NonNullable<AcpmuxRow["items"]> = [];
+    let source: AcpmuxRow | undefined;
+    for (let before = 0; before < at; before += 1) {
+      const row = list[before]!;
+      if (row.kind !== "activity" || !row.items?.some((item) => goingAt(item, sentAt))) continue;
+      out ??= [...rows];
+      const stays = row.items.filter((item) => !goingAt(item, sentAt));
+      moved.push(...row.items.filter((item) => goingAt(item, sentAt)));
+      source ??= row;
+      const kept = { ...row, items: stays, version: mixVersion(row.version, stays.length) };
+      if (!stays.some((item) => item.tool || item.kind === "thought")) emptied.add(kept);
+      out[before] = kept;
+    }
+    if (!source) continue;
+    const { joined: _joined, ...run } = source;
+    out!.splice(at + 1, 0, {
+      ...run,
+      id: `${source.id.split(AFTER_SEND)[0]}${AFTER_SEND}${sent.id}`,
+      items: moved,
+      version: mixVersion(source.version, moved.length),
+      ...(source.toolCount !== undefined && { toolCount: moved.filter((item) => item.tool).length }),
+    });
+  }
+  return out ? (emptied.size ? out.filter((row) => !emptied.has(row)) : out) : rows;
 }
 
 /// The time a live turn's thoughts streamed, each from its first chunk to its latest, summed;
@@ -2324,8 +2393,21 @@ type LineCall = { tool: NonNullable<ReturnType<typeof runningCall>>; at: number;
 function lineCall(drawn: readonly AcpmuxRow[], last: AcpmuxRow): LineCall | undefined {
   // A call whose own row stays in its run (one waiting on its permission, or the `row` arm's file
   // changes) is drawn there, never on the line as well.
-  const latest = runningCall(last, (call) => !awaitsPermission(call) && !keepsOwnRow(call));
+  const lineable = (call: NonNullable<AcpmuxActivity["tool"]>) => !awaitsPermission(call) && !keepsOwnRow(call);
+  const latest = runningCall(last, lineable);
   if (latest) return { tool: latest, at: last.at };
+  // The person sent into the turn while a call ran: the call stays on the line under the prompt,
+  // never jumping into its run's row above it (Leo, 2026-11-09: "i hate the way when i send off a
+  // message it seems to move up and under your current running tool call"). Its row comes after
+  // the prompt once it ends (`afterSends`).
+  if (sentByPerson(last))
+    for (let index = drawn.length - 1; index >= 0; index -= 1) {
+      const row = drawn[index]!;
+      if (row.kind === "user") continue;
+      const tool = runningCall(row, lineable);
+      if (tool) return { tool, at: row.at, earlier: true };
+      break;
+    }
   for (let index = drawn.length - 1; index >= 0; index -= 1) {
     const row = drawn[index]!;
     const tool = runningCall(row, (call) => call.kind === "execute" && !call.background && !isDraftCall(call));

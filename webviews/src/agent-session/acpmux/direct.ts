@@ -8457,6 +8457,16 @@ export class AcpmuxDirectClient {
             ? stillRunning(running.compaction, compaction)
             : compaction,
       });
+      // A compaction that went on into the turn that opened since is that turn's: it draws there, as
+      // its live line under what the turn holds, never back in the turn before it (Leo, 2026-11-09:
+      // "im still seeing compacting not be at the bottom").
+      if (
+        compaction.state === "running" &&
+        running &&
+        this.runningTurnId !== undefined &&
+        running.turnId !== this.runningTurnId
+      )
+        this.rows.placeAfterCurrent(id);
     } else if (event.kind === "plan") {
       const plan = planEntries(update.entries);
       const existing = this.planRow ? this.rows.get(this.planRow) : undefined;

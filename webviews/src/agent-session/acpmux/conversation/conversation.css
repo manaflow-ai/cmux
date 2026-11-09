@@ -5477,14 +5477,15 @@ a.cv-sha:focus-visible {
  * tool call, a status line), fade in and rise 4px on the shared fade-in token. `translate` and
  * `opacity` never move layout, so nothing below shifts. Reduce Motion keeps the fade without the
  * rise (cv-enter-fade, below); ui.animationSpeed off turns both off (the token is 0). */
+/* A row that comes in only fades, at its place (Leo, 2026-11-09: "these animations all slosh around
+ * and it's not cohesive ... some of our recent animations are too much we need to slim down"): the
+ * 4 px rise it had moved every new row against the rows around it. */
 @keyframes cv-enter {
   from {
     opacity: 0;
-    translate: 0 4px;
   }
   to {
     opacity: 1;
-    translate: 0 0;
   }
 }
 /* New user and assistant messages fade in at their final size, without popping or growing.
@@ -5500,7 +5501,7 @@ a.cv-sha:focus-visible {
 @media (prefers-reduced-motion: no-preference) {
   .cv-enter,
   .acpmux-row--enter {
-    animation: cv-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+    animation: cv-enter var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
   }
   /* Live activity is absolutely placed by VirtualTranscript. Its first paint must not slide the
      visible transcript when a subagent or command arrives; the row's measured box is already in
@@ -5679,13 +5680,13 @@ a.cv-sha:focus-visible {
 }
 
 /* R104: the newest revealed characters fade in (RevealedMarkdown); opacity only, on the
- * compositor. The text holds its final layout while transparent, so no line ever reflows. The fade
- * runs three of the host's fade-in steps (FRESH_FADE_STEPS), so the last few words of a streaming
- * reply read as a soft trailing edge, as Claude's and ChatGPT's do; one step (120 ms) was too quick
- * to see (Leo, 2026-11-03: "hey even u have that text fading in! i want that..."). A zero token
- * (motion off) still makes it zero. */
+ * compositor. The text holds its final layout while transparent, so no line ever reflows (Leo,
+ * 2026-11-03: "hey even u have that text fading in! i want that..."). One of the host's fade-in steps
+ * (120 ms): three (360 ms) left the newest words faint a third of a second behind the stream, which
+ * read as lag (Leo, 2026-11-09: "thinking, tool calls, etc... cannot lag nor can they take long").
+ * A zero token (motion off, the minimal motion under load) makes it zero. */
 .cv-fresh {
-  animation: cv-enter-fade calc(var(--agent-motion-in, 180ms) * 3) var(--agent-ease-out, ease-out) both;
+  animation: cv-enter-fade var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
 }
 
 /* Footnotes (Markdown.tsx): a superscript number that scrolls to its note, and the notes

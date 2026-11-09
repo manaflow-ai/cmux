@@ -340,7 +340,9 @@ async function playTransition(
     emit();
     await wait(250);
     step("tool-done");
-    put(activityRow("live-activity-1", 100_002, [toolItem(0, "Read relay.ts", "read", "completed")]));
+    // It ends after the steer was sent (direct.ts stamps a call's end with its event's time).
+    const done = toolItem(0, "Read relay.ts", "read", "completed");
+    put(activityRow("live-activity-1", 100_002, [{ ...done, tool: { ...done.tool, endedAt: 100_007 } }]));
     emit();
     await wait(150);
     // The agent reads the steer as its next text starts (direct.ts landSteer).

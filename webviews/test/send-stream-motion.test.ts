@@ -120,9 +120,9 @@ await requireBrowserLane("send-stream-motion.test.ts", async () => {
   const SCENARIOS: Scenario[] = ["send", "tools", "steer"];
 
   test.each(SCENARIOS)(
-    "%s: the default follow motion moves each frame a fraction of a line and rests pinned",
+    "%s: the spring chase (blocks arm) moves each frame a fraction of a line and rests pinned",
     async (scenario) => {
-      const report = await measure("", scenario);
+      const report = await measure("arm=blocks", scenario);
       console.log(`send-stream-motion default ${scenario}: ${JSON.stringify(report, null, 2)}`);
       // Nothing jumps: no frame of the turn moves the rows more than a line (a 120 Hz slot), and
       // most frames of the stream within the trail bound under 0.85 of a line.
@@ -142,6 +142,19 @@ await requireBrowserLane("send-stream-motion.test.ts", async () => {
       expect(report.tailAtEnd).toBeLessThanOrEqual(REST_TAIL_PX);
     },
   );
+
+  // The product's `send` arm (Leo, 2026-11-09: "we need to slim down"): only the send's rise moves on
+  // a curve; the reply's growth lands in the frame it comes, so the view rests pinned the frame the
+  // stream stops and the turn's end moves nothing.
+  test.each(SCENARIOS)("%s: the send arm pins the stream at once and rests when it stops", async (scenario) => {
+    const report = await measure("", scenario);
+    console.log(`send-stream-motion send arm ${scenario}: ${JSON.stringify(report, null, 2)}`);
+    expect(report.jumpPx.after).toBeLessThanOrEqual(1);
+    expect(report.restsAtEnd).toBe(true);
+    expect(report.restFramesAfterStream).toBeLessThanOrEqual(2);
+    expect(report.tailAtEnd).toBeGreaterThanOrEqual(-LINE_PX / 2);
+    expect(report.tailAtEnd).toBeLessThanOrEqual(REST_TAIL_PX);
+  });
 
   test("with motion off the view takes each step at once and never trails its layout", async () => {
     const report = await measure("motion=off");

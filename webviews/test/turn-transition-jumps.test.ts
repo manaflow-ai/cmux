@@ -63,9 +63,12 @@ await requireBrowserLane("turn-transition-jumps.test.ts", async () => {
     await vite?.close();
   });
 
-  async function samples(scenario: Scenario, look = ""): Promise<Sample[]> {
+  /// `arm`: the follow motion's arm (followMotion.experiment.ts). The bounds below are the chase's
+  /// (`blocks`); the product's `send` arm moves what a running turn brings at once and is held to
+  /// append-only instead (below).
+  async function samples(scenario: Scenario, look = "", arm = "blocks"): Promise<Sample[]> {
     const { port } = vite!.httpServer!.address() as { port: number };
-    const query = `clock=frames&rows=1${look ? `&tailGlide=${look}` : ""}`;
+    const query = `clock=frames&rows=1${look ? `&tailGlide=${look}` : ""}${arm ? `&arm=${arm}` : ""}`;
     const frames = await open120Hz(`http://127.0.0.1:${port}${PAGE}?${query}`, { clock: "frames" });
     try {
       await frames.page.waitForFunction(() => "__sendStream" in window);
@@ -128,6 +131,37 @@ await requireBrowserLane("turn-transition-jumps.test.ts", async () => {
       }
     },
   );
+
+  // The product's arm (Leo, 2026-11-09: "i hate the way when i send off a message it seems to move up
+  // and under your current running tool call or whatever"): from the frame the steer is drawn to the
+  // turn's end, it never moves against the reply above it (under a pixel), no row drawn above it
+  // goes below it or the other way, and the live line stays the last row.
+  test("steer-tools: the sent prompt never moves against the rows above it, and the live line stays last", async () => {
+    const out = await samples("steer-tools", "", "");
+    const first = out.findIndex((sample) => sample.rows?.some((each) => each.id === "live-steer"));
+    const end = out.findIndex((sample) => sample.phase === "end");
+    expect(first).toBeGreaterThan(0);
+    let low = Number.POSITIVE_INFINITY;
+    let high = Number.NEGATIVE_INFINITY;
+    let above: string[] | undefined;
+    const notLast: number[] = [];
+    for (const sample of out.slice(first, end < 0 ? undefined : end)) {
+      const rows = sample.rows ?? [];
+      const steer = rows.find((each) => each.id === "live-steer");
+      const answer = rows.find((each) => each.id.startsWith("live-answer") && each.top < (steer?.top ?? 0));
+      if (!steer || !answer) continue;
+      low = Math.min(low, steer.top - answer.top);
+      high = Math.max(high, steer.top - answer.top);
+      const before = rows.filter((each) => each.top < steer.top).map((each) => each.id);
+      above ??= before;
+      expect(before.filter((id) => !above!.includes(id))).toEqual([]);
+      const live = rows.find((each) => each.id === "thinking-live");
+      if (live && rows.some((each) => each.top > live.top + 0.5)) notLast.push(sample.t);
+    }
+    console.log(`turn-transition steer-tools send arm: steer moved ${Math.round((high - low) * 10) / 10} px`);
+    expect(high - low).toBeLessThan(1);
+    expect(notLast).toEqual([]);
+  });
 
   // The gallery's looks on the same page (CMUX_TURN_TRANSITION_LOOKS=arrive,quick,glide,jump): each turn's
   // worst frame per look, for the PR's table.

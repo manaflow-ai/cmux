@@ -32,6 +32,20 @@
   --agent-ease-out: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
 }
 
+/* MINIMAL-MOTION: the chat missed its frame budget (conversation/frameBudget.ts marks the page, or
+   a gallery variant marks an element over the chat): every chat motion goes to 0, so rows land in
+   place in the frame they come and nothing slides, settles or glides after it (Leo 2026-11-09: "at
+   really high loads if it knows it can't performantly perform the animation... it just goes into
+   minimal ish mode"). Important: the host's tokens are inline on the root. */
+[data-chat-motion="minimal"] {
+  --agent-motion-in: 0ms !important;
+  --agent-motion-arrive: 0ms !important;
+  --agent-motion-out: 0ms !important;
+  --agent-motion-move: 0ms !important;
+  --agent-motion-send: 0ms !important;
+  --agent-motion-send-fade: 0ms !important;
+}
+
 .acpmux-shell {
   /* The composer's surface (Leo 10-14), New Tab's box and the chat composer alike, derived from the
      theme's opaque page color: in a light theme the page lifted toward white, so the composer is

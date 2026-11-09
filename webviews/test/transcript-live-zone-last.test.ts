@@ -1,0 +1,119 @@
+// l10n-allow-file: test fixture prompts and replies, not shipped UI.
+// The transcript only appends while a turn runs, and its live zone is always last (Leo, 2026-11-09:
+// "i hate the way when i send off a message it seems to move up and under your current running tool
+// call or whatever"; "im still seeing compacting not be at the bottom"; "i previously sent the claude
+// code one, just look at how they do it"). A prompt sent into a running turn draws after every row
+// drawn at the send, and what was still going then (a call in flight, a thought) lands after it, never
+// in its run above it; no footer comes in above it while the turn runs; a compaction that runs while
+// the person's prompt waits stays the live line, under the prompt.
+import { expect, test } from "bun:test";
+import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { AFTER_SEND, LIVE_THINKING, SUPERSEDED, THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
+
+const START = Date.UTC(2026, 10, 9, 19, 0, 0);
+const at = (second: number) => START + second * 1000;
+const row = (id: string, kind: string, second: number, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+  id,
+  kind,
+  version: 1,
+  at: at(second),
+  ...extra,
+});
+type Item = NonNullable<AcpmuxRow["items"]>[number];
+const call = (id: string, title: string, kind: string, startedAt: number, endedAt?: number): Item => ({
+  kind: "tool",
+  text: title,
+  tool: {
+    id,
+    title,
+    kind,
+    status: endedAt === undefined ? "in_progress" : "completed",
+    startedAt: at(startedAt),
+    ...(endedAt !== undefined && { endedAt: at(endedAt) }),
+  },
+});
+const prompt = row("u-1", "user", 0, { text: "Find every retry loop" });
+const reply = row("a-1", "assistant", 2, { text: "Looking at the relay first." });
+const steer = (state: AcpmuxRow["steer"], extra: Partial<AcpmuxRow> = {}) =>
+  row("u-2", "user", 10, { text: "Also check the queue", steer: state, ...extra });
+const view = (rows: AcpmuxRow[], family = "claude") =>
+  turnView(rows, new Set(), { working: true, agentFamily: family, now: at(60) });
+const ids = (rows: readonly AcpmuxRow[]) => rows.map((each) => each.id);
+const callIds = (rows: readonly AcpmuxRow[], id: string) =>
+  (rows.find((each) => each.id === id)?.items ?? []).flatMap((item) => (item.tool ? [item.tool.id] : []));
+
+for (const family of ["claude", "codex"]) {
+  test(`${family}: a call that ran when the person sent lands after the prompt, never in its run above it`, () => {
+    // The read ran when the person sent at 10 s (Leo's case): while it runs the live line names it,
+    // under the prompt.
+    const running = view(
+      [prompt, reply, row("act-1", "activity", 3, { items: [call("c-1", "Read relay.ts", "read", 3)] }), steer("waiting")],
+      family,
+    );
+    expect(running.at(-1)!.id).toBe(LIVE_THINKING);
+    expect(running.at(-1)!.doingCall).toBe("c-1");
+    expect(ids(running).indexOf("u-2")).toBe(running.length - 2);
+    expect(running.some((each) => callIds([each], each.id).includes("c-1"))).toBe(false);
+    // It ends at 12 s: its row comes after the prompt, and nothing above the prompt changed.
+    const done = view(
+      [prompt, reply, row("act-1", "activity", 3, { items: [call("c-1", "Read relay.ts", "read", 3, 12)] }), steer("landed")],
+      family,
+    );
+    const list = ids(done);
+    const after = `act-1${AFTER_SEND}u-2`;
+    expect(list.indexOf(after)).toBe(list.indexOf("u-2") + 1);
+    expect(callIds(done, after)).toEqual(["c-1"]);
+    expect(list.slice(0, list.indexOf("u-2"))).toEqual(ids(running).slice(0, ids(running).indexOf("u-2")));
+    expect(done.at(-1)!.kind).toBe(THINKING);
+  });
+
+  test(`${family}: a call that ended before the send stays in its run above the prompt`, () => {
+    const shaped = view(
+      [
+        prompt,
+        reply,
+        row("act-1", "activity", 3, {
+          items: [call("c-0", "Read retry.ts", "read", 3, 5), call("c-1", "Read relay.ts", "read", 6, 12)],
+        }),
+        steer("landed"),
+      ],
+      family,
+    );
+    const list = ids(shaped);
+    const run = list.find((id) => callIds(shaped, id).includes("c-0"))!;
+    expect(list.indexOf(run)).toBeLessThan(list.indexOf("u-2"));
+    expect(callIds(shaped, `act-1${AFTER_SEND}u-2`)).toEqual(["c-1"]);
+  });
+
+  test(`${family}: no footer comes in above a prompt the person sent while the turn runs`, () => {
+    const shaped = view(
+      [
+        prompt,
+        row("act-1", "activity", 1, { items: [call("c-0", "Run tests", "execute", 1, 2)] }),
+        reply,
+        steer("landed"),
+      ],
+      family,
+    );
+    expect(shaped.some((each) => each.id === `${SUPERSEDED}-u-2`)).toBe(false);
+  });
+}
+
+test("a compaction running when the person sends stays the live line, under the prompt", () => {
+  const shaped = view([prompt, reply, row("compaction-9", "compaction", 5, { compaction: { state: "running" } }), steer("waiting")]);
+  const line = shaped.at(-1)!;
+  expect(line.kind).toBe(THINKING);
+  expect(line.liveState).toBe("compacting");
+  expect(ids(shaped)).not.toContain("compaction-9");
+  expect(ids(shaped).indexOf("u-2")).toBe(shaped.length - 2);
+});
+
+test("another agent's message after a compaction still ends it as the live line", () => {
+  const shaped = view([
+    prompt,
+    reply,
+    row("compaction-9", "compaction", 5, { compaction: { state: "running" } }),
+    row("u-3", "user", 8, { text: "report", incoming: { kind: "notice", text: "report" } as AcpmuxRow["incoming"] }),
+  ]);
+  expect(shaped.at(-1)!.liveState).not.toBe("compacting");
+});

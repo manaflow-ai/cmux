@@ -67,6 +67,7 @@ import {
 import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { createTailGlide, type TailGlide } from "./conversation/tailGlide";
 import { createFollowChase, type FollowChase } from "./conversation/followChase";
+import { shareFrameBudget, type FrameBudget } from "./conversation/frameBudget";
 import { followMotion } from "./conversation/followMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
 import { useCountedRender } from "./perfRender";
@@ -1338,8 +1339,13 @@ function TranscriptView({
   /// `eased` (followGlide, the view before) chases each move of the rows in view (followChase.ts).
   const [followArm] = useState(() => experimentArm(followMotion));
   const chasing = followArm !== "eased";
+  /// The `send` arm (the product's): only a send's rise chases; a reply streaming, a row arriving
+  /// and the turn's end move the rows at once, in the pass that moved them, as Claude Code's
+  /// transcript only appends (Leo, 2026-11-09: "these animations all slosh around and it's not
+  /// cohesive / i previously sent the claude code one, just look at how they do it").
+  const slimFollow = followArm === "send";
   const followChase = useRef<FollowChase>(undefined);
-  followChase.current ??= createFollowChase(followArm);
+  followChase.current ??= createFollowChase(slimFollow ? "blocks" : followArm);
   // `scroll` events also fire for layout-driven writes to scrollTop. Keep the user's intent in a
   // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
   // stack changes height.
@@ -1422,6 +1428,22 @@ function TranscriptView({
     if (immediate) scrollPacer.current!.flush({ top, atLatest });
     else scrollPacer.current!.enqueue({ top, atLatest });
   };
+  /// The chat's frame budget (frameBudget.ts): while it is busy its frames are read, and past the
+  /// budget every chat motion goes minimal until they are healthy again.
+  const frameBudget = useRef<FrameBudget>(undefined);
+  useEffect(() => {
+    const budget = shareFrameBudget(document);
+    frameBudget.current = budget;
+    budget.poke();
+    return () => {
+      budget.dispose();
+      if (frameBudget.current === budget) frameBudget.current = undefined;
+    };
+  }, []);
+  // Every commit of the rows is the chat doing work: its frames are read for a moment after.
+  useEffect(() => {
+    frameBudget.current?.poke();
+  }, [rows]);
   useEffect(() => {
     transcriptMounted.current = true;
     // The flicker detector's remount count (flickerLog.ts): a second mount on one page is a remount.
@@ -3392,7 +3414,7 @@ function TranscriptView({
           const foldRiding =
             turnEnding && turnEndCapture.current === undefined && !jumping && !bottomStacking && !heightFoldPlaying();
           const folding = Boolean(thread.current?.hasAttribute(TURN_END_ATTR));
-          if (folding && draining && !jumping && !bottomStacking && !heightFoldPlaying() && !resizing) {
+          if (!slimFollow && folding && draining && !jumping && !bottomStacking && !heightFoldPlaying() && !resizing) {
             // The fold plays and the reply's last lines still reveal: the fold takes every move but
             // theirs (it takes a late one only from its curve's remaining share, which moved the rest
             // at once, 12 to 18 px in a frame), and the chase takes the reply's growth, drawn back by
@@ -3437,7 +3459,7 @@ function TranscriptView({
             // What the pass also brought (the reply's next revealed line) joins the trail first, and
             // the landing takes it home with the rest at no more than a line a frame.
             chaseDrainUntil.current = now + StreamReveal.finishMs;
-            chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, false);
+            chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, slimFollow);
             followChase.current?.land();
           } else {
             // New text lands in the room the quiet live line keeps under the reply, and at most a line
@@ -3467,7 +3489,7 @@ function TranscriptView({
               rows.at(-2)?.id === oldRows.at(-2)?.id &&
               (tailNew?.id !== tailOld?.id || tailNew?.version !== tailOld?.version);
             const stepped = grewOnly && !(room > 0) && !held && !cardCleared;
-            const atOnce = dockMoved || !live || stepped;
+            const atOnce = dockMoved || !live || stepped || (slimFollow && !sentRows);
             // A row that came above the live line (not the reply's own growth) holds back up to the
             // trail bound, while the live line glides under it (followChase CHASE_ARRIVAL_HOLD_LINES).
             // The arrived row's room often lands a pass later (its measured height), so the passes
@@ -3476,7 +3498,7 @@ function TranscriptView({
             const arrived = now - arrivedAt.current < ARRIVAL_PASS_MS;
             tailAnchor = chaseAnchor.current?.id;
             chaseFollow(node, layout, rows, below, atOnce, held, arrived);
-            tailGlides = !atOnce && followChase.current?.arm !== "instant";
+            tailGlides = !atOnce && !slimFollow && followChase.current?.arm !== "instant";
           }
         }
         // A glide holding the rows back further than the room now under the last row (the live line
@@ -4412,26 +4434,18 @@ function TranscriptView({
       if (event?.type === "touchstart") touchY = (event as TouchEvent).touches[0]?.clientY;
       else if (touch) touchY = touch.clientY;
       readerAt.current = performance.now();
+      frameBudget.current?.poke();
       // Wheeling on at the top of the loaded rows scrolls nothing while older history pages in: the
       // reader's input, not only its scroll events, keeps the right-hand card held
       // (summary/heldWhileScrolling.ts).
       noteReaderScroll();
       followTrace.input();
-      // The reader takes the view: a glide still easing lands where it lays out, and the chase holds
-      // where it is drawn, so nothing moves but the reader's own scroll (a snap home moved the rows
-      // a frame before the scroll, streaming-parked-still.test.ts). Followed again, it goes on home.
-      followGlide.current?.stop();
-      // Input that leaves the view followed (a wheel or key at the bottom scrolls nothing, and no
-      // layout pass may come after) goes on home on the next frame instead of staying drawn away.
-      // The rows under a change gliding to their place hold where they are drawn too (tailGlide.ts),
-      // and play on with the chase.
-      tailGlide.current?.hold();
-      followChase.current?.hold(() => {
-        const followed = followingRef.current && jumpTarget.current === undefined;
-        if (followed) tailGlide.current?.resume();
-        return followed;
-      });
-      chaseAnchor.current = undefined;
+      // The reader takes the view: whatever still glides (a send's rise, a chase, the rows under a
+      // change) ends where the rows lay out, at once, and nothing of it plays again when the view
+      // follows again. A chase the input held and then played on when a wheel at the bottom left the
+      // view followed was the "little readjustment" after the reader's own scroll (Leo, 2026-11-09:
+      // "when i scroll down now there's a little readjustment sometimes that shold never happen").
+      stopFollowMotion();
       // Release the follow intent synchronously when a reader starts moving up. The browser can
       // deliver the input before its scroll event; a streamed snapshot in that gap must not pin
       // the view back to the bottom. Capture the event so nested rows cannot commit first.
