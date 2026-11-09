@@ -31,6 +31,7 @@ extension WindowController {
             self?.root.liveModeBadge = LiveModeBadgeView()
             self?.relayoutTopRowStrips()
         }
+        root.sidebarFloat.isAllowed = { [weak self] in self.map { $0.state.page != .home && !$0.root.presentsPage } ?? false }
         let model = sidebar.model
         sidebarObservation = Task { [weak self] in
             for await hidden in ObservationStream({ model.isHidden }) {
