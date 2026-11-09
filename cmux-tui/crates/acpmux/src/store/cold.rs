@@ -23,9 +23,10 @@
 //! removes the archive. A crash at any point leaves a whole log or a verified archive:
 //!
 //! - `events/` with a segment in it is the log, whatever else is there. An archive beside it was
-//!   left by a crash before the commit's second rename or before a rehydrate removed it; it is
-//!   removed once each of its files is in the log at least as long ([`LocalStore::settle_cold`]),
-//!   and otherwise kept under another name and never read.
+//!   left by a crash before the commit's second rename or before a rehydrate removed it, or the
+//!   log is an older build's new one. The archive is removed once each of its files starts the
+//!   log's file of that name byte for byte (checked against its hashes,
+//!   [`LocalStore::settle_cold`]), and otherwise kept under another name and never read.
 //! - No segment and an archive: the chat is archived. Its first read of the log rehydrates it
 //!   ([`LocalStore::segments`]); so does its next append, before the line is written.
 //! - A temporary archive, a rehydrate's folder or a folder renamed aside is only ever a leftover,
@@ -195,12 +196,23 @@ fn decode(
     Ok((header, hashes))
 }
 
-/// The archive's header alone (the first line of the stream).
-fn read_header(path: &Path) -> Result<Header> {
-    let file = crate::config::private_state_file(path)?;
-    let mut reader = BufReader::new(zstd::stream::read::Decoder::new(file)?);
-    let header: Header = serde_json::from_slice(&read_line(&mut reader, "header")?)?;
-    Ok(header)
+/// Whether every file of the archive at `archive` is in `events` as the start of the file
+/// there: the same bytes, checked against the archive's hashes. Length alone is no proof: an
+/// older build that does not read the archive starts a new `000001.ndjson` of its own, which can
+/// be as long (review of #39141).
+fn log_holds(archive: &Path, events: &Path) -> Result<bool> {
+    let (header, hashes) = decode(archive, &mut |_| Ok(None))?;
+    for (entry, archived) in header.files.iter().zip(&hashes) {
+        let Ok(file) = File::open(events.join(&entry.name)) else {
+            return Ok(false);
+        };
+        let mut hash = Sha256::new();
+        let copied = copy_hashed(&mut file.take(entry.len), &mut std::io::sink(), &mut hash)?;
+        if copied != entry.len || hex(&hash.finalize()) != *archived {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn remove_dir_if_there(path: &Path) -> Result<()> {
@@ -242,8 +254,8 @@ impl LocalStore {
         Ok(Some(out))
     }
 
-    /// An archive beside a log ([module docs](self)): removed when every file it holds is in the
-    /// log at least as long, else kept as `cold.zst.orphan-<ms>` and never read. Leftovers of a
+    /// An archive beside a log ([module docs](self)): removed when every file it holds starts the
+    /// log's file of that name byte for byte, else kept as `cold.zst.orphan-<ms>` and never read. Leftovers of a
     /// crash (a temporary archive of another process, a rehydrate's folder, a folder renamed
     /// aside) go too. Nothing to do for an archived chat or one with no archive. Refused once the
     /// store is sealed.
@@ -296,12 +308,7 @@ impl LocalStore {
         remove_dir_if_there(&dir.join(THAW_DIR))?;
         remove_dir_if_there(&dir.join(DROP_DIR))?;
         let events = dir.join("events");
-        let covered = read_header(&archive).is_ok_and(|header| {
-            header.files.iter().all(|entry| {
-                std::fs::symlink_metadata(events.join(&entry.name))
-                    .is_ok_and(|m| m.len() >= entry.len)
-            })
-        });
+        let covered = log_holds(&archive, &events).unwrap_or(false);
         if covered {
             std::fs::remove_file(&archive)?;
         } else {
