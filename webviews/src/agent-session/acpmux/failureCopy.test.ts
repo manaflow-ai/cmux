@@ -132,6 +132,16 @@ test("an own key's account out of credit reads as no-credit, not a rate limit", 
   expect(failureRecovery("no-credit")).toBe("switch-model");
   expect(offersOwnRoute("no-credit", claude)).toBe(true);
   expect(t("turn.failure.noCredit", { harness: "Claude Code" })).toContain("Add credit to that account");
+  // The cmux model router's free-tier and daily limits are 429s typed `insufficient_quota`
+  // (backend inference/free.ts, Router.ts): they are rate limits, waiting helps.
+  for (const message of [
+    'unexpected status 429 Too Many Requests: {"error":{"code":"free.rate","message":"too many requests; wait a moment","type":"insufficient_quota"}}',
+    '{"error":{"code":"free.rate","message":"too many requests from this network","type":"insufficient_quota"}}',
+    '{"error":{"code":"inference.daily_limit","message":"this team reached its daily request limit here","type":"insufficient_quota"}}',
+  ])
+    expect(failureKind(message, claude), message).toBe("rate-limited");
+  // A provider's bare `insufficient_quota`, with no rate words, is still out of credit.
+  expect(failureKind('{"error":{"type":"insufficient_quota","code":"insufficient_quota"}}', claude)).toBe("no-credit");
   // A plain rate limit still reads as one, and the cmux model router's refusal as needs-credits.
   for (const message of [
     "429 Too Many Requests",
@@ -152,22 +162,21 @@ test("an own key's account out of credit reads as no-credit, not a rate limit", 
 test("an expired cloud provider sign-in names the command that refreshes it", () => {
   const t = translatorFor("en");
   const claude = { name: "Claude Code", harness: "claude" };
-  const aws = [
-    "API Error: 403 ExpiredTokenException: The security token included in the request is expired",
-    "ExpiredToken: The provided token has expired.",
-    "UnrecognizedClientException: The security token included in the request is invalid.",
-    "CredentialsProviderError: Could not load credentials from any providers",
+  // `aws sso login` only when the error says SSO: static keys fail with the same exceptions.
+  const sso = [
     "Error loading SSO Token: The SSO session associated with this profile has expired or is otherwise invalid.",
     "Token has expired and refresh failed",
+    "ExpiredTokenException: The security token included in the request is expired (sso profile dev)",
   ];
+  // Application default credentials or Vertex named: `gcloud auth application-default login`.
   const google = [
     "Reauthentication is needed. Please run `gcloud auth application-default login` to reauthenticate.",
     "Error: Could not load the default credentials. Browse to https://cloud.google.com/docs/authentication for more information.",
-    "('invalid_grant: Bad Request', {'error': 'invalid_grant', 'error_description': 'Bad Request'}) from https://oauth2.googleapis.com/token",
-    "google.auth.exceptions.RefreshError: invalid_grant: reauth related error (invalid_rapt)",
+    "invalid_grant: Bad Request from https://us-east5-aiplatform.googleapis.com/v1/projects/p/locations/us-east5/publishers/anthropic/models/claude:streamRawPredict",
+    "google.auth.exceptions.RefreshError: invalid_grant: reauth related error (invalid_rapt); application default credentials",
   ];
   for (const [messages, command] of [
-    [aws, "aws sso login"],
+    [sso, "aws sso login"],
     [google, "gcloud auth application-default login"],
   ] as const)
     for (const message of messages) {
@@ -177,7 +186,27 @@ test("an expired cloud provider sign-in names the command that refreshes it", ()
       );
       expect(isAuthenticationFailure(message)).toBe(false);
     }
+  // Static keys, or no SSO named: the card says to refresh the cloud credentials, with no command.
+  for (const message of [
+    "API Error: 403 ExpiredTokenException: The security token included in the request is expired",
+    "ExpiredToken: The provided token has expired.",
+    "UnrecognizedClientException: The security token included in the request is invalid.",
+    "CredentialsProviderError: Could not load credentials from any providers",
+  ]) {
+    expect(failureKind(message, claude), message).toBe("cloud-auth-expired");
+    expect(failureCopy(t, message, claude), message).toBe(
+      t("turn.failure.cloudCredentialsExpired", { harness: "Claude Code" }),
+    );
+  }
   expect(failureRecovery("cloud-auth-expired")).toBe("retry");
+  // Gemini's own OAuth through google-auth-library is the agent's sign-in, not application default
+  // credentials: it keeps Sign in again.
+  for (const message of [
+    "('invalid_grant: Bad Request', {'error': 'invalid_grant', 'error_description': 'Bad Request'}) from https://oauth2.googleapis.com/token",
+    "GaxiosError: invalid_grant\n    at Gaxios._request (node_modules/google-auth-library/build/src/auth/oauth2client.js:120:23)",
+    "google.auth.exceptions.RefreshError: invalid_grant: reauth related error (invalid_rapt)",
+  ])
+    expect(failureKind(message, claude), message).toBe("subscription-login");
   // The agent's own expired login keeps its Sign in again.
   expect(failureKind("OAuth token refresh failed: invalid_grant")).toBe("subscription-login");
   expect(failureKind("Not logged in · Please run /login")).toBe("subscription-login");
