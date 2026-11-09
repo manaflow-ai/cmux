@@ -12,6 +12,8 @@ import {
   upgradePlanForMemory,
 } from "../services/vms/entitlements";
 import type { AuthedUser } from "../services/vms/auth";
+import { createTeamForCustomer } from "../services/admin/teamEntitlements";
+import type { TeamStackApp } from "../services/teams/stack";
 import {
   parseTeamEntitlementOverrideInput,
   teamEntitlementOverrideFromMetadata,
@@ -202,5 +204,30 @@ describe("identity snapshot", () => {
     const read = await readIdentitySnapshot(user.id, 60_000, db);
     expect(read?.user.billingEntitlementOverride).toEqual(deal);
     expect(resolveVmEntitlements(read!.user, env).maxActiveVms).toBe(40);
+  });
+});
+
+describe("createTeamForCustomer", () => {
+  test("deletes a team that Stack commits after the create deadline", async () => {
+    let commitLate!: (team: unknown) => void;
+    let deletedLateTeam!: () => void;
+    const lateDelete = new Promise<void>((resolve) => { deletedLateTeam = resolve; });
+    const stack = {
+      getUser: async () => ({ id: "user_1" }),
+      createTeam: () => new Promise((resolve) => { commitLate = resolve; }),
+    } as unknown as TeamStackApp;
+    let calls = 0;
+    // Pass the owner lookup through; time out the create (2nd call).
+    const withDeadline = async <T,>(operation: () => Promise<T>): Promise<T> => {
+      calls += 1;
+      if (calls === 2) throw new Error("stack deadline");
+      return await operation();
+    };
+
+    await expect(
+      createTeamForCustomer({ displayName: "Acme", ownerUserId: "user_1", stack, withDeadline }),
+    ).rejects.toThrow("stack deadline");
+    commitLate({ id: "team_late", displayName: "Acme", delete: async () => deletedLateTeam() });
+    await lateDelete;
   });
 });

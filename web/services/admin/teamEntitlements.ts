@@ -159,18 +159,36 @@ export async function createTeamForCustomer(input: {
   readonly displayName: string;
   readonly ownerUserId: string;
   readonly stack?: TeamStackApp;
+  /** Test seam for the Stack request deadline. */
+  readonly withDeadline?: <T>(operation: () => Promise<T>) => Promise<T>;
 }): Promise<{ readonly id: string; readonly displayName: string }> {
   const stack = input.stack ?? defaultTeamStackApp();
-  const owner = await withStackDeadline(() => stack.getUser(input.ownerUserId));
+  const withDeadline = input.withDeadline ?? withStackDeadline;
+  const owner = await withDeadline(() => stack.getUser(input.ownerUserId));
   if (!owner) throw new AdminTeamOwnerNotFoundError(input.ownerUserId);
-  const team = await withStackDeadline(() => stack.createTeam({
+  const creating = stack.createTeam({
     displayName: input.displayName,
     creatorUserId: input.ownerUserId,
-  }));
+  });
+  let team: Awaited<typeof creating>;
   try {
-    await withStackDeadline(() => grantTeamAdmin(stack, input.ownerUserId, team));
+    team = await withDeadline(() => creating);
   } catch (error) {
-    await withStackDeadline(() => team.delete()).catch(() => {
+    // The deadline stops waiting but cannot cancel the request. If Stack
+    // commits the team anyway, nobody holds its id, so delete it here when it
+    // arrives (best effort, while this process lives).
+    void creating.then(
+      (late) => withDeadline(() => late.delete()).catch(() => {
+        console.error("admin team create late cleanup failed", { teamId: late.id });
+      }),
+      () => undefined,
+    );
+    throw error;
+  }
+  try {
+    await withDeadline(() => grantTeamAdmin(stack, input.ownerUserId, team));
+  } catch (error) {
+    await withDeadline(() => team.delete()).catch(() => {
       console.error("admin team create rollback failed", { teamId: team.id });
     });
     throw error;

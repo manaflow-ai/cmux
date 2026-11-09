@@ -2494,7 +2494,11 @@ describe("recordCheckoutCompletion", () => {
   });
 
   test("clears Team metadata when a Team subscription lapses", async () => {
-    const updateTeam = mock(async () => undefined);
+    // The sync must hold the team lease that admin grants and deals use.
+    let leaseHeldDuringTeamUpdate = false;
+    const updateTeam = mock(async () => {
+      leaseHeldDuringTeamUpdate = accountMutationOperationId !== null;
+    });
     const team = {
       id: "team_123",
       clientReadOnlyMetadata: { cmuxPlan: "team", cmuxVmPlan: "pro" },
@@ -2545,6 +2549,8 @@ describe("recordCheckoutCompletion", () => {
     expect(updateTeam).toHaveBeenCalledWith({
       clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
     });
+    expect(leaseHeldDuringTeamUpdate).toBe(true);
+    expect(accountMutationOperationId).toBeNull();
   });
 
   test("syncs legacy Team subscription webhooks whose customer owner is the team id", async () => {
