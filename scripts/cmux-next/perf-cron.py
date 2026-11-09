@@ -512,15 +512,20 @@ def rows_of_part(part, report, budgets_mod, budgets):
         versions = report.get("bench_versions") if isinstance(report.get("bench_versions"), dict) else {}
         load = report.get("load") if isinstance(report.get("load"), dict) else {}
         for name, (v, unit, floor) in values.items():
-            # Every diff row is a time (us, ms/GiB, ms): on a busy runner it is divided by its bench's contention.
-            factor = load.get(name.split(".")[1])
+            # On a busy runner a row of a LOAD_SCALED_BENCHES bench is divided by its bench's contention; any other
+            # row only records it.
+            bench = name.split(".")[1]
+            factor = load.get(bench)
             factor = factor if isinstance(factor, (int, float)) and factor > 1 else None
-            scaled = round(v / factor, 4) if factor else v
+            scaled = round(v / factor, 4) if factor and bench in LOAD_SCALED_BENCHES else v
             out[name] = {"p50": scaled, "p95": scaled, "unit": unit, "budget": DIFF_BUDGETS[name], "floor": floor}
             if factor:
-                out[name].update(raw_p95=v, load=factor)
-            version = versions.get(name.split(".")[1])  # sidecar or stream
-            out[name]["measure_version"] = version if isinstance(version, int) else DIFF_LEGACY_VERSION
+                out[name]["load"] = factor
+                if scaled != v:
+                    out[name]["raw_p95"] = v
+            version = versions.get(bench)
+            out[name]["measure_version"] = (version if isinstance(version, int) else DIFF_LEGACY_VERSION) \
+                + 100 * DIFF_LOAD_VERSION
     elif part["kind"] == "webui":
         # web-ui-suite.ts's rows (webviews/bench/perfRow.ts): its target is the row's budget, its floor the noise on
         # a shared runner (10 % of p95 when the bench names none: a change must pass both that and the 10 % rule).
@@ -671,7 +676,16 @@ def version_changed(rows, base_rows):
 # when every core is taken, which is how much longer any CPU-bound step takes than on that host idle. The part probes
 # before and after each bench (none of the bench's processes run then) and divides that bench's time rows by the
 # median (rows_of_part); the web-ui part's suite does the same per bench itself (webviews/bench/hostLoad.ts).
+# Only a row whose samples are long enough to share the spin's slowdown is scaled (LOAD_SCALED_BENCHES): the sidecar
+# reports the median of short 16 MiB reads, which mostly picks reads the scheduler left whole, so dividing it by the
+# spin's factor turned a busy run's 89 ms/GiB into 22 and made the next idle 74 a regression (#39309 F1). Its rows
+# keep the factor as load, unscaled.
 CONTENTION_SPIN_S, CONTENTION_SPINS, CONTENTION_MAX = 0.02, 9, 8.0
+LOAD_SCALED_BENCHES = {"stream"}
+# How a diff row is normalized, as part of its measure_version (bench version + 100 x this): a change of it rebases the
+# bench's rows instead of comparing a scaled value with a raw one (#39353 F1: an old 22.3 scaled sidecar value made the
+# next raw 74 a regression). 1: #39309 scaled every diff row; 2: only LOAD_SCALED_BENCHES' rows.
+DIFF_LOAD_VERSION = 2
 
 
 def spin_ratio(spin_s=CONTENTION_SPIN_S):
