@@ -1,6 +1,9 @@
 import AppKit
+@testable import CmuxNextApp
 @testable import CmuxHomeCore
+import CmuxNextSidebar
 import CmuxNextDesign
+@testable import CmuxNextOnboarding
 @testable import CmuxNextHome
 @testable import CmuxNextHomeModel
 import CmuxNextTestSupport
@@ -23,7 +26,7 @@ import Testing
     ]
 
     /// One line per control under `root` with no label or title, naming its class and frame.
-    static func unnamed(under root: NSView) -> [String] {
+    static func unnamed(under root: Any) -> [String] {
         AccessibilityAudit().nodes(under: root).compactMap { node in
             guard controlRoles.contains(node.role), node.label.isEmpty else { return nil }
             let view = (node.element as? NSView) ?? (node.element as? NSCell)?.controlView
@@ -54,7 +57,78 @@ import Testing
         split.layoutSubtreeIfNeeded()
         home.list.headerView.needsLayout = true
         home.list.headerView.layoutSubtreeIfNeeded()
-        let unnamed = Self.unnamed(under: split)
+        Self.dump("split", window)
+        let unnamed = Self.unnamed(under: window)
         #expect(unnamed.isEmpty, "\(unnamed.count) unnamed controls on Home:\n\(unnamed.joined(separator: "\n"))")
+    }
+
+    /// Every control under `root`, named or not, for the run's log.
+    static func dump(_ scene: String, _ root: Any) {
+        let lines = AccessibilityAudit().nodes(under: root).filter { controlRoles.contains($0.role) || $0.role == .row }.map { node in
+            let view = (node.element as? NSView) ?? (node.element as? NSCell)?.controlView
+            let frame = view.map { $0.convert($0.bounds, to: nil) } ?? .zero
+            return "  \(node.path) [\(node.label)] \(String(describing: type(of: node.element))) id=\(node.identifier) frame=\(frame)"
+        }
+        print("a11y-dump \(scene): \(lines.count) controls\n\(lines.joined(separator: "\n"))")
+    }
+
+    private static func wait(_ limit: Duration = .seconds(10), until done: () -> Bool) async {
+        let deadline = ContinuousClock.now + limit
+        while !done(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(20)) }
+    }
+
+    /// The docked Home and a Home tab as the app builds them, with the app's services.
+    @Test func homeContainersNameEveryControl() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let conversation = ConversationID("conv_names_dock")
+        let dock = HomeDockView(services: services, mode: .messages)
+        dock.messages?.show(conversation)
+        let tab = TopHomePageView(services: services, windowKey: { "a11y-names" })
+        tab.show(conversation)
+        for (scene, view) in [("dock", dock as NSView), ("homeTab", tab as NSView)] {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.titled, .resizable, .fullSizeContentView],
+                                  backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            view.frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
+            window.contentView = view
+            window.orderFrontRegardless()
+            view.layoutSubtreeIfNeeded()
+            await Self.wait { (dock.messages?.host?.focusTarget is NSTextView) || scene == "homeTab" && tab.host?.focusTarget is NSTextView }
+            view.layoutSubtreeIfNeeded()
+            Self.dump(scene, window)
+            let unnamed = Self.unnamed(under: window)
+            #expect(unnamed.isEmpty, "\(scene): \(unnamed.count) unnamed controls:\n\(unnamed.joined(separator: "\n"))")
+        }
+    }
+
+    /// The main window's root (titlebar band, workspace sidebar) as a new window shows it.
+    @Test func windowRootNamesEveryControl() throws {
+        _ = NSApplication.shared
+        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel()))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 640),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.titlebarAppearsTransparent = true
+        window.contentView = root
+        defer { window.close() }
+        root.needsLayout = true
+        root.layoutSubtreeIfNeeded()
+        Self.dump("windowRoot", window)
+        let unnamed = Self.unnamed(under: window)
+        #expect(unnamed.isEmpty, "window root: \(unnamed.count) unnamed controls:\n\(unnamed.joined(separator: "\n"))")
+    }
+
+    /// The first-run Agents window (it covers Home on a fresh signed-out launch).
+    @Test func agentsWindowNamesEveryControl() throws {
+        let controller = OnboardingWindowController(model: OnboardingModel(services: MockOnboardingServices(), step: .agents), activeLook: nil)
+        defer { controller.close() }
+        let window = try #require(controller.window)
+        window.layoutIfNeeded()
+        Self.dump("agents", window)
+        let unnamed = Self.unnamed(under: window)
+        #expect(unnamed.isEmpty, "Agents window: \(unnamed.count) unnamed controls:\n\(unnamed.joined(separator: "\n"))")
     }
 }
