@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "0e673c4f1640ca1c586616e4e989355e3ec385a01953f2f1a9e1e8802efed9e7";
+inline constexpr std::string_view kProtocolIrSha256 = "7ed035613a92ff98be317756fbf31fbe7dded2eb95213fbffa99c18c8bfffbf2";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -186,6 +186,7 @@ struct SetSizeCountsResult;
 struct SetSizePolicyResult;
 struct SetTerminalIdlePolicyResult;
 struct SetTerminalKeepResult;
+struct SetTerminalTailPinResult;
 struct ShownProgramStatus;
 struct ShutdownDaemonResult;
 struct SidebarPluginResult;
@@ -548,6 +549,7 @@ struct SetTabPinnedRequest;
 struct SetTerminalCommandHistoryRequest;
 struct SetTerminalIdlePolicyRequest;
 struct SetTerminalKeepRequest;
+struct SetTerminalTailPinRequest;
 struct SetViewportPaneWidthRequest;
 struct SetWindowTitleRequest;
 struct SetWorkspaceMetadataRequest;
@@ -3981,14 +3983,19 @@ struct MoveTerminalResult {
     std::string generation{};
     TerminalLifecycle lifecycle{};
     std::optional<Id> pane{};
+    std::optional<std::string> pane_id{};
     std::string registry_id{};
     bool replayed{};
     std::optional<Id> screen{};
+    std::optional<std::string> screen_id{};
     std::optional<Id> surface{};
+    std::optional<std::string> tab_id{};
     std::string terminal_id{};
     std::optional<std::string> terminal_incarnation{};
+    std::optional<std::string> terminal_resource_id{};
     std::uint64_t terminal_revision{};
     std::optional<Id> workspace{};
+    std::optional<std::string> workspace_id{};
     std::string workspace_key{};
     friend bool operator==(const MoveTerminalResult&, const MoveTerminalResult&) = default;
 };
@@ -4146,11 +4153,14 @@ struct NewRowRequest {
 struct NewRowResult {
     Id pane{};
     std::optional<std::string> pane_id{};
+    std::optional<std::string> screen_id{};
     Id surface{};
     std::optional<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> terminal_incarnation{};
+    std::optional<std::string> terminal_resource_id{};
     std::optional<std::string> transaction{};
+    std::optional<std::string> workspace_id{};
     friend bool operator==(const NewRowResult&, const NewRowResult&) = default;
 };
 
@@ -4317,10 +4327,13 @@ struct PaneNeighborResult {
 struct PaneSurfaceResult {
     Field<std::string> pane_id{};
     Field<bool> replayed{};
+    std::optional<std::string> screen_id{};
     Id surface{};
     Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> terminal_incarnation{};
+    std::optional<std::string> terminal_resource_id{};
+    std::optional<std::string> workspace_id{};
     friend bool operator==(const PaneSurfaceResult&, const PaneSurfaceResult&) = default;
 };
 
@@ -4801,11 +4814,16 @@ struct ResolveTerminalResult {
     std::string generation{};
     JsonValue launch_spec{};
     TerminalLifecycle lifecycle{};
+    std::optional<std::string> pane_id{};
     std::string registry_id{};
+    std::optional<std::string> screen_id{};
     std::optional<Id> surface{};
+    std::optional<std::string> tab_id{};
     std::string terminal_id{};
     std::optional<std::string> terminal_incarnation{};
+    std::optional<std::string> terminal_resource_id{};
     std::uint64_t terminal_revision{};
+    std::optional<std::string> workspace_id{};
     std::string workspace_key{};
     friend bool operator==(const ResolveTerminalResult&, const ResolveTerminalResult&) = default;
 };
@@ -4845,12 +4863,17 @@ struct RunResult {
     std::optional<TerminalExit> exit{};
     TerminalLifecycle lifecycle{};
     std::optional<Id> pane{};
+    std::optional<std::string> pane_id{};
     std::optional<Id> screen{};
+    std::optional<std::string> screen_id{};
     std::optional<Id> surface{};
+    std::optional<std::string> tab_id{};
     std::string terminal_id{};
     std::optional<std::string> terminal_incarnation{};
+    std::optional<std::string> terminal_resource_id{};
     std::uint64_t terminal_revision{};
     std::optional<Id> workspace{};
+    std::optional<std::string> workspace_id{};
     friend bool operator==(const RunResult&, const RunResult&) = default;
 };
 
@@ -5390,6 +5413,19 @@ struct SetTerminalKeepResult {
     friend bool operator==(const SetTerminalKeepResult&, const SetTerminalKeepResult&) = default;
 };
 
+struct SetTerminalTailPinRequest {
+    bool pinned{};
+    Field<Id> surface{};
+    Field<std::string> terminal{};
+    friend bool operator==(const SetTerminalTailPinRequest&, const SetTerminalTailPinRequest&) = default;
+};
+
+struct SetTerminalTailPinResult {
+    bool pinned{};
+    std::string terminal{};
+    friend bool operator==(const SetTerminalTailPinResult&, const SetTerminalTailPinResult&) = default;
+};
+
 struct SetViewportPaneWidthRequest {
     Id pane{};
     Field<std::uint64_t> transaction{};
@@ -5595,9 +5631,14 @@ struct SurfaceResizedEvent {
 };
 
 struct SurfaceResult {
+    Field<std::string> pane_id{};
+    std::optional<std::string> screen_id{};
     Id surface{};
+    Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> terminal_incarnation{};
+    std::optional<std::string> terminal_resource_id{};
+    std::optional<std::string> workspace_id{};
     friend bool operator==(const SurfaceResult&, const SurfaceResult&) = default;
 };
 
@@ -5834,15 +5875,19 @@ struct TerminalPlacement {
     std::string key{};
     TerminalLifecycle lifecycle{};
     std::optional<Id> pane{};
+    std::optional<std::string> pane_id{};
     std::string registry_id{};
     bool replayed{};
     std::optional<Id> screen{};
+    std::optional<std::string> screen_id{};
     std::optional<Id> surface{};
+    std::optional<std::string> tab_id{};
     std::string terminal_id{};
     std::optional<std::string> terminal_incarnation{};
     std::optional<std::string> terminal_resource_id{};
     std::uint64_t terminal_revision{};
     std::optional<Id> workspace{};
+    std::optional<std::string> workspace_id{};
     friend bool operator==(const TerminalPlacement&, const TerminalPlacement&) = default;
 };
 
@@ -7316,6 +7361,12 @@ template <>
 struct Codec<SetTerminalKeepResult> {
     static Result<Json> encode(const SetTerminalKeepResult& value);
     static Result<SetTerminalKeepResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetTerminalTailPinResult> {
+    static Result<Json> encode(const SetTerminalTailPinResult& value);
+    static Result<SetTerminalTailPinResult> decode(const Json& value);
 };
 
 template <>
@@ -9488,6 +9539,12 @@ template <>
 struct Codec<SetTerminalKeepRequest> {
     static Result<Json> encode(const SetTerminalKeepRequest& value);
     static Result<SetTerminalKeepRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetTerminalTailPinRequest> {
+    static Result<Json> encode(const SetTerminalTailPinRequest& value);
+    static Result<SetTerminalTailPinRequest> decode(const Json& value);
 };
 
 template <>

@@ -53,3 +53,28 @@ test("the look comes from the nearest attribute, else the shipped fade", () => {
   expect(turnEndLook({ closest: () => null } as unknown as Element)).toBe("fade");
   expect(turnEndLook({ closest: () => ({ getAttribute: () => "spin" }) } as unknown as Element)).toBe("fade");
 });
+
+test("a capture from another chat plays nothing and draws nothing of it", async () => {
+  const { JSDOM } = await import("jsdom");
+  const { playTurnEnd } = await import("./turnEndFold");
+  const dom = new JSDOM("<!doctype html><div id=thread></div>", { pretendToBeVisual: true });
+  const thread = dom.window.document.getElementById("thread")!;
+  const reply = dom.window.document.createElement("div");
+  reply.className = "acpmux-row";
+  reply.dataset.rowId = "answer";
+  thread.append(reply);
+  const copy = dom.window.document.createElement("div");
+  const capture = {
+    rows: [
+      { id: LIVE_THINKING, top: 80, copy },
+      { id: "answer", top: 40 },
+    ],
+    scrollTop: 0,
+    sessionId: "chat-a",
+  };
+  // Another chat shown in its place: nothing of chat A is drawn over it, and nothing plays.
+  expect(playTurnEnd(thread, capture, "chat-b")).toBeUndefined();
+  expect(thread.contains(copy)).toBe(false);
+  expect(thread.hasAttribute("data-turn-end-folding")).toBe(false);
+  dom.window.close();
+});

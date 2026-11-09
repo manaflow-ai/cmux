@@ -16,6 +16,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -270,7 +271,7 @@ class ChecksJobStructure(unittest.TestCase):
         pin = [step for step in checks if "check-app-ffi-pin.sh" in step["run"]]
         self.assertEqual(len(pin), 1, [step["name"] for step in checks])
         self.assertIn("scripts/cmux-next/check-app-ffi-pin.sh --verify-release", pin[0]["run"])
-        self.assertIn("base=(--base HEAD^1)", pin[0]["run"])
+        # What the step runs on a pull request: AppFfiPinStepJudgesWithTheBaseCopy.
         script_tests = next(step for step in checks if step.get("id") == "script-tests")
         self.assertIn("bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh", check_commands(script_tests))
         # Only there: the macOS swift test job no longer carries a copy.
@@ -284,6 +285,162 @@ class ChecksJobStructure(unittest.TestCase):
         self.assertEqual(len(godfile_runs), 2, godfile_runs)
         self.assertEqual(sum("--only swift" in run for run in godfile_runs), 1, godfile_runs)
         self.assertEqual(sum("--only rust" in run for run in godfile_runs), 1, godfile_runs)
+
+
+class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
+    """On a pull request the app FFI pin step runs the base's copy of the check and its pin reader (the merge commit's
+    first parent), extracted outside the checkout, against the pull request's tree, with a clean environment.
+
+    Earlier steps of the checks job run the pull request's code, which can rewrite the checkout's copy of the check
+    on disk or change PATH, so that copy and that environment must not decide the verdict: base_red_excuse.py trusts
+    the pin verdict of a pull request that leaves the check's files alone in its diff (FFI_PIN_CHECK_CODE)."""
+
+    ZEROS = "0" * 64
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.repo = self.tmp / "repo"
+        (self.repo / "scripts/cmux-next").mkdir(parents=True)
+        (self.repo / "scripts/ci").mkdir(parents=True)
+        (self.repo / "Packages/macOS/CmuxNext").mkdir(parents=True)
+        shutil.copy(ROOT / "scripts/cmux-next/check-app-ffi-pin.sh", self.repo / "scripts/cmux-next/check-app-ffi-pin.sh")
+        shutil.copy(ROOT / "scripts/ci/app_ffi_pin.py", self.repo / "scripts/ci/app_ffi_pin.py")
+        crate = self.repo / "cmux-tui/crates/cmux-app-ffi"
+        (crate / "src").mkdir(parents=True)
+        (crate / "Cargo.toml").write_text('[package]\nname = "x"\n\n[lib]\npath = "src/lib.rs"\n')
+        (crate / "src/lib.rs").write_text("// ffi\n")
+        self.git("init", "-q", "-b", "base")
+        self.commit("sources")
+        self.pinned = self.rev("HEAD")
+        (self.repo / "Packages/macOS/CmuxNext/Package.swift").write_text(
+            "let appFFI: Target = .binaryTarget(\n    name: \"CCmuxAppFFI\",\n"
+            f"    url: \"https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-{self.pinned}/"
+            "CCmuxAppFFI.xcframework.zip\",\n"
+            f"    checksum: \"{self.ZEROS}\"\n)\n")
+        self.commit("pin")
+        # The pull request changes an FFI source and not the pin: its own stale pin, red on the base's check.
+        self.git("checkout", "-q", "-b", "pr")
+        (crate / "src/lib.rs").write_text("// ffi, changed\n")
+        self.commit("pr")
+        self.git("checkout", "-q", "base")
+        self.git("merge", "-q", "--no-ff", "-m", "merge", "pr")
+        self.merge = self.rev("HEAD")
+        self.runner_temp = self.tmp / "runner-temp"
+        self.runner_temp.mkdir()
+
+    def git(self, *args: str) -> None:
+        subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@t",
+                        "-c", "commit.gpgsign=false", *args], check=True, capture_output=True)
+
+    def commit(self, message: str) -> None:
+        self.git("add", "-A")
+        self.git("commit", "-qm", message)
+
+    def rev(self, ref: str) -> str:
+        return subprocess.run(["git", "-C", str(self.repo), "rev-parse", ref], check=True, capture_output=True,
+                              text=True).stdout.strip()
+
+    def run_step(self, path_prefix: Path | None = None, home: Path | None = None) -> subprocess.CompletedProcess:
+        step = next(step for step in steps() if step.get("id") == "app-ffi-pin")
+        env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        env.update(EVENT_NAME="pull_request", GITHUB_SHA=self.merge, RUNNER_TEMP=str(self.runner_temp))
+        if home is not None:
+            env["HOME"] = str(home)
+        if path_prefix is not None:
+            env["PATH"] = f"{path_prefix}:{env.get('PATH', '/usr/bin:/bin')}"
+        return subprocess.run(["bash", "-e", "-c", step["run"]], cwd=self.repo, env=env, capture_output=True,
+                              text=True, timeout=120)
+
+    def assert_own_stale_pin(self, result: subprocess.CompletedProcess) -> None:
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn(f"error: the app FFI sources changed since the pinned source {self.pinned}", output)
+        self.assertNotIn("planted", output)
+
+    def test_the_base_copy_judges_the_pull_request(self):
+        self.assert_own_stale_pin(self.run_step())
+
+    def test_a_check_rewritten_on_disk_does_not_run(self):
+        # An earlier step's code rewrites the checkout's copy of the check and of its pin reader; the diff of the
+        # pull request still leaves both alone.
+        (self.repo / "scripts/cmux-next/check-app-ffi-pin.sh").write_text(
+            "#!/usr/bin/env bash\necho 'app FFI pin: sources match (planted)'\n")
+        (self.repo / "scripts/ci/app_ffi_pin.py").write_text(
+            f"print('{self.merge} {self.ZEROS}')  # planted\n")
+        self.assert_own_stale_pin(self.run_step())
+
+    def test_ffi_inputs_rewritten_on_disk_do_not_count(self):
+        # An earlier step's code deletes the FFI crate's Cargo.toml (no FFI inputs are left to compare) and repins
+        # Package.swift to the merge commit on disk. The pull request's commit still has both as they were.
+        (self.repo / "cmux-tui/crates/cmux-app-ffi/Cargo.toml").unlink()
+        manifest = self.repo / "Packages/macOS/CmuxNext/Package.swift"
+        manifest.write_text(manifest.read_text().replace(self.pinned, self.merge))
+        self.assert_own_stale_pin(self.run_step())
+
+    def planted_hook(self, directory: Path) -> None:
+        """A post-checkout hook that rewrites the extracted base check (beside the worktree it runs in)."""
+        directory.mkdir(parents=True, exist_ok=True)
+        hook = directory / "post-checkout"
+        hook.write_text("#!/bin/sh\nprintf '#!/usr/bin/env bash\\necho \"app FFI pin: sources match (planted)\"\\n' "
+                        "> ../scripts/cmux-next/check-app-ffi-pin.sh\n")
+        hook.chmod(0o755)
+
+    def test_a_hook_in_the_home_git_config_does_not_run(self):
+        # An earlier step's code writes ~/.gitconfig: its hooks path holds a post-checkout hook.
+        home = self.tmp / "home"
+        self.planted_hook(home / "hooks")
+        (home / ".gitconfig").write_text(f"[core]\n\thooksPath = {home / 'hooks'}\n")
+        self.assert_own_stale_pin(self.run_step(home=home))
+
+    def test_a_hook_in_the_checkout_does_not_run(self):
+        # An earlier step's code puts a post-checkout hook in the checkout's .git/hooks.
+        self.planted_hook(self.repo / ".git/hooks")
+        self.assert_own_stale_pin(self.run_step())
+
+    def test_a_check_left_out_of_the_base_extraction_still_runs_the_base_copy(self):
+        # An earlier step's code marks the check export-ignore in .git/info/attributes (git archive then leaves it
+        # out without an error) and rewrites the checkout's copy.
+        (self.repo / ".git/info").mkdir(exist_ok=True)
+        (self.repo / ".git/info/attributes").write_text(
+            "scripts/cmux-next/check-app-ffi-pin.sh export-ignore\nscripts/ci/app_ffi_pin.py export-ignore\n")
+        (self.repo / "scripts/cmux-next/check-app-ffi-pin.sh").write_text(
+            "#!/usr/bin/env bash\necho 'app FFI pin: sources match (planted)'\n")
+        self.assert_own_stale_pin(self.run_step())
+
+    def test_the_rollup_sources_no_file_from_the_checkout(self):
+        # The pin step continues on error, so the rollup decides the job. Run it as the runner does (the workflow's
+        # env, then the step's literal env) after an earlier step rewrote scripts/ci/api_call_log/env.sh, which the
+        # workflow's BASH_ENV names, to end every shell green.
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        rollup = steps()[-1]
+        env = {key: value for key, value in os.environ.items() if key != "BASH_ENV"}
+        for scope in (document.get("env") or {}, rollup.get("env") or {}):
+            env.update({key: str(value) for key, value in scope.items() if "${{" not in str(value)})
+        planted = self.repo / "scripts/ci/api_call_log/env.sh"
+        planted.parent.mkdir(parents=True)
+        planted.write_text("echo planted; exit 0\n")
+        summary = self.tmp / "summary"
+        env.update(GITHUB_WORKSPACE=str(self.repo), GITHUB_STEP_SUMMARY=str(summary), EVENT_NAME="pull_request",
+                   OUTCOMES="failure|Check the app FFI pin\n")
+        result = subprocess.run(["bash", "-e", "-c", rollup["run"]], cwd=self.repo, env=env, capture_output=True,
+                                text=True, timeout=60)
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("Check the app FFI pin", output)
+        self.assertNotIn("planted", output)
+
+    def test_a_changed_path_does_not_reach_the_check(self):
+        # An earlier step's code puts its own python3 (which reads every pin as the merge commit, so the sources
+        # match) and curl first on PATH for the steps after it.
+        bin_dir = self.tmp / "planted-bin"
+        bin_dir.mkdir()
+        (bin_dir / "python3").write_text(f"#!/bin/sh\necho '{self.merge} {self.ZEROS}'\n")
+        (bin_dir / "curl").write_text("#!/bin/sh\necho planted >&2\nexit 22\n")
+        for tool in bin_dir.iterdir():
+            tool.chmod(0o755)
+        self.assert_own_stale_pin(self.run_step(path_prefix=bin_dir))
 
 
 class WebviewsWarnSplitCoversCheck(unittest.TestCase):

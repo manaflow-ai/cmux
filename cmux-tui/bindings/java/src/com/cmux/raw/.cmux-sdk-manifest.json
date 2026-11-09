@@ -762,8 +762,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "7420d6e7ccb12428971796cf610305d8480772efe7106e23c453d2cdd9be0213",
-      "size": 81960
+      "sha256": "6f6b4706656770dda0ade9108ea2d169b41c5d2f04bab998f5eef4b48070c9f6",
+      "size": 82222
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1412,8 +1412,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "d353b3b90f8bfb18891e30d4295f7e79f7cb967d5ccdd83a57e69c3a87232d73",
-      "size": 70746
+      "sha256": "78bfcd708e3d1fab62b0afe12b6051406d4b1b2194854ec32ad92c9526628d51",
+      "size": 71013
     },
     {
       "path": "GetBlobRequest.java",
@@ -1927,8 +1927,8 @@
     },
     {
       "path": "MoveTerminalResult.java",
-      "sha256": "082f0ebde89ca7d0eda1f6325c0f79d5135b10f5af8b3a7d6ecbbd157a363fce",
-      "size": 11175
+      "sha256": "66edb5d650adce4508dddf71109ed4660fd8155f49e6a6a41de06d7b547cc902",
+      "size": 14510
     },
     {
       "path": "MoveWorkspaceGroupRequest.java",
@@ -1992,8 +1992,8 @@
     },
     {
       "path": "NewRowResult.java",
-      "sha256": "3ce345507036417dc80dae0f2b37dd8692c9c1f8da61b514f096df527353ea6f",
-      "size": 5975
+      "sha256": "d86bb44c7a6a403cbbf478f345ea350727557b8e339870f1441ec7f8b76bbad2",
+      "size": 8115
     },
     {
       "path": "NewScreenRequest.java",
@@ -2117,8 +2117,8 @@
     },
     {
       "path": "PaneSurfaceResult.java",
-      "sha256": "c17128e24d3192d3e4d974835e83be6682c5b4128ddfb1a12ec8aaa920aafdac",
-      "size": 5474
+      "sha256": "ba3be74ac79af4ecb65644fed3b68f798ffc43a9f365a2ed5d3bf505384b9593",
+      "size": 7629
     },
     {
       "path": "ParkTabsRequest.java",
@@ -2182,7 +2182,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "45ec2c5b1cb19a113c888d7fc075983b0e6c18ab21cf90e97faf9653121c0fee",
+      "sha256": "e984c30a6f61c75ef2578263df1bf4b721f7ffb3e8640ea233409d3ccff31f8a",
       "size": 7838
     },
     {
@@ -2452,8 +2452,8 @@
     },
     {
       "path": "ResolveTerminalResult.java",
-      "sha256": "d7e0f9a05a7d4380161584ff5087ac986138486801fcc47da4f98d7e46ea4439",
-      "size": 9198
+      "sha256": "b10dd78998e20241fa0b01b2fe7175990f93c9e746b8eaa89866f94e22896115",
+      "size": 12548
     },
     {
       "path": "ResourceSelectors.java",
@@ -2482,8 +2482,8 @@
     },
     {
       "path": "RunResult.java",
-      "sha256": "4e95cdbb58fcae11206199d406488e4ec5ee8df6c0fd30150a1f92e908234699",
-      "size": 8755
+      "sha256": "843f795ad09aef5b7dab578b89eb2e8f02969dfd66f3233fb7419f3d704a6364",
+      "size": 12045
     },
     {
       "path": "SaveScreenGroupRequest.java",
@@ -2831,6 +2831,16 @@
       "size": 3555
     },
     {
+      "path": "SetTerminalTailPinRequest.java",
+      "sha256": "2a92c3c47ea0a1321f42d1fcaadd97d9639bfe555abeaff3d943281b872357e7",
+      "size": 3398
+    },
+    {
+      "path": "SetTerminalTailPinResult.java",
+      "sha256": "5596de71bd73f26ca8a27279c60e930417a040259287626bf9d236622dd2ac31",
+      "size": 2699
+    },
+    {
       "path": "SetViewportPaneWidthRequest.java",
       "sha256": "fe05d186991def008910ab23a9b6b21fcd71acae99bb98fd6728852d7f31b152",
       "size": 3436
@@ -3037,8 +3047,8 @@
     },
     {
       "path": "SurfaceResult.java",
-      "sha256": "7c810072ef76e279ca3ca9d025b321765318c9e0b49773821d127889a16c1c8a",
-      "size": 3515
+      "sha256": "1eb3f195856d560eb5b29fcf28ddbf6294eb8fd8d72351973092063b59315105",
+      "size": 6894
     },
     {
       "path": "SwapPaneRequest.java",
@@ -3277,8 +3287,8 @@
     },
     {
       "path": "TerminalPlacement.java",
-      "sha256": "d65a405328b933ec4700a20887e4e5a6353fcb76b237e9757dae5d323d644b67",
-      "size": 12545
+      "sha256": "2bdecaf6c4a6e6a646dec5349cc49f583fa24f507df0d7f0eefd2b55034830c3",
+      "size": 15047
     },
     {
       "path": "TerminalPortsListener.java",
@@ -3597,7 +3607,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "0e673c4f1640ca1c586616e4e989355e3ec385a01953f2f1a9e1e8802efed9e7",
+  "ir_sha256": "7ed035613a92ff98be317756fbf31fbe7dded2eb95213fbffa99c18c8bfffbf2",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

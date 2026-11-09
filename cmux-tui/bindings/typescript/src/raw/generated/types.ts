@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0e673c4f1640ca1c586616e4e989355e3ec385a01953f2f1a9e1e8802efed9e7. */
+/* cmux-tui mux protocol 12, IR 7ed035613a92ff98be317756fbf31fbe7dded2eb95213fbffa99c18c8bfffbf2. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -753,14 +753,19 @@ export type MoveTerminalResult = {
   "generation": string;
   "lifecycle": TerminalLifecycle;
   "pane": (Id) | null;
+  "pane_id"?: string;
   "registry_id": string;
   "replayed": boolean;
   "screen": (Id) | null;
+  "screen_id"?: string;
   "surface": (Id) | null;
+  "tab_id"?: string;
   "terminal_id": string;
   "terminal_incarnation": (string) | null;
+  "terminal_resource_id"?: string;
   "terminal_revision": bigint;
   "workspace": (Id) | null;
+  "workspace_id"?: string;
   "workspace_key": string;
 };
 
@@ -769,11 +774,14 @@ export type NameSource = "user" | "auto";
 export type NewRowResult = {
   "pane": Id;
   "pane_id"?: string;
+  "screen_id"?: string;
   "surface": Id;
   "tab_id"?: string;
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
+  "terminal_resource_id"?: string;
   "transaction"?: string;
+  "workspace_id"?: string;
 };
 
 export type NoteSizeActivityResult = {
@@ -812,10 +820,13 @@ export type PaneRef = JsonValue;
 export type PaneSurfaceResult = {
   "pane_id"?: (string) | null;
   "replayed"?: (boolean) | null;
+  "screen_id"?: string;
   "surface": Id;
   "tab_id"?: (string) | null;
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
+  "terminal_resource_id"?: string;
+  "workspace_id"?: string;
 };
 
 export type PingResult = {
@@ -957,11 +968,16 @@ export type ResolveTerminalResult = {
   "generation": string;
   "launch_spec": JsonValue;
   "lifecycle": TerminalLifecycle;
+  "pane_id"?: string;
   "registry_id": string;
+  "screen_id"?: string;
   "surface": (Id) | null;
+  "tab_id"?: string;
   "terminal_id": string;
   "terminal_incarnation": (string) | null;
+  "terminal_resource_id"?: string;
   "terminal_revision": bigint;
+  "workspace_id"?: string;
   "workspace_key": string;
 };
 
@@ -999,12 +1015,17 @@ export type RunResult = {
   "exit": (TerminalExit) | null;
   "lifecycle": TerminalLifecycle;
   "pane": (Id) | null;
+  "pane_id"?: string;
   "screen": (Id) | null;
+  "screen_id"?: string;
   "surface": (Id) | null;
+  "tab_id"?: string;
   "terminal_id": string;
   "terminal_incarnation": (string) | null;
+  "terminal_resource_id"?: string;
   "terminal_revision": bigint;
   "workspace": (Id) | null;
+  "workspace_id"?: string;
 };
 
 export type SavedTabGroupMember = {
@@ -1236,6 +1257,11 @@ export type SetTerminalKeepResult = {
   "terminal_resource_id"?: (string) | null;
 };
 
+export type SetTerminalTailPinResult = {
+  "pinned": boolean;
+  "terminal": string;
+};
+
 export type ShownProgramStatus = {
   "progress": (number) | null;
   "state": ProgramStatusState;
@@ -1337,9 +1363,14 @@ export type SplitRespawn = {
 };
 
 export type SurfaceResult = {
+  "pane_id"?: (string) | null;
+  "screen_id"?: string;
   "surface": Id;
+  "tab_id"?: (string) | null;
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
+  "terminal_resource_id"?: string;
+  "workspace_id"?: string;
 };
 
 export type Tab = {
@@ -1560,15 +1591,19 @@ export type TerminalPlacement = {
   "key": string;
   "lifecycle": TerminalLifecycle;
   "pane": (Id) | null;
+  "pane_id"?: string;
   "registry_id": string;
   "replayed": boolean;
   "screen": (Id) | null;
+  "screen_id"?: string;
   "surface": (Id) | null;
+  "tab_id"?: string;
   "terminal_id": string;
   "terminal_incarnation": (string) | null;
   "terminal_resource_id"?: string;
   "terminal_revision": bigint;
   "workspace": (Id) | null;
+  "workspace_id"?: string;
 };
 
 export type TerminalPortsListener = {

@@ -12,6 +12,7 @@ mod agent_hook_question;
 mod agent_hooks;
 pub mod agent_launch;
 pub mod agent_message_prompt;
+pub mod agent_start_launch;
 mod agent_status;
 pub mod agent_view;
 mod apps;
@@ -121,6 +122,7 @@ mod terminal_loss_cause;
 #[cfg(any(unix, windows))]
 mod terminal_loss_log;
 mod terminal_metadata;
+mod terminal_tail;
 pub use cmux_tui_util::terminal_respawn_text;
 mod workspace_registry;
 /// A synthetic registry of a long-lived owner's shape (startup measurements).
