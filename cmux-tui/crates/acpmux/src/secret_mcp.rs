@@ -135,6 +135,22 @@ where
     Fut: Future<Output = Value> + Send + 'static,
 {
     let session = std::env::var(session_env).map_err(|_| anyhow!("{session_env} is not set"))?;
+    serve_as(name, session, tools, instructions, call).await
+}
+
+/// [`serve`] for session `session` (empty: a server that runs in no acpmux chat, the acpmux
+/// server's guest mode, `acpmux_mcp_guest.rs`).
+pub(crate) async fn serve_as<F, Fut>(
+    name: &'static str,
+    session: String,
+    tools: Value,
+    instructions: Option<String>,
+    call: F,
+) -> Result<()>
+where
+    F: Fn(Arc<Client>, String, Value) -> Fut + Clone + Send + 'static,
+    Fut: Future<Output = Value> + Send + 'static,
+{
     // Stdin may stay open after the agent died (`parent_watch.rs`).
     crate::parent_watch::exit_with_parent();
     let (tx, mut rx) = mpsc::channel::<Value>(64);

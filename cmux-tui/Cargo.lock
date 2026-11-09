@@ -82,6 +82,7 @@ dependencies = [
  "tokio-tungstenite",
  "tokio-util",
  "toml",
+ "toml_edit 0.22.27",
  "tracing",
  "tracing-subscriber",
  "turmoil",

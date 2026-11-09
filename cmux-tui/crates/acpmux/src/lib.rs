@@ -61,6 +61,7 @@ pub mod cwd_pin;
 pub mod daemon;
 mod default_harness;
 pub mod deliver;
+pub mod desktop_link;
 pub mod deps;
 pub mod folder_instructions;
 pub mod forum;
