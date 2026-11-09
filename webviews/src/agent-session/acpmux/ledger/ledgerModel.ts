@@ -448,9 +448,7 @@ export function ledgerJson(reply: LedgerReply, range: LedgerRange, group: Ledger
   const body = {
     range: { name: range, since: iso(reply.range.since), until: iso(reply.range.until) },
     groupBy: group,
-    ...(group === "session"
-      ? { truncated: shortfall !== undefined, sessionsTotal: reply.totals.sessions }
-      : {}),
+    ...(group === "session" ? { truncated: shortfall !== undefined, sessionsTotal: reply.totals.sessions } : {}),
     ...(reply.priceTable ? { priceTable: reply.priceTable } : {}),
     totals: exportNumbers(reply.totals),
     rows,
