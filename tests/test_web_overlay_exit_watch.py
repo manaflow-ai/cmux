@@ -106,7 +106,7 @@ class WebOverlayExitWatchTests(unittest.TestCase):
         os.kill(int((self.tmp / "child.pid").read_text()), signal.SIGKILL)  # the server crashes
         self.assertTrue(self.wait_for(lambda: "server" not in json.loads(self.web_dev.read_text())))
         note = (self.state / "dev-server.exit").read_text()
-        self.assertIn(f"port {self.port} stopped on its own", note)
+        self.assertIn(f"it served port {self.port}", note)
         self.assertFalse((self.state / "dev-server.pid").exists())
         self.assertTrue(self.wait_for(lambda: not self.group_alive()), "the watch ends with the server")
 

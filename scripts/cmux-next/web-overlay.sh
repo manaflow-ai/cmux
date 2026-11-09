@@ -283,7 +283,7 @@ watch_exit() {
   # Nor is a server picked since (`server URL`, a slot): only web-dev.json still naming this one, with
   # the token `point_at` wrote for it, is cleared.
   points_here "http://127.0.0.1:$port/" "$(cat "$state/dev-server.token" 2>/dev/null)" || return 0
-  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the dev server on port $port stopped on its own; the app shows the web UI it shipped with (log: $state/dev-server.log)" >"$state/dev-server.exit"
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) it served port $port" >"$state/dev-server.exit"
   set_key server null >/dev/null
 }
 
@@ -395,9 +395,19 @@ def overlay_or_shipped(why):
     else:
         say(SHIPPED, why)
 
+def last_stop():
+    """Why the last server this script started is gone, from the exit watch's note."""
+    stopped = read(os.path.join(state, "dev-server.exit")) if not pid else None
+    if not stopped:
+        return []
+    when, _, reason = stopped.strip().partition(" ")
+    return [f"It stopped on its own at {when}" + (f": {reason}" if reason else "") + ".",
+            f"Its log: {os.path.join(state, 'dev-server.log')}"]
+
 server = config.get("server")
 if not isinstance(server, str) or not server:
-    overlay_or_shipped([f"Why: {web_dev} names no dev server. `cmux live start` runs one."])
+    overlay_or_shipped([f"Why: {web_dev} names no dev server.", *last_stop(),
+                        "`cmux live start` runs one."])
     sys.exit(0)
 token = config.get("token")
 if not isinstance(token, str) or len(token) < 32:
@@ -423,13 +433,8 @@ except Exception:
     answered, proof = False, None
 
 if not answered:
-    why = [f"Why: the dev server web-dev.json names, {root}, does not answer."]
-    stopped = read(os.path.join(state, "dev-server.exit")) if not pid else None
-    if stopped:
-        when, _, reason = stopped.partition(" ")
-        why.append(f"It stopped on its own at {when}" + (f": {reason}" if reason else "") + ".")
-        why.append(f"Its log: {os.path.join(state, 'dev-server.log')}")
-    why.append("`cmux live start` starts it again.")
+    why = [f"Why: the dev server web-dev.json names, {root}, does not answer.", *last_stop(),
+           "`cmux live start` starts it again."]
     overlay_or_shipped(why)
     sys.exit(0)
 

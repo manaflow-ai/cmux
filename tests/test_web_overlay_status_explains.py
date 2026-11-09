@@ -102,6 +102,15 @@ class WebOverlayStatusExplainsTests(unittest.TestCase):
         self.assertIn("stopped on its own at 2026-11-09T10:00:00Z: bun exited with status 1", out)
         self.assertIn("from the web UI it shipped with", out)
 
+    def test_server_cleared_after_it_stopped_on_its_own(self):
+        # The exit watch removes `server` from web-dev.json when the server it started exits.
+        self.web_dev({"token": TOKEN})
+        (self.state / "dev-server.exit").write_text("2026-11-09T10:00:00Z it served port 4200\n")
+        out = self.status()
+        self.assertIn("names no dev server", out)
+        self.assertIn("stopped on its own at 2026-11-09T10:00:00Z: it served port 4200.", out)
+        self.assertIn("from the web UI it shipped with", out)
+
     def test_server_with_another_token_falls_back_to_the_overlay(self):
         server = serve("b" * 48)
         self.addCleanup(server.server_close)
