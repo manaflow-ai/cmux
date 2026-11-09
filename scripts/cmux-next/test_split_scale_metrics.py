@@ -77,6 +77,21 @@ class TraceTests(unittest.TestCase):
         stats = ssm.trace_stats({"refresh_ms": 8.33, "samples": samples})
         self.assertEqual(stats["retargets"], 0, stats["retargeted"])
 
+    def test_a_terminal_sized_to_its_final_grid_at_the_start_is_no_retarget(self):
+        # Split Down in a 2 x 2 grid (split-scale s4 empty split_down): the pushed pane's terminal takes its final grid
+        # (470 -> 304 pt) in the motion's first frame, as every neighbour's does (no grid is held), and then rides its
+        # pane down. Its bottom edge jumps up once and moves down with the pane: the grid's size, not a new target.
+        # Its top edge rides the pane, so a top that turns back is still a retarget.
+        tops = [529, 571, 600, 626, 662, 673, 681, 686, 689, 692, 693, 694, 694, 695]
+        heights = [470] + [304] * (len(tops) - 1)
+
+        def stats(tops):
+            return ssm.trace_stats({"refresh_ms": 8.33, "samples": [
+                {"t": k * 8.33, "terminal": [[208, top, 695, height]]} for k, (top, height) in enumerate(zip(tops, heights))]})
+        self.assertEqual(stats(tops)["retargets"], 0, stats(tops)["retargeted"])
+        turned = tops[:6] + [650] + tops[7:]
+        self.assertGreaterEqual(stats(turned)["retargets"], 1)
+
     def test_speeding_up_after_a_dropped_frame_is_a_retarget(self):
         # The slowest step spanned a dropped frame (33 ms): it is judged by its speed, not its points (#38998 review F1).
         self.assertEqual(ssm.retargets([(0, (0,)), (8.33, (100,)), (41.66, (110,)), (50, (118,))]), {50})
