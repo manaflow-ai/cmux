@@ -108,3 +108,58 @@ fn w5q_crossterm_alt_right_bracket_uses_two_bytes() {
     let parsed = parsed.map(|(event, used)| (event.as_key_event().map(|key| key.code), used));
     assert_eq!(parsed, Some((Some(KeyCode::Char(']')), 2)));
 }
+
+/// W5-Q follow-up (PR B review): Alt+] and a digit read with nothing after
+/// them (`ESC ] 1`, `ESC ] 1 1`) may be the start of a host color reply, so
+/// the reader holds them. When no byte comes for a short quiet time, they
+/// are typed keys: Alt+] and the digits. Each new byte starts the quiet time
+/// again, and a held start whose reply then comes whole is dropped as
+/// before. The clock is the `now` each call gets, so no test waits.
+#[test]
+fn w5q_crossterm_releases_held_alt_right_bracket_digits_after_a_quiet_time() {
+    use crossterm::event::InputParser;
+    use std::time::{Duration, Instant};
+
+    let as_keys = |events: Vec<Event>| -> Vec<(KeyCode, KeyModifiers)> {
+        events
+            .into_iter()
+            .map(|event| match event {
+                Event::Key(key) => (key.code, key.modifiers),
+                other => panic!("a non-key event {other:?}"),
+            })
+            .collect()
+    };
+    const NO_KEYS: [(KeyCode, KeyModifiers); 0] = [];
+    let start = Instant::now();
+    let ms = |count: u64| start + Duration::from_millis(count);
+
+    for (typed, digits) in [(&b"\x1b]1"[..], "1"), (b"\x1b]11", "11"), (b"\x1b]10", "10")] {
+        let mut parser = InputParser::new();
+        assert_eq!(as_keys(parser.feed(typed, start)), NO_KEYS, "{typed:?} is held first");
+        let deadline = parser
+            .release_deadline()
+            .unwrap_or_else(|| panic!("{typed:?} is held with no deadline"));
+        assert!(deadline > start && deadline <= ms(250), "{typed:?}: {:?}", deadline - start);
+        let early = deadline.checked_sub(Duration::from_millis(1)).unwrap_or(start);
+        assert_eq!(as_keys(parser.tick(early)), NO_KEYS, "{typed:?} released before its deadline");
+        let mut keys = vec![ALT_BRACKET];
+        keys.extend(digits.chars().map(plain));
+        assert_eq!(as_keys(parser.tick(deadline)), keys, "{typed:?} after the quiet time");
+        assert_eq!(parser.release_deadline(), None, "{typed:?}: nothing is held");
+        assert_eq!(as_keys(parser.feed(b"z", deadline)), [plain('z')], "{typed:?} then z");
+    }
+
+    // The next byte comes before the deadline: the quiet time starts again
+    // from it, and the reply that ends it is dropped.
+    let mut parser = InputParser::new();
+    assert_eq!(as_keys(parser.feed(b"\x1b]1", start)), NO_KEYS);
+    let first = parser.release_deadline().expect("held");
+    let later = first.checked_sub(Duration::from_millis(1)).unwrap_or(start);
+    assert_eq!(as_keys(parser.feed(b"1", later)), NO_KEYS);
+    let second = parser.release_deadline().expect("still held");
+    assert!(second > first, "the next byte did not start the quiet time again");
+    assert_eq!(as_keys(parser.tick(first)), NO_KEYS, "released on the old deadline");
+    assert_eq!(as_keys(parser.feed(b";rgb:2727/2828/2222\x07", second)), NO_KEYS);
+    assert_eq!(parser.release_deadline(), None);
+    assert_eq!(as_keys(parser.feed(b"a", second)), [plain('a')]);
+}

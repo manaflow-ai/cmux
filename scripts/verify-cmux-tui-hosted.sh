@@ -23,6 +23,11 @@ exact pushed HEAD. --full also downloads the separate userland agent-plugin arti
 --filter builds the macOS target on a Linux runner, which stages the plugin inside the
 cmux-tui artifact (when it built) instead.
 
+One open run per commit, mode and filter: when a cmux-tui run for the same
+commit, mode and test filter is still open (queued, in progress, waiting), the
+script does not dispatch a second one. It prints that run's id and URL and
+exits with status 4; wait on that run with glaeda-gh wait run instead.
+
 The wait ends after CMUX_TUI_HOSTED_TIMEOUT_SECONDS (default 7200). The hosted
 run is not cancelled then: the script prints the run URL and how to keep
 waiting, and exits with status 3. Ctrl-C cancels the hosted run.
@@ -239,7 +244,45 @@ trap 'exit_on_signal 129' HUP
 trap interrupt_hosted_run INT
 trap 'exit_on_signal 143' TERM
 
-request_id="${commit:0:12}-$(date +%s)-$$"
+# The run API does not return a run's inputs, so the run-name (title) carries
+# the filter: request_id is <sha12>-f<hash8>-<epoch>-<pid>, where hash8 is the
+# first 8 hex digits of the filter's git blob hash (the empty filter in full
+# mode). validate-inputs accepts [A-Za-z0-9._-]; the lookup below reads the token.
+filter_hash="$(printf '%s' "$test_filter" | git hash-object --stdin)"
+filter_hash="${filter_hash:0:8}"
+request_id="${commit:0:12}-f${filter_hash}-$(date +%s)-$$"
+
+# One open run per commit, mode and filter (2026-11-09: about 37 cmux-tui runs
+# queued for the shared Mac pool, often several for one commit). A run of this
+# commit whose title has this mode and this filter's token, and that is not
+# completed, is the run to wait on: do not dispatch a second one. The run is
+# not attached to here: it belongs to the caller that dispatched it, and this
+# script cancels its own run on Ctrl-C and --cancel-on-timeout. A failed lookup
+# only warns, so a run-list outage cannot block verification.
+open_run_lookup="$(gh run list --repo "$REPO" --workflow "$WORKFLOW" --commit "$commit" \
+  --event workflow_dispatch --limit 50 --json databaseId,status,displayTitle,url \
+  --jq '.[] | [.databaseId, .status, .displayTitle, .url] | @tsv' 2>"$temp_dir/open-run.err")" || {
+  printf 'warning: could not look for an open cmux-tui run of this commit, dispatching anyway: %s\n' \
+    "$(cat "$temp_dir/open-run.err")" >&2
+  open_run_lookup=""
+}
+while IFS=$'\t' read -r open_id open_status open_title open_url; do
+  [[ -n "$open_id" && "$open_status" != "completed" ]] || continue
+  [[ "$open_title" == "cmux-tui $mode "*" @ $commit" ]] || continue
+  open_request="${open_title#"cmux-tui $mode "}"
+  open_request="${open_request%" @ $commit"}"
+  # Full mode has no filter, so any open full run of the commit counts. A
+  # focused run counts only with this filter's token (a run dispatched before
+  # the token existed has an unknown filter and does not count).
+  if [[ "$mode" == "focused" && "$open_request" != *"-f${filter_hash}-"* ]]; then
+    continue
+  fi
+  echo "error: cmux-tui run $open_id ($open_status) already verifies $commit in $mode mode${test_filter:+ with filter $test_filter}; not dispatching a second run" >&2
+  echo "Run: $open_url" >&2
+  echo "Wait on it: glaeda-gh wait run $REPO/$open_id" >&2
+  echo "When it is done: gh run view --repo $REPO $open_id --log-failed, or gh run download --repo $REPO $open_id" >&2
+  exit 4
+done <<< "$open_run_lookup"
 
 echo "Dispatching $mode verification for $commit"
 # return_run_details makes the dispatch answer with the run it created, so
@@ -524,7 +567,7 @@ if [[ "$run_finished" != true ]]; then
   fi
   echo "Hosted verification is still running (run ${run_status:-still running}) after the wait of ${timeout_seconds}s: $run_url" >&2
   echo "still running, wait with glaeda-gh wait run $REPO/$run_id" >&2
-  echo "Do not run this script again for this commit: that starts a second run. When it is done: gh run view --repo $REPO $run_id --log-failed, or gh run download --repo $REPO $run_id" >&2
+  echo "Running this script again for this commit and filter while the run is open exits 4 without a second run. When it is done: gh run view --repo $REPO $run_id --log-failed, or gh run download --repo $REPO $run_id" >&2
   exit 3
 fi
 cancel_on_interrupt=false

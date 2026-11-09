@@ -154,6 +154,16 @@ def _key(variant: str) -> re.Pattern:
     return re.compile(r"(?<![\w-])[\"']?" + re.escape(variant) + r"[\"']?\s*:")
 
 
+# A variant whose note opens "Selected" is the look its gallery file picked, of the ones it draws.
+SELECTED_NOTE = re.compile(r"""^\s*note:\s*[\"'`]Selected\b""")
+
+
+def _noted(variant: str, lines: list[str], mark: re.Pattern) -> bool:
+    """Whether `variant`'s note, within 2 lines of its key, matches `mark`."""
+    start = next((i for i, line in enumerate(lines) if _key(variant).search(line)), None)
+    return start is not None and any(mark.search(line) for line in lines[start + 1:start + 3])
+
+
 def changed_lines(commit: str, path: str) -> set[int]:
     """The line numbers, in the file at `commit`, that the commit added or changed."""
     run = subprocess.run(["git", "-C", str(ROOT), "diff", "-U0", f"{commit}^", commit, "--", path],
@@ -166,8 +176,9 @@ def changed_lines(commit: str, path: str) -> set[int]:
 
 def infer(row: dict, cases: list[dict], text_at=show, changed=changed_lines) -> str | None:
     """The state of the gallery files row["commit"] changed: the first variant the commit added (its key
-    is in the file at the commit and not the commit before), else the variant whose lines it changed most, else the first
-    one; of the first entry with such a variant. A variant named for the old look is the last choice."""
+    is in the file at the commit and not the commit before; the one its note calls "Selected" first, as a new file's
+    closed row showed nothing of what agent-file-result-cards opened), else the variant whose lines it changed most,
+    else the first one; of the first entry with such a variant. A variant named for the old look is the last choice."""
     entries: dict[str, list[str]] = {}
     sources: dict[str, str] = {}
     for c in _dark(cases):
@@ -187,7 +198,8 @@ def infer(row: dict, cases: list[dict], text_at=show, changed=changed_lines) -> 
         before, after = text_at(f"{commit}^", path) or "", text_at(commit, path) or ""
         added = [v for v in variants if _key(v).search(after) and not _key(v).search(before)]
         if added:
-            return f"{entry}/{added[0]}"
+            lines = after.split("\n")
+            return f"{entry}/{min(added, key=lambda v: not _noted(v, lines, SELECTED_NOTE))}"
         text = after.split("\n")
         starts = sorted((next((i + 1 for i, line in enumerate(text) if _key(v).search(line)), 0), v)
                         for v in variants)
@@ -221,17 +233,20 @@ def marked_before(state: str, cases: list[dict], text: str) -> str | None:
     for order, variant in enumerate(variants):
         if variant == after or variant.startswith(f"{after}-light") or not variant.startswith(family):
             continue
-        start = next((i for i, line in enumerate(lines) if _key(variant).search(line)), None)
-        noted = start is not None and any(BEFORE_NOTE.search(line) for line in lines[start + 1:start + 3])
+        noted = _noted(variant, lines, BEFORE_NOTE)
         if noted or OLD_LOOK.search(variant):
             shared = len(os.path.commonprefix([variant, after]))
             marked.append((not noted, -shared, order, variant))
     return f"{entry}/{min(marked)[3]}" if marked else None
 
 
-def _source_text(state: str, cases: list[dict]) -> str:
+def _source(state: str, cases: list[dict]) -> str | None:
     entry = state.partition("/")[0]
-    source = next((c["params"].get("source") for c in _dark(cases) if c["params"].get("entry") == entry), None)
+    return next((c["params"].get("source") for c in _dark(cases) if c["params"].get("entry") == entry), None)
+
+
+def _source_text(state: str, cases: list[dict]) -> str:
+    source = _source(state, cases)
     path = ROOT / "webviews" / source if source else None
     return path.read_text(encoding="utf-8") if path and path.is_file() else ""
 
@@ -239,7 +254,9 @@ def _source_text(state: str, cases: list[dict]) -> str:
 def resolve(rows: list[dict], cases: list[dict], text_at=show, source_text=_source_text) -> tuple[list[dict], list[str]]:
     """The rows with their inferred states filled in, and the highlights none could be picked for. A before
     with no `before:` line takes the old look its entry marks (``marked_before``), rendered now beside the
-    after; only an entry that marks none renders the after's state at the commit before the highlight's."""
+    after; only an entry that marks none renders the after's state at the commit before the highlight's, and only
+    when its gallery file has that state there: a state its commit added has no look to render (a new file's
+    cards, 2026-11-09), so it is named as missing instead of rendering nothing at a checkout there."""
     out, missing = [], []
     for row in rows:
         if not row.get("state"):
@@ -252,6 +269,12 @@ def resolve(rows: list[dict], cases: list[dict], text_at=show, source_text=_sour
             old = marked_before(row["state"], cases, source_text(row["state"], cases))
             if old:
                 row = {key: value for key, value in row.items() if key != "parent"} | {"state": old}
+            elif (source := _source(row["state"], cases)) and not _key(row["state"].partition("/")[2]).search(
+                    text_at(row["parent"], f"webviews/{source}") or ""):
+                missing.append(f"{row['id']} before: {row['state']} is new in its commit, not in {source} at "
+                               f"{row['parent'][:12]}; give its gallery file the old look, a variant whose note "
+                               "opens \"Before:\"")
+                continue
         row["entry"], _, row["variant"] = row["state"].partition("/")
         out.append(row)
     return out, missing
@@ -397,8 +420,15 @@ def publish(rows: list[dict], results: Path, exists=published) -> list[str]:
         # One check for all of them: a refusal names paths and kinds only, and uploads nothing.
         pr_media.check_privacy([(row["path"], local) for row, local in files], REPO)
         for row, local in files:
-            pr_media.put_file(REPO, BRANCH, row["path"], local,
-                              f"What's New picture: {row['id']} ({row['role']}, {row['state']})", checked=True)
+            # Create-only, checked again on the tip the commit builds on: a picture another run put there
+            # since `exists` read it stays (its bytes may be pinned by signed notes already).
+            try:
+                pr_media.put_files(REPO, BRANCH, {row["path"]: local},
+                                   f"What's New picture: {row['id']} ({row['role']}, {row['state']})",
+                                   checked=True, expect={row["path"]: None})
+            except pr_media.MediaConflict as error:  # any other failure stops the run, its pictures not up
+                problems.append(f"{row['id']} {row['role']}: kept the copy already there ({error})")
+                continue
             print(row["url"])
     return problems
 

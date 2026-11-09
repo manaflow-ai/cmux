@@ -155,8 +155,15 @@ pub struct Stats {
 /// One machine's hub carrier: its key, its ticket source and its peer routes.
 pub struct HubCarrier {
     tickets: Arc<dyn Tickets>,
-    identity: StaticIdentity,
+    /// The node key as a Noise static key; [`Self::rekey`] puts the next one in.
+    identity: RwLock<StaticIdentity>,
+    /// How many times [`Self::rekey`] ran; the serve loop registers again when it moves.
+    generation: AtomicU64,
+    rekeyed: tokio::sync::Notify,
     routes: Mutex<HashMap<String, String>>,
+    /// The keys the last Register ticket let in (`peers`): the machines that reach this one
+    /// under its current key.
+    allowed: Arc<RwLock<HashSet<[u8; 32]>>>,
     timings: Timings,
     stats: Arc<Stats>,
     key_check: Option<KeyCheck>,
@@ -164,7 +171,7 @@ pub struct HubCarrier {
 
 impl std::fmt::Debug for HubCarrier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HubCarrier").field("key", &self.identity.fingerprint()).finish()
+        f.debug_struct("HubCarrier").field("key", &self.identity().fingerprint()).finish()
     }
 }
 
@@ -176,8 +183,11 @@ impl HubCarrier {
     pub fn new(tickets: Arc<dyn Tickets>, private_key: [u8; 32], timings: Timings) -> Arc<Self> {
         Arc::new(Self {
             tickets,
-            identity: StaticIdentity::from_private(private_key),
+            identity: RwLock::new(StaticIdentity::from_private(private_key)),
+            generation: AtomicU64::new(0),
+            rekeyed: tokio::sync::Notify::new(),
             routes: Mutex::new(HashMap::new()),
+            allowed: Arc::default(),
             timings,
             stats: Arc::default(),
             key_check: None,
@@ -195,22 +205,61 @@ impl HubCarrier {
     ) -> Arc<Self> {
         Arc::new(Self {
             tickets,
-            identity: StaticIdentity::from_private(private_key),
+            identity: RwLock::new(StaticIdentity::from_private(private_key)),
+            generation: AtomicU64::new(0),
+            rekeyed: tokio::sync::Notify::new(),
             routes: Mutex::new(HashMap::new()),
+            allowed: Arc::default(),
             timings,
             stats: Arc::default(),
             key_check: Some(check),
         })
     }
 
-    /// False once the machine's node key is no longer this carrier's.
+    /// False once the machine's node key is no longer this carrier's. Checked under the key's
+    /// lock, so it never sees a [`Self::rekey`] half done.
     pub fn key_current(&self) -> bool {
-        self.key_check.as_ref().is_none_or(|check| check(&self.identity.public_key()))
+        let identity = self.identity.read().unwrap_or_else(|e| e.into_inner());
+        self.key_check.as_ref().is_none_or(|check| check(&identity.public_key()))
+    }
+
+    /// This carrier's key now.
+    fn identity(&self) -> StaticIdentity {
+        self.identity.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// The node key rotated (`machine_tunnel.rs` rekey): `promote`, which makes `private` the
+    /// machine's node key on disk, runs under the lock every key check takes, then `private`
+    /// becomes this carrier's key. A check sees the old key in both places or the new key in
+    /// both, never one of each, so a rotation never reads as a replaced key; the serve loop
+    /// registers the slot again under the new key. A failed `promote` changes nothing.
+    pub fn rekey<E>(
+        &self,
+        private: [u8; 32],
+        promote: impl FnOnce() -> Result<(), E>,
+    ) -> Result<(), E> {
+        let mut identity = self.identity.write().unwrap_or_else(|e| e.into_inner());
+        promote()?;
+        *identity = StaticIdentity::from_private(private);
+        drop(identity);
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        self.rekeyed.notify_one();
+        Ok(())
+    }
+
+    /// The keys of the machines the platform's last Register ticket let reach this one
+    /// (standard base64, sorted). Empty before the first registration.
+    pub fn registered_peers(&self) -> Vec<String> {
+        let allowed = self.allowed.read().unwrap_or_else(|e| e.into_inner());
+        let mut keys: Vec<String> =
+            allowed.iter().map(|k| base64::engine::general_purpose::STANDARD.encode(k)).collect();
+        keys.sort();
+        keys
     }
 
     /// This machine's key as the hub knows it (`daemonId`): standard base64.
     pub fn public_key(&self) -> String {
-        base64::engine::general_purpose::STANDARD.encode(self.identity.public_key())
+        base64::engine::general_purpose::STANDARD.encode(self.identity().public_key())
     }
 
     pub fn stats(&self) -> &Stats {
@@ -282,7 +331,7 @@ impl HubCarrier {
         let secure = initiate_secure_link(
             link,
             ClientHandshake {
-                identity: self.identity.clone(),
+                identity: self.identity(),
                 expected_daemon: Some(pinned),
                 auth: ClientAuthMode::Enrolled,
                 device_name: DEVICE_NAME.into(),
@@ -322,8 +371,23 @@ impl HubCarrier {
         HubServe { task }
     }
 
+    /// Serves under the current key; a [`Self::rekey`] ends that registration and starts the
+    /// next under the new key. Anything else that ends it (a key replaced outside a rekey, a
+    /// relay the ticket names wrongly) ends the carrier.
     async fn serve_until_dropped(self: Arc<Self>, websocket: SocketAddr) {
-        let allowed = Arc::new(RwLock::new(HashSet::new()));
+        loop {
+            let generation = self.generation.load(Ordering::SeqCst);
+            self.clone().serve_once(websocket, generation).await;
+            if self.generation.load(Ordering::SeqCst) == generation {
+                return;
+            }
+            tracing::info!("hub carrier: the node key was rotated; registering again");
+        }
+    }
+
+    async fn serve_once(self: Arc<Self>, websocket: SocketAddr, generation: u64) {
+        let allowed = self.allowed.clone();
+        allowed.write().unwrap_or_else(|e| e.into_inner()).clear();
         let mut wait = Duration::from_secs(1);
         // The first answer names the relay and the slot; each later authentication asks again,
         // which also refreshes the keys let in (a revoked machine is out by the next one).
@@ -386,14 +450,20 @@ impl HubCarrier {
                 return;
             }
         };
-        tracing::info!("hub carrier: serving on the relay as {}", self.identity.fingerprint());
+        tracing::info!("hub carrier: serving on the relay as {}", self.identity().fingerprint());
         // Held until this task is aborted ([`HubServe`]'s drop) or the key is replaced, which
         // drops it and unregisters.
         let _registration = registration;
         let mut every = tokio::time::interval(self.timings.key_check);
         every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
-            every.tick().await;
+            tokio::select! {
+                _ = every.tick() => {}
+                () = self.rekeyed.notified() => {}
+            }
+            if self.generation.load(Ordering::SeqCst) != generation {
+                return;
+            }
             if !self.key_current() {
                 tracing::warn!("hub carrier: the node key was replaced; unregistering");
                 return;
@@ -490,11 +560,12 @@ struct Incoming {
 impl RelayIncoming for Incoming {
     async fn incoming(self: Arc<Self>, link: Box<dyn FrameLink>) {
         let keys = PeerKeys(self.allowed.read().unwrap_or_else(|e| e.into_inner()).clone());
+        let identity = self.carrier.identity();
         let accepted = tokio::time::timeout(
             self.carrier.timings.handshake,
             accept_secure_link(
                 link,
-                &self.carrier.identity,
+                &identity,
                 &keys,
                 InboundAuthEvidence::Network(NetworkPeer::Relay),
             ),

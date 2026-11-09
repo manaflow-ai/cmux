@@ -31,7 +31,7 @@ fn w5q_one_terminal_agent_list_carries_the_whole_last_reply() {
         "a long line of the reply ".repeat(20).trim_end()
     );
     let before = now_ms();
-    assert!(mux.note_agent_reply(&terminal, &whole));
+    assert!(mux.note_agent_reply(&terminal, &whole).is_some());
     // The append ends; the banner took or dropped its copy.
     mux.forget_agent_reply(&terminal);
     let after = now_ms();

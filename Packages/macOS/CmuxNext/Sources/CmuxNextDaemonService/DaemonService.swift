@@ -45,6 +45,8 @@ public final class DaemonService {
     #endif
     /// Retry Now and Restart cmux-tui while the local daemon cannot be reached (cx-jniyz.1).
     public let recovery = DaemonRecovery()
+    /// The person's reads of this daemon's tabs, sent until answered (DaemonService+TabReads).
+    public let reads = TabReads()
     public private(set) var connection: DaemonConnection?
     public private(set) var windowState: WindowStateStore?
     /// The colors this app paints the daemon's terminals with, sent at every

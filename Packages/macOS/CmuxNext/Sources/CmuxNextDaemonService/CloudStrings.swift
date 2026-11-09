@@ -148,8 +148,8 @@ public enum CloudStrings {
     public static var filePathRequired: String { String(localized: "cloud.failed.filePathRequired", defaultValue: "Pass an absolute Cloud file path without '..'.", table: "Cloud", bundle: .module) }
     public static var fileContentsRequired: String { String(localized: "cloud.failed.fileContentsRequired", defaultValue: "Pass the file's contents with --contents \"<text>\".", table: "Cloud", bundle: .module) }
     public static var publicKeyRequired: String { String(localized: "cloud.failed.publicKeyRequired", defaultValue: "Pass an Ed25519 SSH public key with --public-key \"$(cat ~/.ssh/id_ed25519.pub)\".", table: "Cloud", bundle: .module) }
-    /// Rotate Cloud Tunnel Key without a key: a WireGuard key, not an SSH one.
-    public static var tunnelKeyRequired: String { String(localized: "cloud.failed.tunnelKeyRequired", defaultValue: "Pass this Mac's new WireGuard public key for the tunnel with --public-key <key>.", table: "Cloud", bundle: .module) }
+    /// A Cloud tunnel attach, detach or key rotation this Mac's agent daemon did not take.
+    public static var tunnelDaemonUnavailable: String { String(localized: "cloud.failed.tunnelDaemonUnavailable", defaultValue: "This Mac's agent daemon did not take the Cloud tunnel change. Open an agent chat to start it, then try again.", table: "Cloud", bundle: .module) }
     public static var filesTitle: String { String(localized: "cloud.result.filesTitle", defaultValue: "Cloud Files", table: "Cloud", bundle: .module) }
     public static var fileContentsTitle: String { String(localized: "cloud.result.fileContentsTitle", defaultValue: "Cloud File Contents", table: "Cloud", bundle: .module) }
     public static var fileStatTitle: String { String(localized: "cloud.result.fileStatTitle", defaultValue: "Cloud File Details", table: "Cloud", bundle: .module) }

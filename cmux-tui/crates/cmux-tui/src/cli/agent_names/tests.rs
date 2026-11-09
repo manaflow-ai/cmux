@@ -294,3 +294,29 @@ fn w3h_two_live_tabs_with_one_name_are_ambiguous_even_when_one_runs_an_agent() {
     // One live tab and one exited tab: the live one, as before.
     assert!(matches!(resolve(&snapshot(), "alpha"), Found::One(place) if place.terminal == ALPHA));
 }
+
+/// W5-Q follow-up (#39580 review): a tab name selects a live terminal first,
+/// and live is an allow-list of lifecycle words (`running`, `launching`,
+/// `adopting`). A terminal with another word (`tombstoned`, a newer
+/// daemon's word) or with no `lifecycle` field is not live, so it does not
+/// make a live name ambiguous.
+#[test]
+fn w5q_a_name_prefers_a_terminal_whose_lifecycle_says_it_runs() {
+    for other in [json!("tombstoned"), json!("suspended"), json!(""), Value::Null] {
+        let mut named = snapshot();
+        named["terminals"][0]["lifecycle"] = json!("launching");
+        match &other {
+            Value::Null => {
+                if let Some(terminal) = named["terminals"][1].as_object_mut() {
+                    terminal.remove("lifecycle");
+                }
+            }
+            word => named["terminals"][1]["lifecycle"] = word.clone(),
+        }
+        let found = resolve(&named, "alpha");
+        assert!(
+            matches!(&found, Found::One(place) if place.terminal == ALPHA && place.live),
+            "lifecycle {other}: {found:?}"
+        );
+    }
+}
