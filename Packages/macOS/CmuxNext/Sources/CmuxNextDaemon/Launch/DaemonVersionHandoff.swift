@@ -148,7 +148,7 @@ extension DaemonLauncher {
                 // The bundled build folds what its first start would (a new agent roster version)
                 // while this daemon serves the app.
                 await premigrateRegistry(logger: logger)
-                handoff.exit(pid: identity.pid)
+                self.handoff.exit(pid: identity.pid)
                 _ = await requestHandoff(identity: identity, using: connection)
             }
             return .handOffAfterPremigrate(running: running, bundled: target)
