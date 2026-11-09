@@ -169,6 +169,12 @@ def main():
     # The first exec of a binary just linked pays for macOS's check of it, before main and
     # without opening a registry. Two `--version` execs before the timed starts pay it and
     # show it (the first against the second), so the starts time only the owner.
+    # The generator's writes are still going to disk; a first start's fsyncs (its build's
+    # helper files, F_FULLFSYNC on macOS) would wait for them. Flush them first, timed.
+    sync_started = time.monotonic()
+    os.sync()
+    sync_ms = round((time.monotonic() - sync_started) * 1000, 1)
+    print("DRS-SYNC " + json.dumps({"sync_ms": sync_ms}), flush=True)
     execs = []
     for _ in range(2):
         exec_started = time.monotonic()
@@ -185,7 +191,7 @@ def main():
             bump_roster(registry)
         starts.append(start(args, f"bumped-{index}" if bumped else f"plain-{index}", bumped))
     starts.append(start(args, "after", False))
-    report = {"generate": generated, "first_exec_ms": execs[0], "second_exec_ms": execs[1], "starts": starts}
+    report = {"generate": generated, "first_exec_ms": execs[0], "second_exec_ms": execs[1], "sync_ms": sync_ms, "starts": starts}
     Path(args.report).write_text(json.dumps(report, indent=2))
     return 0 if all(item["ready_ms"] is not None for item in starts) else 1
 

@@ -2512,8 +2512,10 @@ fn run_server(
     // in a shared daemon that cannot see the terminal's environment, so only
     // its shim routes them. All three are this build's own, never the copies
     // another install on this machine wrote.
+    cmux_tui_core::startup_timings::process_mark("process.surface");
     #[cfg(unix)]
     own_build_helpers::configure_pane(&mut surface_options);
+    cmux_tui_core::startup_timings::process_mark("process.build_helpers");
     // The app's bundled `cmux` (the app starts the daemon with it) stays
     // first after the shim on a caller PATH (`terminal_spawn_options`).
     surface_options.bundled_cli = cmux_tui_core::daemon_env::bundled_cli_from_process_env();
