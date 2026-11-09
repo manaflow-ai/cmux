@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1383,
+    "entries": 1385,
     "shortcuts": 188
   },
   "sections": [
@@ -5476,6 +5476,12 @@
           "command": "cmux sidebar enable-minimal-mode"
         },
         {
+          "id": "sidebar.floatOnHover.on",
+          "title": "Float Hidden Sidebar on Hover",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "focusRightSidebar",
           "title": "Focus Right Sidebar",
           "shortcut": "⇧⌘E",
@@ -5586,6 +5592,12 @@
         {
           "id": "fileExplorerMoveToTrash",
           "title": "Move to Trash",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "sidebar.floatOnHover.off",
+          "title": "Never Float Hidden Sidebar",
           "shortcut": null,
           "command": null
         },
