@@ -938,7 +938,7 @@ fn a_read_refused_for_the_machine_fails_at_once() {
     }
 }
 
-/// An unanswered read with no time left fails: no read again past `--timeout`.
+/// An unanswered read with no time left is not read again: past `--timeout` the answer is the wait's timeout.
 #[test]
 fn an_unanswered_read_past_the_deadline_fails() {
     let mut fake = Fake::new(vec![signed_in(), started(), exec_out(SENT), unanswered()]);
@@ -946,7 +946,8 @@ fn an_unanswered_read_past_the_deadline_fails() {
     fake.slow.push((3, Duration::from_secs(60)));
     let asked = request(&["--prompt", "x", "--wait", "--timeout", "60"]);
     let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
-    assert_eq!(error["code"], "chat.unreachable", "{error}");
+    // Past the deadline it is the wait's timeout, as any step that answers after it.
+    assert_eq!(error["code"], "chat.wait_timeout", "{error}");
     assert_eq!(fake.ran.len(), 4, "{:?}", fake.ran);
 }
 
