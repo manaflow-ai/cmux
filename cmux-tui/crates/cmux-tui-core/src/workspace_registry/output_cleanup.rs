@@ -269,3 +269,7 @@ impl WorkspaceRegistry {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "output_cleanup/guard_tests.rs"]
+mod guard_tests;
