@@ -31,6 +31,7 @@ import {
   CARD_DRAFT,
   playScriptedTurn,
   SCRIPTED_ANSWER_ID as ANSWER_ID,
+  TOGGLE_CALL_ID,
   type ScriptedTurn,
 } from "../../src/agent-session/acpmux/conversation/scriptedTurn";
 import "../../src/pages/shared/desktop.css";
@@ -123,6 +124,9 @@ export type Sample = {
   rows?: RowSample[];
   /// With `?rows=1`: the composer card's top in the viewport, px.
   composer?: number;
+  /// With `?rows=1`, once the tool-toggle turn's call is drawn: its line's top in the viewport (px),
+  /// whether it is open, and its details' box: top and height as drawn this frame (0 when none).
+  line?: { top: number; open: boolean; bodyTop: number; body: number };
   /// When the frame's step began (the scripted event that named it, on the page's clock), ms.
   eventAt: number;
   /// When the reader's scripted wheel landed, once it has (`run`'s `wheel`), ms.
@@ -187,6 +191,20 @@ function rowSamples(scroller: HTMLElement): RowSample[] {
     });
   }
   return out;
+}
+
+/// The tool-toggle turn's call line and its details this frame (Sample `line`).
+function lineSample(): Sample["line"] {
+  const line = document.querySelector<HTMLElement>(`[data-tool-id="${TOGGLE_CALL_ID}"][aria-expanded]`);
+  if (!line) return undefined;
+  const body = line.closest(".acpmux-row")?.querySelector<HTMLElement>(".cv-anchored-collapse");
+  const box = body?.getBoundingClientRect();
+  return {
+    top: line.getBoundingClientRect().top,
+    open: line.getAttribute("aria-expanded") === "true",
+    bodyTop: box?.top ?? 0,
+    body: box?.height ?? 0,
+  };
 }
 
 /// Whether an animation ends on its own (a looping shimmer never does, and is no motion).
@@ -254,7 +272,7 @@ const sampleFrame = () => {
     animations: document.getAnimations().filter((animation) => animation.playState === "running" && finite(animation))
       .length,
     started,
-    ...(sampleRows && { rows: rowSamples(scroller), composer: dock }),
+    ...(sampleRows && { rows: rowSamples(scroller), composer: dock, line: lineSample() }),
   });
 };
 // A row sample reads the rows where the frame paints them: its observer comes after the
@@ -268,6 +286,31 @@ const tick = (t: number) => {
   requestAnimationFrame(tick);
 };
 requestAnimationFrame(tick);
+
+/// A pointer's click on `target` at its middle: press, release and click, as a mouse delivers them, so
+/// the transcript's press and click handlers both see it (`moved`: px the pointer travels between
+/// press and release, as a hand that drags a little does).
+export function clickLine(target: HTMLElement, moved = 0) {
+  const box = target.getBoundingClientRect();
+  const x = box.left + Math.min(40, box.width / 2);
+  const y = box.top + box.height / 2;
+  const at = (dx: number) => ({ clientX: x + dx, clientY: y, button: 0, buttons: 1, bubbles: true, cancelable: true });
+  target.dispatchEvent(new PointerEvent("pointerdown", { ...at(0), pointerType: "mouse", isPrimary: true }));
+  target.dispatchEvent(new MouseEvent("mousedown", { ...at(0), detail: 1 }));
+  if (moved) target.dispatchEvent(new PointerEvent("pointermove", { ...at(moved), pointerType: "mouse" }));
+  target.dispatchEvent(
+    new PointerEvent("pointerup", { ...at(moved), buttons: 0, pointerType: "mouse", isPrimary: true }),
+  );
+  target.dispatchEvent(new MouseEvent("mouseup", { ...at(moved), buttons: 0, detail: 1 }));
+  target.dispatchEvent(new MouseEvent("click", { ...at(moved), buttons: 0, detail: 1 }));
+}
+
+/// The tool-toggle turn's click: on its call's line (scriptedTurn.ts TOGGLE_CALL_ID).
+const act = () => {
+  const line = document.querySelector<HTMLElement>(`[data-tool-id="${TOGGLE_CALL_ID}"][aria-expanded]`);
+  if (line) clickLine(line);
+  else console.warn("send-stream-motion: no line to toggle");
+};
 
 // fixed-wait: the harness's own pauses, each named where it waits
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -323,6 +366,7 @@ async function run({
     chars,
     everyMs,
     historyTurns,
+    act,
   });
   // fixed-wait: the reveal drains (StreamReveal.finishMs) before the stream counts as drawn
   await wait(400);
