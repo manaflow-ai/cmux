@@ -120,27 +120,27 @@ fn managed_now() -> ManagedPreferences {
     }
 }
 
-/// What the worker carries from one reading to the next, for the daemon's life: when a turn last
-/// ran, and when this locked stretch began. Going idle between turns keeps both, so turns one
-/// after another in one locked stretch share its [`CAP`] and the [`WAIT_GRACE`] after the last
-/// running turn. Only a read that says unlocked ends a stretch: an unknown read keeps it, and an
-/// unlock and a lock again while no session runs are not seen, so the next turn counts from the
-/// earlier lock and the hold can only end sooner, never later. A worker that starts while the
-/// screen is locked or its state is unknown (a daemon restart during a stretch) cannot know when
-/// the stretch began, so it holds nothing until a read says unlocked.
+/// What the worker carries from one reading to the next, for the daemon's life: when it last saw
+/// a turn run, when it last read the screen unlocked, and when this locked stretch began. Going
+/// idle between turns keeps all three, so turns one after another in one locked stretch share its
+/// [`CAP`] and the [`WAIT_GRACE`] after the last running turn. Only a read that says unlocked ends
+/// a stretch: an unknown read keeps it. The worker does not read while idle, so a stretch it did
+/// not see begin (the Mac locked while nothing ran) counts from its last unlocked read: the hold
+/// can only end sooner, never later. A worker that has read no unlock (a daemon that starts while
+/// the screen is locked or its state is unknown) cannot know when the stretch began, so it holds
+/// nothing until a read says unlocked; and a waiting turn it has not seen run gets no grace.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Tracker {
-    last_running: Instant,
+    last_running: Option<Instant>,
+    last_unlocked: Option<Instant>,
     locked_since: Option<Instant>,
-    /// Until a read says unlocked, a locked screen counts as past the [`CAP`].
-    needs_unlock: bool,
 }
 
 impl Tracker {
-    /// A tracker whose worker read `first` when it started.
+    /// A tracker whose worker read `first` at `now`, when it started.
     pub(crate) fn new(now: Instant, first: Lock) -> Self {
-        let needs_unlock = matches!(first, Lock::Locked | Lock::Unknown);
-        Self { last_running: now, locked_since: None, needs_unlock }
+        let last_unlocked = matches!(first, Lock::Unlocked | Lock::None).then_some(now);
+        Self { last_running: None, last_unlocked, locked_since: None }
     }
 
     /// One reading at `now`. `None` when no session runs or waits: the worker goes idle.
@@ -152,32 +152,36 @@ impl Tracker {
         waiting: usize,
         now: Instant,
     ) -> Option<Inputs> {
+        // The lock is recorded on every read, the one that goes idle too.
+        let locked_for = match lock {
+            Lock::Locked => match self.locked_since.or(self.last_unlocked) {
+                Some(since) => {
+                    self.locked_since = Some(since);
+                    now.saturating_duration_since(since)
+                }
+                None => CAP,
+            },
+            Lock::Unknown => Duration::ZERO,
+            Lock::Unlocked | Lock::None => {
+                self.locked_since = None;
+                self.last_unlocked = Some(now);
+                Duration::ZERO
+            }
+        };
         if running == 0 && waiting == 0 {
             return None;
         }
         if running > 0 {
-            self.last_running = now;
+            self.last_running = Some(now);
         }
-        let locked_for = match (lock, self.locked_since) {
-            (Lock::Locked, _) if self.needs_unlock => CAP,
-            (Lock::Locked, Some(since)) => now.saturating_duration_since(since),
-            (Lock::Locked, None) => {
-                self.locked_since = Some(now);
-                Duration::ZERO
-            }
-            (Lock::Unknown, _) => Duration::ZERO,
-            (Lock::Unlocked | Lock::None, _) => {
-                self.locked_since = None;
-                self.needs_unlock = false;
-                Duration::ZERO
-            }
-        };
         Some(Inputs {
             on,
             lock,
             running,
             waiting,
-            since_running: now.saturating_duration_since(self.last_running),
+            since_running: self
+                .last_running
+                .map_or(Duration::MAX, |ran| now.saturating_duration_since(ran)),
             locked_for,
         })
     }
@@ -357,7 +361,7 @@ mod tests {
             assert!(tracker.step(true, Lock::Unlocked, 1, 0, at(3)).is_some());
             let relocked = tracker.step(true, Lock::Locked, 1, 0, at(4)).unwrap();
             assert!(holds(relocked), "an unlock starts a stretch: {relocked:?}");
-            assert_eq!(relocked.locked_for, Duration::ZERO);
+            assert_eq!(relocked.locked_for, Duration::from_secs(60), "from the unlocked read");
         }
         let mut unlocked_start = Tracker::new(t0, Lock::Unlocked);
         assert!(holds(unlocked_start.step(true, Lock::Locked, 1, 0, t0).unwrap()));
