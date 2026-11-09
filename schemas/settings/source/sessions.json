@@ -55,6 +55,11 @@
           "keywords": [
             "sleep",
             "awake",
+            "keep awake",
+            "stay awake",
+            "prevent sleep",
+            "no sleep",
+            "idle",
             "caffeinate",
             "battery",
             "power",
@@ -78,6 +83,10 @@
           "keywords": [
             "sleep",
             "awake",
+            "keep awake",
+            "stay awake",
+            "prevent sleep",
+            "no sleep",
             "caffeinate",
             "terminal",
             "command",

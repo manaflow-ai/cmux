@@ -104,7 +104,7 @@ final class DebugSettingsService: InternalPageProvider {
 
     /// `~/Library/Application Support/cmux/<tag or channel>/debug-tunables.json`
     /// for a build that keeps its app names (``BuildIdentity/keepsAppNames``),
-    /// `cmux/builds/<key>/debug-tunables.json` for every other build, so no
+    /// `cmux-next/builds/<key>/debug-tunables.json` for every other build, so no
     /// build reads another's tunables (per-build isolation S5, cx-is1kf.6);
     /// or the `CMUX_NEXT_DEBUG_TUNABLES_FILE` override.
     nonisolated static func fileURL(environment: [String: String], tag: String?, bundleID: String?,
@@ -114,7 +114,8 @@ final class DebugSettingsService: InternalPageProvider {
             return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         }
         let cmux = home.appending(path: "Library/Application Support/cmux")
-        if let build, !build.keepsAppNames, let state = build.daemonStateDirectory(appSupport: cmux) {
+        if let build, !build.keepsAppNames,
+           let state = build.daemonStateDirectory(appSupport: home.appending(path: "Library/Application Support/cmux-next")) {
             return state.deletingLastPathComponent().appending(path: "debug-tunables.json")
         }
         let folder = tag ?? (bundleID.map { $0.hasPrefix(DevTools.nightlyBundleID) ? "nightly" : "dev" } ?? "dev")
