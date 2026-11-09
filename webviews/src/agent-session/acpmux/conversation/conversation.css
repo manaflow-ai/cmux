@@ -13,7 +13,7 @@
      2026-11-07: "they dont overshoot but they decelerate at the end. i think that might be the key").
      A host move duration of 0 (--agent-motion-move under Reduce Motion or with animation off) still
      makes it instant (fold.ts foldMotion.duration). */
-  --cv-fold-duration: var(--cmux-motion-settle, 265ms);
+  --cv-fold-duration: var(--cmux-motion-settle, 180ms);
   --cv-fold-ease: var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1));
   --cv-text: var(--agent-text);
   --cv-text-muted: var(--agent-muted); /* "Worked for", tool verbs */
@@ -157,6 +157,9 @@
   --cv-actions-in-ease: var(--cmux-hover-reveal-in-ease);
   --cv-actions-out: var(--cmux-hover-reveal-out);
   --cv-actions-out-ease: var(--cmux-hover-reveal-out-ease);
+  /* A list row's hover part leaving (HOVER FOLLOWS THE POINTER): the quick step, ease-out. It
+     arrives with no fade. */
+  --cv-row-reveal-out: opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
   --cv-actions-ease: cubic-bezier(0.32, 0.72, 0, 1);
   --cv-action-gap: 4px;
   /* Between a block's corner buttons (a code card, a diff, a tool output, a reply table): none, as
@@ -2642,7 +2645,7 @@ pre.cv-math-source {
     user-select: none;
     -webkit-user-select: none;
     color: var(--cv-text-dim);
-    animation: cv-roll-out var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+    animation: cv-roll-out var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out::before {
     content: attr(data-lead);
@@ -2651,10 +2654,10 @@ pre.cv-math-source {
     content: attr(data-text);
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-thinking[data-roll="odd"] {
-    animation: cv-roll-in-odd var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) backwards;
+    animation: cv-roll-in-odd var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-thinking[data-roll="even"] {
-    animation: cv-roll-in-even var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) backwards;
+    animation: cv-roll-in-even var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
   }
 }
 @keyframes cv-roll-out {
@@ -2727,6 +2730,33 @@ pre.cv-math-source {
   display: flex;
   height: 100%;
   align-items: center;
+}
+/* What a background turn's line cites after its words (BackgroundTurnLine.tsx `BackgroundSource`):
+   the helper in the rows' muted tone, a link as the background task row's owner is, then the task's
+   command as typed in the code face. The citation gives way before the words do. */
+.cv-agent-activity__sentence > .cv-background-turn__source {
+  display: flex;
+  flex: 0 4 auto;
+  align-items: center;
+  gap: var(--cv-tool-gap);
+}
+.cv-background-turn__owner {
+  flex: none;
+  color: var(--cv-text-muted);
+}
+.cv-background-turn__owner[role="link"] {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
+}
+.cv-background-turn__command {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--cv-text-muted);
+  font-family: var(--cv-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: inherit;
 }
 .cv-row-shimmer {
   display: none;
@@ -2949,10 +2979,8 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
 /* A tool run's or group's summary line (ToolRun.tsx, ToolGroupRow.tsx) lights its words to the
    primary tone on hover only, as Worked for does. Open or focused (a click leaves the focus on it),
    its glyph, words and chevron keep their rest tones; keyboard focus still draws the ring. The inner
-   step rows keep their own hover (below). */
-.cv-tool.is-run > .cv-tool__text {
-  transition: color var(--cmux-motion-micro) var(--cmux-ease-out);
-}
+   step rows keep their own hover (below). No fade: the lift comes and goes on the frame the pointer
+   does (HOVER FOLLOWS THE POINTER, below). */
 .cv-tool.is-run:hover > .cv-tool__text {
   color: var(--cv-text);
 }
@@ -3656,14 +3684,14 @@ button.cv-video-frames__frame:focus-visible {
    lifted tone: its words light on hover only, its glyph never (Lucas, 2026-11-06, above). */
 :is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool > .cv-tool__chevron {
   opacity: 0;
-  transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
+  transition: var(--cv-row-reveal-out);
 }
 :is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:hover > .cv-tool__chevron,
 :is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:has([data-popup-open]) > .cv-tool__chevron,
 :is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:is(:focus-within, [aria-expanded="true"], [data-popup-open], :has([aria-expanded="true"]))
   > .cv-tool__chevron {
   opacity: 1;
-  transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+  transition: none;
 }
 /* A thought step's brain glyph puts its words on the rows' text column; its opened text sits there too. */
 .cv-step-thought__body,
@@ -3997,16 +4025,21 @@ button.cv-video-frames__frame:focus-visible {
 .cv-tool:is(:hover, :focus-visible) :is(.cv-command__ok, .cv-command__time) {
   opacity: 1;
 }
-/* They fade as a message's hover row does (#23769, Claude's): in for as long as the pointer stays, at
-   once from the keyboard, out quickly. */
+/* HOVER FOLLOWS THE POINTER: a transcript row's hover look (its words, its check and time, a
+   step's chevron) shows on the frame the pointer reaches the row, as a list row's hover does
+   (pages/shared/desktop.css "Hover intent", Leo 2026-10-14), and leaves on the quick step
+   (`--cv-row-reveal-out`), so the row just left is dark before the next row's look settles. The
+   message hover row's 400 ms dwell trailed the pointer here: on a sweep down a live turn's rows the
+   time ramped in for about 350 ms and out over 180 ms, so the row just left still showed its time,
+   a row crossed in passing never lit, and the highlight read a row behind (Leo, 2026-11-09, on a
+   recording of a live turn: "what's going on here", "oh im mostly just saying that it lags"). The
+   dwell stays for a message's Copy row, which sits over prose; these are list rows.
+   test/agent-pane-hover-follows-row.test.ts. */
 @media (prefers-reduced-motion: no-preference) {
   .cv-tool :is(.cv-command__ok, .cv-command__time) {
-    transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
+    transition: var(--cv-row-reveal-out);
   }
-  .cv-tool:hover :is(.cv-command__ok, .cv-command__time) {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
-  }
-  .cv-tool:focus-visible :is(.cv-command__ok, .cv-command__time) {
+  .cv-tool:is(:hover, :focus-visible) :is(.cv-command__ok, .cv-command__time) {
     transition: none;
   }
 }
@@ -5460,10 +5493,10 @@ a.cv-sha:focus-visible {
      visible transcript when a subagent or command arrives; the row's measured box is already in
      the layout, so only its ink fades in. Message rows keep their dedicated presentation motion. */
   .acpmux-row.acpmux-row--enter:not(.acpmux-user):not(.acpmux-assistant) {
-    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+    animation: cv-enter-fade var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
   }
   .acpmux-row__message-presentation {
-    animation: cv-message-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+    animation: cv-message-enter var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -5515,7 +5548,7 @@ a.cv-sha:focus-visible {
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-user.acpmux-row--message-enter .acpmux-row__message-presentation,
   .acpmux-user.acpmux-row--message-enter ~ .acpmux-thinking.acpmux-row--enter {
-    animation-duration: var(--agent-motion-send-fade, var(--agent-motion-send, 265ms));
+    animation-duration: var(--agent-motion-send-fade, var(--agent-motion-send, 180ms));
     animation-timing-function: var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1));
   }
   /* A sent picture or video appears in its slot, at its size, with the prompt: it only fades, on the
@@ -5523,19 +5556,19 @@ a.cv-sha:focus-visible {
      sort of, like, fly-in animation ... I feel like that's kind of weird"). One whose bytes come
      later still fades in where it is, and so does one in a new chat's first prompt. */
   .cv-user .cv-enter {
-    animation: cv-enter-fade var(--agent-motion-send-fade, var(--agent-motion-send, 265ms)) var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1))
+    animation: cv-enter-fade var(--agent-motion-send-fade, var(--agent-motion-send, 180ms)) var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1))
       both;
   }
   /* Backwards fill only: the clip is the entrance's, and once it ends the bubble draws unclipped, so
      the "Sending" mark just outside its left edge (`.cv-user__delivery`) shows on a slow send. */
   .acpmux-user.acpmux-row--message-enter .cv-user__bubble {
-    animation: cv-send-reveal var(--agent-motion-send, 265ms) var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1))
+    animation: cv-send-reveal var(--agent-motion-send, 180ms) var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1))
       backwards;
   }
   /* The text comes in a beat behind the bubble's edge, so no letter shows cut at the edge. */
   .acpmux-user.acpmux-row--message-enter .cv-user__bubble > * {
-    animation: cv-message-enter calc(var(--agent-motion-send-fade, var(--agent-motion-send, 265ms)) * 0.7)
-      var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1)) calc(var(--agent-motion-send, 265ms) * 0.3) both;
+    animation: cv-message-enter calc(var(--agent-motion-send-fade, var(--agent-motion-send, 180ms)) * 0.7)
+      var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1)) calc(var(--agent-motion-send, 180ms) * 0.3) both;
   }
   [data-send-entrance="grow"] .acpmux-user.acpmux-row--message-enter .cv-user__bubble {
     transform-origin: right bottom;
@@ -6268,9 +6301,25 @@ a.cv-sha:focus-visible {
 }
 /* Jump to latest keeps its own glass. It does not widen the transcript's soft edge: a 56px band
    washed out almost three lines above the composer (Leo, 2026-10-27). */
-/* Find in Chat's bar sits in the top band: it keeps full ink, and rows pass under it. */
-.acpmux-scroll[data-fade-top]:has(> .acpmux-find) {
-  --acpmux-fade-top: 0px;
+/* Find in Chat's bar sits in the top band. The band keeps fading the rows under the header while it
+   is open (Leo, 2026-11-05: Find "takes off the blur of the top bar bit"): the mask's last layer
+   keeps full ink only over the bar's own box, which ChatFindBar measures (--acpmux-find-x,
+   --acpmux-find-y, --acpmux-find-width), from its top edge down, its sides feathered over
+   --acpmux-find-soft so its drop is not cut. Rows above and beside it keep fading; rows pass under
+   its glass. With no bar the layer is empty (0 by 0). */
+.acpmux-scroll:has(> .acpmux-find) {
+  --acpmux-find-soft: 16px;
+  --acpmux-find-hole: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--acpmux-find-soft),
+    #000 calc(100% - var(--acpmux-find-soft)),
+    transparent
+  );
+  --acpmux-find-hole-size: calc(var(--acpmux-find-width, 0px) + 2 * var(--acpmux-find-soft))
+    calc(var(--find-pill-height, 34px) + var(--acpmux-find-soft));
+  --acpmux-find-hole-position: calc(var(--acpmux-find-x, 0px) - var(--acpmux-find-soft))
+    var(--acpmux-find-y, var(--find-pill-inset, 10px));
 }
 .acpmux-scroll[data-fade-top],
 .acpmux-scroll[data-fade-bottom],
@@ -6288,22 +6337,28 @@ a.cv-sha:focus-visible {
   );
   -webkit-mask-image:
     var(--acpmux-view-mask),
-    linear-gradient(#000, #000);
+    linear-gradient(#000, #000),
+    var(--acpmux-find-hole, linear-gradient(transparent, transparent));
   mask-image:
     var(--acpmux-view-mask),
-    linear-gradient(#000, #000);
+    linear-gradient(#000, #000),
+    var(--acpmux-find-hole, linear-gradient(transparent, transparent));
   -webkit-mask-size:
     100% 100%,
-    var(--acpmux-scrollbar-lane, 16px) 100%;
+    var(--acpmux-scrollbar-lane, 16px) 100%,
+    var(--acpmux-find-hole-size, 0px 0px);
   mask-size:
     100% 100%,
-    var(--acpmux-scrollbar-lane, 16px) 100%;
+    var(--acpmux-scrollbar-lane, 16px) 100%,
+    var(--acpmux-find-hole-size, 0px 0px);
   -webkit-mask-position:
     0 0,
-    100% 0;
+    100% 0,
+    var(--acpmux-find-hole-position, 0 0);
   mask-position:
     0 0,
-    100% 0;
+    100% 0,
+    var(--acpmux-find-hole-position, 0 0);
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
 }
@@ -6317,37 +6372,45 @@ a.cv-sha:focus-visible {
   -webkit-mask-image:
     var(--acpmux-view-mask),
     linear-gradient(#000, #000),
-    linear-gradient(#000, #000);
+    linear-gradient(#000, #000),
+    var(--acpmux-find-hole, linear-gradient(transparent, transparent));
   mask-image:
     var(--acpmux-view-mask),
     linear-gradient(#000, #000),
-    linear-gradient(#000, #000);
+    linear-gradient(#000, #000),
+    var(--acpmux-find-hole, linear-gradient(transparent, transparent));
   -webkit-mask-size:
     100% 100%,
     var(--acpmux-scrollbar-lane, 16px) 100%,
-    var(--cv-inset) 100%;
+    var(--cv-inset) 100%,
+    var(--acpmux-find-hole-size, 0px 0px);
   mask-size:
     100% 100%,
     var(--acpmux-scrollbar-lane, 16px) 100%,
-    var(--cv-inset) 100%;
+    var(--cv-inset) 100%,
+    var(--acpmux-find-hole-size, 0px 0px);
   -webkit-mask-position:
     0 0,
     100% 0,
-    0 0;
+    0 0,
+    var(--acpmux-find-hole-position, 0 0);
   mask-position:
     0 0,
     100% 0,
-    0 0;
+    0 0,
+    var(--acpmux-find-hole-position, 0 0);
 }
 .acpmux-scroll:has(> .acpmux-minimap[data-side="right"]):is([data-fade-top], [data-fade-bottom], [data-docked]) {
   -webkit-mask-position:
     0 0,
     100% 0,
-    100% 0;
+    100% 0,
+    var(--acpmux-find-hole-position, 0 0);
   mask-position:
     0 0,
     100% 0,
-    100% 0;
+    100% 0,
+    var(--acpmux-find-hole-position, 0 0);
 }
 /* Plain edges: the rows under the bottom stack still stay out of sight, with a hard cut. */
 @media (prefers-reduced-transparency: reduce) {
@@ -7044,9 +7107,9 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 /* An ask that opens under a line already drawn: the dot grows in from nothing, its room opening with
    it (the 8px gap too), so the pill's words slide over in the same motion rather than jump (Leo,
    2026-11-08: "I mostly just meant the yellow circle thing"). The house settle curve and step
-   (265 ms); with motion off or reduced the dot is simply there. */
+   (180 ms); with motion off or reduced the dot is simply there. */
 .cv-needs-input-glyph.is-asked {
-  animation: cv-needs-input-asked var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle) both;
+  animation: cv-needs-input-asked var(--cmux-motion-settle, 180ms) var(--cmux-ease-settle) both;
 }
 @keyframes cv-needs-input-asked {
   from {

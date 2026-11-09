@@ -208,7 +208,8 @@ impl Gate {
     /// Starts or extends the connect hold to at least `now_ms + hold`, as a
     /// hold of `kind`. False when a restart of the service is pending at
     /// `now_ms`: a link made now would be cut, so a bind waits for the
-    /// restarted service.
+    /// restarted service. It takes the flock: never inside [`Gate::run`]
+    /// (see [`hold_connects`]).
     pub fn hold(&self, now_ms: u64, hold: Duration, kind: HoldKind) -> bool {
         let _lock = self.lock();
         let mut state = self.read();
@@ -271,6 +272,11 @@ impl Gate {
 /// The connect hold of `kind` a bind, a new connect or a wake takes at
 /// `now_ms`: false when a restart of the service is pending, so the caller
 /// does not bind now.
+///
+/// It takes the gate's flock itself ([`Gate::hold`]), so it must never be
+/// called inside [`Gate::run`]: the flock is not reentrant (a second open
+/// file waits on the first), and the run would deadlock on itself. Inside,
+/// use [`Inside::hold_connects`] (or [`Inside::hold`]) with the time of the hold.
 pub fn hold_connects(paths: &Paths, now_ms: u64, kind: HoldKind) -> bool {
     Gate::new(paths).hold(now_ms, CONNECT_HOLD, kind)
 }

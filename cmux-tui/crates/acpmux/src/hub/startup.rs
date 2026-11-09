@@ -48,6 +48,7 @@ impl Hub {
         self.login_env_requested.store(login_env, Ordering::SeqCst);
         self.startup_ready.send_replace(false);
         self.catalog_ready.send_replace(false);
+        self.model_caches_ready.send_replace(false);
     }
 
     /// The daemon's work once startup is done: chats start (after the login env import: it names
@@ -69,17 +70,21 @@ impl Hub {
     /// reload the catalog so PATH discovery sees it, check launchers, then
     /// let spawns through and probe models.
     pub async fn finish_startup(self: &Arc<Self>) {
-        // deny-all as the default policy in config.json, a lockdown (`policy_mode.rs`): every chat
-        // without a policy of its own follows it. A stopped chat's saved mode is written now; an
-        // adopted agent is reached once startup is done (`child_for` waits for it).
-        if self.config.read().await.permission_policy == crate::config::PermissionPolicy::DenyAll {
+        // deny-all or review as the default policy in config.json, a lockdown (`policy_mode.rs`):
+        // every chat without a policy of its own follows it. A stopped chat's saved mode is
+        // written now; an adopted agent is reached once startup is done (`child_for` waits for it).
+        if matches!(
+            self.config.read().await.permission_policy,
+            crate::config::PermissionPolicy::DenyAll | crate::config::PermissionPolicy::Review
+        ) {
             let hub = self.clone();
             tokio::spawn(async move { hub.follow_default_policy().await });
         }
         // Prompts queued under the previous daemon, after any adopted turn (`queue.rs`).
         self.resume_queues();
-        // The last live model lists, before anything slow.
-        self.load_live_cache().await;
+        // The last live model lists and the ACP agents' last probed lists (OpenCode, Gemini),
+        // before anything slow; `_acpmux/models` waits for them.
+        self.load_model_caches().await;
         let login_env = self.login_env_requested.load(Ordering::SeqCst);
         let mut reloaded = false;
         if login_env {
