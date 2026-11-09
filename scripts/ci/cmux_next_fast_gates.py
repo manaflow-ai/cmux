@@ -320,7 +320,7 @@ def run_gate(argv: list[str], repo: Path, seconds: float | None) -> int | None:
         for sig, grace in ((signal.SIGTERM, 10), (signal.SIGKILL, 10)):
             try:
                 os.killpg(process.pid, sig)
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):  # gone, or a macOS zombie group
                 break
             try:
                 process.wait(timeout=grace)

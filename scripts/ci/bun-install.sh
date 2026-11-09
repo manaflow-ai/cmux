@@ -26,8 +26,9 @@ registry="${BUN_CONFIG_REGISTRY:-${NPM_CONFIG_REGISTRY:-https://registry.npmjs.o
 runner="${RUNNER_NAME:-$(hostname)}"
 
 for value in "$BUN_CONFIG_HTTP_IDLE_TIMEOUT" "$BUN_CONFIG_HTTP_RETRY_COUNT" "$attempt_seconds" "$attempts"; do
-  if [[ ! "$value" =~ ^[0-9]+$ ]]; then
-    echo "bun-install: '$value' is not a whole number" >&2
+  # Zero is refused too: `timeout 0` never fires, which would undo the bound.
+  if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
+    echo "bun-install: '$value' is not a positive whole number" >&2
     exit 2
   fi
 done

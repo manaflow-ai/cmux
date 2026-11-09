@@ -1105,6 +1105,12 @@ class BunInstallScript(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("idle=30 retry=5 args=install --frozen-lockfile", result.stdout)
 
+    def test_a_zero_bound_is_refused(self):
+        # GNU `timeout 0` disables the deadline, so a zero would let a hung install run to the job limit again.
+        result = self.install("exit 0\n", BUN_INSTALL_ATTEMPT_SECONDS="0")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("not a positive whole number", result.stderr)
+
     def test_web_complexity_installs_through_it_with_the_package_cache(self):
         doc = yaml.safe_load((ROOT / ".github/workflows/web-complexity.yml").read_text(encoding="utf-8"))
         steps = doc["jobs"]["complexity"]["steps"]
