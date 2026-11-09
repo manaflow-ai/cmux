@@ -637,7 +637,8 @@ pub(super) fn require_enforced(meta: &SessionMeta, cfg: &Config) -> Result<(), R
         && let Some(distrust) = claim_distrust(meta, cfg)
     {
         why.push_str(&format!(
-            "; it says it asks before every tool call, which acpmux believes only from an agent it started from a harness entry of its own config ({distrust})"
+            "; it says it asks before every tool call, which acpmux believes only from an agent it started from a harness entry of its own config with a command nothing else chose, and {} ({distrust})",
+            distrust_text(distrust)
         ));
     }
     Err(unenforceable(policy, &meta.harness, &why))
@@ -668,23 +669,50 @@ fn claims_asks(meta: &SessionMeta) -> bool {
 
 /// Why acpmux does not believe `meta`'s `asksBeforeTools` claim, or None when it does (lead,
 /// 2026-11-09). Any program can say it asks; acpmux believes the agent it started from a harness
-/// entry of its own config (`config.json`, a discovered harness: `Config::profile`), and only while
-/// that entry still launches what the agent started from (its `launch_digest`, argv and env, as
-/// `profile_respawn.rs` judges it):
-/// - `not_started_here`: no launch is recorded (a forked chat before its own start, a chat moved
+/// entry of its own config (`config.json`, a discovered harness: `Config::profile`) with a launch
+/// that nothing but the config chose, and only while the config still gives the inputs that
+/// launch came from (`claim_basis.rs`):
+/// - `not_started_here`: no start is recorded (a forked chat before its own start, a chat moved
 ///   from another machine, a start by an older build): the claim was copied, not made to acpmux;
-/// - `not_a_config_entry`: the harness is no entry of the config (a folder profile, the
-///   repository's `.cmux/harnesses`, or an entry removed since the start);
-/// - `entry_changed`: the entry launches something else now (changed since the start, such as an
-///   agent host adopted after a restart).
+/// - `not_a_config_entry`: the start ran no entry of the config (a folder profile, the
+///   repository's `.cmux/harnesses`, also when an entry takes its name later), or the entry is
+///   gone since;
+/// - `argv_skips_approvals`: the command the start ran skips approvals (`--yolo`);
+/// - `launch_reads_folder`: the command runs code the chat's folder chose (`${cwd}/agent.py`);
+/// - `entry_changed`: the config gives other inputs now (the entry's argv or env, its `defaults`
+///   env or its preset changed since the start, such as for an agent host adopted after a
+///   restart).
 ///
-/// A start records the entry's launch as the entry is written, a remote start too (before its
-/// admission resolves the program, `Resolved::launch_digest`), so this compares digests only and
-/// reads no file.
-pub(super) fn claim_distrust(meta: &SessionMeta, cfg: &Config) -> Option<&'static str> {
-    let Some(started) = meta.launch_digest.as_deref() else { return Some("not_started_here") };
-    let Some(entry) = cfg.profile(&meta.harness) else { return Some("not_a_config_entry") };
-    (entry.launch_digest() != started).then_some("entry_changed")
+/// A start records the config inputs as it read them with the profile, a remote start too
+/// (before its admission resolves the program), so this compares digests only and reads no file.
+pub(super) fn claim_distrust<'a>(meta: &'a SessionMeta, cfg: &Config) -> Option<&'a str> {
+    if let Some(why) = meta.claim_unbelieved.as_deref() {
+        return Some(why);
+    }
+    let Some(started) = meta.claim_basis.as_deref() else { return Some("not_started_here") };
+    let Some(now) = super::claim_basis::config_inputs(cfg, &meta.harness, meta.preset.as_deref())
+    else {
+        return Some("not_a_config_entry");
+    };
+    (now != started).then_some("entry_changed")
+}
+
+/// What reason `distrust` of [`claim_distrust`] means, for the refusal a person reads.
+fn distrust_text(distrust: &str) -> &'static str {
+    match distrust {
+        "not_started_here" => {
+            "this agent's claim was copied from another start (a fork or a moved chat)"
+        }
+        "not_a_config_entry" => {
+            "this agent was started from a folder profile or an entry that is gone"
+        }
+        "entry_changed" => "its harness entry, defaults or preset changed since the agent started",
+        "argv_skips_approvals" => "its command skips approvals",
+        "launch_reads_folder" => {
+            "its command runs code that the chat folder chose: a file, module or settings in the folder, a relative PATH entry, a package runner such as npx, or a program that PATH finds in the folder. A chat folder that holds the agent's program also counts, such as ~ for ~/.local/bin/agent, or /tmp"
+        }
+        _ => "acpmux cannot check the claim",
+    }
 }
 
 /// The `policy_refused` record of refusal `e` (`unenforceable`): its data and its message.
@@ -752,7 +780,7 @@ mod tests {
     use super::*;
 
     /// An `asksBeforeTools` claim is believed only from an agent started from a harness entry of
-    /// the config that still launches what it started from (`claim_distrust`).
+    /// the config that still gives the inputs it started from (`claim_distrust`).
     #[test]
     fn a_policy_claim_is_believed_only_from_an_unchanged_config_entry() {
         let mut cfg: Config =
@@ -763,10 +791,10 @@ mod tests {
             "agentCapabilities": {"_meta": {"acpmux": {"asksBeforeTools": true}}},
         }))
         .unwrap();
-        // A copy of the claim (a fork before its start, a moved chat): no launch recorded.
+        // A copy of the claim (a fork before its start, a moved chat): no start recorded.
         assert_eq!(claim_distrust(&meta, &cfg), Some("not_started_here"));
         assert!(!asks_before_tools(&meta, &cfg));
-        meta.launch_digest = Some(cfg.harnesses["lane"].launch_digest());
+        meta.claim_basis = super::super::claim_basis::config_inputs(&cfg, "lane", None);
         assert_eq!(claim_distrust(&meta, &cfg), None);
         assert!(asks_before_tools(&meta, &cfg));
         // In a mode that skips approvals, a believed claim still does not hold.
@@ -777,7 +805,11 @@ mod tests {
         lane.env.insert("LANE_FLAG".to_owned(), "1".to_owned());
         assert_eq!(claim_distrust(&meta, &cfg), Some("entry_changed"));
         assert!(!asks_before_tools(&meta, &cfg));
-        // A folder profile, or an entry removed since.
+        // A launch the start found it cannot carry a claim: its reason, whatever the config.
+        meta.claim_unbelieved = Some("argv_skips_approvals".to_owned());
+        assert_eq!(claim_distrust(&meta, &cfg), Some("argv_skips_approvals"));
+        meta.claim_unbelieved = None;
+        // An entry removed since.
         meta.harness = "acme".to_owned();
         assert_eq!(claim_distrust(&meta, &cfg), Some("not_a_config_entry"));
         // No claim at all: nothing to believe.
@@ -786,10 +818,10 @@ mod tests {
         assert!(!claims_asks(&meta));
     }
 
-    /// The claim is judged by the recorded launch alone, with no look at the filesystem: a start
-    /// records the digest of its config entry as the entry is written, a remote start too (lead,
-    /// 2026-11-09). A launch whose program is some other path than the entry's (here the
-    /// canonical path a remote start resolves the entry's bare program to) is another launch.
+    /// The claim is judged by the recorded config inputs alone, with no look at the filesystem: a
+    /// start records them from its config entry as the entry is written, a remote start too
+    /// (lead, 2026-11-09). An entry whose program is some other path (here the canonical path a
+    /// remote start resolves the entry's bare program to) is another launch.
     #[test]
     fn a_launch_with_another_program_path_is_not_the_entrys_launch() {
         let cfg: Config =
@@ -798,10 +830,12 @@ mod tests {
         let mut resolved = cfg.harnesses["py"].clone();
         super::super::resolve::fix_remote_executable(&mut resolved).unwrap();
         assert_ne!(resolved.argv, cfg.harnesses["py"].argv, "python3 resolves to a path");
+        let mut admitted = cfg.clone();
+        admitted.harnesses.insert("py".to_owned(), resolved);
         let meta: SessionMeta = serde_json::from_value(json!({
             "schema": crate::store::META_SCHEMA, "id": "s", "name": "s", "harness": "py",
             "cwd": "/w", "status": "ready", "createdAt": 0, "updatedAt": 0,
-            "launchDigest": resolved.launch_digest(),
+            "claimBasis": super::super::claim_basis::config_inputs(&admitted, "py", None),
             "agentCapabilities": {"_meta": {"acpmux": {"asksBeforeTools": true}}},
         }))
         .unwrap();

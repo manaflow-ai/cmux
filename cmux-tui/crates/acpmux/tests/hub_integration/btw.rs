@@ -430,7 +430,10 @@ async fn unsupported_claude_subtype_side_question_falls_back_while_parent_turn_r
 
 #[tokio::test]
 async fn a_side_session_takes_the_asked_model_then_the_configured_one_then_the_harness_default() {
-    let calls = std::env::temp_dir().join(format!("acpmux-btw-calls-{}", uuid::Uuid::now_v7()));
+    // Outside the chat's folder (the temp root): an env path inside it is code the folder
+    // chose, and the side session's narrow policy would not take the fake's claim.
+    let calls = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("acpmux-btw-calls-{}", uuid::Uuid::now_v7()));
     let calls_path = calls.to_string_lossy().into_owned();
     let (hub, mut c) = asking_setup(&[
         ("FAKE_PICKER", "1"),

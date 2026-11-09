@@ -416,6 +416,8 @@ impl Hub {
             harness_argv: parent_meta.harness_argv.clone(),
             spawn_argv: None,
             launch_digest: None,
+            claim_basis: None,
+            claim_unbelieved: None,
             family: parent_meta.family.clone(),
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),

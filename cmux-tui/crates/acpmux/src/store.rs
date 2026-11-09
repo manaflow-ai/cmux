@@ -166,6 +166,18 @@ pub struct SessionMeta {
     /// judged too. None before any start, or for a start by an older build.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch_digest: Option<String>,
+    /// The config inputs its agent last started from (`hub/claim_basis.rs` `config_inputs`): the
+    /// harness entry's argv and env, its `defaults` env and its preset. An `asksBeforeTools`
+    /// claim is believed only while the config still gives the same (`hub/policy_mode.rs`
+    /// `claim_distrust`). None when the start cannot carry a claim (`claim_unbelieved`), before
+    /// any start, or for a start by an older build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claim_basis: Option<String>,
+    /// Why the start its agent last made cannot carry an `asksBeforeTools` claim
+    /// (`hub/claim_basis.rs`: `not_a_config_entry`, `argv_skips_approvals`,
+    /// `launch_reads_folder`), or None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claim_unbelieved: Option<String>,
     /// Model family of the profile at creation (`claude`, `codex`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,

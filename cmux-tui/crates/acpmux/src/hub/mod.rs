@@ -50,6 +50,7 @@ pub(crate) mod audit_log;
 mod bookmarks;
 pub(crate) mod cancel;
 mod catalog_reload;
+mod claim_basis;
 mod complete;
 pub mod composers;
 mod cursor_ext;

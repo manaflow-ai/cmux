@@ -307,6 +307,8 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         harness_argv: d.profile.argv.clone(),
         spawn_argv: None,
         launch_digest: None,
+        claim_basis: None,
+        claim_unbelieved: None,
         family: Some(d.family.to_owned()),
         preset: d.preset,
         model_request: d.model_request,

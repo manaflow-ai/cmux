@@ -170,20 +170,32 @@ impl Hub {
     /// finds the agent running spawns nothing and records nothing.
     /// `launch_digest`: the launch of the entry `profile` comes from, as the entry is written
     /// (`Resolved::launch_digest`; `profile.launch_digest()` when `profile` is the entry itself).
+    /// `from_config`: `profile` is the config entry `session`'s harness names, not a folder
+    /// profile: only then can its agent's `asksBeforeTools` claim be believed (`Spawn::claim`,
+    /// `claim_basis.rs`).
     pub(super) async fn spawn_profile(
         &self,
         session: &Session,
         profile: &HarnessProfile,
         launch_digest: String,
+        from_config: bool,
         defaults_env: &std::collections::BTreeMap<String, String>,
     ) -> Result<Spawn, RpcError> {
         // A fork resumes its parent's conversation: it runs in the parent's folder.
         let forking = session.fork_from.lock().unwrap_or_else(|e| e.into_inner()).is_some();
         let meta = session.meta();
         let opencode = super::policy_mode::is_opencode(&meta, profile);
-        let (profile, preset_digest, account_home) =
-            self.spawn_profile_read(&meta, forking, profile, defaults_env).await?;
-        Ok(Spawn { profile, preset_digest, account_home, opencode, launch_digest })
+        let claim_from = from_config.then_some(launch_digest.as_str());
+        let read =
+            self.spawn_profile_read(&meta, forking, profile, defaults_env, claim_from).await?;
+        Ok(Spawn {
+            profile: read.profile,
+            preset_digest: read.preset_digest,
+            account_home: read.account_home,
+            opencode,
+            launch_digest,
+            claim: read.claim,
+        })
     }
 
     /// `spawn_profile` for a session's meta, also before the session exists
@@ -194,26 +206,42 @@ impl Hub {
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
     ) -> Result<HarnessProfile, RpcError> {
-        self.spawn_profile_read(meta, false, profile, defaults_env).await.map(|(p, ..)| p)
+        self.spawn_profile_read(meta, false, profile, defaults_env, None)
+            .await
+            .map(|read| read.profile)
     }
 
     /// `spawn_profile_for`, and the approval digest of the preset contents
-    /// it read (under the one config lock it read them with).
+    /// it read (under the one config lock it read them with). `claim_from`: the launch digest of
+    /// the config entry `profile` is, None for a folder profile; the claim basis is read under the
+    /// same lock as the preset (`claim_basis::start_claim`).
     async fn spawn_profile_read(
         &self,
         meta: &SessionMeta,
         forking: bool,
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
-    ) -> Result<(HarnessProfile, Option<String>, Option<std::path::PathBuf>), RpcError> {
+        claim_from: Option<&str>,
+    ) -> Result<SpawnRead, RpcError> {
         let mut p = profile.clone();
         let mut digest = None;
         for (k, v) in defaults_env {
             p.env.entry(k.clone()).or_insert_with(|| v.clone());
         }
         let mut prompt_file = None;
+        let claim;
         {
             let cfg = self.config.read().await;
+            claim = match claim_from {
+                Some(launch) => super::claim_basis::start_claim(
+                    &cfg,
+                    &meta.harness,
+                    meta.preset.as_deref(),
+                    launch,
+                    defaults_env,
+                ),
+                None => Err("not_a_config_entry"),
+            };
             if let Some(name) = &meta.preset
                 && let Some(preset) = cfg.presets.get(name)
             {
@@ -268,6 +296,10 @@ impl Hub {
         for a in p.argv.iter_mut() {
             *a = expand_env_value(a, &meta.cwd, &home, &model);
         }
+        // The launch as the config chose it, expanded, before acpmux's own additions below.
+        let claim = claim.and_then(|basis| {
+            super::claim_basis::unbelieved_launch(&p, &meta.cwd).map_or(Ok(basis), Err)
+        });
         // An adopted chat that no profile's store holds runs on its own store.
         meta.apply_chat_store(&mut p.env);
         // The session's own env last, over the preset, never expanded: its
@@ -387,7 +419,7 @@ impl Hub {
         if super::policy_mode::asks_opencode(meta, profile, default_policy) {
             p.env.insert(crate::opencode_ask::MARKER.to_owned(), "1".to_owned());
         }
-        Ok((p, digest, account_home))
+        Ok(SpawnRead { profile: p, preset_digest: digest, account_home, claim })
     }
 
     /// `spawn` with OpenCode asked to ask as `session`'s policy stands now (`policy_mode.rs`),
@@ -413,6 +445,7 @@ impl Hub {
             account_home: spawn.account_home.clone(),
             opencode: spawn.opencode,
             launch_digest: spawn.launch_digest.clone(),
+            claim: spawn.claim.clone(),
         })
     }
 }
@@ -429,6 +462,19 @@ pub(super) struct Spawn {
     /// `HarnessProfile::launch_digest` of the profile as configured, before the preset, the
     /// route and the session's own env: what `profile_respawn.rs` compares a reload against.
     pub launch_digest: String,
+    /// What an `asksBeforeTools` claim of the agent this spawn starts is judged by
+    /// (`claim_basis.rs`): the config inputs of its launch, or why it cannot carry a claim.
+    pub claim: Result<String, &'static str>,
+}
+
+/// What `Hub::spawn_profile_read` read: the profile as it is spawned, the approval digest of the
+/// preset contents, the account home, and the claim basis of the launch or why it cannot carry
+/// an `asksBeforeTools` claim (`Spawn::claim`).
+struct SpawnRead {
+    profile: HarnessProfile,
+    preset_digest: Option<String>,
+    account_home: Option<std::path::PathBuf>,
+    claim: Result<String, &'static str>,
 }
 
 impl std::ops::Deref for Spawn {
