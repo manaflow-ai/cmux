@@ -62,7 +62,7 @@ pub fn prompt(path: &str, patch: &str, max_bytes: usize) -> String {
     } else {
         let kept = crate::complete::cut(patch, room.saturating_sub(cut_note.len()));
         // A whole line is kept or none of it.
-        let kept = kept.rfind('\n').map_or("", |at| &kept[..at]);
+        let kept = kept.rfind('\n').and_then(|at| kept.get(..at)).unwrap_or("");
         format!("{kept}{cut_note}")
     };
     format!("{head}{body}{tail}")
