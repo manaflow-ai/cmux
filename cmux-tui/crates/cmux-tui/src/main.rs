@@ -29,6 +29,8 @@ mod build_adopt;
 mod carrier;
 mod classic_hooks;
 #[cfg(unix)]
+mod claude_plugin;
+#[cfg(unix)]
 mod claude_wrapper;
 mod cli;
 mod client_log;
@@ -48,12 +50,17 @@ mod host_orphan_policy;
 mod local_actor;
 #[cfg(unix)]
 mod machine_secrets;
+#[cfg(unix)]
+mod own_build_helpers;
 mod page_listener;
 mod private_mode;
+mod screen_detection_status;
 #[cfg(unix)]
 mod share_room;
 #[cfg(unix)]
 mod signal_sender;
+#[cfg(unix)]
+mod terminal_paste;
 mod websocket_credential;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
 #[cfg(unix)]
@@ -2494,31 +2501,14 @@ fn run_server(
     if args.agent_browser_provider {
         agent_browser_provider::configure_surface_options(&mut surface_options)?;
     }
-    if let Some(helper) = agent_hook_install::runtime_helper_path() {
-        surface_options
-            .extra_env
-            .push(("CMUX_TUI_HOOK".into(), helper.to_string_lossy().into_owned()));
-    }
-    // `claude` resolves to a shim that adds the session's agent hooks, even
-    // under launchers with their own settings and config directory.
+    // `claude` and `codex` resolve to shims that add the session's agent
+    // hooks (even under launchers with their own settings and config
+    // directory), and the hooks run this build's helper. Codex runs its hooks
+    // in a shared daemon that cannot see the terminal's environment, so only
+    // its shim routes them. All three are this build's own, never the copies
+    // another install on this machine wrote.
     #[cfg(unix)]
-    claude_wrapper::configure_pane_path(&mut surface_options);
-    // The Codex shim lives in the same shim directory, so its PATH entry is
-    // usually the one the Claude shim already added.
-    #[cfg(unix)]
-    if let Some(path) = codex_wrapper::pane_path() {
-        if !surface_options.extra_env.iter().any(|(name, value)| name == "PATH" && value == &path) {
-            surface_options.extra_env.push(("PATH".into(), path));
-        }
-        // Integrated shells keep this directory first after startup files
-        // reorder PATH: Codex runs its hooks in a shared daemon that cannot
-        // see the terminal's environment, so only the shim routes them.
-        if let Some(dir) =
-            codex_wrapper::shim_directory().and_then(|dir| dir.into_os_string().into_string().ok())
-        {
-            surface_options.extra_env.push((cmux_tui_core::AGENT_SHIMS_ENV.into(), dir));
-        }
-    }
+    own_build_helpers::configure_pane(&mut surface_options);
     // The app's bundled `cmux` (the app starts the daemon with it) stays
     // first after the shim on a caller PATH (`terminal_spawn_options`).
     surface_options.bundled_cli = cmux_tui_core::daemon_env::bundled_cli_from_process_env();
@@ -2790,10 +2780,12 @@ fn run_server(
     #[cfg(unix)]
     cmux_tui_core::server::start_link_share_bridge(&mux, share_room::url().as_deref());
     // Ends terminals that have had no tab placement for the reap grace
-    // period and are not marked keep (`terminal-reap-v1`). Opt-in: a close
-    // has always left the terminal running unplaced, and clients built
-    // before the reaper (and Cloud supervisors) rely on that, so only a
-    // daemon started with `--terminal-reap-grace-seconds` reaps.
+    // period and are not marked keep (`terminal-reap-v1`). Every owner that
+    // `ensure` starts (`cmux`, `cmux-tui`, `daemon ensure`, also over SSH:
+    // the iOS remote and `remote_host/serve.rs`) gets the option, 30 s unless
+    // the client names another (local_owner.rs, W5-O). Only a daemon started
+    // directly with `--headless` and no option does not reap (the Mac app's
+    // SSH remote, `SSHCommandLine.swift`).
     let terminal_reaper = match args.terminal_reap_grace {
         Some(grace) => {
             mux.set_terminal_reap_grace(grace)?;

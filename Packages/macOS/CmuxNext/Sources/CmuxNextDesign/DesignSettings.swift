@@ -176,6 +176,9 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: Self.hoverCardsDidChange, object: nil)
         }
     }
+    /// `developerTools.appPages`: cmux's own pages (an agent chat, Home, Markdown, Settings) offer
+    /// Inspect Element and open developer tools. On by default; browser tabs keep theirs either way.
+    public var pageDeveloperTools = true
     /// `ui.calm` (``CalmMode``): Reduce Motion behavior, no hover cards and no hover fills, and
     /// with `still` no animation at all. A change posts the motion, Reduce Motion and hover-card
     /// notifications, so cached motion values re-read and a shown card goes at once.
@@ -251,6 +254,10 @@ public final class DesignSettings {
     /// face when cmux.json sets none.
     public var terminalConfigFontFamily: String? {
         didSet { repaintIfTerminalFaceChanged(from: terminalFontFamily ?? oldValue) }
+    }
+    /// The full Ghostty `font-family` fallback chain, in config precedence order.
+    public var terminalConfigFontFamilies: [String] = [] {
+        didSet { if terminalConfigFontFamilies != oldValue { ThemeScope.app.store.repaintAll() } }
     }
     /// The family the terminal draws in: cmux.json's, else the Ghostty config's; nil when
     /// neither names one (Ghostty's built-in face). Pages that show code follow it (`WebTheme`).

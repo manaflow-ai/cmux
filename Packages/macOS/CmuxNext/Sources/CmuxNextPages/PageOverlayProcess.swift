@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import WebKit
 
 /// One WebKit web content process for the app's transparent overlay pages
@@ -23,8 +24,10 @@ import WebKit
 public final class PageOverlayProcess {
     /// The most overlay pages one process serves: what one crash of that process takes down.
     let pagesPerProcess: Int
-    /// The store every overlay page uses (a process is shared only within one store).
-    let dataStore: WKWebsiteDataStore = .nonPersistent()
+    /// The store every overlay page uses (a process is shared only within one store). Made when the first overlay
+    /// page is: `.nonPersistent()` costs 30-40 ms of the main thread, and the app makes this object while it builds
+    /// its first window (AppServices), long before the first idle moment builds any overlay page.
+    private(set) lazy var dataStore: WKWebsiteDataStore = .nonPersistent()
     /// The first page of the current group; its process serves the next pages.
     private weak var anchor: WKWebView?
     private var members = 0
@@ -36,7 +39,8 @@ public final class PageOverlayProcess {
     /// Relates `configuration` to the current group's first page when it lives and has room, so the
     /// view made from it runs in that page's process; then call ``joined(_:)`` with the view.
     func prepare(_ configuration: WKWebViewConfiguration) {
-        guard let anchor, members < pagesPerProcess,
+        // A retired anchor whose page closed (WebViewRetirement) serves no new page, as in WebProcessGroups.
+        guard let anchor, members < pagesPerProcess, WebViewRetirement.isPageClosed(anchor) != true,
               anchor.configuration.processPool === configuration.processPool,
               anchor.configuration.websiteDataStore === configuration.websiteDataStore else {
             members = 0

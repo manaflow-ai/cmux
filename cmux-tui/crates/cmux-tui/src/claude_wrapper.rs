@@ -1,13 +1,16 @@
 //! `cmux-tui agent claude-wrapper [claude args...]`: starts Claude Code with
 //! cmux-tui's agent hooks.
 //!
-//! Panes put a `claude` shim first on PATH that execs this verb, so launchers
+//! Panes put a `claude` shim first on PATH that execs this verb (the shim
+//! folder and hook helper are the daemon's own build's: own_build_helpers.rs), so launchers
 //! that resolve `claude` from PATH and set their own CLAUDE_CONFIG_DIR are
 //! covered too. The hooks travel in
 //! `--settings`, which applies under any config directory. Claude Code honors
 //! only the last `--settings` flag, so every `--settings` value is folded into
 //! one private file that also carries the hooks. Any failure starts Claude
-//! unchanged.
+//! unchanged. A launch that gets the hooks this way, or that turns them off,
+//! loses cmux-tui's Claude Code plugin from `CLAUDE_CODE_PLUGIN_DIRS`
+//! (claude_plugin.rs), which covers the launches that skip the shim.
 
 use std::ffi::{CString, OsStr, OsString};
 use std::fs;
@@ -61,7 +64,8 @@ pub(crate) fn invocation(args: &[OsString]) -> Option<&[OsString]> {
 /// Execs the real Claude. Returns only when it could not be started.
 pub(crate) fn run(args: &[OsString]) -> i32 {
     let messages = &crate::localization::catalog().agent_wrapper;
-    let shim_dir = shim_directory();
+    let shim_dir =
+        current_executable().ok().and_then(|exe| crate::own_build_helpers::wrapper_shim_dir(&exe));
     let path = std::env::var_os("PATH").unwrap_or_default();
     let Some(claude) = find_real_claude(&path, shim_dir.as_deref()) else {
         eprintln!("{}", messages.agent_not_found);
@@ -73,11 +77,17 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     // after a reboot starts Claude with again (relaunch_store::agent_launch).
     command.env(AGENT_ARGS_ENV, agent_args_json(args));
     let mut launch_args = args.to_vec();
+    if std::env::var_os(HOOKS_DISABLED_ENV).is_some_and(|value| value == "1") {
+        drop_cmux_plugin(&mut command);
+    }
     if should_inject(args, |name| std::env::var_os(name)) {
         match prepare_hooks(args) {
             Ok((injected, helper)) => {
                 launch_args = injected;
                 command.env(WRAPPER_ACTIVE_ENV, "1");
+                // The merged `--settings` carries the hooks; the pane's plugin
+                // would report every event a second time.
+                drop_cmux_plugin(&mut command);
                 if let Some(helper) = helper {
                     command.env("CMUX_TUI_HOOK", helper);
                 }
@@ -90,32 +100,19 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     126
 }
 
-/// Puts the `claude` shim directory first on the PATH of pane processes,
-/// then the server's PATH, and records the directory so the daemon keeps it
-/// first over a caller PATH. Leaves PATH alone when the shim could not be
-/// written.
-pub(crate) fn configure_pane_path(options: &mut cmux_tui_core::SurfaceOptions) {
-    let Some((dir, path)) = pane_path() else { return };
-    options.extra_env.push(("PATH".into(), path));
-    options.claude_shim_dir = Some(dir);
-}
-
-/// The shim directory and the pane PATH that starts with it.
-fn pane_path() -> Option<(String, String)> {
-    let dir = shim_directory()?;
-    let executable = current_executable().ok()?;
-    install_shim(&dir, &executable).ok()?;
-    let path = path_with_shim_first(&std::env::var_os("PATH").unwrap_or_default(), &dir)?;
-    Some((dir.into_os_string().into_string().ok()?, path.into_string().ok()?))
-}
-
-/// Directory holding the `claude` shim, under cmux-tui's data home.
-fn shim_directory() -> Option<PathBuf> {
-    agent_hook_install::runtime_cmux_tui_data_home().map(|home| home.join("shims"))
+/// Removes cmux-tui's Claude Code plugin from the `CLAUDE_CODE_PLUGIN_DIRS`
+/// Claude inherits (claude_plugin.rs), keeping every other folder.
+fn drop_cmux_plugin(command: &mut Command) {
+    let env = crate::claude_plugin::PLUGIN_DIRS_ENV;
+    let Some(value) = std::env::var_os(env) else { return };
+    match crate::claude_plugin::without_cmux_plugins(&value) {
+        Some(kept) => command.env(env, kept),
+        None => command.env_remove(env),
+    };
 }
 
 /// This cmux-tui binary's canonical path, which the shim and fallback hooks run.
-fn current_executable() -> anyhow::Result<PathBuf> {
+pub(crate) fn current_executable() -> anyhow::Result<PathBuf> {
     let executable = std::env::current_exe().context("resolve the cmux-tui executable")?;
     Ok(executable.canonicalize().unwrap_or(executable))
 }
@@ -146,24 +143,16 @@ fn should_inject(args: &[OsString], getenv: impl Fn(&str) -> Option<OsString>) -
 /// Builds the launch arguments and picks the hook helper the settings use.
 fn prepare_hooks(args: &[OsString]) -> anyhow::Result<(Vec<OsString>, Option<PathBuf>)> {
     let executable = current_executable()?;
-    let helper = hook_helper(&executable);
+    let helper = crate::own_build_helpers::launch_hook_helper(
+        &executable,
+        std::env::var_os("CMUX_TUI_HOOK"),
+    );
     let hooks =
         session_hook_settings(helper.is_none().then_some(executable.as_path()), &executable)?;
     let cache = agent_hook_install::runtime_cmux_tui_data_home()
         .context("no data directory for Claude settings")?
         .join("claude-settings");
     Ok((args_with_hooks(args, hooks, &cache)?, helper))
-}
-
-/// The detached `cmux-tui-hook` helper: the one `agent hook install` placed
-/// (the same path a remote host's hook install writes), else the one shipped
-/// beside this binary. The installed hook commands run
-/// `$CMUX_TUI_HOOK`, which the wrapper points at this absolute path.
-fn hook_helper(executable: &Path) -> Option<PathBuf> {
-    agent_hook_install::runtime_helper_path()
-        .filter(|path| agent_hook_install::is_executable_file(path))
-        .or_else(|| agent_hook_install::locate_helper_source(Some(executable)))
-        .filter(|path| path.is_absolute())
 }
 
 /// The hook settings fragment merged into every wrapped launch: the agent
@@ -340,7 +329,7 @@ fn path_without_shims(path: &OsStr, shim_dir: Option<&Path>) -> OsString {
 }
 
 /// Prepends `shim_dir` to `path`, dropping any later copy so repeated startups stay idempotent.
-fn path_with_shim_first(path: &OsStr, shim_dir: &Path) -> Option<OsString> {
+pub(crate) fn path_with_shim_first(path: &OsStr, shim_dir: &Path) -> Option<OsString> {
     let inherited = std::env::split_paths(path).filter(|dir| dir != shim_dir);
     let entries = std::iter::once(shim_dir.to_path_buf());
     if path.is_empty() {
@@ -371,7 +360,7 @@ fn is_claude_shim(path: &Path) -> bool {
 }
 
 /// Writes `<dir>/claude` (0700 in a 0700 directory) when its content changed.
-fn install_shim(dir: &Path, executable: &Path) -> anyhow::Result<PathBuf> {
+pub(crate) fn install_shim(dir: &Path, executable: &Path) -> anyhow::Result<PathBuf> {
     let script = shim_script(executable, dir)?;
     fs::create_dir_all(dir).context("create the shim directory")?;
     fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;

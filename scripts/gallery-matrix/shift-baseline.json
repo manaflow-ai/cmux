@@ -849,7 +849,7 @@
     "agent-pane.header-tools#menu-copy-submenu": 0,
     "agent-pane.header-tools#menu-open": 0,
     "agent-pane.header-tools#menu-revoke-access": 0,
-    "agent-pane.header-tools#native-row-off": 0,
+    "agent-pane.header-tools#native-row-off": 0.00852,
     "agent-pane.header-tools#native-row-tools": 0,
     "agent-pane.header-tools#panel-icon-info": 0,
     "agent-pane.header-tools#panel-icon-list": 0,

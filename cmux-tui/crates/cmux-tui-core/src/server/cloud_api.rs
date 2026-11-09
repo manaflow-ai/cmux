@@ -30,13 +30,7 @@ pub(super) const CAPABILITY: &str = "cloud-api-v1";
 pub(super) const fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
-        Op::CloudVmResize
-            | Op::CloudVmSnapshot
-            | Op::CloudVmSnapshots
-            | Op::CloudVmDeleteSnapshot
-            | Op::CloudVmRestore
-            | Op::CloudVmFork
-            | Op::CloudVmScpEndpoint
+        Op::CloudVmScpEndpoint
             | Op::CloudVmTunnelEnroll
             | Op::CloudVmTunnelRevoke
             | Op::CloudVmTunnelAttach

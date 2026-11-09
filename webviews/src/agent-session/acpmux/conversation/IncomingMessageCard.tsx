@@ -295,17 +295,15 @@ export function SenderChip({
       ) : (
         <AgentTag name={from} className="cv-received__from" title={about} />
       )}
-      {/* A sender acpmux could not verify: the one subtle marker, never words in its name. The
-          message row draws its own (AgentMessageRow.tsx `unverified`). */}
+      {/* A sender acpmux could not verify (Leo, 2026-11-05: "why is it sending it as if it were
+          me?"): the one subtle marker, never words in or beside its name. The message row draws
+          its own (AgentMessageRow.tsx `unverified`). */}
       {withMark && message.unverified && <UnverifiedMark />}
       {/* The other machine the sender's chat runs on, on the line itself, not only in the name's
           tooltip (Leo, 2026-10-27, on a lane's message: "Is this, like, from another machine? But
           even if they're from another machine, what's going on here?"). This Mac's chats name none. */}
       {host &&
         (readOnly ? <span className="cv-received__host">{host}</span> : <MachineMenu host={host} onOpen={onOpen} />)}
-      {/* acpmux could not verify who sent it (Leo, 2026-11-05: "why is it sending it as if it were
-          me?"): never the person's, and the name it gives is only a claim. */}
-      {message.unverified && <span className="cv-received__host">{t("message.unverified")}</span>}
       {message.edited && <span className="cv-received__host">{t("message.edited")}</span>}
       {sessionId && card}
     </span>
