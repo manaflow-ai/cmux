@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42539907218",
+  "recorded_at": "2026-11-09T00:37:45Z",
+  "reason": "cmux-tui 16c3fab2ea18 changes the image's cmux-tui (pinned 2bba96629af4)",
+  "dry_run": false,
+  "cmux_tui": "16c3fab2ea18f89ef18931d2d559554a80ed0ed9",
+  "fixes": [
+    {
+      "sha": "16c3fab2ea18f89ef18931d2d559554a80ed0ed9",
+      "mergedAt": "2026-11-08T16:07:56-08:00",
+      "subject": "Cloud chats: a folder goes with a new chat's first message (#38782)"
+    },
+    {
+      "sha": "8589ee4049d48b9916277f1f11920b22b924372f",
+      "mergedAt": "2026-11-08T23:58:20Z",
+      "subject": "cmux-tui: split machine_provider_runtime.rs under 100 KB (#38902)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T00:37:45Z",
+    "snapshot_id": "sh-42882b45900f437d8f9aa00f693fa3d0",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42539907218): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "583e7dd860fa5418f645f5988e8887d2982aada5",
+    "image": "cloud-native-auto-16c3fab2-42539907218-1",
+    "revision": "ci-42539907218-1",
+    "at": "2026-11-09T00:37:45Z"
+  },
+  "rolled_back": false
+}
