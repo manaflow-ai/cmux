@@ -2235,6 +2235,44 @@ mod tests {
         assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Udp, addr: new }));
     }
 
+    /// The peer's datagrams come from a direct address no announcement named
+    /// (a NAT whose mapping differs from the STUN answer). Once the selector
+    /// holds the relay, only a learned path lets that address win: it is
+    /// probed, it answers, and the selector moves direct.
+    #[tokio::test]
+    async fn a_direct_address_learned_from_arrivals_wins_over_the_held_relay() {
+        let relayed: SocketAddr = "203.0.113.7:50000".parse().unwrap();
+        let mapped: SocketAddr = "198.51.100.20:41000".parse().unwrap();
+        let (reach_out, _reaches) = mpsc::unbounded_channel();
+        let (_control, control) = mpsc::unbounded_channel();
+        let mut underlay = HybridUnderlay::new(
+            UnderlaySpec {
+                socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                peer_endpoints: &[relayed.to_string()],
+                peer_relayed: &[relayed.to_string()],
+                peer_relayed_tls: &[],
+                peer_version: WG_VERSION,
+                turn: None,
+                reach_out,
+                path: watch::channel(LinkPath::NoPath).0,
+                control,
+            },
+            &DialOptions::default(),
+        );
+        let answer_all = |underlay: &mut HybridUnderlay, now: Instant| {
+            for (path, probe) in underlay.poll_probes(now).pings {
+                underlay.on_pong(path, probe, now + Duration::from_millis(5));
+            }
+        };
+        let now = Instant::now();
+        answer_all(&mut underlay, now);
+        let relay = Route { carrier: Carrier::Udp, addr: relayed };
+        assert_eq!(underlay.paths.current(), Some(relay), "the selector holds the relay");
+        underlay.authenticated(Origin { path: UDP_PATH, addr: Some(mapped) });
+        answer_all(&mut underlay, now + Duration::from_millis(10));
+        assert_eq!(underlay.paths.current(), Some(Route { carrier: Carrier::Udp, addr: mapped }));
+    }
+
     /// A Mac on Ethernet and Wi-Fi with Tailscale (the user's laptop: en7
     /// 172.20.21.166 primary, en0 10.88.184.154, utun 100.89.49.105) offered
     /// only its primary address, so a phone on the Wi-Fi or on Tailscale had
