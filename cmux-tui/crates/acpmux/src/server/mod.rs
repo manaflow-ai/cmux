@@ -2092,7 +2092,8 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         // Built once per record, by the first watcher that sends it, and shared by the others
         // (`HubEvent::row`): with many watchers, each built the whole row again.
         let full = attached || conn.watch_tools.load(Ordering::SeqCst);
-        let row = &ev.row[usize::from(full)];
+        let [list_row, full_row] = &*ev.row;
+        let row = if full { full_row } else { list_row };
         let summary = match row.get() {
             Some(summary) => Some(summary),
             None => hub.resolve(&ev.session_id).ok().map(|s| {

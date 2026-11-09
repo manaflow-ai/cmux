@@ -60,10 +60,10 @@ impl App {
                     // One row changed: it moves to its place, and the list is not sorted again
                     // (a sort per change read every row's `updatedAt`, ~3,000 of them).
                     let same = |x: &Value| session_route_id(x).as_ref() == Some(&id);
-                    match self.sessions.iter().position(same) {
-                        Some(at) => {
-                            let moved = updated_at(&self.sessions[at]) != updated_at(s);
-                            self.sessions[at] = s.clone();
+                    match self.sessions.iter_mut().enumerate().find(|(_, x)| same(x)) {
+                        Some((at, row)) => {
+                            let moved = updated_at(row) != updated_at(s);
+                            *row = s.clone();
                             if moved {
                                 self.move_into_place(at);
                             }
@@ -141,8 +141,11 @@ impl App {
     /// [`Self::sort_sessions`] puts it (among rows as new, by where it was), and keeps the
     /// selection on the row it was on.
     fn move_into_place(&mut self, at: usize) {
-        let key = updated_at(&self.sessions[at]);
+        if at >= self.sessions.len() {
+            return;
+        }
         let row = self.sessions.remove(at);
+        let key = updated_at(&row);
         let newer = self.sessions.partition_point(|s| updated_at(s) > key);
         let as_new = self.sessions.partition_point(|s| updated_at(s) >= key);
         let to = at.clamp(newer, as_new);
