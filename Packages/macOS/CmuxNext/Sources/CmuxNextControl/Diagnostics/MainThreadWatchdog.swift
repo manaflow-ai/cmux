@@ -149,8 +149,7 @@ public final class MainThreadWatchdog: Sendable {
     /// The watchdog thread's wait: the main thread arms it on each wake and deletes it before
     /// each sleep, so only a turn longer than `sampleAfterNanos` wakes the watchdog thread.
     let alarm = MainThreadWatchdogAlarm()
-    /// Nested runs of the main run loop that take no input (``NestedRunLoopWatch``): the heartbeat
-    /// reads them as idle, so they are timed apart.
+    /// Nested default-mode runs of the main run loop, which the heartbeat reads as idle.
     let nested = NestedRunLoopWatch()
     /// The stall sample, published by the watchdog thread while the main
     /// thread is still suspended (so a stall that ends right after the
@@ -302,11 +301,7 @@ public final class MainThreadWatchdog: Sendable {
     /// tests call it directly).
     func heartbeat(_ activity: CFRunLoopActivity) {
         let now = uptime()
-        if activity == .entry {
-            if nested.entered(now: now, inDefaultMode: NestedRunLoopWatch.mainLoopInDefaultMode) { alarm.wake() }
-        } else if activity == .exit {
-            if nested.exited(now: now) { alarm.wake() }
-        }
+        noteRunLoopEdge(activity, now: now)
         let cpu = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
         let previous = beatNanos.load(ordering: .acquiring)
         let wasAsleep = mainAsleep.load(ordering: .acquiring)
@@ -377,10 +372,9 @@ public final class MainThreadWatchdog: Sendable {
             checkNestedRunLoop(sampler: sampler)
             if mainAsleep.load(ordering: .acquiring) {
                 closeRecoveredEpisode(&hang.episodes) // seen asleep: an open hang ended; before parking
-                // Parked until a main turn outlasts the sample delay (its alarm), a nested run that
-                // takes no input is due (NestedRunLoopWatch), or stop(). A wake between the check
-                // and the wait is not lost: the kernel keeps the fired timer.
-                waitForAlarm(nanos: nested.wait(now: uptime(), hangNanos: hangNanos))
+                // Parked until a main turn outlasts the sample delay (its alarm), a nested run is due, or
+                // stop(). A wake between the check and the wait is not lost: the kernel keeps the fired timer.
+                waitForAlarm(nanos: nested.parkLimit(now: uptime(), hangNanos: hangNanos))
                 continue
             }
             let beat = beatSequence.load(ordering: .acquiring)

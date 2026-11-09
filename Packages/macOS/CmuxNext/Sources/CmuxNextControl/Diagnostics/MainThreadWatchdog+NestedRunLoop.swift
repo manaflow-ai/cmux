@@ -1,7 +1,18 @@
+import CoreFoundation
 import Foundation
 import os
 
 extension MainThreadWatchdog {
+    /// A run-loop entry or exit on the main thread (the heartbeat): wakes the watchdog thread when a
+    /// nested default-mode run starts or a reported one ends.
+    func noteRunLoopEdge(_ activity: CFRunLoopActivity, now: UInt64) {
+        if activity == .entry {
+            if nested.entered(now: now, inDefaultMode: NestedRunLoopWatch.mainLoopInDefaultMode) { alarm.wake() }
+        } else if activity == .exit {
+            if nested.exited(now: now) { alarm.wake() }
+        }
+    }
+
     /// Reports a nested run of the main run loop parked past the hang threshold with no input
     /// (``NestedRunLoopWatch``), and closes its hang file once it ended. Watchdog thread only.
     func checkNestedRunLoop(sampler: ThreadStackSampler?) {

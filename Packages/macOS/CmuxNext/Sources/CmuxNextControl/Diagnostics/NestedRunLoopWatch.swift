@@ -94,7 +94,7 @@ final class NestedRunLoopWatch: Sendable {
 
     /// Watchdog thread: how long it may park before the open run would cross `hangNanos`; nil when
     /// there is nothing to time (it parks until the main thread wakes it).
-    func wait(now: UInt64, hangNanos: UInt64) -> UInt64? {
+    func parkLimit(now: UInt64, hangNanos: UInt64) -> UInt64? {
         episode.withLock { episode in
             guard let open = episode else { return nil }
             if open.endNanos != nil { return 1 }

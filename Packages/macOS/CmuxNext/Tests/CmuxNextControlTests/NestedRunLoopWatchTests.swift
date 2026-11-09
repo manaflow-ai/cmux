@@ -14,7 +14,7 @@ import Testing
         let watch = NestedRunLoopWatch()
         watch.start(insideRun: true)
         #expect(watch.entered(now: 100, inDefaultMode: { true }), "a nested default-mode run wakes the watchdog")
-        #expect(watch.wait(now: 100, hangNanos: hang) == hang)
+        #expect(watch.parkLimit(now: 100, hangNanos: hang) == hang)
         #expect(watch.take(now: 100 + hang - 1, hangNanos: hang) == .idle)
         guard case let .report(id, elapsed) = watch.take(now: 100 + hang, hangNanos: hang) else {
             Issue.record("a run parked for the hang threshold is reported")
@@ -22,7 +22,7 @@ import Testing
         }
         #expect(elapsed == hang)
         #expect(watch.take(now: 100 + 2 * hang, hangNanos: hang) == .idle, "reported once")
-        #expect(watch.wait(now: 100 + 2 * hang, hangNanos: hang) == nil, "nothing more to time while it runs")
+        #expect(watch.parkLimit(now: 100 + 2 * hang, hangNanos: hang) == nil, "nothing more to time while it runs")
         #expect(watch.exited(now: 100 + 3 * hang), "the end of a reported run wakes the watchdog")
         #expect(watch.take(now: 100 + 3 * hang, hangNanos: hang) == .ended(id: id, durationNanos: 3 * hang))
         #expect(watch.take(now: 100 + 4 * hang, hangNanos: hang) == .idle)
@@ -34,7 +34,7 @@ import Testing
         _ = watch.entered(now: 0, inDefaultMode: { true })
         #expect(!watch.exited(now: hang / 2))
         #expect(watch.take(now: 2 * hang, hangNanos: hang) == .idle)
-        #expect(watch.wait(now: 2 * hang, hangNanos: hang) == nil)
+        #expect(watch.parkLimit(now: 2 * hang, hangNanos: hang) == nil)
     }
 
     @Test func menusModalPanelsAndTheOuterLoopAreNotTimed() {
