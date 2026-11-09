@@ -1234,9 +1234,8 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertNotIn("web-lint: webviews: bun install", run_lint(), "without --timings the log stays as it was")
 
     def test_in_ci_the_type_aware_checks_take_one_slot_per_two_cores_and_light_ones_run_beside_them(self):
-        # `vp lint` and `vp check` each start tsgolint (about 9 GB and 5 GB, #27177). On a 4 vCPU dispatch runner,
-        # all at once with the rest, `vp fmt --check` took 649.5 s in one run and 40 s in another, and `vp check`
-        # 51 s and 229 s: the gate outgrew its 15 min job. In CI they now share a slot per two cores; elsewhere
+        # All the vp checks at once on a 4 vCPU fast-gates runner: the web lint took 185 to 698 s and once outgrew the
+        # job's 15 min. In CI the type-aware ones now share a slot per two cores (99.9 and 135.8 s); elsewhere
         # capped_env and nice already keep them off a person's machine.
         self.heavy_fixture()
         lint = load_lint(self.repo)

@@ -138,10 +138,10 @@ MAX_SCRIPT_DEPTH = 8
 HEAVY_NICE = 10
 HEAVY_GOMEMLIMIT = "6GiB"
 HEAVY_NODE_HEAP_MB = 4096
-# The type-aware tools: `vp lint` and `vp check` each start tsgolint (about 9 GB and 5 GB, #27177) over every core.
-# Run all at once with the other checks on a 4 vCPU CI runner, they starve each other and everything beside them
-# (fast-gates dispatches: `vp fmt --check` 40 s in one run, 649.5 s in another; `vp check` 51 s and 229 s), and the
-# gate outgrew its job's timeout. In CI they share heavy_slots(); light checks run beside them.
+# The type-aware tools: `vp lint` and `vp check` (tsgolint, #27177). Started together with the other vp checks on a
+# 4 vCPU CI runner, the web lint took 185 to 698 s over four fast-gates dispatches and once outgrew the job's 15 min;
+# with them sharing heavy_slots() it took 99.9 and 135.8 s (#39782). The runner was not short of memory or CPU then
+# (14.6 GB free, load under 2): the tools sleep while they wait on each other, so fewer at once wait less.
 WEIGHTY = re.compile(r"(?:^|&&|;|\|\|)\s*vp\s+(?:lint|check)\b")
 
 
