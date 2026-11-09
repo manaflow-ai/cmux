@@ -109,7 +109,11 @@ impl Held {
 
     /// Whether a write may go now, reading the job (`status`) when the last word on it is
     /// older than half the lease on either clock.
-    fn allows(&mut self, now: Now, status: impl FnOnce() -> anyhow::Result<Value>) -> anyhow::Result<()> {
+    fn allows(
+        &mut self,
+        now: Now,
+        status: impl FnOnce() -> anyhow::Result<Value>,
+    ) -> anyhow::Result<()> {
         if self.lost.is_none() && !self.fresh(now) {
             let answer = status();
             self.heard_now(&answer, now);
@@ -122,7 +126,9 @@ impl Held {
             }
         }
         match &self.lost {
-            Some(lost) => Err(FsRefusal { code: lost.code.clone(), message: lost.message.clone() }.into()),
+            Some(lost) => {
+                Err(FsRefusal { code: lost.code.clone(), message: lost.message.clone() }.into())
+            }
             None => Ok(()),
         }
     }
