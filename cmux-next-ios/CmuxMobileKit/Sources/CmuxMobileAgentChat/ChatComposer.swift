@@ -468,8 +468,8 @@ struct ChatComposer: View {
         return Button {
             switch state {
             case .stop: store.cancel()
-            // A follow-up while the agent works queues, or steers it when Settings says so.
-            case .send, .queue: send(steer: state == .queue && CmuxMobilePreferences.steersFollowUps())
+            // A follow-up while the agent works steers it, as the Mac's Return does.
+            case .send, .queue: send(steer: state == .queue)
             case .empty: break
             }
         } label: {
@@ -494,7 +494,9 @@ struct ChatComposer: View {
         .animation(.cmuxMobileSnap.unlessReduceMotion, value: state)
         .contextMenu {
             if state == .queue {
-                Button("Queue (send after this turn)", systemImage: "text.line.last.and.arrowtriangle.forward") { send(steer: false) }
+                Button("Queue (send after this turn)", systemImage: "text.line.last.and.arrowtriangle.forward") {
+                    send(steer: CmuxMobilePreferences.steersMidTurn(queue: true))
+                }
                 Button("Steer Now (Interrupt)", systemImage: "arrow.uturn.right") { send(steer: true) }
             }
         }
@@ -505,7 +507,7 @@ struct ChatComposer: View {
     private func sendFromKeyboard() {
         switch primaryState {
         case .send: send(steer: false)
-        case .queue: send(steer: CmuxMobilePreferences.steersFollowUps())
+        case .queue: send(steer: true)
         case .stop, .empty: break
         }
     }

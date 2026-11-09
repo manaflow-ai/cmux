@@ -141,12 +141,15 @@ pub fn permission_params(reply: &Reply, pending: &Value) -> Result<Value, Reject
     Ok(params)
 }
 
-/// `session/prompt` params for a text reply to a session.
+/// `session/prompt` params for a text reply to a session. It steers a running turn, as the
+/// link's reply (`PushReplyPlan.promptMeta`) and Send in the chat do (Leo, 2026-11-05: "WHY THE
+/// F*** ARE MY MESSAGES BEING QUEUED INSTEAD OF STEERING"); an idle chat, or an agent that
+/// cannot steer, runs it as its next turn.
 pub fn prompt_params(reply: &Reply) -> Value {
     json!({
         "sessionId": reply.target.session_id,
         "prompt": [{"type": "text", "text": reply.text}],
-        "_meta": {"acpmux": {"promptId": reply.id, "steer": false, "resend": true}},
+        "_meta": {"acpmux": {"promptId": reply.id, "steer": true, "resend": true}},
     })
 }
 
