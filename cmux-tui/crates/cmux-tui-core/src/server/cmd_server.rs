@@ -197,7 +197,11 @@ pub(super) fn set_client_info(
     // is a remote device whether or not it says `remote`: incognito workspaces stay off it
     // (incognito_remote.rs). Both marks are sticky, and this one is made before the
     // declaration's reply, so nothing after it sees an incognito workspace.
-    if remote || mux.phone_carrier_client(client) {
+    #[cfg(unix)]
+    let phone = mux.phone_carrier_client(client);
+    #[cfg(not(unix))]
+    let phone = false;
+    if remote || phone {
         mux.control_clients.mark_remote_device(client);
     }
     mux.refresh_terminal_client_identity(client);
