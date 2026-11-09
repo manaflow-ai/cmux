@@ -413,7 +413,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         conversation.view.layoutIfNeeded()
         let size = questionBar.sizeThatFits(in: CGSize(width: view.bounds.width, height: .greatestFiniteMagnitude))
         let height = size.height < 1 ? 0 : size.height
-        let top = conversation.view.convert(CGPoint(x: 0, y: conversation.headerBottom), to: view).y + 4
+        let top = conversation.view.convert(CGPoint(x: 0, y: conversation.headerMaxY), to: view).y + 4
         questionBar.view.frame = CGRect(x: 0, y: top, width: view.bounds.width, height: height)
         if height > 0 { topBand.frame = CGRect(x: 0, y: top - 4, width: view.bounds.width, height: height + 8) }
         let room: CGFloat = height > 0 ? height + 8 : 0

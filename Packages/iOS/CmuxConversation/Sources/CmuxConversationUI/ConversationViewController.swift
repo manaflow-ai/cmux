@@ -50,7 +50,10 @@ public final class ConversationViewController: UIViewController {
     }
     /// The header's bottom edge in this controller's view: a host places its
     /// pinned row (``headerAccessoryRoom``) from here.
-    public var headerBottom: CGFloat { header.frame.maxY }
+    public var headerMaxY: CGFloat { header.frame.maxY }
+    /// Where content may start under the header and a host's pinned row:
+    /// the reply thread and a full composer field stop here.
+    var contentTop: CGFloat { header.frame.maxY + max(0, headerAccessoryRoom) }
     /// Replaces the details page when the name or avatar is activated.
     public var onHeaderInfo: (() -> Void)?
     /// Runs only in the normal header state. Reply/edit/select still dismiss
@@ -490,10 +493,10 @@ public final class ConversationViewController: UIViewController {
             view.layoutIfNeeded()
         }
         updateInsets()
-        // A full field stops 3.3 pt below the header's bottom edge, just under
-        // the name pill (Messages: field top 157.3 pt, pill bottom 148.6 pt).
+        // A full field stops 3.3 pt below the header's bottom edge (and below a
+        // host's pinned row), just under the name pill (Messages: field top 157.3 pt, pill bottom 148.6 pt).
         let fieldBottom = composerContainer.frame.maxY - 4
-        composer.maximumFieldHeight = max(ConversationTheme.composerMinHeight, fieldBottom - header.frame.maxY - 3.3)
+        composer.maximumFieldHeight = max(ConversationTheme.composerMinHeight, fieldBottom - contentTop - 3.3)
         layoutReplyOverlay()
         headerMaterial.frame = CGRect(x: view.bounds.minX, y: view.bounds.minY, width: view.bounds.width,
                                       height: header.frame.maxY - view.bounds.minY + ConversationTopEdgeGeometry.extent)

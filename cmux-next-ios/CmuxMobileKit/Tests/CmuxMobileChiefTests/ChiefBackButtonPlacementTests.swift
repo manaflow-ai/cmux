@@ -58,6 +58,9 @@ import UIKit
         let transcriptTop = pinned.conversation.collectionView.contentInset.top
         #expect(transcriptTop >= bar.maxY)
         #expect(transcriptTop > rest.conversation.collectionView.contentInset.top)
+        // A full composer field and the reply thread stop under the bar too.
+        #expect(pinned.conversation.contentTop >= bar.maxY)
+        #expect(pinned.conversation.composer.maximumFieldHeight < rest.conversation.composer.maximumFieldHeight)
     }
 }
 #endif
