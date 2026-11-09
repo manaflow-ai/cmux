@@ -9,7 +9,9 @@ export const DEFAULT_CHIEF_PROVISION = "chief.default.provision"
 export const DEFAULT_CHIEF_BIND = "chief.default.bind"
 /** The platform moved the Chief's logical machine to another VM (a shrink, a rewind, a fresh machine). */
 export const DEFAULT_CHIEF_REBIND = "chief.default.rebind"
-export const DEFAULT_CHIEF_OPS = new Set([DEFAULT_CHIEF_ENSURE, DEFAULT_CHIEF_BIND, DEFAULT_CHIEF_REBIND])
+/** An account made before signup provisioning (#33131) queues that same outbox once (UserDO, after user.ensure). */
+export const DEFAULT_CHIEF_BACKFILL = "chief.default.backfill"
+export const DEFAULT_CHIEF_OPS = new Set([DEFAULT_CHIEF_ENSURE, DEFAULT_CHIEF_BIND, DEFAULT_CHIEF_REBIND, DEFAULT_CHIEF_BACKFILL])
 export const defaultChiefWorkspace = (user: string) => `chief-default-${user}`
 export const defaultChiefIdentity = (user: string) => `system:user:${user}`
 export const defaultChiefAllowed = (state: UserState, p: Principal) =>
@@ -19,6 +21,19 @@ export const signupChiefOutbox = (user: string): ReadonlyArray<OutboxItem> => [
   { kind: DEFAULT_CHIEF_ENSURE, entity: HOSTED_DEFAULT_KEY, payload: {}, target: { class: "UserDO", name: user } },
   { kind: DEFAULT_CHIEF_PROVISION, entity: `chief-default-machine:${user}`, payload: {}, target: { class: "UserDO", name: user } }
 ]
+
+/**
+ * Whether this account's default Chief still needs the signup provisioning outbox: it was never queued here
+ * (an account older than #33131), and no hosted default Chief has a machine. A Chief the person archived,
+ * deleted or placed on their own machine keeps that choice; DEFAULT_CHIEF_ENSURE adopts a hosted Chief a
+ * client made, exactly as at signup.
+ */
+export const defaultChiefBackfillDue = (state: UserState): boolean => {
+  if (!state.user || state.migrations?.default_chief_machine) return false
+  if (!state.hosted_default) return true
+  const chief = state.chiefs?.[state.hosted_default]
+  return !!chief && chief.archived_at === null && !chief.brain_place && !chief.cloud_machine
+}
 
 const reject = (code: string, message: string): ReduceResult<UserState> => ({ ok: false, code, message })
 const shortId = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= 256
@@ -54,6 +69,12 @@ export const reduceDefaultChief = (state: UserState, op: string, params: unknown
     })
     if (!created.ok) return created
     return { ...created, state: { ...created.state, hosted_default: (created.value as ChiefRecord).id } }
+  }
+  if (op === DEFAULT_CHIEF_BACKFILL) {
+    if (!params || typeof params !== "object" || Array.isArray(params) || Object.keys(params).length !== 0) return reject("validation.invalid", "default Chief backfill takes no params")
+    // Decided in the reducer, so concurrent ensures queue it once: the first marks the account done.
+    if (!defaultChiefBackfillDue(state)) return { ok: true, state, value: { queued: false }, changed: false }
+    return { ok: true, state: { ...state, migrations: { ...state.migrations, default_chief_machine: true } }, value: { queued: true }, outbox: signupChiefOutbox(user.id) }
   }
   if (op !== DEFAULT_CHIEF_BIND && op !== DEFAULT_CHIEF_REBIND) return reject("validation.invalid", "unknown default Chief op")
   const v = params as Partial<ChiefCloudMachine> | null

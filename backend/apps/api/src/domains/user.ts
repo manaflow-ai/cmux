@@ -29,8 +29,11 @@ export interface UserState extends PushTargetsState, ChiefsState {
   readonly home_settings?: homeUser.HomeSettings
   readonly installs: Readonly<Record<string, typeof Install.Type>>
   readonly grants: Readonly<Record<string, typeof Grant.Type>>
-  /** One-time migrations already done on this user (CLOUD-LINK-FOLLOWUPS decision 2). */
-  readonly migrations?: { readonly ios_cloud_link?: true; readonly mac_execute_narrow?: true }
+  /**
+   * One-time migrations already done on this user (CLOUD-LINK-FOLLOWUPS decision 2). default_chief_machine: the
+   * default Chief's provisioning outbox was queued, at the first user.ensure or by the backfill (user-chief-default.ts).
+   */
+  readonly migrations?: { readonly ios_cloud_link?: true; readonly mac_execute_narrow?: true; readonly default_chief_machine?: true }
   /**
    * Revoked installs whose team SSH certificates still need a KRL entry in each team's TeamDO
    * (plans/cmux-next/team-vm-plan.md S4). UserDO's alarm delivers them and clears each one.
@@ -280,7 +283,8 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => withInst
         // address). Earliest entries are kept, so later changes cannot evict the owner's address.
         const oldVerified = state.user?.email_verified && state.user.email ? state.user.email : null
         const newVerified = profile.email_verified && profile.email ? profile.email : null
-        let next: UserState = { ...state, user: profile }
+        // The first ensure queues the default Chief and its machine; the flag keeps the backfill from queueing them again.
+        let next: UserState = state.user === null ? { ...state, user: profile, migrations: { ...state.migrations, default_chief_machine: true } } : { ...state, user: profile }
         let notices: ReadonlyArray<OutboxItem> = []
         if (oldVerified && !sameEmail(oldVerified, newVerified)) {
           // The replaced address always stays (its window starts now); the others keep their

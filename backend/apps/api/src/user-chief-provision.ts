@@ -1,5 +1,5 @@
 import type { ChiefCloudMachine } from "./domains/user-chief.ts"
-import { DEFAULT_CHIEF_ENSURE, DEFAULT_CHIEF_PROVISION, HOSTED_DEFAULT_KEY, defaultChiefVmInstall, defaultChiefWorkspace } from "./domains/user-chief-default.ts"
+import { DEFAULT_CHIEF_BACKFILL, DEFAULT_CHIEF_ENSURE, DEFAULT_CHIEF_PROVISION, HOSTED_DEFAULT_KEY, defaultChiefBackfillDue, defaultChiefVmInstall, defaultChiefWorkspace } from "./domains/user-chief-default.ts"
 import { personalTeamIdFor, type UserState } from "./domains/user.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 import type { SubmitResult } from "./owner-do.ts"
@@ -118,4 +118,28 @@ export const rebindDefaultChief = async (
   if (!reply) return { ok: false, code: "chief.provision.bind_unanswered", retryable: true }
   if (reply.t === "reject") return { ok: false, code: reply.code, retryable: reply.retryable === true }
   return { ok: true, changed: true, binding: machine }
+}
+
+export type BackfillOutcome = "off" | "not_due" | "queued" | "failed"
+
+/**
+ * Accounts made before signup provisioning (#33131) have no default Chief machine: their Chief runs hosted on
+ * credits. After their user.ensure, UserDO queues the same signup outbox once (DEFAULT_CHIEF_BACKFILL decides it
+ * in the reducer, so concurrent ensures queue one). Only where the machine Chief is on (CHIEF_BRAIN_ENABLED and
+ * HANDS_ENABLED, the gate of activateDefault and the hand routes), so production stays as it is. Never throws:
+ * the ensure has already committed, and the outbox's retries own every network step.
+ */
+export const backfillDefaultChief = (
+  env: { readonly CHIEF_BRAIN_ENABLED?: string; readonly HANDS_ENABLED?: string },
+  state: UserState | undefined,
+  submit: (op: string, key: string) => SubmitResult
+): BackfillOutcome => {
+  if (env.CHIEF_BRAIN_ENABLED !== "1" || env.HANDS_ENABLED !== "1") return "off"
+  if (!state?.user || !defaultChiefBackfillDue(state)) return "not_due"
+  try {
+    const reply = submit(DEFAULT_CHIEF_BACKFILL, `chief-default-backfill:${state.user.id}`).frames.find((f) => f.t === "reject" || f.t === "result")
+    return reply?.t === "result" ? "queued" : "failed"
+  } catch {
+    return "failed"
+  }
 }
