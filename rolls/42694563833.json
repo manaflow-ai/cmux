@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42694563833",
+  "recorded_at": "2026-11-09T20:47:35Z",
+  "reason": "cmux-tui a7137b32deef changes the image's cmux-tui (pinned 51be5313efbf)",
+  "dry_run": false,
+  "cmux_tui": "a7137b32deef7e28f63bd7cc7024f06b2a0f3d49",
+  "fixes": [
+    {
+      "sha": "a7137b32deef7e28f63bd7cc7024f06b2a0f3d49",
+      "mergedAt": "2026-11-09T12:05:03-08:00",
+      "subject": "W5-O follow-up: a cross-machine move keeps the tab when keep fails; the relay's owner reaps; reap doc (#39710)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T20:47:35Z",
+    "snapshot_id": "sh-2490c555a3564c6588ce87901e15aa39",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42694563833): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "21e6d253aebbe56c5a4f496cbd26091add5bd048",
+    "image": "cloud-native-auto-a7137b32-42694563833-1",
+    "revision": "ci-42694563833-1",
+    "at": "2026-11-09T20:47:35Z"
+  },
+  "rolled_back": false
+}
