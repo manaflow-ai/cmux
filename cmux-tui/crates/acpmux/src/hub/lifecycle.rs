@@ -1,6 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
 use super::full_access_bound::FullAccessEnd;
+use super::policy_mode::refusal_record;
 use super::*;
 
 use super::adoption::{Adoption, adopted_in, start_folder};
@@ -913,7 +914,12 @@ impl Hub {
             // does not wait on it again; Chief starts a fresh harness (`turn::is_hung_start`).
             let hung =
                 !session.person.load(Ordering::SeqCst) && session.wait_start.load(Ordering::SeqCst);
-            if let Some(state) = harness.background().filter(|_| !retried) {
+            // A policy refusal is no start failure: the same agent would be refused again.
+            let refused = failed.as_ref().is_some_and(|e| {
+                e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str)
+                    == Some("policy_unenforceable")
+            });
+            if let Some(state) = harness.background().filter(|_| !retried && !refused) {
                 self.end_cold_start(session).await;
                 let why = match (&failed, hung) {
                     (Some(_), _) => "failed",
@@ -1392,7 +1398,8 @@ impl Hub {
             // An agent that cannot keep the chat's policy is stopped and the start fails.
             let pinned = super::start_mode::profile_sets_mode(profile);
             if let Err(e) = self.hold_policy_mode(session, &child, pinned).await {
-                self.stop_started_agent(session, false, "policy_refused").await;
+                let record = refusal_record(&e);
+                self.stop_started_agent(session, false, "policy_refused", record).await;
                 return Err(e);
             }
             self.set_status(session, SessionStatus::Ready);

@@ -457,26 +457,40 @@ impl Hub {
     }
 
     /// After a live chat's policy changed (`follow_policy`): an agent that runs and cannot keep
-    /// the chat's policy is stopped, and `policy_refused` says why; its next start fails with
-    /// `policy_unenforceable` (module docs).
-    async fn stop_unheld(&self, session: &Arc<Session>) {
+    /// the chat's policy has its turn cancelled and is stopped (`refuse_unheld`); its next start
+    /// fails with `policy_unenforceable` (module docs). An agent in a host this daemon has not
+    /// reached yet (adoption after a restart) counts as running.
+    async fn stop_unheld(self: &Arc<Self>, session: &Arc<Session>) {
         let default = self.config.read().await.permission_policy;
-        let Err(e) = require_enforced(&session.meta(), default) else { return };
+        if require_enforced(&session.meta(), default).is_ok() {
+            return;
+        }
         let child = session.child.lock().await.clone();
         let running = match child {
             Some(child) => child.is_alive().await,
             None => false,
-        };
+        } || (Self::host_record_live(&session.id)
+            && !session.closing.load(Ordering::SeqCst));
         if !running {
             return;
         }
-        tracing::warn!(session = %session.id, "the agent cannot keep the chat's policy: stopped: {}", e.message);
-        let mut record = e.data.clone().unwrap_or_else(|| json!({}));
-        if let Some(fields) = record.as_object_mut() {
-            fields.insert("message".to_owned(), json!(e.message));
+        if session.turn().is_some()
+            && let Err(e) = self.cancel(session).await
+        {
+            tracing::warn!(session = %session.id, "the turn of an agent that cannot keep its policy was not cancelled: {}", e.message);
         }
-        self.append(session, "mux", "policy_refused", record);
-        self.stop_started_agent(session, false, "policy_refused_stopped").await;
+        self.refuse_unheld(session).await;
+    }
+
+    /// An agent of `session` that runs now (started, adopted after a restart, reached again) must
+    /// keep the chat's policy: when it cannot, it is stopped and `policy_refused` says why. Returns
+    /// whether it was stopped.
+    pub(super) async fn refuse_unheld(&self, session: &Arc<Session>) -> bool {
+        let default = self.config.read().await.permission_policy;
+        let Err(e) = require_enforced(&session.meta(), default) else { return false };
+        tracing::warn!(session = %session.id, "the agent cannot keep the chat's policy: stopped: {}", e.message);
+        self.stop_started_agent(session, false, "policy_refused", refusal_record(&e)).await;
+        true
     }
 
     /// The person picked a mode that does not ask (`session/set_mode`, or the `mode` config
@@ -496,8 +510,14 @@ impl Hub {
             return;
         }
         let default = self.config.read().await.permission_policy;
-        let narrow = narrow_policy(&session.meta(), default);
-        if narrow.is_none_or(|p| p == PermissionPolicy::DenyAll) || !self.full_access_allowed() {
+        let meta = session.meta();
+        let narrow = narrow_policy(&meta, default);
+        // Not under a lockdown default, which the person's pick does not lift (module docs).
+        let lockdown = meta.permission_policy.is_none() && narrow.is_some();
+        if narrow.is_none_or(|p| p == PermissionPolicy::DenyAll)
+            || lockdown
+            || !self.full_access_allowed()
+        {
             return;
         }
         self.set_policy(session, PermissionPolicy::ApproveAll).await;
@@ -598,14 +618,26 @@ pub(super) fn require_enforced(
 
 /// Whether `meta`'s agent said at `initialize` that it asks the client
 /// (`session/request_permission`) before every tool call it makes:
-/// `agentCapabilities._meta.acpmux.asksBeforeTools` is `true`. The policy then answers each
-/// call, so it holds.
+/// `agentCapabilities._meta.acpmux.asksBeforeTools` is `true`, and it does not run in a mode that
+/// skips approvals (`start_mode::is_full_access`). The policy then answers each call, so it holds.
 pub(super) fn asks_before_tools(meta: &SessionMeta) -> bool {
-    meta.agent_capabilities
+    let claims = meta
+        .agent_capabilities
         .as_ref()
         .and_then(|c| c.pointer("/_meta/acpmux/asksBeforeTools"))
         .and_then(Value::as_bool)
-        == Some(true)
+        == Some(true);
+    // A mode that skips approvals overrides the claim.
+    claims && crate::web_modes::mode_of(meta).is_none_or(|m| !super::start_mode::is_full_access(&m))
+}
+
+/// The `policy_refused` record of refusal `e` (`unenforceable`): its data and its message.
+pub(super) fn refusal_record(e: &RpcError) -> Value {
+    let mut record = e.data.clone().unwrap_or_else(|| json!({}));
+    if let Some(fields) = record.as_object_mut() {
+        fields.insert("message".to_owned(), json!(e.message));
+    }
+    record
 }
 
 /// The typed error of a start under a policy that harness `harness` cannot keep

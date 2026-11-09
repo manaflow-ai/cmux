@@ -11,8 +11,8 @@ anything else runs the call.
 A prompt "auto-tools: <JSON>" runs the calls in the JSON list, each `[tool_name, tool_input]`:
 `Bash` runs `command` with `sh -c` in the working directory, `Write` writes `content` to
 `file_path`, any other tool does nothing. FAKE_AUTO_LOG=<path> gets one JSON line per call:
-`{"tool", "input", "ran", "reason", "hookMs"}` (`hookMs`: how long each hook callback took to be
-answered, in milliseconds). The turn's result text lists the same.
+`{"tool", "input", "ran", "reason", "hookMs"}` (`hookMs`: each hook callback's id and how long it
+took to be answered, `{"callback", "ms"}`). The turn's result text lists the same.
 """
 import json
 import os
@@ -87,7 +87,7 @@ def matches(matcher, tool):
     return matcher in ("*", "") or tool in matcher.split("|")
 
 
-# Milliseconds each hook callback took to be answered, for the last call judged.
+# Each hook callback's id and milliseconds to its answer, for the last call judged.
 GATE_MS = []
 
 
@@ -105,7 +105,8 @@ def judge(tool, tool_input, use_id, cwd):
             started = time.monotonic()
             response = request({"subtype": "hook_callback", "callback_id": callback,
                                 "input": hook_input, "tool_use_id": use_id})
-            GATE_MS.append(round((time.monotonic() - started) * 1000, 3))
+            GATE_MS.append({"callback": callback,
+                            "ms": round((time.monotonic() - started) * 1000, 3)})
             if response.get("subtype") != "success":
                 decisions.append(("deny", "hook failed: %s" % response.get("error")))
                 continue

@@ -787,7 +787,8 @@ impl Hub {
         // A narrower policy holds over a pinned mode too (`policy_mode.rs`). An agent that cannot
         // keep it is stopped and the start fails.
         if let Err(e) = self.hold_policy_mode(session, child, profile_sets_mode(profile)).await {
-            self.stop_started_agent(session, false, "policy_refused").await;
+            let record = super::policy_mode::refusal_record(&e);
+            self.stop_started_agent(session, false, "policy_refused", record).await;
             return Err(e);
         }
         Ok(())
@@ -797,15 +798,17 @@ impl Hub {
     /// stays open and idle, and its next prompt starts an agent under the setting. `managed`: MDM's
     /// off stops it (now, or one that held as the agent started).
     pub(super) async fn stop_full_access_agent(&self, session: &Arc<Session>, managed: bool) {
-        self.stop_started_agent(session, managed, "full_access_refused").await;
+        self.stop_started_agent(session, managed, "full_access_refused", json!({})).await;
     }
 
-    /// `stop_full_access_agent` for any refused start or run: logs `event` once the agent ended.
+    /// `stop_full_access_agent` for any refused start or run: logs `event` with `record` once the
+    /// agent ended.
     pub(super) async fn stop_started_agent(
         &self,
         session: &Arc<Session>,
         managed: bool,
         event: &str,
+        record: Value,
     ) {
         // Taken first: the child slot's lock is not held while the agent ends. Under MDM's off it
         // is retired under that lock, as MDM's end retires one (`end_managed_full_access`): a mode
@@ -837,7 +840,7 @@ impl Hub {
             self.end_unadopted_host(session).await;
         }
         self.set_status(session, SessionStatus::Idle);
-        self.append(session, "mux", event, json!({}));
+        self.append(session, "mux", event, record);
     }
 
     /// The level new chats on profile `harness` start at now, and what chose it.

@@ -1273,8 +1273,13 @@ async fn the_policy_gate_round_trip_under_approve_all_is_measured() {
         assert_eq!(record["ran"], true, "approve-all runs it: {record}");
         let hooks = record["hookMs"].as_array().cloned().unwrap_or_default();
         assert_eq!(hooks.len(), 2, "the repository sync and the gate: {record}");
-        sync.extend(hooks.first().and_then(Value::as_f64));
-        gate.extend(hooks.get(1).and_then(Value::as_f64));
+        for hook in hooks {
+            let ms = hook["ms"].as_f64().unwrap_or_else(|| panic!("{record}"));
+            match hook["callback"].as_str() {
+                Some("acpmux-policy-gate") => gate.push(ms),
+                _ => sync.push(ms),
+            }
+        }
     }
     assert_eq!(gate.len(), 60);
     let (g50, g95, gmax) = spread(&mut gate);
