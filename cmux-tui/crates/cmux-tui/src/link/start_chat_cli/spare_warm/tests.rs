@@ -543,3 +543,15 @@ fn a_second_compose_in_the_gap_warms_the_next_spare_not_the_claimed_one() {
     assert_eq!(warm(1_030_000)["fresh"], json!(false));
     assert_eq!(calls.get(), 2);
 }
+
+#[test]
+fn a_warm_that_answers_a_machine_a_reserve_already_copies_onto_gives_no_second_copy() {
+    let dir = tempfile::tempdir().unwrap();
+    let call = |request: &str, transport: Transport<'_>| {
+        run(&flags(request), dir.path(), 1_000_000, &mut stdin(Some(TEAM)).as_bytes(), transport)
+            .unwrap()
+    };
+    assert!(call(&claimed(MACHINE), &no_call).get("copy").is_some());
+    let warm = call(r#"{"account":"user_a"}"#, &owner);
+    assert_eq!((warm["machine"].clone(), warm.get("copy")), (json!(MACHINE), None));
+}
