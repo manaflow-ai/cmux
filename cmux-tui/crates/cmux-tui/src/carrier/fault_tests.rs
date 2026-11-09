@@ -229,8 +229,9 @@ fn only_probe_accounts_pass_the_gate() {
 
 #[test]
 fn killing_the_relay_with_no_other_route_is_a_typed_refusal_before_the_turn() {
-    let caps = capabilities(&this_build());
-    let refused = FaultPlan::new(spec(3), routes(&this_build()), &caps).unwrap_err();
+    let carriers = this_build(Err(Absent::Tunnel));
+    let caps = capabilities(&carriers);
+    let refused = FaultPlan::new(spec(3), routes(&carriers), &caps).unwrap_err();
     assert_eq!(refused.code, "carrier_fault.no_other_route");
     assert!(refused.message.contains("ssh"), "{}", refused.message);
     assert_eq!(
