@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42553607031",
+  "recorded_at": "2026-11-09T03:11:01Z",
+  "reason": "cmux-tui 357f5522ff4a changes the image's cmux-tui (pinned 28fef106ddba)",
+  "dry_run": false,
+  "cmux_tui": "357f5522ff4a0a184e0a51a77015589320499de6",
+  "fixes": [
+    {
+      "sha": "357f5522ff4a0a184e0a51a77015589320499de6",
+      "mergedAt": "2026-11-08T18:42:46-08:00",
+      "subject": "cmux-host updater: hold every flip on the supervisor's pause watch, the one pause detector (#39049)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T03:11:01Z",
+    "snapshot_id": "sh-c8223cd37ba84d47af5bc0fd66c013a8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42553607031): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8fbcf97e70025368041ab6f49a8df1aba37740de",
+    "image": "cloud-native-auto-357f5522-42553607031-1",
+    "revision": "ci-42553607031-1",
+    "at": "2026-11-09T03:11:01Z"
+  },
+  "rolled_back": false
+}
