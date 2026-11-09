@@ -60,6 +60,17 @@ export const CHASE_MAX_FRAME_LINES = 1;
 /// line under the reply down by the block and then raised it again: the streaming-text gallery's
 /// live line travelled 2110 px down where base's travelled 1393 px (shift 3.07, baseline 2.25).
 export const CHASE_HOLD_LINES = 1;
+/// A row that arrived above the live line (a finished call taking its row, a thought's row and the
+/// reply's first words, a steer) holds all of its move back: nothing of it moves at once in the frame
+/// it lands, and the chase brings it in over ARRIVAL_BURST_S. The live line under it glides to its new
+/// place (liveLineGlide.ts) instead of being pushed down by it at once. Moving CHASE_LAND_LINES of it
+/// at once moved the rows the reader sees 18-21 px in that one frame (turn-transition-jumps.test.ts).
+export const CHASE_ARRIVAL_HOLD_LINES = Number.POSITIVE_INFINITY;
+/// How soon (s) the trail is back within its bound after a row that arrived put it past: 18 120 Hz
+/// frames, so a steer and the call it came under (115 px) or a thought's row and the reply's first
+/// line (77 px) come in at under a third of a line a frame instead of a line and a half per frame
+/// over BURST_S (turn-transition-jumps.test.ts). A reply's own growth keeps BURST_S.
+export const ARRIVAL_BURST_S = 0.075;
 /// The most a landing frame moves, that at once and the chase's step in it together, in lines:
 /// under the 0.85 of a line that 95 in 100 of the stream's frames keep to (send-stream-motion.test.ts).
 export const CHASE_LAND_LINES = 0.8;
@@ -84,8 +95,9 @@ export type FollowChase = {
   /// drawn back by that and chases home, drawn down at most `below` px (what may lie under the
   /// bottom stack: the room under the last row and a line, VirtualTranscript); the rest moves at
   /// once. `held` keeps to `below` in every arm (Jump to latest just landed). False when it moved at
-  /// once (motion off, nothing to move).
-  shift(thread: HTMLElement | null, moved: number, below?: number, held?: boolean): boolean;
+  /// once (motion off, nothing to move). `arrived`: the move is a row that came, not the reply's own
+  /// growth, and holds back up to CHASE_ARRIVAL_HOLD_LINES.
+  shift(thread: HTMLElement | null, moved: number, below?: number, held?: boolean, arrived?: boolean): boolean;
   /// What may lie under the bottom stack is now `below` px: a chase drawn further down rests there.
   fit(below: number): void;
   /// How far the thread is drawn from its layout (px, positive: drawn down), 0 at rest.
@@ -320,7 +332,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
         else draw();
       }
     },
-    shift(node, moved, below = Number.POSITIVE_INFINITY, held = false) {
+    shift(node, moved, below = Number.POSITIVE_INFINITY, held = false, arrived = false) {
       // A shell that opts out (`data-follow-glide="off"`, the gallery's and harnesses' before) steps.
       if (!node || !(Math.abs(moved) > 0.5) || arm === "instant" || node.closest(FOLLOW_GLIDE_OFF)) return false;
       const speed = speedOf(node);
@@ -353,7 +365,8 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       // whole block pushing the live line under it down and raising it again.
       if (arm === "blocks" && !held && below !== Number.POSITIVE_INFINITY && x > 0) {
         const line = currentChatMetrics().lineHeight;
-        const atOnce = Math.min(x - CHASE_HOLD_LINES * line, CHASE_LAND_LINES * line - spent - stepped);
+        const hold = arrived ? CHASE_ARRIVAL_HOLD_LINES : CHASE_HOLD_LINES;
+        const atOnce = Math.min(x - hold * line, CHASE_LAND_LINES * line - spent - stepped);
         if (atOnce > 0) {
           x -= atOnce;
           spent += atOnce;
@@ -364,7 +377,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       const timeline = node.ownerDocument.timeline?.currentTime;
       const at = typeof timeline === "number" ? timeline : performance.now();
       if (Math.abs(x) > trail) {
-        due ??= at + BURST_S * 1000;
+        due ??= at + (arrived ? ARRIVAL_BURST_S : BURST_S) * 1000;
         const left = Math.max(1 / 120, (due - at) / 1000);
         const fastest = (CHASE_MAX_FRAME_LINES * currentChatMetrics().lineHeight) / (1 / 120);
         burst = Math.min(fastest, Math.max(burst, (Math.abs(x) - trail) / left));

@@ -65,6 +65,7 @@ import {
   writeAnchorScrollTop,
 } from "./conversation/scrollCoordinates";
 import { createFollowGlide, followRoom } from "./conversation/followGlide";
+import { createTailGlide, type TailGlide } from "./conversation/tailGlide";
 import { createFollowChase, type FollowChase } from "./conversation/followChase";
 import { followMotion } from "./conversation/followMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
@@ -142,7 +143,7 @@ import {
   type ChatFind,
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
-import { THINKING, WORKED, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
+import { LIVE_THINKING, THINKING, WORKED, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
 import { ArrowDown } from "./conversation/icons";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
@@ -536,6 +537,24 @@ const RowFrame = React.memo(function RowFrame({
     </article>
   );
 }, sameRowFrame);
+
+/// Whether the rows at the tail changed by more than the reply's own text: a row came or went, or a
+/// row other than a reply and the live line changed (a call finished, a thought grew, a steer
+/// landed). O(1): the last ARRIVAL_TAIL rows, by id and version.
+const ARRIVAL_TAIL = 6;
+/// How long after a row arrived its room still counts as the arrival: the passes that measure it.
+const ARRIVAL_PASS_MS = 100;
+function arrivedAtTail(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]): boolean {
+  if (before.length !== after.length) return true;
+  for (let index = after.length - 1; index >= Math.max(0, after.length - ARRIVAL_TAIL); index -= 1) {
+    const row = after[index]!;
+    const was = before[index]!;
+    if (row.id !== was.id) return true;
+    if (row === was || row.version === was.version) continue;
+    if (row.id !== LIVE_THINKING && row.kind !== "assistant") return true;
+  }
+  return false;
+}
 
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.
 const speaker = (kind: string, t: Translate) =>
@@ -1409,6 +1428,10 @@ function TranscriptView({
   /// Eases the followed view's steps with a streaming reply on the compositor (followGlide.ts).
   const followGlide = useRef<ReturnType<typeof createFollowGlide>>(undefined);
   followGlide.current ??= createFollowGlide();
+  /// The rows under what changed glide to their new place while the chase follows (tailGlide.ts),
+  /// instead of jumping by what landed above them (the live line, a steer under its new footer).
+  const tailGlide = useRef<TailGlide>(undefined);
+  tailGlide.current ??= createTailGlide();
   /// A row in view and its layout top on screen (its box less the chase's translate) as of the last
   /// followed pass: the next pass measures how far the rows the reader sees moved from it.
   const chaseAnchor = useRef<{ id: string; top: number } | undefined>(undefined);
@@ -1424,6 +1447,9 @@ function TranscriptView({
   /// Until when (performance.now) the turn that just ended still draws its reply: the reveal drains
   /// what had arrived within StreamReveal.finishMs of the end, and those lines ride the chase.
   const chaseDrainUntil = useRef(Number.NEGATIVE_INFINITY);
+  /// When (performance.now) a row last arrived at the tail of a followed running turn
+  /// (`arrivedAtTail`): the chase holds what it brings back up to the trail bound.
+  const arrivedAt = useRef(Number.NEGATIVE_INFINITY);
   /// The reply's drawn height while the turn's end folds and its last lines reveal (`chaseDrainUntil`).
   const drainReply = useRef<{ id: string; height: number } | undefined>(undefined);
   /// The turn's reply, its last assistant row near the end, and its drawn height. O(1): a few rows
@@ -1442,6 +1468,7 @@ function TranscriptView({
   const stopFollowMotion = useCallback(() => {
     followGlide.current?.stop();
     followChase.current?.stop();
+    tailGlide.current?.stop();
     chaseAnchor.current = undefined;
   }, []);
   /// The followed view's pass moved the rows (or may have): how far the row in view the last pass
@@ -1455,6 +1482,7 @@ function TranscriptView({
     below = Number.POSITIVE_INFINITY,
     moveAtOnce = false,
     held = false,
+    arrived = false,
   ) => {
     const chase = followChase.current!;
     const rowTop = (id: string) => {
@@ -1470,7 +1498,7 @@ function TranscriptView({
     // A turn's end folding moves the rows itself (turnEndFold.ts): their motion is no move to chase.
     const turnEnding = thread.current?.hasAttribute(TURN_END_ATTR) === true;
     if (before && now !== undefined && !moveAtOnce && !turnEnding)
-      chase.shift(thread.current, now - before.top, below, held);
+      chase.shift(thread.current, now - before.top, below, held, arrived);
     const first = visibleLayoutRange(placed, layoutScrollTop(node), node.clientHeight, 0).first;
     const id = shown[Math.min(first, shown.length - 1)]?.id;
     const top = id === undefined ? undefined : rowTop(id);
@@ -3050,6 +3078,10 @@ function TranscriptView({
     }
   });
   useLayoutEffect(() => {
+    /// This pass is the follow chase's (the last branch below): the rows under a change glide, against
+    /// the row the chase measured from.
+    let tailGlides = false;
+    let tailAnchor: string | undefined;
     const switched = previousSession.current !== sessionId;
     if (switched) {
       if (ref.current) clearScrollOrigin(ref.current);
@@ -3339,6 +3371,10 @@ function TranscriptView({
               const held = chaseHeld.current;
               chase.shift(thread.current, -grew, held ? room : Number.POSITIVE_INFINITY, held);
               chase.land();
+              // The rows under the reply (the turn's footer the fold brought) would move down by
+              // its growth at once: they glide there instead (tailGlide.ts).
+              tailGlides = true;
+              tailAnchor = reply?.id;
             }
           } else if (foldRiding && !resizing) {
             // The fold playing on: nothing noted, and a chase still landing lands on its own.
@@ -3392,7 +3428,16 @@ function TranscriptView({
               rows.at(-2)?.id === oldRows.at(-2)?.id &&
               (tailNew?.id !== tailOld?.id || tailNew?.version !== tailOld?.version);
             const stepped = grewOnly && !(room > 0) && !held && !cardCleared;
-            chaseFollow(node, layout, rows, below, dockMoved || !live || stepped, held);
+            const atOnce = dockMoved || !live || stepped;
+            // A row that came above the live line (not the reply's own growth) holds back up to the
+            // trail bound, while the live line glides under it (followChase CHASE_ARRIVAL_HOLD_LINES).
+            // The arrived row's room often lands a pass later (its measured height), so the passes
+            // within ARRIVAL_PASS_MS of it count too.
+            if (arrivedAtTail(oldRows, rows)) arrivedAt.current = now;
+            const arrived = now - arrivedAt.current < ARRIVAL_PASS_MS;
+            tailAnchor = chaseAnchor.current?.id;
+            chaseFollow(node, layout, rows, below, atOnce, held, arrived);
+            tailGlides = !atOnce && followChase.current?.arm !== "instant";
           }
         }
         // A glide holding the rows back further than the room now under the last row (the live line
@@ -3505,6 +3550,7 @@ function TranscriptView({
     }
     // The room a collapse kept follows the view's end, and goes once the rows reach it.
     if (node) trimFoldRoom(node);
+    tailGlide.current?.place(thread.current, tailGlides && chasing, tailAnchor);
     previousLayout.current = layout;
     previousRows.current = rows;
     previousViewport.current = { height, width, dockSpace, dockCard };
