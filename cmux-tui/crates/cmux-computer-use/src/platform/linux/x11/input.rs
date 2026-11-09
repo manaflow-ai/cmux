@@ -30,6 +30,21 @@ use super::{Client, X11Desktop, xerr};
 use crate::desktop::*;
 use crate::keys::{KeyCombo, Modifier};
 
+/// How window-scoped keys reach a window without the keyboard focus.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Lend {
+    /// Lend it a FocusIn for the keys (it drops keys while it lacks focus).
+    Yes,
+    /// Send the keys as they are.
+    No,
+    /// Another window of the same app holds the focus; the app would route
+    /// the keys there, into the person's window. Refused.
+    SameAppHasFocus,
+    /// Where the person's keys go could not be read; for an app that routes
+    /// keys by its own focus record that is not safe to guess. Refused.
+    Unknown,
+}
+
 /// One keystroke: keycode plus whether Shift is needed for the keysym.
 #[derive(Clone, Copy, Debug)]
 struct Stroke {
@@ -338,7 +353,25 @@ impl X11Desktop {
             Some(name) => (Route::XTest, name, false),
             None => match self.focus_in(c) {
                 Some(focus) => (Route::Send(focus), "xsendevent", false),
-                None => (Route::Send(c.win), "xsendevent", self.needs_lent_focus(c)),
+                None => match self.lend_plan(c) {
+                    Lend::Yes => (Route::Send(c.win), "xsendevent", true),
+                    Lend::No => (Route::Send(c.win), "xsendevent", false),
+                    Lend::SameAppHasFocus => {
+                        return Err(DesktopError::Unsupported(
+                            "another window of this app has the keyboard focus, and this app sends every key to it: \
+                             keys would land there, not in this window. Use set_value or an element action, \
+                             or delivery foreground"
+                                .into(),
+                        ));
+                    }
+                    Lend::Unknown => {
+                        return Err(DesktopError::Unsupported(
+                            "could not read which window has the keyboard focus, so keys for this window \
+                             might reach the person's; try again, or use set_value or an element action"
+                                .into(),
+                        ));
+                    }
+                },
             },
         };
         // A window without the keyboard focus whose toolkit tracks focus from
@@ -643,8 +676,8 @@ impl X11Desktop {
         Ok(())
     }
 
-    /// Whether keys for `c` (which does not hold the keyboard focus) need a
-    /// lent FocusIn. Only when it is safe for the person, and every read that
+    /// How keys reach `c`, which does not hold the keyboard focus. A lent
+    /// FocusIn only when it is safe for the person, and every read that
     /// fails means no:
     /// - the client tracks focus from events (its `WM_PROTOCOLS` read worked
     ///   and has neither `WM_TAKE_FOCUS` nor `_NET_WM_PING`: Tk, Xt/Motif,
@@ -656,47 +689,55 @@ impl X11Desktop {
     ///   with PointerRoot or root focus the window under the pointer) was not
     ///   made by the target's X connection: Tk keeps one focus record per
     ///   connection, so a lend would send the person's keys to the target or
-    ///   drop them. Menus and dropdowns (override-redirect) count too.
-    fn needs_lent_focus(&self, c: &Client) -> bool {
+    ///   drop them. Menus and dropdowns (override-redirect) count too. Then
+    ///   even unlent keys would go to the person's window (Tk sends every key
+    ///   of the app to its focus record), so the call is refused.
+    fn lend_plan(&self, c: &Client) -> Lend {
         let a = &self.atoms;
-        let Some(protocols) = super::read_protocols(&self.conn, c.win, a.wm_protocols) else {
-            return false;
-        };
-        if !super::tracks_focus_from_events(&protocols, a.wm_take_focus, a.net_wm_ping)
-            || matches!(c.class.as_str(), "XTerm" | "UXTerm")
+        // `None`: the toolkit is unknown (the read failed); treated as one
+        // that routes keys by its own focus record, but never lent focus.
+        let tracks = super::read_protocols(&self.conn, c.win, a.wm_protocols)
+            .map(|p| super::tracks_focus_from_events(&p, a.wm_take_focus, a.net_wm_ping));
+        if tracks == Some(false) || matches!(c.class.as_str(), "XTerm" | "UXTerm") {
+            return Lend::No;
+        }
+        let Some(receiver) = self.key_receiver() else { return Lend::Unknown };
+        if let Some(receiver) = receiver
+            && super::same_connection(receiver, c.win, self.conn.setup().resource_id_mask)
         {
-            return false;
+            // The pointer (PointerRoot) is over the target itself: it has the keys.
+            if self.top_of(receiver) == c.frame_win {
+                return Lend::No;
+            }
+            return Lend::SameAppHasFocus;
+        }
+        if tracks.is_none() {
+            return Lend::No;
         }
         let xim =
             self.conn.get_property(false, self.root, a.xim_servers, xproto::AtomEnum::ATOM, 0, 1);
         match xim.ok().and_then(|r| r.reply().ok()) {
-            Some(r) if r.value_len == 0 && r.bytes_after == 0 => {}
-            _ => return false,
+            Some(r) if r.value_len == 0 && r.bytes_after == 0 => Lend::Yes,
+            _ => Lend::No,
         }
-        let Some(focus) = self.conn.get_input_focus().ok().and_then(|r| r.reply().ok()) else {
-            return false;
+    }
+
+    /// The window that gets the person's keys now: the focus window, or with
+    /// PointerRoot or root focus the window under the pointer (a window
+    /// manager frame resolved to its client). `Some(None)`: no window (keys
+    /// go to the root); `None`: a read failed.
+    fn key_receiver(&self) -> Option<Option<XWindow>> {
+        let focus = self.conn.get_input_focus().ok()?.reply().ok()?;
+        if focus.focus > 1 && focus.focus != self.root {
+            return Some(Some(focus.focus));
+        }
+        let p = self.conn.query_pointer(self.root).ok()?.reply().ok()?;
+        let Some(top) = self.top_at(Point { x: f64::from(p.root_x), y: f64::from(p.root_y) })
+        else {
+            return Some(None);
         };
-        let receiver = if focus.focus <= 1 || focus.focus == self.root {
-            let Some(p) = self.conn.query_pointer(self.root).ok().and_then(|r| r.reply().ok())
-            else {
-                return false;
-            };
-            match self.top_at(Point { x: f64::from(p.root_x), y: f64::from(p.root_y) }) {
-                // A window manager frame belongs to the window manager: use the
-                // client window inside it. Anything else is its own window.
-                Some(top) => match self.clients() {
-                    Ok(clients) => {
-                        clients.iter().find(|o| o.frame_win == top).map_or(top, |o| o.win)
-                    }
-                    Err(_) => return false,
-                },
-                // Nothing under the pointer: the keys go to the root window.
-                None => return true,
-            }
-        } else {
-            focus.focus
-        };
-        !super::same_connection(receiver, c.win, self.conn.setup().resource_id_mask)
+        let clients = self.clients().ok()?;
+        Some(Some(clients.iter().find(|o| o.frame_win == top).map_or(top, |o| o.win)))
     }
 
     /// After a lend: the window that really holds the keyboard focus when it
