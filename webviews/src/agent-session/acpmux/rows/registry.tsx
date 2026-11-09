@@ -59,6 +59,8 @@ import { PlanBuildRow } from "./PlanBuildRow";
 import { ReadOnlyPermissionRow } from "./ReadOnlyPermissionRow";
 import { ReadOnlyQueuedMessageRow } from "./ReadOnlyQueuedMessageRow";
 import { ReadOnlyAgentPairRow } from "./ReadOnlyAgentPairRow";
+import { TEST_TAMPERING_TURN } from "../conversation/testTamperingTurn";
+import { TestTamperingRow } from "./TestTamperingRow";
 
 export const defaultRegistry: NativeRegistry = {
   btw: ({ row }) => {
@@ -78,6 +80,7 @@ export const defaultRegistry: NativeRegistry = {
   [NEXT_STEP]: NextStepRow,
   [RENDER]: RenderRow,
   editedFiles: EditedFilesRow,
+  [TEST_TAMPERING_TURN]: TestTamperingRow,
   turnSummary: SummaryRow,
   notice: NoticeRow,
   plan: PlanRow,

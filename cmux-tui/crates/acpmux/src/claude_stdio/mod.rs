@@ -1023,6 +1023,9 @@ pub(crate) fn tool_call_fields(name: &str, input: &Value) -> Value {
 /// Adds a file edit's diff and location to its ACP tool call.
 fn with_edit(call: &mut Value, name: &str, input: &Value) {
     if let Some(diffs) = edit_diffs(name, input) {
+        if let Some(tampering) = crate::test_tampering::detect_diffs(&diffs) {
+            call.set("tampering", tampering);
+        }
         call.set("content", diffs);
         if let Some(locations) = tool_locations(input) {
             call.set("locations", locations);

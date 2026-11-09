@@ -18,6 +18,10 @@ nonisolated enum AcpmuxPaneMethods {
 
     /// Requests (`id` present).
     public static let requests: Set<String> = [
+        // Restore only durable test evidence in a pane-owned session. The daemon authenticates
+        // the local app and re-derives the inverse; the page cannot supply paths or patch text.
+        // One click may restore several findings, so these bounded inverses share no gesture ticket.
+        "_acpmux/test_tampering_restore",
         // Sessions (direct.ts).
         "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option", "chat.fix_from_link", "chat.fix_from_link.prepare",
         // acpmux extensions (direct.ts). `_acpmux/attachment` reads a sent prompt's image by content hash.
@@ -284,6 +288,7 @@ nonisolated enum AcpmuxPaneMethods {
     /// every frame that writes to a session. A session outside the pane's scope (a second attach on
     /// one click) is a read-only view, and the pane never sends anything to it.
     public static let sessionScoped: Set<String> = [
+        "_acpmux/test_tampering_restore",
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/inbox_thread", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/queue_approve", "_acpmux/queue_decline", "_acpmux/queue_get",

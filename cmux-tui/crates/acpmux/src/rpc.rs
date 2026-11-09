@@ -443,6 +443,7 @@ pub mod method {
     pub const MUX_TURN_ATTESTATION: &str = "_acpmux/turn_attestation";
     /// Metadata-only paths for a session's config and state files; local Unix socket only.
     pub const MUX_SESSION_FILES: &str = "_acpmux/session_files";
+    pub const MUX_TEST_TAMPERING_RESTORE: &str = "_acpmux/test_tampering_restore";
     pub const MUX_EVENTS: &str = "_acpmux/events";
     /// One GitHub action for an agent on a machine the person added, run by the Mac that lends it
     /// its `gh` login; never a credential (`github_broker.rs`).

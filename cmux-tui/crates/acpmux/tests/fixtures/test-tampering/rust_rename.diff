@@ -1,0 +1,6 @@
+--- a/tests/sample.rs
++++ b/tests/sample.rs
+@@ -1,4 +1,4 @@
+ #[test]
+-fn test_upload() { assert_eq!(upload(), Ok(())); }
++fn test_upload_is_recorded() { assert_eq!(upload(), Ok(())); }

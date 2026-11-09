@@ -185,6 +185,8 @@ pub mod tailnet;
 mod test_exec;
 #[cfg(test)]
 mod test_stack;
+pub mod test_tampering;
+pub(crate) mod test_tampering_restore;
 pub mod touched_files;
 pub mod transcript;
 pub mod trust;

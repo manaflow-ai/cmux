@@ -121,6 +121,7 @@ export interface AcpmuxRequests {
   "_acpmux/info": { params: unknown; result: unknown };
   "_acpmux/machine_info": { params: unknown; result: unknown };
   "_acpmux/session_files": { params: unknown; result: unknown };
+  "_acpmux/test_tampering_restore": { params: unknown; result: unknown };
   "_acpmux/events": { params: EventsParams; result: EventsResult };
   "_acpmux/attachment": { params: AttachmentParams; result: unknown };
   "_acpmux/mail/send": { params: MailSendParams; result: MailSendResult };
@@ -460,6 +461,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/info", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_info", kind: "request", acp: false, typed: false },
   { name: "_acpmux/session_files", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/test_tampering_restore", kind: "request", acp: false, typed: false },
   { name: "_acpmux/events", kind: "request", acp: false, typed: true },
   { name: "_acpmux/attachment", kind: "request", acp: false, typed: true },
   { name: "_acpmux/mail/send", kind: "request", acp: false, typed: true },

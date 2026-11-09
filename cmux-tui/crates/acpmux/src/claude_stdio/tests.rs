@@ -2,6 +2,38 @@
 
 use super::*;
 
+#[test]
+fn raw_test_edit_reports_skips_and_weakened_assertions_with_their_diff() {
+    for (old, new, kind) in [
+        ("test('works', () => {});", "test.skip('works', () => {});", "introduced-skip"),
+        ("expect(count).toEqual(3);", "expect(count).toBeTruthy();", "weakened-assertion"),
+    ] {
+        let call = tool_call_fields(
+            "Edit",
+            &json!({
+                "file_path":"/project/suite.test.ts", "old_string":old, "new_string":new
+            }),
+        );
+        let report = call.get("tampering").expect("test-edit alarm");
+        assert_eq!(report, &crate::test_tampering::detect_diffs(&call["content"]).unwrap());
+        assert_eq!(report["files"][0]["path"], "/project/suite.test.ts");
+        assert!(
+            report["files"][0]["findings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|finding| finding["kind"] == kind)
+        );
+    }
+    let stronger = tool_call_fields(
+        "Edit",
+        &json!({
+            "file_path":"/project/suite.test.ts", "old_string":"expect(count).toBeTruthy();", "new_string":"expect(count).toEqual(3);"
+        }),
+    );
+    assert!(stronger.get("tampering").is_none());
+}
+
 #[tokio::test]
 async fn prompt_becomes_user_line_and_result_answers_it() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");

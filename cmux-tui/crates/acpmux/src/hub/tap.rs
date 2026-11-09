@@ -309,6 +309,30 @@ impl Hub {
                         &super::gemini_plan::gemini_homes(),
                     );
                 }
+                // Every ACP adapter eventually emits a tool_call/update here. Annotate its
+                // structured edit content so Codex and other non-Claude harnesses get the same
+                // per-turn alarm as the Claude stdio adapter.
+                if let Some(update) = params.get_mut("update") {
+                    // Harness-provided findings are not trusted detector evidence.
+                    if let Some(object) = update.as_object_mut() {
+                        object.remove("tampering");
+                    }
+                    let tampering = update
+                        .get("sessionUpdate")
+                        .and_then(Value::as_str)
+                        .filter(|kind| *kind == "tool_call" || *kind == "tool_call_update")
+                        // An edit proposal can fail or be cancelled. Both live Claude and
+                        // Codex repeat structured diff content on successful settlement.
+                        // Only that durable successful event authorizes Restore.
+                        .filter(|_| {
+                            update.get("status").and_then(Value::as_str) == Some("completed")
+                        })
+                        .and_then(|_| update.get("content"))
+                        .and_then(crate::test_tampering::detect_diffs);
+                    if let Some(tampering) = tampering {
+                        update["tampering"] = tampering;
+                    }
+                }
                 // The chat's own thread is never one of its subagents. Seed the
                 // native roots (the current one and the earlier ones a daemon restart
                 // forgot) before handling updates so echoed root activity cannot

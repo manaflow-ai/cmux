@@ -1,0 +1,16 @@
+--- a/tests/sample.rs
++++ b/tests/sample.rs
+@@ -2,5 +2,1 @@
+-#[test]
+-#[ignore]
+-fn test_upload() {
+-    assert_eq!(upload(), Ok(()));
+-}
+ const UNUSED: usize = 0;
+@@ -30,1 +27,6 @@
+ const END: usize = 1;
++#[test]
++#[ignore]
++fn test_upload() {
++    assert_eq!(upload(), Ok(()));
++}

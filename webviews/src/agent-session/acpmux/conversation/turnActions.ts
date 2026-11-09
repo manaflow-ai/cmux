@@ -12,6 +12,7 @@ export type QueuedActions = { retry?: ReactNode; fork?: ReactNode };
 // client). A context, so a change in what acpmux serves, or in what the reader decided about a
 // turn's hunks, reaches memoized rows without changing their versions.
 import { createContext, type ReactNode } from "react";
+import type { TamperingEvidence } from "./testTamperingModel";
 import type { HunkReview } from "../changes/hunkReview";
 import type { AccessOffer } from "../accessOffer";
 import type { ChatAccount } from "../chatAccounts";
@@ -80,6 +81,7 @@ export type TurnActions = {
   /// path, so it shows as the reader's prompt and starts the next turn. Absent where the pane cannot
   /// send (View Only, a read-only pane); the card then draws no buttons.
   answer?: (text: string) => Promise<void>;
+  restoreTestTampering?: (finding: TamperingEvidence) => Promise<void>;
   /// Who asks in this chat, the chat's agent by name (agents.ts `agentName`): an answer to its ask
   /// quotes the ask under this name (nextStepAsk.ts `answerPrompt`).
   asker?: string;

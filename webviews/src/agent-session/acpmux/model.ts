@@ -817,6 +817,9 @@ export type AcpmuxActivity = {
     startedAt?: number;
     endedAt?: number;
     diffs?: AcpmuxFileDiff[];
+    /// Test-tampering findings attached by acpmux to an edit tool call.
+    tampering?: AcpmuxTamperingReport;
+    tamperingEventSeq?: number;
     locations?: AcpmuxLocation[];
     /// The input's file (`rawInput.file_path`) and its canonical path (acpmux
     /// `_meta.acpmux.canonicalPath` on the update), when acpmux recorded one.
@@ -836,6 +839,17 @@ export type AcpmuxActivity = {
     provenance?: { claudeTool?: string; claudeCodeToolName?: string };
   };
 };
+
+export type AcpmuxTamperingFinding = {
+  kind: string;
+  line: number | null;
+  message: string;
+  old: string;
+  new: string;
+};
+
+export type AcpmuxTamperingFile = { path: string; findings: AcpmuxTamperingFinding[] };
+export type AcpmuxTamperingReport = { count: number; files: AcpmuxTamperingFile[] };
 
 /// A file change from an ACP tool call's `diff` content: `oldText` is absent for a new file.
 /// `line` is where the change starts, when the tool call's locations name it. `fragment`: the
@@ -1500,7 +1514,7 @@ export const opensBackgroundTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined)
 const rowGridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
   row.kind === WORKED
     ? MARK_WORKED
-    : isEditCard(row)
+    : row.kind === "testTampering" || isEditCard(row)
       ? MARK_CARD
       : isStepRow(row)
         ? MARK_STEP
@@ -2081,6 +2095,8 @@ function fallbackRowHeight(
       ? height
       : height + TURN_GAP - (row.kind === "activity" || isLineRow(row) ? TOOL_RUN_BOTTOM : MESSAGE_GAP);
   const textLines = Math.max(1, Math.ceil((row.text?.length ?? 0) / Math.max(24, Math.floor(width / 8))));
+  // Compact alarm: 32px control, two border pixels and 6px margins. Expanded evidence is measured.
+  if (row.kind === "testTampering") return finish(46 * chromeScale);
   if (row.kind === "activity") {
     const items = visibleToolItems(row.items) ?? [];
     // Successful discovery normally leaves no rendered steps, but keep a mountable slot so Find
