@@ -1231,6 +1231,7 @@ pub(super) fn send(
         prompt: Some(prompt.to_owned()),
         agent: String::new(),
         cwd: None,
+        from_folder: None,
         login: None,
         environment: None,
         machine: Machine::Target(machine_id.to_owned()),
@@ -1940,7 +1941,8 @@ mod fault;
 mod folder;
 use folder::local_folder;
 mod support;
-use support::{at, last_turn, reply, sections, words};
+pub(super) use support::sections;
+use support::{at, last_turn, reply, words};
 
 #[cfg(test)]
 pub(in crate::cli) mod tests;
