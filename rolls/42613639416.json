@@ -28,5 +28,20 @@
     "revision": "ci-42613639416-1",
     "at": "2026-11-09T12:11:00Z"
   },
-  "rolled_back": false
+  "rolled_back": true,
+  "production": {
+    "commit": "94e8eeaee26a503470c5d6dda22a4dc236322bff",
+    "run": "https://github.com/manaflow-ai/cmux/actions/runs/42614861588",
+    "deploy": "failure",
+    "product_smoke": "not-run",
+    "boot_image": "",
+    "smoke_done_at": "2026-11-09T12:18:15Z",
+    "green": false,
+    "superseded": false
+  },
+  "rollback": {
+    "result": "pushed",
+    "commit": "9b62b2cdb9f125cae5c08158c0d83a9a00d71566",
+    "at": "2026-11-09T12:18:15Z"
+  }
 }
