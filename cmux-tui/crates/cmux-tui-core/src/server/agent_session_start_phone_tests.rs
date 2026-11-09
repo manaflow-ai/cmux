@@ -1,0 +1,184 @@
+//! A phone's chat start (`cloud-mobile-chat-v1` on the Cloud carrier, hq#8003 step 2): the
+//! machine holds it to acpmux's Cloud mobile floor itself, also on the caller's own Cloud VM,
+//! where a Mac's start keeps whatever mode its harness starts in.
+
+use super::agent_session_attach_tests::{
+    Client, FakeAcpmux, Fixture, PhoneFloor, SESSION, WAIT, assert_code, mux_with, run,
+    terminal_pane,
+};
+use super::*;
+use crate::server::AgentStartHost;
+use serde_json::{Value, json};
+
+struct Phone {
+    fake: FakeAcpmux,
+    client: Client,
+    surface: u64,
+    cwd: String,
+    mode: Arc<Mutex<String>>,
+}
+
+/// A carrier stream of the owner (stamped), declared a phone's when `phone`, with a fresh agent
+/// tab in this machine's store; acpmux starts `family` sessions in `mode`.
+fn connect(
+    label: &str,
+    phone: bool,
+    strict: bool,
+    family: &'static str,
+    mode: &str,
+    stuck: bool,
+) -> Phone {
+    let mode = Arc::new(Mutex::new(mode.to_owned()));
+    let floor = PhoneFloor { strict, family, mode, stuck, table_gate: None };
+    connect_with(label, phone, floor)
+}
+
+fn connect_with(label: &str, phone: bool, floor: PhoneFloor) -> Phone {
+    let (family, mode) = (floor.family, floor.mode.clone());
+    let fake = FakeAcpmux::start_with(
+        label,
+        Fixture { start_folder_trusted: Some(true), phone: Some(floor), ..Default::default() },
+    );
+    let mux = mux_with(&fake, label);
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let (_, pane) = terminal_pane(&mux);
+    let host = agent_session_attach::agent_session_start::store_host(&mux);
+    let surface = run(
+        &mux,
+        json!({"cmd":"new-conversation-tab","pane":pane,
+               "agent_session":{"host":host,"harness":family}}),
+    )["surface"]
+        .as_u64()
+        .unwrap();
+    let mut client = Client::connect(&mux, label);
+    let stamped = client.request(json!({"cmd":"carrier-role","vmk":"owner"}));
+    assert_eq!(stamped["ok"], json!(true), "{stamped}");
+    if phone {
+        let info = client.request(json!({"cmd":"set-client-info","kind":"ios",
+            "capabilities":["cloud-mobile-chat-v1","conversation-tabs-v1","agent-session-tabs-v1"]}));
+        assert_eq!(info["ok"], json!(true), "{info}");
+    }
+    // The chat's folder: anywhere below the home folder's parent but the home folder itself.
+    let directory = PathBuf::from(format!("/tmp/cmux-phone-{label}-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let cwd = directory.to_string_lossy().into_owned();
+    Phone { fake, client, surface, cwd, mode }
+}
+
+impl Phone {
+    fn start(&mut self) -> Value {
+        let start = json!({"cmd":"agent-session-start","surface":self.surface,"cwd":self.cwd,
+            "harness":"claude","vm_kind":"owner"});
+        self.client.request(start)
+    }
+
+    /// The methods the daemon sent acpmux, in order, until the fake goes quiet.
+    fn methods(&self) -> Vec<String> {
+        let mut methods = Vec::new();
+        while let Ok(frame) = self.fake.frames.recv_timeout(Duration::from_millis(300)) {
+            if let Some(method) = frame["method"].as_str()
+                && method != "_acpmux/watch"
+            {
+                methods.push(method.to_owned());
+            }
+        }
+        methods
+    }
+}
+
+#[test]
+fn a_phone_start_on_the_owners_cloud_vm_moves_to_a_phone_mode() {
+    let mut phone = connect("phone-settles", true, true, "claude", "acceptEdits", false);
+    let started = phone.start();
+    assert_eq!(started["ok"], json!(true), "{started}");
+    assert_eq!(started["data"]["session"], json!(SESSION));
+    assert_eq!(*phone.mode.lock().unwrap(), "default");
+    let methods = phone.methods();
+    assert!(methods.contains(&"session/set_mode".to_owned()), "{methods:?}");
+    assert!(!methods.contains(&"_acpmux/kill".to_owned()), "{methods:?}");
+}
+
+#[test]
+fn a_phone_start_that_cannot_reach_a_phone_mode_is_ended() {
+    let mut phone = connect("phone-stuck", true, true, "claude", "bypassPermissions", true);
+    assert_code(&phone.start(), "agent_session.not_asking");
+    let methods = phone.methods();
+    assert!(methods.contains(&"session/new".to_owned()), "{methods:?}");
+    assert_eq!(methods.last().map(String::as_str), Some("_acpmux/kill"), "{methods:?}");
+}
+
+#[test]
+fn a_phone_start_needs_an_acpmux_that_holds_phone_prompts_to_the_floor() {
+    let mut phone = connect("phone-old-acpmux", true, false, "claude", "default", false);
+    assert_code(&phone.start(), "agent_session.not_asking");
+    // Refused before any agent process exists.
+    let methods = phone.methods();
+    assert!(!methods.contains(&"session/new".to_owned()), "{methods:?}");
+}
+
+#[test]
+fn a_phone_start_of_a_family_the_floor_has_no_mode_for_never_starts() {
+    let mut phone = connect("phone-family", true, true, "opencode", "build", false);
+    // The harness the tab names resolves through acpmux's catalog to its default family.
+    let start = json!({"cmd":"agent-session-start","surface":phone.surface,"cwd":phone.cwd,
+        "vm_kind":"owner"});
+    assert_code(&phone.client.request(start), "agent_session.not_asking");
+    let methods = phone.methods();
+    assert!(!methods.contains(&"session/new".to_owned()), "{methods:?}");
+}
+
+#[test]
+fn the_owners_own_start_on_their_cloud_vm_keeps_its_harness_mode() {
+    let mut owner = connect("owner-keeps-mode", false, true, "claude", "acceptEdits", false);
+    let started = owner.start();
+    assert_eq!(started["ok"], json!(true), "{started}");
+    assert_eq!(*owner.mode.lock().unwrap(), "acceptEdits");
+    let methods = owner.methods();
+    assert!(!methods.contains(&"session/set_mode".to_owned()), "{methods:?}");
+}
+
+#[test]
+fn a_phone_start_keeps_the_phones_floor_after_the_phone_disconnects() {
+    let (release, gate) = std::sync::mpsc::channel();
+    let floor = PhoneFloor {
+        strict: true,
+        family: "claude",
+        mode: Arc::new(Mutex::new("acceptEdits".to_owned())),
+        stuck: false,
+        table_gate: Some(Arc::new(Mutex::new(gate))),
+    };
+    let Phone { fake, mut client, surface, cwd, mode } =
+        connect_with("phone-disconnects", true, floor);
+    client.send(json!({"cmd":"agent-session-start","surface":surface,"cwd":cwd,
+        "harness":"claude","vm_kind":"owner"}));
+    // The start's worker waits on acpmux's table; the phone's connection ends meanwhile.
+    let mut methods = Vec::new();
+    while let Ok(frame) = fake.frames.recv_timeout(WAIT) {
+        let method = frame["method"].as_str().unwrap_or_default().to_owned();
+        let asked = method == "_acpmux/web_modes";
+        methods.push(method);
+        if asked {
+            break;
+        }
+    }
+    drop(client);
+    release.send(()).unwrap();
+    while let Ok(frame) = fake.frames.recv_timeout(Duration::from_millis(500)) {
+        methods.push(frame["method"].as_str().unwrap_or_default().to_owned());
+    }
+    // The start that went on still got the phone's floor.
+    assert!(methods.contains(&"session/new".to_owned()), "{methods:?}");
+    assert!(methods.contains(&"session/set_mode".to_owned()), "{methods:?}");
+    assert_eq!(*mode.lock().unwrap(), "default");
+}
+
+#[test]
+fn a_phone_start_of_a_codex_bridge_session_moves_to_ask() {
+    // acpmux lists Codex as a refused Web family; its bridge holds to the phone floor in `ask`.
+    let mut phone = connect("phone-codex", true, true, "codex", "auto", false);
+    let start = json!({"cmd":"agent-session-start","surface":phone.surface,"cwd":phone.cwd,
+        "vm_kind":"owner"});
+    let started = phone.client.request(start);
+    assert_eq!(started["ok"], json!(true), "{started}");
+    assert_eq!(*phone.mode.lock().unwrap(), "ask");
+}

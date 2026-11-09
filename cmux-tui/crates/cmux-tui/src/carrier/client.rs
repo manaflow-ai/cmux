@@ -44,7 +44,9 @@ use tokio::time::Instant;
 use zeroize::Zeroizing;
 
 use super::answer::{CarrierAnswer, CarrierSource, Prefetched, SourceError, TicketCache};
-use super::contract::{Backoff, Failure, Phase, Step, route_line};
+use super::contract::{
+    Backoff, Failure, FreshSessions, Phase, PhaseTimes, PhasesOf, Step, phases_line, route_line,
+};
 
 /// The relay's frame bound for a carrier (the Mac's remote client uses the same).
 const MAX_FRAME_BYTES: usize = 65_535;
@@ -52,6 +54,10 @@ const MAX_FRAME_BYTES: usize = 65_535;
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(15);
 /// The Noise handshake of one attempt, at most.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
+/// How long an established session tries to resume before it gives up.
+/// After that its streams end, and the next stream (`held`) or the
+/// caller's next dial opens a fresh session instead of resuming forever.
+pub(super) const RESUME_DEADLINE: Duration = Duration::from_secs(10);
 
 /// A connected carrier session.
 pub(super) struct Dialed {
@@ -73,6 +79,11 @@ pub(super) struct DialPlan {
     pub prefetched: Arc<Prefetched>,
     /// Where each attempt's route line goes (stderr in the CLI).
     pub log: Arc<dyn Fn(String) + Send + Sync>,
+    /// Where each attempt's phases line goes: the connect log only, never
+    /// stderr ([`phases_line`]).
+    pub phases: Arc<dyn Fn(String) + Send + Sync>,
+    /// The dial's fresh sessions, shared with the caller's own retries.
+    pub fresh_sessions: FreshSessions,
 }
 
 /// A failure of the connection step: a provider error is the relay's (or,
@@ -95,6 +106,10 @@ pub(super) fn classify(error: &ConnectionError, step: Step) -> Failure {
         ConnectionError::Crypto(
             CryptoError::DaemonKeyMismatch { .. } | CryptoError::Unauthorized(_),
         ) => Failure::fatal(Step::Handshake, detail),
+        // The session host restarted and lost the session: a fresh one.
+        ConnectionError::SessionUnavailable => {
+            Failure::session_gone(step.max(Step::Handshake), detail)
+        }
         _ if error.is_retryable_carrier_failure() => {
             Failure::retry(step.max(Step::Handshake), detail)
         }
@@ -108,7 +123,12 @@ pub(super) fn pinned_daemon(answer: &CarrierAnswer) -> Result<[u8; 32], Failure>
 }
 
 fn source_failure(error: SourceError) -> Failure {
-    Failure { step: Step::Ticket, detail: error.detail, retryable: error.retryable }
+    Failure {
+        step: Step::Ticket,
+        detail: error.detail,
+        retryable: error.retryable,
+        fresh_session: false,
+    }
 }
 
 /// A [`LinkGroup`] that records how far an attempt got: the relay's
@@ -120,21 +140,64 @@ struct Tracked {
 }
 
 /// How far the current attempt got, shared with its [`Tracked`] group so a
-/// deadline cut can name the step.
+/// deadline cut can name the step, and when it reached each step.
 #[derive(Default)]
-pub(super) struct Progress(AtomicU8);
+pub(super) struct Progress {
+    step: AtomicU8,
+    marks: std::sync::Mutex<Marks>,
+}
+
+/// When one attempt reached each of its steps (see [`PhaseTimes`]).
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct Marks {
+    pub started: Option<Instant>,
+    pub answered: Option<Instant>,
+    pub relay_up: Option<Instant>,
+    pub first_open: Option<Instant>,
+    pub first_allocated: Option<Instant>,
+    pub connected: Option<Instant>,
+    pub mux_open: Option<Instant>,
+    pub lanes: u32,
+}
+
+impl Marks {
+    /// The steps' durations as of `now`: a step runs from the mark that
+    /// starts it to the one that ends it, or to `now` when it has not ended.
+    pub(super) fn times(&self, now: Instant) -> PhaseTimes {
+        let span = |from: Option<Instant>, to: Option<Instant>| {
+            from.map_or(Duration::ZERO, |from| to.unwrap_or(now).saturating_duration_since(from))
+        };
+        PhaseTimes {
+            ticket: span(self.started, self.answered),
+            relay: span(self.answered, self.relay_up),
+            parked: span(self.first_open, self.first_allocated),
+            handshake: span(self.first_allocated, self.connected),
+            mux: span(self.connected, self.mux_open),
+            lanes: self.lanes,
+        }
+    }
+}
 
 impl Progress {
     fn set(&self, step: Step) {
-        self.0.store(step_code(step), Ordering::SeqCst);
+        self.step.store(step_code(step), Ordering::SeqCst);
     }
 
     fn advance(&self, step: Step) {
-        self.0.fetch_max(step_code(step), Ordering::SeqCst);
+        self.step.fetch_max(step_code(step), Ordering::SeqCst);
     }
 
     pub(super) fn get(&self) -> Step {
-        step_of(self.0.load(Ordering::SeqCst))
+        step_of(self.step.load(Ordering::SeqCst))
+    }
+
+    fn mark(&self, write: impl FnOnce(&mut Marks)) {
+        write(&mut self.marks.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+    }
+
+    /// Every step's duration so far.
+    pub(super) fn times(&self) -> PhaseTimes {
+        self.marks.lock().unwrap_or_else(std::sync::PoisonError::into_inner).times(Instant::now())
     }
 }
 
@@ -165,8 +228,16 @@ impl LinkGroup for Tracked {
     }
     async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
         self.step.advance(Step::Parked);
+        self.step.mark(|marks| {
+            marks.first_open.get_or_insert_with(Instant::now);
+        });
         let link = self.inner.open(request).await?;
         self.step.advance(Step::Handshake);
+        // A lane counts once the relay has allocated it, not on the ask.
+        self.step.mark(|marks| {
+            marks.lanes += 1;
+            marks.first_allocated.get_or_insert_with(Instant::now);
+        });
         Ok(link)
     }
     async fn close(&self) -> Result<(), ProviderError> {
@@ -210,11 +281,13 @@ async fn attempt(
     resume: &Arc<Resume>,
 ) -> Result<Dialed, Failure> {
     step.set(Step::Ticket);
+    step.mark(|marks| marks.started = Some(Instant::now()));
     let key = plan.identity.public_key();
     let answer = match plan.prefetched.take_now() {
         Some(answer) => answer,
         None => plan.source.fetch(&plan.machine, Some(&key)).await.map_err(source_failure)?,
     };
+    step.mark(|marks| marks.answered = Some(Instant::now()));
     let grant = answer
         .grant
         .clone()
@@ -239,6 +312,7 @@ async fn attempt(
                 Failure::fatal(Step::Relay, detail)
             }
         })?;
+    step.mark(|marks| marks.relay_up = Some(Instant::now()));
     let tracked: Arc<dyn LinkGroup> =
         Arc::new(Tracked { inner: group.clone(), step: step.clone() });
     let (tracked, daemon) = match answer.daemon_key {
@@ -262,6 +336,7 @@ async fn attempt(
         limits: SessionLimits::default(),
         reconnect: ReconnectPolicy {
             attempt_timeout: HANDSHAKE_TIMEOUT.min(remaining.max(Duration::from_millis(1))),
+            maximum_duration: Some(RESUME_DEADLINE),
             ..ReconnectPolicy::default()
         },
     };
@@ -272,6 +347,7 @@ async fn attempt(
             return Err(classify(&error, step.get()));
         }
     };
+    step.mark(|marks| marks.connected = Some(Instant::now()));
     connection.set_resume_hooks(resume.clone());
     let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
     // A grant that does not admit mux control is refused here, before the
@@ -279,14 +355,22 @@ async fn attempt(
     let mux = match OpenedMuxControl::open(&multiplexer).await {
         Ok(mux) => mux,
         Err(error) => {
+            // The link dropped after the handshake and the resume reached a
+            // session host that restarted meanwhile (the updater restarts
+            // it at boot): it no longer has this session, so the next
+            // attempt opens a fresh one.
+            let gone = connection.session_unavailable();
             multiplexer.shutdown().await;
             let _ = connection.close().await;
-            return Err(Failure::fatal(
-                Step::Handshake,
-                format!("the daemon did not open its mux control stream: {error}"),
-            ));
+            let detail = format!("the daemon did not open its mux control stream: {error}");
+            return Err(if gone {
+                Failure::session_gone(Step::Handshake, detail)
+            } else {
+                Failure::fatal(Step::Handshake, detail)
+            });
         }
     };
+    step.mark(|marks| marks.mux_open = Some(Instant::now()));
     Ok(Dialed { connection, multiplexer, mux, vmk: answer.vmk })
 }
 
@@ -382,7 +466,8 @@ pub(super) struct Resume {
 impl ResumeHooks for Resume {
     fn attempt_ended(&self, result: Result<(), &ConnectionError>, elapsed: Duration) {
         let outcome = result.err().map(resume_outcome);
-        (self.log)(route_line(&self.machine, Phase::Resume, outcome, elapsed));
+        let detail = result.err().map(ToString::to_string);
+        (self.log)(route_line(&self.machine, Phase::Resume, outcome, detail.as_deref(), elapsed));
     }
 }
 
@@ -405,11 +490,16 @@ pub(super) async fn dial(
                 Err(_) => Err(Failure::deadline(step.get())),
             };
         let phase = Phase::of_attempt(attempts);
-        (plan.log)(route_line(
+        let outcome = result.as_ref().err().map(|f| f.step);
+        let elapsed = started.elapsed();
+        let detail = result.as_ref().err().map(|f| f.detail.as_str());
+        (plan.log)(route_line(&plan.machine, phase, outcome, detail, elapsed));
+        (plan.phases)(phases_line(
             &plan.machine,
-            phase,
-            result.as_ref().err().map(|f| f.step),
-            started.elapsed(),
+            PhasesOf::Attempt(phase),
+            outcome,
+            step.times(),
+            elapsed,
         ));
         let failure = match result {
             Ok(dialed) => return Ok(dialed),
@@ -418,9 +508,16 @@ pub(super) async fn dial(
         if !failure.retryable {
             return Err(failure);
         }
+        if failure.fresh_session {
+            if !plan.fresh_sessions.take() {
+                return Err(Failure { retryable: false, fresh_session: false, ..failure });
+            }
+            // The daemon is up and answered: no backoff.
+            continue;
+        }
         let remaining = plan.deadline.saturating_duration_since(Instant::now());
         let Some(delay) = backoff.next(remaining, &jitter) else {
-            return Err(Failure { retryable: false, ..failure });
+            return Err(Failure { retryable: false, fresh_session: false, ..failure });
         };
         tokio::time::sleep(delay).await;
     }

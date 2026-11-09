@@ -96,6 +96,7 @@ import {
 } from "./conversation/bareReferences";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
+import { isRegroupHold } from "./conversation/keepOpenedLineModel";
 import {
   ANCHORED_COLLAPSE_EVENT,
   atFoldBottom,
@@ -131,7 +132,7 @@ import {
   type ChatFind,
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
-import { THINKING, WORKED, turnFooterFrom, retryTargetIn } from "./conversation/turns";
+import { THINKING, WORKED, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
 import { ArrowDown } from "./conversation/icons";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
@@ -141,6 +142,7 @@ import { transcriptRangeText } from "./conversation/transcriptCopy";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { chatColumnOf, useChatSizing } from "./chatWidth";
 import { useChatDisplay } from "./chatDisplay";
+import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
 import { SUBAGENT_DONE, SUBAGENT_OF } from "./subagents/subagentRows";
 import { SubagentOfRow } from "./subagents/SubagentGroup";
@@ -154,6 +156,7 @@ import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
 import { chatSwitchMotion } from "./chatSwitch.experiment";
 import { callNative } from "./callNative";
+import { StreamReveal } from "./streamReveal";
 import { type NativeRegistry, type OpenDiff, type RowProps } from "./rows/rowProps";
 import { NoticeRow } from "./rows/NoticeRow";
 import { defaultRegistry, readOnlyRegistry } from "./rows/registry";
@@ -1119,7 +1122,8 @@ function TranscriptView({
   queuedTail?: readonly AcpmuxRow[];
   /// Where a keyboard Jump to latest leaves focus, since the button hides (inert) once there.
   focusComposer?: () => void;
-  onToggleActivity: (id: string) => void;
+  /// `covers`: the clicked line's other keys (turns.ts `foldCovers`), toggled with it.
+  onToggleActivity: (id: string, covers?: readonly string[]) => void;
   onOpenDiff?: OpenDiff;
   expanded: Folds;
   registry?: NativeRegistry;
@@ -1394,6 +1398,9 @@ function TranscriptView({
   /// the passes before that are the open's settle (rows drawn at their measured heights, a late
   /// read), which land at once, as the open itself does (chat-open-long.test.ts). Undefined once armed.
   const chaseOpenTail = useRef<{ id: string; version: number } | undefined>(undefined);
+  /// Until when (performance.now) the turn that just ended still draws its reply: the reveal drains
+  /// what had arrived within StreamReveal.finishMs of the end, and those lines ride the chase.
+  const chaseDrainUntil = useRef(Number.NEGATIVE_INFINITY);
   /// Ends the follow motion in flight where the rows lay out, and forgets where they were.
   const stopFollowMotion = useCallback(() => {
     followGlide.current?.stop();
@@ -1576,7 +1583,13 @@ function TranscriptView({
         : 0;
     // A click on one of its disclosures (the header, View all, a command's line) is the reader's.
     // One that changes no height (or a tray that goes) holds nothing: the flag goes after two frames
-    // unless the tray's height changed meanwhile.
+    // unless the tray's height changed meanwhile, or its fold is still to move it (useFold's motion
+    // can sit pending at its start height for those frames: the hat's fold starts at 0px).
+    const folding = () =>
+      dock
+        .querySelector(`:scope > .acpmux-running-tray:not(.${TRAY_GHOST}) > .acpmux-running-tray__fold`)
+        ?.getAnimations()
+        .some((animation) => animation.playState !== "finished") ?? false;
     const toggled = (event: MouseEvent) => {
       const target = event.target instanceof Element ? event.target : null;
       const toggle = target?.closest("[aria-expanded]");
@@ -1585,7 +1598,7 @@ function TranscriptView({
       const at = tray(1);
       requestAnimationFrame(() =>
         requestAnimationFrame(() => {
-          if (Math.abs(tray(1) - at) < 0.5 && Math.abs(dockTrayRef.current - foldBase.current) < 0.5)
+          if (Math.abs(tray(1) - at) < 0.5 && Math.abs(dockTrayRef.current - foldBase.current) < 0.5 && !folding())
             trayToggled.current = false;
         }),
       );
@@ -1687,6 +1700,10 @@ function TranscriptView({
   // The user's chat look (font, sizes, width; chatDisplay.ts): a new one measures every row again.
   const chatLook = useChatDisplay();
   const measuredLook = useRef(chatLook);
+  // The pane's attachment view moves a prompt's attachments between its bubble and the band above
+  // it (UserBubble.tsx), so a new one estimates every prompt again (model.ts reads it).
+  const { attachmentView } = useComposerSettings();
+  const measuredView = useRef(attachmentView);
   // Rows place by their drawn height once drawn, and by the estimate until then.
   // One entry per row drawn, kept as a layered map: a measured row changes its layer, not a copy of
   // every row's entry (conversation/layeredMap.ts).
@@ -1920,6 +1937,8 @@ function TranscriptView({
         registry: NativeRegistry;
         /// A new chat look (Minimal Mode included) estimates every row again too: nothing is kept.
         look: ReturnType<typeof useChatDisplay>;
+        /// So does a new attachment view (inline or strip, UserBubble.tsx).
+        view: typeof attachmentView;
         first: number;
         last: number;
         /// Rows mounted outside that range because a margin drag's selection holds them (at most two).
@@ -2448,8 +2467,9 @@ function TranscriptView({
     // Keep the session in this memo's inputs: its cache is cleared synchronously above even
     // when a host reuses the same rows array for a newly selected chat.
     const cache = measurementSession.current === sessionId ? measurementCache.current : new Map();
-    const lookChanged = measuredLook.current !== chatLook;
+    const lookChanged = measuredLook.current !== chatLook || measuredView.current !== attachmentView;
     measuredLook.current = chatLook;
+    measuredView.current = attachmentView;
     const fresh = rowHeights.current.registry !== registry || measurementSession.current !== sessionId || lookChanged;
     if (rowHeights.current.registry !== registry || lookChanged)
       rowHeights.current = { registry, heights: new WeakMap() };
@@ -2466,7 +2486,7 @@ function TranscriptView({
     );
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [rows, registry, sessionId, chatLook, scaledRowWidth]);
+  }, [rows, registry, sessionId, chatLook, attachmentView, scaledRowWidth]);
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
@@ -2487,6 +2507,7 @@ function TranscriptView({
       last.sessionId === sessionId &&
       last.registry === registry &&
       last.look === chatLook &&
+      last.view === attachmentView &&
       drawn.size > 0
     ) {
       const limit = Math.min(rows.length, last.rows.length);
@@ -2576,12 +2597,25 @@ function TranscriptView({
       sessionId,
       registry,
       look: chatLook,
+      view: attachmentView,
       first: last?.first ?? 0,
       last: last?.last ?? 0,
       held: last?.held ?? [],
     };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [estimated, drawn, registry, rows, sessionId, chatLook, scaledRowWidth, canLoadOlder, earlier, promptCount]);
+  }, [
+    estimated,
+    drawn,
+    registry,
+    rows,
+    sessionId,
+    chatLook,
+    attachmentView,
+    scaledRowWidth,
+    canLoadOlder,
+    earlier,
+    promptCount,
+  ]);
   // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
   // alone placed the latest row's bottom that far under the view.
   // The bottom stack's room follows the rows, so the latest row ends above it.
@@ -3206,9 +3240,9 @@ function TranscriptView({
           // rewrap): it ends, and nothing is noted, so the first pass after them measures no move
           // from a row they moved (that drew the thread back by the ride's last step, under the card).
           // The turn ending (the live line leaves for the footer, and what ran folds above the reply)
-          // lands at once, and the chase lands with it (followChase `land`: at once within a line,
-          // else within 50 ms at no more than a line a frame): nothing settles on after the turn
-          // rests (base's glide ended there too, its room gone).
+          // joins the chase, and the chase lands (followChase `land`: at once when that frame stays
+          // within a landing frame's move, else within 50 ms at no more than a line a frame): nothing
+          // settles on after the turn rests (base's glide ended there too, its room gone).
           const lineLeft = Boolean(oldRows.at(-1)?.below) && !rows.at(-1)?.below;
           // Only a live turn moves on the chase: a reply streaming, a send's rows, what a running
           // turn brings. The open's settle and an idle chat's passes (rows drawn at their measured
@@ -3217,7 +3251,10 @@ function TranscriptView({
           const opened = chaseOpenTail.current;
           if (opened && (sendWindow || !tail || tail.id !== opened.id || tail.version !== opened.version))
             chaseOpenTail.current = undefined;
-          const live = (working || sendWindow) && chaseOpenTail.current === undefined;
+          // The reply's last lines still revealing after the turn ended are the turn's too: they
+          // chase, so the turn ending never moves the rows by them at once (send-stream-motion).
+          const draining = now < chaseDrainUntil.current;
+          const live = (working || sendWindow || draining) && chaseOpenTail.current === undefined;
           const riding = jumping || bottomStacking || heightFoldPlaying();
           if (riding || resizing) {
             stopFollowMotion();
@@ -3226,8 +3263,11 @@ function TranscriptView({
             // once). A ride, a fold and a jump move the rows on their own frames: nothing noted.
             if (!riding) chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, true);
           } else if (lineLeft) {
+            // What the pass also brought (the reply's next revealed line) joins the trail first, and
+            // the landing takes it home with the rest at no more than a line a frame.
+            chaseDrainUntil.current = now + StreamReveal.finishMs;
+            chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, false);
             followChase.current?.land();
-            chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, true);
           } else {
             // New text lands in the room the quiet live line keeps under the reply, and at most a line
             // under the bottom stack while it catches up (followGlide.ts kept it to the room and moved
@@ -3457,12 +3497,14 @@ function TranscriptView({
         stack.rows = true;
         stack.row.setAttribute("data-bottom-fold", "");
       }
+      // The clicked line: its open state, and the other keys a joined run's line is open under.
+      const clicked = shown.find((row) => row.id === id);
       const fold =
         node && !stack
           ? startTurnFold(
               host,
               id,
-              !(shown.find((row) => row.id === id)?.foldOpen ?? foldInputs.current.expanded.has(id)),
+              !(clicked?.foldOpen ?? foldInputs.current.expanded.has(id)),
               {
                 count: shown.length,
                 idAt: (index) => shown[index]?.id,
@@ -3489,7 +3531,7 @@ function TranscriptView({
         watchTurnFold(fold, host, read, foldGhosts.current, () => {
           if (turnFold.current === fold) turnFold.current = undefined;
         });
-      onToggleActivity(id);
+      onToggleActivity(id, foldCovers(clicked));
     },
     [onToggleActivity],
   );
@@ -4268,6 +4310,16 @@ function TranscriptView({
       if (!node || typeof header?.closest !== "function" || !node.contains(header) || !header.closest(".acpmux-row"))
         return;
       event.preventDefault();
+      // A line the reader opened that a new call's regroup moved in its row (KeepOpenedLine.tsx): held
+      // where it was drawn before the regroup, while the row settles. Following the latest row, the
+      // view stays on the latest row as before; a click's own hold already keeps its line.
+      const regroup = (event as CustomEvent<unknown>).detail;
+      if (isRegroupHold(regroup)) {
+        if (followingRef.current || foldHolding(foldAnchor.current)) return;
+        foldAnchor.current = { ...holdFold(header), top: regroup.top };
+        holdTop.current = node.scrollTop;
+        return;
+      }
       settleFold(header);
       const toggle = clicked && clicked.closest(".acpmux-row") === header.closest(".acpmux-row") ? clicked : header;
       const bottom = bottomStackFold.current?.toggle === header ? true : beginBottomStackFold(toggle, header);

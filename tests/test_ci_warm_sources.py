@@ -121,9 +121,12 @@ def compile_reasons(job: dict) -> list[str]:
 # ---------------------------------------------------------------------------------------------
 WIRING: dict[str, re.Pattern] = {
     # Kept DerivedData: the owned Mac's admission state, the nightly seed, the e2e warm copy, the
-    # scheme and Release compiles' worker-local tree, or a build handed to the controller's warm slots.
+    # scheme and Release compiles' worker-local tree, cmux-tui's macOS per-runner Cargo target, or a build handed to the controller's warm slots.
     "deriveddata-reuse": re.compile(
-        _names("owned_build_state.py", "seed_derived_data.py", "e2e_warm_derived_data.py", "release-derived-data-path.sh")
+        _names(
+            "owned_build_state.py", "seed_derived_data.py", "e2e_warm_derived_data.py", "release-derived-data-path.sh",
+            "cmux-tui-warm-target.sh",
+        )
         + r"|\bCMUX_COMPILE_ADMISSION_DERIVED_DATA\b|\bcmux_next_cas_fresh_tree\b"
         # A tour or visual-gate build in its claimed warm slot's DerivedData, and the Chief's per-runner target.
         + r"|" + _names("media_tag_lock.py", "prune_media_derived_data.py") + r"|\bCMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR=\"?\$HOME/"
@@ -409,6 +412,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(wired_sources(ROOT, job("python3 scripts/ci/media_tag_lock.py claim")), ["deriveddata-reuse"])
         kept = 'export CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$HOME/Library/Caches/x"'
         self.assertEqual(wired_sources(ROOT, job(kept)), ["deriveddata-reuse"])
+        self.assertEqual(wired_sources(ROOT, job('echo "CARGO_TARGET_DIR=$(./scripts/ci/cmux-tui-warm-target.sh)"')), ["deriveddata-reuse"])
         self.assertEqual(wired_sources(ROOT, job('echo "${CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR:-target}"')), [])
         # A comment naming a source does not wire it.
         self.assertEqual(wired_sources(ROOT, job("# restore with actions/cache@v5 later\ncargo build")), [])

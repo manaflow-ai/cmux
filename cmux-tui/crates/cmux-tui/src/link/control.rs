@@ -14,6 +14,7 @@ use cmux_link::pairing::Pairings;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 
+use super::acpmux::AcpmuxTarget;
 use super::dial::{Overlay, serve_dial_line};
 use super::inbound::{InboundRefused, serve_inbound_watched};
 use super::lines::read_line;
@@ -155,16 +156,23 @@ async fn serve_local_request<O: Overlay>(
     serve_dial_line(stream, &first, &*overlay, &pairings, Some(peers.revocations())).await;
 }
 
-/// Serve overlay streams from paired peers. Without a session socket this
-/// link only dials, and inbound streams are closed.
+/// Serve overlay streams from paired peers. Without a session socket and
+/// without an acpmux target this link only dials, and inbound streams are
+/// closed.
 pub(super) async fn serve_overlay<L: OverlayListener>(
     mut listener: L,
     peers: Arc<Peers>,
     session_socket: Option<PathBuf>,
     owner: Option<Arc<OwnerSession>>,
+    acpmux: AcpmuxTarget,
 ) {
+    let serves_nothing = session_socket.is_none() && matches!(acpmux, AcpmuxTarget::Off);
     while let Some((stream, key, address)) = listener.accept().await {
-        let Some(session_socket) = session_socket.clone() else { continue };
+        if serves_nothing {
+            continue;
+        }
+        let session_socket = session_socket.clone();
+        let acpmux = acpmux.clone();
         let pairings = peers.snapshot();
         let owner = owner.clone();
         let revocations = peers.revocations();
@@ -177,8 +185,9 @@ pub(super) async fn serve_overlay<L: OverlayListener>(
                 key,
                 address,
                 &pairings,
-                &session_socket,
+                session_socket.as_deref(),
                 owner.as_deref(),
+                &acpmux,
                 Some(revocations),
             )
             .await;

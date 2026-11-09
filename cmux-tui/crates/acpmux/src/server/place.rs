@@ -23,12 +23,14 @@ pub(super) async fn place(hub: &Hub, params: &Value) -> Value {
         _ => Work::Agent,
     };
     let off_interactive = params.get("offInteractive").and_then(Value::as_bool) == Some(true);
-    let mut candidates = candidates(hub).await;
+    let (mut candidates, mut down) = candidates(hub).await;
     let registry = crate::placement::load_registry();
     if off_interactive {
         candidates = off_interactive_hosts(candidates, registry.as_ref());
+        down.retain(|(name, _)| !crate::placement::interactive(registry.as_ref(), name));
     }
     let verdict = crate::placement::place(&candidates, registry.as_ref(), work);
+    let verdict = crate::placement::with_down(verdict, &down);
     crate::shadow_admission::with_shadow("place", verdict, &candidates)
 }
 
@@ -61,7 +63,7 @@ async fn this_machine(hub: &Hub) -> Candidate {
 /// machine and every connected peer `dispatch_hosts` keeps, weighed for `work`.
 pub(super) async fn pick(hub: &Hub, work: Work) -> Value {
     let registry = crate::placement::load_registry();
-    let candidates = candidates(hub).await;
+    let (candidates, _) = candidates(hub).await;
     // The shadow judges only the hosts the pick weighs, not the ones `dispatch_hosts` leaves out.
     let (weighed, _) = dispatch_hosts(candidates.clone(), registry.as_ref(), work);
     let verdict = dispatch_place(candidates, registry.as_ref(), work);
@@ -105,16 +107,31 @@ fn dispatch_hosts(
     })
 }
 
-/// This machine and every connected peer, with their last readings.
-async fn candidates(hub: &Hub) -> Vec<Candidate> {
+/// This machine and every connected peer, with their last readings, and every other peer with
+/// why it is none (`split_peers`).
+async fn candidates(hub: &Hub) -> (Vec<Candidate>, Vec<(String, String)>) {
+    let (peers, down) = split_peers(hub.peers());
     let mut candidates = vec![this_machine(hub).await];
-    candidates.extend(
-        hub.peers()
-            .into_iter()
-            .filter(|p| p.get("connected").and_then(Value::as_bool) == Some(true))
-            .filter_map(|p| Candidate::peer(&p)),
-    );
-    candidates
+    candidates.extend(peers);
+    (candidates, down)
+}
+
+/// Peer rows split into candidates and the names of the others with why
+/// (`placement::peer_down`): a peer is one only while its link is up.
+fn split_peers(rows: Vec<Value>) -> (Vec<Candidate>, Vec<(String, String)>) {
+    let mut down = Vec::new();
+    let mut peers = Vec::new();
+    for row in rows {
+        match crate::placement::peer_down(&row) {
+            None => peers.extend(Candidate::peer(&row)),
+            Some(why) => {
+                if let Some(name) = row.get("name").and_then(Value::as_str) {
+                    down.push((name.to_owned(), why));
+                }
+            }
+        }
+    }
+    (peers, down)
 }
 
 /// A sub-session's `host` (`start_session`, `server/subsessions.rs`). A
@@ -265,6 +282,25 @@ mod tests {
         );
         let e = placed_here(&v).unwrap_err();
         assert!(e.message.contains("not a lane host"), "{}", e.message);
+    }
+
+    /// Only a peer whose link is up is weighed; the others come back named, with why.
+    #[test]
+    fn only_peers_whose_link_is_up_are_candidates() {
+        let rows = vec![
+            json!({"name": "up", "connected": true, "state": "connected", "health": health(40, 0)}),
+            json!({"name": "stale", "connected": true, "state": "reconnecting"}),
+            json!({"name": "gone", "connected": false, "state": "offline"}),
+        ];
+        let (peers, down) = split_peers(rows);
+        assert_eq!(peers.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["up"]);
+        assert_eq!(
+            down,
+            [
+                ("stale".to_owned(), "not connected (reconnecting)".to_owned()),
+                ("gone".to_owned(), "not connected (offline)".to_owned()),
+            ]
+        );
     }
 
     /// A command-line `new` on a machine a person works at weighs only the others: this one and

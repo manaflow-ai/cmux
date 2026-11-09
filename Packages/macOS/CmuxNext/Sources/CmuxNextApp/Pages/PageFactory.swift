@@ -309,6 +309,8 @@ struct PageFactory {
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute()),
                       // Settings > Menus: right-click menu arrangements (cmux.json contextMenus).
                       PageRoute(prefix: ContextMenusPageProvider.prefix, provider: services.settingsWindow.contextMenusRoute),
+                      // Settings > Server > This Mac on Your Tailnet: sign in and out on the app's person connection to acpmux.
+                      PageRoute(prefix: SettingsTailnet.prefix, provider: SettingsTailnet { [weak services] in services.flatMap(QuitAgents.environment) }),
                       // Settings > Server: Restart… (the toast's confirm) and Pair (the Server panel).
                       PageRoute(prefix: ServerSettingsPageRoute.prefix, provider: ServerSettingsPageRoute(
                           confirmRestart: { [weak services] in services?.serverUpdates.confirmRestart(kind: $0, host: $1) },

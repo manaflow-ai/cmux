@@ -4,7 +4,7 @@
 // options) finds them in the cache: no card mounts empty and fills in a frame later.
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { categoryById, homes, categoryOf } from "./categories";
-import type { AgentsState, ChannelsState, SharesState } from "./ops";
+import type { AgentsState, ChannelsState, SharesState, TailnetState } from "./ops";
 import { settingsKeys } from "./queries";
 import type { SettingsStore } from "./store";
 
@@ -48,6 +48,19 @@ export function agentsQuery(store: SettingsStore) {
   });
 }
 
+/** This Mac on Your Tailnet's key; each sign-in step writes its answer here. */
+export const TAILNET_KEY = [...settingsKeys.all, "tailnet"] as const;
+
+/** Settings > Server > This Mac on Your Tailnet: the node's snapshot (null: no tailnet here). */
+export function tailnetQuery(store: SettingsStore) {
+  return queryOptions<TailnetState | null>({
+    queryKey: TAILNET_KEY,
+    queryFn: () => store.tailnet("state"),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
 /** The Shared Links list's key; a revoke refreshes it. */
 export const SHARES_KEY = [...settingsKeys.all, "shares"] as const;
 
@@ -83,6 +96,7 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
   if (cards.has("harnesses")) reads.push({ options: { queryKey: settingsKeys.harnesses }, revalidate: false });
   if (cards.has("agentHarnesses")) reads.push({ options: agentsQuery(store), revalidate: true });
   if (cards.has("sharedLinks")) reads.push({ options: sharesQuery(store), revalidate: true });
+  if (cards.has("tailnet")) reads.push({ options: tailnetQuery(store), revalidate: true });
   if (cards.has("channels")) {
     const ring = store.getSnapshot().rows.get("updates.channel")?.value;
     reads.push({ options: channelsQuery(store, typeof ring === "string" ? ring : undefined), revalidate: true });

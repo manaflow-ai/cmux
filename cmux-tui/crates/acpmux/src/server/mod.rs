@@ -156,6 +156,9 @@ pub struct Conn {
     /// The paired machine whose credential it presented (`ConnAuth::Device`
     /// or `ReadOnlyDevice`), from the handshake only, never from a request.
     device: Option<String>,
+    /// The person the Cloud carrier attested (`carrier.rs`), from the carrier socket's upgrade
+    /// header only, never from a request. Set exactly when `auth` is a carrier proof.
+    carrier: Option<carrier::Attested>,
     /// It reads session text raw (`peer_text.rs`): every origin but a peer.
     raw_text: bool,
     name: StdMutex<String>,
@@ -1045,13 +1048,32 @@ pub async fn serve_ws_until(
             let mut stream = stream;
             // The whole head routes the request (`ws_peek.rs`). Each path checks it: serve_http
             // as it reads, tungstenite as it parses it again for the callback.
-            let (head, read) = match ws_peek::request(&mut stream, peer).await {
-                ws_peek::Request::Head { head, read } => (head, read),
-                ws_peek::Request::TooLarge => {
-                    refuse_http(stream, Refusal::MissingHost).await;
+            let mut probed = false;
+            let (head, read) = loop {
+                let (head, read) = match ws_peek::request(&mut stream, peer).await {
+                    ws_peek::Request::Head { head, read } => (head, read),
+                    ws_peek::Request::TooLarge => {
+                        refuse_http(stream, Refusal::MissingHost).await;
+                        return;
+                    }
+                    ws_peek::Request::Gone => return,
+                };
+                // The cmux link proves this is the listener `listener.json` names before it
+                // sends a paired peer's bytes (`listener_record.rs`): it answers the link's
+                // challenge under the record's key, for the probe alone, once.
+                let Some(answer) = crate::listener_record::probe_answer(&read) else {
+                    break (head, read);
+                };
+                if probed {
                     return;
                 }
-                ws_peek::Request::Gone => return,
+                probed = true;
+                if tokio::io::AsyncWriteExt::write_all(&mut stream, answer.as_bytes())
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
             };
             if !head.to_ascii_lowercase().contains("upgrade: websocket") {
                 serve_http(stream, &head, &policy, peer).await;
@@ -1086,6 +1108,10 @@ pub async fn serve_ws_until(
                 };
                 if let Err(refusal) = policy.check(&values("host"), &values("origin")) {
                     return Err(refuse(refusal));
+                }
+                // The Cloud carrier's header is read on the carrier socket only (`carrier.rs`).
+                if !values(carrier::HEADER).is_empty() {
+                    return Err(carrier::wrong_socket_response());
                 }
                 *record_origins.lock().unwrap_or_else(|e| e.into_inner()) =
                     values("origin").into_iter().map(str::to_owned).collect();
@@ -1274,7 +1300,7 @@ pub async fn serve_ws_until(
                 }
                 None => (origin, proof, None),
             };
-            serve_connection_from(hub, in_rx, out_tx, origin, proof, None, false, SocketPeer::Unknown, device, Some(wire))
+            serve_connection_from(hub, in_rx, out_tx, origin, proof, None, false, SocketPeer::Unknown, device, Some(wire), None)
                 .await;
             if let Some(watcher) = watcher {
                 watcher.abort();
@@ -1459,6 +1485,7 @@ pub(super) async fn serve_outbox_connection(
         SocketPeer::Outbox,
         None,
         None,
+        None,
     )
     .await
 }
@@ -1484,30 +1511,6 @@ pub async fn serve_connection_authed(
         SocketPeer::Unknown,
         None,
         None,
-    )
-    .await
-}
-
-/// A paired machine's connection, served as its role says
-/// (`pairing::origin_of`): the WebSocket listener's, once the handshake
-/// proved `device`'s credential, or an in-process caller that vouches for it.
-pub async fn serve_connection_device(
-    hub: Arc<Hub>,
-    inbound: mpsc::Receiver<String>,
-    out: mpsc::Sender<String>,
-    device: crate::pairing::DeviceAuth,
-) {
-    let (origin, auth) = pairing::origin_of(&device);
-    serve_connection_from(
-        hub,
-        inbound,
-        out,
-        origin,
-        auth,
-        None,
-        false,
-        SocketPeer::Unknown,
-        Some(device.id),
         None,
     )
     .await
@@ -1525,7 +1528,11 @@ async fn serve_connection_from(
     socket_peer: SocketPeer,
     device: Option<String>,
     wire: Option<Arc<crate::frame_compress::Wire>>,
+    carrier: Option<carrier::Attested>,
 ) {
+    // A carrier proof comes with the person the carrier socket read, and only with it.
+    let carried = matches!(auth, ConnAuth::CarrierOwner | ConnAuth::CarrierTeam);
+    let auth = if carried != carrier.is_some() { ConnAuth::None } else { auth };
     if !auth.authenticated() {
         refuse_unauthenticated(&mut inbound, &out, origin).await;
         return;
@@ -1539,6 +1546,7 @@ async fn serve_connection_from(
         origin,
         auth,
         device,
+        carrier,
         raw_text,
         name: StdMutex::new(String::new()),
         presence: client.presence(),
@@ -1573,7 +1581,7 @@ async fn serve_connection_from(
         preparation_cancels: StdMutex::new(HashMap::new()),
         // A peer daemon's link carries all its clients' reads, which it caps one by one
         // (`media_forward.rs`).
-        media: if auth == ConnAuth::PeerToken {
+        media: if auth.peer_daemon() {
             crate::hub::media_handles::Handles::for_peer_link()
         } else {
             crate::hub::media_handles::Handles::default()
@@ -1664,6 +1672,9 @@ async fn serve_connection_from(
                     }
                 }
                 conn.bind_person(&hub, &m, &mut params);
+                if m == method::INITIALIZE {
+                    requests::note_initialize(&conn, params.as_ref().unwrap_or(&Value::Null));
+                }
                 // Before its reply is built: the reply says whether large messages go compressed.
                 if m == method::INITIALIZE
                     && let Some(wire) = &conn.wire
@@ -1704,6 +1715,9 @@ async fn serve_connection_from(
             }
             // A read-only machine's notifications (a cancel) change nothing.
             Message::Notification { .. } if conn.auth == ConnAuth::ReadOnlyDevice => {}
+            // A teammate through the carrier stops a turn, nothing else (`carrier.rs`).
+            Message::Notification { method: m, params }
+                if !carrier::takes_notification(&hub, &conn, &m, params.as_ref()) => {}
             Message::Notification { method: m, params: _ } if conn.is_trigger() => {
                 tracing::debug!(conn = %conn.id, method = %m, "ignoring notification on trigger connection");
             }
@@ -1743,7 +1757,7 @@ async fn serve_connection_from(
             }
             // An answer to a request this daemon sent the client (`client_request.rs`).
             Message::Response { id, result, error } => {
-                if !conn.is_trigger() {
+                if !conn.is_trigger() && conn.auth != ConnAuth::CarrierTeam {
                     conn.settle_client_request(&id, result, error);
                 }
             }
@@ -1845,6 +1859,11 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     // Attached peer updates retain the raw wire id, but also identify its owner so
     // clients can key live transcripts by the same route as their session rows.
     let routed = |mut params: Value| {
+        if conn.origin != Origin::Peer
+            && let Some(remote) = &ev.remote
+        {
+            races::peer::qualify_event(&remote.peer, &mut params);
+        }
         if let Some(obj) = params.as_object_mut() {
             obj.remove("peer");
             if let Some(remote) = &ev.remote {
@@ -2017,11 +2036,13 @@ pub(crate) use clock_text::{civil_from_days, iso};
 mod change_kind;
 mod chat_windows;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
+pub mod carrier;
 mod chats;
 pub mod conn_auth;
 mod durable_gate;
 mod ephemeral;
 mod fanout;
+mod fix_from_link;
 mod forum;
 mod media_forward;
 mod mesh_control_send;
@@ -2043,15 +2064,18 @@ mod bg_tasks;
 mod goal;
 pub mod local_app;
 pub(crate) mod machine_health;
+mod memory_inbox;
 mod models_fanout;
 mod new_worktree;
 mod outbound;
+mod review_queue;
 use outbound::{
     OUTBOUND_CONTROL_RESERVE, enqueue_after_controls, enqueue_outbound, enqueue_outbound_locked,
     report_outbound_loss_locked,
 };
 pub(crate) mod outbox;
 mod pairing;
+pub use pairing::serve_connection_device;
 pub mod peer_auth;
 mod peer_forward;
 pub(crate) mod peer_status;
@@ -2079,6 +2103,7 @@ mod routes;
 mod secrets;
 mod vault;
 pub(crate) use vault::reply as vault_reply;
+mod races;
 mod session_auth;
 mod session_files;
 mod stream;

@@ -129,6 +129,12 @@ pub(crate) const PANE_SPLIT_FOCUS_FIELD: &str = "focus";
 /// `workspace.create`'s `focus` field: whether the new workspace becomes the
 /// focused one. The resource router sends `false` when a caller omits it.
 pub(crate) const WORKSPACE_CREATE_FOCUS_FIELD: &str = "focus";
+
+/// `screen.create`'s `focus` field: whether the new screen becomes its
+/// workspace's focused screen. The resource router sends `false` when a
+/// caller omits it; the daemon's and the user's own new screens omit it and
+/// focus the new screen.
+pub(crate) const SCREEN_CREATE_FOCUS_FIELD: &str = "focus";
 use pane_browser::{creation_identity_kind, effect_browser_cell_size};
 use published_screen::screen_value;
 pub(super) use structural_move::structural_tab_move_plan;

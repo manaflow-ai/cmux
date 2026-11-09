@@ -17,6 +17,7 @@ import { RenderCard } from "./RenderCard";
 import { isChart } from "./diagramBlockModel";
 import { canRender } from "./renderCardModel";
 import { renderFence } from "./renderCall";
+import { TourBlock, isTourFence } from "../repoTour/TourBlock";
 import { RemoteMedia } from "../chips/ReplyMedia";
 import { isRemoteMedia } from "../chips/replyMediaModel";
 import { CodeHandoff, PlainCode } from "./StreamingCode";
@@ -200,6 +201,14 @@ function Block({
         </BlockTail>
       );
     case "code": {
+      // A repo tour (repoTour/): a ```cmux-tour fence is its card, a pending line while it streams,
+      // never the streaming code it would otherwise draw as.
+      if (code !== "plain" && isTourFence(block.lang, block.code, block.open === true))
+        return (
+          <BlockTail trailing={trailing}>
+            <TourBlock lang={block.lang} code={block.code} open={block.open === true} />
+          </BlockTail>
+        );
       if (code === "open")
         return (
           <PlainCode

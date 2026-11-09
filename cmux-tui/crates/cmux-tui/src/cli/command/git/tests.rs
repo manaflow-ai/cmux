@@ -279,3 +279,96 @@ fn git_files_joins_the_query_and_takes_a_limit() {
         ("git.files.list".into(), json!({"path": "/repo/src", "limit": 5000}))
     );
 }
+
+#[test]
+fn git_comments_are_keyed_by_the_root_and_never_by_a_repository_target() {
+    let here = std::env::current_dir().unwrap().to_string_lossy().into_owned();
+    assert_eq!(
+        sent(&["git", "comments", "list"]),
+        ("diff.comments.list".into(), json!({"root": here}))
+    );
+    let nested = std::env::current_dir().unwrap().join("app").to_string_lossy().into_owned();
+    assert_eq!(
+        sent(&["git", "comments", "list", "--root", "app"]),
+        ("diff.comments.list".into(), json!({"root": nested}))
+    );
+    for spelled in ["app/", "./app", "app/./", "app/x/..", "/repo/../repo"] {
+        let want = if spelled.starts_with('/') { "/repo".to_owned() } else { nested.clone() };
+        assert_eq!(
+            sent(&["git", "comments", "list", "--root", spelled]).1["root"],
+            json!(want),
+            "{spelled}"
+        );
+    }
+    assert_eq!(sent(&["git", "comments", "list", "--root", "/.."]).1["root"], json!("/"));
+    let (operation, params) = sent(&[
+        "git",
+        "comments",
+        "save",
+        "--root",
+        "/repo",
+        "--comment",
+        r#"{"id":"dc_1","filePath":"a.rs","message":"Rename"}"#,
+    ]);
+    assert_eq!(operation, "diff.comments.save");
+    assert_eq!(params["root"], "/repo");
+    assert_eq!(params["comment"], json!({"id": "dc_1", "filePath": "a.rs", "message": "Rename"}));
+    let (operation, params) = sent(&[
+        "git",
+        "comments",
+        "delete",
+        "--root",
+        "/repo",
+        "dc_1",
+        "dc_2",
+        "--versions-json",
+        r#"{"dc_1":"2026-11-08T00:00:00Z"}"#,
+    ]);
+    assert_eq!(operation, "diff.comments.delete");
+    assert_eq!(params["ids"], json!(["dc_1", "dc_2"]));
+    assert_eq!(params["versions"], json!({"dc_1": "2026-11-08T00:00:00Z"}));
+    // A repository target belongs to the git operations, not to comments.
+    assert!(rejects(&["git", "comments", "list", "--path", "/repo"]).contains("--path"));
+}
+
+#[test]
+fn git_comments_refuse_what_the_session_host_would() {
+    assert!(rejects(&["git", "comments", "save"]).contains("--comment"));
+    assert!(rejects(&["git", "comments", "save", "--comment", "[1]"]).contains("JSON object"));
+    assert!(rejects(&["git", "comments", "delete"]).contains("git comments action"));
+    let long = "x".repeat(129);
+    assert!(rejects(&["git", "comments", "delete", &long]).contains("comment id"));
+    let versions = ["git", "comments", "delete", "dc_1", "--versions-json", r#"{"dc_1":7}"#];
+    assert!(rejects(&versions).contains("--versions-json"));
+    assert!(rejects(&["git", "comments", "list", "--root", ""]).contains("--root"));
+}
+
+#[test]
+fn git_diff_commits_takes_both_full_commit_ids_and_only_with_that_scope() {
+    let base = "0123456789abcdef0123456789abcdef01234567";
+    let head = "89abcdef0123456789abcdef0123456789abcdef";
+    let (operation, params) = sent(&[
+        "git", "diff", "--path", "/repo", "--scope", "commits", "--base", base, "--head", head,
+    ]);
+    assert_eq!(operation, "git.diff");
+    assert_eq!(
+        (&params["scope"], &params["base"], &params["head"]),
+        (&json!("commits"), &json!(base), &json!(head))
+    );
+    assert!(rejects(&["git", "diff", "--scope", "commits", "--base", base]).contains("--head"));
+    assert!(
+        rejects(&["git", "diff", "--scope", "commits", "--base", "abc", "--head", head])
+            .contains("--base")
+    );
+    assert!(rejects(&["git", "diff", "--base", base]).contains("--scope commits"));
+    let long = format!("{base}0");
+    assert!(
+        rejects(&["git", "diff", "--scope", "commits", "--base", &long, "--head", head])
+            .contains("40 or 64")
+    );
+    let upper = base.to_ascii_uppercase();
+    let (_, params) = sent(&[
+        "git", "diff", "--path", "/repo", "--scope", "commits", "--base", &upper, "--head", head,
+    ]);
+    assert_eq!(params["base"], json!(base), "sent lowercase, as the session host reads it");
+}

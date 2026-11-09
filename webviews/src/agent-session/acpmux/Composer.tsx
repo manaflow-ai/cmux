@@ -38,6 +38,8 @@ import { ownQueue } from "./conversation/queuedMessages";
 import { BuildIcon, ContextRing, PlanIcon } from "./ComposerPickers";
 import { type Choice } from "./composerPickerModel";
 import { SendSlotGlyph } from "./composer/SendSlotGlyph";
+import { SendMenu } from "./composer/SendMenu";
+import { SIDE_COMMAND, sendChoiceForKey, sendMenuChoices, type SendChoice } from "./composer/sendMenuModel";
 import { newSlotMemory, type SlotMemory } from "./composer/sendSlotGlyphModel";
 import { isActive, type Dictation } from "./dictation";
 import { DictationStrip } from "./DictationListening";
@@ -124,7 +126,7 @@ import {
 import { keepElsewhere, type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
-import { markPastes } from "./composer/pasteMarks";
+import { markPastes, unmarkPastes } from "./composer/pasteMarks";
 import { DropOverlay } from "./composer/DropOverlay";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
@@ -290,6 +292,9 @@ type Props = {
   /// Asks a queued prompt in a new side chat and withdraws it (the queued row's Open in side chat);
   /// absent where the chat opens no side chat.
   onQueueSideChat?(promptId: string, prompt: string): Promise<boolean>;
+  /// `/side <prompt>` can fork this chat now (App.tsx, the command's own refusal rule): Send's menu
+  /// offers Send in side chat, and Option-Return sends there (composer/sendMenuModel.ts).
+  sendsToSide?: boolean;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
   draft?: string;
@@ -465,6 +470,7 @@ function ComposerFrame({
   onQueueChange,
   onQueueLost,
   onQueueSideChat,
+  sendsToSide,
   queueImage,
   draft,
   chatKnown = true,
@@ -676,7 +682,9 @@ function ComposerFrame({
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
-  const submitNow = useRef<(force: boolean, steer?: boolean, gesture?: SendGesture) => boolean>(() => false);
+  const submitNow = useRef<(force: boolean, steer?: boolean, gesture?: SendGesture, route?: "side") => boolean>(
+    () => false,
+  );
   /// Set while the send a finished dictation session waited for goes (send, below).
   const dictationEnded = useRef(false);
   /// The newest `onOpenInWindow`, for a ⌘Return held until a screenshot's chip is ready.
@@ -868,9 +876,14 @@ function ComposerFrame({
         const picks = pickedSkillsOf(restoredText, commandsNow.current);
         if (!(field.current?.value() ?? "").trim()) pickedSkills.current = picks;
         else for (const name of picks) pickedSkills.current.add(name);
-        const restored = bindMarks(withoutSkillDollars(restoredText, commandsNow.current), restoredAttachments);
+        // A paste that went as a placed paste chip (markPastes) under the chip's size comes back as
+        // the text it was in the draft, remembered as a paste again; only a huge one stays a chip.
+        const restored = unmarkPastes(
+          bindMarks(withoutSkillDollars(restoredText, commandsNow.current), restoredAttachments),
+        );
         restoredText = restored.text;
         restoredAttachments = restored.attachments;
+        box.current?.rememberPastes(restored.pastes);
         // The editor parses tokens synchronously; make their payload IDs known before replacing its document.
         attachmentsRef.current = appendAttachments(attachmentsRef.current, restoredAttachments);
         // Put back, not typed: the Enter that sent it says nothing about this change.
@@ -1401,8 +1414,9 @@ function ComposerFrame({
     // Send does what Return does: mid-turn it steers an agent that steers, else it queues.
     return send(false, steersAlways || returnSteers);
   };
-  /// `kept`: the gesture an earlier hold of this send bound (`useSendWhenAttached`).
-  const send = (force: boolean, steer = false, kept?: SendGesture): boolean => {
+  /// `kept`: the gesture an earlier hold of this send bound (`useSendWhenAttached`). `route` "side":
+  /// the draft goes as `/side`'s prompt, to a side chat forked from this one (Send's menu).
+  const send = (force: boolean, steer = false, kept?: SendGesture, route?: "side"): boolean => {
     // A send waiting for its images' originals is this one's to replace: whatever this one does
     // (it goes, waits again, runs a command or stops), the earlier one never goes on its own.
     holdForOriginals(false, () => undefined);
@@ -1423,7 +1437,7 @@ function ComposerFrame({
         // The session is over even if this render has not heard so yet.
         dictationEnded.current = true;
         try {
-          submitNow.current(force, steer, kept);
+          submitNow.current(force, steer, kept, route);
         } finally {
           dictationEnded.current = false;
         }
@@ -1459,8 +1473,10 @@ function ComposerFrame({
       : inText;
     const prompt = placed.text;
     const command = composerCommand(prompt, snapshot.summary?.harness, attachments.length);
-    let owned = command?.kind === "cmux" ? command.command : undefined;
-    const ownedArgs = command?.kind === "cmux" ? command.args : undefined;
+    // Send in side chat: the draft as written is `/side`'s prompt, through the command's own path.
+    const side = route === "side" ? SIDE_COMMAND : undefined;
+    let owned = side ?? (command?.kind === "cmux" ? command.command : undefined);
+    const ownedArgs = side ? prompt : command?.kind === "cmux" ? command.args : undefined;
     // A bare `/plan` is the + menu's Plan/Build toggle: leaving Plan returns to the remembered mode.
     if (owned?.action === "plan" && !ownedArgs?.trim() && plan && onMode) {
       togglePlan(plan.id);
@@ -1768,11 +1784,17 @@ function ComposerFrame({
     // sent from the composer stops the turn: only Stop and Esc do (Leo 2026-10-20). (The Quick
     // Composer keeps its own ⌘Return and Esc, below.)
     const quick = Boolean(onOpenInWindow);
-    const commandReturn =
-      event.key === "Enter" && event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && !quick;
+    const commandReturn = sendChoiceForKey(event) === "queue" && !quick;
     if (commandReturn && queues && (text.trim() || attachments.length > 0)) {
       event.preventDefault();
       send(false, steersAlways);
+      return;
+    }
+    // Option-Return sends the draft in a side chat, where Send's menu offers that (sendMenuModel.ts);
+    // elsewhere it is left as it was.
+    if (sendChoiceForKey(event) === "side" && sendChoices.includes("side")) {
+      event.preventDefault();
+      chooseSend("side");
       return;
     }
     // ⌘Return on an empty prompt after a turn answers a waiting tagged ask (NextStepCard.tsx).
@@ -2347,6 +2369,22 @@ function ComposerFrame({
   // A draft of attachments alone is still a draft: it gets Send, never Stop alone. While dictating
   // the slot is Send, draft or not, as Claude's and ChatGPT's are: it ends the session and sends.
   const listening = !shell && dictation !== undefined && isActive(dictation.state);
+  // Send's menu (composer/SendMenu.tsx): the other ways this draft can go, each only where it does
+  // something Send does not. Queue for later is ⌘Return's queue while Return steers the turn.
+  const sendChoices = shell
+    ? []
+    : sendMenuChoices({
+        // Send refused for now (trust, sign-in, a held send): no other way goes either.
+        draft: hasDraft && !(authBlock || authBlocked || blockSend || blocked?.reason),
+        sendSteers: returnSteers && !steersAlways && !onOpenInWindow,
+        side: Boolean(sendsToSide) && remote.canSend && !onOpenInWindow,
+        files: attachments.length > 0 || pending.length > 0,
+      });
+  const chooseSend = (choice: SendChoice) => {
+    if (choice === "side") send(false, false, undefined, "side");
+    // Queue for later is ⌘Return; Send is the button's own send.
+    else send(false, choice === "queue" ? steersAlways : steersAlways || returnSteers);
+  };
   const sendOrStop =
     stop && !hasDraft && !listening ? (
       stopButton
@@ -2357,35 +2395,37 @@ function ComposerFrame({
       // Claude's look draws no Send at rest until there is a draft, the mic alone on the right;
       // its one slot sits before the mic with Claude desktop's ↵, so the mic keeps the right edge
       // through a turn. Codex's look always draws its ↑ disc after the mic (quietActions off).
-      <button
-        key="send"
-        ref={sendButton}
-        type="submit"
-        disabled={Boolean(authBlock || authBlocked || blockSend || blocked?.reason) && !shell}
-        className={`acpmux-send${(shell ? shellText.trim() : !blockSend && !blocked?.reason && hasDraft) ? " acpmux-send-ready" : ""}`}
-        aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
-        title={
-          shell
-            ? t("composer.shellRun")
-            : escapeStop.armed && !stopping
-              ? t(COMPOSER_LABELS.escapeAgainToStop)
-              : authBlock
-                ? authBlock
-                : blocked?.reason
-                  ? t(blocked.reason)
-                  : t(
-                      !snapshot.isWorking
-                        ? "composer.sendTooltip"
-                        : returnSteers && !steersAlways && !onOpenInWindow
-                          ? COMPOSER_LABELS.steerQueueTooltip
-                          : steersAlways || returnSteers
-                            ? "composer.steerTooltip"
-                            : "composer.queueTooltip",
-                    )
-        }
-      >
-        <SendSlotGlyph glyph={quietActions && !shell ? "return" : "arrow"} memory={morphMemory} scope={sessionId} />
-      </button>
+      // A right-click or long press on it opens its menu (composer/SendMenu.tsx).
+      <SendMenu key="send" choices={sendChoices} onChoose={chooseSend}>
+        <button
+          ref={sendButton}
+          type="submit"
+          disabled={Boolean(authBlock || authBlocked || blockSend || blocked?.reason) && !shell}
+          className={`acpmux-send${(shell ? shellText.trim() : !blockSend && !blocked?.reason && hasDraft) ? " acpmux-send-ready" : ""}`}
+          aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
+          title={
+            shell
+              ? t("composer.shellRun")
+              : escapeStop.armed && !stopping
+                ? t(COMPOSER_LABELS.escapeAgainToStop)
+                : authBlock
+                  ? authBlock
+                  : blocked?.reason
+                    ? t(blocked.reason)
+                    : t(
+                        !snapshot.isWorking
+                          ? "composer.sendTooltip"
+                          : returnSteers && !steersAlways && !onOpenInWindow
+                            ? COMPOSER_LABELS.steerQueueTooltip
+                            : steersAlways || returnSteers
+                              ? "composer.steerTooltip"
+                              : "composer.queueTooltip",
+                      )
+          }
+        >
+          <SendSlotGlyph glyph={quietActions && !shell ? "return" : "arrow"} memory={morphMemory} scope={sessionId} />
+        </button>
+      </SendMenu>
     ) : null;
   // The Quick Composer's Esc hides its panel, so Esc cannot stop a turn there: with a draft typed it
   // keeps Stop beside its one Send (one stop and one send, never two sends).
@@ -2514,6 +2554,9 @@ function ComposerFrame({
                     ? `acpmux-emoji-${emojiSelected}`
                     : undefined,
             spellcheck: String(spellChecking),
+            // Attached files, or ones still being read, are a draft too: an ask's keys leave it alone
+            // (composerTyped.ts).
+            "data-draft-attachments": attachments.length + pending.length > 0 ? "" : undefined,
             // WEB-SWAP: the prompt keeps its own draft (composerDraft.ts holds until it is written).
             [WEB_SWAP_KEPT_TEXT]: "",
           },
