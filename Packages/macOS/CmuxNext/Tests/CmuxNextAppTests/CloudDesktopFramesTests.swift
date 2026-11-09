@@ -39,9 +39,11 @@ import Testing
 
     @Test func anUnreachableDesktopEndsAfterStartReturns() async {
         var ends = 0
-        _ = CloudDesktopFrames.view(open: { nil }, frame: { _ in }, ended: { ends += 1 })
+        let stop = CloudDesktopFrames.view(open: { nil }, frame: { _ in }, ended: { ends += 1 })
         #expect(ends == 0, "never from inside start: the caller has not kept its stop yet")
         for _ in 0..<1000 where ends == 0 { await Task.yield() }
+        #expect(ends == 1)
+        stop()
         #expect(ends == 1)
     }
 
