@@ -53,6 +53,11 @@ it("checks the whole document's grammar, so a malformed listing hands over nothi
     '{"tunnels":[{"id":"a\nb"}]}', // a raw control character in a string
     '{"tunnels":[],"tunnels":[]}', // the field twice
     '{"tunnels":{"id":"x"}}', // the field not an array
+    '{"tunnels":[{"id":"t1"}}}', // a mismatched closer after the items
+    '{"tunnels":[{"id":"t1"}],"totalCount":}', // a missing value in a skipped field
+    '{"before":{"a":[1,2}],"tunnels":[]}', // a mismatched closer in a skipped field
+    '{"before":{"a" 1},"tunnels":[]}', // a missing colon in a skipped field
+    '{"before":[1 2],"tunnels":[]}', // a missing comma in a skipped field
   ];
   for (const text of bad) {
     for (const chunk of [1, 5, text.length]) expect(() => read(text, chunk), text).toThrow(JsonItemsError);

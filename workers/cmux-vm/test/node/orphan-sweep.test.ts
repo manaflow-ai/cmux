@@ -214,7 +214,7 @@ it("deletes nothing when the listing is cut off", async () => {
 
 it("deletes nothing when the listing breaks the JSON grammar after its items", async () => {
   const deletes: string[] = [];
-  for (const tail of ["]]}", "]} x"]) {
+  for (const tail of ["]]}", "]} x", "}}", '],"totalCount":}']) {
     const text = `{"tunnels":[${JSON.stringify(deviceTunnel(1))}${tail}`;
     const fetch = async (request: Request) => {
       const url = new URL(request.url);
