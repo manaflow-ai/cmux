@@ -109,9 +109,9 @@ public final class AppHealthFeeds {
         switch action {
         case .reconnect: daemon.recovery.retryNow()
         case .restartConnection:
-            // A connected daemon that stopped answering keeps its socket through a wake: close it, so
-            // the reconnect opens a fresh one (the daemon process is never touched).
-            if let connection = daemon.connection { await connection.close() }
+            // A connected daemon that stopped answering keeps its socket through a wake: drop it, so
+            // the connection's own reconnect opens a fresh one (the daemon process is never touched).
+            if let connection = daemon.connection { await connection.dropTransport() }
             daemon.reconnectNow()
         default: return false
         }
@@ -127,7 +127,7 @@ public final class AppHealthFeeds {
     /// Debug: drops the daemon connection for real; the service's own reconnect follows.
     static func dropConnection(_ daemon: DaemonService?, fault: String) async -> Bool {
         guard fault == "hang", let daemon, let connection = daemon.connection else { return false }
-        await connection.close()
+        await connection.dropTransport()
         daemon.reconnectNow()
         return true
     }

@@ -196,3 +196,21 @@ fn a_late_result_for_an_earlier_episode_never_lands_on_a_newer_attempt() {
     h.repair_result(ID, ReloadPage, Some(2), false, 20_300);
     assert_eq!(h.next_tick_ms(), Some(20_300));
 }
+
+#[test]
+fn a_click_while_a_repair_is_out_gets_a_new_token() {
+    let mut h = model();
+    register(&mut h, ID, Kind::Page, "Agent chat", 0);
+    assert_eq!(run(&mut h, 10_000), vec![(10_000, ReloadPage, 1)]);
+    // The click restarts the ladder while the first reload (token 1) is still out.
+    let actions = h.repair_now(ID, 10_500);
+    assert_eq!(actions.len(), 1);
+    assert_eq!((actions[0].action, actions[0].attempt, actions[0].token), (ReloadPage, 1, 2));
+    let due = h.next_tick_ms();
+    // The first reload's result arrives: it is not the click's, so the ladder stays put.
+    h.repair_result(ID, ReloadPage, Some(1), false, 10_600);
+    assert_eq!(h.next_tick_ms(), due);
+    // The click's own result lands.
+    h.repair_result(ID, ReloadPage, Some(2), false, 10_700);
+    assert_eq!(h.next_tick_ms(), Some(10_700));
+}

@@ -142,6 +142,13 @@ public actor DaemonConnection {
         continuation.finish()
     }
 
+    /// Drops the current socket only (app health's restart of a connection that stopped answering): the
+    /// close reaches ``transportClosed(serial:reason:)``, which reconnects. Unlike ``close()``, it never
+    /// stops the reconnect or finishes `events`.
+    public func dropTransport() {
+        if case .ready(let ready) = phase { ready.transport.close() }
+    }
+
     /// Also waits for an in-flight endpoint/reconnect attempt to finish before its owner is reaped.
     public func closeAndWait() async {
         let connect = connectTask

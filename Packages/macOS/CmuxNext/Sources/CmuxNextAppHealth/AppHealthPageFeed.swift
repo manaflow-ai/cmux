@@ -146,8 +146,7 @@ final class AppHealthPageFeed: PageHealthFeed {
         guard !page.holdsUnsavedEdits() else { return false }
         switch action.action {
         case .reloadPage:
-            await page.reloadKeepingState()
-            return true
+            return await page.reloadKeepingState()
         case .restartRenderer:
             page.restartRenderer()
             return true

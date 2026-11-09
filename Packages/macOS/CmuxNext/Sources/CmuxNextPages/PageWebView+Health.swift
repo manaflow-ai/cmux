@@ -48,11 +48,17 @@ extension PageWebView {
     /// App health's `reloadPage`: the page saves its scroll and draft (`cmux.page.save_state`, waited
     /// for at most `saveWait`; a hung page cannot answer, and its last autosave is used), then the
     /// document reloads in whichever engine shows it. Never blocks: the wait is a suspension.
-    public func reloadKeepingState(saveWait: Duration = .milliseconds(500)) async {
-        guard !isClosed else { return }
+    /// Returns false, without reloading, when the page holds unsaved edits once the wait ends (the
+    /// person may have typed while it ran).
+    @discardableResult
+    public func reloadKeepingState(saveWait: Duration = .milliseconds(500)) async -> Bool {
+        guard !isClosed else { return true }
         // A document that never loaded or whose process ended has nothing to save, and a WebKit
         // `reload()` of a view whose process ended does nothing: load it in a new process.
-        guard loaded else { return reloadAfterCrashes() }
+        guard loaded else {
+            reloadAfterCrashes()
+            return true
+        }
         let done = PageHealthOnce()
         // task-owner: one save request; ends with the page's reply or its reset (the reload that follows).
         Task { [weak self] in
@@ -64,8 +70,10 @@ extension PageWebView {
         deadline.schedule(after: saveWait) { @MainActor in done.finish() }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in done.hold(continuation) }
         deadline.cancel()
-        guard !isClosed else { return }
+        guard !isClosed else { return true }
+        guard !holdsUnsavedEdits() else { return false }
         reloadPage()
+        return true
     }
 
     /// App health's `restartRenderer`: ends the page's renderer and brings the page back in a new
