@@ -24,12 +24,17 @@ function nextDocChannelPath(slug: string): string {
   return docsChannel() === "nightly" ? nextDocPublicPath(slug) : nextDocHref(slug);
 }
 
-/** Metadata of a cmux-next page: its nightly URL is canonical, the one place it is served. */
+/**
+ * Metadata of a cmux-next page: its nightly URL is canonical, the one place it is served. The
+ * pages are English only, so a page served under another locale (see `NextDocView`) names the
+ * English URL as canonical.
+ */
 export function nextDocMetadata(page: NextDocPage, locale: string) {
+  const english = baseDocsLocales.includes(locale as (typeof baseDocsLocales)[number]) ? locale : "en";
   return {
     title: page.title,
     description: page.description,
-    alternates: buildAlternates(locale, nextDocChannelPath(page.slug), baseDocsLocales),
+    alternates: buildAlternates(english, nextDocChannelPath(page.slug), baseDocsLocales),
   };
 }
 
@@ -145,9 +150,16 @@ function SettingsTables() {
   );
 }
 
+/**
+ * A cmux-next page. The pages are English only, but a reader whose NEXT_LOCALE cookie or
+ * Accept-Language picks another locale is sent to /<locale>/docs/next/... by locale negotiation,
+ * and that route used to 404. A redirect back to the unprefixed URL would only be negotiated to
+ * the locale again, so every locale serves the English page, marked `lang="en"`, with the English
+ * URL as canonical (`nextDocMetadata`).
+ */
 export function NextDocView({ page }: { page: NextDocPage }) {
   return (
-    <>
+    <div lang="en">
       <DocsSchema title={page.title} path={nextDocChannelPath(page.slug)} />
       <DocsHeading level={1} id="title">{page.title}</DocsHeading>
       {page.slug === "getting-started" ? null : <p><em>{page.description}</em></p>}
@@ -164,6 +176,6 @@ export function NextDocView({ page }: { page: NextDocPage }) {
       {page.generated === "settings" ? <SettingsTables /> : null}
       {page.generated === "palette" ? <PaletteTables shortcutsOnly={false} /> : null}
       {page.generated === "shortcuts" ? <PaletteTables shortcutsOnly /> : null}
-    </>
+    </div>
   );
 }

@@ -149,6 +149,31 @@ describe("cmux-next docs", () => {
     expect(resolveAgentPageVariant("/docs/next/no-such-page.md")).toBeNull();
   });
 
+  // The pages are English only. A NEXT_LOCALE=ja cookie or Accept-Language: ja sent a reader to
+  // /ja/docs/next/..., which the route answered with 404.
+  test("every locale serves the English page, with the English URL as canonical", async () => {
+    const saved = process.env.CMUX_DOCS_CHANNEL;
+    process.env.CMUX_DOCS_CHANNEL = "nightly";
+    try {
+      const slugRoute = await import("../app/[locale]/(landing)/docs/next/[slug]/page");
+      const indexRoute = await import("../app/[locale]/(landing)/docs/next/page");
+      for (const locale of ["ja", "de", "en"]) {
+        const params = Promise.resolve({ locale, slug: "own-keys" });
+        const element = await slugRoute.default({ params });
+        expect(element.props.page.slug).toBe("own-keys");
+        const metadata = await slugRoute.generateMetadata({ params: Promise.resolve({ locale, slug: "own-keys" }) });
+        expect(metadata.alternates.canonical).toBe("https://cmux.com/docs/nightly/next/own-keys");
+        expect(indexRoute.default().props.page.slug).toBe("getting-started");
+        const index = await indexRoute.generateMetadata({ params: Promise.resolve({ locale }) });
+        expect(index.alternates.canonical).toBe("https://cmux.com/docs/nightly/next");
+      }
+      await expect(slugRoute.default({ params: Promise.resolve({ locale: "ja", slug: "no-such-page" }) })).rejects.toThrow();
+    } finally {
+      if (saved === undefined) delete process.env.CMUX_DOCS_CHANNEL;
+      else process.env.CMUX_DOCS_CHANNEL = saved;
+    }
+  });
+
   test("release docs fall back to Getting Started for a next page", () => {
     expect(docsPathAvailableInChannel("release", "/docs/next/cli")).toBe(false);
     expect(docsPathAvailableInChannel("nightly", "/docs/next/cli")).toBe(true);
