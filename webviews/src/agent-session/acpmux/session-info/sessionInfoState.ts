@@ -41,6 +41,8 @@ export type SessionInfoSectionId =
   | "tasks"
   | "alsoHere"
   | "outputs"
+  /// This Mac's space to get back (StorageSection.tsx): machine-wide, folded until opened.
+  | "storage"
   /// Not a section: the panel's Show more line, an item of the order (sectionOrder.ts `MORE_LINE`).
   | "more"
   | `app:${string}#${string}`;
@@ -69,6 +71,8 @@ export const DEFAULT_SECTIONS: SessionInfoSections = {
   tasks: true,
   alsoHere: true,
   outputs: true,
+  // Folded: opening it is what asks acpmux for the report, which takes seconds (StorageSection.tsx).
+  storage: false,
 };
 
 /// The last width and folds set in any pane: the defaults for a pane with no state of its own. These

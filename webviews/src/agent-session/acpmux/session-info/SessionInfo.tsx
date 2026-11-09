@@ -94,6 +94,7 @@ import { planDone, type SessionInfoPlan } from "./progressSectionModel";
 import { attributeCommands } from "../summary/workflowView";
 import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
 import { UsageSection, type UsageOwnRowLayout } from "./UsageSection";
+import { StorageSection, useStorage, useStorageMeta, type StorageSource } from "./StorageSection";
 import { usageMeta } from "./usageSectionModel";
 import { AppPanelSection, useAppPanelSections } from "../../../apps/scene/panels";
 import type { AcpmuxSessionEntry } from "../sessionList";
@@ -399,6 +400,7 @@ export function SessionInfo({
   onMore,
   compactLook = "more",
   imessage: imessageFixture,
+  storage,
 }: {
   summary?: Summary;
   machineName?: string;
@@ -518,6 +520,9 @@ export function SessionInfo({
   compactLook?: SessionInfoCompactLook;
   /// Gallery fixtures; false suppresses the Mac-only connector.
   imessage?: IMessageView | false;
+  /// This Mac's worktree and process cleanup (StorageSection.tsx): the chat's own panel on this Mac's
+  /// app only; without it, no Storage.
+  storage?: StorageSource;
 }) {
   const t = useT();
   const liveIMessage = useIMessage(imessageFixture === undefined);
@@ -918,6 +923,21 @@ export function SessionInfo({
   const planLimits = typeof summary?.usageLimits === "object" ? summary.usageLimits : undefined;
   // acpmux reads a chat's spend from its harness records, so a new chat has none for a few minutes.
   const hasUsage = Boolean(ownUsage || anyUsage || planLimits);
+  // This Mac's Storage: read only while open (useStorage), hidden where acpmux cannot answer.
+  const storageSource = agent ? undefined : storage;
+  const storageState = useStorage(storageSource, state.storage ?? false);
+  const storageMeta = useStorageMeta(storageState.view);
+  const storageSection = !storageState.hidden && (
+    <SessionInfoSection
+      id="storage"
+      title={t("sessionInfo.storage")}
+      open={state.storage ?? false}
+      onOpenChange={fold("storage")}
+      meta={value(storageMeta)}
+    >
+      <StorageSection view={storageState.view} actions={storageState.actions} />
+    </SessionInfoSection>
+  );
   const usageSection = (hasUsage || !agent) && (
     <SessionInfoSection
       id="usage"
@@ -961,6 +981,7 @@ export function SessionInfo({
           subagents: subagentsSection,
           tasks,
           alsoHere: alsoHereSection,
+          storage: storageSection,
           ...appNodes,
         }}
       />

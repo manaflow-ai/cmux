@@ -1,0 +1,88 @@
+/* Session Info's Storage (StorageSection.tsx). Its rows are Background tasks' rows
+   (.acpmux-session-info-task); this adds only the checkbox, the reason between name and size, the
+   summary line and the foot. Every line keeps one row's height whatever it says (Measuring…, Nothing to
+   free, Freed 2.1 GB), so a state change moves nothing under it. */
+.acpmux-session-info-storage__bar,
+.acpmux-session-info-storage__foot {
+  display: flex;
+  align-items: center;
+  gap: var(--grid-gap);
+  box-sizing: border-box;
+  min-height: var(--grid-row);
+  padding: 0 var(--grid-gap);
+}
+.acpmux-session-info-storage__disk,
+.acpmux-session-info-storage__measuring,
+.acpmux-session-info-storage__freed {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-session-info-storage__end {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+.acpmux-session-info-storage__meter[data-pressure="high"] > span {
+  background: var(--agent-status-warning);
+}
+.acpmux-session-info-storage__meter[data-pressure="critical"] > span {
+  background: var(--agent-status-failure);
+}
+.acpmux-session-info-storage__status {
+  box-sizing: border-box;
+  min-height: var(--grid-row);
+}
+/* The row is one label: a click anywhere on it checks it. */
+.acpmux-session-info-storage__row {
+  padding: 0;
+}
+.acpmux-session-info-storage__pick {
+  cursor: default;
+}
+.acpmux-session-info-storage__check {
+  flex: none;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+  margin: 0;
+  accent-color: var(--agent-accent);
+}
+.acpmux-session-info-storage__row .acpmux-session-info-task__command {
+  flex: 0 1 auto;
+}
+.acpmux-session-info-storage__detail {
+  flex: 1 1000 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-session-info-storage__row .acpmux-session-info-task__time {
+  margin-left: auto;
+}
+/* A worktree a clean refused keeps its place and says why. */
+.acpmux-session-info-storage__row[data-failed] .acpmux-session-info-storage__detail {
+  color: var(--agent-status-failure);
+}
+.acpmux-session-info-storage__caption {
+  box-sizing: border-box;
+  margin: 0;
+  padding: var(--grid-pill-inset) var(--grid-gap);
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  list-style: none;
+}
+.acpmux-session-info-storage__errors {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

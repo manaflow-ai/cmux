@@ -62,6 +62,8 @@ nonisolated extension AcpmuxPaneMethods {
         // Background processes (direct.ts listProcesses, tailProcess, killProcess, backgroundWork):
         // a kill names its chat, which must be the pane's, and acpmux stops only that chat's process.
         "_acpmux/process/list": (["sessionId"], []),
+        "_acpmux/worktree/report": (["staleOnly"], []),
+        "_acpmux/worktree/clean": (["only", "staleOnly"], []),
         "_acpmux/process/tail": (["processId", "maxBytes"], []),
         "_acpmux/process/kill": (["sessionId", "processId"], []),
         "_acpmux/process/background": (["sessionId", "toolCallId"], []),

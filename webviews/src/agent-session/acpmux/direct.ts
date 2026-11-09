@@ -4757,6 +4757,20 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/process/list", { sessionId });
   }
 
+  /// This Mac's worktrees as acpmux's worktree care judges them, stale ones measured
+  /// (`_acpmux/worktree/report {staleOnly: true}`, cmux-tui server/worktrees.rs): `{report, last}`.
+  /// A pass takes seconds of git and disk reads, so no deadline: the daemon is not late.
+  worktreeReport(): Promise<unknown> {
+    return this.request("_acpmux/worktree/report", { staleOnly: true });
+  }
+
+  /// Frees the stale worktrees at `paths` (`_acpmux/worktree/clean {only, staleOnly: true}`): the
+  /// pass's report, each item's `outcome` saying what happened to it. acpmux checks each one again and
+  /// keeps any that changed since the scan.
+  cleanWorktrees(paths: readonly string[]): Promise<unknown> {
+    return this.request("_acpmux/worktree/clean", { only: [...paths], staleOnly: true });
+  }
+
   /// Each `_acpmux/process_update` for the attached chat; returns the listener's removal.
   watchProcesses(listener: (process: unknown) => void): () => void {
     this.processListeners.add(listener);
