@@ -2048,7 +2048,17 @@ export class AcpmuxDirectClient {
     () => this.selectedSessionId,
     (child) => this.childChanged(child),
   );
-  private sessions: Session[] = [];
+  /// Insertion order matches the daemon list: a changed summary moves to the end. Bursts
+  /// update one entry at a time; readers share one immutable array until the next change.
+  private sessionsById = new Map<string, Session>();
+  private sessionList: Session[] | undefined = [];
+  private get sessions(): Session[] {
+    return (this.sessionList ??= [...this.sessionsById.values()]);
+  }
+  private set sessions(sessions: Session[]) {
+    this.sessionsById = new Map(sessions.map((session) => [session.sessionId, session]));
+    this.sessionList = sessions;
+  }
   /// Senders of addressed prompts no listed chat named (`incomingContext`).
   private unknownSenders = new Set<string>();
   /// Each waiting prompt's author as its newest `queued` or `queue_updated` record named it (null:
@@ -4571,9 +4581,10 @@ export class AcpmuxDirectClient {
 
   /// Selecting a session is seeing it, including an unread flag acpmux sent.
   private markSeen(sessionId: string): void {
-    this.sessions = this.sessions.map((session) =>
-      session.sessionId === sessionId && session.unread === true ? { ...session, unread: false } : session,
-    );
+    const session = this.sessionsById.get(sessionId);
+    if (session?.unread !== true) return;
+    this.sessionsById.set(sessionId, { ...session, unread: false });
+    this.sessionList = undefined;
   }
 
   /// A refused peer start has no session id yet. Keep its destination until a session is
@@ -5778,7 +5789,7 @@ export class AcpmuxDirectClient {
       // Nothing of a chat acpmux dropped is drawn again from this page.
       forgetTail(session.sessionId);
       this.sessionPages.purgedSession(session.sessionId);
-      this.sessions = this.sessions.filter((item) => item.sessionId !== session.sessionId);
+      if (this.sessionsById.delete(session.sessionId)) this.sessionList = undefined;
       if (session.sessionId === this.selectedSessionId && this.handoff.state.busy !== "discarding")
         this.selectFallbackSession("session purged");
       else this.emit("session purged");
@@ -5794,13 +5805,14 @@ export class AcpmuxDirectClient {
     if (
       session.sessionId !== this.selectedSessionId &&
       session.sessionId !== this.missingSession &&
-      this.sessions.some((item) => item.sessionId === session.sessionId && sameJson(item, session)) &&
+      sameJson(this.sessionsById.get(session.sessionId), session) &&
       !this.offerChildIds().includes(session.sessionId) &&
       !this.isStartedChild(session)
     )
       return;
-    const added = !this.sessions.some((item) => item.sessionId === session.sessionId);
-    this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), session];
+    const added = !this.sessionsById.delete(session.sessionId);
+    this.sessionsById.set(session.sessionId, session);
+    this.sessionList = undefined;
     const watch = this.attachWatch?.sessionId === session.sessionId ? this.attachWatch : undefined;
     watch?.seen.set(`${String(session.createdAt)} ${String(session.peer)}`, {
       createdAt: session.createdAt,
