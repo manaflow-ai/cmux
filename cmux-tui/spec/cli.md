@@ -1281,7 +1281,7 @@ an agent whose session ended. The CLI writes the row's `state` over with
 the same word (`ended` for an ended session), as a deprecated alias of
 `status`. The daemon's wire does not change: `agent.list` and
 `session.snapshot` still say `state: done` for an ended session, and the CLI
-maps that `done` to `ended` on every surface (`agent list`, `agent report`,
+maps that `done` to `ended` in every output (`agent list`, `agent report`,
 `terminal list --agents`, the `send` receipt). In the CLI, `done` means only a
 finished turn that nobody viewed yet. The CLI leaves out the ended agents of
 terminals that closed (the snapshot has no such terminal); `--state ended`
