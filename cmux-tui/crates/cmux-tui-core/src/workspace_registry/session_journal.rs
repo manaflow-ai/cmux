@@ -1438,17 +1438,26 @@ fn query_archived_journal_head(connection: &Connection) -> anyhow::Result<u64> {
 /// (`journal_segment_kinds_backfill_through`), so a daemon killed partway
 /// does not decode every segment again at its next start.
 fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Result<()> {
-    let complete: Option<String> = connection
-        .query_row(
-            "SELECT value FROM meta WHERE key = 'journal_segment_kinds_backfill'",
-            [],
-            |row| row.get(0),
-        )
-        .optional()?;
+    // `progress`: this build's progress rows survive. Its own run deletes
+    // them with the marker's `1`, so a `1` next to them was written by an
+    // older build that ran after it (a downgrade). That build maps only the
+    // unmapped segments, one kind at a time, so a segment it was mapping
+    // when an earlier run of it stopped can still be partly mapped: the `1`
+    // is not trusted, and the run goes on as this build's (`2`).
+    let (complete, progress): (Option<String>, bool) = connection.query_row(
+        "SELECT (SELECT value FROM meta WHERE key = 'journal_segment_kinds_backfill'),
+                EXISTS(SELECT 1 FROM meta WHERE key IN (
+                  'journal_segment_kinds_backfill_through', 'journal_segment_kinds_backfill_end'
+                ))",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
     // A read-only reader (the history feed's, off the registry lock) cannot
     // write the backfill; segments without kind rows take the validating
     // legacy decoder instead, and the registry connection backfills later.
-    if complete.as_deref() == Some("1") || connection.is_readonly(rusqlite::MAIN_DB)? {
+    if (complete.as_deref() == Some("1") && !progress)
+        || connection.is_readonly(rusqlite::MAIN_DB)?
+    {
         return Ok(());
     }
     let meta_u64 = |key: &str| -> anyhow::Result<Option<u64>> {
@@ -1471,6 +1480,8 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
     //   recorded the last legacy segment when it began
     //   (`journal_segment_kinds_backfill_end`): segments sealed later carry
     //   their kind map from the seal, and only unmapped ones of those remain.
+    // - A marker at `1` next to the progress rows is a `2` an older build
+    //   marked done (above), resumed the same way.
     let rescan = match complete.as_deref() {
         None => None,
         Some("0") => Some((meta_u64("journal_segment_kinds_backfill_through")?.unwrap_or(0), None)),

@@ -571,21 +571,11 @@ impl Mux {
                 eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
             }
         }
-        // The head again, after the fold: a record committed since the read
-        // above holds the reconcile for another pass. A head that cannot be
-        // read holds it for the next request or maintenance tick.
-        let caught_up = if reconcile {
+        let reconciled = reconcile.then(|| {
             #[cfg(test)]
             fold.note_io_for_test();
-            let read = match fold.reader(&self.journal_kernel) {
-                Some(reader) => reader.head(),
-                None => self.session_journal_head(),
-            };
-            let cursor = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner).cursor;
-            read.ok().map(|head| cursor >= head && cursor >= self.wanted_roster_sequence())
-        } else {
-            None
-        };
+            self.reconcile_after_replay(fold.reader(&self.journal_kernel))
+        });
         drop(fold);
         let replay_finished = replayed.is_some();
         if let Some(diagnostic) = replayed {
@@ -594,24 +584,11 @@ impl Mux {
                 self.report_internal_diagnostic(diagnostic);
             }
         }
-        match caught_up {
-            Some(true) => {
-                // The reconcile the start skipped while the roster was behind.
-                self.agent_roster_worker.reconcile_pending.store(false, Ordering::Release);
-                #[cfg(test)]
-                if let Some(seam) = self
-                    .agent_roster_worker
-                    .reconcile_seam
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .take()
-                {
-                    seam();
-                }
-                self.reconcile_agent_roster_projections();
-            }
-            Some(false) => self.continue_agent_roster_replay_later(),
-            None => {}
+        // An agent record past the roster's cursor holds the reconcile for
+        // another pass; a journal that cannot be read holds it for the next
+        // request or maintenance tick.
+        if reconciled == Some(Some(false)) {
+            self.continue_agent_roster_replay_later();
         }
         for (delta, kind) in deltas {
             self.apply_roster_delta(delta, &kind);
@@ -655,6 +632,76 @@ impl Mux {
         }
     }
 
+    /// The projection reconcile a background replay owes, once the roster
+    /// has folded every agent record: `Some(false)` when the journal holds
+    /// one past the roster's cursor, `None` when it cannot be read.
+    ///
+    /// The check and the writes hold the hook projector's lock
+    /// (`agent_hook_fences`), which a hook's projection holds from its fence
+    /// check to its commit, and a hook commits its journal record before it
+    /// projects. A hook projected before the check is a record past the
+    /// cursor, so the reconcile waits for the pass that folds it; a hook
+    /// projected after the check waits for the writes, and its newer row is
+    /// the one that stays. Without the lock, a hook between the two had its
+    /// row overwritten by the replay's older plugin state, and its fold
+    /// applies no delta.
+    fn reconcile_after_replay(
+        &self,
+        reader: Option<&crate::workspace_registry::SessionJournalReader>,
+    ) -> Option<bool> {
+        // Only the owner moves the roster, and this is the owner: its cursor
+        // and entries stay as read. Read before the fences lock, as the fold
+        // takes the roster lock without it.
+        let (cursor, entries) = {
+            let host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
+            let entries = host
+                .roster
+                .entries
+                .iter()
+                .filter(|(_, entry)| reducer_owned(entry))
+                .map(|(terminal_id, entry)| (terminal_id.clone(), entry.clone()))
+                .collect::<Vec<_>>();
+            (host.cursor, entries)
+        };
+        let fences = self.agent_hook_fences.lock().unwrap_or_else(PoisonError::into_inner);
+        let kinds = crate::journal_reducers::AgentRoster::folds_kind;
+        let newer = match reader {
+            Some(reader) => reader
+                .head()
+                .and_then(|head| reader.kinds_after(cursor, head.max(cursor), kinds, 1)),
+            None => self.session_journal_head().and_then(|head| {
+                self.session_journal_kinds_after(cursor, head.max(cursor), kinds, 1)
+            }),
+        };
+        match newer {
+            Ok((records, _)) if records.is_empty() => {}
+            Ok(_) => return Some(false),
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: the agent roster reconcile could not read the journal: {error}"
+                );
+                return None;
+            }
+        }
+        self.agent_roster_worker.reconcile_pending.store(false, Ordering::Release);
+        #[cfg(test)]
+        if let Some(seam) = self
+            .agent_roster_worker
+            .reconcile_seam
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+        {
+            seam();
+        }
+        for (terminal_id, entry) in entries {
+            let Ok(terminal_id) = TerminalPublicId::parse(&terminal_id) else { continue };
+            self.reconcile_agent_roster_projection_with(&terminal_id, entry, true);
+        }
+        drop(fences);
+        Some(true)
+    }
+
     pub(super) fn reconcile_agent_roster_projections_for_terminal(
         &self,
         terminal_id: &TerminalPublicId,
@@ -680,6 +727,17 @@ impl Mux {
         &self,
         terminal_id: &TerminalPublicId,
         entry: crate::journal_reducers::RosterEntry,
+    ) {
+        self.reconcile_agent_roster_projection_with(terminal_id, entry, false);
+    }
+
+    /// [`Self::reconcile_agent_roster_projection_for_entry`]; with
+    /// `sequence_lock_held`, the caller holds `agent_hook_fences`.
+    fn reconcile_agent_roster_projection_with(
+        &self,
+        terminal_id: &TerminalPublicId,
+        entry: crate::journal_reducers::RosterEntry,
+        sequence_lock_held: bool,
     ) {
         let registry = match self.workspace_registry.lock() {
             Ok(registry) => registry,
@@ -709,12 +767,13 @@ impl Mux {
         if matches {
             return;
         }
-        self.apply_roster_delta(
+        self.apply_roster_delta_with(
             crate::journal_reducers::RosterDelta::Upsert {
                 terminal_id: terminal_id.to_string(),
                 entry,
             },
             "startup-reconcile",
+            sequence_lock_held,
         );
     }
 
@@ -726,6 +785,18 @@ impl Mux {
         &self,
         delta: crate::journal_reducers::RosterDelta,
         kind: &str,
+    ) {
+        self.apply_roster_delta_with(delta, kind, false);
+    }
+
+    /// [`Self::apply_roster_delta`]; with `sequence_lock_held`, the caller
+    /// holds `agent_hook_fences` (an upsert only: a hook session's end takes
+    /// that lock itself).
+    fn apply_roster_delta_with(
+        &self,
+        delta: crate::journal_reducers::RosterDelta,
+        kind: &str,
+        sequence_lock_held: bool,
     ) {
         use crate::journal_reducers::RosterDelta;
         let (terminal_id, state, source, session, agent_adapter) = match delta {
@@ -772,7 +843,7 @@ impl Mux {
             None,
             &mutation,
             &fingerprint,
-            false,
+            sequence_lock_held,
             None,
             None,
             AgentReportOrigin::RosterFold,
