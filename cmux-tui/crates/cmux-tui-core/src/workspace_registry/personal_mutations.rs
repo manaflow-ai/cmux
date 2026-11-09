@@ -484,7 +484,9 @@ impl WorkspaceRegistry {
         transport: &Value,
         now: i64,
     ) -> anyhow::Result<()> {
-        let machine = |transport: &Value| transport.get("machine").and_then(Value::as_str);
+        fn machine(transport: &Value) -> Option<&str> {
+            transport.get("machine").and_then(Value::as_str)
+        }
         let (Some(held), Some(putting)) = (machine(&record.transport), machine(transport)) else {
             return Ok(());
         };
