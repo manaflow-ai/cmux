@@ -728,9 +728,13 @@ if ! check_runs_json=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100"
   echo "note: used GraphQL fallback to inspect check runs for $sha" >&2
   fallback_answered
 fi
+# The newest check run of each name, but a completed skipped run never replaces an older one of
+# that name: a skip is no verdict (2026-11-09: a same-tree dispatch of cmux-next.yml on #39027's
+# branch posted newer skipped runs of every job it did not run, which hid an older red). A name
+# with only skipped runs stays skipped.
 if ! runs=$(jq -r '
   (map(.check_runs) | add)
-  | sort_by(.name, (.id // 0))
+  | sort_by(.name, (if .status == "completed" and .conclusion == "skipped" then 0 else 1 end), (.id // 0))
   | group_by(.name)[]
   | last
   | [.name,.status,(.conclusion // "")]
