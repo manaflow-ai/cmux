@@ -1189,7 +1189,7 @@
           "title": "Ultra Connection Mode",
           "help": "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "cmux Remote"
         },
         {
