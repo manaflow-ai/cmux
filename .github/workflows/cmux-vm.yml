@@ -86,7 +86,8 @@
 #   journey-machines-staging  list the staging agent test account's Cloud machines (its own team and
 #                         CMUX_JOURNEY_PRODUCT_TEAM), one JSON line each with `eligible` by the leaked journey machine
 #                         rule (cloud-journey.ts journeyMachineEligible); machine_ids (at most 5 `vm_ID@JOB_ID`, JOB_ID
-#                         the CI journey job whose log shows it made the machine and its cleanup delete failed) then
+#                         a deploy-staging job of a push or dispatch run on feat-cmux-next or main whose log shows its
+#                         journey made the machine and its cleanup delete failed) then
 #                         deletes exactly those, each only when proven, listed and eligible, logged before the delete.
 
 name: cmux VM
@@ -138,7 +139,7 @@ on:
         type: boolean
         default: false
       machine_ids:
-        description: journey-machines-staging only, at most 5 vm_ID@JOB_ID to delete (JOB_ID the journey job that leaked it), comma separated; empty lists only
+        description: journey-machines-staging only, at most 5 vm_ID@JOB_ID to delete (JOB_ID the deploy-staging job that leaked it), comma separated; empty lists only
         type: string
         default: ""
       tail_minutes:

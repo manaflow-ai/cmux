@@ -483,13 +483,16 @@ describe("cloud journey: leaked machines (--machines, --delete-ids)", () => {
     expect(leakProof([lines[6], "PASS listed 1 ms :: vm_4817ee90a93468c689d3", lines[11]].join("\n"), "vm_4817ee90a93468c689d3")).not.toBeNull();
   });
 
+  // The real job and run (fields the proof reads), as the API answered them.
+  const TRUSTED_JOB = { id: 128746706182, run_id: 42485334511, name: "deploy-staging", head_branch: "feat-cmux-next", workflow_name: "cmux VM" };
+  const TRUSTED_RUN = { id: 42485334511, path: ".github/workflows/cmux-vm.yml", event: "push", head_branch: "feat-cmux-next", repository: { full_name: "manaflow-ai/cmux" }, head_repository: { full_name: "manaflow-ai/cmux" } };
   const gh = (over: { job?: any; run?: any; logStatus?: number; log?: string } = {}) => {
     const calls: Array<{ url: string; auth: string }> = [];
     const get = async (url: string, headers: Record<string, string>) => {
       calls.push({ url, auth: headers.authorization ?? "" });
       const ok = (body: unknown) => ({ status: 200, location: null, text: JSON.stringify(body) });
-      if (url.endsWith("/actions/jobs/128746706182")) return ok(over.job ?? { id: 128746706182, run_id: 42485334511 });
-      if (url.endsWith("/actions/runs/42485334511")) return ok(over.run ?? { path: ".github/workflows/cmux-vm.yml", repository: { full_name: "manaflow-ai/cmux" } });
+      if (url.endsWith("/actions/jobs/128746706182")) return ok({ ...TRUSTED_JOB, ...over.job });
+      if (url.endsWith("/actions/runs/42485334511")) return ok({ ...TRUSTED_RUN, ...over.run });
       if (url.endsWith("/actions/jobs/128746706182/logs")) return { status: over.logStatus ?? 302, location: "https://blob.example/job-logs.txt?sig=x", text: "" };
       if (url.startsWith("https://blob.example/")) return { status: 200, location: null, text: over.log ?? JOB_LOG };
       return { status: 404, location: null, text: "{}" };
@@ -505,11 +508,30 @@ describe("cloud journey: leaked machines (--machines, --delete-ids)", () => {
     expect(g.calls.filter((c) => c.url.startsWith("https://api.github.com/repos/manaflow-ai/cmux/")).every((c) => c.auth === "Bearer ghs_token")).toBe(true);
   });
 
+  test("a log a contributor's code could have written proves nothing, whatever it prints", async () => {
+    // A fork's pull request: the run belongs to this repo and its workflow path is allowed, but the code is the fork's.
+    const forkRun = { event: "pull_request", head_branch: "feat-cmux-next", head_repository: { full_name: "someone/cmux" } };
+    expect(await provenLeak(entry, "t", gh({ run: forkRun }).get)).toContain("ran code from \"someone/cmux\"");
+    expect(await provenLeak(entry, "t", gh({ run: { ...forkRun, path: ".github/workflows/backend.yml" } }).get)).not.toBeNull();
+    // A pull request on this repo's own branch, a merge queue, a workflow_run, a pull_request_target: never.
+    for (const event of ["pull_request", "pull_request_target", "merge_group", "workflow_run", "schedule", "", undefined]) {
+      expect(await provenLeak(entry, "t", gh({ run: { event } }).get)).toContain("runs code a contributor may have written");
+    }
+    // A push or a dispatch on another branch (a lane branch anyone can push to).
+    for (const head_branch of ["lane/x", "feat-cmux-vm-x", "main2"]) {
+      expect(await provenLeak(entry, "t", gh({ run: { event: "workflow_dispatch", head_branch }, job: { head_branch } }).get)).toContain("is not feat-cmux-next or main");
+    }
+    expect(await provenLeak(entry, "t", gh({ run: { event: "workflow_dispatch", head_branch: "main" }, job: { head_branch: "main" } }).get)).toBeNull();
+    // The run must be the job's own.
+    expect(await provenLeak(entry, "t", gh({ run: { id: 1 } }).get)).toContain("did not read back");
+  });
+
   test("no proof, no delete: another workflow, another repo, an unknown job, an unreadable log, a log without the leak", async () => {
-    expect(await provenLeak(entry, "t", gh({ run: { path: ".github/workflows/manual-thing.yml", repository: { full_name: "manaflow-ai/cmux" } } }).get)).toContain("is not one whose journeys run without --keep");
-    expect(await provenLeak(entry, "t", gh({ run: { path: ".github/workflows/cmux-vm.yml", repository: { full_name: "someone/cmux" } } }).get)).toContain("not in manaflow-ai/cmux");
+    expect(await provenLeak(entry, "t", gh({ run: { path: ".github/workflows/manual-thing.yml" } }).get)).toContain("is not .github/workflows/cmux-vm.yml");
+    expect(await provenLeak(entry, "t", gh({ run: { repository: { full_name: "someone/cmux" } } }).get)).toContain("not in manaflow-ai/cmux");
     expect(await provenLeak({ ...entry, job: "5" }, "t", gh().get)).toContain("HTTP 404");
-    expect(await provenLeak(entry, "t", gh({ job: { id: 1, run_id: 42485334511 } }).get)).toContain("not a job of");
+    expect(await provenLeak(entry, "t", gh({ job: { id: 1 } }).get)).toContain("not a job of");
+    expect(await provenLeak(entry, "t", gh({ job: { name: "journey-production" } }).get)).toContain("is not deploy-staging");
     expect(await provenLeak(entry, "t", gh({ logStatus: 410 }).get)).toContain("HTTP 410");
     expect(await provenLeak({ ...entry, id: "vm_962c8697bd526edb3c9f" }, "t", gh().get)).toContain("logged no failed cleanup delete");
   });
@@ -612,6 +634,30 @@ describe("cloud journey: leaked machines (--machines, --delete-ids)", () => {
     expect(s.failed[0]!.reason).toContain("mutation.indeterminate");
     expect(stuck.deletes.length).toBeGreaterThan(3);
     expect(stuck.deletes.length).toBeLessThan(20);
+    // A refusal is final: no retry, no read back.
+    const refusedOnce = fake([machine()], [{ status: 409, body: { ok: false, error: { code: "cloud.machine.busy", retryable: false } } }]);
+    const r2 = await deleteJourneyMachines([id(1)], [refusedOnce.scope], "t", deps([]));
+    expect(r2.failed[0]!.reason).toContain("cloud.machine.busy");
+    expect(refusedOnce.deletes.length).toBe(1);
+  });
+
+  test("a delete still cut off after its retries is read back, and counts as deleted when it reads deleting or gone", async () => {
+    const indeterminate = { status: 409, body: { ok: false, error: { code: "mutation.indeterminate", retryable: true } } };
+    for (const after of ["deleting", "gone"] as const) {
+      const f = fake([machine()], [indeterminate]);
+      let removed = false;
+      const log: string[] = [];
+      // The provider did delete it; only the answers were cut off.
+      const scope = { ...f.scope, remove: async (m: string, k: string) => { removed = true; return f.scope.remove(m, k); }, get: async (m: string) => (removed ? (after === "gone" ? null : { ...machine(), status: "deleting" }) : f.scope.get(m)) };
+      const r = await deleteJourneyMachines([id(1)], [scope], "t", deps(log));
+      expect(r).toEqual({ deleted: [id(1)], failed: [] });
+      expect(JSON.parse(log[log.length - 1]!)).toEqual({ deleted: id(1), read_back: after, after: "mutation.indeterminate" });
+    }
+    // A transport error the whole time, and the machine is still there: failed, naming both.
+    const t = fake([machine()]);
+    const down = { ...t.scope, remove: async () => { throw new Error("socket hang up"); } };
+    const r = await deleteJourneyMachines([id(1)], [down], "t", deps([]));
+    expect(r.failed[0]!.reason).toMatch(/transport.*after the retries, but read back still not gone/);
   });
 
   test("a machine that changed since the list is checked again right before its delete", async () => {

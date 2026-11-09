@@ -67,7 +67,7 @@
  *
  * --machines lists the agent test account's machines (one JSON line each, with `eligible` by the leaked journey
  * machine rule; --also-team T lists a second team too), and --delete-ids vm_a@JOB,vm_b@JOB deletes exactly those (at
- * most 5), each only when JOB is a CI journey job whose log shows it made the machine and its cleanup delete failed
+ * most 5), each only when JOB is a trusted cmux-vm.yml deploy-staging job whose log shows it made the machine and its cleanup delete failed
  * (GITHUB_TOKEN reads it), the live list has it and the rule allows it, logged first (cmux-vm.yml action
  * journey-machines-staging).
  *
@@ -1035,13 +1035,23 @@ export function parseDeleteEntries(text: string): DeleteEntry[] {
 }
 
 /**
- * The workflows whose journeys may have leaked a machine: each runs cloud-journey.ts without --keep or --machine
- * (cmux-vm.yml, backend.yml, cloud-journey-pr.yml and cloudflare-relay.yml run it through cloud-journey-ci.sh, which
- * passes only --backend, --out, --cmux or --skip sync, --model and --team; checked 2026-11-09). Only hand runs pass
- * --keep, so a machine made by one of these jobs is never a kept one. A --keep run also never logs a cleanup delete
- * (cleanup returns before it), so the FAIL line below is a second proof.
+ * The one job whose journey log is trusted as a leak's proof: cmux-vm.yml's deploy-staging (where the journey
+ * leaked, job 128746706182), which runs the staging journey through cloud-journey-ci.sh. That script passes only
+ * --backend, --out, --cmux or --skip sync, --model and --team, never --keep or --machine (checked 2026-11-09): only
+ * hand runs pass --keep, so a machine this job made is never a kept one. A --keep run also never logs a cleanup
+ * delete (cleanup returns before it), so the FAIL line is a second proof.
+ *
+ * The log is trusted only when the job ran this repo's own code on a protected branch: a run of a pull request
+ * (a fork's above all), a merge queue or a workflow_run runs code a contributor wrote, which can print any line.
+ * So the run's event must be push or workflow_dispatch (deploy-staging's only triggers), its head repository this
+ * repo and its head branch feat-cmux-next or main. backend.yml, cloud-journey-pr.yml and cloudflare-relay.yml run
+ * the journey on pull requests too, so none of their jobs counts. The jobs API does not say which environment a job
+ * ran in; the job name and workflow stand for it (deploy-staging always runs in cmux-vm-staging).
  */
-export const JOURNEY_WORKFLOWS = new Set([".github/workflows/cmux-vm.yml", ".github/workflows/backend.yml", ".github/workflows/cloud-journey-pr.yml", ".github/workflows/cloudflare-relay.yml"]);
+export const PROOF_WORKFLOW = ".github/workflows/cmux-vm.yml";
+export const PROOF_JOB = "deploy-staging";
+export const PROOF_EVENTS = new Set(["push", "workflow_dispatch"]);
+export const PROOF_BRANCHES = new Set(["feat-cmux-next", "main"]);
 export const JOURNEY_REPO = "manaflow-ai/cmux";
 
 /**
@@ -1074,8 +1084,8 @@ const ghGet: GhGet = async (url, headers) => {
 };
 
 /**
- * The GitHub side of the proof: the job is in JOURNEY_REPO, its run's workflow is a JOURNEY_WORKFLOWS one, and its
- * log has leakProof's two lines. Null when proven, else why not. The log's download link is fetched without the token.
+ * The GitHub side of the proof: the job is PROOF_JOB of PROOF_WORKFLOW in a trusted run of JOURNEY_REPO (PROOF_EVENTS,
+ * its own head repository, PROOF_BRANCHES), and its log has leakProof's two lines. Null when proven, else why not. The log's download link is fetched without the token.
  */
 export async function provenLeak(entry: DeleteEntry, token: string, get: GhGet = ghGet): Promise<string | null> {
   const api = `https://api.github.com/repos/${JOURNEY_REPO}/actions`;
@@ -1088,10 +1098,15 @@ export async function provenLeak(entry: DeleteEntry, token: string, get: GhGet =
   try {
     const job = await json(`${api}/jobs/${entry.job}`);
     if (String(job?.id) !== entry.job || !Number.isSafeInteger(job?.run_id)) return `job ${entry.job}: not a job of ${JOURNEY_REPO}`;
+    if (job.name !== PROOF_JOB) return `job ${entry.job}: ${short(job.name)} is not ${PROOF_JOB}`;
     const run = await json(`${api}/runs/${job.run_id}`);
+    if (run?.id !== job.run_id) return `job ${entry.job}: its run did not read back`;
     if (run?.repository?.full_name !== JOURNEY_REPO) return `job ${entry.job}: its run is not in ${JOURNEY_REPO}`;
+    if (run?.head_repository?.full_name !== JOURNEY_REPO) return `job ${entry.job}: its run ran code from ${short(run?.head_repository?.full_name)}, not ${JOURNEY_REPO}`;
+    if (!PROOF_EVENTS.has(String(run?.event))) return `job ${entry.job}: its run's event ${short(run?.event)} runs code a contributor may have written`;
+    if (!PROOF_BRANCHES.has(String(run?.head_branch)) || job.head_branch !== run.head_branch) return `job ${entry.job}: branch ${short(run?.head_branch)} is not feat-cmux-next or main`;
     const workflow = String(run?.path ?? "").replace(/@.*$/, "");
-    if (!JOURNEY_WORKFLOWS.has(workflow)) return `job ${entry.job}: workflow ${workflow || "?"} is not one whose journeys run without --keep`;
+    if (workflow !== PROOF_WORKFLOW) return `job ${entry.job}: workflow ${workflow || "?"} is not ${PROOF_WORKFLOW}`;
     const link = await get(`${api}/jobs/${entry.job}/logs`, auth);
     let log = link.text;
     if (link.status === 302 && link.location) {
@@ -1114,7 +1129,7 @@ export function machineLine(m: any, scope: string, now = Date.now()): Record<str
   const created = Number.isSafeInteger(m?.created_at) ? m.created_at : null;
   // A delete needs the job that made it (DeleteEntry); this tool cannot search logs, so it says where to look.
   const findJob = eligible
-    ? `a journey job running at ${iso(created)} (cmux-vm.yml deploy-staging, cloud-journey-pr.yml, backend.yml or cloudflare-relay.yml) whose log has "PASS create machine ... :: ${m.id}" and "FAIL delete (cleanup)"; pass ${m.id}@<job id>`
+    ? `the cmux-vm.yml deploy-staging job (a push or dispatch on feat-cmux-next or main) running at ${iso(created)} whose log has "PASS create machine ... :: ${m.id}" and "FAIL delete (cleanup)"; pass ${m.id}@<job id>. No such job (another workflow's journey): this tool cannot delete it`
     : null;
   return {
     scope,
@@ -1177,7 +1192,10 @@ export async function deleteJourneyMachines(ids: string[], scopes: MachineScope[
       deps.log(JSON.stringify({ retry_delete: id, attempt, error: answer.body?.error?.code ?? null }));
       await deps.sleep(Math.min(5_000 * attempt, 30_000));
     }
-    if (answer!.status !== 200 || answer!.body?.ok !== true) {
+    const accepted = answer!.status === 200 && answer!.body?.ok === true;
+    const unsure = !accepted && (opRetryable(answer!.body) || answer!.status === 0);
+    // A refusal is final. An answer still cut off after the retries may have deleted it: read back before saying no.
+    if (!accepted && !unsure) {
       fail(`delete: HTTP ${answer!.status} ${short(answer!.body?.error ?? answer!.body)}`);
       continue;
     }
@@ -1188,9 +1206,12 @@ export async function deleteJourneyMachines(ids: string[], scopes: MachineScope[
         if (!back || back.status === "deleting" || back.status === "deleted") { gone = back ? back.status : "gone"; break; }
       } catch { /* read again */ }
     }
-    if (!gone) { fail(`deleted, but read back still not gone or deleting after ${readBackMs / 1000} s`); continue; }
+    if (!gone) {
+      fail(`${accepted ? "deleted" : `delete: HTTP ${answer!.status} ${short(answer!.body?.error ?? answer!.body)} after the retries`}, but read back still not gone or deleting after ${readBackMs / 1000} s`);
+      continue;
+    }
     deleted.push(id);
-    deps.log(JSON.stringify({ deleted: id, read_back: gone }));
+    deps.log(JSON.stringify({ deleted: id, read_back: gone, ...(accepted ? {} : { after: answer!.body?.error?.code ?? "transport" }) }));
   }
   return { deleted, failed };
 }
