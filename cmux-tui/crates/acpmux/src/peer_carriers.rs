@@ -8,7 +8,8 @@
 //! - ssh: `ssh -W` to the configured `ssh://` URL. Always kept: it reaches a machine when the
 //!   platform is down and the network allows nothing else.
 //! - The configured `ws://`/`wss://` URL of a peer that is not ssh.
-//! - The hub relay is no stream path yet (`Via::streams`); it becomes one more path when it is.
+//! - The hub relay (`peer_hub.rs`), with the `hub-carrier` feature: the daemon's hub carrier,
+//!   for a peer with a hub `daemonId`. Without the feature it carries no stream (`Via::streams`).
 
 use super::{EARLY_TUNNEL_FOR, Peer, RESTART_AFTER, connect_timed_out, ssh_errors, tokens};
 use crate::no_panic::LockExt;
@@ -240,6 +241,10 @@ impl Peer {
                 .into_iter()
                 .collect();
         vias.push(if self.ssh_parts().is_some() { Via::Ssh } else { Via::Url });
+        #[cfg(feature = "hub-carrier")]
+        if self.has_hub_path() {
+            vias.push(Via::Hub);
+        }
         vias
     }
 
@@ -397,7 +402,7 @@ impl Peer {
     /// need no read, so a direct path never waits on ssh for them; and a read that fails
     /// (ssh down) leaves the direct path its kept tokens, never stops it.
     async fn direct_tokens(&self, order: &[Via]) -> Option<(tokens::Tokens, bool)> {
-        let direct = order.iter().any(|via| matches!(via, Via::Wireguard | Via::Link));
+        let direct = order.iter().any(|via| matches!(via, Via::Wireguard | Via::Link | Via::Hub));
         let configured = self.token.is_some() && self.peer_token.is_some();
         if !direct || configured || self.ssh_parts().is_none() {
             return None;
@@ -412,7 +417,8 @@ impl Peer {
     }
 
     /// The cmux link socket to dial, ahead of the link's registration (tests).
-    #[cfg(test)]
+    // Only the Linux link tests in peer_carriers_tests.rs call it.
+    #[cfg(all(test, target_os = "linux"))]
     pub(super) fn set_link_socket(&self, socket: PathBuf) {
         let _ = self.link_socket.set(socket);
     }
@@ -436,6 +442,8 @@ impl Peer {
                 let stream = dial_link(&socket, host).await?;
                 Ok((Box::new(stream), "ws://localhost/".to_owned()))
             }
+            #[cfg(feature = "hub-carrier")]
+            Via::Hub => Ok((Box::new(self.hub_stream().await?), "ws://localhost/".to_owned())),
             other => Err(format!("{} is not a direct stream path", other.as_str())),
         }
     }
@@ -640,6 +648,7 @@ impl Peer {
             Via::Ssh => self.open_ssh(ssh_tokens).await,
             Via::Url => self.open_url().await,
             Via::Wireguard | Via::Link => self.open_direct(via, ssh_tokens.as_ref()).await,
+            Via::Hub if via.streams() => self.open_direct(via, ssh_tokens.as_ref()).await,
             Via::Hub => Err("the hub relay carries no live link yet".to_owned()),
         }
     }
@@ -744,6 +753,7 @@ impl Peer {
     async fn open_probe(&self, via: Via) -> Result<(OpenedWs, Option<ProbeTunnel>), String> {
         match via {
             Via::Wireguard | Via::Link => Ok((self.open_direct(via, None).await?.ws, None)),
+            Via::Hub if via.streams() => Ok((self.open_direct(via, None).await?.ws, None)),
             Via::Url => Ok((self.open_url().await?.ws, None)),
             Via::Ssh => {
                 let (token, peer_token) = self

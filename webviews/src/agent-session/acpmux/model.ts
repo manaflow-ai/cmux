@@ -62,6 +62,7 @@ import {
 } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
+import { PLAN_BUILD_KIND, planBuildHeight, type PlanBuild } from "./planBuild/planBuild";
 import {
   PASTE_FROM_HEIGHT,
   type PasteRange,
@@ -155,6 +156,13 @@ export type AcpmuxFailover = { from: string; to: string };
 /// the person comes back after 5+ minutes away. Never a prompt; the daemon decides when.
 /// `key`: the chat and the record's seq, which the dismissal remembers (conversation/recapDismissed.ts).
 export type AcpmuxRecap = { key: string; text: string; awayMs?: number };
+
+/// "New since you looked" (conversation/SinceDivider.tsx): where the person left the chat, drawn
+/// after the record they had seen (acpmux `seenSeq`, `hub/seen.rs`) when turns ended since. The
+/// recap made for the same return (`since` on its record) draws on it instead of on its own row.
+export const SINCE_DIVIDER = "sinceDivider";
+/// `key`: the chat and the seq, which Jump to new follows the line by (seqs repeat across chats).
+export type AcpmuxSince = { key: string; seq: number; turns: number; recap?: AcpmuxRecap };
 
 /// A turn the agent ran on its own, which nobody prompted (acpmux `background_turn` records): a
 /// background task or subagent finished (`task_notification`), a scheduled wakeup or /loop tick
@@ -444,6 +452,10 @@ export type AcpmuxRow = {
   failover?: AcpmuxFailover;
   /// A recap row's recap.
   recap?: AcpmuxRecap;
+  /// The "New since you looked" row's mark.
+  since?: AcpmuxSince;
+  /// A plan build row's builds (planBuild/PlanBuildCard.tsx): what a plan approval started off this chat.
+  planBuild?: PlanBuild;
   /// A memory inbox row's offer (conversation/memoryInbox.ts): facts for the instructions file.
   memory?: MemoryOffer;
   /// A background turn's line (conversation/backgroundTurns.ts): the turn it stands for.
@@ -1281,6 +1293,9 @@ export type AcpmuxSnapshot = {
   clockOffsetMs?: number;
   /// acpmux serves `acp.session.fork` (operations.ts), so a turn can be forked from.
   canFork?: boolean;
+  /// The chat's own machine (a Cloud or SSH chat) opens its side chats there: New side chat and
+  /// `/side` (direct.ts `sideChatOnMachine`).
+  sideChatOnMachine?: true;
   /// acpmux serves the owner's Approve and Decline of a guest's prompt (initialize `queueApproval`).
   queueApproval?: boolean;
   canHandoff?: boolean;
@@ -1299,6 +1314,9 @@ export type AcpmuxSnapshot = {
   /// While two or more steers wait: the row of the person's newest one, the only one that offers
   /// Send now (direct.ts `newestOwnSteer`, conversation/PendingSteer.tsx).
   newestOwnSteer?: string;
+  /// The mark of "New since you looked" drawn in the rows (`SINCE_DIVIDER`, its `key`): Jump to new
+  /// follows it.
+  sinceKey?: string;
   permission?: AcpmuxPermission;
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;
@@ -2212,6 +2230,8 @@ function fallbackRowHeight(
     return finish(
       8 + 2 + row.started.reduce((sum, child) => sum + (hasStatusLine(child) ? 50 : 34), 0) + (row.started.length - 1),
     );
+  // A plan's builds (planBuild/PlanBuildCard.tsx): every column reserves its lines, so one height per width.
+  if (row.kind === PLAN_BUILD_KIND && row.planBuild) return finish(planBuildHeight(row.planBuild, width));
   // A finished turn's task lines (conversation/TaskLine.tsx): one tool row each.
   if (row.kind === TASK_LINE && row.tasks) return finish(row.tasks.length * toolRowHeight());
   // A paused agent pair: its sentence over the held count and Resume; resumed, one line.
@@ -2222,6 +2242,17 @@ function fallbackRowHeight(
       24 +
         Math.max(1, Math.ceil((row.recap?.text.length ?? 0) / Math.max(24, Math.floor(width / 8) - 6))) *
           metrics().lineHeight,
+    );
+  // "New since you looked" (conversation/SinceDivider.tsx): its 28px line, and under it the recap's
+  // card as a recap row is estimated.
+  if (row.kind === SINCE_DIVIDER)
+    return finish(
+      28 +
+        (row.since?.recap
+          ? 24 +
+            Math.max(1, Math.ceil(row.since.recap.text.length / Math.max(24, Math.floor(width / 8) - 6))) *
+              metrics().lineHeight
+          : 0),
     );
   // A memory offer (conversation/MemoryOfferCard.tsx): its file line, a 24px diff line per open fact
   // and the heading's, Accept all under two or more, in its 1px edges and 8px of row margins; settled,
