@@ -10,15 +10,7 @@ use super::*;
 /// A start on `vm-1` (an existing machine) in `cwd`, as the start matrix's repo rows run it after
 /// `cloud new-machine --repo URL`. It has no prompt, so a start is `start-session` alone.
 fn repo_start(cwd: &str, timeout: &str) -> Request {
-    request(&[
-        "--target",
-        "machine:vm-1",
-        "--cwd",
-        cwd,
-        "--wait",
-        "--timeout",
-        timeout,
-    ])
+    request(&["--target", "machine:vm-1", "--cwd", cwd, "--wait", "--timeout", timeout])
 }
 
 fn is_folder_check(args: &[String], cwd: &str) -> bool {
@@ -712,15 +704,8 @@ fn made_box() -> Ran {
 /// chat never starts before the folder is ready.
 #[test]
 fn a_named_machine_still_being_made_is_waited_on_before_its_folder_check() {
-    let asked = request(&[
-        "--name",
-        "box",
-        "--cwd",
-        "/home/cmux/work/r",
-        "--wait",
-        "--timeout",
-        "900",
-    ]);
+    let asked =
+        request(&["--name", "box", "--cwd", "/home/cmux/work/r", "--wait", "--timeout", "900"]);
     let mut fake = Fake::new(vec![
         creating_box(),
         creating_box(),
