@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 import CmuxNextHome
+import CmuxNextHomeModel
 import Foundation
 
 /// The card's parts per profile tab (Lawrence 2026-11-04, the Chief profile panel): Details, Settings
