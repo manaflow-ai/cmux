@@ -163,6 +163,9 @@ fn serve() -> u16 {
                     "/scripted" => "<!doctype html><html><head><title>Scripted</title><script src=\"/script.js\"></script></head><body><p>second</p><script>window.__inline = 1;</script></body></html>".to_owned(),
                     "/preview-proof" => "<!doctype html><title>Preview proof fixture</title><main style=\"font:24px sans-serif;padding:48px\">Preview is rendered</main><script>console.error('fixture console error'); throw new Error('fixture page error');</script>".to_owned(),
                     "/preview-proof-late" => "<!doctype html><title>Late preview errors</title><main>Rendered before errors</main><script>addEventListener('load', () => setTimeout(() => { console.error('late fixture console error'); throw new Error('late fixture page error'); }, 500));</script>".to_owned(),
+                    "/walkthrough" => "<!doctype html><title>Walkthrough fixture</title><main style=\"font:20px sans-serif;padding:32px\">\
+                         <label>Name <input id=name></label><button onclick=\"document.getElementById('out').textContent = 'Saved, ' + document.getElementById('name').value\">Save</button>\
+                         <p id=out></p></main>".to_owned(),
                     "/files" => files_page(),
                     "/clip" => clipboard::clip_page(),
                     "/leak" => clipboard::leak_page(),
@@ -668,6 +671,106 @@ console.log('PROOF_LIFECYCLE_OK');
         output.lines().any(|line| line.contains("/image-") && line.contains(".png")),
         "screenshot attachment path missing: {output}"
     );
+}
+
+/// `verifyFlow` clicks through a fixture page: a passing flow gives one JPEG
+/// per step, a wrong expectation fails that step and skips the rest, and a
+/// port with no server fails with a plain "No dev server" error.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn verify_flow_walks_through_steps_with_screenshots() {
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    // A port nothing listens on: bound, then released.
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let dir = std::env::temp_dir().join(format!("cmux-host-verify-flow-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("host.sock");
+    let _host = HostGuard::start(&socket, &binary);
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+        .args(["eval", "--engine", "headless", "--socket"])
+        .arg(&socket)
+        .arg("-")
+        .current_dir(&dir)
+        .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("run cmux-browser-host eval");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(
+            r#"
+const pass = await verifyFlow(__PORT__, [
+    { open: '/walkthrough', note: 'Open the form' },
+    { type: '#name', text: 'Ada' },
+    { click: 'text=Save' },
+    { expect: 'Saved, Ada', in: '#out' },
+]);
+if (!pass.passed || pass.steps.length !== 4 || pass.steps.some(s => !s.ok || !/\.jpg\]$/.test(s.screenshot))) throw new Error('pass flow: ' + pass);
+const shot = pass.steps[3].screenshot.match(/jpeg: (.+)\]/)[1];
+console.log('JPEG_SIGNATURE:' + Array.from(fs.readFileSync(shot).slice(0, 3)).join(','));
+if (pass.steps[0].line !== 'Open the form') throw new Error('note not kept: ' + pass.steps[0].line);
+console.log(String(pass).split('\n').pop().startsWith('cmux.walkthrough {') ? 'MACHINE_LINE_OK' : 'MACHINE_LINE_MISSING');
+console.log('PASS_FLOW_OK');
+const fail = await verifyFlow(__PORT__, [
+    { open: '/walkthrough' },
+    { expect: 'Nothing like this', in: '#out' },
+    { click: 'text=Save' },
+], { timeout: 500 });
+if (fail.passed || !fail.steps[0].ok || fail.steps[1].ok || !fail.steps[1].error || !fail.steps[1].screenshot || !fail.steps[2].skipped) throw new Error('fail flow: ' + fail);
+console.log('FAIL_FLOW_OK');
+const implied = await verifyFlow('http://127.0.0.1:__PORT__/walkthrough', [{ expect: 'Name' }]);
+if (!implied.passed || implied.steps.length !== 2 || implied.steps[0].kind !== 'open') throw new Error('implied open: ' + implied);
+console.log('IMPLIED_OPEN_OK');
+const none = await verifyFlow(__CLOSED__, [{ open: '/' }, { expect: 'x' }]);
+if (none.passed || !/^No dev server answers at http:\/\/127\.0\.0\.1:__CLOSED__/.test(none.error) || none.steps[0].screenshot || !none.steps[1].skipped) throw new Error('no server: ' + none);
+console.log('NO_SERVER_OK');
+for (const bad of [[0, [{ open: '/' }]], [__PORT__, []], [__PORT__, [{ open: '/', click: 'a' }]], [__PORT__, [{ type: '#name' }]], ['file:///etc', [{ open: '/' }]]]) {
+    let error;
+    try { await verifyFlow(...bad); } catch (e) { error = e; }
+    if (!error || !error.message.startsWith('verifyFlow:')) throw new Error('bad input accepted: ' + JSON.stringify(bad));
+}
+console.log('BAD_INPUT_OK');
+if ((await tabs.list()).length !== 0) throw new Error('walkthrough tab leaked');
+console.log('NO_TAB_LEFT');
+"#
+            .replace("__PORT__", &port.to_string())
+            .replace("__CLOSED__", &closed.to_string())
+            .as_bytes(),
+        )
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    let success = output.status.success();
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let _ = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+        .args(["close", "--socket"])
+        .arg(&socket)
+        .output();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(success, "verifyFlow command failed: {output}");
+    for marker in [
+        "JPEG_SIGNATURE:255,216,255",
+        "MACHINE_LINE_OK",
+        "PASS_FLOW_OK",
+        "FAIL_FLOW_OK",
+        "IMPLIED_OPEN_OK",
+        "NO_SERVER_OK",
+        "BAD_INPUT_OK",
+        "NO_TAB_LEFT",
+    ] {
+        assert!(output.contains(marker), "missing {marker}: {output}");
+    }
 }
 
 /// A headless session starts with no tabs: the start tab Chromium opens is

@@ -1,0 +1,163 @@
+/* A browser walkthrough under a turn's answer (Walkthrough.tsx, design/verify-walkthrough.md): a
+   one-line head with the verdict, then a strip of fixed-size shots, each over its mark and line.
+   Every shot holds the same 128 x 80 box whether or not its image loaded, so nothing moves when one
+   arrives. */
+.cv-walk {
+  margin: var(--ds-space-2, 8px) 0;
+  font-size: inherit;
+  color: var(--cv-text);
+}
+.cv-walk__head {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 28px;
+  padding: 0 6px;
+  margin-inline-start: -6px;
+  border-radius: 6px;
+  cursor: default;
+}
+.cv-walk__head:hover {
+  background: color-mix(in srgb, var(--cv-fg, var(--cv-text)) 6%, transparent);
+}
+.cv-walk__head:focus-visible {
+  outline: 2px solid var(--accent, currentColor);
+  outline-offset: 1px;
+}
+.cv-walk__verdict {
+  flex: none;
+}
+.cv-walk__verdict.is-ok,
+.cv-walk__mark.is-ok {
+  color: var(--success, var(--agent-status-success));
+}
+.cv-walk__verdict.is-failed,
+.cv-walk__mark.is-failed {
+  color: var(--danger, var(--agent-status-failure));
+}
+.cv-walk__title {
+  flex: none;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.cv-walk__place {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--cv-muted, var(--cv-text));
+  opacity: 0.8;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.cv-walk__chevron {
+  flex: none;
+  opacity: 0.6;
+}
+.cv-walk__body {
+  padding-top: var(--ds-space-2, 8px);
+}
+.cv-walk__why {
+  margin: 0 0 var(--ds-space-2, 8px);
+  color: var(--danger, var(--agent-status-failure));
+}
+.cv-walk__steps {
+  display: flex;
+  gap: 10px;
+  margin: 0;
+  padding: 0 0 4px;
+  overflow-x: auto;
+  list-style: none;
+  scrollbar-width: thin;
+}
+.cv-walk__step {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 6px;
+  width: 128px;
+}
+.cv-walk__shot,
+.cv-walk__blank {
+  box-sizing: border-box;
+  display: block;
+  width: 128px;
+  height: 80px;
+  border-radius: 6px;
+}
+.cv-walk__shot {
+  overflow: hidden;
+  background: color-mix(in srgb, var(--cv-fg, var(--cv-text)) 5%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cv-fg, var(--cv-text)) 12%, transparent);
+}
+.cv-walk__step.is-failed .cv-walk__shot {
+  box-shadow: inset 0 0 0 1.5px var(--danger, var(--agent-status-failure));
+}
+.cv-walk__step.is-skipped .cv-walk__shot {
+  opacity: 0.45;
+}
+/* The shared thumbnail fills the step's box instead of taking its image's own shape. */
+.cv-walk__shot .cv-thumb,
+.cv-walk__shot .cv-thumb--sized {
+  width: 128px;
+  height: 80px;
+  margin: 0;
+  padding: 0;
+  aspect-ratio: auto;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.cv-walk__shot .cv-thumb__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top left;
+}
+.cv-walk__caption {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  line-height: 16px;
+}
+.cv-walk__mark {
+  flex: none;
+  margin-top: 2px;
+}
+.cv-walk__mark.is-skipped {
+  display: inline-block;
+  width: 8px;
+  height: 1.5px;
+  margin: 7px 2px 0;
+  background: currentColor;
+  opacity: 0.5;
+}
+.cv-walk__line {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+.cv-walk__step.is-skipped .cv-walk__line {
+  opacity: 0.55;
+}
+.cv-walk__error {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--danger, var(--agent-status-failure));
+  line-height: 16px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+.cv-walk__visually-hidden {
+  position: absolute;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  pointer-events: none;
+}

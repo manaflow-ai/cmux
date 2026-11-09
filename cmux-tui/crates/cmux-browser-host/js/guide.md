@@ -61,6 +61,17 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
   in milliseconds (default `30000`, `0` disables it). Both must be finite and
   nonnegative. For UI changes, inspect this evidence before reporting
   completion; page load alone does not prove the UI works.
+- `verifyFlow(portOrUrl, steps, { timeout: 5000 })`: before you say a UI
+  change is done, click through it and attach the proof. Steps run in order
+  in a background tab: `{ open: "/path" }`, `{ click: "text=Save" }` (any
+  locator selector), `{ type: "#name", text: "Ada" }`, `{ expect: "Saved" }`
+  (visible text; `in: "#out"` scopes it). Each may carry `note`, its one line.
+  A flow that does not start with `open` opens the target first. Every step
+  gets a JPEG; the first failure skips the rest. It returns
+  `{ passed, url, error?, steps: [{ n, line, ok, skipped?, error?, screenshot }] }`
+  and prints PASS or FAIL per step; the chat draws it as a walkthrough under
+  your final message. No server on the port fails with "No dev server answers
+  at …". At most 12 steps; the newest 96 screenshots are kept.
 - `fetch(url, init)`: standard fetch with the current tab's cookies
   (`credentials: "same-origin"` or `"omit"` to send fewer); bodies over
   64 MiB fail, download those in a tab.

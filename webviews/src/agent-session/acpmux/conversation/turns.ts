@@ -28,6 +28,7 @@ import { PLAN_BUILD_KIND } from "../planBuild/planBuild";
 import { QUESTION_RECORD } from "../question/record";
 import { answerOf, chosenAnswer, nextStepAsk, pickedAnswer } from "./nextStepAsk";
 import { lastWrapUp, withoutWrapUp } from "./wrapUp";
+import { lastWalkthrough } from "./walkthroughModel";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
@@ -99,6 +100,10 @@ export const RENDER = "render";
 /// ask's lines. Its `nextStep` carries the ask; `settleNextSteps` adds the answer a later prompt
 /// picked, or folds it once a later card takes over.
 export const NEXT_STEP = "nextStep";
+/// A row added for an ended turn that ran a browser walkthrough (walkthroughModel.ts, `verifyFlow`): its
+/// last one as a pass/fail strip of screenshots (Walkthrough.tsx), under the answer, before any
+/// next-step card. Its `walkthrough` carries the steps.
+export const WALKTHROUGH = "walkthrough";
 /// The id prefix of the footer `supersededFooters` adds where the person came in on a stretch of a
 /// turn: before a steer that landed in it, or at the end of a turn a new prompt opened over.
 export const SUPERSEDED = "superseded";
@@ -1350,6 +1355,9 @@ function shapeTurn(
   // back: "we want to keep these things rendered, and perhaps persistent at the bottom").
   const tagged = !live && !wrapUp && summary.status === "completed" ? nextStepAsk(answer?.text) : undefined;
   const nextStep = live ? undefined : (wrapUp ?? tagged);
+  // The turn's last browser walkthrough, read once the turn has ended; drawn once, under the answer.
+  const walked = live ? undefined : lastWalkthrough(worked);
+  let walkedDrawn = false;
   const shaped: AcpmuxRow[] = [];
   // A derived row's version must change whenever what it draws does: the memoized rows and the
   // height cache compare versions only. Answer versions stay far below VERSION_SPAN.
@@ -1516,20 +1524,32 @@ function shapeTurn(
       kind: NEXT_STEP,
       nextStep: { ask: nextStep! },
     });
+    const strip = (at: number): AcpmuxRow => {
+      walkedDrawn = true;
+      return { id: `${WALKTHROUGH}-${user.id}`, version, at, kind: WALKTHROUGH, walkthrough: walked };
+    };
     const underAnswer = Boolean(said && nextStep && said === answer);
+    const stripUnder = Boolean(walked && said && said === answer && !walkedDrawn);
     if (underAnswer) {
       // A wrap-up's answer stays whole. A tagged ask's answer drops the ask's lines, which the
       // card draws; a new version, so its memo redraws.
       if (wrapUp) shaped.push(said!);
       else if (nextStep!.rest) shaped.push({ ...said!, text: nextStep!.rest, version: said!.version * 2 + 1 });
+      if (stripUnder) shaped.push(strip(said!.at));
       shaped.push(card(said!.at));
-    } else if (said) shaped.push(said);
+    } else if (said) {
+      shaped.push(said);
+      if (stripUnder) shaped.push(strip(said.at));
+    }
     shaped.push(...between(after));
     shaped.push(...[...before, ...after].filter(isPlan).map(endedPlan));
     // A wrap-up in a turn with no answer to hang under goes after the turn's last row.
     if (nextStep && wrapUp && !underAnswer) shaped.push(card(summary.at));
     if (taskLine && taskLook === "after-reply") shaped.push(taskLine);
   }
+  // A walkthrough in a turn with no answer to hang under goes after the turn's last row.
+  if (walked && !walkedDrawn)
+    shaped.push({ id: `${WALKTHROUGH}-${user.id}`, version, at: summary.at, kind: WALKTHROUGH, walkthrough: walked });
   shaped.push(...editsCard(edits));
   // The footer copies the answer, so it carries the answer's text; the last turn's also retries
   // its prompt, and stops offering to once a later prompt goes (or waits to). A last turn the
