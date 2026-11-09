@@ -681,6 +681,46 @@ fn a_disk_or_a_copy_that_does_not_read_is_never_none_ahead() {
     }
 }
 
+/// Review of #37284 at c4a1c13b, F1: a page that comes while a copy's file does not read leaves
+/// the copy as it is, unread, rather than removing it and starting again from the page; once the
+/// file reads, its records past where the peer's journal ends go back. Under c4a1c13b's rules
+/// the page's read removed it, and the newer records were lost.
+#[cfg(unix)]
+#[test]
+fn a_page_while_a_copy_does_not_read_leaves_the_copy() {
+    use std::os::unix::fs::PermissionsExt;
+    // SAFETY: getuid has no preconditions.
+    if unsafe { libc::getuid() } == 0 {
+        return; // root reads anyway
+    }
+    for rules in [crate::hub::journal_restore::AT_C4A1, 0] {
+        let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+        let mut store = store_at(dir.path());
+        keep(&mut store, "m1", 1..=5);
+        store.write_due(None, When::Last);
+        // A restart: the copy is read in by its head only.
+        let mut again = store_at(dir.path());
+        list(&mut again, &[("m1", 7)]);
+        let path = file(dir.path(), "m1");
+        let mode =
+            |m: u32| std::fs::set_permissions(&path, std::fs::Permissions::from_mode(m)).unwrap();
+        mode(0o000);
+        crate::hub::journal_restore::OLD_RULES.with(|r| r.set(rules));
+        // The peer on an older disk, on a new link: its journal ends at 2.
+        put(&mut again, "m1", attach(7, 2, true, recs(1..=2)));
+        crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
+        mode(0o600);
+        let back = again
+            .ahead(PEER, vec![("m1".to_owned(), 7, 2)])
+            .map(|(a, _)| a.first().map_or(vec![], |a| a.3.iter().filter_map(seq_of).collect()));
+        if rules == 0 {
+            assert_eq!(back, Some(vec![3, 4, 5]), "the copy stayed and goes back whole");
+        } else {
+            assert_eq!(back, Some(vec![]), "c4a1c13b started again from the older page");
+        }
+    }
+}
+
 #[test]
 fn an_empty_page_from_a_peer_gone_back_keeps_the_copy_until_the_peer_takes_it_back() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps");

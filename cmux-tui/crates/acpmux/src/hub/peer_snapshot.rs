@@ -1104,7 +1104,13 @@ impl Store {
             }
             return;
         };
-        self.load(key);
+        // A copy whose file did not read stays as it is: whether this page continues it, or is
+        // older history it holds records past, is not known until it reads (review of #37284 at
+        // c4a1c13b, F1). c4a1c13b removed it and started again from this page, and the newer
+        // records it held for the peer's restore were lost.
+        if self.read_in(key, !crate::hub::journal_restore::rules_of_c4a1()) == Loaded::Unread {
+            return;
+        }
         match self.fate(key, &page, (from, to), generation) {
             Fate::Ignore => return,
             Fate::Join => {}
@@ -1181,7 +1187,8 @@ impl Store {
         if !self.copies.get(key).is_some_and(joins) {
             return;
         }
-        if !self.load(key) {
+        // Not read, it stays and takes nothing until a page joins it again.
+        if self.read_in(key, !crate::hub::journal_restore::rules_of_c4a1()) != Loaded::Yes {
             return;
         }
         if let Some(c) = self.copies.get_mut(key) {
@@ -1329,10 +1336,12 @@ impl Store {
         self.trim_kept(key);
     }
 
-    /// Reads `key`'s records in when they are only on disk; a copy that does not read goes.
-    /// Answers whether its records are loaded.
+    /// Reads `key`'s records in when they are only on disk; a copy whose records do not read
+    /// goes, and one whose file the filesystem did not read stays, unread (review of #37284 at
+    /// c4a1c13b, F1: c4a1c13b kept it only for `ahead`, and the next page or live record removed
+    /// it). Answers whether its records are loaded.
     fn load(&mut self, key: &Key) -> bool {
-        self.read_in(key, false) == Loaded::Yes
+        self.read_in(key, !crate::hub::journal_restore::rules_of_c4a1()) == Loaded::Yes
     }
 
     /// [`Self::load`], and with `keep`, a copy whose file the filesystem did not read (an I/O
