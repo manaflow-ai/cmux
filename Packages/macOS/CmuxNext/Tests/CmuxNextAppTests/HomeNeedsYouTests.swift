@@ -157,6 +157,33 @@ import Testing
         #expect(view.transcript.rowsTopClearance == 0)
         #expect(view.transcript.frame == transcriptFrame)
     }
+
+    @Test func theSetupCardFitsAShortPaneAndIsNeverHidden() async throws {
+        let source = EmptyChiefSource()
+        let id = ConversationID("conv_chief")
+        let inbox = try await source.inbox()
+        let store = HomeStore(source: source)
+        store.start()
+        let view = HomeNativeTranscriptView(store: store, conversation: id, me: inbox.me.id)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 420), styleMask: [.titled],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { view.stop(); store.stop(); window.close() }
+        view.frame = NSRect(x: 0, y: 0, width: 600, height: 420)
+        window.contentView = view
+        await view.binding.opened()
+        let card = NSView()
+
+        view.setSetupCard(card, height: 0)
+        view.layoutSubtreeIfNeeded()
+        #expect(!card.isHidden && card.frame.height == 1, "unsized, the page stays in the window to measure: \(card.frame)")
+
+        // Taller than the pane: the slot stops above the message box and the page scrolls inside it.
+        view.setSetupCard(card, height: 2000)
+        view.layoutSubtreeIfNeeded()
+        #expect(card.frame.height > 1 && card.frame.height < 2000, "\(card.frame)")
+        #expect(card.frame.maxY < view.transcript.fieldTop, "above the message box")
+    }
 }
 
 /// A stand-in for `feed.needsYouInChief` (the app reads it from the observable settings snapshot).
