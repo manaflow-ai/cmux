@@ -1,4 +1,5 @@
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -12,7 +13,7 @@ struct AgentPaneFeatureTipsTests {
 
     private func defaults() throws -> UserDefaults {
         let suite = "AgentPaneFeatureTipsTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defaults.removePersistentDomain(forName: suite)
         return defaults
     }

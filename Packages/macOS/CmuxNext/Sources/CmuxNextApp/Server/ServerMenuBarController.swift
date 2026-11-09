@@ -27,7 +27,7 @@ final class ServerMenuBarController: NSObject {
     /// The model's page provider; its model's source runs while `running` (`hide()` stops it).
     private var provider: ServerPageProvider?
     private var running = false
-    /// The floating web cards (Add Server, Pair Another Machine), made on the first opening and kept warm.
+    /// The floating web cards (Add Server, Pair Another Machine, Add Machine), made on the first opening and kept warm.
     private var cards: WebCardPanel?
     /// Makes the web card panel with this item's own cards (Add Server): nil without the App's
     /// services (previews and tests).
@@ -105,6 +105,12 @@ final class ServerMenuBarController: NSObject {
             return Self.logger.fault("pair invite card: no card page (the App's services are gone)")
         }
         panel.present(card: PairInviteCardProvider.route, over: Self.frontWindow(), takeKeys: true)
+    }
+
+    /// The web card panel (Add Server, Pair Another Machine, Add Machine), made on its first use and
+    /// kept warm. It carries Add Server's provider, so the model starts with it as it does for the invite.
+    func cardPanel() -> WebCardPanel? {
+        currentProvider().flatMap(currentCards)
     }
 
     /// The cmux window the card belongs over: the main window, else the

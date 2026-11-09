@@ -1575,6 +1575,9 @@ fn code_mode_lists_exec_and_workflow_and_a_script_reaches_every_tool() {
     // Scripts search the underlying catalog with cmux.docs; durable runs
     // also have a direct lifecycle tool beside the code-mode entry point.
     assert_eq!(names, ["cmux_exec", "cmux_workflow"]);
+    // cmux_exec stays in Claude Code's prompt; the workflow tool stays behind tool search.
+    assert_eq!(tools[0]["_meta"]["anthropic/alwaysLoad"], json!(true), "{}", tools[0]);
+    assert!(tools[1].get("_meta").is_none(), "{}", tools[1]);
     let bytes = serde_json::to_vec(&tools).unwrap().len();
     assert!(bytes < 8 << 10, "the code-mode list is {bytes} bytes");
     let all = server.list();
