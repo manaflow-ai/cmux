@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42631491441",
+  "recorded_at": "2026-11-09T14:16:34Z",
+  "reason": "cmux-tui 80df8e7eb6f7 changes the image's cmux-tui (pinned 77544557eb71)",
+  "dry_run": false,
+  "cmux_tui": "80df8e7eb6f700cf03f25e0ac8b4004031af4656",
+  "fixes": [
+    {
+      "sha": "80df8e7eb6f700cf03f25e0ac8b4004031af4656",
+      "mergedAt": "2026-11-09T05:39:40-08:00",
+      "subject": "acpmux CLI: the policy note in dontAsk, Codex launchers and unreviewed full-access modes (#39610)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T14:16:34Z",
+    "snapshot_id": "sh-65d725e4384a4b2fbae852899b759641",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42631491441): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "29b1d4aea0af49560e9f186150d900f9804101b0",
+    "image": "cloud-native-auto-80df8e7e-42631491441-1",
+    "revision": "ci-42631491441-1",
+    "at": "2026-11-09T14:16:34Z"
+  },
+  "rolled_back": false
+}
