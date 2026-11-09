@@ -58,6 +58,7 @@ await requireBrowserLane("folder-popover-scaling.browser.test.ts", async () => {
       });
       return {
         width: menu.getBoundingClientRect().width,
+        placeholder: { text: context.measureText(field.placeholder).width, room: field.clientWidth - padding },
         placeholderFits: context.measureText(field.placeholder).width <= field.clientWidth - padding + 1,
         rows,
       };
@@ -74,7 +75,7 @@ await requireBrowserLane("folder-popover-scaling.browser.test.ts", async () => {
       const page = await open(engine);
       try {
         const initial = await layout(page);
-        expect(initial.placeholderFits).toBe(true);
+        expect(initial.placeholderFits, JSON.stringify(initial.placeholder)).toBe(true);
         // A repository with lanes (badge, name, worktree count, check) and a longer plain name.
         for (const label of ["cmux", "leo-workspace"]) {
           const row = initial.rows.find((candidate) => candidate.label === label);
@@ -95,7 +96,7 @@ await requireBrowserLane("folder-popover-scaling.browser.test.ts", async () => {
         const scaled = await layout(page);
         expect(scaled.width).toBeGreaterThanOrEqual(initial.width * 1.35);
         expect(scaled.width).toBeLessThanOrEqual(initial.width * 1.55);
-        expect(scaled.placeholderFits).toBe(true);
+        expect(scaled.placeholderFits, JSON.stringify(scaled.placeholder)).toBe(true);
         await page.evaluate(() => {
           document.documentElement.style.setProperty("--cmux-interface-scale", "1");
           document.documentElement.style.setProperty("--text-body", "20px");
