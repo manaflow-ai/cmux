@@ -146,6 +146,28 @@ const ACPMUX_SESSION_PREFIX: &str = "ACPMUX_SESSION_";
 const ACPMUX_SESSION_ENV: [&str; 3] =
     ["ACPMUX_HOST_NONCE", "CMUX_AGENT_SESSION", "ACPMUX_CALLER_SUBAGENT"];
 
+/// Codex's marks of its own process: its sandbox (`CODEX_SANDBOX`,
+/// `CODEX_SANDBOX_NETWORK_DISABLED`, any `CODEX_SANDBOX_*`) and its session
+/// ids. They exist only inside a Codex session.
+const CODEX_SESSION_PREFIX: &str = "CODEX_SANDBOX";
+const CODEX_SESSION_ENV: [&str; 2] = ["CODEX_THREAD_ID", "CODEX_SESSION_ID"];
+
+/// The calling agent's app control socket and its password. cmux sets no
+/// value of its own for a terminal `agent start` opens (an app terminal gets
+/// its app's own values in its launch env), so an owner an agent started
+/// drops them: the password is a credential, and the path names the
+/// caller's app. An owner a person started keeps them.
+const CALLER_APP_SOCKET_ENV: [&str; 2] = ["CMUX_SOCKET_PASSWORD", "CMUX_SOCKET_PATH"];
+
+/// Whether `key` marks its process as one an agent runs.
+fn marks_agent_caller(key: &str) -> bool {
+    AGENT_CALLER_ENV.contains(&key)
+        || key.starts_with(ACPMUX_SESSION_PREFIX)
+        || key.starts_with(CODEX_SESSION_PREFIX)
+        || CODEX_SESSION_ENV.contains(&key)
+        || matches!(key, "CLAUDECODE" | "AI_AGENT")
+}
+
 /// The environment keys of the agent that started an owner, from the names
 /// in `env` (W5-R, bench round 4 A6): [`AGENT_CALLER_ENV`], the acpmux
 /// session's own variables, a Chief turn's messaging credential
@@ -158,7 +180,9 @@ const ACPMUX_SESSION_ENV: [&str; 3] =
 /// its environment: a resumed Claude Code that kept them turned transcript
 /// saving off, and the starter's messaging token and acpmux token reached a
 /// process that is not the starter. The person's own values come back from
-/// the login shell each terminal starts.
+/// the login shell each terminal starts. Codex's sandbox mark and session
+/// ids go too, and when an agent started the owner, the caller's app socket
+/// and its password ([`CALLER_APP_SOCKET_ENV`]).
 pub(crate) fn agent_caller_keys<I, K>(env: I) -> Vec<K>
 where
     I: IntoIterator<Item = K>,
@@ -166,12 +190,16 @@ where
 {
     let keys: Vec<K> = env.into_iter().collect();
     let inside_claude = keys.iter().any(|key| key.as_ref() == "CLAUDECODE");
+    let agent_caller = keys.iter().any(|key| key.as_ref().to_str().is_some_and(marks_agent_caller));
     keys.into_iter()
         .filter(|key| {
             let Some(key) = key.as_ref().to_str() else { return false };
             AGENT_CALLER_ENV.contains(&key)
                 || ACPMUX_SESSION_ENV.contains(&key)
                 || key.starts_with(ACPMUX_SESSION_PREFIX)
+                || key.starts_with(CODEX_SESSION_PREFIX)
+                || CODEX_SESSION_ENV.contains(&key)
+                || (agent_caller && CALLER_APP_SOCKET_ENV.contains(&key))
                 || acpmux::config::CHIEF_CREDENTIAL_ENV.contains(&key)
                 || acpmux::config::is_caller_scoped_key(key)
                 || (inside_claude && acpmux::config::is_nested_claude_key(key))
