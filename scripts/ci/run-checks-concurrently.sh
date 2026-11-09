@@ -98,7 +98,8 @@ if [ "$mode" = wait ]; then
   [ -n "$name" ] || usage
   [ -s "$dir/names/$name" ] || { echo "error: the start step listed no commands for $name ($dir)" >&2; exit 2; }
   read -r jobs < "$dir/jobs" || jobs="?"
-  mapfile -t indices < "$dir/names/$name"
+  indices=()
+  while IFS= read -r index; do indices+=("$index"); done < "$dir/names/$name"
   pool="$(cat "$dir/pool.pid")"
   waited="$(date +%s)"
   # Stops when every result is in, or when the pool has exited (a missing result then counts as failed).

@@ -1729,7 +1729,7 @@ jobs:
       # Not here: "Pushed commits add no violations" deepens the clone and writes its step summary.
       - name: Start the slow checks in the background
         run: |
-          scripts/ci/run-checks-concurrently.sh --start "$RUNNER_TEMP/background-checks" --jobs "$(nproc)" <<'CHECKS'
+          scripts/ci/run-checks-concurrently.sh --start "$RUNNER_TEMP/background-checks" --jobs "$(getconf _NPROCESSORS_ONLN)" <<'CHECKS'
             [no-process-scan]
             python3 -I scripts/cmux-next/check-no-process-scan.py "$GITHUB_WORKSPACE"
             [state-roots]
