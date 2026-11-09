@@ -106,11 +106,11 @@ import Testing
         let tabs = AgentTabStore(build: nil, registry: ActionRegistry(), environment: [:], showcase: true)
         let source = LayoutPaneID("agent-turn-chat")
         let turns = RightColumnTurns()
-        tabs.serially = { _, turn in turns.serially(beside: source, turn) }
-        tabs.rightColumn = { _ in .init(sourceWidth: 1400) }
+        tabs.seriallyScoped = { _, turn in turns.serially(beside: source, turn) }
+        tabs.rightColumnScoped = { _ in .init(sourceWidth: 1400) }
         var mainPane: [String] = []
         // Main pane layout is asked first (nothing on the right) and refuses, so the turn ends at once.
-        tabs.openInMainPane = { chat, _, _, _, _ in mainPane.append(chat); return false }
+        tabs.openInMainPaneScoped = { chat, _, _, _, _ in mainPane.append(chat.key); return false }
         var underWay: (@MainActor () -> Void)?
         turns.serially(beside: source) { done in underWay = done }
         let answered = tabs.openOnRight(of: "chat-tab", open: { _, _, _ in throw CancellationError() })
@@ -119,5 +119,26 @@ import Testing
         underWay?()
         #expect(mainPane == ["chat-tab"])
         #expect(!turns.isBusy(beside: source), "a refused open kept its turn")
+    }
+
+    /// `/side` (#38042): its side chat is a split right of the chat whatever the window holds. The right column's rule
+    /// would put it in main pane layout's column (nothing on the right, or a chat too narrow to halve) or below what is
+    /// already on the right; `splitRight` reads neither and goes straight to a split right of the chat.
+    @Test func slashSidesOpenIsASplitRightOfTheChatWhateverTheRightColumnHolds() {
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry(), environment: [:], showcase: true)
+        let turns = RightColumnTurns()
+        tabs.seriallyScoped = { _, turn in turns.serially(beside: LayoutPaneID("side-split-chat"), turn) }
+        var columnReads = 0, mainPane: [String] = []
+        // A chat too narrow to halve: the right column's rule asks main pane layout for a place.
+        tabs.rightColumnScoped = { _ in columnReads += 1; return .init(sourceWidth: 600) }
+        tabs.openInMainPaneScoped = { chat, _, _, _, _ in mainPane.append(chat.key); return false }
+
+        _ = tabs.openOnRight(of: "chat-tab", open: { _, _, _ in throw CancellationError() })
+        #expect(columnReads == 1 && mainPane == ["chat-tab"], "fixture: the right column's rule reads the column and asks main pane layout")
+
+        _ = tabs.openOnRight(of: "chat-tab", splitRight: true, open: { _, _, _ in throw CancellationError() })
+        #expect(columnReads == 1, "/side's open read the right column")
+        #expect(mainPane == ["chat-tab"], "/side's open went to main pane layout instead of a split right of the chat")
+        #expect(!turns.isBusy(beside: LayoutPaneID("side-split-chat")), "a refused open kept its turn")
     }
 }

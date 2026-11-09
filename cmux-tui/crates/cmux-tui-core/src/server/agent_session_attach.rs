@@ -27,8 +27,12 @@ pub(super) mod agent_session_observe;
 pub(super) mod agent_session_start;
 #[path = "agent_session_trust.rs"]
 mod agent_session_trust;
+#[path = "agent_session_context.rs"]
+mod context;
 #[path = "agent_session_inventory_socket.rs"]
 mod inventory_socket;
+#[path = "agent_session_side.rs"]
+mod side;
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
@@ -54,6 +58,9 @@ pub const AGENT_SESSION_CONTENT_CAPABILITY: &str = "agent-session-content-v1";
 pub const CLOUD_MOBILE_CHAT_CAPABILITY: &str = "cloud-mobile-chat-v1";
 /// `agent-session-fork`: fork the attached chat through its latest completed turn.
 pub const AGENT_SESSION_FORK_CAPABILITY: &str = "agent-session-fork-v1";
+/// `agent-session-side`: New side chat and `/side [prompt]` of the attached chat, on this machine
+/// (`agent_session_side.rs`).
+pub const AGENT_SESSION_SIDE_CAPABILITY: &str = "agent-session-side-v1";
 /// `agent-session-typing` and `agent-session-view`, and the `agent-session-presence` event: who
 /// is in the attached chat (chat multiplayer, hq#4389), through acpmux's `_acpmux/typing`,
 /// `_acpmux/view` and `_acpmux/presence`. The event goes only to a connection that echoed the
@@ -69,6 +76,8 @@ pub const AGENT_SESSION_SETTINGS_CAPABILITY: &str = "agent-session-settings-v1";
 /// teammate or link guest and never a read-only attachment. acpmux's refusal reason comes back
 /// in the answer (`refused.reason`), so the card can say why.
 pub const AGENT_SESSION_LOGIN_CAPABILITY: &str = "agent-session-login-v1";
+/// Owner-only context inventory and cmux-added overrides on the attached session.
+pub const AGENT_SESSION_CONTEXT_CAPABILITY: &str = "agent-session-context-v1";
 /// How long a login's finish may wait: Codex's waits for the person's approval in the browser.
 const LOGIN_FINISH_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// The longest login id, code or API key a login step carries, in bytes.
@@ -90,6 +99,13 @@ const MAX_KINDS: usize = 32;
 /// Worker calls (pages, prompts, permission answers) per attachment.
 const MAX_CALLS: usize = 8;
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long a prompt waits for acpmux's `prompt_accepted`. acpmux accepts before it starts the
+/// agent, but the first prompt of a chat started a moment ago first waits for that chat's log and
+/// adoption on a daemon that just started, which took over 5 s on a fresh Cloud machine (HQ's
+/// cloud-start-matrix phone-start row, run 42617701877: `agent_session.timeout` 1.4 s after the
+/// start). The prompt was already sent then, so a refusal there was a turn that might still run
+/// while the phone said it failed. Bounded as the login start is.
+pub(super) const PROMPT_ACCEPT_TIMEOUT: Duration = Duration::from_secs(30);
 /// Notifications held while the attach call waits for its reply.
 const MAX_EARLY: usize = 256;
 /// Largest attach or events page sent to the client (a control message);
@@ -218,7 +234,10 @@ impl AgentSessions {
         {
             let mut authors = self.proxy_authors.lock().unwrap_or_else(|e| e.into_inner());
             // A client that never bound (all but a proxy's links) changes nothing, so it publishes nothing.
-            if authors.contains_key(&client) {
+            if let Some(author) = authors.get(&client) {
+                // A link guest's end is noted first, so a prune never sees it neither bound nor
+                // just gone (`LinkShares::present`).
+                self.link_shares.left(author);
                 authors.remove(&client);
             }
         }
@@ -399,6 +418,7 @@ enum AgentSessionCommand {
     Detach(SurfaceParams),
     Children(SurfaceParams),
     Fork(ForkParams),
+    Side(side::Params),
     Media(MediaParams),
     Typing(TypingParams),
     View(ViewParams),
@@ -406,6 +426,7 @@ enum AgentSessionCommand {
     SetMode(SetModeParams),
     SetConfig(SetConfigParams),
     Login(LoginParams),
+    Context(context::Params),
 }
 
 impl AgentSessionCommand {
@@ -423,6 +444,7 @@ impl AgentSessionCommand {
             "agent-session-detach" => Self::Detach(from_value(params).ok()?),
             "agent-session-children" => Self::Children(from_value(params).ok()?),
             "agent-session-fork" => Self::Fork(from_value(params).ok()?),
+            "agent-session-side" => Self::Side(from_value(params).ok()?),
             "agent-session-media" => Self::Media(from_value(params).ok()?),
             "agent-session-typing" => Self::Typing(from_value(params).ok()?),
             "agent-session-view" => Self::View(from_value(params).ok()?),
@@ -430,6 +452,7 @@ impl AgentSessionCommand {
             "agent-session-set-mode" => Self::SetMode(from_value(params).ok()?),
             "agent-session-set-config" => Self::SetConfig(from_value(params).ok()?),
             "agent-session-login" => Self::Login(from_value(params).ok()?),
+            "agent-session-context" => Self::Context(from_value(params).ok()?),
             _ => return None,
         })
     }
@@ -577,6 +600,16 @@ fn is_setting_id(value: &str) -> bool {
 struct MediaParams {
     surface: SurfaceId,
     path: String,
+    /// A video's byte range (`agent_session_media.rs` `media_range`): its first byte; none for a
+    /// whole image.
+    #[serde(default)]
+    offset: Option<u64>,
+    /// The range's most bytes, at most `MAX_RANGE` (the default).
+    #[serde(default)]
+    length: Option<u64>,
+    /// The open file an earlier range answered, so the next range reads the same file.
+    #[serde(default)]
+    handle: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -923,6 +956,7 @@ fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
         | AgentSessionCommand::Detach(params)
         | AgentSessionCommand::Children(params) => params.surface,
         AgentSessionCommand::Fork(params) => params.surface,
+        AgentSessionCommand::Side(params) => params.surface,
         AgentSessionCommand::Media(params) => params.surface,
         AgentSessionCommand::Typing(params) => params.surface,
         AgentSessionCommand::View(params) => params.surface,
@@ -930,6 +964,7 @@ fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
         AgentSessionCommand::SetMode(params) => params.surface,
         AgentSessionCommand::SetConfig(params) => params.surface,
         AgentSessionCommand::Login(params) => params.surface,
+        AgentSessionCommand::Context(params) => params.surface(),
     }
 }
 
@@ -1134,8 +1169,8 @@ impl ReaderSlot {
 mod media;
 #[path = "agent_session_proxy.rs"]
 mod proxy;
-use media::media;
-pub use proxy::shares::room::start_link_share_bridge;
+use media::{media, media_range};
+pub use proxy::shares::room::{set_link_share_app_scheme, start_link_share_bridge};
 pub(crate) use proxy::shares::{
     close_chat_shares, close_listed_chat_shares, close_unlisted_chat_shares, open_chat_shares,
 };
@@ -1168,17 +1203,20 @@ fn run_on_worker(
                 | AgentSessionCommand::Permission(_)
                 | AgentSessionCommand::Typing(_)
                 | AgentSessionCommand::Fork(_)
+                | AgentSessionCommand::Side(_)
                 | AgentSessionCommand::SetModel(_)
                 | AgentSessionCommand::SetMode(_)
                 | AgentSessionCommand::SetConfig(_)
                 | AgentSessionCommand::Login(_)
+                | AgentSessionCommand::Context(_)
         )
     {
         return refuse(writer, id, Refusal::ReadOnly);
     }
     // A teammate or link guest never changes the owner's chat's model, mode or options: a mode
     // can stop the agent asking before it acts on the owner's machine. Nor does it sign the
-    // owner's agent in: that sets whose account the machine's agent runs as.
+    // owner's agent in: that sets whose account the machine's agent runs as. Context includes
+    // the owner's instructions and saved overrides, beyond what sharing a chat grants.
     if attachment.author.is_some()
         && matches!(
             &command,
@@ -1186,6 +1224,7 @@ fn run_on_worker(
                 | AgentSessionCommand::SetMode(_)
                 | AgentSessionCommand::SetConfig(_)
                 | AgentSessionCommand::Login(_)
+                | AgentSessionCommand::Context(_)
         )
     {
         return refuse(writer, id, Refusal::NotTrusted);
@@ -1385,7 +1424,24 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             }
             Ok(forked)
         }
-        AgentSessionCommand::Media(MediaParams { path, .. }) => media(attachment, path),
+        // A side chat is a new chat on the owner's machine, as a fork is: the owner's only.
+        AgentSessionCommand::Side(_) if attachment.author.is_some() => Err(Refusal::NotTrusted),
+        AgentSessionCommand::Side(params) => side::call(attachment, params),
+        AgentSessionCommand::Media(MediaParams {
+            path,
+            offset: None,
+            length: None,
+            handle: None,
+            ..
+        }) => media(attachment, path),
+        AgentSessionCommand::Media(MediaParams {
+            path,
+            offset: Some(offset),
+            length,
+            handle,
+            ..
+        }) => media_range(attachment, path, offset, length, handle),
+        AgentSessionCommand::Media(_) => Err(Refusal::BadRequest),
         // The session is the tab's own; acpmux bounds typing (2 a second, `typing.rate_limited`).
         // acpmux's rate refusal is the attachment's bound (`agent_session.limit`): the pane says
         // so again with its next keystroke.
@@ -1423,6 +1479,7 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             setting(attachment, ok, "session/set_config_option", params)
         }
         AgentSessionCommand::Login(params) => login(attachment, params),
+        AgentSessionCommand::Context(params) => context::call(attachment, params),
         AgentSessionCommand::Cancel(_) | AgentSessionCommand::Detach(_) => Ok(json!({})),
     }
 }
@@ -1496,6 +1553,18 @@ fn prompt(
     if attachment.author.is_some() && blocks.iter().any(|block| block["type"] != "text") {
         return Err(Refusal::NotTrusted);
     }
+    submit_prompt(attachment, &attachment.session, blocks, prompt_id)
+}
+
+/// Sends `blocks` to `session` (the attached chat, or a side chat it opened) as prompt
+/// `prompt_id` and answers once acpmux accepted it (`_acpmux/prompt_accepted`), or refuses: a
+/// prompt acpmux never took is never reported sent.
+fn submit_prompt(
+    attachment: &Attachment,
+    session: &str,
+    blocks: Vec<Value>,
+    prompt_id: String,
+) -> Result<Value, Refusal> {
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     {
         let mut prompts = attachment.prompts.lock().unwrap_or_else(|e| e.into_inner());
@@ -1505,7 +1574,7 @@ fn prompt(
         prompts.insert(prompt_id.clone(), sender);
     }
     let mut params = json!({
-        "sessionId": attachment.session,
+        "sessionId": session,
         "prompt": blocks,
         "_meta": {"acpmux": {"promptId": prompt_id}},
     });
@@ -1531,7 +1600,7 @@ fn prompt(
         attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
         return Err(refusal);
     }
-    let accepted = receiver.recv_timeout(CALL_TIMEOUT);
+    let accepted = receiver.recv_timeout(PROMPT_ACCEPT_TIMEOUT);
     attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
     match accepted {
         Ok(accepted) => Ok(json!({

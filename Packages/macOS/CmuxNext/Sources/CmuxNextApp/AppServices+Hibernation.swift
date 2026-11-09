@@ -24,6 +24,7 @@ extension AppServices {
         }
         hibernation.workspaceTabs = { [weak self] workspace, window in self?.windows.controller(for: window)?.shownTabsIfSelected(workspace) ?? [] }
         hibernation.agentPages = AgentPageHibernation(services: self)
+        hibernation.agentPages?.pages.followDiscard { [weak settings] in settings?.snapshot.workspaceHibernation.hiddenChatDiscardSetting ?? .off }
         hibernation.follow(settings)
         hibernation.start()
     }

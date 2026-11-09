@@ -4,8 +4,14 @@
 //!   turned paste mode on (`ESC [ ? 2004 h`, which Claude Code, Codex and
 //!   shells with line editors do), so a multi-line message stays one message
 //!   and no character of it acts as a key binding. Enter goes separately.
-//! - [`reply_after`]: the screen lines after the sent message's echo, less
-//!   the harness's own input box and status footer.
+//! - [`reply_since`]: the screen lines after the sent message's echo, less
+//!   the harness's own input box and status footer. Without the echo (a
+//!   harness that shows a paste as a placeholder), the lines after what the
+//!   screen showed before the send, else the screen alone: never the turns
+//!   that were on the screen before the message.
+//!
+//! Echo matching ignores whitespace and the Markdown marks a harness renders
+//! away (Claude Code draws `` `code` `` as `code`, `**bold**` as bold).
 
 /// Bracketed paste start and end (xterm `?2004`).
 const PASTE_START: &str = "\x1b[200~";
@@ -17,6 +23,11 @@ const ANCHOR_CHARS: usize = 48;
 const MIN_ANCHOR_CHARS: usize = 20;
 /// How far from the bottom the footer search looks, in lines.
 const FOOTER_LINES: usize = 14;
+/// How many lines a turn summary wraps into at most in a narrow pane.
+const SUMMARY_LINES: usize = 4;
+/// How many of the last non-empty lines of the screen before the send mark
+/// where the reply starts when the echo is not found.
+const BEFORE_TAIL_LINES: usize = 3;
 
 /// Whether a terminal's VT state (`terminal <t> state read`) has
 /// bracketed paste on.
@@ -51,12 +62,19 @@ pub(in crate::cli) struct Reply {
     pub anchored: bool,
 }
 
+/// Whether an echo comparison keeps `character`: not whitespace (wraps and
+/// indents differ) and not a Markdown mark a harness may render away.
+fn kept(character: &char) -> bool {
+    !character.is_whitespace() && !matches!(character, '`' | '*' | '_' | '~')
+}
+
 fn squeeze(text: &str) -> Vec<char> {
-    text.chars().filter(|character| !character.is_whitespace()).collect()
+    text.chars().filter(kept).collect()
 }
 
 /// The line of the last line of the last match of `needle` in `lines`,
-/// comparing without whitespace (so wrapped and indented echoes match).
+/// comparing with [`kept`] characters only (so wrapped, indented and
+/// rendered echoes match).
 fn last_match(lines: &[String], needle: &[char]) -> Option<usize> {
     if needle.is_empty() {
         return None;
@@ -64,7 +82,7 @@ fn last_match(lines: &[String], needle: &[char]) -> Option<usize> {
     let mut flat = Vec::new();
     let mut owner = Vec::new();
     for (index, line) in lines.iter().enumerate() {
-        for character in line.chars().filter(|character| !character.is_whitespace()) {
+        for character in line.chars().filter(kept) {
             flat.push(character);
             owner.push(index);
         }
@@ -131,11 +149,30 @@ fn without_footer(body: &[String]) -> &[String] {
     while let Some((last, rest)) = body.split_last() {
         if last.trim().is_empty() || is_turn_summary(last) {
             body = rest;
+        } else if let Some(start) = wrapped_summary_start(body) {
+            body = body.get(..start).unwrap_or_default();
         } else {
             break;
         }
     }
     body
+}
+
+/// Where a turn summary that a narrow pane wrapped starts at the end of
+/// `body`: its first line, then indented continuation lines (`✻ Churned` /
+/// `  for 1s · done` / `  2:36 PM`).
+fn wrapped_summary_start(body: &[String]) -> Option<usize> {
+    (2..=SUMMARY_LINES).find_map(|count| {
+        let start = body.len().checked_sub(count)?;
+        let lines = body.get(start..)?;
+        let (first, rest) = lines.split_first()?;
+        let continued = rest
+            .iter()
+            .all(|line| line.starts_with(char::is_whitespace) && !line.trim().is_empty());
+        let joined = lines.iter().map(|line| line.trim()).collect::<Vec<_>>().join(" ");
+        (continued && !first.starts_with(char::is_whitespace) && is_turn_summary(&joined))
+            .then_some(start)
+    })
 }
 
 /// Trailing whitespace off each line; leading and trailing blank lines off.
@@ -147,11 +184,37 @@ fn tidy(lines: &[String]) -> String {
 }
 
 /// The reply in `lines` (history then screen, oldest first) to `message`.
-pub(in crate::cli) fn reply_after(lines: &[String], message: &str) -> Reply {
-    match anchor(lines, message) {
-        Some(start) => Reply { text: tidy(without_footer(&lines[start..])), anchored: true },
-        None => Reply { text: tidy(without_footer(lines)), anchored: false },
+///
+/// Without the echo: with `before`, the screen before the message was
+/// typed, the reply is what `lines` hold after the last lines of `before`,
+/// else `screen` (the last screen read) alone; without `before` it is all
+/// of `lines`.
+pub(in crate::cli) fn reply_since(
+    lines: &[String],
+    message: &str,
+    before: Option<&[String]>,
+    screen: &[String],
+) -> Reply {
+    if let Some(start) = anchor(lines, message) {
+        return Reply { text: tidy(without_footer(&lines[start..])), anchored: true };
     }
+    let body = match before {
+        None => lines,
+        Some(before) => {
+            after_before(lines, before).and_then(|start| lines.get(start..)).unwrap_or(screen)
+        }
+    };
+    Reply { text: tidy(without_footer(body)), anchored: false }
+}
+
+/// The line after the last place `lines` show the last non-empty lines of
+/// `before`'s body (its footer off).
+fn after_before(lines: &[String], before: &[String]) -> Option<usize> {
+    let body = without_footer(before);
+    let tail: Vec<&String> =
+        body.iter().rev().filter(|line| !line.trim().is_empty()).take(BEFORE_TAIL_LINES).collect();
+    let needle: Vec<char> = tail.iter().rev().flat_map(|line| squeeze(line)).collect();
+    last_match(lines, &needle).map(|line| line + 1)
 }
 
 /// Screen text as lines.

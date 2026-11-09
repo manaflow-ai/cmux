@@ -266,17 +266,22 @@ impl Upstream {
 
     /// `tools/call` of `tool`: the server's result unchanged, or why there
     /// is none (`in_progress` when it may have run).
+    /// `meta` is the `_meta` it passes on ([`passed_meta`]).
     /// `cap` shortens the call's timeout (a `cmux_exec` script's own limit).
     pub(super) fn call(
         &mut self,
         tool: &str,
         arguments: Value,
+        meta: Option<&Value>,
         cap: Option<Duration>,
     ) -> Result<Value, (String, &'static str)> {
         if self.conn.is_none() {
             self.start().map_err(|error| (error, "not_run"))?;
         }
-        let params = json!({"name": tool, "arguments": arguments});
+        let mut params = json!({"name": tool, "arguments": arguments});
+        if let (Some(meta), Some(fields)) = (meta, params.as_object_mut()) {
+            fields.insert("_meta".to_owned(), meta.clone());
+        }
         let timeout = cap.map_or(self.spec.call_timeout, |cap| cap.min(self.spec.call_timeout));
         match self.request("tools/call", params, timeout) {
             Ok(result) => Ok(result),
@@ -455,11 +460,25 @@ impl Proxied {
     }
 }
 
+/// Claude Code's name of the tool call a `tools/call` runs for (`_meta`), which its PreToolUse
+/// hook got too, with the subagent that made the call (acpmux's `bg_hook.rs` records it there).
+pub(super) const TOOL_USE_ID: &str = "claudecode/toolUseId";
+
+/// The `_meta` a call to cmux passes on to a proxied server's call it makes, its own or a
+/// `cmux_exec` script's: Claude Code's tool use id ([`TOOL_USE_ID`]), so acpmux's server knows
+/// which subagent called (W5-M, 2026-11-08). Nothing else: a progress token names this call.
+pub(super) fn passed_meta(params: &Value) -> Option<Value> {
+    let id = params.pointer("/_meta")?.get(TOOL_USE_ID)?.as_str()?;
+    Some(json!({ TOOL_USE_ID: id }))
+}
+
 /// A proxied tool call, runnable on any thread.
 pub(super) struct ProxiedCall {
     pub inner: std::sync::Arc<std::sync::Mutex<Upstream>>,
     pub name: String,
     pub arguments: Value,
+    /// What it passes on of its caller's `_meta` ([`passed_meta`]).
+    pub meta: Option<Value>,
     /// A computer use call's setup check (`computer_use_gate`).
     pub gate: Gate,
 }
@@ -486,7 +505,7 @@ impl ProxiedCall {
                 "details": {}, "retryable": true});
             return super::tool_error(super::envelope(error, "not_run", None));
         };
-        match upstream.call(&tool, self.arguments, cap) {
+        match upstream.call(&tool, self.arguments, self.meta.as_ref(), cap) {
             Ok(result) => result,
             Err((message, state)) => {
                 let error = json!({
@@ -545,7 +564,9 @@ impl<B: super::Backend> super::Server<B> {
             Some(Value::Object(arguments)) => arguments.clone(),
             Some(_) => return None,
         };
-        self.proxied_tool(name, &arguments)
+        let mut job = self.proxied_tool(name, &arguments)?;
+        job.meta = passed_meta(params);
+        Some(job)
     }
 
     /// The call of `name` when it is a proxied server's tool.
@@ -584,6 +605,7 @@ impl<B: super::Backend> super::Server<B> {
             ),
             None => Gate::Run,
         };
-        Some(ProxiedCall { inner, name: name.to_owned(), arguments, gate })
+        let meta = self.call_meta.clone();
+        Some(ProxiedCall { inner, name: name.to_owned(), arguments, meta, gate })
     }
 }

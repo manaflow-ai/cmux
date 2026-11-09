@@ -135,6 +135,9 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "liveWeb.start",
                 title: String(localized: "action.liveWeb.start", defaultValue: "Edit cmux Live…", bundle: .module),
+                hint: String(localized: "action.liveWeb.start.hint",
+                             defaultValue: "Change cmux's own UI and see it here at once, or let your agent do it. No build.",
+                             bundle: .module),
                 keywords: ["live web reload", "hot reload", "dev server", "edit", "web ui", "webviews", "vite", "checkout", "develop"],
                 category: .settings, symbol: "bolt.horizontal.circle", surfaces: [.palette],
                 arguments: [CatalogArgument.optionalPathString]
@@ -270,79 +273,79 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "appearance.animations.newTab.toggle",
-                title: String(localized: "action.appearance.animations.newTab.toggle", defaultValue: "Toggle New Tab Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.newTab.toggle", defaultValue: "New Tab Animations", bundle: .module),
                 keywords: ["animation", "motion", "tab", "new tab", "appearance"], category: .settings,
                 symbol: "plus.rectangle.on.rectangle", surfaces: [.palette], cliName: "settings toggle-new-tab-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.newWorkspace.toggle",
-                title: String(localized: "action.appearance.animations.newWorkspace.toggle", defaultValue: "Toggle New Workspace Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.newWorkspace.toggle", defaultValue: "New Workspace Animations", bundle: .module),
                 keywords: ["animation", "motion", "workspace", "sidebar", "appearance"], category: .settings,
                 symbol: "sidebar.left", surfaces: [.palette], cliName: "settings toggle-new-workspace-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.toggle",
-                title: String(localized: "action.appearance.animations.toggle", defaultValue: "Toggle All Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.toggle", defaultValue: "All Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "no animations", "disable", "reduce motion", "instant"], category: .settings,
                 symbol: "sparkles", surfaces: [.palette], cliName: "settings toggle-all-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.sidebar.toggle",
-                title: String(localized: "action.appearance.animations.sidebar.toggle", defaultValue: "Toggle Sidebar Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.sidebar.toggle", defaultValue: "Sidebar Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "sidebar", "row", "group", "reorder"], category: .settings,
                 symbol: "sidebar.left", surfaces: [.palette], cliName: "settings toggle-sidebar-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.tabs.toggle",
-                title: String(localized: "action.appearance.animations.tabs.toggle", defaultValue: "Toggle Tab Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.tabs.toggle", defaultValue: "Tab Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "tab", "tab bar"], category: .settings,
                 symbol: "rectangle.split.3x1", surfaces: [.palette], cliName: "settings toggle-tab-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.panes.toggle",
-                title: String(localized: "action.appearance.animations.panes.toggle", defaultValue: "Toggle Pane and Window Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.panes.toggle", defaultValue: "Pane and Window Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "pane", "split", "zoom", "window"], category: .settings,
                 symbol: "rectangle.split.2x1", surfaces: [.palette], cliName: "settings toggle-pane-and-window-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.overlays.toggle",
-                title: String(localized: "action.appearance.animations.overlays.toggle", defaultValue: "Toggle Menu and Card Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.overlays.toggle", defaultValue: "Menu and Card Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "menu", "popover", "palette", "toast", "card"], category: .settings,
                 symbol: "menubar.rectangle", surfaces: [.palette], cliName: "settings toggle-menu-and-card-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.hoverCards.toggle",
-                title: String(localized: "action.appearance.animations.hoverCards.toggle", defaultValue: "Toggle Hover Card Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.hoverCards.toggle", defaultValue: "Hover Card Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "hover card", "tooltip"], category: .settings,
                 symbol: "rectangle.on.rectangle", surfaces: [.palette], cliName: "settings toggle-hover-card-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.home.toggle",
-                title: String(localized: "action.appearance.animations.home.toggle", defaultValue: "Toggle Home and Chat Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.home.toggle", defaultValue: "Home and Chat Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "home", "chief", "chat", "bubble"], category: .settings,
                 symbol: "bubble.left.and.bubble.right", surfaces: [.palette], cliName: "settings toggle-home-and-chat-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.cursor.toggle",
-                title: String(localized: "action.appearance.animations.cursor.toggle", defaultValue: "Toggle Agent Cursor Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.cursor.toggle", defaultValue: "Agent Cursor Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "cursor", "agent", "ripple"], category: .settings,
                 symbol: "cursorarrow.motionlines", surfaces: [.palette], cliName: "settings toggle-agent-cursor-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.indicators.toggle",
-                title: String(localized: "action.appearance.animations.indicators.toggle", defaultValue: "Toggle Spinner and Progress Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.indicators.toggle", defaultValue: "Spinner and Progress Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "spinner", "progress", "pulse", "loading"], category: .settings,
                 symbol: "progress.indicator", surfaces: [.palette], cliName: "settings toggle-spinner-and-progress-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.feedback.toggle",
-                title: String(localized: "action.appearance.animations.feedback.toggle", defaultValue: "Toggle Highlight and Color Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.feedback.toggle", defaultValue: "Highlight and Color Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "hover", "highlight", "color", "theme"], category: .settings,
                 symbol: "hand.point.up.left", surfaces: [.palette], cliName: "settings toggle-highlight-and-color-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.web.toggle",
-                title: String(localized: "action.appearance.animations.web.toggle", defaultValue: "Toggle Web Page Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.web.toggle", defaultValue: "Web Page Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "web", "page", "css"], category: .settings,
                 symbol: "globe", surfaces: [.palette], cliName: "settings toggle-web-page-animations"
             ),
@@ -372,19 +375,19 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "appearance.paneBorder.toggle",
-                title: String(localized: "action.appearance.paneBorder.toggle", defaultValue: "Toggle Pane Borders", bundle: .module),
+                title: String(localized: "action.appearance.paneBorder.toggle", defaultValue: "Pane Borders", bundle: .module),
                 keywords: ["border", "outline", "hairline", "pane", "appearance", "layout"], category: .settings,
                 symbol: "square.dashed", surfaces: [.palette], cliName: "settings toggle-pane-border"
             ),
             ActionDescriptor(
                 id: "appearance.panePadding.toggle",
-                title: String(localized: "action.appearance.panePadding.toggle", defaultValue: "Toggle Pane Padding", bundle: .module),
+                title: String(localized: "action.appearance.panePadding.toggle", defaultValue: "Pane Padding", bundle: .module),
                 keywords: ["padding", "gap", "inset", "edge to edge", "pane", "appearance", "layout"], category: .settings,
                 symbol: "rectangle.inset.filled", surfaces: [.palette], cliName: "settings toggle-pane-padding"
             ),
             ActionDescriptor(
                 id: "appearance.paneCorners.toggle",
-                title: String(localized: "action.appearance.paneCorners.toggle", defaultValue: "Toggle Rounded Pane Corners", bundle: .module),
+                title: String(localized: "action.appearance.paneCorners.toggle", defaultValue: "Rounded Pane Corners", bundle: .module),
                 keywords: ["corner", "radius", "rounded", "square", "pane", "appearance", "layout"], category: .settings,
                 symbol: "square.on.square", surfaces: [.palette], cliName: "settings toggle-pane-corners"
             ),
@@ -456,7 +459,7 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "focusRing.toggle",
-                title: String(localized: "action.focusRing.toggle", defaultValue: "Toggle Focus Ring", bundle: .module),
+                title: String(localized: "action.focusRing.toggle", defaultValue: "Focus Ring", bundle: .module),
                 keywords: ["focus", "ring", "outline", "highlight", "pane", "appearance"], category: .settings,
                 symbol: "square.dashed.inset.filled", surfaces: [.palette], cliName: "settings toggle-focus-ring"
             ),
@@ -474,13 +477,13 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "focusRing.singlePane.toggle",
-                title: String(localized: "action.focusRing.singlePane.toggle", defaultValue: "Toggle Focus Ring for a Single Pane", bundle: .module),
+                title: String(localized: "action.focusRing.singlePane.toggle", defaultValue: "Focus Ring for a Single Pane", bundle: .module),
                 keywords: ["focus", "ring", "single", "one", "pane", "appearance"], category: .settings,
                 symbol: "square.inset.filled", surfaces: [.palette], cliName: "settings toggle-single-pane-focus-ring"
             ),
             ActionDescriptor(
                 id: "appearance.paneBorderWidth.toggle",
-                title: String(localized: "action.appearance.paneBorderWidth.toggle", defaultValue: "Toggle Thick Pane Borders", bundle: .module),
+                title: String(localized: "action.appearance.paneBorderWidth.toggle", defaultValue: "Thick Pane Borders", bundle: .module),
                 keywords: ["border", "width", "thick", "thin", "hairline", "pane", "appearance", "layout"], category: .settings,
                 symbol: "lineweight", surfaces: [.palette], cliName: "settings toggle-thick-pane-borders"
             ),
@@ -633,43 +636,50 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 cliName: "settings customize-appearance", mainMenu: .view
             ),
             ActionDescriptor(
+                id: "appearance.personalize",
+                title: String(localized: "action.appearance.personalize", defaultValue: "Personalization…", bundle: .module),
+                keywords: ["personalization", "personalize", "appearance", "theme", "accent", "background", "wallpaper", "glass", "chief", "pet", "font", "density", "sounds", "make it yours"],
+                category: .settings, symbol: "wand.and.stars", surfaces: [.palette, .keyboard],
+                cliName: "settings personalize"
+            ),
+            ActionDescriptor(
                 id: "appearance.interfaceSize.increase",
-                title: String(localized: "action.appearance.interfaceSize.increase", defaultValue: "Increase Interface Size", bundle: .module),
-                keywords: ["appearance", "font", "chrome", "bigger", "zoom"], category: .settings,
+                title: String(localized: "action.appearance.interfaceSize.increase", defaultValue: "Increase Text Size", bundle: .module),
+                keywords: ["appearance", "font", "text", "size", "interface", "chrome", "bigger"], category: .settings,
                 symbol: "plus.magnifyingglass", surfaces: [.palette], cliName: "settings increase-interface-size"
             ),
             ActionDescriptor(
                 id: "appearance.interfaceSize.decrease",
-                title: String(localized: "action.appearance.interfaceSize.decrease", defaultValue: "Decrease Interface Size", bundle: .module),
-                keywords: ["appearance", "font", "chrome", "smaller", "zoom"], category: .settings,
+                title: String(localized: "action.appearance.interfaceSize.decrease", defaultValue: "Decrease Text Size", bundle: .module),
+                keywords: ["appearance", "font", "text", "size", "interface", "chrome", "smaller"], category: .settings,
                 symbol: "minus.magnifyingglass", surfaces: [.palette], cliName: "settings decrease-interface-size"
             ),
             ActionDescriptor(
                 id: "appearance.interfaceSize.reset",
-                title: String(localized: "action.appearance.interfaceSize.reset", defaultValue: "Reset Interface Size", bundle: .module),
-                keywords: ["appearance", "font", "chrome", "default"], category: .settings, symbol: "textformat.size",
+                title: String(localized: "action.appearance.interfaceSize.reset", defaultValue: "Reset Text Size", bundle: .module),
+                keywords: ["appearance", "font", "text", "size", "interface", "chrome", "default"], category: .settings, symbol: "textformat.size",
                 surfaces: [.palette], cliName: "settings reset-interface-size"
             ),
             // Ctrl-Shift-Cmd-= / - / 0 scale all app text (Lawrence 2026-10-19: "for changing font size we
             // should do Command+Shift+Control++ and -"); Ctrl-Cmd-= is Equalize Splits, as in Ghostty.
             ActionDescriptor(
                 id: "appearance.uiScale.increase",
-                title: String(localized: "action.appearance.uiScale.increase", defaultValue: "Increase Interface Scale", bundle: .module),
-                keywords: ["appearance", "scale", "chrome", "bigger", "zoom"],
+                title: String(localized: "action.appearance.uiScale.increase", defaultValue: "Increase App Zoom", bundle: .module),
+                keywords: ["appearance", "scale", "interface", "pages", "bigger", "zoom"],
                 defaultShortcut: Shortcut("=", modifiers: [.control, .shift, .command]), category: .settings,
                 symbol: "plus.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings increase-interface-scale", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "appearance.uiScale.decrease",
-                title: String(localized: "action.appearance.uiScale.decrease", defaultValue: "Decrease Interface Scale", bundle: .module),
-                keywords: ["appearance", "scale", "chrome", "smaller", "zoom"],
+                title: String(localized: "action.appearance.uiScale.decrease", defaultValue: "Decrease App Zoom", bundle: .module),
+                keywords: ["appearance", "scale", "interface", "pages", "smaller", "zoom"],
                 defaultShortcut: Shortcut("-", modifiers: [.control, .shift, .command]), category: .settings,
                 symbol: "minus.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings decrease-interface-scale", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "appearance.uiScale.reset",
-                title: String(localized: "action.appearance.uiScale.reset", defaultValue: "Reset Interface Scale", bundle: .module),
-                keywords: ["appearance", "scale", "chrome", "default", "zoom"],
+                title: String(localized: "action.appearance.uiScale.reset", defaultValue: "Reset App Zoom", bundle: .module),
+                keywords: ["appearance", "scale", "interface", "pages", "default", "zoom"],
                 defaultShortcut: Shortcut("0", modifiers: [.control, .shift, .command]), category: .settings,
                 symbol: "1.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings reset-interface-scale", mainMenu: .view
             ),

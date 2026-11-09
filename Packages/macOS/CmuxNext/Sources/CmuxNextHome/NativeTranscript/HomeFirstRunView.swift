@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextHomeModel
 import CmuxNextIcons
 
 /// What a first-run row asks the app to do (`HomeNativeTranscriptView.onFirstRunAction`).

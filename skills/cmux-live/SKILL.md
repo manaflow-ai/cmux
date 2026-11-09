@@ -1,9 +1,28 @@
 ---
 name: cmux-live
-description: "Edit cmux's own web UI and daemon while it runs: point the running cmux at a checkout's webviews dev server so every saved edit shows at once in every open page and chat, with no build and no relaunch. Use when changing or trying anything under webviews/ (agent chat pane, pages such as Settings, Home and the new tab page, the Markdown viewer), when the user wants to see a UI change live in their own app, or asks for hot reload, live reload, 'edit cmux live', 'cmux live', the dev server or web-dev.json, or wants a saved Rust edit to the cmux-tui daemon or acpmux live in the running daemon (`cmux live start --rust`)."
+description: "Try a change to cmux's web UI or daemon live in the running app, with no build or relaunch: point cmux at a checkout's webviews dev server, or `cmux live start --rust` for cmux-tui and acpmux. Use when changing webviews/ (agent chat pane, Settings, Home, new tab, Markdown viewer), when asked for hot or live reload, or before asking for a dev build to try a change or pull request."
 ---
 
 # cmux live
+
+## Try it live before you ask for a dev build
+
+Most cmux changes can be tried in the app that already runs (a nightly, a release or a DEV
+build) with no app build and no relaunch. Before you request a dev build, or tell the person they
+need one, take the first row that covers the change:
+
+| The change | Try it with |
+|---|---|
+| Your edits under `webviews/` | `cmux live start --worktree <checkout>` (below) |
+| Your edits to the daemon's Rust (`cmux-tui/`, acpmux) | `cmux live start --rust --build-host HOST` |
+| Someone's pull request | `scripts/cmux-next/try-pr.sh N`: its web UI is served and a daemon PR's daemon is swapped in, in a side copy of the app (`--here` for the person's own app); it requests a dev build only when the PR needs one, and says why |
+| A merged commit, before the nightly | `scripts/cmux-next/hot-apply.py apply SHA` (its web and daemon parts) |
+| Swift edits inside function bodies | a live code build (`cmux live start --swift`, docs/cmux-next/live-code.md) |
+
+Only a change none of these takes (a new stored property or type in existing Swift, a resource, a
+manifest, Rust the app links through FFI) needs the dev build. `scripts/cmux-next/live_apply.py
+BASE HEAD` sorts a change the same way try-pr does. Of the last 1,000 NEXT pull requests that touch
+the app, about 42% go into a nightly this way with no build.
 
 `cmux live start` runs a cmux checkout's webviews dev server (Vite) and points the running
 cmux at it. From then on, a saved edit under `webviews/` shows in every open page and agent
@@ -56,7 +75,7 @@ Chromium tabs. The app and every session stay up. Browser-process code still nee
 each swap waits about a minute for the framework to relink. `cmux live stop --chromium` puts the
 tree back.
 
-Swift changes still need a build.
+Swift outside function bodies still needs a build; edits inside them take a live code build (above).
 
 ## When it does not change
 
@@ -66,6 +85,10 @@ Swift changes still need a build.
 - The dev server's log is in the status output's state folder (`dev-server.log`).
 - cmux loads only a dev server that proves it holds the token `start` wrote; one started some
   other way is ignored. Start it with `cmux live start`, not `bun run dev` by hand.
+- A page that goes blank or shows another page: the server's checkout predates the 404 for files
+  it lacks, or lacks that page. Pull, `cmux live start` again, and serve a tree near the app's commit.
+- `cmux live` and Live Web Reload are one feature: the command starts it, the setting lets the app
+  load it. Swift, Rust and Chromium are `--swift`, `--rust` and `--chromium` of the same command.
 
 The full guide, including remote slots and following a pull request's head, is
 `docs/cmux-next/hot-reload.md`.

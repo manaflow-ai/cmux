@@ -136,6 +136,11 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
         emit(&result);
         done.push(result);
     }
+    // Last: whether an agent is ready there, with the install and sign-in offers.
+    let agents = gate(Step::Agents, &done)
+        .unwrap_or_else(|| crate::cli::host_agents::step(&remote, &plan.name));
+    emit(&agents);
+    done.push(agents);
     let report = Report::new(&plan.name, &plan.host, done);
     if json_out {
         println!("{}", report_line(&report));
@@ -248,7 +253,7 @@ fn machine_steps(
 fn needs(step: Step) -> &'static [Step] {
     match step {
         Step::Reach => &[],
-        Step::Install | Step::Identity => &[Step::Reach],
+        Step::Install | Step::Identity | Step::Agents => &[Step::Reach],
         Step::Daemon => &[Step::Install],
         Step::Update | Step::Harness | Step::Peer | Step::PeerBack | Step::Approvals => {
             &[Step::Daemon]
@@ -301,6 +306,7 @@ fn fail(step: Step, detail: impl Into<String>, fix: impl Into<String>) -> StepRe
         Step::PeerBack => "peer_back_unreachable",
         Step::Identity => "peer_identity_failed",
         Step::Approvals => "approvals_unavailable",
+        Step::Agents => "remote_agents_unchecked",
     };
     let mut result = StepResult::new(step, StepState::Fail, detail).with_fix(fix);
     // A missing standalone link is an intentional handoff to the app's own
@@ -410,7 +416,20 @@ fn reach(r: &dyn Remote, accept_new_host_key: bool) -> StepResult {
         Ok(out) => {
             let class = SshFailure::of(&out.stderr);
             let last = out.stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
-            fail(Step::Reach, format!("{}: {}", class.label(), last.trim()), class.fix(host))
+            let detail = format!("{}: {}", class.label(), last.trim());
+            if class != SshFailure::KeyRejected {
+                return fail(Step::Reach, detail, class.fix(host));
+            }
+            // The key line to add on the host, so no terminal (`ssh-copy-id`) is needed.
+            let key = crate::cli::host_ssh_key::this_machine();
+            let (fix, extra) = crate::cli::host_ssh_key::rejected_fix(host, key.as_ref());
+            let mut result = fail(Step::Reach, detail, fix);
+            let mut data = result.data.take().unwrap_or_else(|| json!({}));
+            if let (Some(data), Some(extra)) = (data.as_object_mut(), extra.as_object()) {
+                data.extend(extra.clone());
+            }
+            result.data = Some(data);
+            result
         }
         Err(e) => fail(
             Step::Reach,

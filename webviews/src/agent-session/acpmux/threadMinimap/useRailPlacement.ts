@@ -5,6 +5,7 @@ import { CHAT_LAYOUT_EVENT, chatColumnOf, useChatSizing } from "../chatWidth";
 import { transcriptColumn } from "../model";
 import { experimentArm } from "../../../experiments/experiment";
 import { threadMinimapGutter } from "./gutter.experiment";
+import { threadMinimapRestTick } from "./restTick.experiment";
 import { railPlacement } from "./model";
 import type { RailSide } from "./railSide";
 
@@ -29,11 +30,19 @@ export function useRailPlacement(
 ) {
   const display = useChatDisplay();
   const chatMinimap = useChatMinimap();
-  const { width: chatWidth, scale } = useChatSizing();
+  const { scale } = useChatSizing();
   /// How the rail fits a narrow gutter (gutter.experiment.ts), read once per pane: `tight` lets its
   /// inset shrink to the smallest spacing step before it overlaps any text.
   const [gutterArm] = useState(() => experimentArm(threadMinimapGutter));
-  const [placement, setPlacement] = useState(() => ({ ...railPlacement(paneWidth), reserve: 0, gutterArm }));
+  /// Whether a short gutter shortens the resting ticks or only the room beside them
+  /// (restTick.experiment.ts), read once per pane.
+  const [restTickArm] = useState(() => experimentArm(threadMinimapRestTick));
+  const [placement, setPlacement] = useState(() => ({
+    ...railPlacement(paneWidth),
+    reserve: 0,
+    gutterArm,
+    restTickArm,
+  }));
   // The layout effect places the rail before paint when the scroller is already attached. On a mount
   // the child effect runs before the ancestor scroller's ref is set, so the passive effect, which
   // runs after every ref is attached, measures again and subscribes to the shell's layout event.
@@ -49,7 +58,7 @@ export function useRailPlacement(
       // pinned at its whole-pane width, centers in what the panel leaves (session-info/sessionInfo.css
       // --acpmux-session-info-room and --acpmux-session-info-column, set on the shell before its
       // CHAT_LAYOUT_EVENT), so the gutter on the rail's side is that centered column's.
-      const column = chatColumnOf(chatWidth, display, scale);
+      const column = chatColumnOf(display, scale);
       const own = transcriptColumn(columnWidth, column);
       let inset = own.inset;
       if (shell?.dataset.sessionInfoChatPlacement === "push") {
@@ -60,14 +69,20 @@ export function useRailPlacement(
       }
       const reserve = railEdgeReserve(side, chatMinimap, inset);
       const next = {
-        ...railPlacement(paneWidth, inset - reserve, {
-          min: gutterArm === "tight" ? token("--cmux-space-1", 4) : token("--cmux-space-2", 8),
-          max: token("--cmux-space-4", 16),
-          compact: token("--cmux-space-3", 12),
-          ...(gutterArm === "tight" ? { narrowest: token("--cmux-space-3", 12) } : {}),
-        }),
+        ...railPlacement(
+          paneWidth,
+          inset - reserve,
+          {
+            min: gutterArm === "tight" ? token("--cmux-space-1", 4) : token("--cmux-space-2", 8),
+            max: token("--cmux-space-4", 16),
+            compact: token("--cmux-space-3", 12),
+            ...(gutterArm === "tight" ? { narrowest: token("--cmux-space-3", 12) } : {}),
+          },
+          restTickArm === "inset-first",
+        ),
         reserve,
         gutterArm,
+        restTickArm,
       };
       setPlacement((was) =>
         was.left === next.left &&
@@ -81,7 +96,7 @@ export function useRailPlacement(
     };
     update();
     return { shell, update };
-  }, [scroller, paneWidth, columnWidth, chatWidth, display, scale, side, chatMinimap, gutterArm]);
+  }, [scroller, paneWidth, columnWidth, display, scale, side, chatMinimap, gutterArm, restTickArm]);
   useLayoutEffect(() => {
     measure();
   }, [measure]);

@@ -499,7 +499,9 @@ def main():
     if any(cmd.startswith(binary) for _, _, cmd in process_table()):
         raise SystemExit(f"pane-scale: {bundle} is already running; quit it first")
     # Start from an empty session: restored tabs would change every checkpoint.
-    shutil.rmtree(os.path.expanduser(f"~/Library/Application Support/cmux/tags/{tag}/tui"), ignore_errors=True)
+    # NEXT's own folder and an older build's in classic's (a new build adopts that one at launch).
+    for parent in ("cmux-next", "cmux"):
+        shutil.rmtree(os.path.expanduser(f"~/Library/Application Support/{parent}/tags/{tag}/tui"), ignore_errors=True)
     scratch = tempfile.mkdtemp(prefix=f"pane-scale-{tag}-")
     env = {
         "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),

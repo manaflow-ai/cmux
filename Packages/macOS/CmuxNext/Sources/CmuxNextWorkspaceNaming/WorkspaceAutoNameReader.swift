@@ -64,7 +64,7 @@ public struct WorkspaceAutoNameReader {
 
     /// The name the sidebar row of `workspace` shows while `tab` fronts it
     /// (`WorkspaceAutoName.label`). `work` is the tab a browser front tab
-    /// yields its name to (`SidebarMapping.workTab`).
+    /// yields its name to (`SidebarMapping.FaceTabs.work`).
     ///
     /// The same front tab that named the row keeps naming it while its own
     /// name is briefly unknown (`WorkspaceAutoNameHold`): a chat whose title
@@ -161,12 +161,12 @@ public struct WorkspaceAutoNameReader {
 
     /// What a window's titlebar names `workspace`, whose panes show the tabs `selectedTab` picks
     /// (the window's selection): `displayName` for the one tab its sidebar row reads
-    /// (`SidebarMapping.faceTab`): its agent chat while the front is an idle shell (`labelTab`). An unnamed
+    /// (`SidebarMapping.FaceTabs.face`): its agent chat while the front is an idle shell (`FaceTabs.label`). An unnamed
     /// workspace whose shell idles at its home reads as its row does (`SidebarMapping.homeShellName`, #36283).
     public func titlebarName(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> String {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let newTabPages = Set(tabs.filter { isNewTabPage($0) }.map(\.id))
-        let face = SidebarMapping.shared.faceTab(workspace, selectedTab: selectedTab, newTabPages: newTabPages)
+        let face = SidebarMapping.shared.faceTabs(workspace, selectedTab: selectedTab, newTabPages: newTabPages).face
         let name = displayName(workspace, front: face)
         return SidebarMapping.homeShellName(homeShellTitle(workspace), workspace: workspace, label: name, face: face) ?? name
     }

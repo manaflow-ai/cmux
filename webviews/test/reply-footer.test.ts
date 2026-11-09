@@ -113,7 +113,10 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         found.push({
           first: line.firstElementChild?.className ?? "",
           glyph: glyph ? glyph.getBoundingClientRect().left - left : undefined,
-          detail: time?.getAttribute("title") ?? null,
+          // The tooltip's two lines: the exact time (title), then the turn's time and tokens.
+          detail: time
+            ? [time.getAttribute("title"), time.getAttribute("data-tooltip-detail")].filter(Boolean).join(" · ")
+            : null,
           buttons: buttons.map((button) => button.getBoundingClientRect().left - left),
           lastButtonRight: buttons.length ? buttons.at(-1)!.getBoundingClientRect().right - left : 0,
           actionsOpacity: Number(getComputedStyle(actions).opacity),
@@ -132,12 +135,17 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         await page.locator(".acpmux-turnSummary .cv-turn-action-group").first().waitFor();
         const measured = await footers(page);
         console.log(`REPLY_FOOTER ${theme.file} footer ${JSON.stringify(measured)}`);
-        // The first turn's footer knows its time and tokens; the folded turn's footer does not.
+        // The first turn's footer knows its time and tokens; the folded turn's footer does not, and its
+        // time's tooltip is the exact date and time, so every reply's time hovers (Leo, 2026-11-08: "for
+        // when things are yours, sometimes it's like I can't hover onto yours").
         const withStats = measured.filter((footer) => footer.detail?.includes("Worked for"));
-        const without = measured.filter((footer) => !footer.detail);
+        const without = measured.filter((footer) => !footer.detail?.includes("Worked for"));
         expect(withStats.length, "a footer with the turn's time and tokens").toBeGreaterThan(0);
         expect(without.length, "a footer without them").toBeGreaterThan(0);
-        for (const footer of withStats) expect(footer.detail).toMatch(/Worked for 5s · ↓ .+ out ↑ .+ in/);
+        for (const footer of measured) expect(footer.detail).toMatch(/\b20\d\d\b/);
+        // The time on its own line, then one token count per row (turnTokensModel.ts `replyTimeDetail`).
+        for (const footer of withStats)
+          expect(footer.detail).toMatch(/Worked for 5s\nOutput .+\nInput .+\u00a0uncached · .+\u00a0cached/);
         for (const footer of measured) {
           expect(footer.first).toContain("cv-turn-action-group");
           expect(footer.glyph).toBeDefined();
@@ -224,14 +232,18 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
             const footer = document.querySelector<HTMLElement>(selector)!;
             const actions = footer.querySelector<HTMLElement>(".cv-turn-actions")!.getBoundingClientRect();
             const box = footer.getBoundingClientRect();
-            const above = [...document.querySelectorAll<HTMLElement>("article.acpmux-row")]
+            const aboveRow = [...document.querySelectorAll<HTMLElement>("article.acpmux-row")]
               .filter((row) => row !== footer && row.getBoundingClientRect().height > 0)
-              .map((row) => row.getBoundingClientRect())
-              .filter((rect) => rect.bottom <= box.top + 0.5)
-              .sort((a, b) => b.bottom - a.bottom)[0]!;
+              .filter((row) => row.getBoundingClientRect().bottom <= box.top + 0.5)
+              .sort((a, b) => b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom)[0]!;
+            const above = aboveRow.getBoundingClientRect();
+            // Under a closed "Worked for" line the row's own room under its rule stands in for the 8,
+            // so the stack adds none (transcriptGrid.ts MARK_WORKED, #37727).
+            const worked = aboveRow.querySelector(".cv-worked.has-divider") !== null;
             return {
               gap: actions.top - above.bottom,
-              footerGap: length("--grid-gap-footer"),
+              footerGap: worked ? 0 : length("--grid-gap-footer"),
+              worked,
               rowHeight: box.height,
               actionsHeight: actions.height,
               control: length("--grid-transcript-footer-control"),

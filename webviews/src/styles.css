@@ -95,8 +95,10 @@ html {
   background: var(--cmux-diff-viewer-bg);
 }
 /* A chat that shares the native tab row leaves that row's background visible behind its tools.
-   The page still owns the background below the row; only the offered strip is transparent. */
-html:has(.acpmux-shell[data-tab-row]) {
+   The page still owns the background below the row; only the offered strip is transparent. The root mark is
+   set by the shell (header/tabRow.ts useTabRowRoot), never read through `html:has()`, which a streamed chunk
+   re-checks for every node it inserts. */
+:root[data-acpmux-tab-row] {
   background: transparent !important;
 }
 /* Glass over an image background or a see-through window (data-cmux-see-through, desktop.ts), so
@@ -518,7 +520,7 @@ body {
   border-radius: 50%;
   border: 1.6px solid color-mix(in lab, var(--cmux-diff-fg) 26%, transparent);
   border-top-color: var(--cmux-diff-fg);
-  animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
+  animation: cmux-spin var(--cmux-spinner-period, 2000ms) linear infinite;
 }
 /* Reduce Motion stops it (cx-sya4n); the diff viewer has no Static setting of its own. */
 @media (prefers-reduced-motion: reduce) {
@@ -1295,7 +1297,7 @@ body[data-loading="true"] #status::before {
   border: 2px solid color-mix(in lab, var(--cmux-diff-fg) 20%, transparent);
   border-top-color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
   border-radius: 50%;
-  animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
+  animation: cmux-spin var(--cmux-spinner-period, 2000ms) linear infinite;
 }
 #status[data-error="true"] {
   color: var(--cmux-diff-deletion-fg);
@@ -1320,9 +1322,34 @@ body[data-loading="true"] #status::before {
 #comments-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   min-height: 30px;
   padding: 0 10px;
   color: var(--cmux-diff-text-muted);
+  font-size: var(--cmux-diff-ui-font-size);
+}
+/* Send to agent: a compact accent button at the header's end. Both labels share one grid cell, so
+   the button keeps the wider one's width and the header never moves when it starts sending. */
+#comments-send {
+  display: inline-grid;
+  flex: 0 0 auto;
+  height: 24px;
+  padding: 0 8px;
+  font-size: var(--cmux-diff-ui-font-size);
+  white-space: nowrap;
+}
+#comments-send > span {
+  grid-area: 1 / 1;
+  text-align: center;
+}
+#comments-send > span[aria-hidden="true"] {
+  visibility: hidden;
+}
+#comments-send-error {
+  display: block;
+  padding: 0 12px 8px;
+  color: var(--cmux-diff-deletion-fg);
   font-size: var(--cmux-diff-ui-font-size);
 }
 #comments-list {
@@ -1476,11 +1503,16 @@ body[data-loading="true"] #status::before {
   display: inline-flex;
   gap: 2px;
   opacity: 0;
-  transition: opacity var(--cmux-motion-quick) ease;
+  transition: var(--cmux-hover-reveal-out-transition);
 }
 .comment-card:hover .comment-card-actions,
 .comment-card:focus-within .comment-card-actions {
   opacity: 1;
+  transition: var(--cmux-hover-reveal-in-transition);
+}
+/* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
+.comment-card:has(:focus-visible) .comment-card-actions {
+  transition: none;
 }
 .comment-card-action {
   padding: 1px 6px;
@@ -1526,11 +1558,29 @@ body[data-loading="true"] #status::before {
 }
 .file-tree-context-menu {
   min-width: 180px;
-  padding: var(--ds-space-1);
-  border: 1px solid var(--cmux-diff-border);
-  border-radius: var(--ds-radius-menu);
-  background: var(--cmux-diff-solid-bg);
   box-shadow: var(--elevation-2);
+}
+.file-tree-context-menu .ui-menu-icon > svg {
+  width: var(--cmux-menu-icon-size);
+  height: var(--cmux-menu-icon-size);
+}
+.file-tree-context-anchor {
+  position: fixed;
+  z-index: var(--layer-backdrop);
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  opacity: 0;
+}
+.file-tree-context-anchor > .ui-button {
+  width: 0;
+  min-width: 0;
+  height: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  line-height: 0;
+  font-size: 0;
 }
 .file-review-controls {
   display: inline-flex;
@@ -2656,4 +2706,212 @@ button.file-header-open:focus-visible {
       transparent 0% 50%
     )
     50% / 16px 16px;
+}
+
+/* Review brief (review-brief/ReviewBrief.tsx): a row under the toolbar, kept from the first frame
+   while a chat owns the diff, and a panel that opens over the diff without moving it. */
+.review-brief {
+  position: relative;
+  z-index: var(--layer-dropdown);
+  border-bottom: var(--cmux-hairline, 0.5px) solid var(--cmux-diff-border);
+}
+.review-brief-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--cmux-diff-text-muted);
+  font: inherit;
+  font-size: var(--cmux-diff-ui-font-size);
+  text-align: start;
+}
+.review-brief-row:not(:disabled):hover {
+  background: var(--cmux-diff-hover-bg);
+}
+.review-brief-title {
+  flex: 0 0 auto;
+  color: var(--cmux-diff-fg);
+  font-weight: 600;
+}
+.review-brief-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  transition: opacity var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+.review-brief[data-state="loading"] .review-brief-summary {
+  opacity: 0.6;
+}
+.review-brief-count {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--cmux-diff-accent-tint);
+  color: var(--cmux-diff-fg);
+  font-variant-numeric: tabular-nums;
+}
+.review-brief-count-dot {
+  width: 6px;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: var(--cmux-diff-accent);
+}
+.review-brief-chevron {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+.review-brief-chevron svg {
+  width: 12px;
+  height: 12px;
+  fill: currentcolor;
+  transition: transform var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+.review-brief-row:disabled .review-brief-chevron {
+  opacity: 0;
+}
+.review-brief[data-open="true"] .review-brief-chevron svg {
+  transform: rotate(180deg);
+}
+.review-brief-panel {
+  position: absolute;
+  top: 100%;
+  right: 8px;
+  left: 8px;
+  max-height: min(60vh, 480px);
+  overflow: auto;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--cmux-diff-solid-bg);
+  box-shadow:
+    var(--cmux-diff-pill-rim),
+    var(--elevation-2);
+  opacity: 0;
+  transform: translateY(-4px);
+  visibility: hidden;
+  /* Leaving is quicker than arriving; it hides (no clicks, no focus) once the fade ends. */
+  transition:
+    opacity var(--cmux-motion-quick) var(--cmux-ease-out),
+    transform var(--cmux-motion-quick) var(--cmux-ease-out),
+    visibility 0s linear var(--cmux-motion-quick);
+}
+.review-brief[data-open="true"] .review-brief-panel {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  transition:
+    opacity var(--cmux-motion-micro) var(--cmux-ease-out),
+    transform var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"])
+  :is(.review-brief-panel, .review-brief-chevron svg, .review-brief-summary) {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.review-brief-panel, .review-brief-chevron svg, .review-brief-summary) {
+    transition: none;
+  }
+}
+.review-brief-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: var(--cmux-diff-ui-font-size);
+}
+.review-brief-section h3 {
+  margin: 0 0 4px;
+  color: var(--cmux-diff-text-muted);
+  font-size: var(--cmux-diff-ui-font-size);
+  font-weight: 600;
+}
+.review-brief-goal,
+.review-brief-plan-text,
+.review-brief-empty {
+  margin: 0;
+  color: var(--cmux-diff-fg);
+  white-space: pre-wrap;
+}
+.review-brief-plan-text,
+.review-brief-empty {
+  color: var(--cmux-diff-text-muted);
+}
+.review-brief-plan-text {
+  margin-top: 4px;
+}
+.review-brief-spots {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.review-brief-spot {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--cmux-diff-muted-bg);
+  color: var(--cmux-diff-fg);
+  font: inherit;
+  text-align: start;
+}
+button.review-brief-spot:hover {
+  background: var(--cmux-diff-hover-bg);
+}
+.review-brief-spot-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.review-brief-spot-kind {
+  flex: 0 0 auto;
+  color: var(--cmux-diff-modified-fg);
+  font-weight: 600;
+}
+.review-brief-spot-kind[data-kind="hedge"] {
+  color: var(--cmux-diff-accent);
+}
+.review-brief-spot-place {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--cmux-diff-text-muted);
+  font-family: var(--cmux-diff-code-font-family);
+  font-size: var(--cmux-diff-font-size);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.review-brief-spot-absent {
+  flex: 0 0 auto;
+  margin-inline-start: auto;
+  color: var(--cmux-diff-text-dim);
+}
+.review-brief-spot-snippet {
+  overflow: hidden;
+  color: var(--cmux-diff-text-subtle);
+  font-family: var(--cmux-diff-code-font-family);
+  font-size: var(--cmux-diff-font-size);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.review-brief-notes,
+.review-brief-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding-inline-start: 16px;
+}
+.review-brief-plan li[data-status="completed"] {
+  color: var(--cmux-diff-text-muted);
 }

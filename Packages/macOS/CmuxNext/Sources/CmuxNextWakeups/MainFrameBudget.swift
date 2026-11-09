@@ -72,11 +72,11 @@ public final class MainFrameBudget {
     private var backgroundAsked = false
     /// The current window was opened by a task outside any tick (an idle queue's request).
     private var windowOpenedOffTick = false
-    /// Set by the ``MainWorkScheduler``'s frame scheduler while its display link exists: its ticks
+    /// Set by the ``MainWorkScheduler``'s frame scheduler while its display link runs: its ticks
     /// own the window, so a task outside a tick never opens one (it would give a run loop pass a
     /// second budget, and roll the input-yield memory between two real frames).
     var tickOwnsWindow = false {
-        // The link went away: a render pass measured under it is not charged to a later window.
+        // The link stopped: a render pass measured under it is not charged to a later window.
         didSet {
             guard !tickOwnsWindow else { return }
             renderSinceRoll = 0

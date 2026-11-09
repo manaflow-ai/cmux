@@ -119,6 +119,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The document's own background, 0xAARRGGBB, once read (nil: Chromium's
     /// white); counts for resize gaps (`CEFTab+ResizeBackdrop`).
     @ObservationIgnored var pageBackdropARGB: UInt32?
+    /// The last read found no background of the document's own and a dark color scheme: Blink paints its dark canvas
+    /// (over a white page base), which the resize gap and a closing pane show.
+    @ObservationIgnored var pageCanvasDark = false
     /// The document (`pageBackdropDocument`) whose background read is in flight from its paint or load end
     /// (`documentDidPaint`), so the second of the two events starts no second read.
     @ObservationIgnored var pageBackdropReading: Int?
@@ -127,8 +130,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Bumped on each committed document, so a read of the previous one is dropped.
     @ObservationIgnored var pageBackdropDocument = 0
     /// The committed document's load settled, so the page area is its own.
-    /// Until then the page base is the theme color, not the engine's white
-    /// (`CEFTab+LoadingBackground`).
+    /// Until then the page is see-through on the pane's own ground, not the
+    /// engine's white (`CEFTab+LoadingBackground`).
     @ObservationIgnored var documentSettled = false
     /// The `prefers-color-scheme` a live renderer was last told, so a tab
     /// switch (every one calls `pageThemeDidChange`) costs no DevTools round
@@ -147,16 +150,17 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// the window backdrop show, as under a WebKit page that draws none. A cmux page sets it (the page
     /// host, `PageChromiumPage.setSeeThrough`); a web page stays opaque like Chrome.
     @ObservationIgnored public var pageSeeThrough = false {
-        didSet {
-            guard pageSeeThrough != oldValue else { return }
-            // A web page never calls the fork's see-through switch; only a page leaving see-through does.
-            if !pageSeeThrough, let browserID { _ = runtime.shim?.tabSetTransparentBackground(browserID, 0) }
-            applyPageBackground()
-        }
+        didSet { if pageSeeThrough != oldValue { applyPageBackground() } }
     }
+    /// The fork's see-through switch was last turned on for this tab (``CEFTab/showsPaneGround``), so leaving it turns
+    /// it off; a page never see-through never calls it.
+    @ObservationIgnored var seeThroughSent = false
     /// Answers the page's requests for its dynamic paths (a cmux page whose scheme entry has
     /// ``CEFPageSchemes/Entry/dynamicPrefixes``); nil answers every one with a 404.
     @ObservationIgnored public var pageResources: (@MainActor (URL, String?) async -> CEFPageResponse)?
+    /// Answers a dynamic path at once, in the turn Chromium asks, when it can; nil from it, or no
+    /// answerer, asks ``pageResources``.
+    @ObservationIgnored public var readyPageResource: (@MainActor (URL) -> CEFPageResponse?)?
     /// A drag of these files from outside the app entered the page (a cmux page hands such a drop
     /// to its host); nil ignores it.
     @ObservationIgnored public var pageFilesDragged: (@MainActor ([URL]) -> Void)?
@@ -193,7 +197,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// and its file chooser goes back to Chromium.
     public func clearPageHooks() {
         clearPageEventHooks()
-        pageResources = nil
+        (pageResources, readyPageResource) = (nil, nil)
         pageFilesChosen = nil
     }
 
@@ -369,6 +373,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         paintAsk = nil
         blankIsDocument = pendingURL.map { !PageBackground.isRealPage($0) } ?? false
         isCreationPending = false
+        // The page the person waits for: the next spare is made once it arrived (`CEFArrivingPages`).
+        if navigates, host.visibleTab === self, !isAgentDriven { runtime.arriving.began(id) }
         CEFAgentURLGuard.applyShimGuard(self)
         if let url = loadAfterAttach {
             loadAfterAttach = nil
@@ -388,6 +394,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         if host.freezesPlaceholder, host.placeholder === self { freezeNeverShownPage(browser) }
         let zoom = machine.state.zoom
         if zoom != 1 { runtime.shim?.setZoomLevel(browser, CEFZoom.level(forFactor: zoom)) }
+        if machine.state.isAudioMuted { applyAudioMute() }
         // Focus asked for while the page was being created applies only if
         // the page is still shown: CEF's SetFocus activates (orders front)
         // the page window, which for a page that is no longer selected put
@@ -429,6 +436,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     func documentArrived() {
         guard !hasDocument else { return }
         hasDocument = true
+        runtime.arriving.ended(id)
         host.lifecycleTrace.record(id, "ready-for-keys")
         onReadyForKeys?()
     }
@@ -450,6 +458,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// the daemon and reopens at relaunch.
     func browserDidClose(closesTab: Bool = true) {
         browserID = nil
+        runtime.arriving.ended(id)
         paintAsk?.cancel()
         paintAsk = nil
         agentRelay.browserEnded()
@@ -691,6 +700,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func close() {
         guard !isClosed else { return }
         isClosed = true
+        runtime.arriving.ended(id)
         agentRelay.resumeWaiters(false)
         agentFiles.withdraw()
         titleTimer.cancel()

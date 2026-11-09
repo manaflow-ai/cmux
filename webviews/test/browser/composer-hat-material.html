@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>composer hat material harness</title>
+  </head>
+  <body>
+    <section class="acpmux-shell">
+      <!-- Something runs: the hat draws a card and joins the card under it (bottomStack.css). -->
+      <div class="acpmux-dock">
+        <section class="acpmux-running-tray" data-card="" id="hat">
+          <div class="acpmux-running-tray__head">mkdir +2 more 15m 21s</div>
+        </section>
+        <div class="acpmux-composer">
+          <div class="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box" id="hatted">
+            <div class="acpmux-md" contenteditable="true"></div>
+          </div>
+        </div>
+      </div>
+      <!-- No hat: the card keeps its own top light. -->
+      <div class="acpmux-dock">
+        <div class="acpmux-composer">
+          <div class="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box" id="bare">
+            <div class="acpmux-md" contenteditable="true"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <script type="module" src="./composer-hat-material.harness.ts"></script>
+  </body>
+</html>

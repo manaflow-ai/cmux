@@ -64,7 +64,8 @@ pub const HELP: &str = "Examples:
   acpmux --json ls --fields name,state,peer   for scripts: the daemon's rows, unchanged
   acpmux ls 'review-27*' --fields name,turn.activity   name globs (host/glob: one peer's); dotted fields
 
-STUCK is why a lane needs someone: permission, capacity, harness down, failed turn, stalled 12m.
+STUCK is why a lane needs someone: permission, capacity, harness down, failed turn, stalled 12m,
+harness sandbox (its harness refuses every command).
 A peer that cannot be reached reads UNKNOWN, or PAUSED when fleet-registry.json means it to be
 down (retired, idle-stopped, on demand); its sessions are last known. ls never starts a daemon.
 Usage (--wide): LAUNCHER, CAP (autocompact cap, or none), CTX (context now), CMP (compactions),
@@ -173,7 +174,8 @@ fn pending(row: &Value) -> u64 {
 }
 
 /// The short reason a lane needs someone, or empty: a permission it waits on, the daemon's stuck
-/// reason (capacity, the harness down), a failed or lost turn, or a stalled turn.
+/// reason (capacity, the harness down), a stalled, failed or lost turn, a question, or a harness
+/// whose sandbox refuses every command.
 fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
     if unreadable(row) {
         if let Some(why) = host(row).and_then(|h| paused(pauses, h)) {
@@ -200,7 +202,20 @@ fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
         Some("failed") => "failed turn".into(),
         Some("lost") => "lost turn".into(),
         Some("input") => "question".into(),
+        // Every command it runs is refused now: its harness's own sandbox did not start
+        // (`harnessSandboxFailing`). A past refusal it recovered from says nothing here.
+        _ if harness_sandbox_failing(row) => "harness sandbox".into(),
         _ => String::new(),
+    }
+}
+
+/// Whether the row's harness refuses commands now: `harnessSandboxFailing`, or, from an older
+/// daemon or a peer that sends only `harnessSandboxFailed`, that timestamp (it then meant the
+/// failure lasted). An explicit false is a recovery.
+fn harness_sandbox_failing(row: &Value) -> bool {
+    match row.get("harnessSandboxFailing").and_then(Value::as_bool) {
+        Some(failing) => failing,
+        None => row.get("harnessSandboxFailed").and_then(Value::as_u64).is_some(),
     }
 }
 

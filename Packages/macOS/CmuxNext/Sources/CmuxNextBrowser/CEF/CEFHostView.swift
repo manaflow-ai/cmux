@@ -266,6 +266,10 @@ final class CEFHostView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // The fork's tracker re-places the page on this view's frame notices and its ancestors'. A resize drag
+        // keeps the pane views' notices for its end (`FrameNoticeHold`): a move they did not post reaches the fork
+        // here, once (the window's page update in the same frame then finds the fork's read current).
+        enclosingFrameNoticeReaders?.add(self) { [weak self] in self?.pagesNeedUpdate(force: false) }
         if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
         windowObserver = nil
         readGeometry = nil
@@ -384,7 +388,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     var syncedDragHostings: [CEFLayerHosting] = []
     /// Why this container's page windows wait for their frame at each pane size now; empty: they do not.
     var pageSyncReasons: Set<CEFPageSyncReason> = []
-    /// The page window this container told of a resize motion (a drag or a key hold), to tell its end wherever the
+    /// The page window this container told of a resize motion (a divider drag), to tell its end wherever the
     /// page is by then (``CEFLayerHosting/resizeMotion(active:)``); nil otherwise.
     var motionHosting: CEFLayerHosting?
 
@@ -526,9 +530,10 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         }
     }
 
-    /// The pane's layout spring landed (a split's new pane grown in, a close, a zoom): the shown
-    /// page is placed and clipped at the landed frame (`CEFPaneHost.paneMotionSettled`).
+    /// The pane's layout spring landed (a split's new pane grown in, a close, a zoom): the page's spring motion ends
+    /// (``endPaneSpring()``) and the shown page is placed and clipped at the landed frame (`CEFPaneHost.paneMotionSettled`).
     func paneMotionDidSettle() {
+        endPaneSpring()
         guard let tab, tab.host.hostView.superview === self else { return }
         tab.host.paneMotionSettled(tab)
     }
@@ -552,8 +557,9 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
                 dropHold()
                 layoutContent()
             }
-            // After the landing's layout: the page window comes back once, at the final size.
-            if pageMotionHold == nil { paneMotion(active: false) }
+            // After the landing's layout: the page window comes back once, at the final size. A key hold still on (its
+            // spring goes on) keeps the page attached, so the drag's share ends here too.
+            paneMotion(active: false)
             return
         }
         paneMotion(active: true)

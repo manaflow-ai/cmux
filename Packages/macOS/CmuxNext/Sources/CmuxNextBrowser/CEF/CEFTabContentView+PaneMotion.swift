@@ -40,18 +40,16 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
         if startPageHold() { needsLayout = true } else { pageMotionHold = nil }
     }
 
+    /// The page window stays attached through the hold (RESIZE P0 5): only a divider drag detaches it (``paneMotion(active:)``).
     func holdPage(for hold: PaneMotionHold?) {
         guard let hold else {
             endPageSync(.keyResize)
             if pageMotionHold != nil {
                 dropHold()
-                // The landing's layout first, so the page window comes back once, at the final size.
                 layoutContent()
             }
-            paneMotion(active: false)
             return
         }
-        paneMotion(active: true)
         if pageMotionHold == nil {
             // S5: no hold. The page lays out at the page area in every frame (no main-thread wait for its frame).
             beginPageSync(.keyResize)
@@ -72,9 +70,11 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
 }
 
 extension CEFTabContentView {
-    /// A resize motion of this container's pane began (a divider drag's press, a key resize's first press) or landed:
-    /// the shown page's window detaches for it unless the page holds the keys (``CEFLayerHosting/resizeMotion(active:)``).
-    /// One share per container; a start while one is held and an end with none are ignored.
+    /// A divider drag of this container's pane began (its press) or landed: the shown page's window detaches for it unless
+    /// the page holds the keys (``CEFLayerHosting/resizeMotion(active:)``). A key resize keeps the page attached (RESIZE P0
+    /// 5, cmux21 120 Hz: detached, its spring's first tick paid the detach, 1-4 ms, and a page in a pane that grew upward
+    /// showed at its old place for about 25 frames; attached, it showed at its pane's size in every frame with the same
+    /// missed refreshes). One share per container; a start while one is held and an end with none are ignored.
     func paneMotion(active: Bool) {
         if active {
             guard motionHosting == nil, window != nil, let tab, tab.host.hostView.superview === self else { return }
@@ -86,5 +86,31 @@ extension CEFTabContentView {
             motionHosting = nil
             hosting.resizeMotion(active: false)
         }
+    }
+}
+
+/// A split's, close's or zoom's spring resizes the pane in every frame, as a key resize does: the spring's start
+/// (`PaneHostView.announceRest`, once per start or retarget) begins the key resize's page sync, so the page follows its
+/// pane's page area at each frame's size, and the landing (``paneMotionDidSettle()``) lays it out at the final size. The
+/// page window stays attached, as in a key resize (RESIZE P0 5). Detached for the spring (#37754), a page in a pane that
+/// grew upward showed at its old place, clipped or blank, until a one-frame snap at the landing (Leo 2026-11-08,
+/// ask-1cbd6386ac, softened: "the upwards thing ... shit doesn't look right, shit is not smooth, shit lags"; the same
+/// 25-frame stale page RESIZE P0 5 filmed for detached key resizes). The main thread never waits for a page frame (the
+/// page sync's deadline stays 0).
+extension CEFTabContentView: PaneMotionTargeting {
+    func paneMotionWillRest(sizeChange: CGSize) -> PaneMotionAnchor {
+        // A drag (its release spring included) and a key resize run their own motion, begun before the spring's rest.
+        guard window != nil, pageSyncReasons.isDisjoint(with: [.drag, .keyResize]), pageMotionHold == nil else { return .top }
+        beginPageSync(.paneSpring)
+        return .top
+    }
+
+    /// The spring landed: the page lays out at the final size, once. A drag or key resize that caught the spring ends the
+    /// motion itself.
+    func endPaneSpring() {
+        guard pageSyncReasons.contains(.paneSpring) else { return }
+        endPageSync(.paneSpring)
+        guard pageSyncReasons.isEmpty, pageMotionHold == nil else { return }
+        layoutContent()
     }
 }

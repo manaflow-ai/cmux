@@ -31,6 +31,7 @@ extension WindowController {
             self?.root.liveModeBadge = LiveModeBadgeView()
             self?.relayoutTopRowStrips()
         }
+        root.sidebarFloat.isAllowed = { [weak self] in self.map { $0.state.page != .home && !$0.root.presentsPage } ?? false }
         let model = sidebar.model
         sidebarObservation = Task { [weak self] in
             for await hidden in ObservationStream({ model.isHidden }) {
@@ -60,8 +61,8 @@ extension WindowController {
     /// and in the top row after the traffic lights while the sidebar is
     /// hidden (strips under it start after it).
     func showIncognitoBadge() {
-        sidebar.container.sidebarView.titlebarAccessory = IncognitoBadgeView()
-        root.titlebarBadge = IncognitoBadgeView()
+        sidebar.container.sidebarView.titlebarAccessory = IncognitoBadgeView(title: WindowStrings.incognitoBadge, help: WindowStrings.incognitoHelp)
+        root.titlebarBadge = IncognitoBadgeView(title: WindowStrings.incognitoBadge, help: WindowStrings.incognitoHelp)
         root.showsTitlebarBadge = sidebar.model.isHidden
         root.needsLayout = true
     }

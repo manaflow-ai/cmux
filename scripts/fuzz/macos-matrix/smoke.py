@@ -6,12 +6,16 @@ fuzz.py, and it reuses fuzz.py's guest connection: every app call goes through t
 bundled `cmux app call` over SSH, every screenshot is a VNC frame of the guest display. The
 guest needs no python3 and no Accessibility grant.
 
-The first-run "Sign In to Your Agents" tool window opens on some runs (when the acpmux harness read
-lists an agent in time) and takes the key window; the main window is later ordered over it without
-the keys (2026-11-06, step 21c5abb6). VNC keys go to the key window, so before design_on the smoke
-closes that window through its close button (debug.onboarding close) and waits for the main window
-to be key. It keeps the first run otherwise as a person sees it: CMUX_NEXT_SKIP_ONBOARDING=1 also
-drops the Bring your history page, and New Tab then left Home in front (step fbaf56c6).
+The first run shows its steps one at a time (#37241): the "Sign In to Your Agents" tool window when
+the acpmux harness read lists an agent, then, once that window closed, the Bring your history page
+over the main window. The smoke goes through them first, right after the window step, as a person
+does before using the app: it closes the Agents window through its close button (debug.onboarding
+close) and waits for the history page to show; New Tab then leaves the page as on a person's first
+run. Closed only before design_on, the Agents window let the history page cover the scripts tab
+there, and design_on, design_off and page_info failed (2026-11-06, os-matrix step b1a7e127). It
+keeps the first run otherwise as a person sees it: CMUX_NEXT_SKIP_ONBOARDING=1 also drops the Bring
+your history page, and New Tab then left Home in front (step fbaf56c6). Before design_on it still
+closes a tool window that holds the key window, and waits for the main window to be key.
 
 Steps (each one ok/FAIL in result.json, with a screenshot shot-<step>.png):
   launch     the app starts and answers a ping
@@ -87,6 +91,8 @@ TYPED = "cmux42"
 # deadline (ControlRouter requestDeadline): a 2000 ms hold raced it, and on macOS 26 a 2081 ms call
 # answered "timeout" (exit 1) after the text was typed (run of 2026-10-24, build 419d8048).
 HOLD_MS = 1200
+HISTORY_PAGE = "cmux.import-history"  # the first-run Bring your history page (debug.page id)
+FIRST_RUN_DEADLINE = 60  # s: the Agents step waits for the acpmux harness read before it opens or not
 REQUIRED_STEPS = ("launch", "window", "terminal", "echo", "split", "chromium", "webkit",
                   "favicon", "type_waits", "design_on", "design_off", "page_info", "settings", "alive", "quit")
 
@@ -153,6 +159,23 @@ class Smoke:
                 return {k: w.get(k) for k in ("id", "kind", "class", "title")}
         return None
 
+    def first_run(self) -> dict:
+        """Goes through the first-run steps as a person does before using the app: closes the
+        Agents tool window (its close button) when it opens, then waits for the step after it,
+        the Bring your history page, to show. What it saw, for result.json."""
+        seen: dict = {"closed_tool_window": None}
+
+        def history_shown():
+            tool = self.call("debug.onboarding", {"action": "state"})
+            if tool.get("open"):
+                seen["closed_tool_window"] = tool.get("step")
+                self.call("debug.onboarding", {"action": "close"})
+                return None
+            page = self.call("debug.page", {"page": HISTORY_PAGE, "action": "state"})
+            return "error" not in page and page.get("in_window") is True and page.get("view_hidden") is False
+        seen["history_shown"] = bool(self.wait(history_shown, FIRST_RUN_DEADLINE))
+        return seen
+
     def terminals(self) -> int:
         return int(self.call("debug.surfaces").get("live_terminals") or 0)
 
@@ -183,9 +206,18 @@ class Smoke:
         if "error" in self.call("system.identify"):
             self.step("debug_build", False, "the app refused `cmux app call`: the smoke needs a DEV build")
             return
+        # A plain Release build (reload.sh --release of a tag that is not in release_bench_tags of
+        # scripts/cmux-next/cmux-next.dogfood.conf) answers system.identify but has no debug.* methods,
+        # so every read below is empty: say that, instead of "window FAIL {windows: 0}".
+        probe = str(self.call("debug.windows").get("error", ""))
+        if "method_not_found" in probe or "Unknown method debug.windows" in probe:
+            self.step("debug_build", False, "the app has no debug.* methods (a plain Release build): the smoke needs "
+                      "a Debug build or a bench Release (a release_bench_tags tag, e.g. chrome-parity-*)")
+            return
         windows = self.wait(self.windows, 30)
         if not self.step("window", bool(windows), {"windows": len(windows or [])}):
             return
+        self.result["first_run"] = self.first_run()
 
         before = self.terminals()
         opened = self.call("action.run", {"action": "newTab", "focus": True, "wait": True})

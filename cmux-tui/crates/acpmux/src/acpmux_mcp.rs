@@ -69,18 +69,24 @@ const LS_FIELDS: &[&str] =
 pub(crate) mod artifacts;
 #[path = "acpmux_mcp_bg.rs"]
 mod bg;
+#[path = "acpmux_mcp_bridge.rs"]
+pub(crate) mod bridge;
 #[path = "acpmux_mcp_goal.rs"]
 mod goal;
 #[path = "acpmux_mcp_pr.rs"]
 mod pr;
 #[path = "acpmux_mcp_send.rs"]
 mod send;
+#[path = "acpmux_mcp_send_status.rs"]
+mod send_status;
 #[path = "acpmux_mcp_watch.rs"]
 mod watch;
 #[path = "acpmux_mcp_who_else.rs"]
 mod who_else;
 #[path = "acpmux_mcp_wrap_up.rs"]
 mod wrap_up;
+/// The most facts a wrap-up offers, and the longest one (`memory_inbox.rs`).
+pub(crate) use wrap_up::{MAX_FACT as WRAP_UP_MAX_FACT, MAX_LEARNED as WRAP_UP_MAX_LEARNED};
 
 fn tools() -> Value {
     let mut all = base_tools();
@@ -91,6 +97,7 @@ fn tools() -> Value {
         list.push(who_else::tool());
         list.extend(goal::tools());
         list.extend(watch::tools());
+        list.push(send_status::tool());
     }
     all
 }
@@ -158,6 +165,14 @@ fn base_tools() -> Value {
                 "type": "object",
                 "properties": {"name": {"type": "string", "description": "The session's name, id, or host/name."}},
                 "required": ["name"]
+            }
+        },
+        {
+            "name": "machine_info",
+            "description": "Report what this machine can do from acpmux's current state: machine and workspace identity, repository, running background work, ports and previews, browser/display support, the environment's verify command, and secret names with status. Secret values are never returned; unavailable capabilities include the next action to take.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
             }
         },
         {
@@ -296,7 +311,25 @@ pub async fn run() -> Result<()> {
                         ),
                     };
                 }
+                // The Claude Code subagent whose tool call this is, by its tool use id
+                // (`subagent_call.rs`): a `send` names it, a `bg_start` or `run_wait` task runs as
+                // it and brings its end to it. Else the subagent this server runs as: a workflow
+                // runner a subagent started marks it (`cli::sender::SUBAGENT_ENV`, set by the
+                // daemon in `hub/workflow_runs.rs`), as the Bash hook marks its commands.
+                let sub = crate::subagent_call::of_call(&crate::config::home(), &session, &params)
+                    .or_else(|| {
+                        crate::cli::sender::subagent_of_this_process().map(|s| s.to_value())
+                    });
                 if bg::TOOLS.contains(&name) {
+                    let mut args = args;
+                    if matches!(name, "bg_start" | "run_wait")
+                        && let Some(fields) = args.as_object_mut()
+                    {
+                        fields.remove("callerSubagent");
+                        if let Some(sub) = &sub {
+                            fields.insert("callerSubagent".to_owned(), sub.clone());
+                        }
+                    }
                     return bg::call(&daemon, &session, name, &args).await;
                 }
                 if name == pr::NAME {
@@ -304,6 +337,9 @@ pub async fn run() -> Result<()> {
                 }
                 if name == wrap_up::NAME {
                     return wrap_up::call(&args);
+                }
+                if name == send_status::NAME {
+                    return send_status::call(&daemon, &session, &args).await;
                 }
                 if name == who_else::NAME {
                     return who_else::call(&daemon, &session, &args).await;
@@ -322,11 +358,23 @@ pub async fn run() -> Result<()> {
                 if name == "search" {
                     return search_tool(&daemon, &session, &args).await;
                 }
-                call(&daemon, &params).await
+                if name == "machine_info" {
+                    return machine_info(&daemon, &session).await;
+                }
+                call_as(&daemon, &params, sub.as_ref()).await
             }
         },
     )
     .await
+}
+
+async fn machine_info(daemon: &Arc<Client>, session: &str) -> Value {
+    match daemon.request(method::MUX_MACHINE_INFO, json!({"sessionId": session})).await {
+        Ok(result) => {
+            ok(serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string()), result)
+        }
+        Err(error) => refusal(error),
+    }
 }
 
 fn ok(text: String, structured: Value) -> Value {
@@ -341,13 +389,20 @@ fn arg<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
     args.get(key).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty())
 }
 
+#[cfg(test)]
 pub(crate) async fn call(daemon: &Arc<Client>, params: &Value) -> Value {
+    call_as(daemon, params, None).await
+}
+
+/// A tool call of the acpmux tools below; `sub` is the subagent that makes it
+/// (`subagent_call.rs`), which its `send` names.
+async fn call_as(daemon: &Arc<Client>, params: &Value, sub: Option<&Value>) -> Value {
     let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
     if !args.is_object() {
         return error_result("arguments must be an object".to_owned());
     }
     match params["name"].as_str().unwrap_or_default() {
-        "send" => send::send(daemon, &args).await,
+        "send" => send::send(daemon, &args, sub).await,
         "team_send" => team_send(daemon, &args).await,
         "team_inbox" => team_inbox(daemon, &args).await,
         "team_ack" => team_ack(daemon, &args).await,

@@ -82,7 +82,7 @@ class WorkflowShape(unittest.TestCase):
         # The reconciled Linux pool is the default for every trusted job; fork
         # pull requests retain their ephemeral Blacksmith branch, and reruns
         # accept bounded overflow explicitly.
-        guards_runner = yaml.safe_load(GUARDS.read_text(encoding="utf-8"))["jobs"]["crash-ratchet"]["runs-on"]
+        guards_runner = yaml.safe_load(GUARDS.read_text(encoding="utf-8"))["jobs"]["own-change-checks"]["runs-on"]
         self.assertNotEqual(doc["jobs"]["resolve"]["runs-on"], guards_runner)
         self.assertNotEqual(doc["jobs"]["post"]["runs-on"], guards_runner)
         fast_runner = doc["jobs"]["fast-gates"]["runs-on"]
@@ -337,12 +337,18 @@ class WorkflowShape(unittest.TestCase):
         self.assertRegex(body, r"\[0-9a-f\]\{40\}")
         self.assertIn("state=success", body)
         self.assertIn("state=failure", body)
-        # A skipped panic ratchet (nothing to rejudge) passes; a failed or cancelled one fails the status.
+        # A skipped panic ratchet (nothing to rejudge) passes; a failed one fails the status. A job that timed out
+        # or was cancelled judged nothing: pending, "stopped", never failure (cmux#38640, 2026-11-09: two
+        # dispatches timed out at 10 min and posted failure, read as the pull request's own red).
         for gates, ratchet, state in (("success", "skipped", "success"), ("success", "success", "success"),
-                                      ("success", "failure", "failure"), ("success", "cancelled", "failure"),
-                                      ("failure", "skipped", "failure")):
+                                      ("success", "failure", "failure"), ("success", "cancelled", "pending"),
+                                      ("failure", "skipped", "failure"), ("cancelled", "skipped", "pending"),
+                                      ("failure", "cancelled", "failure")):
             with self.subTest(gates=gates, ratchet=ratchet):
                 self.assertEqual(self.posted_state(body, gates, ratchet), state)
+                described = self.posted_description
+                self.assertTrue(described.startswith("base " + "b" * 40), described)
+                self.assertEqual("stopped" in described, state == "pending", described)
 
     def posted_state(self, body: str, gates: str, ratchet: str) -> str:
         with tempfile.TemporaryDirectory(prefix="fast-gates-state-") as tmp:
@@ -357,6 +363,7 @@ class WorkflowShape(unittest.TestCase):
             done = subprocess.run(["bash", "-c", body], env=env, capture_output=True, text=True)
             self.assertEqual(done.returncode, 0, done.stderr)
             args = (root / "args").read_text().splitlines()
+            self.posted_description = next(arg.split("=", 1)[1] for arg in args if arg.startswith("description="))
             return next(arg.split("=", 1)[1] for arg in args if arg.startswith("state="))
 
     def test_the_panic_ratchet_job_reruns_the_ratchet_on_the_merge_against_the_tip(self):

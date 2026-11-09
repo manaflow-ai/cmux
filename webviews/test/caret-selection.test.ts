@@ -52,7 +52,22 @@ describe("carets and selections follow the Ghostty config", () => {
   test("every selection reads the config's selection color", () => {
     const wrong = declarations("background(?:-color)?", /::selection/)
       .filter(({ value }) => value !== "transparent")
-      .filter(({ value }) => !value.includes("--cmux-text-selection") && value !== "var(--cmux-md-selection-color)")
+      .filter(
+        ({ value }) =>
+          !value.includes("--cmux-text-selection") &&
+          value !== "var(--cmux-selection-fill, var(--cmux-md-selection-color))",
+      )
+      .map(({ at, value }) => `${at} ${value}`);
+    expect(wrong).toEqual([]);
+  });
+
+  // HIGHLIGHT-CONTRAST (ui/adaptiveSelection.ts): the config's color is where a selection starts, and
+  // the fill fit to the surface under it comes first, so a selection on a bubble still reads (Leo
+  // 2026-11-07: "sometimes there's, like, low contrast on the highlight").
+  test("every selection reads the fill fit to its surface first", () => {
+    const wrong = declarations("background(?:-color)?", /::selection/)
+      .filter(({ value }) => value !== "transparent")
+      .filter(({ value }) => !/^var\(\s*--cmux-selection-fill\s*,/.test(value))
       .map(({ at, value }) => `${at} ${value}`);
     expect(wrong).toEqual([]);
   });

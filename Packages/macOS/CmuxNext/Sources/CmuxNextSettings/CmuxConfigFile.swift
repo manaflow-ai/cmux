@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import os
 
@@ -41,12 +42,30 @@ public actor CmuxConfigFile {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) throws -> URL {
+        try prepareLaunchFile(home: home, environment: environment, fileManager: fileManager).url
+    }
+
+    /// The settings file at launch and whether this launch made it from nothing: no cmux-next.json and
+    /// no classic cmux.json, on this Mac account. Every channel shares the file, so that is the one
+    /// install-wide sign of a fresh install (a new channel on an existing install finds the file).
+    public nonisolated struct LaunchFile: Sendable {
+        public let url: URL
+        public let createdEmpty: Bool
+    }
+
+    /// ``prepareDefaultURL(home:environment:fileManager:)``, saying whether it wrote a new empty file.
+    public static func prepareLaunchFile(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileManager: FileManager = .default
+    ) throws -> LaunchFile {
         if let override = environment[overrideKey], !override.isEmpty {
-            return defaultURL(home: home, environment: environment)
+            return LaunchFile(url: defaultURL(home: home, environment: environment), createdEmpty: false)
         }
 
         let next = defaultURL(home: home, environment: environment)
-        guard !fileManager.fileExists(atPath: next.path) else { return next }
+        guard !fileManager.fileExists(atPath: next.path) else { return LaunchFile(url: next, createdEmpty: false) }
+        var createdEmpty = false
 
         let classic = next.deletingLastPathComponent().appendingPathComponent("cmux.json")
         try fileManager.createDirectory(at: next.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -60,22 +79,26 @@ public actor CmuxConfigFile {
                 try text.write(to: next, options: .withoutOverwriting)
             } else {
                 try Data("{}\n".utf8).write(to: next, options: .withoutOverwriting)
+                createdEmpty = true
             }
         } catch CocoaError.fileWriteFileExists {
             // Another cmux-next launch won the first-launch race. Keep its file.
         }
-        return next
+        return LaunchFile(url: next, createdEmpty: createdEmpty)
     }
 
     /// The app's settings file at launch: ``prepareDefaultURL(home:environment:fileManager:)``, or
     /// when that fails, the reason in the log and ``defaultURL(home:environment:)``.
-    public static func launchURL() -> URL {
+    public static func launchURL() -> URL { launchFile().url }
+
+    /// ``launchURL()`` and whether this launch made the file from nothing (``LaunchFile``).
+    public static func launchFile() -> LaunchFile {
         do {
-            return try prepareDefaultURL()
+            return try prepareLaunchFile()
         } catch {
             Logger(subsystem: "com.cmuxterm.app.next", category: "app")
                 .error("cmux-next config bootstrap failed: \(String(describing: error), privacy: .public)")
-            return defaultURL()
+            return LaunchFile(url: defaultURL(), createdEmpty: false)
         }
     }
 
@@ -109,6 +132,25 @@ public actor CmuxConfigFile {
         } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
             return ""
         }
+    }
+
+    /// Writes `text` beside the file as `<file name>.<suffix>` (the record a launch migration keeps
+    /// of what it changed, so the person can see and undo it); nothing reads it back.
+    @discardableResult
+    public func writeBeside(suffix: String, text: String) throws -> URL {
+        let url = self.url.resolvingSymlinksInPath()
+        let record = url.deletingLastPathComponent().appending(path: "\(url.lastPathComponent).\(suffix)")
+        try Data(text.utf8).blockingWrite(to: record, options: .atomic)
+        return record
+    }
+
+    /// Whether ``writeBeside(suffix:text:)`` left a record named `suffix` beside the file (a regular
+    /// file; a folder of that name is not one).
+    public func hasRecordBeside(suffix: String) -> Bool {
+        let url = self.url.resolvingSymlinksInPath()
+        let record = url.deletingLastPathComponent().appending(path: "\(url.lastPathComponent).\(suffix)")
+        var isDirectory: ObjCBool = false
+        return FileManager.checked.fileExists(atPath: record.path, isDirectory: &isDirectory) && !isDirectory.boolValue
     }
 
     /// The parsed document. A missing file is an empty object.
@@ -163,6 +205,38 @@ public actor CmuxConfigFile {
             }
         }
         if updated != current { try publish(updated) }
+    }
+
+    /// Removes each path whose value is still `expected` in the file as it is now, then each object
+    /// those removals emptied, in one atomic publish; a path changed since the caller read it stays.
+    /// Read and write share one actor turn, so no other write of this file lands between them.
+    /// With `recordBeside`, `record(removed, before)` is written beside the file first
+    /// (`writeBeside`), so a failed record write leaves the file as it was. Returns the removed
+    /// paths and the text before the publish.
+    public func removeUnchanged(
+        _ expected: [(path: [String], value: JSONValue)],
+        recordBeside suffix: String? = nil,
+        record: @Sendable (_ removed: [[String]], _ before: String) throws -> String = { _, _ in "" }
+    ) throws -> (removed: [[String]], before: String) {
+        guard expected.allSatisfy({ !$0.path.isEmpty }) else { throw Failure.invalidPath("") }
+        let current = try source()
+        let root = try validated(current)
+        let removed = expected.filter { root.value(at: $0.path) == $0.value }.map(\.path)
+        for path in removed { try managedGuard.checkRemove(path) }
+        var updated = current
+        for path in removed { updated = try JSONC.removing(path, in: updated) }
+        // Deepest first, so an object a removal empties goes before its parent is checked.
+        for parent in Set(removed.flatMap { path in (1..<path.count).map { Array(path.prefix($0)) } })
+            .sorted(by: { $0.count > $1.count }) {
+            if case .object(let members)? = try JSONC.parse(updated).value(at: parent), members.isEmpty {
+                updated = try JSONC.removing(parent, in: updated)
+            }
+        }
+        if updated != current {
+            if let suffix { try writeBeside(suffix: suffix, text: record(removed, current)) }
+            try publish(updated)
+        }
+        return (removed, current)
     }
 
     private func validated(_ text: String) throws -> JSONValue {

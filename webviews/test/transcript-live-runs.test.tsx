@@ -1,9 +1,8 @@
-// Codex-style tool runs while a turn runs (cx-ncc.108, the Debug toggle
-// agentPane.debug.codexToolRuns, on by default): the Codex desktop app never lets a running turn's
-// tool calls pile up as a list. Each run folds into one summary line ("Read 2 files and ran a command")
-// that opens to its calls, the latest run too as its calls finish; the call in flight leaves the
-// run for the turn's live line, which names it and replaces itself as calls go by. Off, every call
-// keeps its row.
+// Codex-style tool runs while a turn runs (cx-ncc.108): a running turn keeps each run's calls in
+// sight, as they arrive, and nothing folds until the turn ends (cmux#38339); the ended turn folds
+// each run into one summary line ("Read 2 files and ran a command") that opens to its calls. The
+// call in flight leaves the run for the turn's live line, which names it and replaces itself as
+// calls go by.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -37,9 +36,8 @@ const live = [
   run("commands", [call("git log", "execute"), call("wc -l retry.py", "execute", "in_progress")]),
 ];
 
-/// The text each drawn activity row shows, by row id.
-function drawnRuns(liveRuns: boolean): Record<string, string> {
-  const shaped = turnView(live, new Set(), { working: true, liveRuns });
+/// The text each drawn activity row shows, by row id: of the running turn, or of `shaped`.
+function drawnRuns(shaped: AcpmuxRow[] = turnView(live, new Set(), { working: true })): Record<string, string> {
   return Object.fromEntries(
     shaped
       .filter((entry) => entry.kind === "activity")
@@ -53,22 +51,32 @@ function drawnRuns(liveRuns: boolean): Record<string, string> {
   );
 }
 
-test("with live runs on, a run that text followed reads as one summary line", () => {
-  const reads = drawnRuns(true).reads!;
-  expect(reads).toContain("Read 2 files and ran a command");
-  expect(reads).not.toContain("README.md");
-  expect(reads).not.toContain("ls src");
+test("a running turn's run that text followed keeps its calls in sight; ended, it reads as one summary line", () => {
+  const reads = drawnRuns().reads!;
+  expect(reads).not.toContain("Read 2 files and ran a command");
+  expect(reads).toContain("README.md");
+  expect(reads).toContain("ls src");
+  const ended = [
+    ...live.slice(0, 4),
+    run("commands", [call("git log", "execute"), call("wc", "execute")]),
+    text("done"),
+    row("s", "turnSummary", { status: "completed", toolCount: 5 }),
+  ];
+  const folded = drawnRuns(turnView(ended, new Set(["worked-u", "worked-between"]))).reads!;
+  expect(folded).toContain("Read 2 files and ran a command");
+  expect(folded).not.toContain("README.md");
+  expect(folded).not.toContain("ls src");
 });
 
-test("with live runs on, the call in flight leaves the run for the live line", () => {
-  const commands = drawnRuns(true).commands!;
+test("the call in flight leaves the run for the live line", () => {
+  const commands = drawnRuns().commands!;
   expect(commands).toContain("git log");
   expect(commands).not.toContain("wc -l retry.py");
-  const status = turnView(live, new Set(), { working: true, liveRuns: true }).find((entry) => entry.kind === "working");
+  const status = turnView(live, new Set(), { working: true }).find((entry) => entry.kind === "thinking");
   expect(status?.doing).toBe("wc -l retry.py");
 });
 
-test("with live runs on, a thought still coming leaves the latest run; earlier ones stay", () => {
+test("a thought still coming leaves the latest run; earlier ones stay", () => {
   const thought = (text: string): AcpmuxActivity => ({ kind: "thought", text });
   const rows = [
     row("u", "user"),
@@ -76,18 +84,19 @@ test("with live runs on, a thought still coming leaves the latest run; earlier o
     row("next", "assistant", { text: "next ".repeat(40) }),
     run("latest", [call("git log", "execute"), thought("Now I should check")]),
   ];
-  const shaped = turnView(rows, new Set(), { working: true, liveRuns: true });
-  const latest = shaped.find((entry) => entry.id === "latest")!;
-  expect(latest.items?.map((item) => item.text ?? item.tool?.id)).toEqual([""]);
-  expect(latest).toMatchObject({ foldRun: true, settled: true });
+  const shaped = turnView(rows, new Set(), { working: true });
+  // The latest run keeps its finished step, and the thought still coming stays out of it; the live
+  // line reads Thinking the moment the call completed (Leo, 2026-11-07).
+  expect(shaped.find((entry) => entry.id === "latest")!.items!.map((item) => item.kind)).toEqual(["tool"]);
+  expect(shaped.find((entry) => entry.kind === "thinking")!.doing).toBeUndefined();
   expect(shaped.find((entry) => entry.id === "first")!.items).toHaveLength(3);
 });
 
-test("with live runs on, a run whose only step is in flight draws nothing yet", () => {
+test("a run whose only step is in flight draws nothing yet", () => {
   const rows = [row("u", "user"), run("only", [call("bun test", "execute", "in_progress")])];
-  const shaped = turnView(rows, new Set(), { working: true, liveRuns: true });
+  const shaped = turnView(rows, new Set(), { working: true });
   expect(shaped.find((entry) => entry.id === "only")).toBeUndefined();
-  expect(shaped.find((entry) => entry.kind === "working")?.doing).toBe("bun test");
+  expect(shaped.find((entry) => entry.kind === "thinking")?.doing).toBe("bun test");
 });
 
 test("an ended turn's open Worked for folds each run into its summary line", () => {
@@ -99,17 +108,8 @@ test("an ended turn's open Worked for folds each run into its summary line", () 
   ];
   // The long text between the runs is a takeaway, so each run folds under its own line.
   const open = new Set(["worked-u", "worked-between"]);
-  const folded = turnView(ended, open, { liveRuns: true }).filter((entry) => entry.kind === "activity");
+  const folded = turnView(ended, open).filter((entry) => entry.kind === "activity");
   expect(folded.map((entry) => entry.foldRun)).toEqual([true, true]);
-  const listed = turnView(ended, open, { liveRuns: false }).filter((entry) => entry.kind === "activity");
-  expect(listed.map((entry) => entry.foldRun)).toEqual([undefined, undefined]);
-});
-
-test("with live runs off, a running turn lists every call", () => {
-  const runs = drawnRuns(false);
-  expect(runs.reads).toContain("ls src");
-  expect(runs.commands).toContain("git log");
-  expect(runs.commands).toContain("wc -l retry.py");
 });
 
 test("a pending harness prompt keeps one thinking line in place", () => {

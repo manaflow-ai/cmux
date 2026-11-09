@@ -11,6 +11,7 @@ extension SidebarListViewComponents {
     func reload(animated: Bool, adopt: Bool = false, fromModel: Bool = false, file: StaticString = #fileID, line: UInt = #line) {
         SidebarPerfCounters.add(.listReloads, from: file, line: line)
         if animated, !fromModel { model.noteUserIntent() }
+        reloads &+= 1
         holdsModelChange = false // this reload shows the model as it is now
         // No drag holds the rows: this reload shows every held patch (the model has them).
         if !holdsRowPatches { rowHold = SidebarRowHold() }
@@ -54,6 +55,7 @@ extension SidebarListViewComponents {
     private func rebuildRowCaches() {
         workspaces = [:]
         groups = [:]
+        var ordered: [SidebarGroup] = []
         groupSubtrees = [:]
         sections = [:]
         listItems = [:]
@@ -64,6 +66,7 @@ extension SidebarListViewComponents {
                 switch node {
                 case let .workspace(ws): workspaces[ws.id] = ws
                 case let .group(group):
+                    if groups[group.id] == nil { ordered.append(group) }
                     groups[group.id] = group
                     if groupSubtrees[group.id] == nil { groupSubtrees[group.id] = [group.id] }
                     var ancestor = group.parent, seen: Set<GroupID> = [group.id]
@@ -78,6 +81,9 @@ extension SidebarListViewComponents {
                 }
             }
         }
+        let sections = DesignSettings.shared.sidebarSections
+        drawnTints = SidebarGroup.drawnTints(ordered, palette: sections.groupPalette, gradient: sections.groupGradient,
+                                             wallpaper: DesignSettings.shared.groupWallpaperTint?.bands ?? [])
     }
     func options(includeGap: Bool) -> SidebarLayoutOptions {
         var o = model.listOptions()
@@ -104,15 +110,22 @@ extension SidebarListViewComponents {
         }
         o.blockHeights = blockHeights(includeGap: includeGap)
         o.collapsedDocSections = Set(model.collapsedLayoutSections.map(\.rawValue))
+        // A drag's start moves no row: a section the drag empties keeps a drop zone in the dragged rows' place, and an
+        // empty one opens its zone only as the drag reaches it (`SidebarEmptyZones`).
         if let blocks, let moving = shownDrag?.docItems.map(Set.init) {
-            o.emptyDocSections = Set(blocks.sections.filter { $0.value.items.allSatisfy { moving.contains($0.id.rawValue) } }.keys)
+            o.emptyDocSections = Set(blocks.sections.filter { !$0.value.items.isEmpty && $0.value.items.allSatisfy { moving.contains($0.id.rawValue) } }.keys)
+            // Only an empty section (or one the drag empties) opens a zone: one that keeps items takes the drop among them.
+            if let open = shownDrag?.openZone, blocks.sections[open]?.items.allSatisfy({ moving.contains($0.id.rawValue) }) ?? true {
+                o.emptyDocSections.insert(open)
+            }
         }
         guard let drag = shownDrag else { return o }
-        if drag.docItems != nil { o.showEmptyPinned = true } // an empty Pinned takes a drop on the document
+        o.showEmptyPinned = drag.keepsPinned || drag.openZone == SidebarDocStore.pinnedSection
+        if drag.docItems != nil { o.dragClosesArchive = true }
         switch drag.payload {
         case let .workspaces(ids):
             o.excludedWorkspaces.formUnion(ids)
-            o.showEmptyPinned = true
+            o.dragClosesArchive = true
             // A drag that carries a Done row draws unfolded: the fold would move it out of the slot or add a fold row.
             if SidebarLayout.dragUnfolds(ids.compactMap { model.workspace($0) }, options: o) { (o.foldsDone, o.foldsArchived, o.archiveSection) = (false, false, false) }
         case let .group(group):
@@ -472,7 +485,7 @@ extension SidebarListViewComponents {
             // The model's own group when the cache (rebuilt on reload) lags it: a held drag shows the live sections.
             guard var group = groups[id] ?? model.group(id) else { return }
             // `sidebar.showColors` off: the header draws as a group with no color; its stored color stays.
-            if !model.showsColors { group.tint = .none }
+            if !model.showsColors { group.tint = .none } else if let drawn = drawnTints[id] { group.tint = drawn }
             var details = model.groupHeaderDetails
             details.otherStates = model.detailedStatus
             // A collapsed group holding subgroups shows their unread and loading too (nested-groups prototype):
@@ -593,6 +606,7 @@ extension SidebarListViewComponents {
             rowViews[row.key] = view
         }
         pruneOffscreen()
+        showLinesInView()
         // What responsive scrolling may count as drawn: the rows just realized, never more (`prepareContent(in:)`).
         if !realize.isNull, preparedContentRect != realize { preparedContentRect = realize }
         let followed = hoverFollowsScroll

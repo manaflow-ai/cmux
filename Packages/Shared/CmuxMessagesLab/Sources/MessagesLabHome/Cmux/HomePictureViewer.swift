@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSpinner
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -6,15 +7,18 @@ import UniformTypeIdentifiers
 /// to be able to expand and annotate"). A click on a picture in a table card (or a picture bubble) opens it: the
 /// pane dims and blurs under it, it fits the pane and zooms (pinch, Command-plus and -minus, Command-0 to fit, a
 /// double-click for its own size) and pans (scroll, or drag with Move). The arrow keys and the side buttons step
-/// through the table's pictures; C (or Compare) shows the row's Before and After with a slider. The tools mark it
-/// up (arrow, box, pen, text; Command-Z undoes); Send in Chat hands the marked picture to the message box, Copy
-/// and Save keep it. Esc leaves the words being typed, then the comparison, then closes. Like
-/// ``HomeVideoViewer`` it stays inside its pane.
+/// through the table's pictures; C (or Compare) shows the row's Before and After side by side, where a click or
+/// Space flips one picture in place (B and A pick one) and the bar's style control also offers the slider
+/// (``HomePictureCompare``). The tools mark it up (arrow, box, pen, text; Command-Z undoes); Send in Chat hands the
+/// marked picture to the message box, Copy and Save keep it. One Esc closes it, whatever has focus in it (the user,
+/// 2026-11-07: "i have to press esc twice to close it"). Like ``HomeVideoViewer`` it stays inside its pane.
 @MainActor
 final class HomePictureViewer: NSView {
     /// What a key does in the viewer (``handle(_:)``; `keyDown` maps the real keys to it).
     enum Key: Equatable, Sendable {
         case left, right, escape, compare, undo, zoomIn, zoomOut, fit
+        /// In the comparison: flip the shown picture to its pair (Space), or show Before (B) or After (A) alone.
+        case flip, before, after
         /// The row above or below in the comparison ("Light" ↔ "Dark").
         case up, down
     }
@@ -43,12 +47,14 @@ final class HomePictureViewer: NSView {
     private let titleLabel = NSTextField(labelWithString: "")
     private let counterLabel = NSTextField(labelWithString: "")
     private let status = NSTextField(labelWithString: "")
-    private let spinner = NSProgressIndicator(frame: .zero)
+    private let spinner = CmuxSpinnerView(side: 32)
     private let closeButton = NSButton(frame: .zero)
     private let previousButton = NSButton(frame: .zero)
     private let nextButton = NSButton(frame: .zero)
     private let bar = NSVisualEffectView(frame: .zero)
     private let tools = NSSegmentedControl(frame: .zero)
+    /// In the comparison, in the tools' place: Side by Side, Flip, Slider (``HomePictureCompare/Style``).
+    private let styles = NSSegmentedControl(frame: .zero)
     /// The comparison's rows ("Light | Dark"), when the gallery's rows have labels.
     private let rowSwitch = NSSegmentedControl(frame: .zero)
     private var rowSwitchRows: [Int] = []
@@ -106,9 +112,6 @@ final class HomePictureViewer: NSView {
         counterLabel.textColor = NSColor.white.withAlphaComponent(0.7)
         status.alignment = .center
         status.textColor = NSColor.white.withAlphaComponent(0.75)
-        spinner.style = .spinning
-        spinner.controlSize = .regular
-        spinner.isDisplayedWhenStopped = false
         spinner.appearance = NSAppearance(named: .darkAqua)
 
         Self.style(closeButton, symbol: "xmark.circle.fill", label: CmuxStrings.closePictureViewer, size: 20)
@@ -147,6 +150,26 @@ final class HomePictureViewer: NSView {
         tools.target = self
         tools.action = #selector(toolChanged)
         bar.addSubview(tools)
+        let styleList: [(HomePictureCompare.Style, String, String)] = [
+            (.sideBySide, "rectangle.split.2x1", CmuxStrings.pictureStyleSideBySide),
+            (.flip, "arrow.left.arrow.right.square", CmuxStrings.pictureStyleFlip),
+            (.slider, "slider.horizontal.below.rectangle", CmuxStrings.pictureStyleSlider),
+        ]
+        styles.segmentCount = styleList.count
+        styles.trackingMode = .selectOne
+        styles.segmentStyle = .separated
+        for (i, entry) in styleList.enumerated() {
+            styles.setImage(NSImage(systemSymbolName: entry.1, accessibilityDescription: entry.2), forSegment: i)
+            styles.setToolTip(entry.2, forSegment: i)
+            styles.setWidth(30, forSegment: i)
+        }
+        styles.selectedSegment = HomePictureCompare.Style.sideBySide.rawValue
+        styles.target = self
+        styles.action = #selector(styleChanged)
+        styles.setAccessibilityLabel(CmuxStrings.pictureStyle)
+        styles.isHidden = true
+        bar.addSubview(styles)
+        compare.onStyle = { [weak self] style in self?.styles.selectedSegment = style.rawValue }
         let undo = barButton("arrow.uturn.backward", CmuxStrings.pictureUndo, #selector(undoClicked))
         undoButton = undo
         let cmp = barButton("rectangle.split.2x1", CmuxStrings.pictureCompare, #selector(compareClicked))
@@ -301,8 +324,11 @@ final class HomePictureViewer: NSView {
         isComparing = on && gallery.partner(of: gallery.index) != nil
         compare.isHidden = !isComparing
         scroll.isHidden = isComparing
-        tools.isEnabled = !isComparing
+        tools.isHidden = isComparing
+        styles.isHidden = !isComparing
         rowSwitch.isHidden = !isComparing || rowSwitchRows.count < 2
+        // The switch takes room in the top bar: the title's space changes with it.
+        needsLayout = true
         if isComparing { showCompare() }
         compareButton?.state = isComparing ? .on : .off
         compareButton?.contentTintColor = isComparing ? .controlAccentColor : NSColor.white.withAlphaComponent(0.85)
@@ -312,27 +338,34 @@ final class HomePictureViewer: NSView {
         super.layout()
         backdrop.frame = bounds
         dim.frame = bounds
-        let top: CGFloat = 44, bottom: CGFloat = 64, side: CGFloat = gallery.items.count > 1 ? 56 : 20
+        let top = HomePictureViewerTopBar.height, bottom: CGFloat = 64, side: CGFloat = gallery.items.count > 1 ? 56 : 20
         let area = CGRect(x: side, y: top, width: max(0, bounds.width - 2 * side), height: max(0, bounds.height - top - bottom))
         scroll.frame = area
         compare.frame = area
-        titleLabel.frame = CGRect(x: 16, y: 14, width: max(0, bounds.width - 180), height: 18)
-        let switchSize = rowSwitch.fittingSize
-        rowSwitch.frame = CGRect(x: (bounds.midX - switchSize.width / 2).rounded(), y: ((top - switchSize.height) / 2).rounded(),
-                                 width: switchSize.width, height: switchSize.height)
-        counterLabel.frame = CGRect(x: bounds.maxX - 150, y: 15, width: 100, height: 16)
+        let topBar = HomePictureViewerTopBar(
+            width: bounds.width,
+            titleWidth: naturalWidth(titleLabel),
+            center: rowSwitch.isHidden ? .zero : rowSwitch.fittingSize,
+            counterWidth: naturalWidth(counterLabel),
+            avoiding: topBarObstacles)
+        titleLabel.frame = topBar.title
+        rowSwitch.frame = topBar.center
+        counterLabel.frame = topBar.counter
         counterLabel.alignment = .right
-        closeButton.frame = CGRect(x: bounds.maxX - 38, y: 10, width: 26, height: 26)
+        closeButton.frame = topBar.close
         previousButton.frame = CGRect(x: 12, y: bounds.midY - 18, width: 36, height: 36)
         nextButton.frame = CGRect(x: bounds.maxX - 48, y: bounds.midY - 18, width: 36, height: 36)
         spinner.frame = CGRect(x: bounds.midX - 16, y: bounds.midY - 16, width: 32, height: 32)
         status.frame = CGRect(x: 20, y: bounds.midY - 10, width: max(0, bounds.width - 40), height: 20)
-        let toolsWidth = tools.fittingSize.width
+        let shownTools = isComparing ? styles : tools
+        let toolsWidth = shownTools.fittingSize.width
         let buttonWidth: CGFloat = 32
         let barWidth = 12 + toolsWidth + 12 + CGFloat(barButtons.count) * buttonWidth + 8
         bar.frame = CGRect(x: (bounds.midX - barWidth / 2).rounded(), y: bounds.maxY - 50, width: barWidth, height: 38)
-        tools.frame = CGRect(x: 12, y: (38 - tools.fittingSize.height) / 2, width: toolsWidth, height: tools.fittingSize.height)
-        var x = tools.frame.maxX + 12
+        for control in [tools, styles] {
+            control.frame = CGRect(x: 12, y: (38 - control.fittingSize.height) / 2, width: control.fittingSize.width, height: control.fittingSize.height)
+        }
+        var x = shownTools.frame.maxX + 12
         for b in barButtons {
             b.frame = CGRect(x: x, y: 5, width: buttonWidth, height: 28)
             x += buttonWidth
@@ -342,6 +375,35 @@ final class HomePictureViewer: NSView {
         }
     }
 
+    /// The width `label` needs for its whole text, with the label cell's 2-point side insets (0 when empty). Not the
+    /// intrinsic width: a truncating label's follows its current frame, so a short frame kept it short ("Ligh…After").
+    private func naturalWidth(_ label: NSTextField) -> CGFloat {
+        guard !label.stringValue.isEmpty else { return 0 }
+        return max(label.cell?.cellSize.width ?? 0, label.attributedStringValue.size().width + 4).rounded(.up)
+    }
+
+    /// Controls the pane floats over the viewer's top bar, in the viewer's coordinates: visible views drawn above
+    /// it (the Home chat column's round compose button is the chat's sibling, above it) and the window's traffic
+    /// lights, where they reach into the bar. A view half the viewer's width or wider is an overlay, not a control.
+    private var topBarObstacles: [CGRect] {
+        let band = CGRect(x: 0, y: 0, width: bounds.width, height: HomePictureViewerTopBar.height)
+        var found: [CGRect] = []
+        var child: NSView = self
+        while let parent = child.superview, child !== window?.contentView {
+            for view in parent.subviews.drop(while: { $0 !== child }).dropFirst() where !view.isHidden && view.alphaValue > 0 {
+                let rect = convert(view.bounds, from: view)
+                if rect.intersects(band), rect.width < bounds.width / 2 { found.append(rect) }
+            }
+            child = parent
+        }
+        for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = window?.standardWindowButton(kind), !button.isHiddenOrHasHiddenAncestor else { continue }
+            let rect = convert(button.bounds, from: button)
+            if rect.intersects(band) { found.append(rect) }
+        }
+        return found
+    }
+
     // MARK: Keys
 
     /// Does what `key` does in the viewer; false when it does nothing here.
@@ -349,8 +411,8 @@ final class HomePictureViewer: NSView {
     func handle(_ key: Key) -> Bool {
         switch key {
         case .escape:
-            if textField != nil { endText(commit: false); return true }
-            if isComparing { setComparing(false); return true }
+            // One Esc closes, from the words being typed or the comparison too.
+            endText(commit: false)
             close()
         case .left, .right:
             let next = gallery.moved(by: key == .left ? -1 : 1)
@@ -359,6 +421,14 @@ final class HomePictureViewer: NSView {
             gallery = next
             show()
         case .compare: setComparing(!isComparing)
+        case .flip, .before, .after:
+            guard isComparing else { return false }
+            let second = switch key {
+            case .before: false
+            case .after: true
+            default: compare.style == .flip ? !compare.showsSecond : false
+            }
+            compare.flip(toSecond: second)
         case .up, .down:
             guard let row = gallery.current?.row, let at = rowSwitchRows.firstIndex(of: row),
                   let target = rowSwitchRows[checked: at + (key == .up ? -1 : 1)] else { return false }
@@ -390,6 +460,9 @@ final class HomePictureViewer: NSView {
         case (_, "0") where command: .fit
         case (_, "c") where command: nil
         case (_, "c"): .compare
+        case (49, _) where isComparing: .flip
+        case (_, "b") where isComparing && !command: .before
+        case (_, "a") where isComparing && !command: .after
         default: nil
         }
         if let key { handle(key); return }
@@ -489,6 +562,17 @@ final class HomePictureViewer: NSView {
     @objc private func previousClicked() { handle(.left) }
     @objc private func nextClicked() { handle(.right) }
     @objc private func closeClicked() { close() }
+
+    @objc private func styleChanged() {
+        guard let style = HomePictureCompare.Style(rawValue: styles.selectedSegment) else { return }
+        showCompareStyle(style)
+    }
+
+    /// Shows the comparison as `style`, as its control in the bar does.
+    func showCompareStyle(_ style: HomePictureCompare.Style) {
+        styles.selectedSegment = style.rawValue
+        compare.style = style
+    }
     @objc private func replyClicked() { reply() }
 
     @objc private func copyClicked() {

@@ -584,10 +584,7 @@ select {
   color: inherit;
   width: min(460px, 100%);
   padding: 18px;
-  border-radius: 12px;
-  background: var(--cloud-elevated);
-  border: 1px solid var(--cloud-separator);
-  box-shadow: var(--elevation-2);
+  /* The glass (.ui-glass .ui-glass-floats) in the sheet role's veil, radius and depth (ui/popupSurface.css .ui-dialog.ui-glass). */
 }
 
 .cloud-sheet-title {

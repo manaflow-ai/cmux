@@ -52,7 +52,9 @@ steps, every `.ips`, `.hang` and `.diag` report of the cmux processes, and the u
   only a reviewed (landed) runner: the worker checks that the whole `scripts/fuzz/macos-matrix/` directory at
   the ref is the feat-cmux-next version, because vm.sh runs its helpers on the host. A change to the runner
   takes effect on the fleet after it lands.
-- The smoke needs a DEV build (it drives the app through `cmux app call`, which a release build refuses). The
+- The smoke needs a DEV build (it drives the app through `cmux app call`, which a release build refuses) or a
+  bench Release (`--release` of a tag in `release_bench_tags` of `scripts/cmux-next/cmux-next.dogfood.conf`, such
+  as `chrome-parity-*`). A plain Release has no `debug.*` methods: the smoke fails its `debug_build` step. The
   fuzz and repro suites take any build; run a shipped DMG by hand (hq `build-fleet/AGENT-BUILDS.md`, "Run vm.sh
   by hand").
 - One VM at a time on the Tart host (the worker has one VM token, see the keychain note below). The step never

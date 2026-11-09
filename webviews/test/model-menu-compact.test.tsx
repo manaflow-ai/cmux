@@ -9,7 +9,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
-import type { UpdateOffer } from "../src/agent-session/acpmux/HarnessHealthNotice";
+import type { UpdateOffer } from "../src/agent-session/acpmux/harnessHealthNoticeModel";
 import { DEFAULT_COMPOSER, setComposerSettings } from "../src/agent-session/acpmux/composerSettings";
 
 const scope = globalThis as Record<string, unknown>;
@@ -112,7 +112,7 @@ async function mount(
   } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
-  const { UpdateOfferContext } = await import("../src/agent-session/acpmux/HarnessHealthNotice");
+  const { UpdateOfferContext } = await import("../src/agent-session/acpmux/harnessHealthNoticeModel");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
   const { usePickerCatalog } = await import("../src/agent-session/acpmux/modelCatalogHost");

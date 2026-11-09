@@ -28,7 +28,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var focus: FocusCoordinator { state.focus }
     /// Built in init (lazy because it holds self; no IUO).
     private(set) lazy var focusApplier = FocusEffectApplier(controller: self)
-    private(set) var content: WorkspaceContentController?
+    private(set) var content: WorkspaceContentController? { // an open Dock section follows the shown workspace (#37374)
+        didSet { if content !== oldValue, rightSidebar.isVisible { (rightSidebarView?.shownSection as? DockSectionHostView)?.refresh() } }
+    }
     /// The workspaces this window showed most recently (`ParkedWorkspaceBudget`), by id, kept mounted and paused
     /// (plans/cmux-next/tab-lifecycle.md): a switch back swaps its view in within the frame. Their GPU surfaces leave
     /// under the one memory budget (`SurfaceLedger`'s LRU of hidden surfaces); the tree, panes and strips stay (perf I6).
@@ -48,9 +50,13 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// Workspaces Toggle Left/Right/Top/Bottom Dock created for an empty edge, docked there once the daemon reports
     /// them (`arrangeOnScreen`). In memory only.
     var pendingDocks: [String: DockEdge] = [:]
-    /// A link clicked in the Chief while Home fills the window: the next workspace shown goes beside Home docked
-    /// (``ChiefDockLeave``, `WindowDockFrame+Operations`). In memory only.
-    var chiefDockOnLeave: ChiefDockLeave?
+    /// The Chief panel's view (`WindowController+ChiefPanel`), made the first time it shows.
+    var chiefPanelView: ChiefPanelView?
+    /// A link clicked in the Chief while Home fills the window: until this instant, the next workspace shown gets
+    /// the floating Chief (`openChiefPanelOnLeave(for:)`). In memory only.
+    var chiefPanelArm: ContinuousClock.Instant?
+    /// The view the panel holds, when not Home's Chief tab's (tests give a stand-in). Nil reads Home's.
+    var chiefPanelSource: (@MainActor () -> NSView?)?
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
@@ -295,7 +301,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private func show(_ workspace: WorkspaceModel, on daemon: DaemonService) {
         if state.workspaceID != workspace.id { state.workspaceID = workspace.id }
         if state.machineID != daemon.machineID { state.machineID = daemon.machineID }
-        dockChiefOnLeave(for: workspace.id) // a link from the Chief: Home docks before it leaves the stage
+        openChiefPanelOnLeave(for: workspace.id) // a link from the Chief (WindowDockFrame+ChiefPanel): the floating Chief
         guard content?.workspace !== workspace else { return arrangeOnScreen() }
         // Parking the current one never trims the one to show; a current one of the same id (a rebuilt model) is torn down below.
         if let current = content { park(current, leaving: workspace.id) }
@@ -476,6 +482,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
 
     /// A pane policy that may hold cursor-rect invalidations (ShellWindow+Events.swift).
     weak var cursorRectHold: (any CursorRectHoldPolicy)?
+    let presses = WindowPressRouter() // what a press does before AppKit gets it (ShellWindow+Events.swift)
     /// The incognito badge in the top row while the sidebar is hidden.
     var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarAccessoryFrame }
     var sidebarHidden: Bool { (contentView as? WindowRootView)?.sidebarHidden ?? false }
@@ -501,10 +508,10 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
 
     /// The traffic lights, found once (`StandardWindowButtons`, cx-8w027.25).
     private var standardButtons = StandardWindowButtons()
-    override func standardWindowButton(_ b: NSWindow.ButtonType) -> NSButton? {
-        if let button = standardButtons.cached(b, in: self) { return button }
+    override func standardWindowButton(_ b: NSWindow.ButtonType) -> NSButton? { // perf-hot: 1ms motion-frame
+        if case .known(let button) = standardButtons.answer(b, in: self) { return button }
         let button = super.standardWindowButton(b)
-        standardButtons.store(button, for: b, in: self)
+        standardButtons.store(StandardWindowButtons.Found(button, for: b, in: self)) // Found reads AppKit before the store
         return button
     }
 
@@ -590,7 +597,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
         if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: controller.focus.isApplying, focusedPane: { controller.focus.currentState().pane }, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { return false }
         let accepted = holdingResponderReports { () -> Bool in let moved = BenchSpans.measure("window.makeFirstResponder") { super.makeFirstResponder(responder) }; editTeardown.pending = editTeardown.pending || moved; return moved }
-        if accepted { cursorRectHold?.firstResponderDidChange(in: self) }
+        if accepted { cursorRectHold?.firstResponderDidChange(in: self); (windowController as? WindowController)?.chiefPanelView?.firstResponderDidChange() }
         return accepted
     }
 }

@@ -47,7 +47,7 @@ const { createRoot } = await import("react-dom/client");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
-const { linkAttachment } = await import("../src/agent-session/acpmux/attachments");
+const { linkAttachment, promptText } = await import("../src/agent-session/acpmux/attachments");
 
 const PATH = "/Users/dev/Library/Application Support/cmux/Chat Uploads/0190a000-upload/0/screen-demo.mp4";
 const URI = `file://${encodeURI(PATH)}`;
@@ -205,6 +205,39 @@ try {
     expect(view.files.join("")).toContain("screen-demo.mp4");
   });
 
+  // withoutFrames (composer/videoPrompt.ts) sends a video to an agent that takes no images, or past
+  // the prompt's budget, as its link alone: the pane's own row keeps that chip, frames emptied, and
+  // it stays the file chip acpmux's echo will draw, never a poster tile.
+  test("the pane's own row with a video sent without frames keeps its file chip, no tile", async () => {
+    const chip = {
+      ...linkAttachment(PATH, false),
+      mimeType: "video/mp4",
+      size: 9,
+      video: { durationMs: 16_000, width: 1920, height: 1080, poster: "data:image/jpeg;base64,cG9z", frames: [] },
+    };
+    // The row's text as the pane writes it at send (direct.ts): the prompt and the video's link note.
+    await render({
+      id: "user-4b",
+      version: 1,
+      at: 0,
+      kind: "user",
+      text: promptText("look", [chip]),
+      retryAttachments: [chip],
+    } as AcpmuxRow);
+    const view = shown();
+    expect(view.tile).toBeNull();
+    expect(view.files.join("")).toContain("screen-demo.mp4");
+    // Its frames are what make it a tile: the same chip with one is one.
+    const { sentVideosOf } = await import("../src/agent-session/acpmux/conversation/sentVideos");
+    expect(sentVideosOf({ text: "look", retryAttachments: [chip] })).toEqual([]);
+    expect(
+      sentVideosOf({
+        text: "look",
+        retryAttachments: [{ ...chip, video: { ...chip.video, frames: [{ atMs: 2_000, data: "AA==" }] } }],
+      }),
+    ).toHaveLength(1);
+  });
+
   test("a person's own line that only reads like a note, with no frame or link, draws no tile", async () => {
     await render({ id: "user-5", version: 1, at: 0, kind: "user", text: NOTE } as AcpmuxRow);
     expect(shown().tile).toBeNull();
@@ -354,6 +387,31 @@ try {
     } finally {
       proto.play = original;
     }
+  });
+  // Leo, 2026-11-04: "i can neither preview a vid in place nor have it pop up anymore :(". In a
+  // chat on another machine the host granted no stream and Quick Look refused too, and the click
+  // did nothing at all. When nothing can play it, the tile says so.
+  test("a video nothing can play says so on the tile instead of a click that does nothing", async () => {
+    const path = "/home/dev/project/remote-demo.mp4";
+    await grantedVideo("user-9", path, "unused");
+    const refusal = { ok: false, error: { code: "media_refused", message: "refused" } };
+    setChipHost(async (method, params) => {
+      calls.push({ method, params });
+      return method === "media.load" || method === "video.quickLook" ? refusal : null;
+    });
+    calls.length = 0;
+    const tile = host.querySelector<HTMLElement>(".cv-user__video")!;
+    expect(tile.querySelector(".cv-user__video-unplayable")).toBeNull();
+    await act(async () => tile.click());
+    await settle();
+    expect(calls.map((call) => call.method)).toEqual(["media.load", "video.quickLook"]);
+    const note = host.querySelector(".cv-user__video .cv-user__video-unplayable");
+    expect(note?.textContent).toBe("Can't play this video here");
+    // The tile stays, and a later click asks again.
+    calls.length = 0;
+    await act(async () => host.querySelector<HTMLElement>(".cv-user__video")!.click());
+    await settle();
+    expect(calls.map((call) => call.method)).toEqual(["media.load", "video.quickLook"]);
   });
 } finally {
   afterAll(() => {

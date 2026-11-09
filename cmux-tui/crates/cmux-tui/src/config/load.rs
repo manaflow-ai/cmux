@@ -132,6 +132,9 @@ pub fn load() -> Config {
             );
         }
     }
+    if let Some(agents) = raw.sidebar.agents {
+        config.sidebar.agents = agents;
+    }
     if let Some(template) = raw.sidebar.workspace_label {
         let template = template.trim().to_string();
         if !template.is_empty() {
@@ -556,6 +559,12 @@ pub fn load() -> Config {
         config.server.detached_owner = detached_owner;
     }
     config.server.loopback_forward = raw.server.loopback_forward;
+    if let Some(desktop) = raw.notifications.desktop {
+        config.notifications.desktop = desktop;
+    }
+    if let Some(bell) = raw.notifications.bell {
+        config.notifications.bell = bell;
+    }
     config.keys.apply(&raw.keys);
     bind_user_command_chords(&mut config.keys, &user_commands, &user_command_keys);
     config.commands = user_commands;
@@ -671,6 +680,11 @@ pub(super) fn normalize_ssh_machine_port(id: &str, port: Option<u16>) -> Option<
     }
 }
 
+/// The config file's `agents` section alone (`daemon status`).
+pub(crate) fn load_raw_agents() -> crate::agent_plugin_config::RawAgents {
+    load_raw_config().agents
+}
+
 pub(super) fn load_raw_config() -> RawConfig {
     // A config that exists but cannot be read leaves the user's agents choice
     // unknown, so the bundled screen detector stays off (agent_plugin_config).
@@ -719,6 +733,7 @@ pub(super) fn load_raw_config() -> RawConfig {
         "status_bar",
         "viewport",
         "server",
+        "notifications",
         "keys",
     ];
     if let Some(unknown) = object.keys().find(|key| !KNOWN.contains(&key.as_str())) {
@@ -765,6 +780,7 @@ pub(super) fn load_raw_config() -> RawConfig {
     section!(status_bar, "status_bar");
     section!(viewport, "viewport");
     section!(server, "server");
+    section!(notifications, "notifications");
     section!(keys, "keys");
     raw
 }

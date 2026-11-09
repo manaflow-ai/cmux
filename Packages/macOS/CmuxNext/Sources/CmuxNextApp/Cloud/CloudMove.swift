@@ -68,7 +68,8 @@ struct CloudMove {
               !record.host.hasPrefix(MachineRegistry.registryHostPrefix) else {
             throw ActionFailure(message: CloudMoveStrings.alreadyRemote)
         }
-        guard let session = tabs.sessions[tabs.resolve(tab.id)] ?? record.session else { throw ActionFailure(message: CloudMoveStrings.noSession) }
+        let scoped = tabs.tabKey(tab.id, machine: services.machines.daemon(forTab: tab).machineID)
+        guard let session = tabs.sessions[scoped] ?? record.session else { throw ActionFailure(message: CloudMoveStrings.noSession) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         var invocation = invocation
         // A person's Retry pinned to a machine since deleted drops the pin, as a kept pin does above.
@@ -314,8 +315,7 @@ struct CloudMove {
     /// The Cloud API's answer on the link, read now and never kept: the machine takes the chat only on
     /// `owner`. The app link's carrier has no link process (`toPID`).
     static func ownerAnswer(_ session: CloudMachineSession) async -> (vmKind: String, toPID: Int32?) {
-        guard let appLink = session.appLink else { return ("none", nil) }
-        return (await appLink.ownerLink == nil ? "none" : "owner", nil)
+        (await session.appLink.ownerLink == nil ? "none" : "owner", nil)
     }
 
     static func connected(_ session: CloudMachineSession, _ invocation: ActionInvocation) async throws -> CloudMachineSession {
@@ -350,7 +350,7 @@ struct CloudMove {
         let daemon = machine.daemon
         guard let connection = daemon.connection, let host = AgentTabStore.registryHost(of: daemon) else { throw DaemonError.notConnected }
         let record = AgentSessionRef(host: host, hostName: machine.machine.title, session: session, harness: harness)
-        let workspace = WorkspaceKey.generate()
+        let workspace = NewWorkspacePlacements.placedKey(in: services.windows) // placed like Cmd-N, not at the machine daemon's slot
         let created = try await WorkspaceCreation.createWithFirstTab(workspace, name: name, on: connection, repair: machine.emptyWorkspaces) { result in
             try await connection.createTerminal(in: result.key, cwd: folder)
             return try await connection.request(NewConversationTabRequest(agentSession: record, workspace: result.workspace,
