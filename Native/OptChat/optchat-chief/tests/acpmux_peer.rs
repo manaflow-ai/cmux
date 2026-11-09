@@ -137,3 +137,57 @@ fn a_same_user_squatter_on_the_socket_is_refused_before_any_byte() {
         "the refusal names the peer: {output}"
     );
 }
+
+/// `script` as acpmux writes it for `ACPMUX_BIN` when its daemon runs under a host prefix and no
+/// `acpmux` alias is beside the host binary (`cli_caller::bin_choice` in acpmux): one POSIX shell
+/// word per argument, in single quotes.
+fn acpmux_wrapper(dir: &Path, exe: &Path) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let word = |w: &str| format!("'{}'", w.replace('\'', "'\\''"));
+    let script = format!(
+        "#!/bin/sh\nexec {} {} \"$@\"\n",
+        word(exe.to_str().unwrap()),
+        word("acp")
+    );
+    let bin = dir.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let path = bin.join("acpmux");
+    std::fs::write(&path, script).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    path
+}
+
+/// F3 of #39020 (W5-S): a Chief started from an acpmux agent's shell inherits the agent's
+/// `ACPMUX_BIN`. Under a host prefix with no `acpmux` alias that is acpmux's wrapper script, not
+/// the daemon's executable; the Chief must check the peer against the executable the wrapper
+/// runs, not refuse its own daemon.
+#[test]
+fn w5s_the_chief_accepts_its_daemon_when_acpmux_bin_is_the_acpmux_wrapper() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("acpmux.sock");
+    let server = serve(dir.path(), &socket);
+    let wrapper = acpmux_wrapper(dir.path(), &python());
+    let (ok, output) = list(dir.path(), &socket, &wrapper);
+    assert!(ok, "the Chief connects to the daemon its ACPMUX_BIN wrapper runs: {output}");
+    assert!(
+        String::from_utf8_lossy(&received(&server)).contains("\"initialize\""),
+        "the server got the Chief's requests"
+    );
+}
+
+/// The wrapper names the executable; a script of any other shape is no acpmux wrapper, and the
+/// peer check stays on the script itself (a squatter is still refused).
+#[test]
+fn w5s_a_script_that_is_no_acpmux_wrapper_does_not_name_the_daemon() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("acpmux.sock");
+    let squatter = serve(dir.path(), &socket);
+    let script = dir.path().join("acpmux");
+    let text = format!("#!/bin/sh\necho hi\nexec '{}' 'acp' \"$@\"\n", python().display());
+    std::fs::write(&script, text).unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let (ok, output) = list(dir.path(), &socket, &script);
+    assert!(!ok, "the Chief refuses the socket: {output}");
+    assert!(received(&squatter).is_empty(), "the squatter got nothing from the Chief");
+}

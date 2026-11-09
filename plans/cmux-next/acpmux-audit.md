@@ -367,3 +367,14 @@ From tui-parity bench round 4, friction 6-10 (owner W5-S). CLI only; no daemon c
   `createdBy`, and `subsession.startedBy` is a sub-session's parent (flagged to the lead).
 - Guide: a complete private-daemon recipe (unset every `ACPMUX_*` and `CLAUDE_CODE_MESSAGING_*`,
   an absolute acpmux path, `defaults claude prefer=claude-sr2,claude` for a new home).
+
+## Notice to PL-acpmux: the Chief reads an agent's ACPMUX_BIN wrapper (2026-11-09)
+
+F3 of #39020 (owner W5-S), PR #39552. An agent's `ACPMUX_BIN` can be acpmux's wrapper script
+(`cli_caller::bin_choice`, `BinChoice::Wrapper`: a host prefix with no `acpmux` alias). A Chief
+started from that agent's shell inherits it, and its socket peer check compared the daemon with
+the script. `optchat-chief` `acpmux_wrapper.rs` now reads the exact wrapper shape and checks the
+peer against the binary it runs. The wrapper text is now a contract: a change to its shape in
+`cli_caller.rs` must change `acpmux_wrapper.rs` too (the `BinChoice::Wrapper` doc says so).
+Next (F3b): the Swift app's `ACPMUX_BIN` override and `mux/host` `acpmux-daemon.ts` must not
+take the wrapper as the daemon binary either.
