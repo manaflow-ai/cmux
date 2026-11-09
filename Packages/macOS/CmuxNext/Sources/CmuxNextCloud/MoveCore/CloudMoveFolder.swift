@@ -69,11 +69,6 @@ public nonisolated struct CloudMoveFolder: Sendable, Equatable, Decodable {
         self = found
     }
 
-    /// ``init(chat:)`` read off the main thread (it looks for `.git` above the folder).
-    @concurrent nonisolated public static func read(chat folder: String) async -> CloudMoveFolder? {
-        CloudMoveFolder(chat: folder)
-    }
-
     /// The home folder or the disk's root: never copied to a machine (Rust's `start::too_broad`, with both
     /// paths as Foundation standardizes them).
     public var isTooBroad: Bool {
