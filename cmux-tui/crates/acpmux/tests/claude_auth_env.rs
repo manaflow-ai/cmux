@@ -97,12 +97,35 @@ impl Drop for Daemon {
         let deadline = Instant::now() + Duration::from_secs(8);
         while Instant::now() < deadline {
             if self.child.try_wait().ok().flatten().is_some() {
+                self.end_hosts();
                 return;
             }
             std::thread::sleep(Duration::from_millis(50));
         }
         let _ = self.child.kill();
         let _ = self.child.wait();
+        self.end_hosts();
+    }
+}
+
+impl Daemon {
+    /// End every agent host this test's daemon started (`start_with` hosted):
+    /// a host outlives its daemon by design.
+    fn end_hosts(&self) {
+        let Ok(dir) = std::fs::read_dir(self.dir.join("hosts")) else { return };
+        for path in dir.filter_map(|e| e.ok().map(|e| e.path())) {
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let Ok(r) = serde_json::from_slice::<Value>(&std::fs::read(&path).unwrap_or_default())
+            else {
+                continue;
+            };
+            for pid in [r["harness_pid"].as_i64(), r["host_pid"].as_i64()].into_iter().flatten() {
+                // SAFETY: process groups this test's daemon created.
+                unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
+            }
+        }
     }
 }
 
@@ -118,15 +141,24 @@ async fn start(dir: &Path, harnesses: Value, extra: &[(&str, &str)]) -> Daemon {
 }
 
 async fn start_config(dir: &Path, config: Value, extra: &[(&str, &str)]) -> Daemon {
+    start_with(dir, config, extra, false).await
+}
+
+/// `start_config`; `hosted`: a store on disk, with agents under agent hosts as
+/// a daemon runs them by default (`spawn_hosted_child`).
+async fn start_with(dir: &Path, config: Value, extra: &[(&str, &str)], hosted: bool) -> Daemon {
     std::fs::write(dir.join("config.json"), config.to_string()).unwrap();
     let socket = dir.join("s.sock");
     // The stand-in claude (fake_claude.py) is the only agent.
     let mut cmd = daemon_env::command(dir, daemon_env::Agents::StandIn, &[]);
-    cmd.args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "info"])
+    let store: &[&str] = if hosted { &[] } else { &["--memory"] };
+    cmd.args(["daemon", "run"])
+        .args(store)
+        .args(["--ready-fd", "1", "--log", "info"])
         .env("SHELL", dir.join("loginsh"))
         .env("ACPMUX_HOME", dir)
         .env("ACPMUX_SOCKET", &socket)
-        .env("ACPMUX_AGENT_HOSTS", "0")
+        .env("ACPMUX_AGENT_HOSTS", if hosted { "1" } else { "0" })
         .envs(extra.iter().copied())
         .current_dir(dir)
         .stdin(std::process::Stdio::null())
@@ -531,6 +563,34 @@ async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
         let _ = ask(&d, "claude").await;
     }
     assert_eq!(runs(), 3, "an edited rc file runs the shell again");
+}
+
+/// A cached restart with Claude already signed in, so nothing waits for the
+/// login shell on its account (`Plan::wait`), and a slow shell: the base URL
+/// the cache keeps by name only (`save_cache`) still reaches the agent, which
+/// waits for the read, both as a direct child and under an agent host.
+#[tokio::test]
+async fn a_cached_restart_keeps_the_login_base_url_while_the_shell_is_slow() {
+    for hosted in [false, true] {
+        let dir = scratch(
+            if hosted { "bu-h" } else { "bu-d" },
+            &format!("[ -f \"$HOME/slow\" ] && sleep 1.5\nexport ANTHROPIC_BASE_URL={SUBROUTER}\n"),
+        );
+        let config = json!({"harnesses": {"claude": claude(json!({}))}, "defaultHarness": "claude",
+            "permissionPolicy": "approve-all"});
+        let signed_in = [("ANTHROPIC_API_KEY", "from-the-daemon")];
+        {
+            let d = start_with(&dir, config.clone(), &signed_in, hosted).await;
+            let (reply, _) = ask_as(&d, "claude", "first").await;
+            assert_eq!(found(&reply)["base"], SUBROUTER, "first start, hosted {hosted}");
+        }
+        let text = std::fs::read_to_string(dir.join("login-env.json")).unwrap();
+        assert!(!text.contains(SUBROUTER), "the base URL is cached by name only: {text}");
+        std::fs::write(dir.join("home/slow"), "").unwrap();
+        let d = start_with(&dir, config, &signed_in, hosted).await;
+        let (reply, _) = ask_as(&d, "claude", "restarted").await;
+        assert_eq!(found(&reply)["base"], SUBROUTER, "cached restart, hosted {hosted}");
+    }
 }
 
 #[tokio::test]
