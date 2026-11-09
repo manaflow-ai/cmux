@@ -1,6 +1,6 @@
 import { INFERENCE_PERSONAL_PLAN_IDS, INFERENCE_TEAM_PLAN_IDS } from "@cmux/protocol"
 import type { Env } from "./env.ts"
-import { defaultIncludedMode, usageIncludedUsd } from "./billing-catalog.ts"
+import { defaultIncludedMode, poolsMachineTime, usageIncludedUsd } from "./billing-catalog.ts"
 import { usagePriceSet } from "./billing-usage-sync.ts"
 import { includedPlanOf } from "./inference/included-stop.ts"
 import { nextMonthStart } from "./usage-user.ts"
@@ -37,7 +37,7 @@ export const teamUsageLine = async (env: Env, team: string, plan: string | null)
   const now = Date.now()
   const usagePlan = includedPlanOf(plan)
   const set = usagePriceSet(env)
-  const usage = await env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team)).teamUsage(team, defaultIncludedMode(usagePlan, set)).catch(() => null)
+  const usage = await env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team)).teamUsage(team, defaultIncludedMode(usagePlan, set), poolsMachineTime(set)).catch(() => null)
   const b = usage?.billable ?? null
   if (b) return { billed: true, included_usd: b.included_usd, per_seat: b.mode === "per_seat", seats: b.seats, spent_usd: b.spent_usd, period_start: b.period_start === null ? null : b.period_start * 1000, period_end: b.period_end * 1000, stop_applies: false, stopped: false }
   // As the stop counts it (included-stop.ts): a paid plan the catalog does not know has 0 included; an unpaid

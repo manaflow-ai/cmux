@@ -80548,6 +80548,16 @@
           "isTargetDescription" : false,
           "isTargetName" : false,
           "kind" : "string",
+          "name" : "fromFolder",
+          "suggestions" : null,
+          "title" : "Folder on This Mac to Copy"
+        },
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
           "name" : "login",
           "suggestions" : null,
           "title" : "Harness Login"
@@ -80568,7 +80578,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Starts an agent session (--agent claude, codex, ...) in the Cloud machine's own acpmux and returns machine_id, session_id and host, plus the chat tab's workspace_id and surface_id. Name the machine with --target machine:<id>, or --name <name> to take or create it; --cwd is the folder there. --login pass|machine|none: your login, the machine's own, or none (default: the machine's login or your earlier choice). An agent's run asks no one (unless cloud.agentsStartWithoutAsking is off). A slow run answers pending: true; run it again for its session.",
+      "description" : "Starts an agent session (--agent claude, codex, ...) in the Cloud machine's own acpmux and returns machine_id, session_id and host, plus the chat tab's workspace_id and surface_id. Name the machine with --target machine:<id>, or --name <name> to take or create it; --cwd is the folder there, or --from-folder copies one from this Mac. --login pass|machine|none: your login, the machine's own, or none (default: the machine's login or your earlier choice). An agent's run asks no one (unless cloud.agentsStartWithoutAsking is off). A slow run answers pending: true; run it again for its session.",
       "focuses" : false,
       "group" : "CloudSessionActionCatalog",
       "hint" : null,
