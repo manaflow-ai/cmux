@@ -348,6 +348,10 @@ elif args[0] == "api":
             print("gh: Not Found (HTTP 404)", file=sys.stderr); sys.exit(1)
         emit({"object": {"sha": state["refs"][ref]}})
     elif "/pulls?" in endpoint: emit([{"number": 1}])  # stale even after auto-close
+    elif ("/check-runs" in endpoint or endpoint.endswith("/status")) and os.environ.get("GH_TOKEN") != "read-token":
+        print("gh: Resource not accessible by integration (HTTP 403)", file=sys.stderr); sys.exit(1)
+    elif endpoint.endswith("/status") and state.get("status_read") == "fail":
+        print("gh: Server Error (HTTP 502)", file=sys.stderr); sys.exit(1)
     elif endpoint.endswith("/check-runs?per_page=100"):
         emit({"check_runs": [{"conclusion": c} for c in state.get("checks", [])]})
     elif endpoint.endswith("/status"): emit({"state": state.get("status", "pending")})
@@ -369,7 +373,7 @@ class RePinPublication(unittest.TestCase):
     """Execute the workflow step; model GitHub auto-closing a head reset to base."""
 
     def run_repin(self, *, closed=False, write_mode="ok", push_mode="ok", wrong_head=False, close_on_edit=False,
-                  refs=None, cache=None, ref_read="ok", head_age_min=600, checks=(), status="pending",
+                  refs=None, cache=None, ref_read="ok", head_age_min=600, checks=(), status="pending", status_read="ok",
                   workflow=WORKFLOW):
         step = yaml.safe_load(workflow.read_text())["jobs"]["repin"]["steps"][-1]
         with tempfile.TemporaryDirectory() as temp:
@@ -397,9 +401,10 @@ class RePinPublication(unittest.TestCase):
                 "prs": {"1": "closed" if closed else "open"}, "published": [],
                 "writes": 0, "write_mode": write_mode, "push_mode": push_mode,
                 "wrong_head": wrong_head, "close_on_edit": close_on_edit,
-                "head_age_min": head_age_min, "checks": list(checks), "status": status}))
+                "head_age_min": head_age_min, "checks": list(checks), "status": status,
+                "status_read": status_read}))
             env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=str(state_path),
-                       GH_TOKEN="pr-token", APP_TOKEN="contents-token", TAG=TAG, CHECKSUM="f" * 64,
+                       GH_TOKEN="pr-token", APP_TOKEN="contents-token", READ_TOKEN="read-token", TAG=TAG, CHECKSUM="f" * 64,
                        GITHUB_SHA=SHA, GITHUB_REPOSITORY=REPO, GITHUB_REPOSITORY_OWNER="manaflow-ai",
                        GITHUB_RUN_ID=RUN_ID, GITHUB_RUN_ATTEMPT="2", GITHUB_SERVER_URL="https://github.com",
                        RUNNER_TEMP=temp)
@@ -485,6 +490,8 @@ class RePinPublication(unittest.TestCase):
             "a failed check run": {"head_age_min": 20, "checks": ("success", "failure")},
             "a timed-out check run": {"head_age_min": 20, "checks": ("timed_out",)},
             "a failed commit status": {"head_age_min": 20, "status": "failure"},
+            "an errored commit status": {"head_age_min": 20, "status": "error"},
+            "a failed status read": {"head_age_min": 20, "status_read": "fail"},
             "the PR is closed": {"head_age_min": 20, "closed": True},
         }
         for name, options in cases.items():
@@ -502,12 +509,15 @@ class RePinPublication(unittest.TestCase):
         self.assertEqual(push["branches"], ["feat-cmux-next"])
         self.assertIn("Packages/macOS/CmuxNext/Package.swift", push["paths"])
         job = workflow["jobs"]["repin"]
+        release = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["repin"]
         self.assertNotIn("needs", job)
         self.assertEqual(job["environment"], "ffi-release")
         self.assertEqual(job["concurrency"], {"group": "app-ffi-repin", "cancel-in-progress": False})
-        self.assertEqual(job["permissions"], {"contents": "read"})
+        self.assertEqual(job["permissions"], {"contents": "read", "checks": "read", "statuses": "read"})
+        self.assertEqual(release["permissions"], job["permissions"])
+        self.assertEqual(job["steps"][-1]["env"]["READ_TOKEN"], "${{ github.token }}")
+        self.assertEqual(release["steps"][-1]["env"]["READ_TOKEN"], "${{ github.token }}")
         self.assertNotIn("macos", str(job["runs-on"]))
-        release = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["repin"]
         self.assertEqual([s.get("with") for s in job["steps"]], [s.get("with") for s in release["steps"]])
         self.assertEqual(job["steps"][-1]["run"], release["steps"][-1]["run"])
         result, state = self.run_repin(workflow=REPIN_WORKFLOW, refs={})

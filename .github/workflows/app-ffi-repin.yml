@@ -29,6 +29,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      checks: read
+      statuses: read
     # One group with app-ffi-release.yml's repin job: re-pins run one at a time
     # on the same pull request.
     concurrency:
@@ -70,5 +72,6 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.pr-token.outputs.token }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          READ_TOKEN: ${{ github.token }}
         shell: bash
         run: bash scripts/cmux-next/publish-app-ffi-repin.sh
