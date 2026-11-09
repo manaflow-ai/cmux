@@ -183,13 +183,19 @@ fn non_asking(mode: &str) -> bool {
 /// `read-only` and `agent` outside the workspace, opencode's `build` outside the project), and a
 /// policy answers those, or deny them unasked ([`DENIES_UNASKED_MODES`]) (review of #39057).
 const RUNS_EVERYTHING_MODES: &[(&str, &[&str])] =
-    &[("claude", &["bypassPermissions"]), ("codex", &["agent-full-access"])];
+    &[("claude", &["bypassPermissions"]), ("codex", &["agent-full-access"]), ("opencode", &[])];
 
-/// Whether mode `mode` of a harness of family `family` (`mode_family`) runs every tool unasked
-/// ([`RUNS_EVERYTHING_MODES`]). Keyed by family too: another agent's mode of the same name (a
-/// custom `bypassPermissions`) says nothing about what it asks.
+/// Whether mode `mode` of a harness of family `family` (`mode_family`) runs every tool unasked.
+/// A family the table reviewed ([`RUNS_EVERYTHING_MODES`]) is held to its row: its other modes
+/// (opencode's `agent-full-access`, were one named so) say nothing. Any other family (a launcher
+/// such as `codex-sr2`, Gemini, a custom agent) by acpmux's shared rule of a mode that skips
+/// every approval (`start_mode::is_full_access`, `spec/full-access-modes.json`): the rule
+/// acpmux already applies to it for `sessions.allowFullAccess` (review 3 of #39057).
 pub(crate) fn runs_everything_unasked(family: &str, mode: &str) -> bool {
-    RUNS_EVERYTHING_MODES.iter().any(|(f, modes)| *f == family && modes.contains(&mode))
+    match RUNS_EVERYTHING_MODES.iter().find(|(f, _)| *f == family) {
+        Some((_, modes)) => modes.contains(&mode),
+        None => crate::hub::start_mode::is_full_access(mode),
+    }
 }
 
 /// Modes of [`NON_ASKING_MODES`], by harness family, that ask nothing and deny a tool not allowed
@@ -360,21 +366,30 @@ pub(crate) fn family_of(m: &SessionMeta) -> String {
 /// the default Claude row, but runs Claude Code with Claude Code's modes: keyed by that family,
 /// the mode tables knew no mode that asks, and a chat under deny-all or review stayed in `auto`.
 pub(crate) fn mode_family(m: &SessionMeta) -> String {
-    if crate::claude_stdio::steers_by_info(m.agent_info.as_ref()) {
-        return "claude".to_owned();
-    }
-    family_of(m)
+    mode_family_by(m.agent_info.as_ref(), m.family.as_deref(), &m.harness)
 }
 
 /// [`mode_family`] from a session's detail (`_acpmux/info`: `agentInfo`, `family`, `harness`),
-/// for a client that holds no `SessionMeta`. `None` when the detail names no harness.
+/// for a client that holds no `SessionMeta`: the same rule ([`mode_family_by`]). `None` when the
+/// detail names no harness.
 pub(crate) fn mode_family_of_detail(detail: &serde_json::Value) -> Option<String> {
     use serde_json::Value;
-    if crate::claude_stdio::steers_by_info(detail.get("agentInfo")) {
-        return Some("claude".to_owned());
+    let harness = detail.get("harness").and_then(Value::as_str)?;
+    let family = detail.get("family").and_then(Value::as_str);
+    Some(mode_family_by(detail.get("agentInfo"), family, harness))
+}
+
+/// The one rule of [`mode_family`] and [`mode_family_of_detail`]: `claude` for acpmux's own Claude
+/// Code backend (by `agent_info`), else the family, else the harness name.
+fn mode_family_by(
+    agent_info: Option<&serde_json::Value>,
+    family: Option<&str>,
+    harness: &str,
+) -> String {
+    if crate::claude_stdio::steers_by_info(agent_info) {
+        return "claude".to_owned();
     }
-    let named = |key: &str| detail.get(key).and_then(Value::as_str).filter(|s| !s.is_empty());
-    named("family").or_else(|| named("harness")).map(str::to_owned)
+    family.unwrap_or(harness).to_owned()
 }
 
 /// Whether a Web connection may run a session in ANY mode: Codex through

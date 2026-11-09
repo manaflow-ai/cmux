@@ -269,9 +269,10 @@ pub fn pending_hint(request: &Value, session: &str) -> String {
 /// A daemon default of ask, approve-reads or approve-edits is not the chat's own policy and does
 /// not change its mode (chats start in full access, `hub/policy_gate.rs`): in a mode that runs
 /// every tool unasked (`web_modes::runs_everything_unasked`, by the harness's family: Claude's
-/// `bypassPermissions` from the harness's settings, Codex's `agent-full-access`) nothing asks,
-/// so the note says that and how to hold the policy (W5-S, bench round 4 friction 6,
-/// 2026-11-08). In a mode that asks nothing and denies what is not allowed beforehand
+/// `bypassPermissions` from the harness's settings, Codex's `agent-full-access`, and in a harness
+/// outside that table a mode acpmux's shared rule names full access, such as Gemini's `yolo`)
+/// nothing asks, so the note says that and how to hold the policy (W5-S, bench round 4
+/// friction 6, 2026-11-08). In a mode that asks nothing and denies what is not allowed beforehand
 /// (`web_modes::denies_unasked`: Claude's `dontAsk`) the note says so. A mode that still asks for
 /// some tools (`acceptEdits`, opencode's `build`) keeps the asking note: the default answers
 /// those. In Japanese for a Japanese locale.
