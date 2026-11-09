@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42566235862",
+  "recorded_at": "2026-11-09T05:25:48Z",
+  "reason": "cmux-tui ffc35a480489 changes the image's cmux-tui (pinned b7756e44bf1e)",
+  "dry_run": false,
+  "cmux_tui": "ffc35a48048979fab109282871532b3778a56116",
+  "fixes": [
+    {
+      "sha": "ffc35a48048979fab109282871532b3778a56116",
+      "mergedAt": "2026-11-08T21:02:31-08:00",
+      "subject": "cmux-tui: server ensure waits on a restoring owner while it works; never kills or replaces it (#38819)"
+    },
+    {
+      "sha": "aa5c4d9840bf026637fb00dc1be8c9b0dd472d6f",
+      "mergedAt": "2026-11-08T20:59:12-08:00",
+      "subject": "acpmux: give each new short timeout its reason; drop 2 stale short-timeout entries (#38969)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T05:25:48Z",
+    "snapshot_id": "sh-07485c324080401bb5214f7c71faab45",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42566235862): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "57f1c1163b2a6841de92003eb3b48508fceae0fa",
+    "image": "cloud-native-auto-ffc35a48-42566235862-1",
+    "revision": "ci-42566235862-1",
+    "at": "2026-11-09T05:25:48Z"
+  },
+  "rolled_back": false
+}
