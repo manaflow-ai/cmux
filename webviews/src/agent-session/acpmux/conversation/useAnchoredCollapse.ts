@@ -54,7 +54,8 @@ export type AnchoredCollapse = {
   /// Draw the body: while open, and while it closes.
   present: boolean;
   /// Opens or closes it. Given the click (a row's `onClick`), only a deliberate one (`deliberateClick`).
-  toggle: (event?: unknown) => void;
+  /// True when it did: a wrapper that does more on a click (notes it, moves focus) does it only then.
+  toggle: (event?: unknown) => boolean;
   setOpen: (open: boolean) => void;
   /// The ref for the line the reader clicks: it stays where it is drawn while the body opens or closes.
   headerRef: (node: HTMLElement | null) => void;
@@ -216,7 +217,9 @@ export function useAnchoredCollapse(options: AnchoredCollapseOptions = {}): Anch
     (event?: unknown) => {
       const pressed = press.current;
       press.current = undefined;
-      if (deliberateClick(event, header.current, pressed)) setOpen(!latest.current.open);
+      if (!deliberateClick(event, header.current, pressed)) return false;
+      setOpen(!latest.current.open);
+      return true;
     },
     [setOpen],
   );
