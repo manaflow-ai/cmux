@@ -843,6 +843,52 @@ fn snapshot_with_tab_name(pane: &str, name: Option<&str>) -> Value {
     snapshot
 }
 
+/// The launch argv agent start gives an agent's terminal (arg0
+/// `cmux-agent`), as `terminal <t> process show` answers it.
+fn agent_start_process() -> Value {
+    let argv =
+        Launch { shell: "/bin/zsh".into(), launcher: "sr2 claude".into(), args: Vec::new() }.argv();
+    json!({"pid": 4242, "argv": argv})
+}
+
+/// W5-Q review (PR C, the column rule): a pane a person made keeps its
+/// width even when its tab has a valid agent name. Agent start splits the
+/// caller's pane; the person's `alpha` pane right of it (named like an
+/// agent, but its terminal runs a plain shell) keeps its half.
+#[test]
+fn w5q_start_split_keeps_a_person_pane_with_an_agent_name() {
+    let snapshot = snapshot();
+    let daemon = Fake::new(move |operation, _params, _count| match operation {
+        "session.snapshot" => snapshot.clone(),
+        "pane.split" => created(
+            BETA_PANE,
+            "tab_50505050505050505050505050505050",
+            "term_5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e",
+        ),
+        "pane.run" => created(BETA_PANE, "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0", NEW),
+        // (caller 0.25 | beta 0.25) | alpha 0.5: the split halved the caller.
+        "screen.layout.export" => json!({"version": 1, "root": {
+            "kind": "split", "split_id": OUTER_SPLIT, "direction": "horizontal", "ratio": 0.5,
+            "first": {"kind": "split", "split_id": INNER_SPLIT, "direction": "horizontal",
+                "ratio": 0.5,
+                "first": {"kind": "leaf", "pane_id": CALLER_PANE, "tab_ids": []},
+                "second": {"kind": "leaf", "pane_id": BETA_PANE, "tab_ids": []}},
+            "second": {"kind": "leaf", "pane_id": ALPHA_PANE, "tab_ids": []}}}),
+        // The person's shell: no agent start launch.
+        "terminal.process.get" => json!({"pid": 77, "argv": ["/bin/zsh", "-l"]}),
+        "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
+        "terminal.screen.read" => json!({"text": COMPOSER}),
+        "agent.list" => json!([]),
+        _ => json!({}),
+    });
+    let options = Options { cmd: Some("sr2 claude".into()), ..Options::default() };
+    let (report, exit) =
+        run_with_clock(|clock| start(&daemon, &env(), clock, "beta", &options)).expect("start");
+    assert_eq!(exit, 0, "{report}");
+    let ratios = sent_ratios(&daemon);
+    assert!(ratios.is_empty(), "a pane's width changed: {ratios:?}");
+}
+
 /// W5-Q review (PR C): agent panes that agent start made in one row share
 /// their space equally, and the person's pane keeps its width: the third
 /// agent pane is not an eighth of the screen.
@@ -860,7 +906,7 @@ fn w5q_start_split_evens_only_the_agent_panes_of_its_row() {
         tabs.push(json!({"id": "tab_b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1", "name": "beta",
             "content_id": "term_b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1", "pane_id": BETA_PANE}));
     }
-    let daemon = Fake::new(move |operation, _params, _count| match operation {
+    let daemon = Fake::new(move |operation, params, _count| match operation {
         "session.snapshot" => snapshot.clone(),
         "pane.split" => created(
             GAMMA_PANE,
@@ -868,6 +914,15 @@ fn w5q_start_split_evens_only_the_agent_panes_of_its_row() {
             "term_5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e",
         ),
         "pane.run" => created(GAMMA_PANE, "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0", NEW),
+        // alpha's and beta's terminals run agent start launches.
+        "terminal.process.get"
+            if [OLD, "term_b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1"]
+                .iter()
+                .any(|terminal| params.to_string().contains(terminal)) =>
+        {
+            agent_start_process()
+        }
+        "terminal.process.get" => json!({"pid": 77, "argv": ["/bin/zsh", "-l"]}),
         // caller 1/2 | (alpha 1/4 | (beta 1/8 | gamma 1/8)).
         "screen.layout.export" => json!({"version": 1, "root": {
             "kind": "split", "split_id": OUTER_SPLIT, "direction": "horizontal", "ratio": 0.5,
