@@ -79,7 +79,7 @@ const received = () =>
     ],
     { isWorking: true },
   );
-const RECEIVED_LINE = ".cv-received > .cv-disclosure__line";
+const RECEIVED_LINE = ".cv-received > :is(.cv-agentmsg__line, .cv-disclosure__line)";
 /// Opens the group of waiting messages, which shows collapsed (PendingMessagesCard.tsx); one waiting
 /// message is its own line, with no group to open.
 const openWaiting: Play = async (ctx) => {

@@ -241,6 +241,19 @@ await requireBrowserLane("composer-inline-caret-gap.browser.test.ts", async () =
           report.push(`${engine} ${name} text card: caret off the chip gap ${off.toFixed(2)}`);
           if (off > TOLERANCE)
             failures.push(`${engine} ${name}: the caret after the text card is ${off.toFixed(2)}px off the chip gap`);
+          // Selected, the card wears the chip's ring: its rules reach it through its right-click
+          // menu's wrapper (markdownField.css). The node's class is the selection ProseMirror marks;
+          // arrows never select a chip (composer-inline-arrows.browser.test.ts).
+          const ring = await page.evaluate(() => {
+            const node = document.querySelector<HTMLElement>(".acpmux-md .acpmux-md-inline");
+            const chip = node?.querySelector<HTMLElement>(".acpmux-md-inline-chip");
+            if (!node || !chip) return "no text card";
+            node.classList.add("ProseMirror-selectednode");
+            const style = getComputedStyle(chip).outlineStyle;
+            node.classList.remove("ProseMirror-selectednode");
+            return style;
+          });
+          if (ring !== "solid") failures.push(`${engine} ${name}: the selected text card's ring is ${ring}`);
           expect(await value(page)).toEqual(sent);
           // The paste's own space after the card stays the only one.
           expect(withoutTokens(sent)).toBe("Why does the build fail?  ");

@@ -156,6 +156,8 @@ public final class TerminalSession {
     public var closeCancels: [Task<Void, Never>] = []
     /// Latest `.resize` grid, re-applied to a swapped-in surface.
     private var canonicalGrid: TerminalGridSize?
+    /// The current link's last "Sized for" notice (nil: it fits, or the link said nothing yet).
+    private var linkSizedFor: TerminalSizedFor?
     /// True once the current surface received a replay or output; a later
     /// replay then needs a fresh surface.
     private(set) var surfaceHasContent = false
@@ -174,8 +176,6 @@ public final class TerminalSession {
     /// Local-history READYs restored with the surface's own reflowed history
     /// (proves the local path ran in dogfood).
     private(set) var localSnapshots = 0
-    /// Kitty images the owner left out of its image replays (its cap).
-    private(set) var skippedImages = 0
 
     /// Reports a pane that still shows nothing after a reveal (``TerminalBlankWatch``).
     let blankWatch: TerminalBlankWatch
@@ -201,11 +201,17 @@ public final class TerminalSession {
         find.target = self
         view.attachFind(find)
 
-        writerTask = Task.detached(priority: .userInitiated) { [io] in
+        writerTask = Task.detached(priority: .userInitiated) { [io, weak self] in
             for await item in outgoing {
                 switch item {
                 case .bytes(let data):
                     await io.write(data)
+                case .filePaste(let pasteboard):
+                    do { try await io.pasteFiles(pasteboard) }
+                    catch {
+                        if Task.isCancelled { return }
+                        await self?.filePasteFailed()
+                    }
                 case .resize(let grid, let width, let height):
                     await io.resize(cols: grid.columns, rows: grid.rows, pixelWidth: width, pixelHeight: height)
                 case .focusGained:
@@ -332,6 +338,10 @@ public final class TerminalSession {
         text.withCString { pointer in
             ghostty_surface_text(surface, pointer, UInt(text.utf8.count))
         }
+    }
+
+    func enqueueFilePaste(_ pasteboard: TerminalFilePaste) {
+        input.pasteFiles(pasteboard)
     }
 
     /// Downscaled image of the last presented frame, for static previews.
@@ -530,9 +540,14 @@ public final class TerminalSession {
             model.hasExited = status == .exited
             surfaceView.updateReflowPreview()
             view.showStatus(status)
-            // A disconnected or exited view no longer knows who sets the grid.
-            if status != .connected { view.showSizedFor(nil) }
+            // A disconnected or exited view no longer knows who sets the grid; the next link says
+            // again. A connected one shows what its link said while it attached.
+            if status != .connected { linkSizedFor = nil }
+            view.showSizedFor(status == .connected ? linkSizedFor : nil)
         case .sizedFor(let sizedFor):
+            // Kept even before the link is connected: a restored tab or a re-attach can get its size
+            // state before the replay connects it, and the daemon sends it again only when it changes.
+            linkSizedFor = sizedFor
             view.showSizedFor(model.connection == .connected ? sizedFor : nil)
         }
     }
@@ -611,10 +626,6 @@ public final class TerminalSession {
     }
 
     // MARK: From the surface view
-
-    func noteSkippedImages(_ count: Int) {
-        skippedImages += max(0, count)
-    }
 
     func noteLocalSnapshot() {
         localSnapshots += 1

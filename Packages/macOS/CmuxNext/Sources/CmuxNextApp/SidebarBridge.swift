@@ -130,8 +130,8 @@ final class SidebarBridge {
         sectionsObservation?.cancel()
         appSections?.releaseAll()
         cardsObservation?.cancel()
-        // The update surface pages cancel their subscriptions (cx-urd.61.2).
-        container.sidebarView.updateSurfaces = nil
+        container.sidebarView.tearDownSpaceWindowMarks() // a retained closed window keeps its views (#38333 review)
+        container.sidebarView.updateSurfaces = nil // the update surface pages cancel their subscriptions (cx-urd.61.2)
     }
 
     private func observe() {
@@ -398,7 +398,7 @@ final class SidebarBridge {
         let rowPages = { (restored: Bool) in rowNewTabPages.map { tabs in { RestoredNewTabPages.shows($1, of: $0, in: tabs, restored: restored) } as (WorkspaceModel, TabModel) -> Bool } }
         var sections = SidebarMapping.shared.sections(PersonalSidebar.sections(of: machines.local, room: profile, machines: machines, doc: doc),
                                                machine: machine(for: machines.local, name: Strings.localMachine, kind: .local),
-                                               hidesHomeWorkspace: hidesHome, showsUnread: showsUnread, muted: muted, selectedTab: selectedTab,
+                                               hidesHomeWorkspace: hidesHome, showsUnread: showsUnread, muted: muted, selectedTab: selectedTab, focusedPane: { selection().focusedPane(in: $0.id) },
                                                newTabPages: newTabPages, isNewTabPage: rowPages(true), newTabTitle: Strings.untitledBrowser, pageFace: pageFace,
                                                tabTitle: tabTitle, notificationText: machines.local.store.notificationText(for:),
                                                iconAsset: groupIcon, rowSource: rows, listing: listing, workspaceFilter: workspaceFilter,
@@ -408,7 +408,7 @@ final class SidebarBridge {
             + machines.ssh.map { ($0.daemon, sshMachine($0, machines: machines), true, String?.none) }
         for (daemon, header, unread, terminalTitle) in remotes {
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: daemon, room: profile, machines: machines, doc: doc),
-                                                machine: header, showsUnread: unread, muted: NotificationWorkspaceKey.workspaceIDs(muted, machine: daemon.machineID, localMachine: machines.local.machineID, localHolds: localHolds), selectedTab: selectedTab,
+                                                machine: header, showsUnread: unread, muted: NotificationWorkspaceKey.workspaceIDs(muted, machine: daemon.machineID, localMachine: machines.local.machineID, localHolds: localHolds), selectedTab: selectedTab, focusedPane: { selection().focusedPane(in: $0.id) },
                                                 newTabPages: newTabPages, isNewTabPage: rowPages(false), newTabTitle: Strings.untitledBrowser, pageFace: pageFace,
                                                 tabTitle: tabTitle, notificationText: daemon.store.notificationText(for:),
                                                 iconAsset: IconAssetImages.shared.sidebarIcon(owner: daemon), groupIconAsset: groupIcon,
@@ -417,7 +417,7 @@ final class SidebarBridge {
         for session in machines.servers {
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines, doc: doc),
                                                 machine: session.sidebarMachine(machines: machines),
-                                                muted: NotificationWorkspaceKey.workspaceIDs(muted, machine: session.daemon.machineID, localMachine: machines.local.machineID, localHolds: localHolds), selectedTab: selectedTab, pageFace: pageFace,
+                                                muted: NotificationWorkspaceKey.workspaceIDs(muted, machine: session.daemon.machineID, localMachine: machines.local.machineID, localHolds: localHolds), selectedTab: selectedTab, focusedPane: { selection().focusedPane(in: $0.id) }, pageFace: pageFace,
                                                 tabTitle: tabTitle, notificationText: session.daemon.store.notificationText(for:),
                                                 iconAsset: IconAssetImages.shared.sidebarIcon(owner: session.daemon), groupIconAsset: groupIcon,
                                                 rowSource: rows, listing: listing, workspaceFilter: workspaceFilter, faces: faces)

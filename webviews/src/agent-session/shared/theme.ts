@@ -1,4 +1,6 @@
+import { MOTION_MS, MOTION_SEND_MS } from "../../motion/scale.generated";
 import type { AgentSessionTheme } from "./types";
+import { codeFontFamily } from "../../appearance";
 
 const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   isDark: null,
@@ -83,12 +85,32 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
       root.style.setProperty(variable, `${Math.round(seconds * 1000)}ms`);
     } else root.style.removeProperty(variable);
   }
+  // A sent prompt's motion (`--agent-motion-send`) is the scale's send step, scaled as the host scaled
+  // its move step (ui.animationSpeed; 0 with animations off), since the host sends no send duration.
+  // Its fades (`--agent-motion-send-fade`) run that clock while things move; Reduce Motion (Calm mode
+  // too) zeroes the move step but keeps fades, and then the prompt fades on the fade setting and
+  // nothing moves (WebKit may still answer `prefers-reduced-motion: no-preference`).
+  const move = theme.motion?.move;
+  if (typeof move === "number" && Number.isFinite(move) && move >= 0) {
+    const send = Math.round(((move * 1000) / MOTION_MS.standard) * MOTION_SEND_MS);
+    const fadeIn = theme.motion?.fadeIn;
+    const fade = send > 0 || typeof fadeIn !== "number" || !(fadeIn >= 0) ? send : Math.round(fadeIn * 1000);
+    root.style.setProperty("--agent-motion-send", `${send}ms`);
+    root.style.setProperty("--agent-motion-send-fade", `${fade}ms`);
+  } else {
+    root.style.removeProperty("--agent-motion-send");
+    root.style.removeProperty("--agent-motion-send-fade");
+  }
   // `ui.animationSpeed: off` reaches the page as an all-zero motion policy. Mark it on the root so
   // CSS animations and transitions that represent loops or third-party surfaces stop as well as
   // tokenized fades. Reduce Motion keeps its short crossfade values and therefore does not trip this.
   const motionValues = theme.motion ? Object.values(theme.motion) : [];
   if (motionValues.length > 0 && motionValues.every((value) => value === 0)) root.dataset.agentMotion = "off";
   else delete root.dataset.agentMotion;
+  // Reduce Motion zeroes only the move duration; CSS can't compare a custom property to 0, so the
+  // root says so, and transitions on the move token (the fold's chevron) snap under it.
+  if (theme.motion?.move === 0) root.dataset.agentMove = "instant";
+  else delete root.dataset.agentMove;
   if (root.dataset.agentMotion === "off") {
     for (const animation of document.getAnimations?.() ?? []) animation.cancel();
   }
@@ -101,8 +123,6 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   applyTerminalCodeFont(root);
 }
 
-/** The mono stack behind the terminal's face, the pane's own default (conversation.css `--cv-mono`). */
-const MONO_STACK = `ui-monospace, "SF Mono", Menlo, monospace`;
 /** The pane's code font variables: diffs (diffTheme.ts) and code blocks, file names and paths. */
 const CODE_FONT_VARIABLES = ["--cmux-diff-code-font-family", "--cv-code-font"] as const;
 
@@ -113,11 +133,15 @@ const CODE_FONT_VARIABLES = ["--cmux-diff-code-font-family", "--cv-code-font"] a
  * mono stack applies.
  */
 function applyTerminalCodeFont(root: HTMLElement): void {
-  const host = (window as { cmuxTheme?: { current?: { terminal?: { fontFamily?: unknown } } | null } }).cmuxTheme;
+  const host = (
+    window as { cmuxTheme?: { current?: { terminal?: { fontFamily?: unknown; fallbackFamilies?: unknown } } | null } }
+  ).cmuxTheme;
   const family = host?.current?.terminal?.fontFamily;
+  const fallbackFamilies = host?.current?.terminal?.fallbackFamilies;
   const face = typeof family === "string" ? family.trim() : "";
   for (const variable of CODE_FONT_VARIABLES) {
-    if (face) root.style.setProperty(variable, `${JSON.stringify(face)}, ${MONO_STACK}`);
+    if (face)
+      root.style.setProperty(variable, codeFontFamily(face, Array.isArray(fallbackFamilies) ? fallbackFamilies : []));
     else root.style.removeProperty(variable);
   }
 }

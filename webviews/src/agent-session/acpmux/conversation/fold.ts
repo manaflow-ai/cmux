@@ -1,6 +1,6 @@
 // The transcript's collapsibles (tool groups, tool and command rows, MCP calls, a folded thought, a
 // settled run) open and close in one motion: the body's height and opacity, over the shared fold
-// duration, easing out, while the chevron turns with it (conversation.css `.cv-rotor`). Reduce
+// duration on the settle curve (--cmux-ease-settle), while the chevron turns with it (conversation.css `.cv-rotor`). Reduce
 // Motion, the host's animation switches (`data-agent-motion="off"`, a 0 ms token) and a page with no
 // Web Animations open and close at once. Away from the bottom, VirtualTranscript holds the clicked
 // line. At the very bottom the body's height plays here too, and VirtualTranscript moves the offset
@@ -9,14 +9,16 @@
 // adds or removes whole rows there ("Worked for") marks its row `data-bottom-fold` and slides the
 // thread instead.
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 import { isAgentMotionOff } from "../../shared/motion";
 
-/// The fold's duration token. conversation.css sets it from the host's move duration
-/// (`--agent-motion-move`: about 190 ms, 0 under Reduce Motion or with animation off), so the
-/// transcript paces with the chrome's resizes and moves, and the chevron reads the same token.
+/// The fold's duration token. conversation.css sets it from the settle (`--cmux-motion-settle`, the
+/// one fold length every web fold shares, schemas/motion-scale), and the chevron reads the same token.
 export const FOLD_DURATION_VAR = "--cv-fold-duration";
+/// The fold's curve token (`--cmux-ease-settle`), beside it.
+export const FOLD_EASE_VAR = "--cv-fold-ease";
 /// The token's value when the page has none (a test DOM, a stylesheet that failed to load).
-export const FOLD_FALLBACK_MS = 180;
+export const FOLD_FALLBACK_MS = MOTION_SETTLE_MS;
 
 /// A CSS time ("190ms", ".19s") in milliseconds; undefined when it is not one.
 export function cssTimeMs(value: string): number | undefined {
@@ -36,11 +38,13 @@ function styleOf(node: Element): CSSStyleDeclaration | undefined {
 export const foldMotion = {
   /// The fold's duration on `node`, in ms.
   duration: (node: Element): number => {
-    const value = styleOf(node)?.getPropertyValue(FOLD_DURATION_VAR) ?? "";
-    return cssTimeMs(value) ?? FOLD_FALLBACK_MS;
+    const style = styleOf(node);
+    // The host's move duration at 0 (Reduce Motion, animation off) still folds at once.
+    if (cssTimeMs(style?.getPropertyValue("--agent-motion-move") ?? "") === 0) return 0;
+    return cssTimeMs(style?.getPropertyValue(FOLD_DURATION_VAR) ?? "") ?? FOLD_FALLBACK_MS;
   },
-  /// The pane's ease-out curve (`--agent-ease-out`), as the rest of the transcript's motion uses.
-  easing: (node: Element): string => styleOf(node)?.getPropertyValue("--agent-ease-out").trim() || "ease-out",
+  /// The settle curve (`--cv-fold-ease`, the page's `--cmux-ease-settle`), or its generated copy.
+  easing: (node: Element): string => styleOf(node)?.getPropertyValue(FOLD_EASE_VAR).trim() || MOTION_SETTLE,
   reducedMotion: (): boolean =>
     typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true,
 };
@@ -220,6 +224,12 @@ export function cancelResize(node: HTMLElement): void {
   animation.cancel();
 }
 
+/// Lets an opened box take its own size again: no held height, no clip.
+function letGo(node: HTMLElement): void {
+  node.style.height = "";
+  clipFold(node, false);
+}
+
 /// Holds `node` shut (height and opacity 0, its body clipped), or with `undefined`, lets it take its
 /// own size again.
 function pin(node: HTMLElement, value: 0 | undefined): void {
@@ -274,7 +284,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
       if (running.current && foldMs(node) <= 0) {
         // Cancel removes Web Animation effects immediately, while its cancel event may be queued.
         // Settle the layout synchronously first so a closing body cannot flash back to natural height.
-        if (opening) clipFold(node, false);
+        if (opening) letGo(node);
         else {
           pin(node, 0);
           setClosing(false);
@@ -328,12 +338,19 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
     cancelRunning();
     const toHeight = open ? node.scrollHeight : 0;
     clipFold(node, true);
+    // The box holds its start height under the motion: a new animation is pending until a frame
+    // starts it, and a frame that painted before it applied drew the body at its full height for one
+    // frame, the whole list flashing open before it slid (Leo, 2026-11-08, on the composer hat:
+    // "sometimes ... there's, like, some elements in between"). It lets go when the fold ends.
+    node.style.height = `${fromHeight}px`;
     const animation = node.animate(
       [
         { height: `${fromHeight}px`, opacity: fromOpacity },
         { height: `${toHeight}px`, opacity: open ? 1 : 0 },
       ],
-      { duration: ms, easing: foldMotion.easing(node) },
+      // It holds its end until it lets go (`settled`), so the frame it ends on never draws the held
+      // start height.
+      { duration: ms, easing: foldMotion.easing(node), fill: "forwards" },
     );
     running.current = animation;
     watchMotion(node, open);
@@ -351,13 +368,14 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
         if (!playing || next <= target + 0.5 || now >= until) return;
         target = next;
         const drawn = node.getBoundingClientRect().height;
+        node.style.height = `${drawn}px`;
         const opacity = Number(styleOf(node)?.opacity ?? 1) || 0;
         const rest = node.animate(
           [
             { height: `${drawn}px`, opacity },
             { height: `${next}px`, opacity: 1 },
           ],
-          { duration: until - now, easing: foldMotion.easing(node) },
+          { duration: until - now, easing: foldMotion.easing(node), fill: "forwards" },
         );
         playing.onfinish = null;
         playing.oncancel = null;
@@ -369,7 +387,8 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
           settling.delete(node);
           stopWatching();
           unwatchMotion();
-          clipFold(node, false);
+          letGo(node);
+          rest.cancel();
         };
         rest.onfinish = settledRest;
         rest.oncancel = settledRest;
@@ -384,12 +403,14 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
       running.current = undefined;
       settling.delete(node);
       if (open) {
-        clipFold(node, false);
+        letGo(node);
+        animation.cancel();
         return;
       }
       // The animation lets go of the box as it ends, and React removes the body only on its next
       // commit, after that frame paints: pinned shut until then, the body never flashes open.
       pin(node, 0);
+      animation.cancel();
       setClosing(false);
     };
     animation.onfinish = settled;
@@ -406,7 +427,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
       stopWatching();
       unwatchMotion();
       playing.cancel();
-      if (open) clipFold(node, false);
+      if (open) letGo(node);
       else {
         pin(node, 0);
         setClosing(false);

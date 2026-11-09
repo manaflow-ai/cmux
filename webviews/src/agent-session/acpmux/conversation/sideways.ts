@@ -6,17 +6,23 @@
 // thumb under them at rest (scrollers.ts), so a line cut at the edge reads as one that scrolls
 // (Leo 2026-10-21, ask-d900f5acf9). Trackpad swipes and Shift-wheel scroll the box itself (WebKit's
 // own sideways scroll; the app leaves a swipe over it to the page, PageInputReadiness `sideways`).
-import { installSidewaysScrollers, SIDEWAYS_ATTRIBUTE } from "../../../scrollers";
+// A reply's table also fades its left edge once scrolled (`MORE_LEFT`, conversation.css).
+import {
+  installSidewaysScrollers,
+  markSidewaysEdges,
+  MORE_LEFT_ATTRIBUTE,
+  MORE_RIGHT_ATTRIBUTE,
+  SIDEWAYS_ATTRIBUTE,
+} from "../../../scrollers";
 
 /// On a sideways scroller while content lies past its right edge.
-export const MORE_RIGHT = "data-more-right";
-
-/// Whether `box` has content past its right edge (a half pixel of slack for zoomed pages).
-const moreRight = (box: Element) => box.scrollLeft + box.clientWidth < box.scrollWidth - 0.5;
+export const MORE_RIGHT = MORE_RIGHT_ATTRIBUTE;
+/// On a sideways scroller while content lies past its left edge (it was scrolled).
+export const MORE_LEFT = MORE_LEFT_ATTRIBUTE;
 /// Whether `box`'s content is wider than it, scrolled or not.
 const sideways = (box: Element) => box.clientWidth < box.scrollWidth - 0.5;
 
-/// Keeps `MORE_RIGHT` and `SIDEWAYS_ATTRIBUTE` current on `container` and on every Pierre code
+/// Keeps `MORE_LEFT`, `MORE_RIGHT` and `SIDEWAYS_ATTRIBUTE` current on `container` and on every Pierre code
 /// box inside it (its sideways scrollers, `[data-code]` in the shadow roots Pierre draws in): on
 /// each scroll and size change of one, and once a frame for the boxes whose lines changed.
 ///
@@ -55,7 +61,7 @@ export function watchSideways(container: HTMLElement): () => void {
   const watch = (box: Element) => {
     if (watched.has(box)) return;
     const update = () => {
-      box.toggleAttribute(MORE_RIGHT, moreRight(box));
+      markSidewaysEdges(box);
       box.toggleAttribute(SIDEWAYS_ATTRIBUTE, sideways(box));
     };
     const sized = [box, ...box.children];

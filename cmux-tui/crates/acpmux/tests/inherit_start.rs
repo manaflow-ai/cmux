@@ -408,11 +408,13 @@ fn hub_yolo() -> Arc<Hub> {
         "harnesses": {
             "fake": {"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}},
             "kin": {"argv": ["python3", FAKE], "family": "kin", "env": {"FAKE_FULL_ACCESS": "1"}},
+            // A family with a plan mode that asks, as Claude's: "default", "plan" and full access.
+            "planner": {"argv": ["python3", FAKE], "family": "planner", "env": {"FAKE_PLAN_MODE": "claude", "FAKE_FULL_ACCESS": "1"}},
         },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
         "defaultPermissionMode": "fullAccess",
-        "webAskingModes": {"fake": ["normal", "strict"], "kin": ["normal", "strict"]},
+        "webAskingModes": {"fake": ["normal", "strict"], "kin": ["normal", "strict"], "planner": ["default", "plan"]},
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
@@ -457,4 +459,21 @@ async fn an_agent_with_a_narrower_policy_starts_a_chat_with_the_default_policy()
             "a chat a {policy} agent starts runs the configured default"
         );
     }
+}
+
+/// A plan mode is a toggle a sub-session never inherits (`start_mode.rs`): a chat still planning
+/// that starts a sub-session (a plan's build from its approval card, `plan_build.rs`) gets a
+/// child that can build. Started at full access, the child is held to its planning parent
+/// (`hold_mode`): to the family's asking mode, not to the parent's plan mode.
+#[tokio::test]
+async fn a_sub_session_of_a_planning_chat_does_not_start_in_plan_mode() {
+    let hub = hub_yolo();
+    let mut app = Client::new(&hub);
+    let parent = id(&app.ok("session/new", new_params(json!({"harness": "planner"}))).await);
+    app.prompt(&parent, "set-mode: plan").await;
+    assert_eq!(app.level(&parent).await.0, "plan", "the parent is planning");
+    let mut agent = Client::as_session(&hub, &parent).await;
+    let started = agent.ok("_acpmux/subsession/start", json!({"prompt": "build it"})).await;
+    let child = id(&started);
+    assert_eq!(app.level(&child).await.0, "default", "the child builds: {started}");
 }

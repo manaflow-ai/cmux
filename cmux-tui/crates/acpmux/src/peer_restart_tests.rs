@@ -57,7 +57,13 @@ async fn restart_summary_and_notice_keep_real_failure_backoff() {
     assert_eq!(peer.link_epoch(), epoch + 1);
     let summary = peer.summary();
     assert_eq!(summary["state"], "restarting");
-    assert_eq!(peer.state().wire(), crate::protocol::peer_state::PeerLinkState::Reconnecting);
+    // The whole state says restarting; an older app's folded `state` word says reconnecting.
+    assert_eq!(peer.state().wire(), crate::protocol::peer_state::MachineLink::Restarting);
+    assert_eq!(
+        peer.state().wire().folded(),
+        crate::protocol::peer_state::PeerLinkState::Reconnecting
+    );
+    assert_eq!(summary["link"], "restarting");
     assert_eq!(summary["connected"], false);
     assert_eq!(summary["attempts"], 0);
     assert_eq!(summary["lastSeen"], now);

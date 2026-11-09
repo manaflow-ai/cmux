@@ -317,7 +317,7 @@ await requireBrowserLane("transcript-details-toggle-steady-browser.test.ts", asy
     await settle(page);
     // The message opens to its text first (its line is the click), as in the recording. Opened at
     // the end it grows down (Codex parity), so the view goes back to the latest row after it.
-    await page.click('[data-row-id="msg"] .cv-disclosure__toggle');
+    await page.click('[data-row-id="msg"] .cv-agentmsg__toggle');
     await settle(page);
     await page.locator(".acpmux-scroll").evaluate((node) => {
       node.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, bubbles: true }));
@@ -415,10 +415,13 @@ await requireBrowserLane("transcript-details-toggle-steady-browser.test.ts", asy
       const page = await open();
       const failures = [
         ...(await bottomToggle(page, "Details", DETAILS, "msg")),
+        // A running turn's run is open while it runs (turns.ts `codexRuns`): it closes, then opens
+        // down, which leaves the latest row; the reader's wheel goes back to it.
         ...(await bottomToggle(page, "run of commands", RUN_B, "run-b")),
-        // Again, the message's Details after the run's fold, as Leo toggled it back and forth.
-        ...(await bottomToggle(page, "Details again", DETAILS, "msg")),
       ];
+      await toLatest(page);
+      // Again, the message's Details after the run's toggles, as Leo toggled it back and forth.
+      failures.push(...(await bottomToggle(page, "Details again", DETAILS, "msg")));
       expect(failures).toEqual([]);
       await page.close();
     });
