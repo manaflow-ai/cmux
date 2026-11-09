@@ -168,6 +168,8 @@ struct AcpmuxRecords {
 public struct AcpmuxSession: Hashable, Sendable {
     public var id: String
     public var name: String
+    /// `title`: the chat's generated title, else its first prompt.
+    public var title: String?
     public var harness: String
     public var cwd: String
     /// `peer`: the acpmux peer (another machine) the session runs on; nil for this Mac's own.
@@ -191,6 +193,7 @@ public struct AcpmuxSession: Hashable, Sendable {
         guard let id = value["sessionId"]?.stringValue else { return nil }
         self.id = id
         name = value["name"]?.stringValue ?? ""
+        title = value["title"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         harness = value["harness"]?.stringValue ?? "agent"
         cwd = value["cwd"]?.stringValue ?? ""
         peer = value["peer"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }

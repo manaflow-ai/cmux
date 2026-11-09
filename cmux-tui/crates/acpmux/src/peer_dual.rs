@@ -293,7 +293,7 @@ impl Peer {
             // A chat a load or an attach replays now stays the link's alone: its replay is
             // below the cursor, and no repeat (`Peer::replay_start`).
             let replaying = self.replaying.lock_or_recover();
-            for (sid, after) in replayable(&cursors) {
+            for (sid, after) in replayable(&cursors, &self.baselined.lock_or_recover()) {
                 if replaying.contains_key(&sid) {
                     continue;
                 }

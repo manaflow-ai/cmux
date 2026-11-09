@@ -76,7 +76,7 @@ declare namespace Cmux {
   type CloudMachine = { id: Cmux.MachineId; team: Cmux.TeamId; creator: Cmux.UserId; name: string | null; size: Cmux.CloudMachineSize; status: Cmux.CloudMachineStatus; image: { id: string; daemon_version: string | null }; host: Cmux.HostId | null; classic: boolean; created_at: number; last_active_at: number | null; idle_policy: { idle_seconds: number }; error: { code: string; message: string; at: number } | null; pause_reason?: "idle" | "no_report" | "provider_stopped" | "provider_paused" | null; hourly_rate_usd?: unknown | null; running_since?: number | null; desktop?: boolean; revision: Cmux.Revision }
   type CloudMachineSize = { cpu?: number; memory_mb?: number; disk_mb?: number }
   type CloudMachineStatus = "provisioning" | "starting" | "running" | "pausing" | "paused" | "deleting" | "failed"
-  type CloudPlan = { plan_id: string; upgrade_plan: string | null; limits: { max_active: number; max_saved: number; memory_options_mb: Array<number>; locked_memory_options_mb: Array<number>; vm_hours_included: unknown | null }; usage: { active: number; saved: number; vm_hours_used: unknown | null; period_end: number } }
+  type CloudPlan = { plan_id: string; upgrade_plan: string | null; limits: { max_active: number; max_saved: number; memory_options_mb: Array<number>; locked_memory_options_mb: Array<number>; vm_hours_included: unknown | null }; usage: { active: number; saved: number; vm_hours_used: unknown | null; vm_hours_used_by_you?: unknown | null; period_end: number } }
   type CloudSnapshot = { id: Cmux.SnapshotId; machine: Cmux.MachineId; name: string | null; size_mb: number; status: "creating" | "ready" | "deleting" | "failed"; created_at: number; revision: Cmux.Revision }
   type CloudVmNetwork = { tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; ipv4_cidr: string; ipv4: string | null }
   type CloudVmNetworkPolicyView = { schema_version: 2; machine: Cmux.MachineId; host: Cmux.HostId; epoch: number; receiver_generation: string | null; user: Cmux.UserId; install: Cmux.InstallId; team: Cmux.TeamId; origin: string; tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; vm: string; ipv4: string | null; wg_public_key: Cmux.WgPublicKey; install_public_key: string; authority_version: string; checked_at: number; expires_at: number; admit_until?: number; acl_version: number; policy_digest: string; peers: Array<Cmux.CloudVmReceiverPeer> }
@@ -296,7 +296,7 @@ declare namespace Cmux {
   type MachineSnapshot = { id: string /* machine_… */; name: string; origin: "local" | "cloud" | "ssh" | "server"; status: "running" | "connecting" | "sleeping" | "stopped" | "unavailable"; connectable: boolean; deleted: boolean; recoverable: boolean; extra?: Record<string, Cmux.JsonValue>; platform?: Cmux.MachinePlatform | null; capabilities?: Array<string> }
   type ManagedDevice = { install: Cmux.InstallId; user: string; via: "token" | "accept"; token: Cmux.EnrollmentTokenId | null; at: number }
   type MessageId = string
-  type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd"
+  type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd" | "cloud.machine_usd"
   type MovedAutomation = { id: Cmux.AutomationId; name: string; moved_to: string; moved_id: string; epoch: number; moved_at: number }
   type NativeDeviceId = string
   type NativeMeshId = string

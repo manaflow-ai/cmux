@@ -39,7 +39,7 @@ import { CONTRACT_PATH, lintTree, LOCK_PATH, readJson, readMigrations, rollbackS
 import { actor, receiptsDir, readReceipts, runIdOf, strandedBranches, summaryLine, withLocalLock, writeReceipt, type Receipt } from "./receipts.ts"
 import { compatNow } from "./compat.ts"
 import { describePlan, rehearsalReceipt, rehearseOnCopy, type RehearsalContext } from "./rehearsal.ts"
-import { adopt, applyPending, connectUrl, gate, planOf, planProblems, requirementsOf, schemaProblems, setHashOf, withLock, type Plan, type Sql } from "./runner.ts"
+import { adopt, applyPending, connectRetrying, connectUrl, gate, planOf, planProblems, requirementsOf, schemaProblems, setHashOf, withLock, type Plan, type Sql } from "./runner.ts"
 import { ownerPgRoleOf, REPO_ROOT, targetOf, TREE_NAMES, TREES, treeOf, type Target, type Tree } from "./trees.ts"
 
 export interface Deps {
@@ -62,7 +62,7 @@ export interface Deps {
 
 export const defaultDeps = (): Deps => ({
   provider: pscaleProvider(),
-  connect: connectUrl,
+  connect: (url) => connectRetrying(connectUrl, url),
   env: process.env,
   root: REPO_ROOT,
   now: () => new Date(),

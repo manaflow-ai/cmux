@@ -79,11 +79,11 @@ const frames = async () => {
 };
 const cancelled = (node: Element) => node.dispatchEvent(new dom.window.Event("animationcancel", { bubbles: true }));
 Object.defineProperty(proto, "clientHeight", { configurable: true, get: () => 300 });
-// A ghost's exit is the house settle, a 265 ms animation; nothing else animates in this document.
+// A ghost's exit is the house settle, a 180 ms animation; nothing else animates in this document.
 const computed = dom.window.getComputedStyle.bind(dom.window);
 dom.window.getComputedStyle = ((node: Element) =>
   node.classList.contains("acpmux-running-tray--ghost")
-    ? ({ animationName: "acpmux-tray-leave", animationDuration: "0.265s" } as CSSStyleDeclaration)
+    ? ({ animationName: "acpmux-tray-leave", animationDuration: "0.18s" } as CSSStyleDeclaration)
     : computed(node)) as typeof dom.window.getComputedStyle;
 
 const { act, createElement } = await import("react");
