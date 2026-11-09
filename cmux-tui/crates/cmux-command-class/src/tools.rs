@@ -29,7 +29,7 @@ pub(crate) fn scan<'a>(
     while let Some(&word) = args.get(j) {
         j += 1;
         if word == "--" {
-            positionals.extend_from_slice(&args[j..]);
+            positionals.extend_from_slice(args.get(j..).unwrap_or_default());
             break;
         }
         if !is_flag(word) {
@@ -44,10 +44,10 @@ pub(crate) fn scan<'a>(
                 None => visit(Opt::Long(long), None),
             }
         } else {
-            let cluster = &word[1..];
+            let cluster = word.get(1..).unwrap_or_default();
             for (at, c) in cluster.char_indices() {
                 if short_valued.contains(c) {
-                    let rest = &cluster[at + c.len_utf8()..];
+                    let rest = cluster.get(at + c.len_utf8()..).unwrap_or_default();
                     let value = if rest.is_empty() {
                         j += 1;
                         args.get(j - 1).copied()
@@ -204,7 +204,7 @@ fn tar(tail: &[&str]) -> Classification {
     let runs = tail.iter().any(|w| {
         RUNS.iter().any(|flag| w.starts_with(flag))
             // `-I PROG` and `-F SCRIPT`, alone or in a cluster such as `-xIf`.
-            || (is_flag(w) && !w.starts_with("--") && w[1..].contains(['I', 'F']))
+            || (is_flag(w) && !w.starts_with("--") && w.get(1..).is_some_and(|flags| flags.contains(['I', 'F'])))
     });
     if runs {
         Classification::new(Machine, "tar program")
@@ -274,7 +274,10 @@ fn git(tail: &[&str]) -> Classification {
     let Some(&sub) = tail.get(j) else {
         return Classification::new(GitLocal, "git");
     };
-    Classification::new(git_subcommand(sub, &tail[j + 1..]), format!("git {sub}"))
+    Classification::new(
+        git_subcommand(sub, tail.get(j + 1..).unwrap_or_default()),
+        format!("git {sub}"),
+    )
 }
 
 fn git_subcommand(sub: &str, rest: &[&str]) -> CommandClass {

@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-conversation-presence`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `cloud-host-replica-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `apps-changed` (page relays only), `tasks-changed` (page relays only), `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-conversation-presence`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `cloud-host-replica-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `stash-changed` (page relays only), `apps-changed` (page relays only), `tasks-changed` (page relays only), `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -42,6 +42,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `personal-changed` | subscribe | session | protocol 12; capability `profiles-v1` |
 | `bookmarks-changed` | subscribe | `browser_profile_id` | protocol 12; capability `bookmarks-v1` |
 | `history-changed` | subscribe | none | protocol 12; capability `history-v1` |
+| `stash-changed` | subscribe (page relays only) | none | capability `stash-v1` |
 | `apps-changed` | apps clients; subscribe (page relays) | `app` | capability `apps-v1`; on subscribe `page-events-v1` |
 | `tasks-changed` | subscribe (page relays) | none | `page-events-v1` |
 | `settings-changed` | subscribe | machine settings | protocol 12; capability `settings-v1` |
@@ -433,6 +434,20 @@ through the v2 page router, so it is no apps client: it hears this event on
 `subscribe` when its page lists it in page-router.json (the App Store page
 does), and no other `subscribe` stream carries it. Interested frontends
 re-read `cmux.apps.installed.list` or the catalog.
+
+### stash-changed
+
+| Field | Value |
+| --- | --- |
+| event | `stash-changed` |
+| status | implemented |
+| since | additive extension; capability `stash-v1` |
+
+Published when a committed `stash.create`, `stash.import`, `stash.restore` or
+`stash.delete` changed the stashes (a replayed idempotent request publishes
+nothing). The payload is `{event:"stash-changed", revision:uint64}`. Only a
+page relay whose page lists it in page-router.json (the Stashed Tabs page)
+hears it on `subscribe`; interested pages re-read `stash.list`.
 
 ### tasks-changed
 
@@ -1384,13 +1399,21 @@ Example:
 Payload:
 
 ```text
-object{event:"daemon-shutdown"}
+object{event:"daemon-shutdown",restart?:boolean}
 ```
 
 Meaning: Sent on the control queue to every live control client after the
 `shutdown-daemon` or `session.shutdown` success response is flushed. It is sent even when the
 requesting client did not open a subscription. Clients should classify the
 following EOF and pending requests as expected daemon shutdown.
+
+`restart` repeats the requester's `shutdown-daemon` `restart`: `true` when a replacement
+daemon takes over the same session (the interactive TUI reconnects and keeps its view),
+`false` when the session stops (the TUI exits with a message). The daemon sends it only to a
+client that listed `daemon-shutdown-restart-v1` in `set-client-info` (servers advertise it in
+`identify`), so strict older decoders keep reading the bare event. It is absent when the
+requester did not say (`session.shutdown`, an older CLI); the TUI then tries to reconnect
+for a short time.
 
 Example:
 

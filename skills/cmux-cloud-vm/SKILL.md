@@ -46,6 +46,11 @@ the person can read it. Without `--wait` it answers once the prompt is sent.
 
   Exit 2 with `chat.permission_waiting`: the agent asks for a permission, answered in the
   chat's tab.
+- Another folder or repository for a chat that already runs: `cmux chat cd SESSION_ID DIR`,
+  or `cmux chat cd SESSION_ID --repo OWNER/NAME [--ref REF]` (the machine clones it into
+  `~/chats/SESSION_ID/NAME` with the GitHub access it has). The chat goes on there as a new
+  session with the conversation so far; send its next prompt to the answer's `session_id`.
+  `follow_up.new_chat` starts a new chat in the same folder.
 - Errors say what to do next: `cloud.signed_out` (run `cmux login`),
   `cloud.start_pending` (the machine is still coming up: run the same command again,
   its `details.again`, to keep waiting), `chat.permission_waiting`, `chat.wait_timeout`.

@@ -21,7 +21,7 @@ import type { ReleaseNotes } from "../pages/changelog/types";
 import type { PickerSession } from "../pages/icon-picker/host";
 import type { EditorFile, ReadOnlyReason } from "../pages/editor/host";
 import type { HistoryFilter, HistoryGrouping } from "../pages/history/model";
-import type { HistoryEntry } from "../pages/history/types";
+import type { CookieBackup, HistoryEntry } from "../pages/history/types";
 import type { Binding } from "../pages/keybindings/types";
 import type { WidthName } from "./env";
 import { checkReasons, type Play, type PlayChecks, type PlayTarget } from "./play";
@@ -40,6 +40,7 @@ import type {
   HostLists,
   IntegrationsState,
   SharesState,
+  TailnetState,
 } from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
 
@@ -61,6 +62,8 @@ export type SettingsPageVariant = VariantBase & {
   environments?: CloudEnvironmentsState;
   /** Settings > Privacy and Security > Shared Links fixture state; default the mock's shares. */
   sharedLinks?: SharesState;
+  /** Settings > Server > This Mac on Your Tailnet fixture state (null: no tailnet); default signed out. */
+  tailnet?: TailnetState | null;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Harnesses; default the mock's four. */
@@ -98,6 +101,9 @@ export type ChipHostFixture = {
   images?: Record<string, string | null>;
   /** `media.load` answers: the URL the player plays for each path. */
   media?: Record<string, string>;
+  /** Methods the host refuses (`{ok: false}`), as a chat on another machine's host may refuse
+   *  `media.load` and `video.quickLook`. */
+  refused?: string[];
   browsers?: { id: string; name: string; icon?: string }[];
   /** `project.icon` answers: a project folder's favicon as a data URL (projectIcon.ts). */
   projectIcons?: Record<string, string>;
@@ -175,7 +181,7 @@ export type AgentPaneVariant = VariantBase & {
   /** Fields of the `ready` answer the app sends (newTab, draft, newSession, machineName, ...). */
   ready?: Record<string, unknown>;
   /** Fields over the theme the app pushes (`applyTheme`, AgentPaneTheme.swift), such as a Debug
-   *  Settings value it carries (`chatWidth`). */
+   *  Settings value it carries (`codexToolRuns`). */
   theme?: Record<string, unknown>;
   /** The snapshot the bridge delivers after `ready`. */
   snapshot: AcpmuxSnapshot;
@@ -274,6 +280,9 @@ export type DiffPageVariant = VariantBase & {
   comments?: DiffCommentRecord[];
   /** The host sends comments to the diff's chat (Send to agent). */
   commentsSend?: boolean;
+  /** The diff's chat's review brief the in-page host answers (`cmux.diff.brief`), as acpmux's
+   * `_acpmux/review_brief` answers it; absent, the host serves no brief. */
+  reviewBrief?: unknown;
 };
 
 /** The App Store page on an in-page cmuxPage host serving its supervisor projection. */
@@ -362,6 +371,8 @@ export type EditorPageVariant = VariantBase & {
 /** The history page (src/pages/history) on a cmuxPage host with timeline entries. */
 export type HistoryPageVariant = VariantBase & {
   entries?: HistoryEntry[];
+  /** The app's cookie backups (the Cookie Backups panel). */
+  cookieBackups?: CookieBackup[];
   loading?: boolean;
   error?: "network" | "permission" | "not-found";
   query?: {
@@ -370,6 +381,8 @@ export type HistoryPageVariant = VariantBase & {
     grouping?: HistoryGrouping;
     selectIndex?: number;
     menuIndex?: number;
+    /** Opens the Cookie Backups panel. */
+    cookieBackups?: boolean;
   };
 };
 

@@ -20,10 +20,10 @@ final class BrowserImportOfferService {
     private weak var services: AppServices?
     private let defaults: UserDefaults
     private(set) var state: BrowserImportOfferState
+    /// Finds the installed browsers once, off the main thread (``InstalledImportBrowserFinder``).
+    let finder: InstalledImportBrowserFinder
     /// Browsers cmux can import from, most used first; nil until found.
-    private(set) var browsers: [InstalledImportBrowser]?
-    private var finding: Task<Void, Never>?
-    private var waiting: [@MainActor ([InstalledImportBrowser]) -> Void] = []
+    var browsers: [InstalledImportBrowser]? { finder.browsers }
     /// One card per launch: a second tab never shows it.
     private(set) var shownThisLaunch = false
     /// The chrome showing the card this launch; a tab moved to another pane takes the card to that pane's chrome.
@@ -34,8 +34,6 @@ final class BrowserImportOfferService {
     /// The kinds Import checks in the Import from Browser window.
     static let kinds: Set<ImportDataKind> = [.cookies]
 
-    /// Finds the installed browsers' apps (any thread); tests pass their own.
-    private let locate: @Sendable () -> [(browser: ImportBrowser, app: URL)]
     /// Pins whether the card may show (tests); nil follows the launch.
     var enabledOverride: Bool?
 
@@ -43,7 +41,7 @@ final class BrowserImportOfferService {
          locate: @escaping @Sendable () -> [(browser: ImportBrowser, app: URL)] = { InstalledImportBrowsers().locate() }) {
         self.services = services
         self.defaults = defaults
-        self.locate = locate
+        finder = InstalledImportBrowserFinder(locate: locate)
         state = BrowserImportOfferState.load(from: defaults)
     }
 
@@ -66,10 +64,10 @@ final class BrowserImportOfferService {
     }
 
     private func pageFinished(in entry: BrowserEntry) {
-        guard enabled, !shownThisLaunch, state.offers(page(entry)) else { return }
-        findBrowsers { [weak self, weak entry] found in
+        guard enabled, !shownThisLaunch, entry.state.hasKeyboard, state.offers(page(entry)) else { return }  // never over a terminal or chat
+        finder.find { [weak self, weak entry] found in
             // Asked again: the person may have answered elsewhere, or another tab showed it, while the browsers were found.
-            guard let self, let entry, enabled, !found.isEmpty, !shownThisLaunch, state.offers(page(entry)) else { return }
+            guard let self, let entry, enabled, !found.isEmpty, !shownThisLaunch, entry.state.hasKeyboard, state.offers(page(entry)) else { return }
             if let chrome = entry.chrome { show(on: chrome, browsers: found) }
         }
     }
@@ -88,8 +86,8 @@ final class BrowserImportOfferService {
         shownThisLaunch = true
         shownOn = chrome
         let offer = BrowserCookieImportOffer(icons: [first.icon], title: BrowserImportOfferStrings.title(browser: first.browser.displayName),
-                                             detail: BrowserImportOfferStrings.detail, importTitle: BrowserImportOfferStrings.importData,
-                                             notNowTitle: BrowserImportOfferStrings.notNow, neverTitle: BrowserImportOfferStrings.dontShowAgain)
+                                             importTitle: BrowserImportOfferStrings.importData, notNowTitle: BrowserImportOfferStrings.notNow,
+                                             neverTitle: BrowserImportOfferStrings.dontShowAgain)
         let target = BrowserProfileRecord.wireID(for: chrome.tab.profileID)
         // A window toast (a recovered draft, an undo) sits at the bottom too: the card rises above it
         // instead of waiting (an inactive window keeps its toasts, so waiting could last the launch).
@@ -102,7 +100,7 @@ final class BrowserImportOfferService {
     func answer(_ choice: BrowserCookieImportChoice, profile: String? = nil) {
         switch choice {
         case .notNow: break  // closed for this launch only: the next launch offers it again
-        case .never: banner?.set(false)
+        case .never: bannerWrite = banner?.set(false) ?? bannerWrite
         case .importCookies:
             // A card left from before browser import was turned off opens and detects nothing.
             guard services?.browserImportEnabled != false else { return }
@@ -116,17 +114,19 @@ final class BrowserImportOfferService {
 
     /// `browser.import.cookieBanner` (``CookieBannerSwitch``); nil before settings load (a test).
     private var banner: CookieBannerSwitch? { services?.settings.map(CookieBannerSwitch.init) }
+    /// The last banner write this service started; its end is the write's end (tests await it).
+    private(set) var bannerWrite: Task<Void, Never>?
 
     /// Show Import Cookies Banner (palette, CLI, MCP): turns it on again and shows it on the person's
     /// browser tab on screen. It reads no browser data: Import on the card is still the person's click.
     /// After cookies came over it changes nothing: the banner never asks again (Leo 2026-11-07).
     func showNow() {
         guard !state.imported else { return }
-        banner?.set(true)
+        bannerWrite = banner?.set(true) ?? bannerWrite
         shownThisLaunch = false
-        guard let entry = services?.cache.browsers.values.first(where: { $0.chrome.map { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor } == true }),
+        guard let entry = services?.cache.browsers.values.sorted(by: { $0.state.hasKeyboard && !$1.state.hasKeyboard }).first(where: { $0.chrome.map { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor } == true }),
               services?.browserImportEnabled == true, page(entry).isPersonal else { return }
-        findBrowsers { [weak self, weak entry] found in if let self, !state.imported, let chrome = entry?.chrome { show(on: chrome, browsers: found) } }
+        finder.find { [weak self, weak entry] found in if let self, !state.imported, let chrome = entry?.chrome { show(on: chrome, browsers: found) } }
     }
 
     /// Off, the card on screen goes; on again, the next finished page may offer it this launch.
@@ -153,7 +153,7 @@ final class BrowserImportOfferService {
     func reset() {
         update { $0 = BrowserImportOfferState() }
         shownThisLaunch = false
-        banner?.set(true)
+        bannerWrite = banner?.set(true) ?? bannerWrite
     }
 
     private func update(_ change: (inout BrowserImportOfferState) -> Void) {
@@ -162,25 +162,5 @@ final class BrowserImportOfferService {
         guard next != state else { return }
         state = next
         next.save(to: defaults)
-    }
-
-    /// Finds the installed browsers once, off the main thread, then calls
-    /// `done` (at once when they are already known).
-    func findBrowsers(then done: (@MainActor ([InstalledImportBrowser]) -> Void)? = nil) {
-        if let browsers { done?(browsers); return }
-        if let done { waiting.append(done) }
-        guard finding == nil else { return }
-        // task-owner: one Launch Services lookup per launch; ends after it
-        finding = Task { [weak self] in
-            guard let locate = self?.locate else { return }
-            let apps = await Task.detached { locate() }.value
-            let found = apps.map { InstalledImportBrowser(browser: $0.browser, icon: NSWorkspace.shared.icon(forFile: $0.app.path)) }
-            guard let self else { return }
-            browsers = found
-            finding = nil
-            let callbacks = waiting
-            waiting = []
-            for callback in callbacks { callback(found) }
-        }
     }
 }

@@ -197,11 +197,14 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             return ensure_after_stop(expected_session, None);
         }
         Err(error) if matches!(action, ServerAction::Stop { .. }) && is_absent(&error) => {
+            // A start lock an earlier owner left goes too.
+            let removed = remove_start_lock(&socket);
             return print_success(
                 json!({
                     "status":"not_running",
                     "session":expected_session,
                     "socket":socket_output,
+                    "removed":removed,
                     "message":crate::localization::catalog().local_server.not_running,
                 }),
                 global.output,
@@ -258,12 +261,10 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     match identity.get("lifecycle_ready") {
         Some(Value::Bool(true)) | None => {}
         Some(Value::Bool(false)) => {
-            return local_error(
-                "server.unavailable",
-                crate::localization::catalog().local_server.starting,
-                global.output,
-                3,
-            );
+            let message = crate::localization::catalog().local_server.starting;
+            // The message says to retry: a server still starting is retryable.
+            let error = json!({"code":"server.unavailable","message":message,"details":{"reason":"starting"},"retryable":true});
+            return super::wire::print_local_error(&error, global.output, 3);
         }
         Some(_) => {
             return local_error(
@@ -338,6 +339,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 "pid":pid,
                 "generation":generation,
                 "message":crate::localization::catalog().local_server.running,
+                "screen_detection":crate::screen_detection_status::of_daemon(&identity),
             }),
             global.output,
         ),
@@ -418,7 +420,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             {
                 return local_error(
                     "server.end_terminals_unsupported",
-                    &refused_with_fix(
+                    &super::fix_command::refused_with_fix(
                         crate::localization::catalog().local_server.end_terminals_unsupported,
                         &super::fix_command::this_cli(),
                         std::path::Path::new(&socket_output),
@@ -437,7 +439,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             {
                 return local_error(
                     "server.force_unsupported",
-                    &refused_with_fix(
+                    &super::fix_command::refused_with_fix(
                         crate::localization::catalog().local_server.force_unsupported,
                         &super::fix_command::this_cli(),
                         std::path::Path::new(&socket_output),
@@ -457,6 +459,9 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                     "generation":generation,
                     "force":force,
                     "end_terminals":end_terminals,
+                    // An attached TUI reconnects after a restart and exits
+                    // after a stop (the daemon repeats it on its notice).
+                    "restart":restart,
                 }),
                 deadline,
             ) {
@@ -497,6 +502,11 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 }
                 return ensure_after_stop(Some(actual_session.to_owned()), Some((pid, launch)));
             }
+            // A running owner never holds the start lock (only a bind does),
+            // and the owner already closed its socket: remove the lock now.
+            // No pid wait: a parent that has not reaped the owner keeps a
+            // zombie, and kill(pid, 0) succeeds for a zombie.
+            let removed = remove_start_lock(&socket);
             print_success(
                 json!({
                     "status":"stopped",
@@ -505,6 +515,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                     "pid":pid,
                     "generation":generation,
                     "ended_terminals":result["ended_terminals"].as_u64(),
+                    "removed":removed,
                     "message":if end_terminals {
                         crate::localization::catalog().local_server.stopped_terminals_ended
                     } else {
@@ -967,13 +978,13 @@ impl Adopted {
     /// being adopted or launched.
     fn settled(listed: &Value) -> (Self, bool) {
         let mut adopted = Self { listed: true, ..Self::default() };
-        for row in listed["terminals"].as_array().into_iter().flatten() {
-            match row["lifecycle"].as_str() {
+        for row in listed.get("terminals").and_then(Value::as_array).into_iter().flatten() {
+            match row.get("lifecycle").and_then(Value::as_str) {
                 Some("running") => adopted.running += 1,
                 Some("exited") => adopted.exited += 1,
-                Some("adopting" | "launching") => adopted
-                    .not_running
-                    .push(row["terminal_id"].as_str().unwrap_or_default().to_owned()),
+                Some("adopting" | "launching") => adopted.not_running.push(
+                    row.get("terminal_id").and_then(Value::as_str).unwrap_or_default().to_owned(),
+                ),
                 _ => {}
             }
         }
@@ -1185,6 +1196,20 @@ fn wait_for_exit(pid: u32, deadline: Instant) -> Result<(), String> {
     Ok(())
 }
 
+/// After a stop (not a restart), removes what only a running owner needs:
+/// the socket's start lock (`<socket>.spawn-lock`, cmux-tui-core
+/// `remove_socket_start_lock`). The session's saved state stays
+/// (`cmux session <name> reset-state` removes it). Returns the removed path,
+/// or none when there is no lock file or a start holds it for 500 ms.
+fn remove_start_lock(socket: &std::path::Path) -> Vec<String> {
+    let lock = cmux_tui_core::server::socket_start_lock_path(socket);
+    let deadline = Instant::now() + Duration::from_millis(500);
+    match cmux_tui_core::server::remove_socket_start_lock(socket, deadline) {
+        Ok(true) => vec![lock.display().to_string()],
+        Ok(false) | Err(_) => Vec::new(),
+    }
+}
+
 fn usage_error(message: &str, output: OutputMode) -> i32 {
     local_error("usage.invalid", message, output, 2)
 }
@@ -1269,13 +1294,6 @@ fn local_error_with_details(
 
 fn print_success(value: Value, output: OutputMode) -> i32 {
     super::wire::print_local_success(&value, output)
-}
-
-/// A stop this daemon refuses (another build): `text` and the one command
-/// that restarts the daemon at `socket` with `cli`'s build
-/// (plans/cmux-next/version-skew.md).
-fn refused_with_fix(text: &str, cli: &std::path::Path, socket: &std::path::Path) -> String {
-    format!("{text} {}", super::fix_command::restart_daemon(cli, socket))
 }
 
 #[cfg(test)]

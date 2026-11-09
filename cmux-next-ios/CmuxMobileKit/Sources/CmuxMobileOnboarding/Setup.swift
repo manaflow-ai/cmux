@@ -149,11 +149,22 @@ public struct SetupFlow: View {
     }
 
     private func advance(from step: Step) {
-        guard let index = steps.firstIndex(of: step), index + 1 < steps.count else {
+        guard let next = Self.step(after: step, in: steps) else {
             finish()
             return
         }
-        path.append(steps[index + 1])
+        path.append(next)
+    }
+
+    /// The planned step after `step`, in setup's order. The plan is fixed once
+    /// the team list loads, which can be after the user has moved on: a page
+    /// the final plan dropped (Connect your Mac, when a Mac turned out to be
+    /// online) still leads to the steps planned after it, such as
+    /// notifications, instead of ending setup.
+    static func step(after step: Step, in steps: [Step]) -> Step? {
+        let order: [Step] = [.team, .createTeam, .pairMac, .notifications]
+        guard let rank = order.firstIndex(of: step) else { return nil }
+        return steps.first { (order.firstIndex(of: $0) ?? -1) > rank }
     }
 }
 
@@ -309,7 +320,7 @@ private struct TeamStep: View {
                         }
                     }
                 }
-                .animation(theme.motion.smooth.animation, value: phase)
+                .animation(theme.motion.smooth.animation.unlessReduceMotion, value: phase)
             }
         }
         .onChange(of: phase, initial: true) { _, phase in
@@ -317,7 +328,7 @@ private struct TeamStep: View {
                 showsCreate = false
                 return
             }
-            withAnimation(theme.motion.smooth.animation.delay(0.1)) { showsCreate = true }
+            withAnimation(theme.motion.smooth.animation.delay(0.1).unlessReduceMotion) { showsCreate = true }
         }
         .scrollBounceBehavior(.basedOnSize)
         .background(theme.colors.bg.color.ignoresSafeArea())
@@ -528,7 +539,7 @@ private struct PairMacStep: View {
             }
             .buttonStyle(PairMacCTAStyle(emphasis: cta.emphasis))
             .accessibilityIdentifier(PairMacCallToAction.accessibilityIdentifier)
-            .animation(theme.motion.snappy.animation, value: cta.emphasis)
+            .animation(theme.motion.snappy.animation.unlessReduceMotion, value: cta.emphasis)
         }
         .onAppear { foundAtStart = onlineMac != nil }
         .onChange(of: onlineMac != nil) { _, found in
@@ -614,7 +625,7 @@ private struct PairMacCTAStyle: ButtonStyle {
             .contentShape(.rect)
             .opacity(pressed ? 0.85 : 1)
             .scaleEffect(primary && pressed ? 0.98 : 1)
-            .animation(theme.motion.snap.animation, value: pressed)
+            .animation(theme.motion.snap.animation.unlessReduceMotion, value: pressed)
     }
 }
 

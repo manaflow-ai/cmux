@@ -21,6 +21,14 @@ function amount(
   return limit === undefined || limit === null ? text(value) : `${text(value)} / ${text(limit)}`;
 }
 
+/**
+ * A catalog float64 the page can show: a number. The catalog encodes non-finite values as strings
+ * ("Infinity"); the app server sends those as null, and the page shows neither.
+ */
+function finite(value: number | string | null | undefined): number | undefined {
+  return typeof value === "number" ? value : undefined;
+}
+
 function UsageRow({ label, used, limit, text }: { label: string; used: number; limit?: number | null; text: string }) {
   return (
     <div className="cloud-meter">
@@ -37,6 +45,8 @@ export function AccountPanel({ store, state, strings }: { store: CloudStore; sta
   const { t, language } = strings;
   const { auth, plan, teams, unavailable } = state;
   const signOutUnavailable = unavailable.includes(AccountOps.signOut);
+  const hoursUsed = finite(plan?.usage.vm_hours_used);
+  const hoursIncluded = finite(plan?.limits.vm_hours_included);
   return (
     <aside className="cloud-account" aria-label={t(L.plan)}>
       <div className="cloud-account-row">
@@ -89,12 +99,12 @@ export function AccountPanel({ store, state, strings }: { store: CloudStore; sta
               limit={plan.limits.max_saved}
               text={format(t(L.planUsed), { used: plan.usage.saved, limit: plan.limits.max_saved })}
             />
-            {plan.usage.vm_hours_used !== undefined && plan.usage.vm_hours_used !== null && (
+            {hoursUsed !== undefined && (
               <UsageRow
                 label={t(L.usageCompute)}
-                used={plan.usage.vm_hours_used}
-                limit={plan.limits.vm_hours_included}
-                text={amount(plan.usage.vm_hours_used, plan.limits.vm_hours_included, L.hours, t, language)}
+                used={hoursUsed}
+                limit={hoursIncluded}
+                text={amount(hoursUsed, hoursIncluded, L.hours, t, language)}
               />
             )}
           </div>

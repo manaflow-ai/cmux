@@ -75,11 +75,12 @@ if "write-feed --feed \"$feed\" --same-build" not in job("republish-nightly-delt
 if "needs.published-build.outputs.publish_result == 'success'" not in notes_publish:
     failures.append("publish-release-notes must require a successful NEXT publication")
 
-# What follows the feed runs in its own dispatched run (nightly_next_post_publish), so it never holds the one
-# nightly-next push group (#36111): run 41982716550 published at 08:42Z and its comments (247 PRs, 40 min) kept
-# the next push waiting, and the release, deltas and notes held it 17-35 min more
+# A loop run's tail after the GitHub release runs in its own dispatched run (nightly_next_post_publish), so it
+# never holds the one nightly-next push group (#36111): run 41982716550 published at 08:42Z and its comments
+# (247 PRs, 40 min) kept the next push waiting, and the deltas and notes held it 17-35 min more
 # (tests/test_nightly_next_tail_off_push_group.py). In that run decide skips, and only published-build and the
-# jobs after the feed can start; every build, sign and publish job is skipped because a job it needs was.
+# jobs after the feed can start; every build, sign and publish job is skipped because a job it needs was. The
+# GitHub release and dSYMs may start there too, and skip on the record's cross_run (the loop run wrote them).
 def post_publish_runnable() -> list[str]:
     import yaml
 
@@ -150,7 +151,7 @@ def post_publish_runnable() -> list[str]:
 
 POST_PUBLISH_JOBS = ["published-build", "publish-nightly-next-github", "keep-published-dsyms", "build-nightly-deltas", "generate-nightly-deltas",
                      "republish-nightly-deltas", "published-in", "sign-release-notes", "publish-release-notes",
-                     "publish-nightly-reel", "report-nightly-failure", "close-nightly-failure-issue"]
+                     "publish-nightly-reel", "sentry-dsyms-nightly", "report-nightly-failure", "close-nightly-failure-issue"]
 runnable = post_publish_runnable()
 if sorted(runnable) != sorted(POST_PUBLISH_JOBS):
     failures.append(f"a nightly_next_post_publish run must start only {POST_PUBLISH_JOBS}, not {runnable}")
@@ -162,8 +163,13 @@ for trusted in ("publish-nightly-next-github", "generate-nightly-deltas", "repub
     if trusted not in needs(published_in):
         failures.append(f"published-in must wait for {trusted}: the comments must not hold the mini "
                         "while the whole-Mac publishing waits")
-if "\n  dispatch-published-in:\n" in TEXT or "-f nightly_next_post_publish=" in TEXT:
-    failures.append("no job may dispatch a separate post-publish run: the tail runs in the loop's own run")
+# The loop run dispatches the tail once its GitHub release is written; the dispatched run never dispatches again.
+dispatch = job("dispatch-published-in") if "\n  dispatch-published-in:\n" in TEXT else ""
+if "-f nightly_next_post_publish=" not in dispatch or "actions: write" not in dispatch \
+        or "publish-nightly-next-github" not in needs(dispatch):
+    failures.append("dispatch-published-in must dispatch nightly.yml with nightly_next_post_publish after the GitHub release")
+if "needs.published-build.outputs.run_tail == 'true'" not in published_in:
+    failures.append("published-in must comment only where the tail runs (run_tail), never in a loop run")
 
 # The release's mutable names (rolling DMG, feed copy, body, tag) are steps of the upload job, not a job of their
 # own: a second whole-Mac claim cost run 42018687632 a second set-up, token and variant download, and let the

@@ -4,7 +4,7 @@
 // CSP `frame-src` and URL+AgentPanePreview.swift name the same ones); 0.0.0.0, which a server binds
 // but a browser does not reach, reads as localhost.
 import type { AcpmuxRow } from "../model";
-import { stripAnsi } from "./toolOutput";
+import { stripAnsi } from "./toolOutputModel";
 
 // The host ends the name (`localhost.evil.com` is not loopback, a sentence's closing dot is fine);
 // a colon after it must start a port.

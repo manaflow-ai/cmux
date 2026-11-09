@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86.
+// cmux-tui mux protocol 12, IR 62625fc976e69a44b62563b404477f91207f431e3b472e3b79007ead92baffb6.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -73,6 +73,9 @@ pub struct AgentRecord {
     pub since_ms: Option<u64>,
     pub source: AgentSource,
     pub state: AgentState,
+    /// What the person sees: \`working\`, \`blocked\`, \`done\` (the agent finished a turn and no client has shown its tab since; \`state\` is \`idle\` then), \`idle\` or \`unknown\`; null for an ended session (\`state\` \`done\`). Reading never clears \`done\`; a frontend's tab acknowledgement does. Absent from older daemons: use \`state\`.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub status: Optional<AgentState>,
     pub surface: Id,
     pub updated_at_ms: u64,
 }
@@ -1944,6 +1947,10 @@ pub struct ServerStatsWritePath {
     pub effect_intent_batches: u64,
     pub effect_intent_failures: u64,
     pub effect_intents: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub registry_wal_file_bytes: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub registry_wal_file_high_water_bytes: Option<u64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub registry_wal_frame_bytes: Option<u64>,
     pub request_effect_commits: u64,

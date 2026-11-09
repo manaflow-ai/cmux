@@ -6,7 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- None yet!
+- tcp: add `set_min_rto`/`set_initial_rto` to tune the retransmission timeout bounds per socket.
 
 ## [0.14.0] - 2026-08-07
 

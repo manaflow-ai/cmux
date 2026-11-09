@@ -28,7 +28,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var focus: FocusCoordinator { state.focus }
     /// Built in init (lazy because it holds self; no IUO).
     private(set) lazy var focusApplier = FocusEffectApplier(controller: self)
-    private(set) var content: WorkspaceContentController?
+    private(set) var content: WorkspaceContentController? { // an open Dock section follows the shown workspace (#37374)
+        didSet { if content !== oldValue, rightSidebar.isVisible { (rightSidebarView?.shownSection as? DockSectionHostView)?.refresh() } }
+    }
     /// The workspaces this window showed most recently (`ParkedWorkspaceBudget`), by id, kept mounted and paused
     /// (plans/cmux-next/tab-lifecycle.md): a switch back swaps its view in within the frame. Their GPU surfaces leave
     /// under the one memory budget (`SurfaceLedger`'s LRU of hidden surfaces); the tree, panes and strips stay (perf I6).
@@ -506,10 +508,10 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
 
     /// The traffic lights, found once (`StandardWindowButtons`, cx-8w027.25).
     private var standardButtons = StandardWindowButtons()
-    override func standardWindowButton(_ b: NSWindow.ButtonType) -> NSButton? {
-        if let button = standardButtons.cached(b, in: self) { return button }
+    override func standardWindowButton(_ b: NSWindow.ButtonType) -> NSButton? { // perf-hot: 1ms motion-frame
+        if case .known(let button) = standardButtons.answer(b, in: self) { return button }
         let button = super.standardWindowButton(b)
-        standardButtons.store(button, for: b, in: self)
+        standardButtons.store(StandardWindowButtons.Found(button, for: b, in: self)) // Found reads AppKit before the store
         return button
     }
 
@@ -595,7 +597,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
         if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: controller.focus.isApplying, focusedPane: { controller.focus.currentState().pane }, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { return false }
         let accepted = holdingResponderReports { () -> Bool in let moved = BenchSpans.measure("window.makeFirstResponder") { super.makeFirstResponder(responder) }; editTeardown.pending = editTeardown.pending || moved; return moved }
-        if accepted { cursorRectHold?.firstResponderDidChange(in: self) }
+        if accepted { cursorRectHold?.firstResponderDidChange(in: self); (windowController as? WindowController)?.chiefPanelView?.firstResponderDidChange() }
         return accepted
     }
 }

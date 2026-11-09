@@ -17,10 +17,12 @@
 // Lawrence 2026-11-07, on that card's hover preview: "this ui transparency looks bad now". The open
 // preview grows up over the sidebar's rows, and the page's blur never reaches them (the native rows
 // are under the WebKit view, not in its document), so the translucent tint left every row legible
-// through the list. While the preview is open (and while it closes) the card paints the composer's
-// solid surface, in light, dark and over a see-through window. The same holds while the card is
-// dragged over the rows (and through its settle after the drop, so the springing card never shows
-// them): at rest the card has its own room and keeps the tint.
+// through the list. The card then turned solid while open and dragged, and Leo 2026-11-08 asked for
+// the glass back: "it turns from glass when it's unhovered into opaque when it does get hovered. I
+// feel like we should be able to keep it as glass though, right?" The host now draws a native glass
+// behind the page that frosts the rows (SidebarUpdatedCardHost.glass), so the card keeps the same
+// translucent tint at rest, open, held and settling, in light, dark and over a see-through window,
+// and its fill never swaps (the swap was the hover's flicker).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
@@ -72,7 +74,7 @@ await requireBrowserLane("updated-card-native-glass.test.ts", async () => {
      (window as any).mount = (glass: boolean | undefined, data: unknown, previewOpen?: boolean) => {
        const strings = createStrings(table);
        const root = createRoot(document.getElementById("root")!);
-       const props: any = { data, strings, actions: { openChangelog() {}, dismiss() {} }, closeButton: false };
+       const props: any = { data, strings, actions: { openChangelog() {}, dismiss() {} }, closeButton: false, previewMode: "above" };
        if (glass !== undefined) props.glass = glass;
        if (previewOpen !== undefined) props.previewOpen = previewOpen;
        flushSync(() => root.render(createElement(UpdatedCard, props)));
@@ -167,13 +169,17 @@ await requireBrowserLane("updated-card-native-glass.test.ts", async () => {
       for (const look of ["light", "dark"] as const) {
         for (const seeThrough of [false, true]) {
           const where = `${look}${seeThrough ? ", see-through window" : ""}`;
-          test(`the open hover preview hides the sidebar rows under it (${where})`, async () => {
+          test(`the open hover preview keeps the card's translucent material (${where})`, async () => {
+            const resting = await open("updated", "plain", false, { previewOpen: false, look, seeThrough });
+            const rest = (await paint(resting)).card;
+            await resting.close();
             const page = await open("updated", "plain", false, { previewOpen: true, look, seeThrough });
             await page.waitForSelector('.wn-updated[data-preview="open"]');
             const got = await paint(page);
-            // Nothing frosts what is under the WebKit view: only an opaque fill keeps the rows unread.
+            // The host's native glass frosts the rows under the WebKit view; the page paints only the tint.
             expect(got.backdrop).toBe("none");
-            expect(alpha(got.card)).toBe(1);
+            expect(got.card).toBe(rest);
+            expect(alpha(got.card)).toBeLessThan(0.9);
             expect(await page.locator(".wn-preview").innerText()).toContain("Tables scroll");
             await page.close();
           });
@@ -188,7 +194,7 @@ await requireBrowserLane("updated-card-native-glass.test.ts", async () => {
       for (const look of ["light", "dark"] as const) {
         for (const seeThrough of [false, true]) {
           const where = `${look}${seeThrough ? ", see-through window" : ""}`;
-          test(`the dragged card hides the sidebar rows under it, through its settle (${where})`, async () => {
+          test(`the dragged card keeps the card's translucent material, through its settle (${where})`, async () => {
             const page = await open("updated", "plain", false, { previewOpen: false, look, seeThrough });
             const got = await page.evaluate(() => {
               const card = document.querySelector<HTMLElement>(".wn-card")!;
@@ -202,13 +208,8 @@ await requireBrowserLane("updated-card-native-glass.test.ts", async () => {
               return { resting, held, settling };
             });
             expect(alpha(got.resting)).toBeLessThan(0.9);
-            expect(alpha(got.held)).toBe(1);
-            expect(alpha(got.settling)).toBe(1);
-            // Once the settle is over the card is back to the composer's tint.
-            await page.waitForFunction(() => {
-              const color = getComputedStyle(document.querySelector(".wn-card")!).backgroundColor;
-              return /\/\s*0?\.\d+\)$|rgba\(/.test(color);
-            });
+            expect(got.held).toBe(got.resting);
+            expect(got.settling).toBe(got.resting);
             await page.close();
           });
         }

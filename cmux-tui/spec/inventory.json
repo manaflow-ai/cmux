@@ -49,6 +49,8 @@
     "chief.profile.update",
     "chief.retry",
     "chief.stop",
+    "classic_import.plan",
+    "classic_import.record",
     "client.cell_pixels.set",
     "client.detach",
     "client.get",
@@ -77,23 +79,17 @@
     "cloud.runs.sandbox",
     "cloud.runs.start",
     "cloud.runs.wait",
-    "cloud.vm.delete_snapshot",
     "cloud.vm.domains",
     "cloud.vm.firewall_create",
     "cloud.vm.firewall_delete",
     "cloud.vm.firewall_get",
     "cloud.vm.firewall_list",
-    "cloud.vm.fork",
     "cloud.vm.networks",
     "cloud.vm.provision_api",
     "cloud.vm.publication_api_keys",
     "cloud.vm.publications",
-    "cloud.vm.resize",
-    "cloud.vm.restore",
     "cloud.vm.revoke_publication_api_key",
     "cloud.vm.scp_endpoint",
-    "cloud.vm.snapshot",
-    "cloud.vm.snapshots",
     "cloud.vm.tunnel_attach",
     "cloud.vm.tunnel_detach",
     "cloud.vm.tunnel_enroll",
@@ -707,6 +703,12 @@
     },
     {
       "name": "history-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "stash-changed",
       "streams": [
         "subscribe"
       ]
@@ -1505,6 +1507,42 @@
       "route": "frontend viewport adapter; scroll-surface for shared local viewport"
     },
     {
+      "variant": "ScrollPageUp",
+      "key": "scroll-page-up",
+      "classification": "presentation-only",
+      "route": "frontend viewport adapter"
+    },
+    {
+      "variant": "ScrollPageDown",
+      "key": "scroll-page-down",
+      "classification": "presentation-only",
+      "route": "frontend viewport adapter"
+    },
+    {
+      "variant": "ScrollHalfPageUp",
+      "key": "scroll-half-page-up",
+      "classification": "presentation-only",
+      "route": "frontend viewport adapter"
+    },
+    {
+      "variant": "ScrollHalfPageDown",
+      "key": "scroll-half-page-down",
+      "classification": "presentation-only",
+      "route": "frontend viewport adapter"
+    },
+    {
+      "variant": "CopyMode",
+      "key": "copy-mode",
+      "classification": "presentation-only",
+      "route": "frontend copy mode over the terminal mirror"
+    },
+    {
+      "variant": "SearchScrollback",
+      "key": "search-scrollback",
+      "classification": "presentation-only",
+      "route": "frontend copy mode over the terminal mirror"
+    },
+    {
       "variant": "ClearHistory",
       "key": "clear-history",
       "classification": "direct",
@@ -1539,6 +1577,18 @@
       "key": "show-shortcuts",
       "classification": "presentation-only",
       "route": "frontend shortcut overlay"
+    },
+    {
+      "variant": "NextAttention",
+      "key": "next-attention",
+      "classification": "presentation-only",
+      "route": "frontend attention queue + client focus"
+    },
+    {
+      "variant": "AttentionList",
+      "key": "attention-list",
+      "classification": "presentation-only",
+      "route": "frontend attention list overlay"
     },
     {
       "variant": "Detach",
@@ -1819,6 +1869,11 @@
       "variant": "ShowShortcuts",
       "classification": "presentation-only",
       "route": "frontend shortcut overlay"
+    },
+    {
+      "variant": "FocusAttention",
+      "classification": "presentation-only",
+      "route": "frontend attention list + client focus"
     },
     {
       "variant": "SetClientSizing",

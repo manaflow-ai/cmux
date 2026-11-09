@@ -289,6 +289,14 @@ describe("auto-roll workflows", () => {
     expect((smoke as unknown as { outputs: Record<string, string> }).outputs["boot_image"]).toBe("${{ steps.product.outputs.boot_image }}");
   });
 
+  test("the roll bakes the plain image and hands back its channel-dev.json record", () => {
+    const roll = load("cloud-vm-image-roll.yml") as unknown as { jobs: { bake: { with: Record<string, unknown> } } };
+    expect(roll.jobs.bake.with).toMatchObject({ mode: "bake", keep_snapshot: true, agent_tools: true, roll: true });
+    expect(roll.jobs.bake.with).not.toHaveProperty("native_receiver");
+    const bake = load("cloud-vm-image-bake.yml");
+    expect(stepOf(bake.jobs["bake"]!, "roll_candidate").run).toContain('"$OUT_DIR/channel-dev.json"');
+  });
+
   test("a roll's image id carries the run attempt", () => {
     const roll = load("cloud-vm-image-roll.yml");
     const promote = roll.jobs["promote"]!;

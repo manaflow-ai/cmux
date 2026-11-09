@@ -1,6 +1,6 @@
 //! The stdio contract of `cmux carrier dial` and `serve` and its pure rules:
-//! the reply and ready lines, the exit codes, the step a failure names, the one deadline and its
-//! full-jitter backoff, and the route log line. No I/O here.
+//! the reply and ready lines, the exit codes, the step a failure names, the one deadline, and the
+//! route log line. No I/O here.
 
 use std::time::Duration;
 
@@ -11,10 +11,6 @@ use serde_json::json;
 pub(super) const DEFAULT_DEADLINE: Duration = Duration::from_secs(180);
 /// The longest `--deadline-ms` accepted.
 pub(super) const MAX_DEADLINE_MS: u64 = 600_000;
-/// The first backoff ceiling between attempts, doubled after each failure.
-pub(super) const INITIAL_BACKOFF: Duration = Duration::from_millis(250);
-/// The largest backoff ceiling.
-pub(super) const MAX_BACKOFF: Duration = Duration::from_secs(10);
 /// The usage `error_code` (exit 64).
 pub(super) const BAD_REQUEST: &str = "bad_request";
 /// The longest `error_detail`, in bytes.
@@ -72,15 +68,47 @@ pub(super) struct Failure {
     pub step: Step,
     pub detail: String,
     pub retryable: bool,
+    /// The daemon no longer has the attempt's session (its session host
+    /// restarted): the next attempt opens a fresh session
+    /// ([`super::client::dial`] allows [`MAX_FRESH_SESSIONS`]).
+    pub fresh_session: bool,
+}
+
+/// How many times one dial opens a fresh session because the daemon lost
+/// the one it was given: once per restart, bounded so a daemon that keeps
+/// restarting cannot keep a dial redialing.
+pub(super) const MAX_FRESH_SESSIONS: u32 = 2;
+
+/// One dial's budget of fresh sessions ([`MAX_FRESH_SESSIONS`]), shared by
+/// every step that may ask for one (the mux-control attempt and the
+/// desktop open), so a dial never opens more than that in total.
+#[derive(Default)]
+pub(super) struct FreshSessions(std::sync::atomic::AtomicU32);
+
+impl FreshSessions {
+    /// Spends one fresh session; false when the dial has none left.
+    pub(super) fn take(&self) -> bool {
+        use std::sync::atomic::Ordering;
+        self.0
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |spent| {
+                (spent < MAX_FRESH_SESSIONS).then_some(spent + 1)
+            })
+            .is_ok()
+    }
 }
 
 impl Failure {
     pub(super) fn retry(step: Step, detail: impl Into<String>) -> Self {
-        Self { step, detail: detail.into(), retryable: true }
+        Self { step, detail: detail.into(), retryable: true, fresh_session: false }
     }
 
     pub(super) fn fatal(step: Step, detail: impl Into<String>) -> Self {
-        Self { step, detail: detail.into(), retryable: false }
+        Self { step, detail: detail.into(), retryable: false, fresh_session: false }
+    }
+
+    /// The daemon answered that it no longer has the session.
+    pub(super) fn session_gone(step: Step, detail: impl Into<String>) -> Self {
+        Self { step, detail: detail.into(), retryable: true, fresh_session: true }
     }
 
     /// The deadline passed while the attempt was at `step`.
@@ -284,52 +312,143 @@ impl Phase {
 
 /// The route log line, one per attempt, on stderr after the reply line (the
 /// Cloud app server keeps the dial's stderr in the `cmux/cloud` app log):
-/// `cloud.connect route=carrier machine=<vm_id> phase=<connect|reconnect|resume> outcome=<ok|error_code> ms=<n>`.
+/// `cloud.connect route=carrier machine=<vm_id> phase=<connect|reconnect|resume> outcome=<ok|error_code> ms=<n>`,
+/// and for a failed attempt ` detail=<code>` after `ms`, when [`detail_code`]
+/// names one. `detail` is the failure's own text, never written here.
 pub(super) fn route_line(
     machine: &str,
     phase: Phase,
     outcome: Option<Step>,
+    detail: Option<&str>,
     elapsed: Duration,
 ) -> String {
+    let detail = outcome
+        .and(detail)
+        .and_then(detail_code)
+        .map_or_else(String::new, |code| format!(" detail={code}"));
     format!(
-        "cloud.connect route=carrier machine={machine} phase={} outcome={} ms={}\n",
+        "cloud.connect route=carrier machine={machine} phase={} outcome={} ms={}{detail}\n",
         phase.name(),
         outcome.map_or("ok", Step::error_code),
         elapsed.as_millis()
     )
 }
 
-/// The full-jitter backoff between attempts of one dial: each delay is
-/// uniform in `[0, ceiling]`, the ceiling doubles up to [`MAX_BACKOFF`], and
-/// no delay outlives the deadline.
-#[derive(Clone, Copy, Debug)]
-pub(super) struct Backoff {
-    ceiling: Duration,
+/// The longest route-line detail code.
+const MAX_DETAIL_CODE: usize = 24;
+
+/// Why an attempt failed, as one short code of `[a-z0-9_]` (at most
+/// [`MAX_DETAIL_CODE`]): the relay's WebSocket close code (`1013`), an HTTP
+/// status (`http_503`), the relay's error code (`slot_busy`), or a fixed
+/// word for a local failure. Anything else is `other`; no text at all is
+/// `None`. Only these codes leave the failure text, so no ticket, grant or
+/// token can.
+pub(super) fn detail_code(detail: &str) -> Option<String> {
+    let detail = detail.trim();
+    if detail.is_empty() {
+        return None;
+    }
+    let lower = detail.to_ascii_lowercase();
+    let digits_after = |marker: &str| -> Option<String> {
+        let (_, rest) = lower.split_once(marker)?;
+        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        (!digits.is_empty() && digits.len() <= 5).then_some(digits)
+    };
+    if let Some(code) = digits_after("(close ") {
+        return Some(code);
+    }
+    if let Some(status) = digits_after("http status ").or_else(|| digits_after("answered ")) {
+        return Some(format!("http_{status}"));
+    }
+    if let Some((_, rest)) = lower.split_once("(relay code ") {
+        let code: String = rest
+            .chars()
+            .take_while(|c| *c != ')')
+            .map(|c| if c == '-' { '_' } else { c })
+            .collect();
+        let token = !code.is_empty()
+            && code.len() <= MAX_DETAIL_CODE
+            && code.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
+        return Some(if token { code } else { "other".into() });
+    }
+    let word = [
+        ("connection refused", "connect_refused"),
+        ("tls error", "tls"),
+        ("deadline passed", "deadline"),
+        ("timed out", "timeout"),
+        ("authentication was rejected", "rejected"),
+        ("rejected the authenticated", "rejected"),
+        ("websocket closed", "closed"),
+        ("connection closed", "closed"),
+        ("read failed", "closed"),
+        ("i/o error", "io"),
+        ("daemon key", "daemon_key"),
+    ]
+    .into_iter()
+    .find(|(marker, _)| lower.contains(marker))
+    .map_or("other", |(_, word)| word);
+    Some(word.into())
 }
 
-impl Default for Backoff {
-    fn default() -> Self {
-        Self { ceiling: INITIAL_BACKOFF }
-    }
+/// How long each step of one attempt took. A step the attempt never
+/// started is zero; the step it was in when it failed (or the deadline cut
+/// it) runs to the moment the line is written.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct PhaseTimes {
+    /// The carrier answer: asked of cmux-platform, or taken from a handed-over one.
+    pub ticket: Duration,
+    /// The relay provider's control socket.
+    pub relay: Duration,
+    /// The first lane's Connect until the relay allocates it (it parks
+    /// until the machine's daemon registers) and the circuit joins.
+    pub parked: Duration,
+    /// From the first allocated lane to the session up: the Noise handshake,
+    /// the grant's admission and the other lanes.
+    pub handshake: Duration,
+    /// The mux control stream's open on the session.
+    pub mux: Duration,
+    /// Physical lane links opened.
+    pub lanes: u32,
 }
 
-impl Backoff {
-    /// The delay before the next attempt, given `remaining` time to the
-    /// deadline and `jitter` (the full-jitter draw from `[0, ceiling]`), or
-    /// `None` when no time is left for another attempt.
-    pub(super) fn next(
-        &mut self,
-        remaining: Duration,
-        jitter: impl FnOnce(Duration) -> Duration,
-    ) -> Option<Duration> {
-        if remaining.is_zero() {
-            return None;
-        }
-        let ceiling = self.ceiling;
-        self.ceiling = (ceiling * 2).min(MAX_BACKOFF);
-        let delay = jitter(ceiling).min(ceiling);
-        (delay < remaining).then_some(delay)
-    }
+/// What a phases line counts: a dial's attempt, or (in `serve`) a socket
+/// connection carried on the session an earlier connection dialed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PhasesOf {
+    Attempt(Phase),
+    /// A stream on the held session: no ticket, relay or handshake.
+    Stream,
+}
+
+/// The per-step line, appended only to the connect log beside each route
+/// line (never on stderr, whose lines `dial` and `serve` pin):
+/// `carrier.phases machine=<vm_id> phase=<connect|reconnect|stream> carrier=relay:<i> outcome=<ok|error_code> ticket_ms=<n> relay_ms=<n> parked_ms=<n> handshake_ms=<n> mux_ms=<n> lanes=<n> ms=<n>`.
+/// `carrier` is the relay's index in the answer's relay list (one relay
+/// today, so `relay:0`). It holds no `cloud.connect`, so readers of the
+/// route line (cmuxterm-hq's start matrix fails any `cloud.connect` line of
+/// another shape) never see it.
+pub(super) fn phases_line(
+    machine: &str,
+    of: PhasesOf,
+    outcome: Option<Step>,
+    times: PhaseTimes,
+    elapsed: Duration,
+) -> String {
+    let phase = match of {
+        PhasesOf::Attempt(phase) => phase.name(),
+        PhasesOf::Stream => "stream",
+    };
+    format!(
+        "carrier.phases machine={machine} phase={phase} carrier=relay:0 outcome={} ticket_ms={} relay_ms={} parked_ms={} handshake_ms={} mux_ms={} lanes={} ms={}\n",
+        outcome.map_or("ok", Step::error_code),
+        times.ticket.as_millis(),
+        times.relay.as_millis(),
+        times.parked.as_millis(),
+        times.handshake.as_millis(),
+        times.mux.as_millis(),
+        times.lanes,
+        elapsed.as_millis()
+    )
 }
 
 /// `--answer-fd`: 0 (stdin) or a descriptor past stderr, in decimal.

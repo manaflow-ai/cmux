@@ -72,6 +72,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.parse
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -122,6 +123,36 @@ def rate_limit_aware(github):
     return Aware()
 
 
+# The fields this script reads from each REST list it reads, as a `gh api --jq` projection. On an agent host the gh
+# shim answers a REST read over GraphQL while the REST quota is under its floor, and GraphQL's answer has REST's
+# common fields only, so a read with no --jq (a whole object) was refused there: manaflow-ai/cmux#38416's merge check
+# stopped on "GraphQL could not answer `gh api repos/manaflow-ai/cmux/actions/runs/42476982159/jobs?...`: a whole REST
+# object ...; add --jq naming fields" (2026-11-08). Naming the fields lets it answer, and on REST the projection
+# keeps every field read here (a job's runner and labels are never read). A field added to a reader of these lists
+# goes here too: a missing one reads as null, never as a refusal. Reads GraphQL can't answer whatever the fields
+# (a single job, a compare's merge base, a run's check suite node id, artifacts, workflow runs) stay whole.
+JOB_FIELDS = ("id, name, run_id, run_attempt, head_sha, head_branch, workflow_name, status, conclusion, started_at, "
+              "completed_at, html_url, url, check_run_url")
+STEP_FIELDS = "name, status, conclusion, number, started_at, completed_at"
+PROJECTIONS = (
+    # A run's jobs (filter=all or latest), one page each.
+    (re.compile(r"repos/[^/]+/[^/]+/actions/runs/\d+(?:/attempts/\d+)?/jobs(?:\?.*)?"),
+     f"{{total_count, jobs: [.jobs[] | {{{JOB_FIELDS}, steps: [.steps[]? | {{{STEP_FIELDS}}}]}}]}}"),
+    # A commit's combined status.
+    (re.compile(r"repos/[^/]+/[^/]+/commits/[^/?]+/status(?:\?.*)?"),
+     "{state, sha, total_count, statuses: [.statuses[] | {context, state, description, target_url, created_at, "
+     "updated_at}]}"),
+    # A branch's commit history.
+    (re.compile(r"repos/[^/]+/[^/]+/commits\?(?:.*&)?sha=.*"),
+     "[.[] | {sha, commit: {committer: {date: .commit.committer.date}}, parents: [.parents[]? | {sha}]}]"),
+)
+
+
+def projection(route: str) -> str | None:
+    """The `--jq` projection for ROUTE (PROJECTIONS), or None to read it whole."""
+    return next((jq for pattern, jq in PROJECTIONS if pattern.fullmatch(route)), None)
+
+
 ESCAPE_FLAG = "--allow-escape-sequences"
 UNKNOWN_ESCAPE_FLAG = f"unknown flag: {ESCAPE_FLAG}"
 REQUEST_FAILED = "GitHub evidence request failed: "
@@ -162,7 +193,18 @@ class GitHub(_evidence.GitHub):
         # A run's job list carries every job's steps; see JOBS_PAGE.
         if paginate and "/jobs?" in route:
             per_page = min(per_page, JOBS_PAGE)
-        return super().json(route, paginate=paginate, per_page=per_page)
+        jq = projection(route)
+        if jq is None:
+            return super().json(route, paginate=paginate, per_page=per_page)
+
+        def fetch(url: str):
+            return json.loads(self.run(["api", url, "--jq", jq]))
+        if not paginate:
+            return fetch(route)
+        try:
+            return _evidence.gh_pages.pages(fetch, route, per_page=per_page)
+        except _evidence.gh_pages.PageCapError as error:
+            raise Refused(str(error)) from None
 
     def dispatch(self, repo: str, workflow: str, ref: str) -> int | None:
         """Start a workflow_dispatch run of WORKFLOW (a file name) on REF; its run id, or None when GitHub named none.
@@ -478,15 +520,24 @@ def suite_jobs(run: dict) -> frozenset[str] | None:
 SUITE_JOBS = frozenset().union(*SUITES.values())
 
 
-# A cancelled base tier run is one the base tier kick found superseded before any of its Mac jobs started
-# (cmux_next_base_tier.py cancel_superseded): it has no verdict, and read here it would only spend the
-# lookup limits that reach the run that has one.
+# A cancelled base tier run is one the base tier kick found superseded with no Mac job in progress
+# (cmux_next_base_tier.py cancel_superseded): read here it mostly spends the lookup limits that reach the run
+# with a verdict. But since 2026-11-09 (cmux#39631) the kick also cancels a run whose daemon tests or generated
+# files finished while its scheme compile still queued, so for those jobs (CANCELLED_TIER_VERDICT_JOBS) such a run
+# can hold the newest verdict: a green there must stand over an older red. For them a cancelled base tier run is
+# read only when its check suite shows a verdict for the job (or cannot be read), and one with none is passed
+# over without spending a job-list read (cancelled_tier_without_verdict). For every other job it has none.
 BASE_TIER_TITLE = "cmux-next base tier · "
+CANCELLED_TIER_VERDICT_JOBS = frozenset({"cmux-next daemon tests", "cmux-next generated files"})
+
+
+def cancelled_base_tier(run: dict) -> bool:
+    return run.get("conclusion") == "cancelled" and (run.get("display_title") or "").startswith(BASE_TIER_TITLE)
 
 
 def never_carries(run: dict, name: str) -> bool:
     """Whether RUN's suite never runs job NAME, so it has no verdict for it to read."""
-    if run.get("conclusion") == "cancelled" and (run.get("display_title") or "").startswith(BASE_TIER_TITLE):
+    if cancelled_base_tier(run) and name not in CANCELLED_TIER_VERDICT_JOBS:
         return True
     jobs = suite_jobs(run)
     return name in SUITE_JOBS and jobs is not None and name not in jobs
@@ -888,6 +939,74 @@ def compile_pass_at(repo: str, sha: str, github) -> str | None:
     return None
 
 
+# An inherited compile red (2026-11-09): cmux#38644 and #38631 branched from feat-cmux-next while #39301 had broken
+# its cmux-tui compile, and the fleet's receipt for each head read "fail" with the base's own error. The fleet Release
+# compile runs only on pull requests, so no base run has its job, and its cmux-next/compile status links the source
+# run, which has no job of that name: both reds were refused with nothing to compare. The fleet's receipts are kept
+# per commit, base pushes included, so the head's red is the base's when the head's receipt is a real "fail" and so is
+# its merge-base's. Every other receipt state (no verdict, unread, another commit) stays the head's.
+COMPILE_RECEIPTS = os.environ.get("BASE_RED_EXCUSE_COMPILE_RECEIPTS", "https://gh-events.cmux.com/compile-checks/v1")
+COMPILE_RECEIPT_SECONDS = 20
+# The receipts host sits behind a proxy that answers Python's default User-Agent ("Python-urllib/3.x") with HTTP 403
+# (error code 1010, a refused client signature), so every read was refused and no compile red could be judged
+# (cmux#39582, 2026-11-09). Name the client.
+COMPILE_RECEIPT_USER_AGENT = "cmux-base-red-excuse"
+COMPILE_RECEIPT_RECIPE = (2, "release-onone")
+FLEET_COMPILE_JOB = "cmux-next fleet Release compile"
+FLEET_COMPILE_FAIL = re.compile(r"^##\[error\]\s*cmux-next/compile is not a pass for [0-9a-f]{40} \(fail\)")
+
+
+def compile_receipt(repo: str, sha: str) -> dict | None:
+    """The fleet's compile receipt for SHA (one anonymous read, no wait), or None when it has none (404). Any other
+    answer refuses: an unread receipt is no verdict."""
+    import urllib.error
+    import urllib.request
+    url = f"{COMPILE_RECEIPTS}/{sha}?repo={urllib.parse.quote(repo, safe='')}&wait=0"
+    try:
+        request = urllib.request.Request(url, headers={"User-Agent": COMPILE_RECEIPT_USER_AGENT})
+        with urllib.request.urlopen(request, timeout=COMPILE_RECEIPT_SECONDS) as answer:
+            receipt = json.loads(answer.read(1 << 16))
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return None
+        raise Refused(f"the compile receipt of {sha[:12]}: HTTP {error.code}") from error
+    except (OSError, ValueError) as error:
+        raise Refused(f"the compile receipt of {sha[:12]}: {type(error).__name__}: {error}") from error
+    if not isinstance(receipt, dict) or receipt.get("sha") != sha or receipt.get("repo") != repo:
+        raise Refused(f"the compile receipt of {sha[:12]} names another commit")
+    # The receipt the workflow trusts (cmux-next.yml's compile-status step): recipe 2, Release at -Onone.
+    if (receipt.get("recipe_version"), receipt.get("configuration")) != COMPILE_RECEIPT_RECIPE:
+        raise Refused(f"the compile receipt of {sha[:12]} is of another recipe (recipe_version "
+                      f"{receipt.get('recipe_version')}, configuration {receipt.get('configuration')})")
+    return receipt
+
+
+def inherited_compile_red(repo: str, base: str, sha: str, name: str, github) -> str:
+    """The audit line excusing NAME's compile red at SHA when the head's fleet receipt and its merge-base's both read
+    "fail", else Refused."""
+    head = compile_receipt(repo, sha)
+    if (head or {}).get("state") != "fail":
+        raise Refused(f"'{name}': the compile receipt of {sha[:12]} is {(head or {}).get('state') or 'missing'}, not "
+                      "a fail: no verdict to compare with the base")
+    diff = github.json(f"repos/{repo}/compare/{base}...{sha}?per_page=1")
+    merge_base = (diff.get("merge_base_commit") or {}).get("sha") or ""
+    if not re.fullmatch(r"[0-9a-f]{40}", merge_base):
+        raise Refused(f"'{name}': no merge-base of {sha[:12]} with {base} to compare its compile receipt with")
+    at_base = compile_receipt(repo, merge_base)
+    if (at_base or {}).get("state") != "fail":
+        raise Refused(f"'{name}': the compile receipt of {sha[:12]} is a fail, and its merge-base {merge_base[:12]} "
+                      f"on {base} reads {(at_base or {}).get('state') or 'no receipt'}: the red is this head's")
+    tip = (diff.get("base_commit") or {}).get("sha") or ""
+    now = ""
+    if re.fullmatch(r"[0-9a-f]{40}", tip) and tip != merge_base:
+        try:
+            now = f"; {base} {tip[:12]} reads {(compile_receipt(repo, tip) or {}).get('state') or 'no receipt'}"
+        except Refused:
+            now = ""
+    return (f"excused '{name}': the compile receipt of {sha[:12]} is a fail, and so is its merge-base "
+            f"{merge_base[:12]}'s on {base} (an inherited base red{now}; merge the base for a new verdict)")
+
+
 # The Rust panic ratchet (scripts/cmux-next/rust_panic_ratchet.py, run by .github/scripts/cmux-tui-clippy-changed.py).
 # Its error line names the packages the run checked, and a base run may check the whole workspace while a PR checks
 # only its changed packages, so that line never matches (2026-10-31: cmux#26849's run 41176610742 failed on two rows
@@ -1041,6 +1160,9 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
     state, job_name = status.get("state"), name.removesuffix(SAME_TREE_SUFFIX)
     if state == "pending":
         raise Refused(f"'{name}': its status is still pending on {sha}")
+    if name == COMPILE_PASS_STATUS and base and state in ("failure", "error"):
+        # Its target_url is the source run, with no job of this name (inherited_compile_red).
+        return inherited_compile_red(repo, base, sha, name, github)
     url = status.get("target_url") or ""
     match = re.fullmatch(r"https://github\.com/" + re.escape(repo) + r"/actions/runs/(\d+)(?:/job/\d+)?/?", url)
     if match:
@@ -1141,6 +1263,10 @@ def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
 # job, is excused when the PR changes FFI inputs, leaves Package.swift (the pin) alone and changes no Swift, so no app
 # code calls a symbol or op the pinned library lacks. Any other red in the job is judged as before.
 #
+# Neither rule excuses a PR that changes a file that decides the pin verdict (FFI_PIN_CHECK_CODE; 2026-11-09, review of
+# cmux#39194): it could make the pin error print for any change, and the published base pin rule excuses nearly every
+# PR, since a head inherits the base's published pin.
+#
 # A published base pin (2026-11-07): step-A PRs change the FFI sources faster than releases publish, so a step-B PR (its
 # Swift, or a re-pin) could never pin a release built from its own sources. Any other PR with that error has it excused
 # when both hold: (a) the release its head pins (Package.swift's canonical CCmuxAppFFI block, app_ffi_pin.py: this
@@ -1160,6 +1286,13 @@ FFI_PIN_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
 FFI_PIN_FILE = "Packages/macOS/CmuxNext/app-ffi-pin.json"
 FFI_PIN_PATHS = (FFI_PIN_FILE, FFI_PIN_MANIFEST)  # a PR changing either moves the pin
 FFI_INPUTS = ("cmux-tui/crates/", "cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh")
+# The files that decide the pin check's verdict: the check, the pin reader it runs, every step's BASH_ENV, this
+# classifier and the workflow holding the pin step and its rollup (the checks job uses no .github/actions/). A PR
+# changing one could make the pin error print for any change, so neither rule below excuses it (review of cmux#39194,
+# the main copy of the step-A rule). Only these: a new FFI crate also changes app-ffi-release.yml, the router and the
+# licence list (cmux#37869), which do not decide the verdict (review of cmux#39471).
+FFI_PIN_CHECK_CODE = ("scripts/cmux-next/check-app-ffi-pin.sh", "scripts/ci/app_ffi_pin.py", "scripts/ci/api_call_log/",
+                      "scripts/ci/base_red_excuse.py", ".github/workflows/cmux-next.yml")
 FFI_RELEASE_SECONDS = 30
 FFI_ASSET = "CCmuxAppFFI.xcframework.zip"
 
@@ -1169,6 +1302,10 @@ FFI_ASSET = "CCmuxAppFFI.xcframework.zip"
 _spec = importlib.util.spec_from_file_location("app_ffi_pin", Path(__file__).with_name("app_ffi_pin.py"))
 app_ffi_pin = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(app_ffi_pin)
+_spec = importlib.util.spec_from_file_location("github_release_download",
+                                          Path(__file__).with_name("github_release_download.py"))
+release_download = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(release_download)
 
 
 def ffi_binary_target(manifest: str, repo: str, pin_file: str | None = None) -> tuple[str | None, str | None, str]:
@@ -1198,13 +1335,20 @@ def ffi_pin_file_at(repo: str, sha: str, github) -> str | None:
 
 def ffi_release_file(repo: str, tag: str, name: str) -> str | None:
     """File NAME of the published release TAG of REPO, read anonymously from its release download (no API quota), or
-    None when it is not published (404). Any other failure raises: an unread release is no answer."""
+    None when it is not published (404, or a release without it). A download that fails otherwise is read through
+    the release-assets API (github_release_download.py; 2026-11-08 every release download answered 503 or 504 and
+    every merge was held). Any other failure raises: an unread release is no answer."""
     import urllib.error
-    import urllib.request
     url = f"https://github.com/{repo}/releases/download/{tag}/{name}"
     try:
-        with urllib.request.urlopen(url, timeout=FFI_RELEASE_SECONDS) as answer:  # noqa: S310 (a fixed https URL)
-            return answer.read(1 << 16).decode("utf-8", "replace")
+        with tempfile.TemporaryDirectory(prefix="cmux-ffi-release-") as tmp:
+            out = Path(tmp) / name
+            release_download.download(url, out, FFI_RELEASE_SECONDS,
+                                      log=lambda message: print(f"base_red_excuse: {message}", file=sys.stderr))
+            with open(out, "rb") as answer:
+                return answer.read(1 << 16).decode("utf-8", "replace")
+    except release_download.NoAsset:
+        return None
     except urllib.error.HTTPError as error:
         if error.code == 404:
             return None
@@ -1259,6 +1403,10 @@ def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: set[str], e
     if name != FFI_PIN_JOB or not any(error.startswith(pin) for error in errors):
         return None, None
     number, paths = pr_paths(repo, base, sha, github)
+    if check_code := [path for path in paths if any(touches(path, code) for code in FFI_PIN_CHECK_CODE)]:
+        raise Refused(f"'{name}': its app FFI pin is red, and #{number} changes the app FFI pin check's code "
+                      f"({'; '.join(check_code[:5])}): a PR never excuses its own red by changing the check; land "
+                      "the check change on its own, with the pin check green")
     if moved := [path for path in FFI_PIN_PATHS if path in paths]:
         why = (f"#{number} changes {moved[0]}: a PR that moves the pin must pin a release built from its own "
                "sources")
@@ -1340,8 +1488,10 @@ def last_real_jobs(repo: str, run: int, github) -> list[dict]:
     jobs = [job for page in github.json(f"repos/{repo}/actions/runs/{run}/jobs?filter=all&per_page=100", paginate=True)
             for job in page.get("jobs") or []]
     for job in jobs:
-        # glaeda's slim job list names no run_id; the run read is the job's run (superseding_check reads it)
-        job.setdefault("run_id", run)
+        # glaeda's slim job list names no run_id (and a --jq projection of it reads null); the run read is the job's
+        # run (superseding_check reads it)
+        if job.get("run_id") is None:
+            job["run_id"] = run
     newest: dict[str, int] = {}
     for job in jobs:
         newest[job.get("name", "")] = max(newest.get(job.get("name", ""), 0), job.get("run_attempt") or 1)
@@ -1423,6 +1573,12 @@ def may_hold(suites: SuiteChecks, runs: list[dict], index: int, name: str, verdi
     return found is None or bool(found & VERDICTS if verdict else found)
 
 
+def cancelled_tier_without_verdict(suites: SuiteChecks, runs: list[dict], index: int, name: str) -> bool:
+    """Whether RUNS[INDEX] is a cancelled base tier run whose check suite shows no verdict for job NAME: passed over
+    before it counts toward a job-list limit (never_carries' note)."""
+    return cancelled_base_tier(runs[index]) and not may_hold(suites, runs, index, name, verdict=True)
+
+
 # A completed base run's job list, kept on disk so the next merge check on the same base reads none of them again.
 # Keyed by run, attempt and updated_at: a re-run changes both, so a kept list is the one GitHub would serve.
 JOBS_CACHE_ENV = "BASE_RED_EXCUSE_JOBS_CACHE"  # a directory, or "off"
@@ -1455,6 +1611,9 @@ def base_run_jobs(repo: str, run: dict, github) -> list[dict]:
     jobs = [found for page in github.json(f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100",
                                           paginate=True)
             for found in page.get("jobs") or []]
+    for job in jobs:  # a --jq projection of glaeda's slim list reads a null run_id; the cache check above needs it
+        if job.get("run_id") is None:
+            job["run_id"] = run["id"]
     if key is not None:
         try:
             key.parent.mkdir(parents=True, exist_ok=True)
@@ -1676,10 +1835,11 @@ def tip_suite_verdicts(repo: str, base: str, workflow, name: str, github, base_j
                          f"&per_page={BASE_RUNS_PAGE}")
     runs = listed.get("workflow_runs") or []
     deferred = deferred_first_runs(runs) if name in TREE_JOBS else set()
-    candidates = [run for run in runs
-                  if run.get("status") == "completed" and run.get("conclusion") != "skipped"
-                  and not never_carries(run, name) and run["id"] not in deferred]
     suites = suites or SuiteChecks(github)
+    candidates = [run for index, run in enumerate(runs)
+                  if run.get("status") == "completed" and run.get("conclusion") != "skipped"
+                  and not never_carries(run, name) and run["id"] not in deferred
+                  and not cancelled_tier_without_verdict(suites, runs, index, name)]
     candidates = candidates[:TIP_SUITE_JOB_READS]
     for index, run in enumerate(candidates):
         if base_jobs.get(run["id"]) is None:
@@ -1702,7 +1862,7 @@ def base_verdicts(repo: str, base: str, workflow, name: str, github, base_runs: 
     suites = suites or SuiteChecks(github)
     runs = base_runs[workflow]
     for index, candidate_run in enumerate(runs):
-        if never_carries(candidate_run, name):
+        if never_carries(candidate_run, name) or cancelled_tier_without_verdict(suites, runs, index, name):
             continue
         if candidate_run["id"] not in base_jobs:
             if job_reads.get(workflow, 0) >= BASE_JOB_READS:
@@ -1825,7 +1985,10 @@ PACKAGE_JOBS = {
                   "Packages/Shared/", "Packages/iOS/", "cmux-tui/Cargo.toml", "cmux-tui/Cargo.lock",
                   "cmux-tui/rust-toolchain.toml", "cmux-tui/rust-toolchain", "cmux-tui/.cargo/",
                   "cmux-tui/crates/cmux-rd-core/", "cmux-tui/crates/cmux-rd-engine/", "cmux-tui/crates/cmux-rd-ffi/",
+                  # cmux-wg's remote_stream_bench example dev-depends on cmux-rd-link
+                  "cmux-tui/crates/cmux-rd-link/",
                   "cmux-tui/crates/cmux-rd-proto/", "cmux-tui/crates/cmux-remote-browser/",
+                  "cmux-tui/crates/cmux-terminal-prediction/",
                   "cmux-tui/crates/cmux-transport/", "cmux-tui/crates/cmux-wg/", "schemas/remote-tab/",
                   # cmux-wg's smoltcp is the vendored copy ([patch.crates-io] in cmux-next-ios/rust)
                   "cmux-tui/vendor/smoltcp/",
@@ -2087,6 +2250,56 @@ def touches(path: str, read: str) -> bool:
     return path.startswith(read) if read.endswith("/") else path == read or path.startswith(read + "/")
 
 
+# The pull request a fixed-on-base red may be excused for (2026-11-08, cmuxterm-hq#7948): next-autoland lands a head
+# with a base red since fixed, with no base merge, only when (1) an independent SHIP names that exact head, (2) it is
+# not risk:high, (3) GitHub does not call it conflicting, (4) the job was red at the PR's merge-base and (5) passes on
+# the newest base after it, and (6) none of the PR's files feeds the check. (5) and (6) are the rule above; this adds
+# (1)-(4), so a lane's own land and autoland's agree. Any one missing keeps the red: the head takes a base merge and a
+# run on the combined tree. The receipt grammar is risk_tier.py's (its one copy, as defaults_guard reads it). A merged
+# pull request (merge_audit) has no conflict to read.
+SCRIPT_DIR = Path(__file__).resolve().parent
+FIXED_ON_BASE_RISK = "risk:high"
+
+
+def receipt_grammar():
+    if str(SCRIPT_DIR) not in sys.path:
+        sys.path.insert(0, str(SCRIPT_DIR))
+    import risk_tier
+    return risk_tier
+
+
+def fixed_on_base_pull(repo: str, base: str, sha: str, name: str, merge_base: str, github) -> str:
+    """The pull request whose head is SHA, when (1)-(4) above hold for the red job NAME; raises Refused otherwise."""
+    pulls = [p for p in github.json(f"repos/{repo}/commits/{sha}/pulls?per_page=100") or []
+             if isinstance(p, dict) and (p.get("head") or {}).get("sha") == sha
+             and (p.get("base") or {}).get("ref") == base]
+    if len(pulls) != 1:
+        raise Refused(f"no single pull request into {base} has {sha[:12]} as its head ({len(pulls)} found)")
+    number = pulls[0].get("number")
+    pull = github.json(f"repos/{repo}/pulls/{number}")
+    labels = {str((label or {}).get("name") or "").lower() for label in pull.get("labels") or []}
+    if FIXED_ON_BASE_RISK in labels:
+        raise Refused(f"#{number} is {FIXED_ON_BASE_RISK}: it keeps its base merge and a run on the combined tree")
+    if pull.get("state") == "open" and (pull.get("mergeable") is False
+                                         or str(pull.get("mergeable_state") or "").lower() == "dirty"):
+        raise Refused(f"GitHub calls #{number} conflicting")
+    # A paginated read is its list of pages ([[comment, ...], ...]); signed_off reads the items.
+    comments = [item for page in github.json(f"repos/{repo}/issues/{number}/comments", paginate=True) or []
+                for item in _evidence.gh_pages.page_items(page)]
+    reviews = [item for page in github.json(f"repos/{repo}/pulls/{number}/reviews", paginate=True) or []
+               for item in _evidence.gh_pages.page_items(page)]
+    author = (pull.get("user") or {}).get("login") or ""
+    if not receipt_grammar().signed_off(comments, reviews, sha, author, pull):
+        raise Refused(f"#{number} has no independent SHIP at its exact head {sha[:12]}")
+    runs = github.json(f"repos/{repo}/commits/{merge_base}/check-runs?check_name={urllib.parse.quote(name, safe='')}&filter=latest&per_page=100")
+    seen = [run for run in (runs or {}).get("check_runs") or [] if isinstance(run, dict) and run.get("name") == name]
+    if not any(run.get("status") == "completed" and run.get("conclusion") in ("failure", "timed_out") for run in seen):
+        raise Refused(f"'{name}' has no red verdict at the merge-base {merge_base[:12]} "
+                      f"({', '.join(sorted({str(r.get('conclusion') or r.get('status')) for r in seen})) or 'none'}): "
+                      "the base red that would excuse it is not shown there")
+    return f"#{number}, SHIP at {sha[:12]}, red at the merge-base {merge_base[:12]}"
+
+
 def fixed_on_base(repo: str, base: str, sha: str, name: str, head_log: str, base_run: dict, github,
                   job: dict | None = None) -> str:
     """The audit line for a red job whose every failing test is fixed on the base (the rule above); raises Refused
@@ -2125,9 +2338,10 @@ def fixed_on_base(repo: str, base: str, sha: str, name: str, head_log: str, base
         if hit := [changed_path for changed_path in changed if any(touches(changed_path, r) for r in test_reads)]:
             raise Refused(f"{test} reads paths the PR changes: {'; '.join(hit[:5])}")
         reads.extend(r for r in test_reads if r not in reads)
+    pull = fixed_on_base_pull(repo, base, sha, name, merge_base, github)
     url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
     return (f"excused '{name}': fixed on base (passes at {tested[:12]} in {base} run {base_run['id']}, after the "
-            f"merge-base {merge_base[:12]}; PR does not touch {', '.join(reads)}) ({url}): "
+            f"merge-base {merge_base[:12]}; PR does not touch {', '.join(reads)}; {pull}) ({url}): "
             f"{'; '.join(sorted(tests))[:400]}")
 
 
@@ -2872,6 +3086,121 @@ def gallery_crash_verdict(repo: str, base: str, name: str, job: dict, head_log: 
             f"red the same way: {'; '.join(verdict.shared)[:400]}")
 
 
+# A webview test job is judged per test, never by its job name (2026-11-08). A pull request's red files run in a head
+# shard (`web / react-apps-check (N)`) and are replayed on the merge parent by `web / react-apps-base-check (N)`, a job
+# ci-web.yml runs on pull requests only. So no base push ever has a job of the replay's name, and every red replay was
+# refused as "no feat-cmux-next run of its workflow has a verdict for it to compare with" (cmux#34111 at 64617d70,
+# replays (2), (5) and (7)), whatever the base showed. And the base's own push runs a test in whichever shard its split
+# puts it, so even a head shard's name matches a base job that ran other files. test_reds.classify_web_window judges
+# such a red the way next-autoland's web_red (cmuxterm-hq) does: the tests a replay charged to the change (its head
+# re-run's verdict), with their errors from the head shard N of the same run, or a head shard's own failing tests,
+# against the red shards of the base's newest webview runs (BASE_WORKFLOW_FOR's push caller, cmux-next-web.yml): a
+# test is the base's when one of those runs fails it with the same error. The window is the base-red window: at most
+# BASE_WINDOW runs that gave every shard a verdict, within BASE_WINDOW_HOURS of the newest, back to the first all-green
+# run (every test passed there, so an older red never counts), reading at most WEB_BASE_JOB_READS job lists.
+WEB_TEST_JOB = re.compile(r"web / react-apps-(base-)?check \((\d+)\)")
+WEB_SHARD = "web / react-apps-check ({})"
+WEB_SHARD_JOB = re.compile(r"web / react-apps-check \(\d+\)")
+WEB_BASE_JOB_READS = BASE_JOB_READS
+# The steps whose failure is a webview test red, as the jobs API shows them: every other step of these jobs that can
+# fail is continue-on-error (it reads as a success there) and is gathered by the job's own last step, 'Fail on the gate
+# checks' in a shard (bundles, type check, PR rules) or a head build step in a replay. A job with any other failed step
+# failed outside its tests, and a per-test match never excuses it (review F1 on #38380): a head shard is then judged
+# by its name and failed steps as before, and a replay, which has no base job of its name, is refused.
+WEB_TEST_STEPS = {"replay": frozenset({"Re-run the change's reds alone on the head", "Fail on the change's own reds"}),
+                  "shard": frozenset({"Test webviews"})}
+
+
+def web_base_runs(repo: str, base: str, workflow, github, base_runs: dict):
+    """(run, its red webview shard jobs) for each of BASE's newest webview runs of WORKFLOW that gave every shard a
+    verdict, newest first, read lazily: the window above. An all-green run is yielded and ends it."""
+    list_base_runs(repo, base, workflow, github, base_runs)
+    reads, count, newest = 0, 0, None
+    for run in base_runs[workflow]:
+        if run.get("status") == "completed" and run.get("conclusion") in ("cancelled", "skipped"):
+            continue  # a superseded coalesced run: no shard of it ran
+        if reads >= WEB_BASE_JOB_READS:
+            return
+        reads += 1
+        shards = [job for job in base_run_jobs(repo, run, github) if WEB_SHARD_JOB.fullmatch(job.get("name") or "")]
+        if not shards or any(job.get("status") != "completed" or job.get("conclusion") not in VERDICTS
+                             for job in shards):
+            continue
+        when = created(run)
+        newest = newest or when
+        if newest and when and newest - when > timedelta(hours=BASE_WINDOW_HOURS):
+            return
+        red = sorted((job for job in shards if job.get("conclusion") == "failure"), key=lambda job: job["name"])
+        yield run, red
+        count += 1
+        if not red or count >= BASE_WINDOW:
+            return
+
+
+def web_test_verdict(repo: str, base: str, name: str, job: dict, head_log: str, workflow_info: dict, github,
+                     base_runs: dict) -> str | None:
+    """The audit line for a red webview test job NAME (WEB_TEST_JOB) judged per test against the base's newest webview
+    runs (the rule above); None for any other job, or a head shard whose log names no failing webview test (judged by
+    its name as before). Raises Refused when a test is not red on the base the same way, or nothing could be judged."""
+    found = WEB_TEST_JOB.fullmatch(name)
+    if repo != HOME_REPO or found is None:
+        return None
+    replay = bool(found.group(1))
+    failed = [step.get("name") or "" for step in job.get("steps") or []
+              if step.get("conclusion") not in (None, "success", "skipped")]
+    outside = [step for step in failed if step not in WEB_TEST_STEPS["replay" if replay else "shard"]]
+    if outside or not failed:
+        if not replay:
+            return None
+        raise Refused(f"'{name}' failed outside its webview test steps: {', '.join(outside) or 'no step failed'}; "
+                      f"a replay has no {base} job of its name to compare with, so it is never a base red")
+    head_logs: list[str | None] = [head_log]
+    if replay:
+        shard = WEB_SHARD.format(found.group(2))
+        sibling = next((other for other in base_run_jobs(repo, {"id": job["run_id"]}, github)
+                        if other.get("name") == shard), None)
+        try:
+            head_logs.append(github.log(repo, sibling) if sibling is not None else None)
+        except Refused as why:
+            raise Refused(f"'{name}': the log of its head shard '{shard}', where its tests' errors are printed, "
+                          f"could not be read: {str(why)[:300]}") from None
+        if sibling is None:
+            raise Refused(f"'{name}': its run has no head shard '{shard}' whose errors its tests could be "
+                          "compared by")
+    workflow = base_caller(repo, base, workflow_info, name) or workflow_info["workflow_id"]
+    green: list[dict] = []
+    unread: list[str] = []  # why a base log could not be read, named in the refusal
+
+    def windows():
+        for run, red in web_base_runs(repo, base, workflow, github, base_runs):
+            if not red:
+                green.append(run)
+                return
+            logs = []
+            for found_job in red:
+                try:
+                    logs.append(github.log(repo, found_job))
+                except Refused as why:
+                    unread.append(f"job {found_job.get('id')}: {str(why)[:200]}")
+                    logs.append(None)
+            yield f"{base} run {run['id']}", logs
+
+    verdict = test_reds.classify_web_window(head_logs, windows(), name, base)
+    if verdict is None:
+        if not replay:
+            return None
+        raise Refused(f"'{name}': its replay names no failing webview test (it failed outside its tests); a replay "
+                      f"has no {base} job of its name to compare with, so it is never a base red")
+    if verdict.own:
+        said = "; ".join(verdict.reasons)
+        if green:
+            said += f" (every webview test passed on {base} run {green[0]['id']}, which ends the window)"
+        if unread:
+            said += f" (unread: {unread[0]})"
+        raise Refused(f"'{name}' judged per test against {base}'s webview runs: {said}"[:1000])
+    return f"excused '{name}': each failing webview test is red the same way on {base}: " + "; ".join(verdict.shared)[:600]
+
+
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = (),
           flake_state: dict | None = None) -> list[str]:
     """Audit lines for every excused failure; raises Refused on the first that is not, or RateLimitedRead
@@ -2921,11 +3250,21 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                               "a no-verdict compile is never a base red; re-run it once the fleet answers")
             audit.append(f"ignored '{name}': it gave no compile verdict, but {proof} compiled {sha} and passed")
             continue
+        if name == FLEET_COMPILE_JOB and any(FLEET_COMPILE_FAIL.match(text) for text in lines_of(head_log)):
+            # A pull-request-only job: the fleet's receipts at the merge-base are its base verdict. When they do not
+            # excuse it, the job is compared with base runs below, as before.
+            try:
+                audit.append(inherited_compile_red(repo, base, sha, name, github))
+                continue
+            except Refused:
+                pass
         head_steps, head_tests, head_errors = signature(job, head_log)
         chromium_without_diagnostics = (name == CHROMIUM_CURRENCY_JOB
                                         and CHROMIUM_CURRENCY_STEP in head_steps
                                         and not (head_tests or head_errors or crash_signals(head_log)))
-        own = test_reds.read(head_log)
+        # A webview replay's log holds the merge parent's run too: only its head part can crash or be cut short as
+        # the head's (test_reds.web_head_part; cmux#34111's replay (2), whose merge parent timed out a file).
+        own = test_reds.read(test_reds.web_head_part(head_log) if WEB_TEST_JOB.fullmatch(name) else head_log)
         if own.crashes or (own.truncated and not chromium_without_diagnostics):
             raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
                           + " (a crash or a cut-short run is never a base red)")
@@ -2949,6 +3288,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if (crashed := gallery_crash_verdict(repo, base, name, job, head_log, workflow_info, github,
                                              base_runs)) is not None:
             audit.append(crashed)
+            continue
+        if (web := web_test_verdict(repo, base, name, job, head_log, workflow_info, github, base_runs)) is not None:
+            audit.append(web)
             continue
         list_base_runs(repo, base, workflow, github, base_runs)
         # The newest base run where this job has a verdict decides whether it is red on the base.

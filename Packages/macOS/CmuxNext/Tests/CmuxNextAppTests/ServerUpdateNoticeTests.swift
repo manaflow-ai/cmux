@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextUpdater
@@ -30,7 +31,7 @@ struct ServerUpdateNoticeTests {
 
     private static func defaults() -> UserDefaults {
         let name = "ServerUpdateNoticeTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
+        let defaults = UserDefaults(testSuiteName: name)!
         defaults.removePersistentDomain(forName: name)
         return defaults
     }

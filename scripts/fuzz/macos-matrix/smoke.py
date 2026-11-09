@@ -206,6 +206,14 @@ class Smoke:
         if "error" in self.call("system.identify"):
             self.step("debug_build", False, "the app refused `cmux app call`: the smoke needs a DEV build")
             return
+        # A plain Release build (reload.sh --release of a tag that is not in release_bench_tags of
+        # scripts/cmux-next/cmux-next.dogfood.conf) answers system.identify but has no debug.* methods,
+        # so every read below is empty: say that, instead of "window FAIL {windows: 0}".
+        probe = str(self.call("debug.windows").get("error", ""))
+        if "method_not_found" in probe or "Unknown method debug.windows" in probe:
+            self.step("debug_build", False, "the app has no debug.* methods (a plain Release build): the smoke needs "
+                      "a Debug build or a bench Release (a release_bench_tags tag, e.g. chrome-parity-*)")
+            return
         windows = self.wait(self.windows, 30)
         if not self.step("window", bool(windows), {"windows": len(windows or [])}):
             return

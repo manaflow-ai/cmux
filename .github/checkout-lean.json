@@ -55,6 +55,9 @@
     "r2-binaries-prune.yml": {
       "prune": "git rev-list/log on three pin files and R2 listings"
     },
+    "whats-new-gallery.yml": {
+      "render": "reads release-notes/next/highlights, scripts/ and webviews/ only, here and in a worktree at an earlier commit with the same patterns"
+    },
     "cloud-vm-image-roll.yml": {
       "plan": "auto-roll.ts plan reads git history and images/cmux-vm (the lock, pin-cmux-tui.ts), never cmux-next-ios/verify/"
     }

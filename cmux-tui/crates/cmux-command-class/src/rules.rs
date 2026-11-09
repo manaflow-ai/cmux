@@ -42,12 +42,12 @@ pub(crate) fn is_sink(path: &str) -> bool {
 
 /// `NAME=value`, `NAME+=value` or `NAME[i]=value`.
 pub(crate) fn is_assignment(word: &str) -> bool {
-    let Some(eq) = word.find('=') else {
+    let Some((name, _)) = word.split_once('=') else {
         return false;
     };
-    let name = word[..eq].trim_end_matches('+');
-    let name = match name.find('[') {
-        Some(open) if name.ends_with(']') => &name[..open],
+    let name = name.trim_end_matches('+');
+    let name = match name.split_once('[') {
+        Some((base, _)) if name.ends_with(']') => base,
         _ => name,
     };
     let mut chars = name.chars();
@@ -156,7 +156,7 @@ impl Classifier {
                 }
                 // Case patterns don't fit this lexer; fail closed.
                 "case" => return Classification::new(Machine, word),
-                _ => return self.command(&argv[i..], depth),
+                _ => return self.command(argv.get(i..).unwrap_or_default(), depth),
             }
         }
         Classification::new(FileRead, "")
@@ -167,10 +167,12 @@ impl Classifier {
         if depth > MAX_DEPTH {
             return Classification::new(Machine, "nesting");
         }
-        let Some(name) = command_name(args[0]) else {
-            return Classification::new(Machine, args[0]);
+        let Some((&first, tail)) = args.split_first() else {
+            return Classification::new(Machine, "");
         };
-        let tail = &args[1..];
+        let Some(name) = command_name(first) else {
+            return Classification::new(Machine, first);
+        };
         let next = depth + 1;
         match name {
             "timeout" => {
@@ -255,7 +257,7 @@ impl Classifier {
                         .or_else(|| word.strip_prefix("-S"))
                         .unwrap_or_default();
                     let mut script = first.to_owned();
-                    for rest in &tail[j + 1..] {
+                    for rest in tail.get(j + 1..).unwrap_or_default() {
                         script.push(' ');
                         script.push_str(rest);
                     }
@@ -263,7 +265,7 @@ impl Classifier {
                 }
                 "-" => j += 1,
                 _ if is_flag(word) || is_assignment(word) => j += 1,
-                _ => return self.argv(&tail[j..], depth),
+                _ => return self.argv(tail.get(j..).unwrap_or_default(), depth),
             }
         }
         Classification::new(FileRead, "env")
@@ -283,9 +285,10 @@ impl Classifier {
                 "-o" | "+o" | "-O" | "+O" | "--rcfile" | "--init-file" => j += 2,
                 _ if word.starts_with("--") => j += 1,
                 _ if word.len() > 1 && (word.starts_with('-') || word.starts_with('+')) => {
-                    has_c |= word.starts_with('-') && word[1..].contains('c');
+                    let flags = word.get(1..).unwrap_or_default();
+                    has_c |= word.starts_with('-') && flags.contains('c');
                     // `-euo pipefail`: a cluster with `o` takes the next word.
-                    j += if word[1..].contains(['o', 'O']) { 2 } else { 1 };
+                    j += if flags.contains(['o', 'O']) { 2 } else { 1 };
                 }
                 _ => break,
             }
@@ -314,7 +317,11 @@ impl Classifier {
                     while tail.get(j).is_some_and(|w| *w != ";" && *w != "+") {
                         j += 1;
                     }
-                    verdict.merge(self.per_match(&tail[start..j.min(tail.len())], depth, "find"));
+                    verdict.merge(self.per_match(
+                        tail.get(start..j.min(tail.len())).unwrap_or_default(),
+                        depth,
+                        "find",
+                    ));
                     j += 1;
                 }
                 _ => {}
@@ -329,9 +336,9 @@ impl Classifier {
         verdict.add(FileRead, name);
         let exec = ["-x", "--exec", "-X", "--exec-batch"];
         if let Some(at) = tail.iter().position(|w| exec.contains(w)) {
-            let rest = &tail[at + 1..];
+            let rest = tail.get(at + 1..).unwrap_or_default();
             let end = rest.iter().position(|w| *w == ";").unwrap_or(rest.len());
-            verdict.merge(self.per_match(&rest[..end], depth, name));
+            verdict.merge(self.per_match(rest.get(..end).unwrap_or_default(), depth, name));
         }
         verdict.finish()
     }

@@ -410,6 +410,29 @@ const expandTray = (placement: "composer" | "after-latest") => async (ctx: PlayC
     throw new Error("opening the tray on the composer covered the running turn's live line");
 };
 
+/** A chat that runs well past the pane, with one background command still running: the hat heads it
+ *  folded to one line (Leo, 2026-11-08, on expanding and folding such a hat: "there's, like, some
+ *  elements in between and then things don't balance out"). */
+const loneCommandChat = () =>
+  chat(
+    [
+      ...EARLIER,
+      user("Wait for the rerun and land it once it is green", 70),
+      assistant(
+        "The rerun is queued. I'll wait on it in the background and land the pull request pinned to its head once every check passes, then read the result back.",
+        66,
+      ),
+      user("Also check the transcript groups while it waits", 62),
+      assistant(
+        "Queued both: the transcript lane already fixes tool-call groups in the chat, and a pasted block in a sent message now reads as ordinary message text, with no separate card.",
+        60,
+      ),
+      testRun,
+      assistant("The rerun is still going; I'll report when it lands.", 1),
+    ],
+    { isWorking: true },
+  );
+
 /** A running line's look (Leo, 2026-11-03: "do we really need a running symbol vs just having the
  *  time and a square stop button?"): opens the tray, gives it one trayStopLook arm, and checks each
  *  running line with a time shows no spinner and no Running word, only its time and a filled Stop. */
@@ -484,6 +507,80 @@ export default agentPaneEntry({
           assistant("The checks are visible above the composer.", 1),
         ],
         { isWorking: true },
+      ),
+    },
+    // Leo, 2026-11-05, on background subagents each reading "Bash": "these are all bash? How are they
+    // all bash? Aren't they sub-agents?". Claude's progress names their last tool and nothing more.
+    "bare-tool-said": {
+      note: "Background subagents whose progress names only their last tool (Bash): each line reads what the agent last said instead.",
+      play: openTray,
+      snapshot: chat(
+        [
+          user("Run the cloud work in the background", 200),
+          group(
+            [
+              agent("Cloud machines self-update cmux-tui", 183, "running", {
+                background: true,
+                action: "Bash",
+                lastMessage: "Waiting on the fleet build for the self-update PR.",
+              }),
+              agent("Webview fixes: protocol errors, new tab", 133, "running", {
+                background: true,
+                action: "Bash",
+                lastMessage: "Pushed the fix; CI is running on the head.",
+              }),
+              agent("Contract checks: CLI vs app, every action", 90, "running", {
+                background: true,
+                action: "Bash",
+                lastMessage: "38 of 52 actions match; checking the rest.",
+              }),
+            ],
+            200,
+          ),
+        ],
+        { isWorking: false },
+      ),
+    },
+    "bare-tool-silent": {
+      note: "The same subagents before they said anything: a bare Bash reads as running a command, never as the line's kind.",
+      play: openTray,
+      snapshot: chat(
+        [
+          user("Run the cloud work in the background", 200),
+          group(
+            [
+              agent("Cloud machines self-update cmux-tui", 183, "running", { background: true, action: "Bash" }),
+              agent("Cloud dev loop: hot-swap + cloud-in-a-box", 81, "running", { background: true, action: "Read" }),
+            ],
+            200,
+          ),
+        ],
+        { isWorking: false },
+      ),
+    },
+    "bare-tool-command": {
+      note: "A subagent's call titled only Bash, its command in its input: the line reads the command in words.",
+      play: openTray,
+      snapshot: chat(
+        [
+          user("Run the cloud work in the background", 200),
+          group(
+            [
+              agent("Delete seed capture code PR", 32, "running", {
+                background: true,
+                action: "bun test test/subagent-tray.test.tsx",
+                actionShell: true,
+              }),
+              agent("Cloud machines self-update cmux-tui", 183, "running", {
+                background: true,
+                action: "Bash",
+                lastMessage: "Waiting on the fleet build for the self-update PR.",
+              }),
+            ],
+            200,
+          ),
+        ],
+        { isWorking: false },
       ),
     },
     "grid-31": {
@@ -670,6 +767,23 @@ export default agentPaneEntry({
           throw new Error("a command's line leads with its kind's mark, not the word Command");
       },
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
+    },
+    "lone-command-folded": {
+      note: "One background command heads the hat folded, as its own line: its title, its shell line muted, its time at the row's end, the panel button and the up chevron. Expanding it is one transition (lone-command-open).",
+      height: 420,
+      snapshot: loneCommandChat(),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head[data-lone]"));
+      },
+    },
+    "lone-command-open": {
+      note: "The same hat expanded (Leo, 2026-11-08: \"things don't balance out\"): the header reads its counts and keeps its time where the folded line had it, at the row's end over the line's own time; the shell line slides out as the title slides over, and the line grows in under the header on the shared fold. No other control shows or hides on the way.",
+      height: 420,
+      snapshot: loneCommandChat(),
+      play: async (ctx) => {
+        await openTray(ctx);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length === 1);
+      },
     },
     "command-words": {
       note: 'Background commands read in words, not shell (Leo, 2026-11-03: "instead of raw things, we should be able to deterministically/heuristically have stuff"): built-in rules know only shapes anyone runs. A sleep reads Waiting 9m 20s, a merge Merging cmux#34769, a push Pushing its branch, bun test Testing its file, ssh On its host: what it runs there, docker compose Starting containers. The shell line is the tooltip; a line about a pull request links to it from its tail.',

@@ -49,6 +49,9 @@ const SHAPES = new Set([
   ".acpmux-pr-card__barPart",
   ".acpmux-workflow-card__phases > span",
   ".acpmux-pdf-sheet-lines i",
+  // The dictation waveform's pill (DictationListening.tsx): Leo, 2026-11-08, asked for the
+  // waveform to sit in a black pill; it holds no text and takes no clicks.
+  ".acpmux-dictation-pill",
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-model .acpmux-picker-button",
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-effort .acpmux-picker-button",
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-access .acpmux-picker-button",
@@ -60,6 +63,11 @@ const SHAPES = new Set([
   // The tucked running tray's pull tab (subagents/TrayPullTab.tsx): its needs-you dot is a circle
   // sized square through --acpmux-tray-pull-dot, which this reader does not resolve.
   ".acpmux-tray-pull__dot",
+  // Costs' share bars (ledger/LedgerScreen.tsx): a progress bar under each row, 4 px tall, and the
+  // unpriced source mark, a 2 px dash. Neither holds text or takes clicks.
+  '.cst-row[data-look="table"] .cst-bar',
+  '.cst-row[data-look="stacked"] .cst-bar',
+  '.cst-source[data-source="unpriced"]',
 ]);
 
 const px = (value: string | undefined) => (value && /^-?[\d.]+px$/.test(value) ? parseFloat(value) : undefined);

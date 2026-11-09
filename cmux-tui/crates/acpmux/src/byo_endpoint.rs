@@ -301,6 +301,8 @@ pub fn profile_text(e: &Endpoint<'_>) -> String {
 pub enum Problem {
     /// The endpoint refused the key.
     Key,
+    /// The key works, but its account has no credit left.
+    Credit,
     /// The endpoint was not reached, or the path is wrong.
     BaseUrl,
     /// The endpoint has no such model.
@@ -322,6 +324,22 @@ fn has_code(text: &str, code: &str) -> bool {
 pub fn classify(text: &str) -> Problem {
     let t = text.to_ascii_lowercase();
     let any = |words: &[&str]| words.iter().any(|w| t.contains(w));
+    // The words the agent pane reads as `no-credit` (webviews failureCopy.ts NO_CREDIT). First: an
+    // OpenAI-compatible endpoint sends it as a 429 or 402, and its body can name the key too.
+    if any(&[
+        "credit balance is too low",
+        "credit balance too low",
+        "insufficient_quota",
+        "insufficient quota",
+        "billing_hard_limit",
+        "billing hard limit",
+        "exceeded your current quota",
+        "insufficient credits",
+        "insufficient credit",
+        "payment required",
+    ]) {
+        return Problem::Credit;
+    }
     if has_code(&t, "401")
         || has_code(&t, "403")
         || any(&[
@@ -397,6 +415,9 @@ pub fn fix(problem: Problem, kind: Kind, id: &str) -> String {
         Problem::BaseUrl => format!(
             "check the base URL: the endpoint was not reached or has no such path. It is {base}; add the harness again with the right baseUrl (--base-url)"
         ),
+        Problem::Credit => format!(
+            "add credit: the endpoint took the key, but the account it belongs to is out of credit. Add credit to that account, then run `cmux harness doctor {id}` again"
+        ),
         Problem::Model => "model not found: the endpoint has no such model. Add the harness again with a model id from its model list (--model)".to_owned(),
         Problem::Other => format!(
             "check the base URL, the key (`cmux harness secret set {id} {key}`) and the model"
@@ -408,16 +429,27 @@ pub fn fix(problem: Problem, kind: Kind, id: &str) -> String {
 /// harness must not get: every `ANTHROPIC_*` and Claude provider switch that
 /// `env` (what the profile sets) does not set itself.
 pub(crate) fn clear_inherited(cmd: &mut tokio::process::Command, env: &BTreeMap<String, String>) {
-    let mut drop: Vec<String> = crate::agent::command_env(cmd)
-        .into_iter()
-        .map(|(k, _)| k)
-        .filter(|k| k.starts_with("ANTHROPIC_") || CLAUDE_PROVIDER_KEYS.contains(&k.as_str()))
-        .collect();
+    let mut drop: Vec<String> =
+        crate::agent::command_env(cmd).into_iter().map(|(k, _)| k).filter(|k| cleared(k)).collect();
     drop.extend(ANTHROPIC_KEYS.iter().chain(CLAUDE_PROVIDER_KEYS).map(|k| (*k).to_owned()));
     drop.retain(|k| !env.contains_key(k));
     for k in drop {
         cmd.env_remove(k);
     }
+}
+
+/// A name `clear_inherited` removes unless the harness sets it itself.
+fn cleared(name: &str) -> bool {
+    name.starts_with("ANTHROPIC_") || CLAUDE_PROVIDER_KEYS.contains(&name)
+}
+
+/// The harness of `profile_env` (its unresolved env, the endpoint marker
+/// still in it) never takes `name` from the login env: an Anthropic endpoint
+/// harness's `clear_inherited` removes it (`login_env::ChildEnv`).
+pub(crate) fn clears(name: &str, profile_env: &BTreeMap<String, String>) -> bool {
+    Kind::of_env(profile_env) == Some(Kind::Anthropic)
+        && cleared(name)
+        && !profile_env.contains_key(name)
 }
 
 #[cfg(all(test, unix))]

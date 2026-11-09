@@ -116,7 +116,7 @@ fn arithmetic_body(inner: &str) -> Option<&str> {
             ')' => {
                 depth -= 1;
                 if depth == 0 {
-                    return (at + 1 == body.len()).then(|| &body[..at]);
+                    return (at + 1 == body.len()).then(|| body.get(..at)).flatten();
                 }
             }
             '\'' | '"' | '`' | '\\' => return None,
@@ -284,7 +284,8 @@ impl Lexer {
                 while self.peek().is_some_and(|c| c != '\n') {
                     self.pos += 1;
                 }
-                let line: String = self.chars[start..self.pos].iter().collect();
+                let line: String =
+                    self.chars.get(start..self.pos).unwrap_or_default().iter().collect();
                 self.pos = (self.pos + 1).min(self.chars.len());
                 let check =
                     if heredoc.strip_tabs { line.trim_start_matches('\t') } else { line.as_str() };
@@ -562,7 +563,7 @@ impl Lexer {
             while self.peek().is_some_and(|c| c != '\n') {
                 self.pos += 1;
             }
-            let line: String = self.chars[start..self.pos].iter().collect();
+            let line: String = self.chars.get(start..self.pos).unwrap_or_default().iter().collect();
             inner.push_str(&line);
             let check = if strip_tabs { line.trim_start_matches('\t') } else { line.as_str() };
             if check == delimiter {

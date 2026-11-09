@@ -57,6 +57,8 @@
 .acpmux-chat-menu-image{flex:none;display:block;width:14px;aspect-ratio:1;border-radius:50%;object-fit:cover}
 .ui-menu-item.acpmux-chat-menu-item[data-highlighted],.ui-menu-item.acpmux-chat-menu-item[data-popup-open]{background:var(--acpmux-menu-hover);outline:none}
 .ui-menu-item.acpmux-chat-menu-item[data-disabled]{color:var(--agent-muted);opacity:1}
+/* Delete Machine… and a paused machine's near delete date: the danger colour, its glyph too, even on a row no click runs. */
+.ui-menu-item.acpmux-chat-menu-item.ui-menu-item-destructive,.ui-menu-item.acpmux-chat-menu-item.ui-menu-item-destructive>svg{color:var(--cmux-app-danger,var(--agent-danger,var(--agent-text)))}
 .acpmux-chat-menu-label{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .acpmux-chat-menu-key{flex:none;color:var(--agent-muted);font-family:var(--font-ui);font-size:var(--text-detail);line-height:18px;letter-spacing:var(--text-detail--letter-spacing)}
 .ui-popup.acpmux-chat-menu-popover .ui-separator{height:.5px;margin:4px 8px;background:var(--agent-border)}
@@ -76,11 +78,10 @@
 .acpmux-header-status-content{display:flex;align-items:center;gap:4px;min-width:0;height:var(--acpmux-header-control-height)}
 /* The chat's name (ThreadTitle.tsx): plain text with no fill in any state, not a menu button. */
 .acpmux-thread-title{display:block;min-width:0;max-width:44vw;padding:0 4px;color:var(--agent-text);font-size:var(--text-control);font-weight:var(--weight-emphasis);line-height:var(--acpmux-header-control-height,26px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default;user-select:none}
-.acpmux-delete-dialog{max-width:360px;padding:var(--ui-popup-padding);color:var(--agent-text)}
+.acpmux-delete-dialog{max-width:360px;padding:var(--ds-space-4);color:var(--agent-text)}
 .acpmux-delete-dialog h2{margin:0;color:inherit;font-size:var(--text-control);font-weight:var(--weight-emphasis)}
 .acpmux-delete-dialog p{margin:8px 0 16px;color:var(--agent-muted);font-size:var(--text-detail)}
 .acpmux-delete-dialog-actions{display:flex;justify-content:flex-end;gap:8px}
-.acpmux-delete-dialog-confirm{background:var(--agent-status-failure);color:var(--agent-on-accent,var(--acpmux-base))}
 .acpmux-header-status-content>.acpmux-env-line{position:static;inset:auto;flex:0 1 auto;min-width:0;max-width:min(42vw,360px);height:var(--acpmux-header-control-height)}
 .acpmux-status{position:absolute;inset:0;display:flex;align-items:center;gap:5px;color:var(--agent-muted);font-size:var(--text-detail);overflow:hidden;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-status>svg{flex:none}

@@ -21,9 +21,9 @@ name: cmux-tui artifacts
 #   cmux-tui/<commit-sha>/cmux-tui-holder-<rust-target>  terminal holder (macOS);
 #                                                  install as cmux-holder beside cmux-tui
 #   cmux-tui/<commit-sha>/cmux-tui-agent-screen-detection-<rust-target>  agent screen
-#                                                  detector (macOS); install as
+#                                                  detector (macOS and Linux); install as
 #                                                  cmux-agent-screen-detection beside cmux-tui;
-#                                                  optional (a failed build publishes none)
+#                                                  required (a failed build fails the publish)
 #   cmux-tui/<commit-sha>/manifest.json
 #   cmux-tui/tree/<tree-key>/cmux-tui-aarch64-apple-darwin  immutable, source-addressed
 #   cmux-tui/tree/<tree-key>/cmux-tui-aarch64-apple-darwin.sha256
@@ -1728,9 +1728,13 @@ jobs:
     # 15 minutes of work, plus the 50 minutes the attestation retry may wait for the API budget.
     timeout-minutes: 75
     permissions:
+      # actions: write dispatches the Cloud VM image roll (the last step).
+      actions: write
       contents: read
       id-token: write
       attestations: write
+    outputs:
+      image_roll_requested: ${{ steps.image-roll.outputs.requested }}
     env:
       # publish-windows runs these same steps (the publish-steps anchor) once
       # build-windows is done; this run's Windows build usually ends later.
@@ -2068,6 +2072,10 @@ jobs:
             --require-artifact cmux-tui-host-x86_64-apple-darwin \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
             --require-artifact cmux-tui-holder-x86_64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-x86_64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-unknown-linux-musl \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
@@ -2547,6 +2555,10 @@ jobs:
             --require-artifact cmux-tui-host-x86_64-apple-darwin \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
             --require-artifact cmux-tui-holder-x86_64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-x86_64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-unknown-linux-musl \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
@@ -2664,6 +2676,10 @@ jobs:
             --require-artifact cmux-tui-host-x86_64-apple-darwin \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
             --require-artifact cmux-tui-holder-x86_64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-x86_64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-acpmux-x86_64-unknown-linux-musl \
             --require-artifact cmux-tui-acpmux-aarch64-unknown-linux-musl \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
@@ -2686,6 +2702,23 @@ jobs:
             --expected-commit "$GITHUB_SHA" \
             --machine-manifest \
             --artifact-directory assets/chatmux-relay
+
+      # The Cloud VM image roll (cloud-vm-image-roll.yml) for this build, as soon as the immutable,
+      # attested commit manifests are published and checked above. It no longer waits for verify-publish's
+      # read-back (about a minute) and a job start of its own: the bake reads the same manifest from
+      # files.cmux.com and installs each pinned binary only if its sha256 and size match
+      # (web/scripts/cmux-vm-image/lock.ts programInstallCommand), and a red read-back still fails the run.
+      # A failed dispatch leaves publish green: request-image-roll then asks once verify-publish passes.
+      - name: Request the Cloud VM image roll
+        id: image-roll
+        if: env.CMUX_TUI_PUBLISH_PASS == 'unix' && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run cloud-vm-image-roll.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f commit="$GITHUB_SHA"
+          echo "requested=true" >> "$GITHUB_OUTPUT"
 
       # The read-back through files.cmux.com: here for the Windows pass, in
       # verify-publish (the same script) for the first.
@@ -2717,6 +2750,10 @@ jobs:
             --require-artifact cmux-tui-host-x86_64-apple-darwin \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
             --require-artifact cmux-tui-holder-x86_64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-x86_64-apple-darwin \
+            --require-artifact cmux-tui-agent-screen-detection-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-acpmux-x86_64-unknown-linux-musl \
             --require-artifact cmux-tui-acpmux-aarch64-unknown-linux-musl \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
@@ -2769,6 +2806,10 @@ jobs:
               --require-artifact cmux-tui-host-x86_64-apple-darwin \
               --require-artifact cmux-tui-holder-aarch64-apple-darwin \
               --require-artifact cmux-tui-holder-x86_64-apple-darwin \
+              --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
+              --require-artifact cmux-tui-agent-screen-detection-x86_64-apple-darwin \
+              --require-artifact cmux-tui-agent-screen-detection-x86_64-unknown-linux-musl \
+              --require-artifact cmux-tui-agent-screen-detection-aarch64-unknown-linux-musl \
               --require-artifact cmux-tui-acpmux-x86_64-unknown-linux-musl \
               --require-artifact cmux-tui-acpmux-aarch64-unknown-linux-musl \
               --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
@@ -3779,9 +3820,10 @@ jobs:
     needs: [publish, verify-publish]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.verify-publish.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 15
+    timeout-minutes: 35  # 15 for the Cloud machine channel, at most 15 more for the Linux release file
     permissions:
       contents: read
+      actions: read  # the Linux release file: this run's own build artifacts (gh run download)
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -3794,6 +3836,7 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+          GH_TOKEN: ${{ github.token }}  # gh run download, for the Linux release file
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/machine-channel"
@@ -3803,14 +3846,36 @@ jobs:
             --committed-at "$(git show -s --format=%ct HEAD)" --download-dir "$dir/binaries" --out "$dir/payload.json"
           rm -rf "$dir/binaries"
           scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir"
+          # Then the signed Linux release files (cmuxterm-hq docs/design/linux-signed-packages.md):
+          # cmux-tui/<sha>/release.json (written once) and cmux-tui/channels/linux-feat-cmux-next.json
+          # (forward only), the same envelope and key with purpose cmux-linux-release, so neither file
+          # stands in for a Cloud machine update. A bucket writer controls every byte in the bucket, the
+          # manifest included, and publish adopts (and attests) whatever Linux bytes the prefix already
+          # serves, so CI signs only bytes equal to this run's own build artifacts (GitHub's artifact store,
+          # --binaries-dir). Bytes another run uploaded first are not signed by this one. Delivery for the
+          # installers, not a gate: a failure is a warning and never holds the Cloud machine channel above.
+          lr="$dir/linux-release"
+          mkdir -p "$lr" && chmod 700 "$lr"
+          export lr GITHUB_SHA GITHUB_RUN_ID GITHUB_REPOSITORY
+          if ! timeout 900 bash -euo pipefail -c '
+                 gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+                   --pattern "cmux-tui-*-unknown-linux-musl" --dir "$lr/artifacts"
+                 mkdir -p "$lr/built" && find "$lr/artifacts" -type f -exec mv -t "$lr/built" {} +
+                 python3 scripts/ci/cmux-machine-channel.py payload --purpose linux-release --channel feat-cmux-next \
+                   --binaries-dir "$lr/built" --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" \
+                   --download-dir "$lr/binaries" --out "$lr/payload.json"
+                 rm -rf "$lr/binaries"
+                 scripts/ci/cmux-machine-channel-point.sh "$lr/payload.json" "$lr"'; then
+            echo "::warning::the signed Linux release file of $GITHUB_SHA was not published; the next push signs its own"
+          fi
 
-  # The Cloud VM image roll (cloud-vm-image-roll.yml) for this build: the same published and read-back
-  # commit manifests point-machine-channel reads. The roll's plan decides whether the build changes what
-  # the image carries; its concurrency keeps one roll running and replaces a waiting one with this.
+  # The fallback for publish's "Request the Cloud VM image roll": only when that dispatch failed, after the
+  # read-back of the same commit manifests point-machine-channel reads. The roll's plan decides whether the
+  # build changes what the image carries; its concurrency keeps one roll running and replaces a waiting one.
   request-image-roll:
     name: request the Cloud VM image roll
     needs: [publish, verify-publish]
-    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.verify-publish.result == 'success' }}
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.verify-publish.result == 'success' && needs.publish.outputs.image_roll_requested != 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     permissions:

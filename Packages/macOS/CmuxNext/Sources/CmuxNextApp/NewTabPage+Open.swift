@@ -112,11 +112,11 @@ extension NewTabPage {
     /// before its pane shows it) takes them into its stored page, so the view made from it later lists them.
     static func fillPaletteActions(_ services: AppServices) {
         let tabs = services.agentTabs
-        let lacking = { (key: String) in tabs.views[key].map { $0.model.newTab?.omnibar.actions.isEmpty == true } ?? (tabs.newTabPages[key]?.page.omnibar.actions.isEmpty == true) }
+        let lacking = { (key: AgentTabKey) in tabs.views[key].map { $0.model.newTab?.omnibar.actions.isEmpty == true } ?? (tabs.newTabPages[key]?.page.omnibar.actions.isEmpty == true) }
         // Checked at the listing's first task: Cmd-N's page joins `newTabPages` after this call (`firstPageNewTab`).
-        services.newTabActions.list(wanted: { tabs.newTabPages.keys.contains(where: lacking) }) { listed in
-            for key in tabs.newTabPages.keys where lacking(key) {
-                if let view = tabs.views[key] { view.refreshNewTabActions(listed) } else { tabs.newTabPages[key]?.page.omnibar.actions = listed.actions }
+        services.newTabActions.list(wanted: { tabs.newTabPages.entries.contains { lacking($0.key) } }) { listed in
+            for entry in tabs.newTabPages.entries where lacking(entry.key) {
+                if let view = tabs.views[entry.key] { view.refreshNewTabActions(listed) } else { tabs.newTabPages[entry.key]?.page.omnibar.actions = listed.actions }
             }
         }
     }
@@ -201,8 +201,8 @@ extension NewTabPage {
     /// Tabs, fills the pane the person just made, NewTabPage.split). `mainPane` false for a chat pick:
     /// main pane layout keeps chats out of the column right of the chat dock (NewChatPlacement).
     static func opensBeside(_ key: String, in pane: PaneController, kind: AgentPaneTabKind? = nil, mainPane: Bool = true) -> Bool {
-        let tabs = pane.services.agentTabs, page = tabs.resolve(key)
-        guard AgentPaneTunables.newTabPicksFollowLinks.value, tabs.newTabPages[page]?.page.openTabs == nil, pane.pane.tabs.contains(where: { $0.id != page }) else { return false }
+        let tabs = pane.services.agentTabs, scoped = tabs.tabKey(key, machine: pane.daemon.machineID), page = scoped.key
+        guard AgentPaneTunables.newTabPicksFollowLinks.value, tabs.newTabPages[scoped]?.page.openTabs == nil, pane.pane.tabs.contains(where: { $0.id != page }) else { return false }
         return pane.services.linkOpener.target(from: pane, mainPane: mainPane, kind: kind?.rightColumnKind) != .pane(pane.layoutPaneID)
     }
 

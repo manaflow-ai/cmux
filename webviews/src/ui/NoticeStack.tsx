@@ -1,7 +1,7 @@
 // The one queue and stack for toasts (leo-workspace design/notifications.md). A surface owns one
 // queue (`createNoticeQueue`); anything may `show` into it, a host bridge included, since the queue
 // lives outside React. NoticeStack draws it bottom centre over the surface, the native toast's
-// placement (CmuxToastOverlayHost): newest at the bottom, at most three, a toast with the same id
+// placement (pages/overlay/toasts): newest at the bottom, at most three, a toast with the same id
 // replacing the old one in its slot. A toast leaves after its time; the time stops while the pointer
 // or focus is in the stack, or while the page is hidden, and starts again in full after.
 //
@@ -222,7 +222,28 @@ export function NoticeStack({
   const [focused, setFocused] = useState(false);
   // A toast held in a drag, and the anchor it would settle at.
   const [dragging, setDragging] = useState<{ nearest?: Anchor } | undefined>(undefined);
-  const held = hovered || focused || dragging !== undefined || !visible;
+  // Stacked: each deck says whether it is held (a top deck is drawn in `topHost`, outside this
+  // element, so this element's hover and focus cannot say it).
+  const [deckHolds, setDeckHolds] = useState<ReadonlySet<Anchor>>(() => new Set());
+  const holdOf = useMemo(
+    () =>
+      new Map(
+        ANCHORS.map((anchor) => [
+          anchor,
+          (on: boolean) =>
+            setDeckHolds((current) => {
+              if (current.has(anchor) === on) return current;
+              const next = new Set(current);
+              if (on) next.add(anchor);
+              else next.delete(anchor);
+              return next;
+            }),
+        ]),
+      ),
+    [],
+  );
+  const pointed = layout === "stacked" ? deckHolds.size > 0 : hovered || focused;
+  const held = pointed || dragging !== undefined || !visible;
   const stack = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
   const flights = useMemo<Flights>(() => new Map(), []);
@@ -230,10 +251,10 @@ export function NoticeStack({
   // stack's real state whenever the toasts change, so the hold never sticks.
   useEffect(() => {
     const element = stack.current;
-    if (!element) return;
+    if (!element || layout === "stacked") return;
     setHovered(element.matches(":hover"));
     setFocused(element.contains(document.activeElement));
-  }, [entries]);
+  }, [entries, layout]);
   // When each toast's time started: reset while held, so leaving the stack gives the full time again.
   const started = useMemo(() => new Map<string, { version: number; at: number }>(), []);
 
@@ -305,11 +326,20 @@ export function NoticeStack({
           },
         }
       : undefined;
-  // One list per anchor, new only when the queue changes, so a deck re-reads nothing on a hover.
-  const byAnchor = useMemo(
-    () => new Map(ANCHORS.map((anchor) => [anchor, entries.filter((entry) => entry.anchor === anchor)])),
-    [entries],
-  );
+  // One list per anchor, new only when that anchor's toasts change, so a toast coming or going at
+  // one anchor leaves the other decks (and their hover) alone.
+  const lastByAnchor = useRef(new Map<Anchor, readonly NoticeEntry[]>());
+  const byAnchor = useMemo(() => {
+    const next = new Map<Anchor, readonly NoticeEntry[]>();
+    for (const anchor of ANCHORS) {
+      const here = entries.filter((entry) => entry.anchor === anchor);
+      const before = lastByAnchor.current.get(anchor);
+      const same = before?.length === here.length && here.every((entry, index) => entry === before[index]);
+      next.set(anchor, same && before ? before : here);
+    }
+    lastByAnchor.current = next;
+    return next;
+  }, [entries]);
   const deckAt = (anchor: Anchor) => {
     const here = byAnchor.get(anchor) ?? [];
     return (
@@ -320,7 +350,14 @@ export function NoticeStack({
         data-row={anchorRow(anchor)}
         data-column={anchor === "bottom" && align === "end" ? "end" : anchorColumn(anchor)}
       >
-        <NoticeDeck entries={here} draw={draw} edge={anchorRow(anchor)} drag={deckDrag} flights={flights} />
+        <NoticeDeck
+          entries={here}
+          draw={draw}
+          edge={anchorRow(anchor)}
+          drag={deckDrag}
+          flights={flights}
+          onHold={holdOf.get(anchor)}
+        />
       </div>
     );
   };

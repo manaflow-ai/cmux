@@ -167,3 +167,53 @@ fn a_zero_timeout_is_refused() {
     }
     assert_eq!(sent(&["s-1", "--timeout", "5", "hi"], true).timeout, Some(Duration::from_secs(5)));
 }
+
+/// Before, `cmux chat read <uuid>` and `cmux chat wait <uuid>` went to the Chief ("the Chief is
+/// not running", exit 3), though `cmux chat --help` points agents at `cmux chat read|wait`. A
+/// session id as the first word is that chat's.
+#[test]
+fn read_and_wait_with_a_session_id_are_the_chats() {
+    let session = "0d4f9a52-8c1e-4b7a-9f3e-2a6b5c7d8e9f";
+    for verb in ["read", "wait"] {
+        let command = strings(&["chat", verb, session, "--timeout", "60"]);
+        let (found, words) = session_verb(&command).expect(verb);
+        assert_eq!((found, words), (verb, &command[2..]));
+        let acp = strings(&["chat", verb, &format!("acp:{session}")]);
+        assert_eq!(session_verb(&acp).map(|(verb, _)| verb), Some(verb));
+        // `--to`, a message ref or nothing: the Chief's (chief/chat_scope.rs).
+        assert_eq!(session_verb(&strings(&["chat", verb, "--to", "chief"])), None);
+        assert_eq!(session_verb(&strings(&["chat", verb, "#3"])), None);
+        assert_eq!(session_verb(&strings(&["chat", verb])), None);
+    }
+    assert_eq!(session_verb(&strings(&["chat", "list", session])), None);
+    assert!(is_session_id(session) && is_session_id("acp:lane-a"));
+    assert!(!is_session_id("lane-a") && !is_session_id("msg_1"));
+}
+
+#[test]
+fn chat_wait_takes_the_session_and_a_timeout_like_send_wait() {
+    let parsed = |words: &[&str]| parse_wait(&strings(words));
+    assert_eq!(parsed(&["s-1"]).unwrap(), Some(("s-1".to_owned(), Duration::from_secs(900))));
+    assert_eq!(
+        parsed(&["s-1", "--timeout=30"]).unwrap(),
+        Some(("s-1".to_owned(), Duration::from_secs(30)))
+    );
+    assert_eq!(
+        parsed(&["--timeout", "99999", "s-1"]).unwrap(),
+        Some(("s-1".to_owned(), Duration::from_secs(4 * 60 * 60)))
+    );
+    assert_eq!(parsed(&["s-1", "--help"]).unwrap(), None);
+    assert!(parsed(&[]).is_err());
+    assert!(parsed(&["s-1", "--timeout", "0"]).is_err());
+    assert!(parsed(&["s-1", "s-2"]).is_err());
+    assert!(parsed(&["s-1", "--after", "3"]).is_err());
+}
+
+/// A send here with `--wait` no longer refuses: the help says it waits for any chat.
+#[test]
+fn send_wait_is_for_a_chat_here_too() {
+    assert!(!USAGE.contains("(a chat on a Cloud VM)"), "{USAGE}");
+    assert!(USAGE.contains("cmux chat wait SESSION"), "{USAGE}");
+    let send = sent(&["s-1", "next", "--wait"], true);
+    assert!(send.wait && send.timeout.is_none());
+}

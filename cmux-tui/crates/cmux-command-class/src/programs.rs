@@ -41,9 +41,9 @@ pub(crate) fn sed(tail: &[&str]) -> Classification {
                 j += 1;
             }
         } else {
-            let cluster = &word[1..];
+            let cluster = word.get(1..).unwrap_or_default();
             for (at, c) in cluster.char_indices() {
-                let rest = &cluster[at + c.len_utf8()..];
+                let rest = cluster.get(at + c.len_utf8()..).unwrap_or_default();
                 match c {
                     // `-i` takes the rest of the cluster as a backup suffix.
                     'i' => {
@@ -117,7 +117,13 @@ impl SedParser {
         while self.peek().is_some_and(|c| c != '\n') {
             self.pos += 1;
         }
-        self.chars[start..self.pos].iter().collect::<String>().trim().to_owned()
+        self.chars
+            .get(start..self.pos)
+            .unwrap_or_default()
+            .iter()
+            .collect::<String>()
+            .trim()
+            .to_owned()
     }
 
     fn program(&mut self) -> Option<()> {
@@ -312,7 +318,9 @@ fn awk_program(program: &str) -> Option<(CommandClass, &'static str)> {
     // command: `print | cmd`, `cmd | getline`, gawk's `|&`.
     let bytes = code.as_bytes();
     let pipe = bytes.iter().enumerate().any(|(at, &b)| {
-        b == b'|' && bytes.get(at + 1) != Some(&b'|') && (at == 0 || bytes[at - 1] != b'|')
+        b == b'|'
+            && bytes.get(at + 1) != Some(&b'|')
+            && at.checked_sub(1).and_then(|prev| bytes.get(prev)) != Some(&b'|')
     });
     if pipe {
         return Some((Machine, "|"));
@@ -342,7 +350,7 @@ fn awk_code(program: &str) -> Option<String> {
                         _ => i += 1,
                     }
                 }
-                let text: String = chars[start..i].iter().collect();
+                let text: String = chars.get(start..i).unwrap_or_default().iter().collect();
                 i += 1;
                 code.push_str(if is_sink(&text) { "@" } else { "\"\"" });
             }
@@ -385,7 +393,7 @@ fn awk_prints_into_file(code: &str) -> bool {
             return false;
         };
         let mut depth = 0i32;
-        let rest = &statement[at..];
+        let rest = statement.get(at..).unwrap_or_default();
         rest.char_indices().any(|(i, c)| match c {
             '(' => {
                 depth += 1;
@@ -395,7 +403,12 @@ fn awk_prints_into_file(code: &str) -> bool {
                 depth -= 1;
                 false
             }
-            '>' if depth <= 0 => !rest[i..].trim_start_matches('>').trim_start().starts_with('@'),
+            '>' if depth <= 0 => !rest
+                .get(i..)
+                .unwrap_or_default()
+                .trim_start_matches('>')
+                .trim_start()
+                .starts_with('@'),
             _ => false,
         })
     })
@@ -405,8 +418,14 @@ fn awk_prints_into_file(code: &str) -> bool {
 fn find_word(text: &str, word: &str) -> Option<usize> {
     let is_name = |c: char| c.is_ascii_alphanumeric() || c == '_';
     text.match_indices(word).map(|(at, _)| at).find(|&at| {
-        let before = text[..at].chars().next_back().is_none_or(|c| !is_name(c));
-        let after = text[at + word.len()..].chars().next().is_none_or(|c| !is_name(c));
+        let before =
+            text.get(..at).unwrap_or_default().chars().next_back().is_none_or(|c| !is_name(c));
+        let after = text
+            .get(at + word.len()..)
+            .unwrap_or_default()
+            .chars()
+            .next()
+            .is_none_or(|c| !is_name(c));
         before && after
     })
 }

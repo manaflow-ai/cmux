@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86'
+IR_SHA256 = '62625fc976e69a44b62563b404477f91207f431e3b472e3b79007ead92baffb6'
 
 
 @dataclass(frozen=True)
@@ -2520,6 +2520,7 @@ COMMANDS = {
         None,
         {
             'data': CommandFieldMetadata(None, None),
+            'filename': CommandFieldMetadata(None, 'terminal-file-paste-v1'),
             'lease': CommandFieldMetadata(None, None),
             'mime': CommandFieldMetadata(None, None),
             'offset': CommandFieldMetadata(None, None),
@@ -3470,6 +3471,7 @@ COMMANDS = {
             'generation': CommandFieldMetadata(None, None),
             'keep_layout': CommandFieldMetadata(12, 'end-terminals-keep-layout-v1'),
             'pid': CommandFieldMetadata(None, None),
+            'restart': CommandFieldMetadata(12, None),
         },
     ),
     'sidebar-plugin': CommandMetadata(
@@ -3507,6 +3509,7 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'before': CommandFieldMetadata(12, 'split-before-v1'),
             'cols': CommandFieldMetadata(None, None),
             'cwd': CommandFieldMetadata(12, 'terminal-env-v1'),
             'dir': CommandFieldMetadata(None, None),
@@ -4050,6 +4053,7 @@ EVENTS = {
     'selection-changed': EventMetadata('selection-changed', 12, 'tree-selection-deltas-v1', ('subscribe-deltas',), 'emitted'),
     'settings-changed': EventMetadata('settings-changed', 12, 'settings-v1', ('subscribe',), 'emitted'),
     'size-state': EventMetadata('size-state', 12, 'shared-sizing-v1', ('subscribe', 'attach-byte', 'attach-render'), 'emitted'),
+    'stash-changed': EventMetadata('stash-changed', 12, 'stash-v1', ('subscribe',), 'emitted'),
     'status': EventMetadata('status', 5, None, ('subscribe',), 'emitted'),
     'surface-exited': EventMetadata('surface-exited', 5, None, ('subscribe',), 'emitted'),
     'surface-output': EventMetadata('surface-output', 5, None, ('subscribe',), 'emitted'),

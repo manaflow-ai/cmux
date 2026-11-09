@@ -86,13 +86,14 @@ ${tooltips}
 <div class="ui-popup ui-glass ui-popover md-link-popover" id="md-link-popover">Edit link</div>
 <div class="hc-msg-toolbar" id="hc-msg-toolbar">React</div>
 <div class="lg-palette" id="lg-palette">Search conversations</div>
-<div class="lg-form" id="lg-form">New message</div>
+<div class="ui-dialog ui-glass ui-glass-floats lg-form" id="lg-form">New message</div>
 <div id="editor-widget" style="background: var(--cmux-editor-widget-background)">Suggest</div>`,
     // Tooltips are frosted glass (tooltip-surface.test.ts).
     // The markdown link editor is a ui/Popover: glass, like the menus. The History page menu
     // (pages/shared/PageMenu.tsx) is the menu glass too (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE
     // GLASS, SO JUST USE GLASS.").
-    glass: ["menu", "page-menu", "icon-bar-pill", "md-link-popover"],
+    // Home's form dialogs are the sheet role's glass (ui/popupSurface.css .ui-dialog.ui-glass).
+    glass: ["menu", "page-menu", "icon-bar-pill", "md-link-popover", "lg-form"],
     surfaces: [
       "menu",
       "page-menu",
@@ -123,6 +124,7 @@ ${tooltips}
       "agent-session/acpmux/needsYou/needsYou.css",
       "agent-session/acpmux/subagents/subagents.css",
       "agent-session/acpmux/addProject.css",
+      "agent-session/acpmux/share/share.css",
     ),
     body: `<div class="acpmux-shell">
 <div class="ui-popup ui-glass acpmux-menu" id="cascade">Model</div>
@@ -141,7 +143,8 @@ ${tooltips}
 <div class="ui-positioner"><div class="ui-popup ui-glass ui-popover nt-popover" id="new-tab-suggestions">reddit.com</div></div>
 <div class="ui-positioner"><div class="ui-popup ui-glass ui-popover acpmux-needs-you" id="needs-you">Needs you</div></div>
 <div class="acpmux-shell"><dialog open class="ui-popup ui-glass acpmux-agents-list" id="agents-list">Agents</dialog></div>
-<dialog open class="ui-glass acpmux-add-project-dialog" id="add-project">Add project</dialog>
+<dialog open class="ui-dialog ui-glass ui-glass-floats acpmux-add-project-dialog" id="add-project">Add project</dialog>
+<div class="ui-dialog ui-glass ui-glass-floats share-dialog-popup" id="share">Share</div>
 ${tooltips}`,
     glass: [
       "cascade",
@@ -162,8 +165,9 @@ ${tooltips}`,
       // The Summary popover (Outputs, Subagents, Sources, Background tasks) floats over the chat
       // (Leo 2026-10-30: "I don't like the non-glassness").
       "summary",
-      // A dialog, not a popup (no popup elevation), but glass all the same.
+      // Dialogs, not popups (no popup elevation), but glass all the same: the sheet role.
       "add-project",
+      "share",
     ],
     surfaces: [
       "cascade",

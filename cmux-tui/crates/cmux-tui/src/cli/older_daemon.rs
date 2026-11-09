@@ -23,6 +23,7 @@ use std::io::{BufReader, Write};
 use std::path::Path;
 use std::time::Duration;
 
+use cmux_json::JsonSet as _;
 use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
 
@@ -36,13 +37,18 @@ const ENVELOPE_REFUSAL: &str = "invalid request envelope";
 const IDENTIFY_LINES: usize = 64;
 
 /// How long the refused connection may take to answer `identify`.
+// timeout: a wedged daemon is named without its identity; the refusal still ends the command.
 const IDENTIFY_BUDGET: Duration = Duration::from_secs(2);
 
 /// Whether `error` is a daemon's refusal of the request envelope itself.
 pub(super) fn is_envelope_refusal(error: &Value) -> bool {
     error.get("code").and_then(Value::as_str) == Some("validation.invalid")
         && (error.get("message").and_then(Value::as_str) == Some(ENVELOPE_REFUSAL)
-            || error["details"].get("reason").and_then(Value::as_str) == Some(ENVELOPE_REFUSAL))
+            || error
+                .get("details")
+                .and_then(|details| details.get("reason"))
+                .and_then(Value::as_str)
+                == Some(ENVELOPE_REFUSAL))
 }
 
 /// The error to print instead of `error` when it is an envelope refusal of
@@ -179,7 +185,7 @@ pub(super) fn explain(
         "action": action,
     });
     if let Some(fix) = fix {
-        details["fix"] = Value::String(fix.to_owned());
+        details.set("fix", Value::String(fix.to_owned()));
     }
     Some(json!({"code": code, "message": message, "details": details, "retryable": false}))
 }
@@ -206,7 +212,8 @@ fn identify(reader: &mut Reader) -> Option<Value> {
     for _ in 0..IDENTIFY_LINES {
         let value = super::wire::read_envelope(reader, false).ok()??;
         if value.get("id").and_then(Value::as_str) == Some("cli-older-daemon") {
-            return (value.get("ok") == Some(&Value::Bool(true))).then(|| value["data"].clone());
+            return (value.get("ok") == Some(&Value::Bool(true)))
+                .then(|| value.get("data").cloned().unwrap_or_default());
         }
     }
     None

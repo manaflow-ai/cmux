@@ -1,7 +1,10 @@
 //! Who sent a prompt, as the agent gets it (`_meta.acpmux.sender`): another
-//! agent's name, class and thread, so an agent that is itself a relay (`cmux
-//! chief acp`) can pass them on and treat the words as that agent's, not as
-//! the owner's. A person's prompt carries none. The agent's blocks are
+//! agent's name, class and thread, and who the daemon knows sent it apart from
+//! what it claimed (`verified`, `transport`, `sessionId`, `harness`, `editedBy`,
+//! `forwardedBy`, `prompt_provenance.rs`), so an agent that is itself a relay
+//! (`cmux chief acp`) can pass on the original sender beside itself and treat
+//! the words as that sender's, never the owner's. An `unverified` prompt says
+//! so with no name. A person's prompt carries none. The agent's blocks are
 //! unchanged; harnesses that do not know the key ignore it.
 
 use serde_json::{Map, Value, json};
@@ -16,15 +19,38 @@ pub(super) fn add_steer_sender(
     add_sender(params, sender, class.map(crate::prompt_class::PromptClass::as_str), provenance);
 }
 
-/// [`prompt_params`] for queued prompt `run`.
-pub(super) fn run_params(agent_sid: &str, prompt: Value, run: &super::queue::PromptRun) -> Value {
+/// The `session/prompt` params for queued prompt `run`: its blocks marked under its turn's
+/// effective `provenance` (a fan-in turn's is its digest's, `turns.rs`), its sender routed by
+/// `run`'s own (the digest has no `threadId`, `fromChief` or origin of its head's).
+pub(super) fn run_params(
+    agent_sid: &str,
+    prompt: Value,
+    run: &super::queue::PromptRun,
+    provenance: Option<&Value>,
+) -> Value {
     let class = run.class.map(crate::prompt_class::PromptClass::as_str);
-    prompt_params(agent_sid, prompt, run.agent.as_deref(), class, run.provenance.as_ref())
+    turn_params(agent_sid, prompt, run.agent.as_deref(), class, run.provenance.as_ref(), provenance)
+}
+
+/// [`run_params`] apart from the run: marks by `effective`, sender by `own`.
+fn turn_params(
+    agent_sid: &str,
+    prompt: Value,
+    agent: Option<&str>,
+    class: Option<&str>,
+    own: Option<&Value>,
+    effective: Option<&Value>,
+) -> Value {
+    let mut params = json!({"sessionId": agent_sid, "prompt": prompt});
+    super::prompt_attribution::mark(&mut params, agent, effective);
+    sender_meta(&mut params, agent, class, own);
+    params
 }
 
 /// The `session/prompt` params for `prompt` to `agent_sid`, with the sender of
 /// an agent's message (`agent`, its `class` and its provenance's `threadId`).
-pub(super) fn prompt_params(
+#[cfg(test)]
+fn prompt_params(
     agent_sid: &str,
     prompt: Value,
     agent: Option<&str>,
@@ -37,16 +63,40 @@ pub(super) fn prompt_params(
 }
 
 /// Adds `_meta.acpmux.sender` to `params` (a turn's prompt or a steer) when
-/// `agent` sent it.
+/// `agent` sent it, and the marks of who wrote it to its blocks.
 pub(super) fn add_sender(
     params: &mut Value,
     agent: Option<&str>,
     class: Option<&str>,
     provenance: Option<&Value>,
 ) {
-    let Some(name) = agent.filter(|n| !n.is_empty()) else { return };
+    // The agent reads who wrote it in the prompt too (`prompt_attribution.rs`).
+    super::prompt_attribution::mark(params, agent, provenance);
+    sender_meta(params, agent, class, provenance);
+}
+
+/// Adds `_meta.acpmux.sender` to `params` when `agent` sent it (or it is `unverified`).
+fn sender_meta(
+    params: &mut Value,
+    agent: Option<&str>,
+    class: Option<&str>,
+    provenance: Option<&Value>,
+) {
+    // A message the person edited is theirs to act on (`queue_edit.rs`), but the agent still
+    // learns who first sent it, beside its `editedBy`.
+    let edited = provenance.is_some_and(|p| p.get(crate::prompt_provenance::EDITED_BY).is_some());
+    let named = edited.then(|| super::digest::named_sender(provenance)).flatten();
+    let name = agent.filter(|n| !n.is_empty()).or(named.as_deref());
+    let unverified = provenance.and_then(|p| p.get("kind")).and_then(Value::as_str)
+        == Some(crate::prompt_provenance::UNVERIFIED_KIND);
+    if name.is_none() && !unverified {
+        return;
+    }
     let mut sender = Map::new();
-    sender.insert("name".into(), json!(name));
+    if let Some(name) = name {
+        sender.insert("name".into(), json!(name));
+    }
+    origin_fields(&mut sender, provenance);
     if let Some(class) = class {
         sender.insert("class".into(), json!(class));
     }
@@ -69,6 +119,37 @@ pub(super) fn add_sender(
     }
     if let Some(meta) = meta.as_object_mut() {
         meta.insert("acpmux".into(), json!({"sender": Value::Object(sender)}));
+    }
+}
+
+/// Who the daemon knows sent it, apart from its name: copied from the provenance as the daemon
+/// stamped it, never from the prompt's own text.
+fn origin_fields(sender: &mut Map<String, Value>, provenance: Option<&Value>) {
+    let Some(p) = provenance.and_then(Value::as_object) else { return };
+    use crate::prompt_provenance as pp;
+    if let Some(verified) = p.get(pp::VERIFIED).and_then(Value::as_bool) {
+        sender.insert("verified".into(), json!(verified));
+    }
+    for (from, to) in [
+        (pp::TRANSPORT, "transport"),
+        (pp::FROM_SESSION_ID, "sessionId"),
+        (pp::FROM_HARNESS, "harness"),
+    ] {
+        if let Some(value) = p.get(from).and_then(Value::as_str) {
+            sender.insert(to.into(), json!(value));
+        }
+    }
+    // A session's message names its session as `from` (`session_message`).
+    if !sender.contains_key("sessionId")
+        && p.get("kind").and_then(Value::as_str) == Some("session_message")
+        && let Some(from) = p.get("from").and_then(Value::as_str)
+    {
+        sender.insert("sessionId".into(), json!(from));
+    }
+    for key in [pp::EDITED_BY, pp::FORWARDED_BY, pp::CLAIMED] {
+        if let Some(value) = p.get(key) {
+            sender.insert(key.into(), value.clone());
+        }
     }
 }
 
@@ -109,8 +190,68 @@ mod tests {
             prompt_params("s", json!([]), Some("Codex Chief"), Some("question"), Some(&provenance));
         assert_eq!(
             params["_meta"]["acpmux"]["sender"],
-            json!({"name": "Codex Chief", "class": "question", "threadId": "t2", "chief": "agent_codex"})
+            json!({"name": "Codex Chief", "sessionId": "s-turn", "class": "question", "threadId": "t2",
+                   "chief": "agent_codex"})
         );
+    }
+
+    #[test]
+    fn the_agent_learns_who_the_daemon_knows_sent_it_apart_from_its_name() {
+        let session = crate::prompt_provenance::session_message("s-a", "lane-a", "s-b");
+        let session = crate::prompt_provenance::observed(session, "unix");
+        let params = prompt_params("s", json!([]), Some("lane-a"), None, Some(&session));
+        assert_eq!(
+            params["_meta"]["acpmux"]["sender"],
+            json!({"name": "lane-a", "verified": true, "transport": "unix", "sessionId": "s-a"})
+        );
+        let named = crate::prompt_provenance::observed(
+            crate::prompt_provenance::named_sender("codex@box", "s-b"),
+            "unix",
+        );
+        let params = prompt_params("s", json!([]), Some("codex@box"), None, Some(&named));
+        assert_eq!(params["_meta"]["acpmux"]["sender"]["verified"], false);
+        // A prompt no proof attributes says so, with no name: never the owner's.
+        let unknown = crate::prompt_provenance::unverified("s-b", "unix", Map::new());
+        let params = prompt_params("s", json!([]), None, None, Some(&unknown));
+        assert_eq!(
+            params["_meta"]["acpmux"]["sender"],
+            json!({"verified": false, "transport": "unix"})
+        );
+    }
+
+    #[test]
+    fn an_edited_agent_message_still_names_its_sender_to_the_agent() {
+        let provenance = json!({
+            "kind": "agent_message",
+            "from": "lane-a",
+            "editedBy": {"actor": "owner"},
+        });
+        let params = prompt_params("s", json!([]), None, None, Some(&provenance));
+        assert_eq!(
+            params["_meta"]["acpmux"]["sender"],
+            json!({"name": "lane-a", "editedBy": {"actor": "owner"}})
+        );
+    }
+
+    #[test]
+    fn a_fan_in_turn_routes_its_sender_by_its_heads_chief_and_thread() {
+        // A fan-in turn marks its blocks by its digest (`turns.rs`), but a relay
+        // (`cmux chief acp`) still routes the reply by the head message's Chief and thread.
+        let head = json!({"kind": "session_message", "from": "s-turn",
+            "fromName": "Codex Chief", "fromChief": "agent_codex", "threadId": "t2"});
+        let digest = json!({"kind": "agent_digest", "messages": [head.clone()]});
+        let params = turn_params(
+            "s",
+            json!([{"type": "text", "text": "hi"}]),
+            Some("Codex Chief"),
+            Some("question"),
+            Some(&head),
+            Some(&digest),
+        );
+        let sender = &params["_meta"]["acpmux"]["sender"];
+        assert_eq!(sender["chief"], "agent_codex");
+        assert_eq!(sender["threadId"], "t2");
+        assert_eq!(sender["sessionId"], "s-turn");
     }
 
     #[test]
