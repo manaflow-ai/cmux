@@ -3987,6 +3987,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "localOnly": true,
         "probe": true,
         "refresh": true
       },
