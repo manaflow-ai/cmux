@@ -7,6 +7,14 @@
 # Rust (cmux-tui include_str!), the docs and gen-cmux-global.ts read the
 # committed copy, so the exports stay checked in; no person regenerates them.
 #
+# It also writes OUT.patch, beside OUT and never in it (base-autofix.sh copies
+# every file under OUT into the checkout): one `git apply` patch of every
+# export that changed, empty when none did. A step returns one file, so a lane
+# without a Mac regenerates a pull request's exports with
+#   cmux-ci run --class light --script scripts/cmux-next/regenerate-action-exports.sh \
+#     --ref <pushed head> --key <key> --arg .build/exports --artifact .build/exports.patch
+#   cmux-ci artifact <step id> exports.patch && git apply exports.patch
+#
 # Usage: scripts/cmux-next/regenerate-action-exports.sh OUT
 set -euo pipefail
 # cmux-ci-warm-contract: swiftpm-v1
@@ -38,3 +46,5 @@ for file in "${exports[@]}"; do
   cp "$file" "$out/$file"
   echo "regenerated: $file"
 done
+git diff --binary -- "${exports[@]}" > "$out.patch"
+echo "patch: $out.patch ($(wc -l < "$out.patch" | tr -d ' ') lines)"
