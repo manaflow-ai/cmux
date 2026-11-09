@@ -458,7 +458,7 @@ public struct DaemonTree: Sendable {
                 asks = waitingFor[session]
             }
             let harness = binding.harness ?? "agent"
-            let chat = binding.session.flatMap { chatTitles[$0] }
+            let chat = binding.session.flatMap { chatTitles[$0] }.flatMap(Self.titleLine)
             return WorkspaceTab(id: id, kind: .agent, title: title.isEmpty ? chat ?? Self.agentName(harness) : title,
                                 subtitle: binding.session == nil ? "New chat" : nil, harness: harness, agentStatus: status,
                                 waitingFor: status == .waiting ? asks : nil)
@@ -473,6 +473,11 @@ public struct DaemonTree: Sendable {
         guard let tab, tab["kind"] as? String == "conversation", (tab["name"] as? String ?? "").isEmpty,
               let session = ((tab["conversation"] as? [String: Any])?["agent_session"] as? [String: Any])?["session"] as? String,
               let title = agents.chatTitles[session] else { return nil }
+        return titleLine(title)
+    }
+
+    /// `title`'s first line, trimmed, at most 80 characters; nil when empty.
+    static func titleLine(_ title: String) -> String? {
         let line = title.split(whereSeparator: \.isNewline).first.map(String.init)?.trimmingCharacters(in: .whitespaces) ?? ""
         return line.isEmpty ? nil : String(line.prefix(80))
     }
