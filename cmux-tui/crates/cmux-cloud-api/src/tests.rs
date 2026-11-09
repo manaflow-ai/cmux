@@ -240,16 +240,64 @@ fn a_worker_refusal_names_its_nested_code_and_the_header_code_wins() {
 
 #[test]
 fn classic_calls_send_the_stack_session_and_the_team() {
-    let (origin, seen) = fake(|_| ok(r#"{"networks":[{"id":"net-1"}]}"#));
-    let answer = go(&request(&origin, Auth::Stack, "vm.networks", json!({}))).unwrap();
-    assert_eq!(answer, json!([{ "id": "net-1" }]));
+    let (origin, seen) = fake(|_| ok(r#"{"rules":[{"id":"rule-1"}]}"#));
+    let answer = go(&request(&origin, Auth::Stack, "vm.firewall_list", json!({}))).unwrap();
+    assert_eq!(answer, json!([{ "id": "rule-1" }]));
     let seen = seen.lock().unwrap();
-    assert_eq!(seen[0].target(), "GET /api/vm/network");
+    assert_eq!(seen[0].target(), "GET /api/vm/firewall");
     assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer access"));
     assert_eq!(seen[0].header("x-stack-refresh-token").as_deref(), Some("refresh"));
     assert_eq!(seen[0].header("x-cmux-team-id").as_deref(), Some("team-1"));
     assert_eq!(seen[0].header("x-cmux-client").as_deref(), Some("cmux-mac"));
     assert_eq!(seen[0].header("x-cmux-app-version").as_deref(), Some("cmux-next"));
+}
+
+// MARK: the team's network (cmux-platform)
+
+const MESH: &str = "mesh_0123456789abcdefghjkmnpqrs";
+const TARGET: &str = r#"{"team":"team_1","tenant":"t1","project":"p1","origin":"https://vm.invalid","mesh":"mesh_0123456789abcdefghjkmnpqrs","ipv4_cidr":"10.128.16.0/20"}"#;
+const NO_MESH: &str = r#"{"code":"selector.not_found","message":"no available network mesh"}"#;
+const NOT_INSTALL: &str = r#"{"code":"auth.forbidden","message":"an install is required"}"#;
+
+fn networks(origin: &str, auth: Auth) -> Result<Value, Failure> {
+    go(&request(origin, auth, "vm.networks", json!({})))
+}
+
+#[test]
+fn the_network_list_is_the_platforms_network_target_as_the_install() {
+    let (origin, seen) = fake(|_| ok(TARGET));
+    // The id is the team's, so `cloud network-list` output feeds `vm.tunnel_attach` as it is.
+    let network = json!({
+        "id": "team_1",
+        "meshId": MESH,
+        "cidr": "10.128.16.0/20",
+        "cidrV6": null,
+        "scope": "team",
+    });
+    assert_eq!(networks(&origin, Auth::Worker).unwrap(), json!([network]));
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].target(), "GET /v1/host/network/target");
+    assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer access"));
+    assert_eq!(seen[0].header("x-cmux-team").as_deref(), Some("team-1"));
+    assert_eq!(seen[0].header("x-stack-refresh-token"), None);
+}
+
+#[test]
+fn a_team_with_no_mesh_yet_has_no_network_and_a_refusal_is_read() {
+    let (origin, _seen) = fake(|_| Some((404, NO_MESH.into())));
+    assert_eq!(networks(&origin, Auth::Worker).unwrap(), json!([]));
+    let (origin, _seen) = fake(|_| Some((403, NOT_INSTALL.into())));
+    let failure = networks(&origin, Auth::Worker).unwrap_err();
+    assert!(matches!(failure, Failure::Http { status: 403, .. }), "{failure:?}");
+}
+
+#[test]
+fn the_network_list_never_goes_to_classic() {
+    let (origin, seen) = fake(|_| ok(r#"{"networks":[{"id":"net-1"}]}"#));
+    let failure = networks(&origin, Auth::Stack).unwrap_err();
+    assert!(matches!(failure, Failure::Transport(_)), "{failure:?}");
+    assert!(seen.lock().unwrap().is_empty());
 }
 
 const PUBLICATION: &str = r#"{"id":"vm_abc:3000","hostname":"p3000-abc.preview.test","url":"https://p3000-abc.preview.test","domainKind":"managed","vmId":"vm_abc","port":3000,"targetPort":3000,"protocol":"https","accessMode":"personal","teamId":"team-1","state":"active"}"#;
@@ -953,16 +1001,16 @@ fn a_base_url_is_https_or_loopback_http_with_no_user_query_or_fragment() {
 
 #[test]
 fn a_base_path_is_kept() {
-    let (origin, seen) = fake(|_| ok(r#"{"networks":[]}"#));
-    go(&request(&format!("{origin}/prefix/"), Auth::Stack, "vm.networks", json!({}))).unwrap();
-    assert_eq!(seen.lock().unwrap()[0].target(), "GET /prefix/api/vm/network");
+    let (origin, seen) = fake(|_| ok(r#"{"rules":[]}"#));
+    go(&request(&format!("{origin}/prefix/"), Auth::Stack, "vm.firewall_list", json!({}))).unwrap();
+    assert_eq!(seen.lock().unwrap()[0].target(), "GET /prefix/api/vm/firewall");
 }
 
 #[test]
 fn a_local_backend_that_is_not_running_is_no_backend() {
     let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
     let mut call =
-        request(&format!("http://127.0.0.1:{port}"), Auth::Stack, "vm.networks", json!({}));
+        request(&format!("http://127.0.0.1:{port}"), Auth::Stack, "vm.firewall_list", json!({}));
     call.local_only = true;
     assert_eq!(go(&call), Err(Failure::NoBackend));
     call.local_only = false;
@@ -1221,9 +1269,9 @@ fn a_keyed_start_refusal_that_echoes_the_key_carries_no_service_text() {
 
 #[test]
 fn an_answer_over_the_limit_is_refused_while_it_is_read() {
-    let big = format!(r#"{{"networks":"{}"}}"#, "x".repeat(MAX_ANSWER_BYTES));
+    let big = format!(r#"{{"rules":"{}"}}"#, "x".repeat(MAX_ANSWER_BYTES));
     let (origin, _seen) = fake(move |_| ok(&big));
-    let failure = go(&request(&origin, Auth::Stack, "vm.networks", json!({}))).unwrap_err();
+    let failure = go(&request(&origin, Auth::Stack, "vm.firewall_list", json!({}))).unwrap_err();
     assert!(
         matches!(&failure, Failure::Transport(message) if message.contains("larger than")),
         "{failure:?}"

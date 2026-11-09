@@ -199,7 +199,9 @@ final class TabGroupChipCell {
     private func applyColors() {
         themeScope.perform {
             pill.shadowColor = Palette.shadow.cgColor
-            var fill = group.tint.chipFill
+            // No color: the theme's neutral step, as the band behind its tabs, so the chip still reads as a group's
+            // chip rather than a bare label (Leo 2026-11-05: "a grouped up thing").
+            var fill = group.tint.isNone ? Palette.sidebarStep : group.tint.chipFill
             if isPressed {
                 fill = fill.blended(withFraction: 0.16, of: Palette.textPrimary) ?? fill
             } else if isHovered {

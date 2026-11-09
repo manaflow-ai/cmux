@@ -593,6 +593,16 @@ fn is_setting_id(value: &str) -> bool {
 struct MediaParams {
     surface: SurfaceId,
     path: String,
+    /// A video's byte range (`agent_session_media.rs` `media_range`): its first byte; none for a
+    /// whole image.
+    #[serde(default)]
+    offset: Option<u64>,
+    /// The range's most bytes, at most `MAX_RANGE` (the default).
+    #[serde(default)]
+    length: Option<u64>,
+    /// The open file an earlier range answered, so the next range reads the same file.
+    #[serde(default)]
+    handle: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1152,7 +1162,7 @@ impl ReaderSlot {
 mod media;
 #[path = "agent_session_proxy.rs"]
 mod proxy;
-use media::media;
+use media::{media, media_range};
 pub use proxy::shares::room::{set_link_share_app_scheme, start_link_share_bridge};
 pub(crate) use proxy::shares::{
     close_chat_shares, close_listed_chat_shares, close_unlisted_chat_shares, open_chat_shares,
@@ -1410,7 +1420,21 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
         // A side chat is a new chat on the owner's machine, as a fork is: the owner's only.
         AgentSessionCommand::Side(_) if attachment.author.is_some() => Err(Refusal::NotTrusted),
         AgentSessionCommand::Side(params) => side::call(attachment, params),
-        AgentSessionCommand::Media(MediaParams { path, .. }) => media(attachment, path),
+        AgentSessionCommand::Media(MediaParams {
+            path,
+            offset: None,
+            length: None,
+            handle: None,
+            ..
+        }) => media(attachment, path),
+        AgentSessionCommand::Media(MediaParams {
+            path,
+            offset: Some(offset),
+            length,
+            handle,
+            ..
+        }) => media_range(attachment, path, offset, length, handle),
+        AgentSessionCommand::Media(_) => Err(Refusal::BadRequest),
         // The session is the tab's own; acpmux bounds typing (2 a second, `typing.rate_limited`).
         // acpmux's rate refusal is the attachment's bound (`agent_session.limit`): the pane says
         // so again with its next keystroke.

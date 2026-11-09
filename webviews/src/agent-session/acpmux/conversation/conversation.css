@@ -363,7 +363,8 @@
 .cv-user__video-play svg {
   transform: translateX(1px);
 }
-.cv-user__video-length {
+.cv-user__video-length,
+.cv-user__video-unplayable {
   position: absolute;
   right: 6px;
   bottom: 6px;
@@ -375,6 +376,18 @@
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
   pointer-events: none;
+}
+/* A video nothing can play (Leo, 2026-11-04: "i can neither preview a vid in place nor have it pop
+   up anymore :("): it says so over its whole tile, in the play glyph's place, on the length's scrim. */
+.cv-user__video-unplayable {
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  border-radius: var(--cv-media-radius);
+  line-height: 1.25;
+  text-align: center;
+  white-space: normal;
 }
 /* A sent video playing in place (SentVideoTile.tsx): the reply's player (chips.css .cv-media) at its
    own size, its controls and Expand showing the arrow, not a sent image's zoom-in. */
@@ -6301,9 +6314,25 @@ a.cv-sha:focus-visible {
 }
 /* Jump to latest keeps its own glass. It does not widen the transcript's soft edge: a 56px band
    washed out almost three lines above the composer (Leo, 2026-10-27). */
-/* Find in Chat's bar sits in the top band: it keeps full ink, and rows pass under it. */
-.acpmux-scroll[data-fade-top]:has(> .acpmux-find) {
-  --acpmux-fade-top: 0px;
+/* Find in Chat's bar sits in the top band. The band keeps fading the rows under the header while it
+   is open (Leo, 2026-11-05: Find "takes off the blur of the top bar bit"): the mask's last layer
+   keeps full ink only over the bar's own box, which ChatFindBar measures (--acpmux-find-x,
+   --acpmux-find-y, --acpmux-find-width), from its top edge down, its sides feathered over
+   --acpmux-find-soft so its drop is not cut. Rows above and beside it keep fading; rows pass under
+   its glass. With no bar the layer is empty (0 by 0). */
+.acpmux-scroll:has(> .acpmux-find) {
+  --acpmux-find-soft: 16px;
+  --acpmux-find-hole: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--acpmux-find-soft),
+    #000 calc(100% - var(--acpmux-find-soft)),
+    transparent
+  );
+  --acpmux-find-hole-size: calc(var(--acpmux-find-width, 0px) + 2 * var(--acpmux-find-soft))
+    calc(var(--find-pill-height, 34px) + var(--acpmux-find-soft));
+  --acpmux-find-hole-position: calc(var(--acpmux-find-x, 0px) - var(--acpmux-find-soft))
+    var(--acpmux-find-y, var(--find-pill-inset, 10px));
 }
 .acpmux-scroll[data-fade-top],
 .acpmux-scroll[data-fade-bottom],
@@ -6321,22 +6350,28 @@ a.cv-sha:focus-visible {
   );
   -webkit-mask-image:
     var(--acpmux-view-mask),
-    linear-gradient(#000, #000);
+    linear-gradient(#000, #000),
+    var(--acpmux-find-hole, linear-gradient(transparent, transparent));
   mask-image:
     var(--acpmux-view-mask),
-    linear-gradient(#000, #000);
+    linear-gradient(#000, #000),
+    var(--acpmux-find-hole, linear-gradient(transparent, transparent));
   -webkit-mask-size:
     100% 100%,
-    var(--acpmux-scrollbar-lane, 16px) 100%;
+    var(--acpmux-scrollbar-lane, 16px) 100%,
+    var(--acpmux-find-hole-size, 0px 0px);
   mask-size:
     100% 100%,
-    var(--acpmux-scrollbar-lane, 16px) 100%;
+    var(--acpmux-scrollbar-lane, 16px) 100%,
+    var(--acpmux-find-hole-size, 0px 0px);
   -webkit-mask-position:
     0 0,
-    100% 0;
+    100% 0,
+    var(--acpmux-find-hole-position, 0 0);
   mask-position:
     0 0,
-    100% 0;
+    100% 0,
+    var(--acpmux-find-hole-position, 0 0);
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
 }
@@ -6350,37 +6385,45 @@ a.cv-sha:focus-visible {
   -webkit-mask-image:
     var(--acpmux-view-mask),
     linear-gradient(#000, #000),
-    linear-gradient(#000, #000);
+    linear-gradient(#000, #000),
+    var(--acpmux-find-hole, linear-gradient(transparent, transparent));
   mask-image:
     var(--acpmux-view-mask),
     linear-gradient(#000, #000),
-    linear-gradient(#000, #000);
+    linear-gradient(#000, #000),
+    var(--acpmux-find-hole, linear-gradient(transparent, transparent));
   -webkit-mask-size:
     100% 100%,
     var(--acpmux-scrollbar-lane, 16px) 100%,
-    var(--cv-inset) 100%;
+    var(--cv-inset) 100%,
+    var(--acpmux-find-hole-size, 0px 0px);
   mask-size:
     100% 100%,
     var(--acpmux-scrollbar-lane, 16px) 100%,
-    var(--cv-inset) 100%;
+    var(--cv-inset) 100%,
+    var(--acpmux-find-hole-size, 0px 0px);
   -webkit-mask-position:
     0 0,
     100% 0,
-    0 0;
+    0 0,
+    var(--acpmux-find-hole-position, 0 0);
   mask-position:
     0 0,
     100% 0,
-    0 0;
+    0 0,
+    var(--acpmux-find-hole-position, 0 0);
 }
 .acpmux-scroll:has(> .acpmux-minimap[data-side="right"]):is([data-fade-top], [data-fade-bottom], [data-docked]) {
   -webkit-mask-position:
     0 0,
     100% 0,
-    100% 0;
+    100% 0,
+    var(--acpmux-find-hole-position, 0 0);
   mask-position:
     0 0,
     100% 0,
-    100% 0;
+    100% 0,
+    var(--acpmux-find-hole-position, 0 0);
 }
 /* Plain edges: the rows under the bottom stack still stay out of sight, with a hard cut. */
 @media (prefers-reduced-transparency: reduce) {

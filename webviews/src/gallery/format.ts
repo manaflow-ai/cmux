@@ -101,6 +101,9 @@ export type ChipHostFixture = {
   images?: Record<string, string | null>;
   /** `media.load` answers: the URL the player plays for each path. */
   media?: Record<string, string>;
+  /** Methods the host refuses (`{ok: false}`), as a chat on another machine's host may refuse
+   *  `media.load` and `video.quickLook`. */
+  refused?: string[];
   browsers?: { id: string; name: string; icon?: string }[];
   /** `project.icon` answers: a project folder's favicon as a data URL (projectIcon.ts). */
   projectIcons?: Record<string, string>;

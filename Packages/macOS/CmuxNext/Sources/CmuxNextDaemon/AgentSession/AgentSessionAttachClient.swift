@@ -548,6 +548,16 @@ public actor AgentSessionAttachClient {
         return try await call("agent-session-media", ["path": path])
     }
 
+    /// Reads one byte range of a video of the attached session's host (`agent-session-media` with
+    /// an `offset`): `{offset, size, identity, data, mimeType?, handle?}`, base64 bytes. `handle`,
+    /// from the previous answer, reads the same open file; nil opens it again.
+    public func mediaRange(path: String, offset: Int, length: Int, handle: String?) async throws -> Data {
+        _ = try await liveTransport()
+        var params: [String: any Sendable] = ["path": path, "offset": offset, "length": length]
+        if let handle { params["handle"] = handle }
+        return try await call("agent-session-media", params)
+    }
+
     /// Sends one Cloud repository action over this chat's authenticated daemon attachment.
     /// Repository actions are cmux-tui frame commands, so they share this connection rather
     /// than going through acpmux's JSON-RPC socket.

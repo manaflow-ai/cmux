@@ -423,15 +423,21 @@ fn balance<D: Daemon + ?Sized>(daemon: &D, screen: Option<&str>, pane: &str) {
 /// Whether `pane` holds running agents agent start made: it has tabs, and
 /// each one's terminal carries the daemon's `extra.agent_start` mark (its
 /// stored spawn argv is the agent start launch,
-/// cmux_tui_core::agent_start_launch) and has not exited. A person's tab
-/// never has the mark, whatever its name; an exited agent kept with
-/// `--on-exit keep` keeps its mark but counts as the person's pane, so its
-/// width stays. Nothing reads a process.
+/// cmux_tui_core::agent_start_launch) and is live: its lifecycle is
+/// `running`, `launching` or `adopting` (`terminal_lifecycle::is_live`, the
+/// one allow-list). Any other word (a later protocol's state) or no
+/// `lifecycle` field counts as the person's pane, so a new state never
+/// resizes a column. The agent's own state (`working`, `idle`, `blocked`,
+/// ...) is a different field and does not count: a live idle or blocked
+/// agent runs in a `running` terminal. A person's tab never has the mark,
+/// whatever its name; an exited agent kept with `--on-exit keep` keeps its
+/// mark but counts as the person's pane, so its width stays. Nothing reads
+/// a process.
 fn started_agents(snapshot: &Value, pane: &str) -> bool {
     let marked: std::collections::HashSet<&str> = list(snapshot, "terminals")
         .iter()
         .filter(|terminal| terminal.pointer("/extra/agent_start") == Some(&Value::Bool(true)))
-        .filter(|terminal| terminal.get("lifecycle").and_then(Value::as_str) != Some("exited"))
+        .filter(|terminal| super::super::terminal_lifecycle::is_live(terminal))
         .filter_map(|terminal| terminal["id"].as_str())
         .collect();
     let mut tabs = list(snapshot, "tabs").iter().filter(|tab| tab["pane_id"] == pane).peekable();
