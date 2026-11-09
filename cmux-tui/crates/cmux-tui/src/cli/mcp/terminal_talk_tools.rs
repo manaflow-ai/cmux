@@ -25,8 +25,8 @@ const LIST_DESCRIPTION: &str = "The terminals in cmux that run a coding agent (C
     {items: [{terminal, name, harness, status, state, title, workspace_id, workspace, cwd, \
     updated_at_ms, age_ms, source, tab_id, tab_name, pane_id, last_reply}]}. status is blocked \
     (a permission dialog, a question or an error waits), done (a turn finished and nobody has \
-    viewed the terminal yet), working, idle or unknown, and null for an ended session. state \
-    is a deprecated alias of status (ended for an ended session). Blocked first, then done, \
+    viewed the terminal yet), working, idle or unknown, and ended for an ended session. state \
+    is a deprecated alias of status. Blocked first, then done, \
     working, idle, unknown, ended; \
     newest first. A shell without an agent is not listed. Changes nothing: reading does not \
     clear done.";
@@ -34,10 +34,12 @@ const LIST_DESCRIPTION: &str = "The terminals in cmux that run a coding agent (C
 const SEND_DESCRIPTION: &str = "Send a message to the agent (or shell) in a cmux terminal and \
     get its answer, as `cmux terminal <t> send`: types text as one bracketed paste (a \
     multi-line message stays one message), presses Enter, waits, and answers {terminal, \
-    harness, status, state, timed_out, waited_ms, anchored, output}. status is the word \
+    harness, status, state, timed_out, waited_ms, anchored, reply, reply_source, output}. \
+    reply is the agent's own last message from its hooks (reply_source hook) when they gave \
+    it after the send, else the output (reply_source screen). status is the word \
     agents_terminal_list says for the same turn (idle, done when the finished turn is not \
-    viewed yet, blocked, working, ended); state is the wait's own word. output is only what the terminal \
-    printed after the message, less the harness's input box. wait idle (default): until no \
+    viewed yet, blocked, working, ended); state is the wait's own word. output is only what \
+    the terminal printed after the message, less the harness's input box. wait idle (default): until no \
     fresh hook or status says working and the screen has been still for settle_seconds \
     (default 3); state is idle, or blocked when the agent stopped on a dialog (working when \
     the wait timed out). wait \

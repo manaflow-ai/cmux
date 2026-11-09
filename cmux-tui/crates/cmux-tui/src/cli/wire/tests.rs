@@ -42,6 +42,22 @@ fn personal_workspace_order_numbers_the_shown_rows() {
     assert_eq!(*human_view(&personal, &result), result);
 }
 
+/// W5-P: `screen list` drops the LAYOUT column (the whole split tree as
+/// JSON) from its table; `--json` keeps the field.
+#[test]
+fn w5p_screen_list_table_has_no_layout_column() {
+    let layout = json!({"kind":"split","direction":"right","children":[{"kind":"pane"}]});
+    let result = json!([
+        {"id":"screen_a","workspace_id":"ws_a","name":"main","focused":true,"layout":layout}
+    ]);
+    let shown = human_view(&plan(ResourceOperation::ScreenList), &result);
+    let text = human_text(&shown);
+    assert!(!text.contains("LAYOUT"), "{text}");
+    assert!(!text.contains("split"), "{text}");
+    assert!(text.contains("screen_a") && text.contains("main"), "{text}");
+    assert_eq!(result[0]["layout"], layout, "the JSON result keeps the layout");
+}
+
 #[test]
 fn capability_preflight_rejects_wrong_app_even_when_capability_is_present() {
     let identity = json!({"app":"other", "protocol":12, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});

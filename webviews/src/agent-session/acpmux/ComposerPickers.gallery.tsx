@@ -16,7 +16,13 @@ const galleryAccounts: ChatAccounts = {
 
 /** `claude`: Leo's started claude-sr2 chat (2026-10-21), whose model menu listed nine models. */
 /** `managed`: acpmux answered `"fullAccess": "managed"` (MDM keeps full access off, #23322). */
-type Props = { claude?: boolean; accounts?: boolean; managed?: boolean };
+/** `unlisted`: acpmux has not answered with its harnesses yet; the bundled catalog is the menu. */
+type Props = {
+  claude?: boolean;
+  accounts?: boolean;
+  managed?: boolean;
+  unlisted?: boolean;
+};
 
 const directAccounts: ChatAccounts = {
   list: async () =>
@@ -187,7 +193,7 @@ const codexSnapshot: AcpmuxSnapshot = {
   },
 };
 
-function GalleryComposerPickers({ claude, accounts, managed }: Props) {
+function GalleryComposerPickers({ claude, accounts, managed, unlisted }: Props) {
   // As an acpmux answer would set it; cleared again when the variant goes.
   useEffect(() => {
     rememberFullAccess(managed ? "managed" : undefined);
@@ -216,10 +222,11 @@ function GalleryComposerPickers({ claude, accounts, managed }: Props) {
   // The model catalog's join, as the agent pane builds it, so Claude Code's aliases fold.
   const pickerCatalog = useMemo(
     () =>
-      claude
+      claude || unlisted
         ? buildPickerCatalog({
             catalog: BUNDLED_MODEL_CATALOG,
-            acpmux: snapshot.catalog,
+            acpmux: unlisted ? [] : snapshot.catalog,
+            provisional: unlisted,
             session: {
               harness: "claude-sr2",
               model: snapshot.summary?.model,
@@ -227,7 +234,18 @@ function GalleryComposerPickers({ claude, accounts, managed }: Props) {
             },
           })
         : undefined,
-    [claude, snapshot],
+    [claude, snapshot, unlisted],
+  );
+  const pickers = (
+    <ComposerPickers
+      snapshot={unlisted ? { ...snapshot, catalog: [], summary: undefined } : snapshot}
+      harnessesListed={!unlisted}
+      {...(pickerCatalog ? { pickerCatalog } : {})}
+      onModel={setModel}
+      onMode={setMode}
+      onEffort={(id, value) => (id === "fast-mode" ? setFast(value) : setEffort(value))}
+      showPlan
+    />
   );
   return (
     <ChatAccountsContext.Provider value={accounts ? directAccounts : galleryAccounts}>
@@ -236,14 +254,7 @@ function GalleryComposerPickers({ claude, accounts, managed }: Props) {
           <strong>Composer controls</strong>
           <span>One model button (model and effort), permission, and Plan controls share one quiet footer rail.</span>
         </div>
-        <ComposerPickers
-          snapshot={snapshot}
-          {...(pickerCatalog ? { pickerCatalog } : {})}
-          onModel={setModel}
-          onMode={setMode}
-          onEffort={(id, value) => (id === "fast-mode" ? setFast(value) : setEffort(value))}
-          showPlan
-        />
+        {pickers}
       </div>
     </ChatAccountsContext.Provider>
   );
@@ -312,6 +323,16 @@ const modelPressDragRelease: Play = async (ctx) => {
   await ctx.waitFor(
     () => !ctx.document.querySelector('[role="menu"]') && ctx.document.activeElement === ctx.find(MODEL),
   );
+};
+
+// Before acpmux answers (the first open after launch): the bundled models, never an empty menu and
+// never Not installed (Leo 2026-11-08: "we know what the models are").
+const openUnlisted: Play = async (ctx) => {
+  await ctx.click(MODEL);
+  // An unlocked composer's model menu is the columns menu (QuickModelColumns).
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-cols [role="option"]') !== null);
+  if (ctx.document.querySelector(".acpmux-cols")?.textContent?.includes("Not installed"))
+    throw new Error("a bundled harness reads Not installed before acpmux answers");
 };
 
 // The current model's effort is a side dropdown beside its row (#27948): its effort item opens the
@@ -558,5 +579,10 @@ export default componentEntry<Props>({
       play: modeFocus,
     },
     plan: { props: {}, play: planToggle },
+    "model-menu-before-acpmux": {
+      note: "The first open after launch, before acpmux lists its harnesses: the bundled catalog's models, pickable at once, with no Not installed rows.",
+      props: { unlisted: true },
+      play: openUnlisted,
+    },
   },
 });

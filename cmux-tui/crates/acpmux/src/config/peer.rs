@@ -35,3 +35,11 @@ pub struct PeerConfig {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub github_broker: bool,
 }
+
+impl PeerConfig {
+    /// Whether this config names a route of its own (`wireguard` or `linkHost`). Such a peer
+    /// never gets an overlay path found for it (`peer_overlay.rs`), whatever runs.
+    pub fn names_route(&self) -> bool {
+        self.wireguard.is_some() || self.link_host.is_some()
+    }
+}

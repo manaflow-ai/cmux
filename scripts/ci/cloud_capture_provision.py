@@ -45,6 +45,10 @@ Stack user id (not a secret), which a GitHub OIDC session trust row pins (hq#707
 (cmux-cloud-capture-journey-prod@manaflow.dev), sealed to this repository's cmux-next-cloud-journey environment as
 CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD (cloud-journey-prod.yml, backend.yml journey-production).
 
+`--target platform-staging` and `--target platform-production` make cmux-platform's own journey accounts (staging and
+production projects), sealed to manaflow-ai/cmux-platform's repository secrets (no environment: its ci.yml job has
+none) as CMUX_DOGFOOD_STACK_* and CMUX_JOURNEY_PROD_STACK_*, which its deploy journeys read.
+
 Runs in .github/workflows/cloud-capture-provision.yml (environment cloud-vm-staging). The bundle is
 stored with `python3 scripts/ci/sealed_secrets.py put BUNDLE`; docs/ci-sealed-secrets.md.
 Standard library only, plus the system libsodium.
@@ -125,6 +129,19 @@ TARGETS = {
                                  "phe+RfKRmKGeO9B3rCULM4jdTzJX8aS7LbvGrIoTFWM=",
                                  "CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD",
                                  project=PRODUCTION_PROJECT_ID),
+    # cmux-platform's deploys (its ci.yml job `ci`, no environment) journey after "Deploy staging" and "Deploy
+    # production" and read these from that repository's own Actions secrets (environment None). Their own accounts:
+    # rotating cmux's journey accounts would sign out the copies in cmux (cmuxterm-hq#8293, goal cloud-deploy-checked).
+    "platform-staging": Target("cmux-cloud-capture-platform@manaflow.dev", "cmux cloud journey (cmux-platform)",
+                               "manaflow-ai/cmux-platform", None, "3380204578043523366",
+                               "EzR9/8XfEWpKYAO5ulRMqEaTWp1BuVXmv7i36gCaCwA=",
+                               "CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"),
+    "platform-production": Target("cmux-cloud-capture-platform-prod@manaflow.dev",
+                                  "cmux cloud journey (cmux-platform, production)",
+                                  "manaflow-ai/cmux-platform", None, "3380204578043523366",
+                                  "EzR9/8XfEWpKYAO5ulRMqEaTWp1BuVXmv7i36gCaCwA=",
+                                  "CMUX_JOURNEY_PROD_STACK_EMAIL", "CMUX_JOURNEY_PROD_STACK_PASSWORD",
+                                  project=PRODUCTION_PROJECT_ID),
 }
 CAPTURE = TARGETS["capture"]
 EMAIL = CAPTURE.email
@@ -283,7 +300,7 @@ def provision(stack, out, log=print, lib=None, key_id=None, key=None, make_passw
     sealed_secrets.write_bundle(out, bundle)
     where = "production" if target.project == PRODUCTION_PROJECT_ID else "staging"
     log(f"{action} the {where} test account {email}, Stack user id {user['id']} (plan {PLAN}); sealed "
-        f"{target.email_secret} and {target.password_secret} to {target.repo} environment {target.environment} "
+        f"{target.email_secret} and {target.password_secret} to {sealed_secrets.where(bundle)[1]} "
         f"(key_id {key_id})")
     return action
 

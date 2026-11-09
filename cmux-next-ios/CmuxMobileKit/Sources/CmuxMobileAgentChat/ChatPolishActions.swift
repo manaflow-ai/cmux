@@ -94,6 +94,9 @@ public enum AgentChatCopy: String, CaseIterable, Identifiable, Sendable {
                 case .message(_, let markdown):
                     let text = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !text.isEmpty { blocks.append("**Assistant:**\n" + text) }
+                case .steer(let message) where message.incoming == nil:
+                    let text = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !text.isEmpty { blocks.append("**User:**\n" + text) }
                 case .tool(let call):
                     let title = call.title.split(whereSeparator: \.isWhitespace).joined(separator: " ")
                     guard !title.isEmpty else { continue }

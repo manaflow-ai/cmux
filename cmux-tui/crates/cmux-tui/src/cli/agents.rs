@@ -22,6 +22,7 @@ pub(super) const DEFAULT_SNAPSHOT_LIMIT: usize = 100;
 pub(super) const MAX_SNAPSHOT_LIMIT: usize = 1_000;
 
 mod events;
+pub(super) mod turn;
 mod wait;
 
 pub(super) use events::{
@@ -115,7 +116,8 @@ fn run(global: GlobalArgs, args: &[String], lines: bool) -> i32 {
         println!("{HELP}");
         return 0;
     }
-    let command = match command(args) {
+    // The CLI waits longer than an MCP tool call may (wait.rs `MAX_CLI_TIMEOUT_SECONDS`).
+    let command = match command_capped(args, wait::MAX_CLI_TIMEOUT_SECONDS) {
         Ok(AgentCommand::Snapshot) => return run_snapshot(&global),
         Ok(command) => command,
         Err(error) => return print_usage(&global, &error.0),
@@ -204,6 +206,11 @@ pub(super) enum AgentFailure {
 /// Parses `cmux agents` words (after `agents`) into a command. The MCP
 /// `agents_<verb>` tools build the same words, so both run this grammar.
 pub(super) fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
+    command_capped(args, wait::MAX_TIMEOUT_SECONDS)
+}
+
+/// [`command`], with `agents wait --timeout` at most `wait_max` seconds.
+fn command_capped(args: &[String], wait_max: u64) -> Result<AgentCommand, UsageError> {
     let words: Vec<&str> = args.iter().map(String::as_str).collect();
     match words.as_slice() {
         [family] if *family == "snapshot" => Ok(AgentCommand::Snapshot),
@@ -263,7 +270,7 @@ pub(super) fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
                 .chain(rest.iter().map(|value| (*value).into()))
                 .collect(),
         }),
-        ["wait", rest @ ..] => wait::parse(rest).map(AgentCommand::Wait),
+        ["wait", rest @ ..] => wait::parse(rest, wait_max).map(AgentCommand::Wait),
         ["events", rest @ ..] => events::parse(rest).map(AgentCommand::Events),
         _ => Err(UsageError::new("unknown agents command; run `cmux agents --help`")),
     }

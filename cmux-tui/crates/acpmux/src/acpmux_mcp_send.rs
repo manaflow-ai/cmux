@@ -38,7 +38,7 @@ const RESOLVE_WAIT: Duration = crate::rpc::ANSWER_WAIT;
 pub(super) fn tool() -> Value {
     json!({
         "name": "send",
-        "description": "Message another agent session: a lane, a coordinator, or a chat on a peer (host/name). Use it instead of running `acpmux send` in a shell; to message several sessions, batch them in one call with messages instead of a shell loop. It goes through this daemon's outbox, like `acpmux send --no-wait`: it returns within seconds with the message's promptId and delivery id, and a slow target or a peer that is down is retried; it does not wait for a reply (read one later with last). The receiver's chat shows the message as yours; with notice it shows as a tool's notice (severity, sender, title, links) and text, if any, is its body. By default it steers: an agent in the middle of a turn reads it at its next tool step; steer: false queues it behind that turn. With messages or tag, the result has one row per recipient (to, ok, promptId, deliveryId, status, error); one bad recipient does not stop the others.",
+        "description": "Message another agent session: a lane, a coordinator, or a chat on a peer (host/name). Use it instead of running `acpmux send` in a shell; to message several sessions, batch them in one call with messages instead of a shell loop. It goes through this daemon's outbox, like `acpmux send --no-wait`: it returns within seconds with the message's promptId and delivery id, and a slow target or a peer that is down is retried; it does not wait for a reply. With class question or block, the receiver's turn that answers it comes back to you as a report from that session (only for a session on this machine), so do not poll last or ask again; otherwise read a reply later with last. The receiver's chat shows the message as yours; with notice it shows as a tool's notice (severity, sender, title, links) and text, if any, is its body. By default it steers: an agent in the middle of a turn reads it at its next tool step; steer: false queues it behind that turn. With messages or tag, the result has one row per recipient (to, ok, promptId, deliveryId, status, error); one bad recipient does not stop the others.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -457,7 +457,7 @@ async fn send_one(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> Va
     let (prompt, queued) = match queue(daemon, &target, sub).await {
         Ok(sent) => sent,
         Err(e) => {
-            return match relay(&target, &e).await {
+            return match relay(&target, &e, sub).await {
                 Some(row) if row_ok(&row) => {
                     let text_of = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or_default();
                     ok(
@@ -559,7 +559,7 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> 
         in_order(&targets, chain, deadline, move |target, wait| async move {
             match queue(daemon, target, sub).await {
                 Ok((prompt, queued)) => settle(daemon, target, &prompt, queued, wait).await,
-                Err(e) => match relay(target, &e).await {
+                Err(e) => match relay(target, &e, sub).await {
                     Some(row) => row,
                     None => target.row(false, "failed", Some(format!("{e:#}"))),
                 },
@@ -739,7 +739,11 @@ const RELAY_WAIT: Duration = Duration::from_secs(45);
 /// carries text only). The relay's sender is the session this tool runs for, and the send is a
 /// line in the cross-host audit log. Leo, 2026-11-05, on sends between lane machines: "Just do
 /// what's expected. Just do the magic."
-pub(super) async fn relay(target: &Target, e: &anyhow::Error) -> Option<Value> {
+pub(super) async fn relay(
+    target: &Target,
+    e: &anyhow::Error,
+    sub: Option<&Value>,
+) -> Option<Value> {
     if target.file.is_some() || !format!("{e:#}").to_lowercase().contains("no session") {
         return None;
     }
@@ -754,6 +758,8 @@ pub(super) async fn relay(target: &Target, e: &anyhow::Error) -> Option<Value> {
     let from = crate::cli::send_relay::sender(None, |k| std::env::var(k).ok()).or_else(|| {
         std::env::var(SESSION_ENV).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
     });
+    // The subagent that made the call (`subagent_call.rs`), named to the relay as a label.
+    let from = crate::cli::send_relay::RelaySender::new(from, sub);
     let (session, text) = (target.key.clone(), target.text.clone());
     let deadline = tokio::time::Instant::now() + RELAY_WAIT;
     let done = tokio::task::spawn_blocking(move || {
@@ -761,12 +767,12 @@ pub(super) async fn relay(target: &Target, e: &anyhow::Error) -> Option<Value> {
             &relay,
             &session,
             &text,
-            from.as_deref(),
+            &from,
             true,
             Some(deadline),
         );
         if let Ok(done) = &done {
-            crate::cli::send_relay::audit_sent(&session, &text, from.as_deref(), done);
+            crate::cli::send_relay::audit_sent(&session, &text, &from, done);
         }
         done
     })

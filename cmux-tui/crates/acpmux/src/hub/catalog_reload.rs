@@ -53,6 +53,8 @@ impl Hub {
                 .unwrap()
                 .retain(|name, _| current.harnesses.get(name) == next.harnesses.get(name));
             current.harnesses = next.harnesses;
+            // A profile that is new or changed back is served its disk list, if any.
+            self.serve_acp_cache(&current.harnesses);
             current.default_harness = next.default_harness;
             // A harness's own start mode (`permissionMode`) changing is a start-mode change too.
             let modes_of =
