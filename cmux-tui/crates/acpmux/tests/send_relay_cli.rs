@@ -287,6 +287,13 @@ fn w5s_a_subagents_relayed_send_names_the_subagent_as_a_label() {
         "a\u{2028}b\u{2029}c\u{202A}d\u{202E}e\u{2066}f\u{2069}g\u{200E}h\u{200F}i\u{061C}j";
     let hidden_sent = as_agent_from(mark, Some(hidden));
     assert!(hidden_sent.status.success(), "{}", text(&hidden_sent));
+    // Nor any other format character (Unicode class Cf): zero-width ones, the soft hyphen, the
+    // byte order mark, interlinear annotation marks, and tag characters, which can carry text a
+    // person does not see but an agent reads.
+    let format = "k\u{200B}l\u{200C}m\u{200D}n\u{2060}o\u{2061}p\u{2064}q\u{FEFF}r\u{00AD}s\u{180E}t\
+        \u{FFF9}u\u{FFFB}v\u{E0001}w\u{E0041}x\u{E007F}y";
+    let format_sent = as_agent_from(mark, Some(format));
+    assert!(format_sent.status.success(), "{}", text(&format_sent));
     let labels = fs::read_to_string(dir.join("labels")).unwrap_or_default();
     let labels: Vec<&str> = labels.lines().skip(2).collect();
     assert_eq!(
@@ -299,6 +306,8 @@ fn w5s_a_subagents_relayed_send_names_the_subagent_as_a_label() {
                 "x".repeat(64)
             ),
             "general-purpose:a0a68e7af3df5967e|abcdefghij's general-purpose subagent a0a68e7a"
+                .to_owned(),
+            "general-purpose:a0a68e7af3df5967e|klmnopqrstuvwxy's general-purpose subagent a0a68e7a"
                 .to_owned(),
         ],
         "the label's name is one line of at most 64 bytes"
