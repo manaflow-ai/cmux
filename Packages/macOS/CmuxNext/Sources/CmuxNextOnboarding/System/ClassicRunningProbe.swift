@@ -52,6 +52,17 @@ public nonisolated struct ClassicRunningProbe: Sendable {
         FileManager.default.fileExists(atPath: sentinel(channel: source.bundleID).path) && now - source.modifiedAt < Self.quietSeconds
     }
 
+    /// Whether the classic app that saves `source` is open and may still save, on this Mac: it holds the lock beside
+    /// its control socket (``lockPaths(channel:home:)``; `lockHeld` answers for a path, nil asks ``isLockHeld(_:)``),
+    /// or its launch sentinel under `stateRoot` (nil: ``defaultStateRoot(home:environment:)``) and a recent save say so.
+    public static func isOpen(_ source: ClassicMigrationSource?, lockHeld: ((String) -> Bool)? = nil, stateRoot: URL? = nil) -> Bool {
+        guard let source else { return false }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        if lockPaths(channel: source.bundleID, home: home).contains(where: { lockHeld?($0) ?? isLockHeld($0) }) { return true }
+        let root = stateRoot ?? defaultStateRoot(home: home, environment: ProcessInfo.processInfo.environment)
+        return ClassicRunningProbe(stateRoot: root).isRunning(source, now: Date().timeIntervalSince1970)
+    }
+
     /// The lock files classic of `channel` (a bundle id) holds while it listens:
     /// `<socket>.lock` beside `~/.local/state/cmux/cmux[-<channel>].sock`, then
     /// beside the `/tmp` one. cmux-next uses the same socket names

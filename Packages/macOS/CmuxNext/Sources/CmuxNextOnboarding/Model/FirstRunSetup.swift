@@ -105,16 +105,19 @@ public final class FirstRunSetup {
     public private(set) var awaitsClassic = false
     @ObservationIgnored private var classicReply: CheckedContinuation<ClassicImportAnswer, Never>?
 
-    /// The launch's classic migration starts while the card shows; ``classicSettled()`` ends the wait. Returns self.
-    @discardableResult
-    public func expectingClassic() -> FirstRunSetup {
+    /// Runs the launch's classic migration (`run`, given its confirmation): while the card shows, the card waits for
+    /// it and its cmux Classic row asks (``askClassic(_:)``); otherwise `dialog` asks, as before. `seam` (a test's
+    /// answer) wins over both.
+    public func classicMigration<T>(seam: (@MainActor (ClassicImportPlan) async -> ClassicImportAnswer)?,
+                                    dialog: @escaping @MainActor (ClassicImportPlan) async -> ClassicImportAnswer,
+                                    _ run: (@escaping @MainActor (ClassicImportPlan) async -> ClassicImportAnswer) async throws -> T) async rethrows -> T {
+        if let seam { return try await run(seam) }
         if shows { awaitsClassic = true }
-        return self
-    }
-
-    /// The launch's classic migration has finished asking (or found nothing to ask).
-    public func classicSettled() {
-        awaitsClassic = false
+        defer { awaitsClassic = false }
+        return try await run { [weak self] plan in
+            if let answer = await self?.askClassic(ClassicOffer(plan)) { return answer }
+            return await dialog(plan)
+        }
     }
 
     /// The launch's classic import asks on the cmux Classic row: the answer is the person's own click there (Import,
