@@ -233,7 +233,9 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
 /// names none.
 function cloudSignInCommand(message: string): string | undefined {
   if (GOOGLE_AUTH_EXPIRED.test(message) || (/\binvalid_grant\b/i.test(message) && GOOGLE_WORDS.test(message)))
+    // l10n-allow: a shell command the person runs, never translated.
     return "gcloud auth application-default login";
+  // l10n-allow: a shell command the person runs, never translated.
   if (AWS_AUTH_EXPIRED.test(message)) return "aws sso login";
   return undefined;
 }
