@@ -219,6 +219,10 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
     count: 1,
     what: "a turn's end folds its work in one motion: the rows that stay slide to their place, copies of the rows it took away fade where they were",
   },
+  "src/agent-session/acpmux/conversation/tailGlide.ts": {
+    count: 1,
+    what: "the rows under a change in a running turn (the live line, a steer, the footer) glide to their new place; transcript rows, never a menu",
+  },
   "src/agent-session/acpmux/conversation/turnFold.ts": { count: 1, what: "a turn folds" },
   "src/agent-session/acpmux/session-info/SessionInfoGroup.tsx": { count: 1, what: "Session Info sections slide" },
   "src/agent-session/acpmux/session-info/foldMotion.ts": {
@@ -227,8 +231,8 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   },
   "src/agent-session/acpmux/newtab/listMotion.ts": { count: 1, what: "New Tab rows move to their new place" },
   "src/agent-session/acpmux/subagents/trayMotion.tsx": {
-    count: 1,
-    what: "a status line's width easing as its words slide",
+    count: 2,
+    what: "a status line's width easing as its words slide; the hat's +N more and time gliding to their new place in the row",
   },
   "src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx": { count: 1, what: "the minimap glides" },
   "src/agent-session/acpmux/threadMinimap/scrollMotion.ts": { count: 1, what: "the minimap's scroll bubble" },

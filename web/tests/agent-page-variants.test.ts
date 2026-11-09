@@ -3,6 +3,7 @@ import {
   buildLlmsText,
   resolveAgentPageVariant,
   variantPathForPage,
+  isEnglishOnlyAgentPage,
 } from "../app/lib/agent-page-paths";
 import { sitemapEntries as sitemap } from "../app/sitemap";
 import {
@@ -364,6 +365,28 @@ describe("agent page variants", () => {
     expect(hasSensitiveCanonicalAccess(new Headers({ accept: "text/html" }))).toBe(
       false,
     );
+  });
+
+  // cmux-next docs are English-only: a reader preferring Japanese had the
+  // canonical fetch negotiated to /ja/docs/next/..., which 404s.
+  test("asks for English when fetching an English-only page's HTML", () => {
+    const requestHeaders = new Headers({
+      cookie: "_vercel_sso_nonce=abc; NEXT_LOCALE=ja",
+      "accept-language": "ja,en;q=0.9",
+    });
+    const searchParams = new URLSearchParams();
+    for (const path of ["/docs/nightly/next/own-keys", "/docs/next/own-keys", "/docs/next"]) {
+      expect(isEnglishOnlyAgentPage(path)).toBe(true);
+    }
+    expect(isEnglishOnlyAgentPage("/docs/getting-started")).toBe(false);
+
+    const headers = headersForCanonicalFetch({ requestHeaders, searchParams, englishOnly: true });
+    expect(headers.get("accept-language")).toBe("en");
+    expect(headers.get("cookie")).toBe("_vercel_sso_nonce=abc; NEXT_LOCALE=en");
+    expect(
+      headersForCanonicalFetch({ requestHeaders: new Headers({ "accept-language": "ja" }), searchParams, englishOnly: true })
+        .has("cookie"),
+    ).toBe(false);
   });
 
   test("keeps internal redirects on the same origin", () => {

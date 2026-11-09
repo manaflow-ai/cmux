@@ -57,9 +57,9 @@ import Testing
             // a default-on toggle (Now Playing on New Tab) is written false instead.
             if case .choice = feature.on {
                 let defaultOn = descriptor.effectiveValue(in: .object([:])) == SettingsAppFeatures.onValue(feature)
-                // Compact density is the appearance default. It is still listed as a card so the
-                // complete built-in density family is discoverable; clearing it keeps that default.
-                #expect(!defaultOn || feature.id == "appearance.compact",
+                // Default density (`cozy`) is the appearance default. It is still listed as a card so
+                // the complete built-in density family is discoverable; clearing it keeps that default.
+                #expect(!defaultOn || feature.id == "appearance.cozy",
                         "\(feature.id) is on by default, so Remove could not turn it off")
             }
         }
@@ -206,14 +206,16 @@ import Testing
             return
         }
         let wasOn = bridge.isOn(feature)
-        // Compact density is the default choice. Removing its explicit key leaves the same
+        // Default density (`cozy`) is the default choice. Removing its explicit key leaves the same
         // effective value, so there is no off state to exercise while preserving that default.
-        if id == "appearance.compact" && wasOn {
+        if id == "appearance.cozy" && wasOn {
             try await bridge.set(feature, on: false)
             #expect(bridge.isOn(feature))
-            // Removing the key would re-enable the default and contradict the requested off
-            // press, so the settings bridge records the default explicitly to keep the card on.
-            #expect(settings.fileRoot.value(at: feature.path) == .string("compact"))
+            // A write of the default stores nothing (#38119, Leo 2026-11-08: "if I'm on the defaults and
+            // the defaults get changed, that should reflect into stuff"), so the card stays on with no
+            // density key in the file, and the person keeps following the default.
+            #expect(settings.fileRoot.value(at: feature.path) == nil)
+            #expect(Self.leafKeys(settings.fileRoot).isEmpty, "\(id) left \(Self.leafKeys(settings.fileRoot)) in the file")
             return
         }
         try await bridge.set(feature, on: !wasOn)

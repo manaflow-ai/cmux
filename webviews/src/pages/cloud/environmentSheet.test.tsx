@@ -56,13 +56,19 @@ const sample: CloudEnvironment = {
   updated_at: "2026-11-01T00:00:00Z",
   updated_by: "user_example",
 };
-async function mount(section: EnvironmentSection = "overview", environment: CloudEnvironment = sample) {
+async function mount(
+  section: EnvironmentSection = "overview",
+  environment: CloudEnvironment = sample,
+  refusal?: string,
+) {
   const writes: EnvironmentPatch[] = [];
   const store = new EnvironmentStore({
     list: async () => [environment],
     get: async () => environment,
     update: async (_id, patch) => {
       writes.push(patch);
+      // The daemon forwards a refusal's code only, with a message of its own.
+      if (refusal) throw Object.assign(new Error("Could not save or load the cloud environment."), { code: refusal });
       return environment;
     },
     derive: async () => ({ setup: { script: "#!/bin/bash\nnpm ci\n" } }),
@@ -273,3 +279,43 @@ test("removing a secret row keeps every other row's open header with its own sec
     await mounted.dispose();
   }
 });
+
+// A secret sent to hosts is written to the secret store on save (cmux-platform#1046); its refusals reach the sheet as
+// vault.* codes, and the alert at the foot says why in a plain sentence.
+const unavailable = "Secrets can't be saved right now. Try again in a moment.";
+const refused = "The secret couldn't be stored. Your edits are kept; check its name and hosts, or try again later.";
+const vaultSentences: Record<string, string> = {
+  "vault.unavailable": unavailable,
+  "vault.unreachable": unavailable,
+  "vault.upstream_failed": unavailable,
+  "vault.not_configured": unavailable,
+  "vault.pin_public_suffix":
+    "A host can't cover every site under a public suffix like .com or .co.uk. Name the exact host, such as api.example.com.",
+  "vault.secret_not_ascii":
+    "A secret sent as Basic credentials must be plain text: ASCII letters, numbers and symbols only.",
+  "vault.secret_unreadable": "A saved secret can't be read anymore. Type its value again, then save.",
+  "vault.grant_refused": refused,
+  "vault.request_rejected": refused,
+  // Only a machine's start gives these, or the platform adds one later: the generic save sentence.
+  "vault.boot_superseded": "Could not save changes. Your edits are kept; try again.",
+  "vault.something_new": "Could not save changes. Your edits are kept; try again.",
+};
+
+for (const [code, sentence] of Object.entries(vaultSentences)) {
+  test(`a save the secret store refuses with ${code} says why at the foot and keeps the edits`, async () => {
+    const mounted = await mount("overview", sample, code);
+    try {
+      await act(async () => {
+        mounted.store.edit({ script: "echo unsaved" });
+        button("Save changes")!.click();
+        await settle();
+      });
+      expect(mounted.writes).toHaveLength(1);
+      expect(mounted.store.getSnapshot().open).toBe(true);
+      expect(mounted.store.getSnapshot().draft?.script).toBe("echo unsaved");
+      expect(document.querySelector('[role="alert"]')?.textContent).toBe(sentence);
+    } finally {
+      await mounted.dispose();
+    }
+  });
+}

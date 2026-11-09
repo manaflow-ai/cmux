@@ -615,9 +615,11 @@ def fresh_session(app):
     if app.teardown:
         app.teardown.end()
         app.teardown.done = False
-    state = os.path.join(os.path.expanduser("~"), "Library/Application Support/cmux/tags", app.tag, "tui")
-    existed = os.path.isdir(state)
-    shutil.rmtree(state, ignore_errors=True)
+    existed = False
+    for parent in ("cmux-next", "cmux"):  # NEXT's own folder and an older build's (a new build adopts that one)
+        state = os.path.join(os.path.expanduser("~"), "Library/Application Support", parent, "tags", app.tag, "tui")
+        existed = existed or os.path.isdir(state)
+        shutil.rmtree(state, ignore_errors=True)
     return {"tui_state_removed": existed}
 
 

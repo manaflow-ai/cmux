@@ -1,6 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
 use super::full_access_bound::FullAccessEnd;
+use super::policy_mode::refusal_record;
 use super::*;
 
 use super::adoption::{Adoption, adopted_in, start_folder};
@@ -166,11 +167,6 @@ impl Hub {
             }
             (None, None) => defaults.policy,
         };
-        // Deny-all or review, asked for (or a preset's or profile's), promises protection with no
-        // person to ask: a harness that cannot keep it fails the creation (`policy_mode.rs`
-        // `require_enforced`).
-        let must_hold = !inherits_policy
-            && matches!(policy, Some(PermissionPolicy::DenyAll | PermissionPolicy::Review));
         // `${model}` in argv or env: the model is a spawn parameter, not a set_model call.
         let spawn_model = profile_takes_model_at_spawn(&profile)
             || defaults.env.values().any(|v| v.contains("${model}"));
@@ -511,9 +507,9 @@ impl Hub {
                 .await?;
             // Every chat, eligible or not: a preset's or a pinned profile's policy holds too.
             let default = self.config.read().await.permission_policy;
-            if must_hold {
-                super::policy_mode::require_enforced(&session.meta(), default)?;
-            }
+            // Any policy narrower than approve-all, however the chat got it, holds or the chat is
+            // not created (`policy_mode.rs` `require_enforced`).
+            super::policy_mode::require_enforced(&session.meta(), default)?;
             self.note_unenforced_policy(&session, default);
             Ok(())
         })
@@ -918,7 +914,12 @@ impl Hub {
             // does not wait on it again; Chief starts a fresh harness (`turn::is_hung_start`).
             let hung =
                 !session.person.load(Ordering::SeqCst) && session.wait_start.load(Ordering::SeqCst);
-            if let Some(state) = harness.background().filter(|_| !retried) {
+            // A policy refusal is no start failure: the same agent would be refused again.
+            let refused = failed.as_ref().is_some_and(|e| {
+                e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str)
+                    == Some("policy_unenforceable")
+            });
+            if let Some(state) = harness.background().filter(|_| !retried && !refused) {
                 self.end_cold_start(session).await;
                 let why = match (&failed, hung) {
                     (Some(_), _) => "failed",
@@ -1287,6 +1288,8 @@ impl Hub {
         }
         // A new harness runs none of the background subagents of one it replaced.
         self.end_background_subagents(session);
+        // Nor has its sandbox refused anything yet (`harness_sandbox.rs`).
+        self.harness_sandbox_recovered(session, "respawn");
         self.wake_idle_reaper();
 
         // Start the inbound loop for this session once.
@@ -1392,8 +1395,13 @@ impl Hub {
             )
             .await?;
             // A profile that pins its mode in argv (`--permission-mode`, a skip flag) started in it.
-            self.hold_policy_mode(session, &child, super::start_mode::profile_sets_mode(profile))
-                .await;
+            // An agent that cannot keep the chat's policy is stopped and the start fails.
+            let pinned = super::start_mode::profile_sets_mode(profile);
+            if let Err(e) = self.hold_policy_mode(session, &child, pinned).await {
+                let record = refusal_record(&e);
+                self.stop_started_agent(session, false, "policy_refused", record).await;
+                return Err(e);
+            }
             self.set_status(session, SessionStatus::Ready);
             self.note_launch(session, &child);
             self.save_meta(session);

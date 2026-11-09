@@ -24,7 +24,8 @@
 //!   `tunnel-stopped`. A second supervisor on the same socket prints
 //!   `tunnel-held` with the socket and exits 0: the first one serves it.
 //! - Runs until SIGTERM or SIGINT, or a final status. Exit codes: 0 stopped
-//!   or held, 1 failed, 3 unavailable, 64 bad usage.
+//!   or held (and `--help`/`-h`, which print the usage), 1 failed, 3
+//!   unavailable, 64 bad usage.
 
 use std::io::{BufRead as _, Read as _, Write as _};
 use std::path::PathBuf;
@@ -38,6 +39,7 @@ use zeroize::Zeroizing;
 
 use super::answer::{Credential, HttpSource};
 use super::tunnel::{self, TunnelIdentity, TunnelPlan, TunnelStatus};
+use tokio::signal::unix::{SignalKind, signal};
 
 const PLATFORM_ENV: &str = "CMUX_PLATFORM_URL";
 const VM_API_ENV: &str = "CMUX_VM_API_URL";
@@ -141,6 +143,21 @@ fn vm_api_of(platform: &str) -> Option<&'static str> {
         .map(|d| d.vm_origin)
 }
 
+/// The supervisor's timing; `CMUX_CARRIER_TUNNEL_REFRESH_MS` (1 ms to 1 h)
+/// shortens the refresh for tests, as `CMUX_CARRIER_SERVE_IDLE_MS` does for
+/// serve.
+fn timing() -> tunnel::TunnelTiming {
+    let mut timing = tunnel::TunnelTiming::default();
+    if let Some(ms) = std::env::var("CMUX_CARRIER_TUNNEL_REFRESH_MS")
+        .ok()
+        .and_then(|text| text.trim().parse::<u64>().ok())
+        .filter(|ms| (1..=3_600_000).contains(ms))
+    {
+        timing.refresh_every = std::time::Duration::from_millis(ms);
+    }
+    timing
+}
+
 /// The JSON line for a status.
 pub(crate) fn status_line(status: &TunnelStatus) -> Value {
     match status {
@@ -173,6 +190,13 @@ fn usage(detail: &str) -> i32 {
 
 /// `cmux carrier tunnel …`: the exit code.
 pub(crate) fn run(args: &[String]) -> i32 {
+    // `--help` / `-h` alone: the usage on stdout, exit 0 (64 is for misuse).
+    if matches!(args, [verb, flag] if verb == "tunnel" && (flag == "--help" || flag == "-h")) {
+        let mut out = std::io::stdout().lock();
+        let _ = writeln!(out, "{USAGE}");
+        let _ = out.flush();
+        return 0;
+    }
     let Some(args) = parse(args) else { return usage(USAGE) };
     let team = match super::with_team_env_value(args.team.clone()) {
         Some(team) => team,
@@ -251,7 +275,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
         vm_api,
         socket: args.socket,
         launcher,
-        timing: tunnel::TunnelTiming::default(),
+        timing: timing(),
         jitter: super::jitter,
     };
     let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
@@ -259,6 +283,15 @@ pub(crate) fn run(args: &[String]) -> i32 {
         Err(_) => return usage("no async runtime"),
     };
     runtime.block_on(async move {
+        // Tokio's own signal streams, in place before anything starts: the
+        // carrier verbs run before `main` installs its shutdown handlers, so
+        // its shutdown waiter has nothing to wait on here (as `carrier serve`).
+        let (Ok(mut terminate), Ok(mut interrupt)) =
+            (signal(SignalKind::terminate()), signal(SignalKind::interrupt()))
+        else {
+            emit(&json!({"event": "tunnel-failed", "detail": "no signal handlers"}));
+            return 1;
+        };
         let handle = match tunnel::start(plan) {
             Ok(handle) => handle,
             Err(tunnel::StartError::Held { socket }) => {
@@ -272,8 +305,6 @@ pub(crate) fn run(args: &[String]) -> i32 {
         };
         emit(&json!({"event": "tunnel-starting", "socket": handle.socket().display().to_string()}));
         let mut status = handle.status();
-        let signal = crate::wait_for_shutdown_signal_async();
-        tokio::pin!(signal);
         let last = loop {
             tokio::select! {
                 changed = status.changed() => {
@@ -283,7 +314,8 @@ pub(crate) fn run(args: &[String]) -> i32 {
                     }
                     emit(&status_line(&now));
                 }
-                _ = &mut signal => break handle.stop().await,
+                _ = terminate.recv() => break handle.stop().await,
+                _ = interrupt.recv() => break handle.stop().await,
             }
         };
         emit(&status_line(&last));

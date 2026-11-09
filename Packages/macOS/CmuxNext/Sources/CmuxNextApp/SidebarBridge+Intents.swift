@@ -21,6 +21,11 @@ extension SidebarBridge {
             doc.setGroupCollapsed(group.rawValue, !shown) { [weak self] in self?.rows.edits.dropFold(group) }
             return
         }
+        // A row still being created: the daemon has no workspace to move yet, so its drop is the create's slot.
+        if case let .reorder(ids, position) = intent, !ids.isEmpty, ids.allSatisfy(model.isCreating) {
+            if !services.windows.reslotCreates(ids.map(\.rawValue), at: position, in: state.id, sections: model.sections) { resync() }
+            return
+        }
         if CloudCreationRows.handle(intent, bridge: self, state: state) || services.sidebarDoc.handle(intent, bridge: self) { return }
         // A section's collapse is window view state (sidebar snapshot), never a daemon command.
         if case .toggleCollapse(.section) = intent {
@@ -51,6 +56,12 @@ extension SidebarBridge {
             // A pick in this window's sidebar shows here, also a workspace another window lists.
             services.windows.show(workspaceID: id.rawValue, in: state, from: .thisWindow)
         case let .selectTab(_, tab): revealPinnedTab(tab.rawValue) // shown in this window (cmux#37371)
+        // The drive indicator's Stop: its chat's turn, or Stop Computer Use on the session its agent started.
+        case let .stopAgentDrive(_, tab, .browser): services.agentTabs.existingView(tab.rawValue)?.stopTurn()
+        case let .stopAgentDrive(_, tab, .screen):
+            let found = services.machines.daemons.lazy.compactMap { $0.store.tab(id: tab.rawValue) }.first
+            let terminals = [found?.terminalID?.rawValue, found?.terminalResourceID?.rawValue].compactMap(\.self).joined(separator: ",")
+            services.registry.perform("computerUseStop", invocation: ActionInvocation(arguments: ["terminals": .string(terminals)]))
         // The tab strip's close for that tab, on whichever machine holds it (the palette's Close Tab).
         case let .closeTab(_, tab): PaletteSourcesBridge.TabSource(services: services).closeTab(id: tab.rawValue)
         case .reorder(let ids, let position):

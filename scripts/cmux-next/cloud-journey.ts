@@ -22,7 +22,8 @@
  * same routes the app and the cmux CLI use, against the cmux API Worker (which forwards Cloud ops to
  * cmux-platform):
  *
- *   health -> sign in -> user.ensure -> install token -> create machine -> running (status) -> listed
+ *   health -> sign in -> user.ensure -> install token -> sweep leaked journey machines -> create machine
+ *   -> running (status) -> listed
  *   -> first exec -> pass Claude login -> start agent (acpmux on the machine) -> send chat -> reply -> turn 2 (same
  *   session) -> daemon restart keeps the session (the guest's agent daemon killed, then a turn) -> connect_info
  *   -> carrier dial (an identify answered over the machine's relay slot) -> handoff record -> pause -> resume
@@ -30,7 +31,14 @@
  *
  * Each step prints PASS/FAIL/SKIP with its latency; --out DIR also gets journey.json (the steps) and
  * summary.md (a table for a PR comment or job summary). The machine this run made is deleted at the
- * end, pass or fail, by its exact id, unless --keep. Exit 0 only when no step failed.
+ * end, pass or fail, by its exact id, unless --keep. A run that was killed before its cleanup leaves its
+ * machines behind, holding the test account's machine quota: so before create (not with --machine or --keep),
+ * the journey deletes `cloud journey auto jr-<tag>` machines (and their gateways) whose tag says they started
+ * more than 3 hours ago (no journey job runs past 90 minutes) and that have had no activity for an hour, so a
+ * running journey's machines are never touched.
+ * Only a run that deletes its machine gives the `auto` name; a --keep run's plain `cloud journey jr-<tag>` is never
+ * swept. Every page of the machine list is read, and each machine is logged before its delete.
+ * A sweep error is recorded as a skip and the run goes on. Exit 0 only when no step failed.
  *
  * Exec goes the CLI's own way (`cmux machine access exec`: a client session minted at
  * POST /v1/cloud/machines/{id}/client-session, then the provider's exec-await). --cmux PATH runs every
@@ -70,6 +78,14 @@
  * most 5), each only when JOB is a trusted cmux-vm.yml deploy-staging job whose log shows it made the machine and its cleanup delete failed
  * (GITHUB_TOKEN reads it), the live list has it and the rule allows it, logged first (cmux-vm.yml action
  * journey-machines-staging).
+ *
+ * --desktop-link (with --cmux): once the machine runs, the desktop's UDP link instead of the chat. The journey is a
+ * viewer of `cmux carrier dial --service desktop` (hello, start, a feedback datagram every half second) with its own
+ * state dir, prints the account's team id and every `cloud.desktop_link machine=vm_… <note>` line of the dial's connect
+ * log, writes them to desktop-link.json in --out, and fails unless a note is `up` or `host_up`. No line means the
+ * platform sent no rd_link (the team's CLOUD_RD_LINK is off). Then the machine is deleted (cloud-rd-link-readback.yml).
+ * --cleanup-tag jr-… deletes the machine a run with that tag made (`cloud journey auto jr-…`, its exact name), for a
+ * workflow's always() step after a run cut off before its own cleanup.
  *
  * --probe-out FILE writes the run as one synthetic-probe result row (cmuxterm-hq probes.py: probe, at,
  * outcome ok|fail, ms = send to first reply, error), --probe NAME naming it.
@@ -222,6 +238,8 @@ export async function oidcSignIn(apiOrigin: string, env: Record<string, string |
 }
 
 const OP_ATTEMPTS = 3;
+/** How long a machine delete keeps retrying an indeterminate answer under its key. */
+const DELETE_BUDGET_MS = 180_000;
 /** The ops API says a provider call was cut off and the same idempotency key may be sent again. */
 export const opRetryable = (body: any): boolean => body?.ok !== true && body?.error?.code === "mutation.indeterminate" && body?.error?.retryable === true;
 
@@ -237,6 +255,20 @@ class Api {
       // A provider call cut off mid-way is safe to repeat under the same key; without it a cleanup delete leaks the VM.
       if (key && attempt < OP_ATTEMPTS && opRetryable(r.body)) { await sleep(2000 * attempt); continue; }
       if (r.status !== 200 || r.body.ok !== true) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
+      return r.body.value;
+    }
+  }
+  /**
+   * A machine delete that must not leak: retried under the same key while the ops API answers it was cut off
+   * (mutation.indeterminate, retryable), for up to `budgetMs`. op() gives up after three tries in about six
+   * seconds, which leaked a machine on a 502 storm (cmux-vm run 42485334511).
+   */
+  async deleteMachine(machine: string, key: string, budgetMs = DELETE_BUDGET_MS): Promise<any> {
+    const until = Date.now() + budgetMs;
+    for (let attempt = 1; ; attempt++) {
+      const r = await http("POST", `${this.origin}/v1/ops`, { op: "cloud.machine.delete", params: { machine }, idempotency_key: key }, this.headers(), 60_000);
+      if (opRetryable(r.body) && Date.now() < until) { await sleep(Math.min(2000 * attempt, 15_000)); continue; }
+      if (r.status !== 200 || r.body.ok !== true) throw new Error(`cloud.machine.delete: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
       return r.body.value;
     }
   }
@@ -607,6 +639,192 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
   }
 }
 
+/** A `cmux.rd/1` frame on the dial's stdin and stdout: u8 type (1 control JSON, 2 datagram), u32 little-endian length, payload. */
+export function rdFrame(type: 1 | 2, payload: Uint8Array): Buffer {
+  const head = Buffer.alloc(5);
+  head[0] = type;
+  head.writeUInt32LE(payload.length, 1);
+  return Buffer.concat([head, payload]);
+}
+
+/**
+ * An empty viewer feedback datagram: the 16-byte header (cmux-rd-proto datagram.rs: version 1 in the high nibble, kind
+ * 7 Feedback, the rest 0), then feedback.rs's payload with nothing acked, no recovery, no arrivals and no NACKs. The
+ * host ends a session after 3 s without feedback (cmux-rd-host stream.rs LIVENESS_NS), sooner than a link through NAT
+ * may come up.
+ */
+export const RD_FEEDBACK = Buffer.concat([Buffer.from([0x10, 7]), Buffer.alloc(14), Buffer.alloc(12)]);
+
+/** The viewer's hello: the app's (RemoteRdHello.cloudDesktop), no token (the link's owner is the carrier's person). */
+export const RD_HELLO = { t: "hello", user: "cloud-journey", install: "cloud-journey", class: "user", interactive: true, udp_port: null, max_datagram: 1200, service: "desktop", caps: [] as string[] };
+
+/** The `cloud.desktop_link machine=vm_… <note>` lines of a dial's connect log (cmux-tui carrier/mod.rs). */
+export function desktopLinkLines(log: string): string[] {
+  return log.split("\n").filter((l) => l.startsWith("cloud.desktop_link "));
+}
+
+/** A desktop_link line's note: `answered`, `up`, `host_up`, `failed …`, `not_answered`, `host_down …`, `not_offered …`. */
+export function desktopLinkNote(line: string): string {
+  return line.replace(/^cloud\.desktop_link machine=\S+ ?/, "");
+}
+
+/** Addresses in a public log are left out: a candidate keeps its kind, never the runner's or the machine's address. */
+export function maskAddresses(text: string): string {
+  return text.replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, "<addr>").replace(/\[?\b[0-9a-f]{1,4}(?::[0-9a-f]{0,4}){2,7}\]?(?::\d+)?/gi, "<addr>");
+}
+
+/** Up when a note says the link is up on either side; else why not, by the note that names it. */
+export function desktopLinkVerdict(lines: string[]): { up: boolean; why: string } {
+  const notes = lines.map(desktopLinkNote);
+  const up = notes.filter((n) => /^(up|host_up)\b/.test(n));
+  if (up.length) return { up: true, why: `the link came up (${up.join(", ")})` };
+  if (!notes.length) return { up: false, why: "no cloud.desktop_link line: the platform sent no rd_link for this team (CLOUD_RD_LINK off), or the dial never reached the desktop" };
+  if (notes.some((n) => n.startsWith("not_answered"))) return { up: false, why: "not_answered: the host's welcome has no link.udp (an image without cmux-rd 0.2.3 --link-stun)" };
+  return { up: false, why: `the link did not come up: ${notes.join("; ")}` };
+}
+
+/** Every team id named in these values (`team_<id>`), once each, in order. */
+export function teamIdsIn(...values: unknown[]): string[] {
+  return [...new Set(values.flatMap((v) => JSON.stringify(v ?? null).match(/\bteam_[0-9a-z]{8,64}\b/g) ?? []))];
+}
+
+export type DesktopLinkRun = { status: unknown; controls: string[]; datagrams: number; lines: string[]; error: string | null; ms: number };
+
+/**
+ * `cmux carrier dial --service desktop` with this run as the viewer: once the dial's status line is ok, a hello and a
+ * view-only start, then an empty feedback datagram every 500 ms after `started`, as the app's viewer keeps the session.
+ * The dial splices the link in (rd_link.rs) and writes its notes to its own connect log. It stops 3 s after the first
+ * final note (up, host_up or a failure, so both sides' up are read), when the host ends the session, or after holdMs.
+ * Never throws for what the dial said: the caller reads the lines.
+ */
+export async function desktopLinkDial(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, machine: string, holdMs = 45_000, deadlineMs = 60_000): Promise<DesktopLinkRun> {
+  const started = performance.now();
+  const stateDir = mkdtempSync(path.join(tmpdir(), "cmux-desktop-link-"));
+  carrierStateDirs.add(stateDir);
+  const log = () => {
+    try {
+      return readFileSync(path.join(stateDir, "carrier", "connect.log"), "utf8");
+    } catch {
+      return "";
+    }
+  };
+  const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
+  const env = { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer, CMUX_TUI_STATE_DIR: stateDir };
+  const args = ["carrier", "dial", "--machine", machine, "--service", "desktop", "--deadline-ms", String(deadlineMs), ...(api.team ? ["--team", api.team] : [])];
+  const child = spawn(cmux, args, { env, stdio: ["pipe", "pipe", "pipe"] });
+  carrierDials.add(child);
+  let exited = false;
+  let error: string | null = null;
+  child.on("exit", () => {
+    exited = true;
+    carrierDials.delete(child);
+  });
+  child.on("error", (e) => {
+    exited = true;
+    error ??= `carrier dial: ${e.message}`;
+  });
+  child.stdin!.on("error", () => undefined);
+  const write = (bytes: Buffer) => {
+    if (!exited && child.stdin!.writable) child.stdin!.write(bytes);
+  };
+  let status: unknown = undefined;
+  let errText = "";
+  child.stderr!.setEncoding("utf8");
+  child.stderr!.on("data", (chunk: string) => {
+    errText += chunk;
+    for (let at = errText.indexOf("\n"); at >= 0; at = errText.indexOf("\n")) {
+      const line = errText.slice(0, at);
+      errText = errText.slice(at + 1);
+      if (status !== undefined) continue;
+      try {
+        status = JSON.parse(line);
+      } catch {
+        status = { ok: false, not_a_status_line: line.slice(0, 200) };
+      }
+    }
+  });
+  const controls: string[] = [];
+  let datagrams = 0;
+  let feedback: ReturnType<typeof setInterval> | undefined;
+  let pending = Buffer.alloc(0);
+  child.stdout!.on("data", (chunk: Buffer) => {
+    pending = pending.length ? Buffer.concat([pending, chunk]) : chunk;
+    while (pending.length >= 5) {
+      const size = pending.readUInt32LE(1);
+      if (pending.length < 5 + size) break;
+      const type = pending[0];
+      const payload = pending.subarray(5, 5 + size);
+      pending = pending.subarray(5 + size);
+      if (type !== 1) {
+        datagrams += 1;
+        continue;
+      }
+      let name = "?";
+      try {
+        const c = JSON.parse(payload.toString("utf8"));
+        name = `${c.t}${typeof c.reason === "string" ? ` ${c.reason}` : ""}`;
+      } catch { /* counted as "?" */ }
+      controls.push(name.slice(0, 160));
+      if (name === "started" && !feedback) feedback = setInterval(() => write(rdFrame(2, RD_FEEDBACK)), 500);
+    }
+  });
+  try {
+    const statusBy = Date.now() + deadlineMs + 15_000;
+    while (status === undefined && !exited && Date.now() < statusBy) await sleep(100);
+    if (status === undefined) error ??= exited ? "carrier dial: ended with no status line" : `carrier dial: no status line within ${deadlineMs + 15_000} ms`;
+    else if ((status as any)?.ok !== true) error = `carrier dial: ${short(status)}`;
+    else {
+      write(rdFrame(1, Buffer.from(JSON.stringify(RD_HELLO))));
+      write(rdFrame(1, Buffer.from(JSON.stringify({ t: "start", key: randomUUID(), mode: "view" }))));
+      const until = Date.now() + holdMs;
+      let settleBy = Infinity;
+      while (!exited && Date.now() < Math.min(until, settleBy)) {
+        await sleep(250);
+        const notes = desktopLinkLines(log()).map(desktopLinkNote);
+        if (settleBy === Infinity && notes.some((n) => /^(up|host_up|failed|not_answered|not_offered|not_started|host_down)\b/.test(n))) settleBy = Date.now() + 3_000;
+        if (controls.some((c) => c.startsWith("ended") || c.startsWith("refused"))) break;
+      }
+      if (exited && !error) error = "carrier dial: ended while the desktop was open";
+    }
+    return { status, controls, datagrams, lines: desktopLinkLines(log()), error, ms: Math.round(performance.now() - started) };
+  } finally {
+    clearInterval(feedback);
+    child.stdin!.end();
+    child.kill("SIGTERM");
+    rmSync(stateDir, { recursive: true, force: true });
+    carrierStateDirs.delete(stateDir);
+  }
+}
+
+/**
+ * --cleanup-tag TAG: deletes the machines a journey run with this tag made (`cloud journey auto TAG` and its gateway,
+ * by exact name, never another run's), each logged first. For a workflow's always() step: the run's own cleanup is
+ * the first line, this the second when the run was cut off.
+ */
+async function cleanupTagMode(tag: string, backend: Backend, email: string | undefined, password: string | undefined, team: string | undefined): Promise<number> {
+  if (!/^jr-[0-9a-z]{1,16}$/.test(tag)) throw new Error(`--cleanup-tag ${JSON.stringify(tag.slice(0, 40))}: not a journey tag (jr-<base36>)`);
+  if (!email || !password) throw new Error("no agent test account: set CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD, or --credentials FILE");
+  const secrets = [password];
+  const s = await passwordSignIn(STACK[backend.stack], email, password);
+  secrets.push(s.access, s.refresh);
+  const api = new Api(backend.api, team);
+  api.bearer = s.access;
+  const names = new Set([`cloud journey auto ${tag}`, `cloud journey auto ${tag} gateway`]);
+  const rows = await listAllMachines((params) => api.read("cloud.machine.list", params));
+  const mine = rows.filter((r) => names.has(r?.name) && r.status !== "deleted" && r.status !== "deleting");
+  let failed = 0;
+  for (const r of mine) {
+    const id = String(r.id ?? r.machine_id ?? "");
+    console.log(JSON.stringify({ deleting: id, name: r.name, status: r.status }));
+    await api.deleteMachine(id, `${tag}-tag-cleanup-${id}`).catch((e: Error) => {
+      failed += 1;
+      console.log(scrub(JSON.stringify({ failed: id, error: String(e?.message ?? e).slice(0, 300) }), secrets));
+    });
+  }
+  console.log(JSON.stringify({ tag, found: mine.length, deleted: mine.length - failed }));
+  return failed ? 1 : 0;
+}
+
 /**
  * The run as one synthetic-probe result row (cmuxterm-hq tools/fleet-reconcilers/probes.py): ok only when a reply
  * was read back, with ms from the send to the first reply; otherwise fail with the first failed step.
@@ -863,6 +1081,56 @@ export function keyedHoldProblem(personInstance: string, status: any): string | 
 /** The ids of `cloud list-machines --json` rows that are not deleted. */
 export function machineIds(rows: any[]): string[] {
   return rows.filter((m) => m && m.status !== "deleted").map((m) => String(m.id ?? m.machine_id ?? "")).filter(Boolean);
+}
+
+/**
+ * How old a journey's own machine must be before a later run may sweep it: well past the longest job that runs a
+ * journey (up to 90 min; cloud-journey.test.ts checks every timeout-minutes in a workflow that runs it to be at most
+ * half of this), so a journey that is still running never loses its machine.
+ */
+export const STALE_JOURNEY_MS = 3 * 3_600_000;
+/** And idle this long: a machine with activity since then is in use, whatever its age (a hand run has no timeout). */
+export const IDLE_JOURNEY_MS = 60 * 60_000;
+export interface StaleMachine { id: string; name: string; status: string; created: string }
+
+/**
+ * The machines earlier journey runs meant to delete and left behind (killed or timed out before their cleanup):
+ * named `cloud journey auto jr-<tag>` or `cloud journey auto jr-<tag> gateway`, a name only a run that deletes its
+ * machine gives, whose tag (`Date.now().toString(36)`, the run's start) is more than `maxAgeMs` old, with no activity
+ * in the last IDLE_JOURNEY_MS (`last_active_at`, when the row has it), and not deleted.
+ * Ownership is the name, never age or state: a --keep run's `cloud journey jr-<tag>`, any other name, and a tag that
+ * does not read as a time are never picked.
+ */
+export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS): StaleMachine[] {
+  const out: StaleMachine[] = [];
+  for (const r of rows) {
+    if (!r || r.status === "deleted" || r.status === "deleting") continue;
+    const name = typeof r.name === "string" ? r.name : "";
+    const m = /^cloud journey auto jr-([0-9a-z]+)( gateway)?$/.exec(name);
+    if (!m) continue;
+    const started = parseInt(m[1], 36);
+    // A real tag is a millisecond time after 2020 and not in the future.
+    if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) continue;
+    if (nowMs - started <= maxAgeMs) continue;
+    if (typeof r.last_active_at === "number" && nowMs - r.last_active_at <= IDLE_JOURNEY_MS) continue;
+    const id = String(r.id ?? r.machine_id ?? "");
+    const created = typeof r.created_at === "number" ? new Date(r.created_at).toISOString() : new Date(started).toISOString();
+    if (id) out.push({ id, name, status: String(r.status ?? "?"), created });
+  }
+  return out;
+}
+
+/** Every page of cloud.machine.list (`next_cursor`), at most `maxPages` pages. */
+export async function listAllMachines(read: (params: Record<string, unknown>) => Promise<any>, maxPages = 20): Promise<any[]> {
+  const rows: any[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < maxPages; page++) {
+    const v = await read(cursor === null ? { limit: 100 } : { limit: 100, cursor });
+    rows.push(...(v?.machines ?? v?.items ?? (Array.isArray(v) ? v : [])));
+    cursor = typeof v?.next_cursor === "string" && v.next_cursor ? v.next_cursor : null;
+    if (cursor === null) return rows;
+  }
+  throw new Error(`more than ${maxPages} pages of machines`);
 }
 
 /** The ids in `after` that `before` lacks. */
@@ -1240,19 +1508,6 @@ export async function deleteJourneyMachines(ids: string[], scopes: MachineScope[
   return { deleted, failed };
 }
 
-/** Every page of cloud.machine.list (bounded). */
-async function listAllMachines(api: Api): Promise<any[]> {
-  const rows: any[] = [];
-  let cursor: string | null = null;
-  for (let page = 0; page < 50; page++) {
-    const v: any = await api.read("cloud.machine.list", { limit: 100, ...(cursor ? { cursor } : {}) });
-    rows.push(...(v?.machines ?? v?.items ?? (Array.isArray(v) ? v : [])));
-    cursor = typeof v?.next_cursor === "string" && v.next_cursor ? v.next_cursor : null;
-    if (!cursor) return rows;
-  }
-  throw new Error("cloud.machine.list: more than 50 pages");
-}
-
 /** The Stack password sign-in the journey uses: the agent test account's access token. */
 async function passwordSignIn(stack: (typeof STACK)[StackName], email: string, password: string): Promise<{ access: string; refresh: string }> {
   const r = await http("POST", `${STACK_API}/api/v1/auth/password/sign-in`, { email, password }, {
@@ -1301,7 +1556,7 @@ async function machinesMode(argv: string[], backend: Backend, email: string | un
     api.bearer = bearer;
     return {
       scope: t || "personal",
-      list: () => listAllMachines(api),
+      list: () => listAllMachines((params) => api.read("cloud.machine.list", params), 50),
       get: async (id, timeoutMs) => {
         try { return await api.read("cloud.machine.get", { machine: id }, timeoutMs); } catch (e) {
           if (/HTTP 404|not[ _.-]?found/i.test(String((e as Error).message))) return null;
@@ -1373,6 +1628,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (signIn !== "password" && signIn !== "oidc") throw new Error(`--sign-in ${signIn}: password or oidc`);
   // --machines (list) and --delete-ids (delete exact ids): the operator's leaked-machine cleanup, no journey.
   if (argv.includes("--machines") || argv.includes("--delete-ids")) return machinesMode(argv, backend, email, password, team);
+  const cleanupTag = argValue("--cleanup-tag", argv);
+  if (cleanupTag !== undefined) return cleanupTagMode(cleanupTag, backend, email, password, team);
   const agent = argValue("--agent", argv) ?? "claude";
   const prompt = argValue("--prompt", argv) ?? "Reply with one short sentence that names the planet you are on.";
   const chatBudget = Number(argValue("--chat-timeout", argv) ?? 300) * 1000;
@@ -1380,6 +1637,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // --machine ID: run on that existing machine and keep it (no create, pause, resume or delete).
   const reuse = argValue("--machine", argv);
   const keyedStart = argv.includes("--keyed-start");
+  // --desktop-link: the desktop's UDP link readback instead of the chat (needs --cmux for the dial).
+  const desktopLink = argv.includes("--desktop-link");
+  if (desktopLink && !cmux) throw new Error("--desktop-link needs --cmux PATH: the readback is the CLI's own dial");
   const keep = argv.includes("--keep") || Boolean(reuse);
   const only = new Set((argValue("--skip", argv) ?? "").split(",").filter(Boolean));
   if (reuse) only.add("pause");
@@ -1406,6 +1666,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const probeOut = argValue("--probe-out", argv);
   const probeName = argValue("--probe", argv) ?? `cloud-chat-replies-${backend.name === "prod" ? "production" : backend.name}`;
   const tag = `jr-${Date.now().toString(36)}`;
+  // A run that deletes its machine at the end names it "cloud journey auto jr-...": only those names are the sweep's
+  // (the run meant to delete them). A --keep run keeps the plain "cloud journey jr-..." name, as every run used before
+  // the sweep existed, and the sweep never matches it, so a kept machine is never deleted.
+  const machineName = keep ? `cloud journey ${tag}` : `cloud journey auto ${tag}`;
   const J = new Journey(backend, outDir, { tag, team: team ?? "(personal)", agent, exec: cmux ? `cmux CLI ${cmux}` : "client session", model: modelStub ? "stub (on the machine)" : "real" });
   if (password) J.secrets.push(password);
   if (claudeLogin) J.secrets.push(claudeLogin);
@@ -1465,7 +1729,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (gatewayMachine) {
       const g: string = gatewayMachine;
       await J.step("delete gateway machine (cleanup)", async () => {
-        await api.op("cloud.machine.delete", { machine: g }, `${tag}-gw-delete`);
+        await api.deleteMachine(g, `${tag}-gw-delete`);
         return { value: null, detail: g };
       }).catch(() => undefined);
     }
@@ -1474,12 +1738,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (!id) {
       const v = await api.read("cloud.machine.list", {}).catch(() => null);
       const rows: any[] = v?.machines ?? v?.items ?? (Array.isArray(v) ? v : []);
-      id = rows.find((r) => r?.name === `cloud journey ${tag}` && r.status !== "deleted")?.id ?? null;
+      id = rows.find((r) => r?.name === machineName && r.status !== "deleted")?.id ?? null;
     }
     if (!id) return;
     const target: string = id;
     await J.step("delete (cleanup)", async () => {
-      await api.op("cloud.machine.delete", { machine: target }, `${tag}-cleanup-delete`);
+      await api.deleteMachine(target, `${tag}-cleanup-delete`);
       return { value: null, detail: target };
     }).catch(() => undefined);
   };
@@ -1554,6 +1818,27 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: `was ${before}; set before the chat machine is made, so its edge route goes to the gateway` };
       });
     }
+    if (!keep) {
+      // Machines that killed or timed-out runs left behind hold the account's quota (cloud.quota.exceeded at create).
+      // A sweep error never fails the journey: the step is recorded as skipped with the error, and create goes on.
+      const name = "sweep leaked journey machines";
+      const t0 = Date.now();
+      const err = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 300);
+      try {
+        const rows = await listAllMachines((params) => api.read("cloud.machine.list", params));
+        const stale = staleJourneyMachines(rows, Date.now());
+        const failed: string[] = [];
+        for (const m of stale) {
+          // Each row is logged before its delete, so a wrong pick can be traced to the machine it took.
+          console.log(`sweep: deleting ${m.id} "${m.name}" status ${m.status} created ${m.created}`);
+          await api.deleteMachine(m.id, `${tag}-sweep-${m.id}`).catch((e) => failed.push(`${m.id}: ${err(e)}`));
+        }
+        const detail = `${stale.length - failed.length} of ${stale.length} leaked deleted (${rows.length} machines)${stale.length ? `: ${stale.map((m) => m.id).join(", ")}` : ""}${failed.length ? `; failed ${failed.join("; ")}` : ""}`;
+        J.record({ step: name, status: failed.length ? "skip" : "pass", ms: Date.now() - t0, detail });
+      } catch (e) {
+        J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `list failed: ${err(e)}` });
+      }
+    }
     let createAnsweredAt: number | null = null;
     let createSentAt: number | null = null;
     const created = reuse
@@ -1564,7 +1849,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         })
       : await J.step("create machine", async () => {
           createSentAt = Date.now();
-          const v = await api.op("cloud.machine.create", { name: `cloud journey ${tag}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-create`);
+          const v = await api.op("cloud.machine.create", { name: machineName, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-create`);
           machine = v.machine.id as string;
           createAnsweredAt = Date.now();
           return { value: v.machine, detail: `${machine} status ${v.machine.status}` };
@@ -1596,6 +1881,57 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return { value: null, detail: r.stdout.trim().split("\n").join(" ") };
     });
 
+    if (desktopLink) {
+      // The team the platform decides rd_link for: --team, else the account's personal team (user.ensure).
+      const acting = team ?? (typeof user?.personal_team === "string" ? user.personal_team : null);
+      const named = teamIdsIn(user, created, bound);
+      console.log(`desktop link: team ${acting ?? "?"} (team ids named by user.ensure and the machine: ${named.join(", ") || "none"})`);
+      J.record({ step: "desktop link: account team", status: acting ? "pass" : "skip", ms: 0, detail: `${acting ?? "not named"}; named: ${named.join(", ") || "none"}` });
+      await J.step("desktop link (carrier dial --service desktop)", async () => {
+        let run: DesktopLinkRun | null = null;
+        // A desktop that is not up yet (a refused or failed dial with no link note) gets two more tries.
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          run = await desktopLinkDial(cmux!, api, created.id);
+          if (run.lines.length || !run.error) break;
+          console.log(`desktop link: attempt ${attempt}: ${run.error}`);
+          if (attempt < 3) await sleep(10_000);
+        }
+        const r = run!;
+        const lines = r.lines.map(maskAddresses);
+        for (const l of lines) console.log(l);
+        const verdict = desktopLinkVerdict(r.lines);
+        if (outDir) {
+          writeFileSync(path.join(outDir, "desktop-link.json"), `${JSON.stringify({
+            api: backend.api,
+            backend: backend.name,
+            machine: created.id,
+            team: acting,
+            team_ids_named: named,
+            status: r.status,
+            error: r.error,
+            controls: r.controls.slice(0, 20),
+            datagrams: r.datagrams,
+            ms: r.ms,
+            lines,
+            up: verdict.up,
+            why: verdict.why,
+            // rd_link.rs logs `up` with no candidate pair: which path won (direct or STUN srflx) is not in the CLI's log.
+            path: "not logged by cmux carrier dial (its `up` note names no candidate pair)",
+          }, null, 2)}\n`);
+        }
+        if (!verdict.up) throw new Error(`${verdict.why}${r.error ? ` (${r.error})` : ""}; controls ${r.controls.slice(0, 8).join(", ") || "none"}`);
+        return { value: null, detail: `${verdict.why}; ${lines.length} desktop_link lines, ${r.datagrams} datagrams, controls ${r.controls.slice(0, 8).join(", ")}, ${r.ms} ms` };
+      }).catch(() => undefined);
+      // The host's side, if its journal says more about the link (cmux-agent-rd.service); never fails the run.
+      const t0 = Date.now();
+      const journal = await exec(`{ sudo -n journalctl -u cmux-agent-rd.service --no-pager -o cat --since '15 min ago' 2>/dev/null || journalctl -u cmux-agent-rd.service --no-pager -o cat --since '15 min ago' 2>&1; } | grep -iE 'link|stun|srflx|candidate|udp' | tail -n 20`).catch((e: Error) => ({ code: -1, stdout: "", stderr: e.message }));
+      const hostLines = maskAddresses(journal.stdout.trim()).split("\n").filter(Boolean);
+      for (const l of hostLines) console.log(`host: ${l}`);
+      J.record({ step: "desktop link: host journal", status: "skip", ms: Date.now() - t0, detail: hostLines.join("; ").slice(0, 900) || `no link lines (exit ${journal.code} ${journal.stderr.slice(-200)})` });
+      // The readback is the whole run: the machine is deleted by the cleanup below.
+      throw new Error("desktop link readback done");
+    }
+
     if (keyedStart) {
       await J.step("keyed acpmux start holds", async () => {
         const status = async () => {
@@ -1620,7 +1956,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     let gwStubUrl: string | null = null;
     if (gatewayCmux) {
       const g = await J.step("gateway machine", async () => {
-        const v = await api.op("cloud.machine.create", { name: `cloud journey ${tag} gateway`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-gw-create`);
+        const v = await api.op("cloud.machine.create", { name: `${machineName} gateway`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-gw-create`);
         gatewayMachine = v.machine.id as string;
         const m = await waitMachine(api, gatewayMachine, (x) => x.status === "running" && Boolean(x.host), 300_000);
         return { value: m, detail: `${gatewayMachine}, daemon ${m.image?.daemon_version ?? "?"}` };
@@ -2075,7 +2411,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     if (!keep) {
       await J.step("delete", async () => {
-        await api.op("cloud.machine.delete", { machine: created.id }, `${tag}-delete`);
+        await api.deleteMachine(created.id, `${tag}-delete`);
         deleted = true;
         const m = await waitMachine(api, created.id, (x) => x.status === "deleted" || x.status === "deleting", 120_000, true).catch(() => null);
         return { value: null, detail: `${created.id} ${m?.status ?? "gone"}` };

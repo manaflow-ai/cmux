@@ -75,6 +75,8 @@ pub struct Session {
     /// Held from sequence allocation until the record is stored and sent,
     /// so the log and fan-out always see sequences in order.
     pub(super) append_lock: StdMutex<()>,
+    /// Incremental per-chat wall-time and token attribution, seeded lazily from the journal.
+    pub(super) time_breakdown: StdMutex<super::time_breakdown::State>,
     /// The one writer of its metadata (`meta_save.rs`): versioned changes, committed to
     /// `session.json` in version order (fuzz row g finding g2).
     pub(super) meta_writer: super::meta_save::MetaWriter,
@@ -374,9 +376,9 @@ pub struct Session {
     /// Bounded completed tool attempts used to identify a repeated failing call
     /// (`loop_detector.rs`).
     pub(super) loop_detector: StdMutex<super::loop_detector::LoopDetector>,
-    /// When its harness first refused a command because its own sandbox did not start
-    /// (`harness_sandbox.rs`): set once, so the refusal is recorded once.
-    pub(super) harness_sandbox_failed: std::sync::OnceLock<u64>,
+    /// Its command calls while its harness's sandbox refuses them, newest last and bounded
+    /// (`harness_sandbox.rs`): one that completes ends the failure. Empty otherwise.
+    pub(super) harness_sandbox_calls: StdMutex<std::collections::VecDeque<String>>,
     /// The turn whose stalled count runs: its prompt was written (`stalled_turn.rs`). None
     /// before that, so a turn whose prompt has not reached its agent is never stalled.
     pub(super) stalled_counted: StdMutex<Option<String>>,

@@ -9,6 +9,8 @@ export interface AcpmuxRequestMeta {
   argv?: unknown;
   author?: unknown;
   beforePromptId?: unknown;
+  callerKind?: unknown;
+  callerProtocol?: unknown;
   callerSession?: unknown;
   cancelToken?: unknown;
   class?: unknown;
@@ -1399,6 +1401,11 @@ export type SessionDetail = {
    * sandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.
    */
   harnessSandboxFailed?: (number | null);
+  /**
+   * Whether its harness refuses commands now for that reason; a completed command or a new
+   * harness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.
+   */
+  harnessSandboxFailing?: boolean;
   /** The status dot every client draws (`status_indicator`); null for none. */
   indicator?: (Indicator | null);
   /** Since when it waits on the person (`lane`); null while it does not. */
@@ -1551,6 +1558,11 @@ export type SessionDetail = {
   stuckSince?: (number | null);
   /** Tags that have not expired. */
   tags: Record<string, string>;
+  /**
+   * Incremental wall-time and token attribution for the chat. This is seeded by a detail or
+   * attach read and omitted from census rows until then (`hub/time_breakdown.rs`).
+   */
+  timeBreakdown?: (TimeBreakdown | null);
   title?: (string | null);
   /**
    * Who supplied `title`: `prompt` is the first-prompt fallback, while
@@ -1710,6 +1722,11 @@ export type SessionSummary = {
    * sandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.
    */
   harnessSandboxFailed?: (number | null);
+  /**
+   * Whether its harness refuses commands now for that reason; a completed command or a new
+   * harness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.
+   */
+  harnessSandboxFailing?: boolean;
   /** The status dot every client draws (`status_indicator`); null for none. */
   indicator?: (Indicator | null);
   /** Since when it waits on the person (`lane`); null while it does not. */
@@ -1855,6 +1872,11 @@ export type SessionSummary = {
   stuckSince?: (number | null);
   /** Tags that have not expired. */
   tags: Record<string, string>;
+  /**
+   * Incremental wall-time and token attribution for the chat. This is seeded by a detail or
+   * attach read and omitted from census rows until then (`hub/time_breakdown.rs`).
+   */
+  timeBreakdown?: (TimeBreakdown | null);
   title?: (string | null);
   /**
    * Who supplied `title`: `prompt` is the first-prompt fallback, while
@@ -2011,6 +2033,31 @@ export interface SubsessionLimitsParams {
   sessionId?: unknown;
   workspaceId?: unknown;
 }
+
+export type TimeBreakdown = {
+  categories: TimeCategory[];
+  spans: TimeSpan[];
+  tokensComplete: boolean;
+  totalMs: number;
+  totalTokens?: (number | null);
+} & Record<string, unknown>;
+
+export type TimeCategory = {
+  id: string;
+  tokens?: (number | null);
+  wallMs: number;
+} & Record<string, unknown>;
+
+export type TimeSpan = {
+  category: string;
+  endAt: number;
+  startAt: number;
+  tokens?: (number | null);
+  turnId?: (string | null);
+  turnSeq: number;
+  /** Whole-turn usage, not usage attributed to this interval. */
+  turnTokens?: (number | null);
+} & Record<string, unknown>;
 
 /** One row of a chat's tool list (`store::ToolRow`). */
 export type ToolSummary = {

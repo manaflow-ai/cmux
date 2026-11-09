@@ -365,6 +365,7 @@ impl Hub {
                     let harness =
                         tap_session.meta.lock().unwrap_or_else(|e| e.into_inner()).harness.clone();
                     crate::suggestion_gate::filter_update(
+                        &tap_hub.suggestion_gate,
                         &tap_session.id,
                         &harness,
                         &mut params["update"],
