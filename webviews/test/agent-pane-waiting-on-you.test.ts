@@ -419,6 +419,32 @@ test("a Request changes comment an older acpmux dropped opens the chat to say it
   expect(selected).toEqual(["s1"]);
 });
 
+test("a dropped comment the clipboard also refused keeps the page open: its notice holds the words", async () => {
+  const selected: string[] = [];
+  const pages = historyPages({
+    client: () => ({
+      ledger: async () => ({}),
+      reviewQueue: async () => ({}),
+      reviewVerdict: async () => ({}),
+      audit: async () => ({ entries: [] }),
+    }),
+    callNative: async <T>() => undefined as T,
+    selectSession: (sessionId) => selected.push(sessionId),
+    asks: [],
+    copy: async () => false,
+  });
+  const pr = item({ kind: "pr", prUrl: "https://example.com/pull/1" });
+  const reply = await pages.queue.verdict(pr, "changes", "Split the commit");
+  expect(reply).toMatchObject({ commentCopied: false });
+  expect(selected).toEqual([]);
+});
+
+test("the queue reads again when a listed chat is renamed", () => {
+  const chat = { sessionId: "s4", status: "waiting" as const, title: "Before" };
+  expect(queueKey([], [{ ...chat, title: "After" }])).not.toBe(queueKey([], [chat]));
+  expect(queueKey([], [{ ...chat, name: "worker" }])).not.toBe(queueKey([], [chat]));
+});
+
 test("one pull request listed in two chats is two rows, each answered on its own, with ids that never move", () => {
   const pr = { id: "pr:https://example.com/pull/1", kind: "pr", prUrl: "https://example.com/pull/1", at: 1 };
   const reply = readQueue({

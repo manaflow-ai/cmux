@@ -29,7 +29,8 @@ const AUDIT_PAGE = 1000;
 /// What the queue's read depends on, as one key the pane's snapshot gives for free: this Mac's
 /// pending asks (by permission id), and for every listed chat, this Mac's and other machines',
 /// what it waits on (its ask count, `waitingOn`, its status dot), its status (acpmux lists a chat's
-/// pull request only while the chat is idle), and every pull request field a row shows: number,
+/// pull request only while the chat is idle), its title and name (a row names its chat), and every
+/// pull request field a row shows: number,
 /// title, state, review ready, checks and each URL. It changes when an ask or a pull request the
 /// queue lists comes, goes or moves, on any machine the snapshot lists, so the tab reads again then
 /// and never on a timer. One pass over the snapshot; a chat with none of these adds nothing.
@@ -44,7 +45,17 @@ export function queueKey(asks: readonly WatchedAsk[], sessions: readonly AcpmuxS
     if (!pending && !input && !waiting && session.status !== "waiting" && !pr && urls.length === 0) continue;
     const prKey = pr ? JSON.stringify([pr.number, pr.title, pr.state, pr.reviewReady ?? false, pr.checks ?? ""]) : "";
     parts.push(
-      [session.sessionId, pending, input ? "i" : "", waiting, session.status ?? "", prKey, urls.join(" ")].join(":"),
+      JSON.stringify([
+        session.sessionId,
+        pending,
+        input,
+        waiting,
+        session.status ?? "",
+        session.title ?? "",
+        session.name ?? "",
+        prKey,
+        urls,
+      ]),
     );
   }
   return parts.join(",");
@@ -112,11 +123,12 @@ export function historyPages({
         const reply = await connected().reviewVerdict(params);
         // An acpmux that predates the comment (or a chat that did not take it) records the verdict
         // without the words reaching the chat: they go to the clipboard and the chat opens, so
-        // the person pastes what should change rather than writing it again.
+        // the person pastes what should change rather than writing it again. When the clipboard
+        // refuses too, the page stays: its notice holds the only copy of the words.
         const words = typeof params.comment === "string" ? params.comment : undefined;
         if (words && (reply as { commentDelivered?: unknown } | null)?.commentDelivered !== true) {
           const copied = await copy(words);
-          open(item);
+          if (copied) open(item);
           return { ...(reply as object | null), commentCopied: copied };
         }
         return reply;
