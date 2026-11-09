@@ -397,7 +397,11 @@ SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 # no YAML parser, so every host that runs this script reads the same contract; tests/test_base_red_excuse.py
 # fails when it differs from the workflows. Anything in a workflow or in the file that does not have the
 # expected shape is refused, never guessed at: a rollup red is then never excused.
-RUN_ROLLUPS = (("ci.yml", "ci-status"),)  # red when a job under it is red: the whole run's red jobs are judged
+# A run rollup is red when a job under it is red: the whole run's red jobs are judged. One in a called workflow names
+# its caller (workflow file, job id), whose name is its check's prefix: ci-web.yml's Web status is 'web / Web status',
+# red only when a web job under it is red, and was refused as "no failing test or error line to match" on every PR
+# whose web shard red the base shares (2026-11-09, cmux#39559, hq#8503).
+RUN_ROLLUPS = (("ci.yml", "ci-status"), ("ci-web.yml", "web-status", ("ci.yml", "web")))
 ROUTED_ROLLUPS = (("ci-guards.yml", "guard-status"),)  # also reports each needed job's route (validate_guard_routes)
 # Jobs a routed rollup needs only to place its runner (their outputs pick its runs-on): no guard verdict of their
 # own, so the contract leaves them out of its routes (ci-guards.yml portable-placement, #34849).
@@ -620,6 +624,10 @@ COMPILE_PASS_STATUS = "cmux-next/compile"
 COMPILE_STEPS = frozenset({"Release compile", "Reuse that pass"})
 
 
+# A matrix job named '<name> (${{ matrix.<key> }})' (ci-web.yml's Web tests): its jobs are '<name> (<value>)'.
+MATRIX_NAME = re.compile(r"([^$]*[^$ ]) \(\$\{\{ *matrix\.(\w+) *\}\}\)")
+
+
 def _check_matcher(job_id: str, job: dict, where: str) -> dict:
     """How the Actions jobs of JOB (id JOB_ID in a workflow) are named: {"exact": [...], "prefixes": [...]}. A job
     with no `name:` is named by its id; a called workflow's jobs are '<name> / <its job>'; a matrix job whose
@@ -628,6 +636,20 @@ def _check_matcher(job_id: str, job: dict, where: str) -> dict:
     name = job.get("name", job_id)
     if not isinstance(name, str) or not name.strip() or name != name.strip():
         raise Refused(f"{where}: job {job_id} has no usable name")
+    if "${{" in name and (one := MATRIX_NAME.fullmatch(name)):
+        # 'Web tests (${{ matrix.shard }})': one name per value of that one matrix key, as Actions renders it.
+        matrix = (job.get("strategy") or {}).get("matrix")
+        key = one.group(2)
+        values = None
+        if isinstance(matrix, dict) and set(matrix) == {key} and isinstance(matrix[key], list):
+            values = matrix[key]
+        elif (isinstance(matrix, dict) and set(matrix) == {"include"} and isinstance(matrix["include"], list)
+              and all(isinstance(row, dict) and key in row for row in matrix["include"])):
+            values = [row[key] for row in matrix["include"]]
+        if (not values or "uses" in job
+                or not all(isinstance(v, (str, int)) and not isinstance(v, bool) and str(v) for v in values)):
+            raise Refused(f"{where}: job {job_id}'s name {name!r} is not one matrix key over fixed values")
+        return {"exact": [f"{one.group(1)} ({v})" for v in values], "prefixes": []}
     if "${{" in name:
         static, sep, expr = name.partition(" / ${{")
         if not sep or "${{" in static or not expr.endswith("}}") or "${{" in expr or "uses" in job:
@@ -685,19 +707,24 @@ def derive_rollups(workflows: Path = WORKFLOWS, *, run=RUN_ROLLUPS, routed=ROUTE
             return (workflows / file).read_text()
     out: dict = {"run": {}, "routed": {}}
     for kind, declared in (("run", run), ("routed", routed)):
-        for file, job_id in declared:
+        for file, job_id, *caller in declared:
             where = f".github/workflows/{file}"
-            try:
-                doc = yaml.safe_load(read(file))
-            except (OSError, Refused, yaml.YAMLError) as error:
-                raise Refused(f"{where}: unreadable ({error})") from None
-            jobs = doc.get("jobs") if isinstance(doc, dict) else None
-            if not isinstance(jobs, dict) or not isinstance(jobs.get(job_id), dict):
+            doc, jobs = _workflow(yaml, read, file)
+            if not isinstance(jobs.get(job_id), dict):
                 raise Refused(f"{where}: no job {job_id}")
             check = _check_matcher(job_id, jobs[job_id], where)
             if check["prefixes"] or len(check["exact"]) != 1:
                 raise Refused(f"{where}: rollup {job_id} has no fixed name")
-            name = check["exact"][0]
+            prefix = ""
+            if caller:
+                # A called workflow's jobs are '<its caller's name> / <job>' (_check_matcher of the caller job).
+                (caller_file, caller_id), = caller
+                caller_where = f".github/workflows/{caller_file}"
+                caller_job = _workflow(yaml, read, caller_file)[1].get(caller_id)
+                if not isinstance(caller_job, dict) or caller_job.get("uses") != f"./{where}":
+                    raise Refused(f"{caller_where}: no job {caller_id} calling {where}")
+                prefix = _check_matcher(caller_id, caller_job, caller_where)["prefixes"][0]
+            name = prefix + check["exact"][0]
             if name in out["run"] or name in out["routed"]:
                 raise Refused(f"{where}: two rollups are named {name!r}")
             needs = _needs(jobs, job_id, where)
@@ -708,7 +735,8 @@ def derive_rollups(workflows: Path = WORKFLOWS, *, run=RUN_ROLLUPS, routed=ROUTE
                 while todo:
                     need = todo.pop()
                     if need not in under:
-                        under[need] = _check_matcher(need, jobs[need], where)
+                        matcher = _check_matcher(need, jobs[need], where)
+                        under[need] = {kind_: [prefix + v for v in matcher[kind_]] for kind_ in ("exact", "prefixes")}
                         todo.extend(_needs(jobs, need, where))
                 out["run"][name] = {"workflow": file, "job": job_id, "under": dict(sorted(under.items()))}
                 continue
@@ -730,6 +758,19 @@ def derive_rollups(workflows: Path = WORKFLOWS, *, run=RUN_ROLLUPS, routed=ROUTE
                 routes[need] = {"route": route, **_check_matcher(need, jobs[need], where)}
             out["routed"][name] = {"workflow": file, "job": job_id, "routes": routes}
     return out
+
+
+def _workflow(yaml, read, file: str) -> tuple[dict, dict]:
+    """Workflow FILE (READ gives its text) and its `jobs:`; refused when unreadable or of another shape."""
+    where = f".github/workflows/{file}"
+    try:
+        doc = yaml.safe_load(read(file))
+    except (OSError, Refused, yaml.YAMLError) as error:
+        raise Refused(f"{where}: unreadable ({error})") from None
+    jobs = doc.get("jobs") if isinstance(doc, dict) else None
+    if not isinstance(jobs, dict):
+        raise Refused(f"{where}: no jobs")
+    return doc, jobs
 
 
 def _matcher_ok(matcher: object) -> bool:
