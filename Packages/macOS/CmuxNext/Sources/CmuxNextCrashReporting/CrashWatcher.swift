@@ -46,8 +46,9 @@ struct CrashWatcher: Sendable {
     static let defaultSeconds = 15
 
     /// How long the watcher waits for `sample` (a 2 s sample, then its write) before it ends
-    /// `sample` and the app: ``defaultSeconds`` plus this stays under the crash gate's 20 s.
-    static let sampleSeconds = 4
+    /// `sample` and the app: ``defaultSeconds`` plus this (18 s) leaves the crash gate's 20 s
+    /// about 2 s for process start-up on a loaded host.
+    static let sampleSeconds = 3
 
     /// The system's `sample`, the tool the watcher runs on a stuck app.
     static let defaultSampleTool = "/usr/bin/sample"
