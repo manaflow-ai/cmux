@@ -363,6 +363,8 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     func syncBatched(_ snapshot: Snapshot) {
         let previous = lastSnapshot
         lastSnapshot = snapshot
+        // A newly earned ring measures pointer travel from zero (``handlePointerTravel(_:)``).
+        if snapshot.focusRingEarned, previous?.focusRingEarned != true { pointerTravelSinceRing = 0 }
         // Chrome (focus ring, dim) fades whenever motion is allowed; pane frames, the strip's
         // reveal and the screen slide move only with `ui.paneAnimations` (motion.md rule 9).
         let chromeAnimated = previous != nil && canAnimate && !snapshot.gestureActive
@@ -751,7 +753,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             if !deferredScreens.isEmpty { mountDeferredScreensWhenIdle() }
             if screenViews.values.contains(where: { $0.hasMotion || $0.activeDrag?.waiting == true })
                 || screenFrames.values.contains(where: { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }) { driver.start() }
-            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify, .leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]) { [weak self] event in
+            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify, .leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown, .mouseMoved]) { [weak self] event in
                 self?.handleMonitored(event) ?? event
             }
         }

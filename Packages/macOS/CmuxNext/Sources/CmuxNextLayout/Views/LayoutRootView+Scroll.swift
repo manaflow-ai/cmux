@@ -77,6 +77,10 @@ extension LayoutRootView: ScrollGestureOwning {
             handleMonitoredKey(event.keyCode, from: event.window)
             return event
         }
+        if event.type == .mouseMoved {
+            handleMonitoredPointerMove(abs(event.deltaX) + abs(event.deltaY), from: event.window)
+            return event
+        }
         if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type), handleMonitoredChildPress(from: event.window) {
             return event
         }
@@ -108,6 +112,14 @@ extension LayoutRootView: ScrollGestureOwning {
         guard pointerTravelSinceRing > 6 else { return }
         pointerTravelSinceRing = 0
         model.dismissFocusRing()
+    }
+
+    /// A pointer move in a page window of this one (a Chromium page): the layout's tracking area never
+    /// sees those, so the monitor counts them toward the ring's pointer travel. This window's own moves
+    /// come through ``mouseMoved(with:)``.
+    func handleMonitoredPointerMove(_ distance: CGFloat, from source: NSWindow?) {
+        guard model.focusRingEarned, let window, let source, source.parent === window else { return }
+        handlePointerTravel(distance)
     }
 
     /// A press in a page window of this one (a Chromium page) is a click in that pane: its ring

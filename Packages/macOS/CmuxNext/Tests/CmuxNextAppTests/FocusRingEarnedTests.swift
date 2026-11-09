@@ -127,6 +127,35 @@ struct FocusRingEarnedTests {
             w.model.focus("p1", source: .keyboard)
             w.root.handlePointerTravel(2)
             #expect(w.ring("p1") == true, "travel before the ring was earned counted against the next one")
+            w.key(53) // Escape, with 2 points of travel counted
+            w.model.focus("p2", source: .keyboard)
+            #expect(w.ring("p2") == true)
+            w.root.handlePointerTravel(5)
+            #expect(w.ring("p2") == true, "travel from before Escape counted against the next ring")
+        }
+    }
+
+    /// A Chromium page is a child window: its pointer moves reach only the event monitor, and they
+    /// clear the ring too; an unrelated window's do not.
+    @Test func aPointerMoveInAPagesChildWindowClearsTheRing() throws {
+        try Self.withRing {
+            let w = Window()
+            let child = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless],
+                                 backing: .buffered, defer: false)
+            let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless],
+                                 backing: .buffered, defer: false)
+            w.window.addChildWindow(child, ordered: .above)
+            defer {
+                w.window.removeChildWindow(child)
+                child.closeAfterTest()
+                other.closeAfterTest()
+                w.window.closeAfterTest()
+            }
+            w.model.focus("p2", source: .keyboard)
+            w.root.handleMonitoredPointerMove(20, from: other)
+            #expect(w.ring("p2") == true, "a move in an unrelated window cleared the ring")
+            w.root.handleMonitoredPointerMove(20, from: child)
+            #expect(w.ring("p2") == false, "a move over a page's child window left the ring")
         }
     }
 

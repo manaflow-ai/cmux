@@ -8,8 +8,12 @@
 // The rule, kept here and nowhere else:
 // - The ring is earned only when a navigation key (Tab, the arrows, Home, End, Page Up or Down,
 //   with no Cmd, Ctrl or Option) moves focus. A click, a shortcut or code moving focus earns none.
-// - A press anywhere, Escape, a scroll, the pointer moving more than a few pixels, or the page losing
-//   the window takes it away at once, without moving focus.
+// - A press anywhere, Escape or any other key that is not a navigation key (Enter, Space, a letter),
+//   a scroll, the pointer moving more than a few pixels, or the page losing the window takes it away
+//   at once, without moving focus. A modifier pressed alone (Shift before Shift-Tab) does not.
+// - Every focus change within a navigation key's short window counts as that key's: one Tab can move
+//   focus more than once (a focus guard handing it on to the first control, a handler focusing a
+//   list and then its row), and each of those is the key's move.
 // - The state lives on the root (`data-focus-modality`), so it can never outlive what set it: the
 //   next pointer or key event, or the window's blur, always overwrites it.
 //
@@ -44,6 +48,9 @@ const NAVIGATION_KEYS = new Set([
   "PageUp",
   "PageDown",
 ]);
+
+/** Keys that only modify the next one; pressed alone they leave the ring as it is. */
+const MODIFIER_KEYS = new Set(["Shift", "Meta", "Control", "Alt", "CapsLock", "Fn", "FnLock", "Hyper", "Super", "OS"]);
 
 /** How long after a navigation key a focus change still counts as that key's: the browser's own
  * Tab move and a handler's `focus()` both land within the key's own task, well inside this. */
@@ -102,8 +109,8 @@ export function installFocusModality(doc: Document = document): () => void {
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
-    if (event.key === "Escape") set("pointer");
-    else if (isNavigationKey(event)) navigationKeyAt = now();
+    if (isNavigationKey(event)) navigationKeyAt = now();
+    else if (!MODIFIER_KEYS.has(event.key)) set("pointer");
   };
   // Every focus change decides afresh: a navigation key just before it earns the ring; anything
   // else (a click, a shortcut, code) clears it, even while the ring was on.

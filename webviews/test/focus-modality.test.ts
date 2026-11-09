@@ -92,6 +92,24 @@ describe("the focus-ring owner", () => {
     expect(p.mode()).toBe("pointer");
   });
 
+  test("another key (Enter, Space, a letter) takes it away; a modifier alone does not", () => {
+    const p = page();
+    for (const k of ["Enter", " ", "a"]) {
+      p.tabTo("a");
+      p.key("Shift");
+      expect(p.mode()).toBe("keyboard");
+      p.key(k);
+      expect([k, p.mode()]).toEqual([k, "pointer"]);
+    }
+  });
+
+  test("a focus guard's hand-off within the key's window keeps the ring", () => {
+    const p = page();
+    p.tabTo("a");
+    p.el("b").focus(); // a guard or handler moving the same key's focus on
+    expect(p.mode()).toBe("keyboard");
+  });
+
   test("a press, Escape, a scroll or leaving the window takes it away, and focus stays", () => {
     const p = page();
     const clears: [string, () => void][] = [
@@ -158,6 +176,8 @@ const tracked = (pattern: string) =>
   execFileSync("git", ["ls-files", pattern], { cwd: webviews, encoding: "utf8" })
     .split("\n")
     .filter((f) => f && !/(\.gallery\.|\/gallery\/|\/fixtures\/|\.test\.)/.test(f));
+// A git pathspec's `*` crosses directories: `src/*.css` is every stylesheet, `src/styles.css` (the diff
+// viewer's) included, which `src/**/*.css` left out.
 
 /** Declarations that draw a ring or a focused edge. */
 const DRAWS =
@@ -177,7 +197,7 @@ function asksPlainFocus(selector: string): boolean {
 describe("detectors", () => {
   test("no stylesheet draws a ring from a bare :focus or :focus-within", () => {
     const offenders: string[] = [];
-    for (const file of tracked("src/**/*.css")) {
+    for (const file of tracked("src/*.css")) {
       postcss.parse(readFileSync(path.join(webviews, file), "utf8"), { from: file }).walkRules((rule) => {
         const draws = rule.nodes.filter(
           (d) => d.type === "decl" && DRAWS.test(d.prop) && !/^(none|0|transparent)\b/.test(d.value.trim()),
@@ -194,7 +214,7 @@ describe("detectors", () => {
   });
 
   test("code asks focusRingShown, never matches(':focus-visible')", () => {
-    const offenders = tracked("src/**/*.ts*").filter(
+    const offenders = tracked("src/*.ts*").filter(
       (file) =>
         file !== "src/ui/focusModality.ts" &&
         /matches\(\s*["'`]:focus-visible["'`]\s*\)/.test(readFileSync(path.join(webviews, file), "utf8")),
