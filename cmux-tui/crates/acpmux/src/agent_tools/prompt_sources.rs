@@ -291,7 +291,7 @@ mod tests {
         crate::context_inventory::record_tool_sources(&mut meta, parts.clone());
         let after = inspectable(&meta);
         // The skill descriptions plus the two rule fragments (asking, computer use).
-        assert_eq!((before, after), (0, compiled + 2));
+        assert_eq!((before, after), (0, skills.len() + 2));
         println!(
             "context-source-fixture: inspectable_before={before}, inspectable_after={after}, rows={}, text_parts={}, persisted_bytes={}, skill_description_tokens={}, full_skill_body_tokens={}",
             parts.len(),
