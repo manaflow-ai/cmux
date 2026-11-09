@@ -316,7 +316,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           WEB: ${{ steps.prepare.outputs.web }}
           CHECKS: ${{ steps.prepare.outputs.checks }}
-        run: python3 scripts/ci/cmux_next_fast_gates.py run --base "$BASE" --web "$WEB" --checks "$CHECKS" --summary "$GITHUB_STEP_SUMMARY"
+          # Bun waits on a registry connection that stops answering with no limit of its own (2026-11-09: the web
+          # lint's install sat silent on the hosted runners until this job's limit cancelled it). A connection idle
+          # this long is dropped and the request retried, as scripts/ci/bun-install.sh does for the other web jobs.
+          BUN_CONFIG_HTTP_IDLE_TIMEOUT: "30"
+          BUN_CONFIG_HTTP_RETRY_COUNT: "5"
+        # --budget-seconds: a gate still running 12 min in is stopped and named as stalled, so the job ends with that
+        # reason inside its 15-minute limit instead of being cancelled with none.
+        run: python3 scripts/ci/cmux_next_fast_gates.py run --base "$BASE" --web "$WEB" --checks "$CHECKS" --budget-seconds 720 --summary "$GITHUB_STEP_SUMMARY"
 
   # Only on a dispatch whose prepare found a lowered panic-ratchet row the PR
   # changes (cmux_next_fast_gates.py ratchet_needed). The clippy setup is

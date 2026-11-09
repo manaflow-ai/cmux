@@ -26,6 +26,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
 from pathlib import Path
 
@@ -441,6 +442,18 @@ class WorkflowShape(unittest.TestCase):
         run = step_named(steps, "Fast gates")
         self.assertIn('--checks "$CHECKS"', run["run"])
         self.assertEqual(run["env"]["CHECKS"], "${{ steps.prepare.outputs.checks }}")
+
+    def test_a_stalled_install_ends_named_inside_the_job_limit(self):
+        # 2026-11-09: the web lint's bun install hung on the registry with no idle limit of its own and sat silent
+        # until the job's 15-minute limit cancelled it; merge_hold refused the cancelled check.
+        gates = job(workflow())
+        run = step_named(gates["steps"], "Fast gates")
+        self.assertEqual(run["env"]["BUN_CONFIG_HTTP_IDLE_TIMEOUT"], "30")
+        self.assertEqual(run["env"]["BUN_CONFIG_HTTP_RETRY_COUNT"], "5")
+        budget = re.search(r"--budget-seconds (\d+)", run["run"])
+        self.assertIsNotNone(budget)
+        # Room after the budget for checkout, setup and the cache save, all inside the limit.
+        self.assertLessEqual(int(budget.group(1)) + 120, gates["timeout-minutes"] * 60)
 
     def test_a_dispatch_never_saves_a_cache(self):
         # A dispatch runs on feat-cmux-next's ref after pull request code ran: a cache it saved would be the base's.
@@ -1029,6 +1042,77 @@ def type_error(code: str, message: str, where: str) -> str:
     """One type error as `vp check --no-fmt --no-lint` prints it (Oxlint's graphical report)."""
     return (f"  x typescript({code}): {message}\n     ,-[{where}]\n 1 | const a = 1;\n"
             "     :       ^\n     `----\n\n")
+
+
+class GateBudget(unittest.TestCase):
+    def test_a_gate_past_the_budget_is_stopped_with_its_children(self):
+        module = load(SCRIPT)
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp) / "child-alive"
+            # The gate starts a child (as web lint starts bun install) that would outlive a kill of the gate alone.
+            child = f"import time, pathlib; time.sleep(3); pathlib.Path({str(marker)!r}).write_text('x')"
+            gate = f"import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', {child!r}]); time.sleep(60)"
+            started = time.monotonic()
+            self.assertIsNone(module.run_gate([sys.executable, "-c", gate], Path(tmp), 1))
+            self.assertLess(time.monotonic() - started, 30)
+            time.sleep(4)
+            self.assertFalse(marker.exists(), "the gate's child kept running after the gate was stopped")
+
+    def test_a_gate_inside_the_budget_keeps_its_exit_code(self):
+        module = load(SCRIPT)
+        self.assertEqual(module.run_gate([sys.executable, "-c", "raise SystemExit(3)"], Path.cwd(), 30), 3)
+        self.assertEqual(module.run_gate([sys.executable, "-c", "pass"], Path.cwd(), None), 0)
+
+
+class BunInstallScript(unittest.TestCase):
+    """scripts/ci/bun-install.sh, the same bound for the web jobs outside these gates (web-complexity.yml)."""
+
+    SCRIPT = ROOT / "scripts/ci/bun-install.sh"
+
+    def install(self, fake_bun: str, **env: str) -> subprocess.CompletedProcess:
+        tmp = Path(tempfile.mkdtemp(prefix="bun-install-test-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(tmp)])
+        bin_dir = tmp / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "bun").write_text("#!/bin/sh\n" + fake_bun, encoding="utf-8")
+        (bin_dir / "bun").chmod(0o755)
+        (tmp / "count").write_text("", encoding="utf-8")
+        environment = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "COUNT": str(tmp / "count"),
+                       # A closed local port: the registry probe answers at once, with no network.
+                       "BUN_CONFIG_REGISTRY": "http://127.0.0.1:9/", **env}
+        result = subprocess.run(["bash", str(self.SCRIPT)], cwd=tmp, env=environment, capture_output=True, text=True,
+                                timeout=60)
+        result.attempts = len((tmp / "count").read_text(encoding="utf-8"))
+        return result
+
+    def test_a_hung_install_is_retried_then_fails_with_its_reason(self):
+        result = self.install('printf x >> "$COUNT"; sleep 30\n', BUN_INSTALL_ATTEMPT_SECONDS="1",
+                              BUN_INSTALL_ATTEMPTS="2")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(result.attempts, 2)
+        self.assertIn("::warning title=bun install retry::", result.stdout)
+        self.assertIn("::error title=bun install stalled::", result.stdout)
+        self.assertIn("no result in 1s", result.stdout)
+
+    def test_a_second_attempt_that_installs_passes(self):
+        result = self.install('printf x >> "$COUNT"; [ "$(wc -c < "$COUNT")" -ge 2 ] || sleep 30\n',
+                              BUN_INSTALL_ATTEMPT_SECONDS="1")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("installed in", result.stdout)
+
+    def test_bun_gets_an_idle_limit_and_the_callers_arguments(self):
+        result = self.install('echo "idle=$BUN_CONFIG_HTTP_IDLE_TIMEOUT retry=$BUN_CONFIG_HTTP_RETRY_COUNT args=$*"\n')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("idle=30 retry=5 args=install --frozen-lockfile", result.stdout)
+
+    def test_web_complexity_installs_through_it_with_the_package_cache(self):
+        doc = yaml.safe_load((ROOT / ".github/workflows/web-complexity.yml").read_text(encoding="utf-8"))
+        steps = doc["jobs"]["complexity"]["steps"]
+        self.assertEqual(step_named(steps, "Install web dependencies")["run"],
+                         "bash ../scripts/ci/bun-install.sh --frozen-lockfile")
+        cache = step_named(steps, "Cache Bun package cache")
+        self.assertEqual(cache["with"]["path"], "~/.bun/install/cache")
+        self.assertLess(steps.index(cache), steps.index(step_named(steps, "Install web dependencies")))
 
 
 class WebviewsChecksGate(unittest.TestCase):
