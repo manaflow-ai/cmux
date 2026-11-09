@@ -190,14 +190,12 @@ impl Reducer {
             return;
         }
         match record.kind.as_str() {
-            "user_message" => {
-                if self.turn.as_ref().is_none_or(|turn| turn.end_marker) {
-                    self.start_turn(
-                        turn_seq(&record.msg).unwrap_or(record.seq),
-                        turn_id(&record.msg),
-                        at,
-                    );
-                }
+            "user_message" if self.turn.as_ref().is_none_or(|turn| turn.end_marker) => {
+                self.start_turn(
+                    turn_seq(&record.msg).unwrap_or(record.seq),
+                    turn_id(&record.msg),
+                    at,
+                );
             }
             "turn_started" => {
                 let seq = turn_seq(&record.msg).unwrap_or(record.seq);
@@ -244,20 +242,20 @@ impl Reducer {
             }
             "agent_thought_chunk" => {
                 self.ensure_turn(record);
-                if let Some(turn) = self.turn.as_mut() {
-                    if turn.phase != Category::Think {
-                        turn.advance(at);
-                        turn.phase = Category::Think;
-                    }
+                if let Some(turn) = self.turn.as_mut()
+                    && turn.phase != Category::Think
+                {
+                    turn.advance(at);
+                    turn.phase = Category::Think;
                 }
             }
             "agent_message_chunk" => {
                 self.ensure_turn(record);
-                if let Some(turn) = self.turn.as_mut() {
-                    if turn.phase != Category::Model {
-                        turn.advance(at);
-                        turn.phase = Category::Model;
-                    }
+                if let Some(turn) = self.turn.as_mut()
+                    && turn.phase != Category::Model
+                {
+                    turn.advance(at);
+                    turn.phase = Category::Model;
                 }
             }
             "permission_request" | "permission_reissued" => {

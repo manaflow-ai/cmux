@@ -5859,7 +5859,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "description": "Incremental wall-time and token attribution for the chat. This is seeded by a detail or\nattach read and omitted from census rows until then (`hub/time_breakdown.rs`)."
         },
         "title": {
@@ -6546,7 +6545,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "description": "Incremental wall-time and token attribution for the chat. This is seeded by a detail or\nattach read and omitted from census rows until then (`hub/time_breakdown.rs`)."
         },
         "title": {
@@ -6928,7 +6926,6 @@
           "type": "integer"
         },
         "totalTokens": {
-          "default": null,
           "format": "uint64",
           "minimum": 0,
           "type": [
@@ -6938,10 +6935,10 @@
         }
       },
       "required": [
-        "categories",
-        "spans",
+        "totalMs",
         "tokensComplete",
-        "totalMs"
+        "categories",
+        "spans"
       ],
       "type": "object"
     },
@@ -6951,7 +6948,6 @@
           "type": "string"
         },
         "tokens": {
-          "default": null,
           "format": "uint64",
           "minimum": 0,
           "type": [
@@ -6987,7 +6983,6 @@
           "type": "integer"
         },
         "tokens": {
-          "default": null,
           "format": "uint64",
           "minimum": 0,
           "type": [
@@ -6996,7 +6991,6 @@
           ]
         },
         "turnId": {
-          "default": null,
           "type": [
             "string",
             "null"
@@ -7008,7 +7002,6 @@
           "type": "integer"
         },
         "turnTokens": {
-          "default": null,
           "description": "Whole-turn usage, not usage attributed to this interval.",
           "format": "uint64",
           "minimum": 0,
@@ -7019,10 +7012,10 @@
         }
       },
       "required": [
+        "turnSeq",
         "category",
-        "endAt",
         "startAt",
-        "turnSeq"
+        "endAt"
       ],
       "type": "object"
     },

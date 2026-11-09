@@ -2222,7 +2222,8 @@ impl Hub {
         if stored {
             session.note_transfer_event(&record);
             {
-                let mut breakdown = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+                let mut breakdown =
+                    session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
                 if breakdown.initialized {
                     breakdown.record(&record);
                 }
