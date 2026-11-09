@@ -1,0 +1,185 @@
+{
+  "version": 1,
+  "build": "4255008737401",
+  "notes": "notes/4255008737401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 39071,
+      "title": "cmux-host: a resume signal is deduped only against the other detector",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39008,
+      "title": "Agent chat: an answer to an agent's ask shows as a reply quoting the ask and who asked",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39083,
+      "title": "cmux-tui-core: the phone start fake's catalog lists opencode, so its refusal is the floor's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38801,
+      "title": "cmux NEXT: say which copy kept running, offer the move out of a disk image, never drop handed-off URLs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39060,
+      "title": "Revert: the overlay pages' data store is made eagerly again (#38933 moved WebKit's setup cost, it did not remove it)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38934,
+      "title": "cmux-tui: split remote_cli.rs under 100 KB (tests, enroll, self install, daemon lifecycle)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38658,
+      "title": "devbox: publish ble.sh cache seeds atomically (re-cut of #16675)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39072,
+      "title": "frame strip: a flat pane that kept its ink is drawn, not blank",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39079,
+      "title": "fix(cmux-tui): macOS clippy: gate two Linux-only imports",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39034,
+      "title": "cmux-vm: refuse enrollment codes to a credential confined to labels",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38925,
+      "title": "remote: the running link is the only redialer; budget the app's remote retries (hq#7766 step 2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39031,
+      "title": "Guards: the classic Cloud route guard counts Rust path-part arrays",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39067,
+      "title": "cmux NEXT: LinkOpener finds a link's source tab with one lookup (TabLookupGuardTests)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39006,
+      "title": "cloud: delete the dead legacy-link branches and the unbuilt terminal link resolver (S8)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38363,
+      "title": "acpmux: the hub carrier, a live stream to own machines through the platform's relay",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39015,
+      "title": "ci(cmux-tui): publish requests the Cloud VM image roll itself, without waiting for verify-publish",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39013,
+      "title": "cmux-vm: let a service key delete the mesh devices it enrolls",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39012,
+      "title": "ci(cmux-tui): warm cargo dependency cache for the macOS legs built on Linux",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38953,
+      "title": "carrier: the Cloud dial runs on remote_runtime's route runner (S1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38911,
+      "title": "perf(launch): the Cloud environment CLI read starts in main(), off the main thread, while AppKit starts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39074,
+      "title": "AgentTabs: keep the machine in the header check, chat page handler and remote-start dedup",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38870,
+      "title": "Terminal selection hint: goes when its terminal shrinks below it; a press ends when its terminal changes window",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38399,
+      "title": "Plan approval: build here, in a new worktree, or on two agents and compare",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39026,
+      "title": "ghostty-next: pin 8379ecc8a, upstream #15111 + #15121 (1.24-1.62x on ghostty-bench)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39063,
+      "title": "cmux-wg: a mode taken up from the peer caps each group's bytes at 4x, not its datagrams",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39058,
+      "title": "cmux-wg: the ultra hello rides the control port 4102, not remote desktop's 4103",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38444,
+      "title": "[D9] Keep IME paragraph input from sending unfinished drafts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39035,
+      "title": "cmux-host updater: a claimed spare's pause and resume start the connect hold",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39002,
+      "title": "Cloud: the daemon's SCP route comes from cmux-platform, not classic /api/vm",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
