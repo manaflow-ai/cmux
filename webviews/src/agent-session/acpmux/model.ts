@@ -427,6 +427,16 @@ export type AcpmuxTurnRetry = {
 /// view draws it; the live line reads it (conversation/turns.ts `withRetry`).
 export const TURN_RETRY = "turn-retry";
 
+/// One claim a reply makes and what its turn's own runs say of it (acpmux hub/claim_check.rs):
+/// `backed`, the newest matching run exited 0; `failed`, it did not; `none`, no run matched.
+export type ClaimCheck = {
+  text: string;
+  kind: "tests" | "build" | "lint" | "typecheck" | "ran";
+  verdict: "backed" | "failed" | "none";
+  toolCallId?: string;
+  command?: string;
+};
+
 export type AcpmuxRow = {
   id: string;
   version: number;
@@ -438,6 +448,9 @@ export type AcpmuxRow = {
   /// transcript rows that belong to one turn use this identity when it is available.
   turnId?: string;
   text?: string;
+  /// A finished reply's checked claims ("tests pass"), from acpmux's `claim_checks` at its turn's
+  /// end (hub/claim_check.rs): each one's phrase draws a mark (conversation/ClaimMark.tsx).
+  claims?: ClaimCheck[];
   streaming?: boolean;
   pending?: boolean;
   failed?: boolean;
@@ -1236,6 +1249,9 @@ export type AcpmuxSnapshot = {
     /// The family (`claude`, `codex`) of a conversation another app runs that this chat only shows
     /// (acpmux `watching`): no prompt goes until the user takes it over.
     watching?: string;
+    /// A watched Claude desktop session acpmux delivers replies into (`bridgedWatch`): a reply goes
+    /// to the app and takes nothing over.
+    bridged?: boolean;
     /// The MCP servers the harness says it loaded (acpmux `mcpServers`, from Claude Code's
     /// system/init); unset when it reports none (every ACP harness).
     mcpServers?: { name: string; status: "connected" | "failed" | "pending" }[];
