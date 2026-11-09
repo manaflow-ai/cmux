@@ -3,15 +3,17 @@
 
 Enforcement is scoped to the pull request that causes the problem.
 
-A test file with no registry entry is a hard failure only when this pull
-request is the one that added it (compared against the merge base). A test
-that was already unregistered on the base branch is reported as a warning:
-it is somebody else's oversight, and failing here would turn every open pull
-request red for a reason its author cannot fix.
+A test file with no registry entry is only ever a warning, never a red build.
+Forgetting to register a test leaves one test unrun; it does not break the
+code, so it must not block CI (Leo, 2026-11-05: "the notion of not adding
+tests should block CI ... they should just warn"). The warning says whether
+this pull request added the file (compared against the merge base) and
+prints the [[test]] block to paste.
 
-Everything a pull request can only break by editing the registry itself --
-malformed entries, unknown fields, entries pointing at files that no longer
-exist, lanes no workflow runs -- stays a hard failure.
+The same goes for a registered test whose lane no workflow runs: the test
+is unrun, nothing is broken. What stays a hard failure is a registry the
+runner cannot read: malformed entries, unknown fields, and entries pointing
+at files that no longer exist.
 
 `--write` registers every unregistered test whose lane can be derived (a
 workflow already runs the file) and leaves the rest for a person to place.
@@ -389,15 +391,17 @@ def validate(
         except (OSError, subprocess.CalledProcessError) as error:
             # Losing the comparison is an infrastructure problem, not something
             # this pull request did. Warn instead of reddening it.
-            warnings.append(
-                f"could not compare new tests against {base_sha}: {error}; "
-                "unregistered tests are reported as warnings only"
-            )
+            warnings.append(f"could not compare new tests against {base_sha}: {error}")
 
+    # An unregistered test is a warning whoever added it: a missing entry
+    # leaves one test unrun, which is not worth a red build.
     for path in sorted(discovered - set(paths)):
         hint = registration_hint(path, workflows, live_runner_lanes)
         if added is not None and path in added:
-            errors.append(f"{path}: added by this pull request with no execution registry entry.{hint}")
+            warnings.append(
+                f"{path}: added by this pull request with no execution registry entry. "
+                f"This is a warning and does not fail the build.{hint}"
+            )
         else:
             warnings.append(
                 f"{path}: test exists but has no execution registry entry. "
@@ -405,6 +409,8 @@ def validate(
                 f"and does not fail the build.{hint}"
             )
 
+    # A lane no workflow runs leaves its tests unrun, the same harm as a
+    # missing entry, so it warns too.
     guard_text = all_workflow_text(workflows)
     for path, entry in sorted(by_path.items()):
         lane = entry.get("lane")
@@ -412,9 +418,9 @@ def validate(
             continue
         if lane == DIRECT_RUN_LANE:
             if path not in guard_text:
-                errors.append(f"{path}: linux-guard lane is not run by any workflow")
+                warnings.append(f"{path}: linux-guard lane is not run by any workflow")
         elif lane not in live_runner_lanes:
-            errors.append(f"{path}: lane {lane!r} has no workflow invocation")
+            warnings.append(f"{path}: lane {lane!r} has no workflow invocation")
 
     if added is not None:
         for path in sorted(added):
@@ -451,8 +457,9 @@ def report_warnings(warnings: list[str]) -> None:
     lines.extend(
         [
             "",
-            "These tests are unregistered but were not added by this pull request, "
-            "so they do not fail it. Register them in `tests/test-execution.toml`.",
+            "Unregistered or unrun tests never fail the build. Register them in "
+            "`tests/test-execution.toml` (`python3 scripts/ci/validate_test_execution_registry.py --write` "
+            "places any test a workflow already runs).",
             "",
         ]
     )

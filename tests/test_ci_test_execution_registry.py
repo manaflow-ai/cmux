@@ -102,17 +102,18 @@ class RegistryBlastRadiusTests(unittest.TestCase):
             warnings,
         )
 
-    def test_unregistered_test_added_by_this_branch_fails(self) -> None:
+    def test_unregistered_test_added_by_this_branch_only_warns(self) -> None:
+        """A forgotten registry entry never blocks CI, even on the adding branch."""
         root = self.make_root(
             tests=["test_kept.py", "test_orphan.py"],
             registry=self.kept_registry(),
         )
-        errors, _, _ = validator.validate(root, added={"tests/test_orphan.py"})
+        errors, warnings, _ = validator.validate(root, added={"tests/test_orphan.py"})
 
-        self.assertTrue(
-            any("tests/test_orphan.py" in error for error in errors),
-            errors,
-        )
+        self.assertEqual(errors, [])
+        message = next(warning for warning in warnings if warning.startswith("tests/test_orphan.py:"))
+        self.assertIn("added by this pull request", message)
+        self.assertIn("does not fail the build", message)
 
     def test_unknown_added_set_never_fails_on_unregistered_tests(self) -> None:
         """No base sha means no comparison, so nothing unrelated can go red."""
@@ -176,25 +177,24 @@ class RegistryBlastRadiusTests(unittest.TestCase):
             warnings,
         )
 
-    def test_dead_lane_fails_even_for_an_unrelated_branch(self) -> None:
+    def test_dead_lane_only_warns(self) -> None:
+        """A lane no workflow runs leaves a test unrun; that never blocks CI."""
         root = self.make_root(
             tests=["test_kept.py", "test_lane.py"],
             registry=self.kept_registry()
             + '\n[[test]]\npath = "tests/test_lane.py"\nlane = "no-such-lane"\n',
         )
-        errors, _, _ = validator.validate(root, added=set())
+        errors, warnings, _ = validator.validate(root, added={"tests/test_lane.py"})
 
-        self.assertTrue(
-            any("lane 'no-such-lane' has no workflow invocation" in error for error in errors),
-            errors,
-        )
+        self.assertEqual(errors, [])
+        self.assertIn("tests/test_lane.py: lane 'no-such-lane' has no workflow invocation", warnings)
 
-    def test_failure_names_the_lane_a_workflow_already_runs(self) -> None:
+    def test_warning_names_the_lane_a_workflow_already_runs(self) -> None:
         root = self.make_root(tests=["test_kept.py"], registry='version = 1\n\n[[test]]\npath = "tests/test_lane.py"\nlane = "manual"\nreason = "placeholder"\n')
         (root / "tests" / "test_lane.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
-        errors, _, _ = validator.validate(root, added={"tests/test_kept.py"})
+        _, warnings, _ = validator.validate(root, added={"tests/test_kept.py"})
 
-        message = next(error for error in errors if error.startswith("tests/test_kept.py:"))
+        message = next(warning for warning in warnings if warning.startswith("tests/test_kept.py:"))
         self.assertIn("[[test]]", message)
         self.assertIn('path = "tests/test_kept.py"', message)
         self.assertIn('lane = "linux-guard"', message)
@@ -202,9 +202,9 @@ class RegistryBlastRadiusTests(unittest.TestCase):
 
     def test_hint_offers_the_live_lanes_when_no_workflow_runs_the_file(self) -> None:
         root = self.make_root(tests=["test_kept.py", "test_orphan.py"], registry=self.kept_registry())
-        errors, _, _ = validator.validate(root, added={"tests/test_orphan.py"})
+        _, warnings, _ = validator.validate(root, added={"tests/test_orphan.py"})
 
-        message = next(error for error in errors if error.startswith("tests/test_orphan.py:"))
+        message = next(warning for warning in warnings if warning.startswith("tests/test_orphan.py:"))
         self.assertIn('path = "tests/test_orphan.py"', message)
         self.assertIn('lane = "<lane>"', message)
         self.assertIn("macos-cli-no-socket", message)
@@ -226,41 +226,44 @@ class RegistryBlastRadiusTests(unittest.TestCase):
 
     def test_a_test_the_shared_preflight_recipe_runs_is_live(self) -> None:
         root = self.recipe_root("- run: python3 scripts/verify-local.py")
-        errors, _, _ = validator.validate(root, added=set())
+        errors, warnings, _ = validator.validate(root, added=set())
         self.assertEqual(errors, [])
+        self.assertNotIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", warnings)
 
     def test_a_commented_out_recipe_run_does_not_make_its_tests_live(self) -> None:
         root = self.recipe_root("# - run: python3 scripts/verify-local.py")
-        errors, _, _ = validator.validate(root, added=set())
-        self.assertIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", errors)
+        errors, warnings, _ = validator.validate(root, added=set())
+        self.assertIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", warnings)
 
     def test_a_step_that_only_names_the_recipe_does_not_make_its_tests_live(self) -> None:
         root = self.recipe_root("- name: Document scripts/verify-local.py")
-        errors, _, _ = validator.validate(root, added=set())
-        self.assertIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", errors)
+        errors, warnings, _ = validator.validate(root, added=set())
+        self.assertIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", warnings)
 
     def test_an_only_selection_credits_just_the_selected_checks(self) -> None:
         root = self.recipe_root("- run: python3 scripts/verify-local.py --only other")
-        errors, _, _ = validator.validate(root, added=set())
-        self.assertIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", errors)
+        errors, warnings, _ = validator.validate(root, added=set())
+        self.assertIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", warnings)
         root = self.recipe_root("- run: python3 scripts/verify-local.py --only recipe")
-        errors, _, _ = validator.validate(root, added=set())
+        errors, warnings, _ = validator.validate(root, added=set())
         self.assertEqual(errors, [])
+        self.assertNotIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", warnings)
 
     def test_an_invocation_that_may_skip_checks_does_not_make_its_tests_live(self) -> None:
         for args in ("--affected", "--affected=origin/main", "--list", "--only recipe --list",
                      "--swift-changed", "--aff"):
             with self.subTest(args=args):
                 root = self.recipe_root(f"- run: python3 scripts/verify-local.py {args}")
-                errors, _, _ = validator.validate(root, added=set())
-                self.assertIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", errors)
+                errors, warnings, _ = validator.validate(root, added=set())
+                self.assertIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", warnings)
 
     def test_full_recipe_options_keep_its_tests_live(self) -> None:
         for args in ("--all", "--timeout 120", "--receipt out.json", "--only=recipe", "&& echo done"):
             with self.subTest(args=args):
                 root = self.recipe_root(f"- run: python3 scripts/verify-local.py {args}")
-                errors, _, _ = validator.validate(root, added=set())
+                errors, warnings, _ = validator.validate(root, added=set())
                 self.assertEqual(errors, [])
+                self.assertNotIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", warnings)
 
     def test_a_commented_out_recipe_check_is_not_live(self) -> None:
         root = self.recipe_root("- run: python3 scripts/verify-local.py")
@@ -268,8 +271,8 @@ class RegistryBlastRadiusTests(unittest.TestCase):
             'CHECKS = (\n    # ("recipe", "tests", "Recipe test", ["python3", "tests/test_recipe.py"]),\n)\n',
             encoding="utf-8",
         )
-        errors, _, _ = validator.validate(root, added=set())
-        self.assertIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", errors)
+        errors, warnings, _ = validator.validate(root, added=set())
+        self.assertIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", warnings)
 
     def test_write_registers_a_test_a_workflow_already_runs(self) -> None:
         root = self.make_root(tests=["test_kept.py", "test_new.py"], registry=self.kept_registry())
@@ -425,7 +428,10 @@ class RegistryBlastRadiusTests(unittest.TestCase):
                     text=True,
                 )
 
-            self.assertEqual(validate().returncode, 1)
+            # The feature branch's own unregistered test warns; it never fails.
+            unregistered = validate()
+            self.assertEqual(unregistered.returncode, 0, unregistered.stderr)
+            self.assertIn("tests/test_feature.py: added by this pull request", unregistered.stdout)
 
             with (repo / "tests" / "test-execution.toml").open("a", encoding="utf-8") as registry:
                 registry.write('\n[[test]]\npath = "tests/test_feature.py"\nlane = "linux-guard"\n')
