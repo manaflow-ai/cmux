@@ -136,12 +136,15 @@ impl PriceTable {
     }
 
     /// What `usage` costs at `model`'s price; None when the table does not list it, or when the
-    /// harness reported no token counts at all (absent is not zero: such a turn is unpriced).
+    /// harness reported no token counts at all (absent is not zero: such a turn is unpriced). An
+    /// hour-long write count alone is a report: with no aggregate writes it bills as 0 writes,
+    /// as `hub/turn_usage.rs` records it.
     pub fn cost(&self, model: &str, usage: &crate::store::TurnUsage) -> Option<f64> {
         if usage.input_tokens.is_none()
             && usage.output_tokens.is_none()
             && usage.cache_read_tokens.is_none()
             && usage.cache_write_tokens.is_none()
+            && usage.cache_write_1h_tokens.is_none()
         {
             return None;
         }
@@ -249,6 +252,10 @@ mod tests {
         assert!((cost(Some(250_000)) - 5.75).abs() < 1e-9, "{}", cost(Some(250_000)));
         // A count past the writes is the writes.
         assert!((cost(Some(5_000_000)) - 8.0).abs() < 1e-9, "{}", cost(Some(5_000_000)));
+        // A tier count with no aggregate writes is reported usage (priced, not unpriced), and
+        // bills as no writes: the aggregate counts as 0 (#39324 review F2).
+        let tier_only = TurnUsage { cache_write_1h_tokens: Some(1_000_000), ..TurnUsage::default() };
+        assert_eq!(t.cost("claude-opus-5-5", &tier_only), Some(0.0));
 
         // An entry's own hour-long rate wins; a vendor that charges no writes bills none.
         let custom = PriceTable::parse(

@@ -48,6 +48,8 @@ export type LedgerTotals = {
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  /// Of `cacheWriteTokens`, the hour-long writes (priced at their own tier); 0 from an older acpmux.
+  cacheWrite1hTokens: number;
   /// What cache reads saved against the input price, at acpmux's price table.
   cacheSavedUsd: number;
   turns: number;
@@ -120,6 +122,7 @@ function readTotals(value: unknown): LedgerTotals {
     outputTokens: num(body.outputTokens),
     cacheReadTokens: num(body.cacheReadTokens),
     cacheWriteTokens: num(body.cacheWriteTokens),
+    cacheWrite1hTokens: num(body.cacheWrite1hTokens),
     cacheSavedUsd: num(body.cacheSavedUsd),
     turns: num(body.turns),
     toolCalls: num(body.toolCalls),
@@ -309,6 +312,7 @@ const CSV_FIELDS = [
   "outputTokens",
   "cacheReadTokens",
   "cacheWriteTokens",
+  "cacheWrite1hTokens",
   "cacheSavedUsd",
   "turns",
   "toolCalls",

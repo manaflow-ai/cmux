@@ -28,6 +28,7 @@ const totals = (over: Record<string, number> = {}) => ({
   outputTokens: 0,
   cacheReadTokens: 0,
   cacheWriteTokens: 0,
+  cacheWrite1hTokens: 0,
   cacheSavedUsd: 0,
   turns: 0,
   toolCalls: 0,
@@ -179,7 +180,7 @@ test("cache reads: what they saved, and their share of all input", () => {
 test("Copy CSV: the rows shown, ranked as shown, spreadsheet-safe", () => {
   const sessions = ledgerCsv(reply, "session").split("\n");
   expect(sessions[0]).toBe(
-    "session,label,harness,repo,branch,models,costUsd,harnessCostUsd,tableCostUsd,unpricedTurns,inputTokens,outputTokens,cacheReadTokens,cacheWriteTokens,cacheSavedUsd,turns,toolCalls,wallMs,sessions",
+    "session,label,harness,repo,branch,models,costUsd,harnessCostUsd,tableCostUsd,unpricedTurns,inputTokens,outputTokens,cacheReadTokens,cacheWriteTokens,cacheWrite1hTokens,cacheSavedUsd,turns,toolCalls,wallMs,sessions",
   );
   expect(sessions[1]!.startsWith("s2,Upload retry,,,,model-b,8,8,0,")).toBe(true);
   expect(sessions[2]!.startsWith("s1,Docs pass,,acme/app,lane/docs,model-a,2,0,2,")).toBe(true);
@@ -200,4 +201,19 @@ test("Copy CSV: the rows shown, ranked as shown, spreadsheet-safe", () => {
   });
   expect(ledgerCsv(tabbed, "account").split("\n")[1]!.startsWith("audit =1+1 end,audit =1+1 end,")).toBe(true);
   expect(ledgerCsv(tricky, "account").split("\n")[1]!.startsWith(`"'=cmd|""x"", y","'=cmd|""x"", y",1,`)).toBe(true);
+});
+
+test("the CSV carries the hour-long cache writes beside the writes, as `acpmux ledger --csv` does", () => {
+  const read = readLedger({
+    totals: totals(),
+    rows: [],
+    rollups: { repo: [{ ...totals({ costUsd: 1, cacheWriteTokens: 400, cacheWrite1hTokens: 300 }), key: "acme/app" }] },
+  });
+  expect(read.rollups.repo?.[0]?.cacheWrite1hTokens).toBe(300);
+  const [head, row] = ledgerCsv(read, "repo").split("\n");
+  const at = head!.split(",").indexOf("cacheWrite1hTokens");
+  expect(head!.split(",")[at - 1]).toBe("cacheWriteTokens");
+  expect(row!.split(",")[at]).toBe("300");
+  // An older acpmux sends no such field: it reads as 0.
+  expect(readLedger({ totals: totals({ cacheWrite1hTokens: Number.NaN }) }).totals.cacheWrite1hTokens).toBe(0);
 });
