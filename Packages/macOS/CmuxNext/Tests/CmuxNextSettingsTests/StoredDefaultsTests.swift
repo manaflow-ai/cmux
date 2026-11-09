@@ -248,6 +248,28 @@ import Testing
         #expect(try await settings.file.value(at: ["workspaces", "newPlacement"]) == .string("bottom"))
     }
 
+    /// The put-back runs once per file, and a key set since the drop keeps its value.
+    @Test func thePutBackRunsOnceAndKeepsALaterPick() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "updates": { "downloadAutomatically": false } }"#)
+        try forgottenRecord(dropped: ["updates.downloadAutomatically": .bool(true)])
+
+        #expect(try await settings.restoreWronglyForgottenDefaults() == [])
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(false))
+
+        try await settings.file.remove(UpdatesSettings.downloadAutomaticallyPath)
+        #expect(try await settings.restoreWronglyForgottenDefaults() == nil, "once per file")
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == nil)
+    }
+
+    /// With no record beside the file (the pass never dropped anything), nothing is put back.
+    @Test func noRecordNoPutBack() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller("{}")
+        #expect(try await settings.restoreWronglyForgottenDefaults() == nil)
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == nil)
+    }
+
     /// A null the first builds of this change stored for a default write goes once; a set value stays.
     @Test func strayNullsGoOnce() async throws {
         defer { try? FileManager.default.removeItem(at: home) }
