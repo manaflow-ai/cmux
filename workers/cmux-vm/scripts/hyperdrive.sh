@@ -44,9 +44,12 @@ call() {
   curl "${args[@]}" "$2" || echo 000
 }
 fail() {
-  local codes
+  local codes messages
   codes="$(jq -r '[.errors[]?.code] | map(tostring) | join(",")' "$work/body" 2>/dev/null || true)"
-  echo "::error::$1: HTTP $2 cloudflare error codes [${codes}]" >&2
+  # The messages say why (2015 is Cloudflare's catch-all "could not connect"); anything shaped like a URL's
+  # credentials is cut out first, and GitHub masks the secret values themselves.
+  messages="$(jq -r '[.errors[]?.message] | join("; ")' "$work/body" 2>/dev/null | sed -E 's#[a-zA-Z][a-zA-Z0-9+.-]*://[^[:space:]]*@#<redacted>@#g' | cut -c1-300 || true)"
+  echo "::error::$1: HTTP $2 cloudflare error codes [${codes}]: ${messages}" >&2
   exit 1
 }
 
