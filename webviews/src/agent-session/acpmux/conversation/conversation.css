@@ -2715,6 +2715,19 @@ pre.cv-math-source {
 .cv-tool.is-live > :is(.cv-tool__text, .cv-command__text):has(> .cv-row-shimmer) {
   position: relative;
 }
+/* A running background turn's line ("Scheduled check", BackgroundTurnLine.tsx) shimmers its words
+   the same way: the copy lies over the sentence, centred on the line as its words are. */
+.cv-tool.cv-background-turn.is-live:not(:focus-within) > .cv-agent-activity__sentence:has(> .cv-row-shimmer) {
+  color: var(--cv-text-dim);
+}
+.cv-tool.cv-background-turn.is-live > .cv-agent-activity__sentence:has(> .cv-row-shimmer) {
+  position: relative;
+}
+.cv-tool.cv-background-turn.is-live .cv-row-shimmer__lit {
+  display: flex;
+  height: 100%;
+  align-items: center;
+}
 .cv-row-shimmer {
   display: none;
 }
