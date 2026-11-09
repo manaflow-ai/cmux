@@ -351,14 +351,17 @@ struct SidebarPinFlightTests {
     /// The pin glyph (the arriving item's own on a pin, the item's copy on an unpin's row) and the title move as one line
     /// while the glyph shows: their gap never changes (PIN7 films: at an unpin's start the title slid onto the fading pin,
     /// "the pin icon touches the e"). On a pin the glyph never draws outside the flying item's pill (PIN8 films, SB-PIN:
-    /// on the third frame the pin showed left of the pill, then a wide gap from the title). The title must move too: a
+    /// on the third frame the pin showed left of the pill, then a wide gap from the title), nor, on an unpin, outside the
+    /// arriving row's fill. The title must move too: a
     /// title with no layer of its own drops its slide (the probe then reads no title: "the title never shows").
     static func checkGlyphRidesTitle(_ name: String, _ view: NSView, in list: NSView, now: CFTimeInterval, failures: inout [String]) {
         let glyph = (view as? SidebarItemRowView)?.pinGlyph ?? view.subviews.first { $0 is NSImageView && !$0.isHidden && ($0.layer?.opacity ?? 1) < 0.001 }
         guard let glyph, let title = SidebarListView.flightTitle(of: view) else { return failures.append("\(name): no pin glyph or title") }
         guard title.layer != nil else { return failures.append("\(name): the title has no layer, so its slide is dropped") }
         let glyphProbe = Probe(glyph, in: list, now: now), titleProbe = Probe(title, in: list, now: now)
-        let pill = view is SidebarItemRowView ? Probe(view, in: list, now: now) : nil
+        // The fill the glyph must stay in: the flying item's pill on a pin, the arriving row's fill on an unpin (PIN9
+        // films, SB-UNPIN K6: the fading copy drew left of the row's fill for 6 frames).
+        let pill: Probe? = Probe(view, in: list, now: now)
         var gaps: [CGFloat] = [], outside: (tick: Int, by: CGFloat)?, glyphShows = false, titleShows = false
         for tick in 0..<ticks {
             let time = now + Double(tick) / 120
