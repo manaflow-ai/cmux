@@ -1,4 +1,5 @@
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -18,14 +19,12 @@ import Testing
         var apps: BrowserExternalApps!
 
         @MainActor init() {
-            defaults = UserDefaults(suiteName: suite)!
+            defaults = UserDefaults(testSuiteName: suite)!
             apps = BrowserExternalApps(
                 defaults: defaults,
                 appFor: { $0.scheme == "nobody" ? nil : URL(fileURLWithPath: "/Applications/Some App.app") },
                 opener: { [unowned self] in opened.append($0) })
         }
-
-        deinit { UserDefaults.standard.removePersistentDomain(forName: suite) }
 
         @MainActor func open(_ url: String, from page: String? = "https://login.example.com/authorize",
                              gesture: Bool, tab: Int = 0) {
