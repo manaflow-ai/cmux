@@ -51,6 +51,14 @@
         "product_smoke": "not-run",
         "boot_image": "",
         "at": "2026-11-09T13:21:17Z"
+      },
+      "2": {
+        "commit": "f03a7ccfe30014d0a22cb4a63a38c042764aa7a0",
+        "run": "https://github.com/manaflow-ai/cmux/actions/runs/42624730559",
+        "deploy": "skipped",
+        "product_smoke": "not-run",
+        "boot_image": "",
+        "at": "2026-11-09T13:29:57Z"
       }
     }
   },
