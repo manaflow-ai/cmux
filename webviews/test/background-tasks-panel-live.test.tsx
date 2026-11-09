@@ -579,3 +579,23 @@ test("a transcript cut short under an anchored window takes the newest window", 
   expect(container.querySelector('[data-row-id="r299"]')).not.toBeNull();
   expect(container.querySelectorAll("[data-row-id]").length).toBe(WINDOW);
 });
+
+// A row removed while the block count holds (a run of two rows cut to one lone call: one block either
+// way) is still a transcript cut short: the window is taken again from the rows that are left.
+test("a row removed from a folded run under an anchored window takes the newest window", async () => {
+  const container = installDom();
+  const call = (id: string) => ({
+    kind: "tool" as const,
+    text: id,
+    tool: { id, title: id, kind: "execute", status: "completed" },
+  });
+  const w0: AcpmuxRow = { id: "w0", version: 1, at: 500, kind: "activity", items: [call("c0")] };
+  const w1: AcpmuxRow = { id: "w1", version: 1, at: 501, kind: "activity", items: [call("c1")] };
+  root = createRoot(container);
+  await act(async () => root!.render(<SubagentTranscript rows={[...rows(500), w0, w1]} running anchor="r20" />));
+  expect(container.querySelector('[data-row-id="r20"]')).not.toBeNull();
+  // The same 501 blocks before (500 replies, then the run w0+w1) and after (500 replies, then w0 alone).
+  await act(async () => root!.render(<SubagentTranscript rows={[...rows(500), w0]} running anchor="r20" />));
+  expect(container.querySelector('[data-row-id="r20"]')).toBeNull();
+  expect(container.querySelector('[data-row-id="w0"]')).not.toBeNull();
+});
