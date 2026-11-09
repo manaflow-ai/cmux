@@ -59,7 +59,7 @@ impl Hub {
             timeout: std::time::Duration::from_millis(u64::from(summary::TIMEOUT_MS)),
         };
         let reply = self.complete_request(&req).await.map_err(RpcError::from)?;
-        let answer = reply["text"].as_str().unwrap_or_default();
+        let answer = reply.get("text").and_then(serde_json::Value::as_str).unwrap_or_default();
         let Some(text) = summary::sentence(answer) else {
             return Err(CompleteError::EmptyOutput { harness }.into());
         };
