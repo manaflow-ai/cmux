@@ -413,7 +413,7 @@ pub fn check(paths: &Paths) -> Outcome {
     let Some(_lock) = Lock::take(paths, false) else {
         return Outcome::Failed("another update check runs".to_owned());
     };
-    let outcome = check_inner(paths);
+    let outcome = check_step(paths, &wall_ms, |started| check_inner(paths, started));
     let mut state = load_state(paths);
     let line = outcome.line();
     if state.last.as_deref() != Some(line.as_str()) {
@@ -425,8 +425,16 @@ pub fn check(paths: &Paths) -> Outcome {
     outcome
 }
 
-fn check_inner(paths: &Paths) -> Outcome {
-    let started = wall_ms();
+/// Runs one check (`inner`, given its start in wall ms from `clock`).
+pub(super) fn check_step(
+    _paths: &Paths,
+    clock: &dyn Fn() -> u64,
+    inner: impl FnOnce(u64) -> Outcome,
+) -> Outcome {
+    inner(clock())
+}
+
+fn check_inner(paths: &Paths, started: u64) -> Outcome {
     if let Some(why) = off_reason(paths) {
         return Outcome::Off(why);
     }

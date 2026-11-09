@@ -556,6 +556,39 @@ fn a_pause_during_a_check_holds_its_flip() {
     assert!(gate.held_left(late).is_some(), "the flip after a stopped check is held");
 }
 
+/// Review P2 of #39035: a check that returns early (here its busy look's
+/// acpmux query timed out across a pause) never reached the flip's stop look,
+/// and the next wait's clock started after the resume, so a flip could follow
+/// a minute later with no hold. Every way out of a check looks at its wall time.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_check_that_returns_early_after_a_pause_starts_the_connect_hold() {
+    use std::cell::Cell;
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let gate = gate::Gate::new(&paths);
+    let resumed = T0_MS + 40 * 60_000;
+    let times = Cell::new(0);
+    let clock = || {
+        times.set(times.get() + 1);
+        if times.get() == 1 { T0_MS } else { resumed }
+    };
+    let outcome = role::check_step(&paths, &clock, |started| {
+        assert_eq!(started, T0_MS);
+        role::Outcome::Busy(vec!["acpmux: timed out".to_owned()])
+    });
+    assert!(matches!(outcome, role::Outcome::Busy(_)), "{outcome:?}");
+    assert_eq!(gate.held_left(resumed), Some(role::CONNECT_HOLD));
+
+    // A quick check that returns early holds nothing.
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let quick = || T0_MS;
+    role::check_step(&paths, &quick, |_| role::Outcome::Current("abc".to_owned()));
+    assert_eq!(gate::Gate::new(&paths).held_left(T0_MS), None);
+}
+
 /// Review F2 of #38326: the health timeout's rollback waits while carrier
 /// sessions are attached, looking again every minute, and stops waiting when
 /// the role stops.
