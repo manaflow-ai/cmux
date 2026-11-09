@@ -125,7 +125,9 @@ pub(super) fn machine_id_for_this_host(
 /// `<id>:<workspace>` layout refs). Free text that merely contains the id (a
 /// command, a path, a description) is left as it is.
 /// Append-only history (tables whose triggers refuse an update: the session
-/// journal, journal segments) keeps what it recorded. `session_public_id`
+/// journal, journal segments) keeps what it recorded. Mutation receipts and
+/// their events ([`RECEIPT_TABLES`]) keep it too, and are read with the new
+/// id: the rehome's cost is the registry's current state, not its history. `session_public_id`
 /// stays: the journal records it, and it names the session only within this
 /// daemon's resource API. Records other stores hold under the copied id (the
 /// app's, other machines') are no longer written by this machine; their
@@ -142,6 +144,14 @@ pub(super) fn rehome_registry(connection: &Connection) -> anyhow::Result<()> {
     if stored.is_some() {
         let copied = required_meta(&tx, "registry_id")?;
         rewrite_text_everywhere(&tx, &copied, &try_new_uuid_v4()?)?;
+        // After the rewrite, which would move the id in this list too.
+        let mut former = StoredIds::load(&tx)?.former;
+        former.push(copied);
+        tx.execute(
+            "INSERT INTO meta(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![FORMER_IDS_META_KEY, serde_json::to_string(&former)?],
+        )?;
     }
     stamp(&tx, &current)?;
     tx.commit()?;
@@ -168,9 +178,114 @@ fn immutable_tables(connection: &Connection) -> anyhow::Result<HashSet<String>> 
         .collect::<Result<_, _>>()?)
 }
 
-/// Every mutable table and its columns.
+/// Tables that describe journal records, one row (or more) per record or
+/// segment, and the producers and hooks those records name by id. The
+/// journal itself refuses updates, so it keeps the ids it recorded; these
+/// keep them too. The history tables are also the ones that grow with
+/// history: scanning them made the rehome cost the registry's age (5.5 s of
+/// a 7.4 s first start of a 58.7 GB registry on its new machine). What is
+/// left to scan is current state, which does not grow with history.
+///
+/// The set is closed under foreign keys and joins: hook deliveries reference
+/// `journal_hooks`, ingress receipts reference `journal_producers`, and kind
+/// rows reference `journal_segments` (immutable); no table the rehome still
+/// rewrites references one of these or joins on their ids. A hook or
+/// producer id that equals the registry id is a coincidence, not a reference
+/// to it: no reader keys them by the registry id.
+///
+/// The rewrite stays in start's transaction and is not moved to a lazy or
+/// background pass: until it commits, the registry would answer to two ids,
+/// and every reader that keys on the id (the session rows, the sidebar's
+/// `sec_m_<id>` sections, `itm_w_<id>_` items, `<id>/<key>` placements,
+/// `<id>:<workspace>` layout refs) would have to accept both.
+const JOURNAL_TABLES: [&str; 10] = [
+    "journal_event_index",
+    "legacy_journal_event_index",
+    "journal_segment_kinds",
+    "journal_segment_reducer_records",
+    "journal_pruned_ranges",
+    "journal_ingress_receipts",
+    "journal_operation_receipts",
+    "journal_hook_deliveries",
+    "journal_hooks",
+    "journal_producers",
+];
+
+/// Mutation receipts and the events they recorded: a row per change, never
+/// pruned, so they grow with use (scanning them took 1.9 s of a 4.2 s first
+/// start of a 58.7 GB registry on its new machine). The rehome leaves them
+/// as stored and records the id it replaced ([`FORMER_IDS_META_KEY`]); their
+/// readers serve the stored text through [`StoredIds`], which moves the
+/// references the scan would have moved. Only `fingerprint` and
+/// `result_json` can hold one: their other columns are client origins and
+/// mutation ids, random workspace keys and terminal ids, and event kinds.
+/// No table references them, and they reference none.
+/// (`resource_mutations` and `bookmark_mutations` are pruned to a window,
+/// so the scan still covers them.)
+const RECEIPT_TABLES: [&str; 5] = [
+    "mutations",
+    "workspace_events",
+    "terminal_events",
+    "terminal_mutations",
+    "projection_mutations",
+];
+
+/// In `meta`: the registry ids this registry had before its moves to other
+/// machines, oldest first (a JSON array).
+const FORMER_IDS_META_KEY: &str = "registry_former_ids";
+
+/// The registry's former ids and its current one: text stored before a
+/// move ([`RECEIPT_TABLES`]) is served with its references moved, as the
+/// rehome's scan moves them elsewhere.
+pub(super) struct StoredIds {
+    current: String,
+    former: Vec<String>,
+}
+
+impl StoredIds {
+    /// One `meta` read; no former ids for a registry that never moved.
+    pub(super) fn load(connection: &Connection) -> anyhow::Result<Self> {
+        let former = meta_value(connection, FORMER_IDS_META_KEY)?
+            .map(|raw| serde_json::from_str::<Vec<String>>(&raw))
+            .transpose()
+            .context("read the registry's former ids")?
+            .unwrap_or_default();
+        let current = if former.is_empty() {
+            String::new()
+        } else {
+            required_meta(connection, "registry_id")?
+        };
+        Ok(Self { current, former })
+    }
+
+    /// `text` with its references to a former id moved to the current one.
+    pub(super) fn text(&self, text: String) -> String {
+        self.former.iter().fold(text, |text, old| {
+            if !text.contains(old.as_str()) {
+                return text;
+            }
+            rehomed(&text, old, &self.current)
+                .or_else(|| rehomed_json(&text, old, &self.current))
+                .unwrap_or(text)
+        })
+    }
+
+    /// A stored canonical fingerprint, moved and canonical again.
+    pub(super) fn fingerprint(&self, stored: String) -> anyhow::Result<String> {
+        let moved = self.text(stored.clone());
+        if moved == stored {
+            return Ok(stored);
+        }
+        canonical_json(&serde_json::from_str(&moved)?)
+    }
+}
+
+/// Every mutable table and its columns, less the journal's ([`JOURNAL_TABLES`])
+/// and the receipts ([`RECEIPT_TABLES`]).
 fn mutable_columns(connection: &Connection) -> anyhow::Result<Vec<(String, Vec<String>)>> {
-    let immutable = immutable_tables(connection)?;
+    let mut immutable = immutable_tables(connection)?;
+    immutable.extend(JOURNAL_TABLES.map(str::to_string));
+    immutable.extend(RECEIPT_TABLES.map(str::to_string));
     let tables: Vec<String> = connection
         .prepare(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
@@ -550,6 +665,256 @@ mod tests {
         for root in [original, clone] {
             fs::remove_dir_all(root).unwrap();
         }
+    }
+
+    /// A journal hook whose id happens to be the registry id, with a
+    /// delivery: the rehome leaves the deliveries (journal history) alone,
+    /// so it must leave the hook too, or the delivery's foreign key names a
+    /// hook that is gone and the copied registry does not open.
+    #[test]
+    fn a_hook_named_like_the_registry_keeps_its_deliveries_after_a_rehome() {
+        let root = temp_root("rehome-hook");
+        as_machine(Some("0123456789abcdef0123456789abcdef"));
+        let copied = ids(&root).0;
+        {
+            let connection = Connection::open(registry_file(&root)).unwrap();
+            connection
+                .execute(
+                    "INSERT INTO journal_hooks(
+                       hook_id, manifest_version, manifest_json, enabled, cursor_sequence,
+                       installed_at_ms
+                     ) VALUES(?1, 1, json_object('id', ?1), 0, 0, 1)",
+                    [&copied],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO journal_hook_deliveries(
+                       hook_id, manifest_version, event_id, event_sequence, attempt, state,
+                       next_attempt_at_ms, scheduled_at_ms
+                     ) VALUES(?1, 1, 'event_hooked', 1, 1, 'completed', 0, 1)",
+                    [&copied],
+                )
+                .unwrap();
+        }
+        as_machine(Some("fedcba9876543210fedcba9876543210"));
+        let rehomed = ids(&root).0;
+        assert_ne!(rehomed, copied, "rehomed");
+        let connection = Connection::open(registry_file(&root)).unwrap();
+        let hook: String = connection
+            .query_row(
+                "SELECT hooks.hook_id FROM journal_hook_deliveries AS deliveries
+                 JOIN journal_hooks AS hooks USING(hook_id, manifest_version)",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(hook, copied, "the hook keeps the id its deliveries name");
+        drop(connection);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Mutation receipts and the events they recorded, `count` of each kind:
+    /// what a long-lived registry accumulates, none naming the registry id.
+    fn seed_receipts(root: &Path, count: usize) {
+        let connection = Connection::open(registry_file(root)).unwrap();
+        let tx = connection.unchecked_transaction().unwrap();
+        for index in 0..count {
+            let id = format!("mutation_{index:08}");
+            let result =
+                serde_json::json!({"workspace_key": format!("ws_{index:032x}"), "ok": true})
+                    .to_string();
+            tx.execute(
+                "INSERT INTO mutations(origin, mutation_id, fingerprint, result_json, committed_revision)
+                 VALUES('client', ?1, '{}', ?2, ?3)",
+                params![id, result, index as i64 + 1],
+            )
+            .unwrap();
+            tx.execute(
+                "INSERT INTO workspace_events(revision, kind, workspace_key, origin, mutation_id, result_json)
+                 VALUES(?3 + 1000000, 'workspace.update', 'one', 'client', ?1, ?2)",
+                params![id, result, index as i64],
+            )
+            .unwrap();
+            tx.execute(
+                "INSERT INTO terminal_mutations(origin, mutation_id, fingerprint, result_json, committed_revision)
+                 VALUES('client', ?1, '{}', ?2, ?3)",
+                params![id, result, index as i64 + 1],
+            )
+            .unwrap();
+            tx.execute(
+                "INSERT INTO terminal_events(revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json)
+                 VALUES(?3 + 1000000, 'terminal.update', ?1, 'one', 'client', ?1, ?2)",
+                params![id, result, index as i64],
+            )
+            .unwrap();
+            tx.execute(
+                "INSERT INTO projection_mutations(origin, mutation_id, fingerprint, result_json)
+                 VALUES('client', ?1, '{}', ?2)",
+                params![id, result],
+            )
+            .unwrap();
+        }
+        tx.commit().unwrap();
+    }
+
+    /// SQLite VM steps the rehome of a registry with `records` journal
+    /// records and `receipts` of each mutation receipt takes, after a copy
+    /// to another machine.
+    fn rehome_steps(records: usize, receipts: usize) -> u64 {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        use super::super::session_journal::kind_read_tests::TestJournalRecord;
+        let root = temp_root("rehome-cost");
+        as_machine(Some("0123456789abcdef0123456789abcdef"));
+        let registry = WorkspaceRegistry::open(&root, SESSION).unwrap();
+        let copied = registry.registry_id().to_string();
+        let records = (0..records)
+            .map(|index| TestJournalRecord {
+                kind: "personal.session.put".into(),
+                producer: JournalProducer { kind: "presentation".into(), id: "cmux-tui".into() },
+                subjects: vec![JournalSubject {
+                    kind: "session".into(),
+                    id: format!("sess_{:032x}", index % 64),
+                }],
+                payload: serde_json::json!({"index": index}),
+            })
+            .collect::<Vec<_>>();
+        registry.append_journal_records_for_test(&records);
+        drop(registry);
+        seed_receipts(&root, receipts);
+        as_machine(Some("fedcba9876543210fedcba9876543210"));
+        let connection = Connection::open(registry_file(&root)).unwrap();
+        let steps = std::sync::Arc::new(AtomicU64::new(0));
+        let counter = std::sync::Arc::clone(&steps);
+        connection
+            .progress_handler(
+                16,
+                Some(move || {
+                    counter.fetch_add(16, Ordering::Relaxed);
+                    false
+                }),
+            )
+            .unwrap();
+        rehome_registry(&connection).unwrap();
+        connection.progress_handler(0, None::<fn() -> bool>).unwrap();
+        assert_ne!(required_meta(&connection, "registry_id").unwrap(), copied, "rehomed");
+        drop(connection);
+        fs::remove_dir_all(root).unwrap();
+        steps.load(Ordering::Relaxed)
+    }
+
+    /// The rehome costs the registry's state, not its history: 10x the
+    /// journal records adds less than one VM step each. It used to scan
+    /// every text column of the journal's event index (a row per record)
+    /// and took 5.5 s of a 7.4 s first start of a 58.7 GB registry on its
+    /// new machine (2026-11-09).
+    #[test]
+    fn the_rehome_cost_does_not_grow_with_the_journal() {
+        let sizes = [2_000, 20_000];
+        let steps = sizes.map(|records| rehome_steps(records, 0));
+        let per_record = steps[1].saturating_sub(steps[0]) / (sizes[1] - sizes[0]) as u64;
+        assert!(
+            per_record < 1,
+            "the rehome costs {per_record} VM steps per journal record ({} at {}, {} at {})",
+            steps[0],
+            sizes[0],
+            steps[1],
+            sizes[1]
+        );
+    }
+
+    /// Mutation receipts and their events grow with every change and are
+    /// never pruned; the rehome leaves them as stored and they are read
+    /// with the new id (`StoredIds`). Scanning them took 1.9 s of a 4.2 s
+    /// first start of a 58.7 GB registry on its new machine (2026-11-09).
+    #[test]
+    fn the_rehome_cost_does_not_grow_with_mutation_receipts() {
+        let sizes = [500, 5_000];
+        let steps = sizes.map(|receipts| rehome_steps(0, receipts));
+        let per_receipt = steps[1].saturating_sub(steps[0]) / (sizes[1] - sizes[0]) as u64;
+        assert!(
+            per_receipt < 1,
+            "the rehome costs {per_receipt} VM steps per receipt ({} at {}, {} at {})",
+            steps[0],
+            sizes[0],
+            steps[1],
+            sizes[1]
+        );
+    }
+
+    /// A receipt or event stored before the move, naming the copied id, is
+    /// served naming the new one: a retried mutation's result, a
+    /// subscriber's catch-up and a terminal mutation's replay.
+    #[test]
+    fn receipts_stored_before_a_move_are_served_with_the_new_id() {
+        let root = temp_root("rehome-receipts");
+        as_machine(Some("0123456789abcdef0123456789abcdef"));
+        let copied = ids(&root).0;
+        let result = serde_json::json!({
+            "ref": {"session_id": copied},
+            "placement": format!("{copied}/one"),
+            "note": format!("echo {copied}"),
+        });
+        let fingerprint = serde_json::json!({"session": copied});
+        {
+            let connection = Connection::open(registry_file(&root)).unwrap();
+            for table in ["mutations", "terminal_mutations"] {
+                connection
+                    .execute(
+                        &format!(
+                            "INSERT INTO {table}(origin, mutation_id, fingerprint, result_json, committed_revision)
+                             VALUES('client', 'moved', ?1, ?2, 7)"
+                        ),
+                        params![
+                            canonical_json(&fingerprint).unwrap(),
+                            result.to_string()
+                        ],
+                    )
+                    .unwrap();
+            }
+            connection
+                .execute(
+                    "INSERT INTO workspace_events(revision, kind, workspace_key, origin, mutation_id, result_json)
+                     VALUES(1000000, 'workspace.update', 'one', 'client', 'moved', ?1)",
+                    [result.to_string()],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO terminal_events(revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json)
+                     VALUES(1000000, 'terminal.update', 'moved', 'one', 'client', 'moved', ?1)",
+                    [result.to_string()],
+                )
+                .unwrap();
+        }
+        as_machine(Some("fedcba9876543210fedcba9876543210"));
+        let registry = WorkspaceRegistry::open(&root, SESSION).unwrap();
+        let rehomed = registry.registry_id().to_string();
+        assert_ne!(rehomed, copied);
+        let expected = |served: &Value| {
+            assert_eq!(served["ref"]["session_id"], rehomed, "{served}");
+            assert_eq!(served["placement"], format!("{rehomed}/one"), "{served}");
+            assert_eq!(served["note"], format!("echo {copied}"), "free text is kept: {served}");
+        };
+        let moved_fingerprint = serde_json::json!({"session": rehomed});
+        let mutation = WorkspaceMutation::daemon("moved", "client").unwrap();
+        let replayed = registry.replay(&mutation, &moved_fingerprint).unwrap().unwrap();
+        expected(&replayed.result);
+        let event = registry.events_after(999_999).unwrap().pop().unwrap();
+        expected(&event.result);
+        let terminal_event = registry.terminal_events_after(999_999).unwrap().pop().unwrap();
+        expected(&terminal_event.result);
+        let terminal = terminal_replay(
+            &registry.connection.get(),
+            &mutation,
+            &canonical_json(&moved_fingerprint).unwrap(),
+        )
+        .unwrap()
+        .unwrap();
+        expected(&terminal.result);
+        drop(registry);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

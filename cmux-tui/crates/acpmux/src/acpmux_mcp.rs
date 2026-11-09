@@ -69,6 +69,8 @@ const LS_FIELDS: &[&str] =
 pub(crate) mod artifacts;
 #[path = "acpmux_mcp_bg.rs"]
 mod bg;
+#[path = "acpmux_mcp_bridge.rs"]
+pub(crate) mod bridge;
 #[path = "acpmux_mcp_goal.rs"]
 mod goal;
 #[path = "acpmux_mcp_pr.rs"]
@@ -310,11 +312,17 @@ pub async fn run() -> Result<()> {
                     };
                 }
                 // The Claude Code subagent whose tool call this is, by its tool use id
-                // (`subagent_call.rs`): a `send` names it, a `bg_start` runs as it.
-                let sub = crate::subagent_call::of_call(&crate::config::home(), &session, &params);
+                // (`subagent_call.rs`): a `send` names it, a `bg_start` or `run_wait` task runs as
+                // it and brings its end to it. Else the subagent this server runs as: a workflow
+                // runner a subagent started marks it (`cli::sender::SUBAGENT_ENV`, set by the
+                // daemon in `hub/workflow_runs.rs`), as the Bash hook marks its commands.
+                let sub = crate::subagent_call::of_call(&crate::config::home(), &session, &params)
+                    .or_else(|| {
+                        crate::cli::sender::subagent_of_this_process().map(|s| s.to_value())
+                    });
                 if bg::TOOLS.contains(&name) {
                     let mut args = args;
-                    if name == "bg_start"
+                    if matches!(name, "bg_start" | "run_wait")
                         && let Some(fields) = args.as_object_mut()
                     {
                         fields.remove("callerSubagent");

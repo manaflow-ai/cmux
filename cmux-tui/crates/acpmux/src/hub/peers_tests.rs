@@ -541,3 +541,42 @@ fn a_forget_remote_and_full_list_notice_complete_without_lock_order_deadlock() {
     applying.join().unwrap();
     assert!(hub.remote_sessions().is_empty(), "the forgotten row was reinserted");
 }
+
+/// A chat the link attached again without history after a reconnect (`REATTACHED_NOTICE`): its
+/// clients here are told they lagged, with its id, so each reads on from its own last record.
+/// No other chat of the peer is, and no other peer's chat.
+#[test]
+fn a_chat_attached_again_without_history_tells_only_its_clients_they_lagged() {
+    let hub =
+        Hub::new(crate::config::Config::default(), Box::new(crate::store::MemoryStore::default()));
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let peer = crate::peer::Peer::new("vm", "ws://127.0.0.1:9", None, None, tx);
+    hub.peers.lock().unwrap().insert("vm".into(), peer.clone());
+    let rows = ["r1", "r2"].map(|id| json!({"sessionId": id, "status": "idle", "updatedAt": 1}));
+    hub.apply_peer_notice("vm", peer.generation, crate::peer::PeerNotice::Sessions(rows.into()));
+    let mut events = hub.subscribe();
+    hub.apply_peer_notice(
+        "vm",
+        peer.generation,
+        crate::peer::PeerNotice::Notification {
+            method: crate::peer::REATTACHED_NOTICE.into(),
+            params: json!({"sessionId": "r1"}),
+            link: 1,
+        },
+    );
+    let mut lagged = Vec::new();
+    while let Ok(ev) = events.try_recv() {
+        if ev.record.kind == PEER_LAGGED {
+            lagged.push((ev.session_id.clone(), ev.record.msg.clone(), ev.remote.map(|r| r.peer)));
+        }
+    }
+    assert_eq!(
+        lagged,
+        [(
+            "r1".to_owned(),
+            json!({"sessionIds": ["r1"], "reason": "peer_reattached"}),
+            Some("vm".to_owned())
+        )]
+    );
+    peer.stop();
+}

@@ -235,6 +235,14 @@ impl RegistryConnection {
         }
     }
 
+    /// Commits no flush was requested for (`WalDurability::unrequested_commits`).
+    #[cfg(test)]
+    pub(crate) fn unrequested_commits_for_test(&self) -> u64 {
+        self.durability
+            .as_ref()
+            .map_or(0, super::wal_durability::WalDurability::unrequested_commits)
+    }
+
     /// (committed, synced) registry commits for `server-stats` `write_path`.
     pub(crate) fn durability_counts(&self) -> (u64, u64) {
         self.durability.as_ref().map(|durability| durability.counts()).unwrap_or_default()

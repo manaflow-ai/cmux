@@ -18,6 +18,8 @@ import { SkillWord } from "./SkillWord";
 import { TimeHover } from "./timeHover";
 import { splitTimeTokens } from "./timeHoverModel";
 import type { InlineOptions } from "./inlineMarkdown";
+import { ClaimMark } from "./ClaimMark";
+import { splitClaims } from "./claimMarks";
 
 const NO_REPOSITORY = "-/-";
 
@@ -107,6 +109,22 @@ function quietCommitReferences(text: string, issues: GithubReference[], reposito
 
 /// Plain prose: a started chat's name is its chip; the rest links GitHub references and URLs.
 export function proseText(text: string, key: string, opts: InlineOptions): ReactNode[] {
+  // A checked claim's phrase draws inside its mark (ClaimMark.tsx), the rest as any prose.
+  if (opts.claims?.length) {
+    const pieces = splitClaims(text, opts.claims);
+    if (pieces.length > 1 || typeof pieces[0] !== "string") {
+      const plain = { ...opts, claims: undefined };
+      return pieces.flatMap((piece, at): ReactNode[] =>
+        typeof piece === "string"
+          ? proseText(piece, `${key}-c${at}`, plain)
+          : [
+              <ClaimMark key={`${key}-c${at}`} claim={piece.claim}>
+                {proseText(piece.text, `${key}-c${at}-t`, plain)}
+              </ClaimMark>,
+            ],
+      );
+    }
+  }
   const out: ReactNode[] = [];
   let index = 0;
   for (const part of splitTimeTokens(text)) {

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "3e959b0955161c2b278a7348db254e8884e6f49bd4f0c7e9c58f1d7458bd1003";
+inline constexpr std::string_view kProtocolIrSha256 = "596617283194856e7754f4e9811d071b3a508e8c88b3d21a78ae31eff2572e7f";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -193,6 +193,7 @@ struct SetSizeCountsResult;
 struct SetSizePolicyResult;
 struct SetTerminalIdlePolicyResult;
 struct SetTerminalKeepResult;
+struct SetTerminalTailPinResult;
 struct ShownProgramStatus;
 struct ShutdownDaemonResult;
 struct SidebarPluginResult;
@@ -555,6 +556,7 @@ struct SetTabPinnedRequest;
 struct SetTerminalCommandHistoryRequest;
 struct SetTerminalIdlePolicyRequest;
 struct SetTerminalKeepRequest;
+struct SetTerminalTailPinRequest;
 struct SetViewportPaneWidthRequest;
 struct SetWindowTitleRequest;
 struct SetWorkspaceMetadataRequest;
@@ -5465,6 +5467,19 @@ struct SetTerminalKeepResult {
     friend bool operator==(const SetTerminalKeepResult&, const SetTerminalKeepResult&) = default;
 };
 
+struct SetTerminalTailPinRequest {
+    bool pinned{};
+    Field<Id> surface{};
+    Field<std::string> terminal{};
+    friend bool operator==(const SetTerminalTailPinRequest&, const SetTerminalTailPinRequest&) = default;
+};
+
+struct SetTerminalTailPinResult {
+    bool pinned{};
+    std::string terminal{};
+    friend bool operator==(const SetTerminalTailPinResult&, const SetTerminalTailPinResult&) = default;
+};
+
 struct SetViewportPaneWidthRequest {
     Id pane{};
     Field<std::uint64_t> transaction{};
@@ -7413,6 +7428,12 @@ template <>
 struct Codec<SetTerminalKeepResult> {
     static Result<Json> encode(const SetTerminalKeepResult& value);
     static Result<SetTerminalKeepResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetTerminalTailPinResult> {
+    static Result<Json> encode(const SetTerminalTailPinResult& value);
+    static Result<SetTerminalTailPinResult> decode(const Json& value);
 };
 
 template <>
@@ -9585,6 +9606,12 @@ template <>
 struct Codec<SetTerminalKeepRequest> {
     static Result<Json> encode(const SetTerminalKeepRequest& value);
     static Result<SetTerminalKeepRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetTerminalTailPinRequest> {
+    static Result<Json> encode(const SetTerminalTailPinRequest& value);
+    static Result<SetTerminalTailPinRequest> decode(const Json& value);
 };
 
 template <>

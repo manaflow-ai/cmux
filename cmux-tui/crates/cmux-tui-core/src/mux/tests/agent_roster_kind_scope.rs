@@ -73,7 +73,12 @@ fn session_put(index: usize) -> TestJournalRecord {
 
 /// Each agent terminal starts a session and a turn.
 fn agent_lifecycles() -> Vec<TestJournalRecord> {
-    (0..AGENT_TERMINALS)
+    agent_lifecycles_of(AGENT_TERMINALS)
+}
+
+/// `terminals` agent terminals, each starting a session and a turn.
+fn agent_lifecycles_of(terminals: usize) -> Vec<TestJournalRecord> {
+    (0..terminals)
         .flat_map(|index| {
             let terminal = terminal_id(index);
             let session = format!("agent-{index}");
@@ -102,15 +107,16 @@ fn interleave(agents: Vec<TestJournalRecord>, churn: usize) -> Vec<TestJournalRe
     records
 }
 
-/// What one roster restore after a reducer version change cost.
+/// What one roster restore that folds the journal from its first record cost.
 struct ReplayCost {
     steps: u64,
     elapsed: Duration,
 }
 
 /// A registry whose journal holds the agent lifecycles among `churn`
-/// session puts, and a roster snapshot of the previous reducer version at
-/// the head: the start replays from the first record.
+/// session puts, and an empty roster snapshot at sequence 0: the start
+/// replays from the first record, as the background rebuild after a reducer
+/// version bump does (`agent_roster_rebuild.rs`).
 fn replay_after_version_bump(churn: usize) -> ReplayCost {
     let registry = WorkspaceRegistry::in_memory("roster-kind-scope-cost").unwrap();
     registry.append_journal_records_for_test(&interleave(agent_lifecycles(), churn));
@@ -118,9 +124,9 @@ fn replay_after_version_bump(churn: usize) -> ReplayCost {
     registry
         .put_journal_reducer_state(
             AGENT_ROSTER_REDUCER_ID,
-            AGENT_ROSTER_REDUCER_VERSION - 1,
-            head,
-            "{}",
+            AGENT_ROSTER_REDUCER_VERSION,
+            0,
+            &AgentRoster::default().snapshot().to_string(),
         )
         .unwrap();
     let mut restored = None;
@@ -163,6 +169,52 @@ fn roster_replay_after_a_version_bump_skips_session_churn() {
     assert!(
         per_record < 1,
         "a roster replay costs {per_record} VM steps per session put it skips:\n{table}"
+    );
+}
+
+/// VM steps of a roster restore after a reducer version bump, on a journal of
+/// `terminals` agent lifecycles among 1000 session puts, with the previous
+/// version's snapshot at the head.
+fn restore_steps_after_a_version_bump(terminals: usize) -> u64 {
+    let registry = WorkspaceRegistry::in_memory("roster-bump-restore-cost").unwrap();
+    registry.append_journal_records_for_test(&interleave(agent_lifecycles_of(terminals), 1_000));
+    let head = registry.session_journal_head().unwrap();
+    registry
+        .put_journal_reducer_state(
+            AGENT_ROSTER_REDUCER_ID,
+            AGENT_ROSTER_REDUCER_VERSION - 1,
+            head,
+            &AgentRoster::default().snapshot().to_string(),
+        )
+        .unwrap();
+    let mut restored = None;
+    let steps = registry.vm_steps_for_test(|| {
+        restored = Some(restore_agent_roster(&registry));
+    });
+    assert_eq!(restored.unwrap().unwrap().host.cursor, head, "the start serves the head");
+    steps
+}
+
+/// The start after a roster reducer version bump does not fold the journal
+/// from its first record: 26 min on Leo's 59 GB registry (2026-11-08), 14 s
+/// on an 8.4 GB generated one. It serves the old snapshot and leaves the
+/// rebuild to the roster's owner, so its cost does not grow with the agent
+/// records: 10x of them adds less than one VM step each. Folding them cost
+/// tens of steps per record.
+#[test]
+fn restore_after_a_version_bump_does_not_fold_the_agent_history() {
+    let sizes = [20, 200];
+    let steps = sizes.map(restore_steps_after_a_version_bump);
+    let records = ((sizes[1] - sizes[0]) * 2) as u64;
+    let per_record = steps[1].saturating_sub(steps[0]) / records;
+    assert!(
+        per_record < 1,
+        "a restore after a bump costs {per_record} VM steps per agent record ({} terminals: {} \
+         steps, {} terminals: {} steps)",
+        sizes[0],
+        steps[0],
+        sizes[1],
+        steps[1]
     );
 }
 
@@ -522,6 +574,7 @@ fn a_parallel_kind_read_matches_one_at_a_time_and_stops_before_a_bad_segment() {
     drop(mux);
 
     let registry = WorkspaceRegistry::open(&root, session).unwrap();
+    let database = registry.session_journal_database_path().unwrap();
     let read = |workers: usize, limit: usize| {
         SEGMENT_DECODE_WORKERS.with(|cell| cell.set(Some(workers)));
         let records = read_scoped(
@@ -539,14 +592,22 @@ fn a_parallel_kind_read_matches_one_at_a_time_and_stops_before_a_bad_segment() {
         SEGMENT_DECODE_WORKERS.with(|cell| cell.set(None));
         records
     };
+    // Sealing kept the agent records, so the read decodes no segment. Drop
+    // them, as for segments an older build sealed: every segment with an
+    // agent record now decodes, which is what this test exercises.
+    let from_kept_records = read(4, 512);
+    rusqlite::Connection::open(&database)
+        .unwrap()
+        .execute("DELETE FROM journal_segment_reducer_records", [])
+        .unwrap();
     let one_at_a_time = read(1, 512);
     assert!(one_at_a_time.iter().any(|record| AgentRoster::folds_kind(&record.kind)));
+    assert_eq!(from_kept_records, one_at_a_time, "the kept records read as the segments");
     for (workers, limit) in [(4, 512), (4, 1), (3, 5), (8, 512)] {
         assert_eq!(read(workers, limit), one_at_a_time, "{workers} workers, page limit {limit}");
     }
 
     // Destroy the third seal's segments.
-    let database = registry.session_journal_database_path().unwrap();
     let bad_start = {
         let connection = rusqlite::Connection::open(&database).unwrap();
         connection.execute_batch("DROP TRIGGER IF EXISTS journal_segments_reject_update;").unwrap();
@@ -586,5 +647,46 @@ fn a_parallel_kind_read_matches_one_at_a_time_and_stops_before_a_bad_segment() {
     );
     SEGMENT_DECODE_WORKERS.with(|cell| cell.set(None));
     drop(registry);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// The reducer record backfill asks for a flush of what it committed, in a
+/// slice that finishes the backfill too. An idle daemon answers no request,
+/// so nothing else would flush those commits, and the backfill of a large
+/// registry would pile up in the WAL.
+#[test]
+fn the_reducer_record_backfill_requests_a_flush_of_what_it_committed() {
+    let session = "reducer-record-backfill-flush";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-backfill-flush-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = open_persistent_test_mux(session, &root);
+    mux.stop_journal_maintenance();
+    mux.workspace_registry.lock().unwrap().append_journal_records_for_test(&mixed_stream(0));
+    seal_journal(&mux, "backfill_flush");
+    let database = mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
+    let kept = || -> i64 {
+        rusqlite::Connection::open(&database)
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM journal_segment_reducer_records", [], |row| row.get(0))
+            .unwrap()
+    };
+    assert!(kept() > 0, "sealing kept the agent records");
+    // As for segments an older build sealed.
+    rusqlite::Connection::open(&database)
+        .unwrap()
+        .execute("DELETE FROM journal_segment_reducer_records", [])
+        .unwrap();
+    mux.request_registry_flush();
+    assert_eq!(mux.registry_connection.unrequested_commits_for_test(), 0);
+
+    assert!(!mux.backfill_sealed_reducer_records().unwrap(), "one slice backfills this journal");
+    assert!(kept() > 0, "the backfill kept the agent records again");
+    assert_eq!(
+        mux.registry_connection.unrequested_commits_for_test(),
+        0,
+        "the backfill's commits wait in the WAL for an unrelated request to flush them"
+    );
+    mux.shutdown();
+    drop(mux);
     std::fs::remove_dir_all(root).unwrap();
 }

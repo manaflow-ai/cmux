@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 3e959b0955161c2b278a7348db254e8884e6f49bd4f0c7e9c58f1d7458bd1003.
+// cmux-tui mux protocol 12, IR 596617283194856e7754f4e9811d071b3a508e8c88b3d21a78ae31eff2572e7f.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -2095,6 +2095,13 @@ pub struct SetTerminalKeepResult {
     pub terminal_id: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_resource_id: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetTerminalTailPinResult {
+    pub pinned: bool,
+    pub terminal: String,
 }
 
 #[rustfmt::skip]

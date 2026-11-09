@@ -8,11 +8,12 @@
 //!
 //! Each harness gets it through its own mechanism:
 //! - Claude Code: the `cmux:cmux-chat` skill in the session plugin (`agent_tools::SKILL_FILES`;
-//!   only its description reaches the prompt) plus [`CLAUDE_GUIDANCE`], a few lines of
-//!   first-turn context that say when to read it. The person's skills are a second session
-//!   plugin, `cmux-user` ([`materialize_user_plugin`]), so Claude Code lists them natively.
-//! - Codex and every other harness: [`AGENT_GUIDANCE`] in the first-turn context, the channel
-//!   Codex itself uses for AGENTS.md (a hidden user-role block), and an index of cmux's own
+//!   only its description reaches the prompt) plus [`CLAUDE_GUIDANCE`], the cmux rules, in its
+//!   system prompt (`--append-system-prompt`, `context_inventory::launch_args`). The person's
+//!   skills are a second session plugin, `cmux-user` ([`materialize_user_plugin`]), so Claude
+//!   Code lists them natively.
+//! - Codex and every other harness: [`AGENT_GUIDANCE`], as Codex's developer instructions
+//!   (`-c developer_instructions`) or else in the first-turn context, and an index of cmux's own
 //!   skills whose tools the chat has (`agent_tools::skill_index`) and of the person's skills
 //!   (name, description, path) so the agent reads one when it applies.
 //!

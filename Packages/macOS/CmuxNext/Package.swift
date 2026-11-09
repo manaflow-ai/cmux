@@ -14,7 +14,7 @@ import PackageDescription
 //   CmuxNextFavicons -> CmuxNextBrowser, CmuxNextTabs (public read-only favicon leaf)
 //   CmuxNextTabs, Sidebar, Layout, Browser -> CmuxNextDesign; Tabs, Home -> DesignTokens (the tab close rule); Tabs, Sidebar -> CmuxNextIcons; Palette -> Design, Actions
 //   Feature UI modules never import CmuxNextDaemon; the App maps daemon state into their view models.
-//   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary)
+//   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary), CCmuxAppFFI (predictive echo)
 //   CmuxNextCompat -> swift-atomics, system frameworks (back-ports of newer system APIs for the
 //     macOS 14 floor: Mutex, Atomic; any module may import it; plans/cmux-next/macos-floor.md)
 //   CmuxNextWakeups -> Compat, Signposts, system frameworks (the only sanctioned wakeup primitives:
@@ -184,8 +184,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-ca4bae15b07db886a79d8f31ac51e0933fb384ab/CCmuxAppFFI.xcframework.zip",
-    checksum: "9ded51f0bc09b9602bebbf32e194acc8f83c8699f110f53390bf309aa36188ae"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-ab644fb7bd5e41d6f0607bd6c4663affb0055dd0/CCmuxAppFFI.xcframework.zip",
+    checksum: "16371b200dbd99456d6869578b98e4902be666e824714c65281dc605ce02abad"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -1505,6 +1505,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextDesign",
+                "CmuxNextHistory",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
                 "CmuxNextHomeModel",
@@ -1552,22 +1553,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesign",
                 "CmuxNextWakeups",
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
-            ],
-            swiftSettings: uiSwiftSettings
-        ),
-        // App permissions (plans/cmux-next/first-party-apps.md sections 4 and 5):
-        // tiers, sandbox profiles, grants and the pure policy, plus the consent
-        // sheet, Settings > Apps > Permissions and first-use prompt prototypes.
-        // No daemon; the App supplies the data source and the style setting.
-        .target(
-            name: "CmuxNextAppPermissions",
-            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
-                "CmuxNextApps",
-                "CmuxNextDesign",
-                "CmuxNextIcons",
-            ],
-            resources: [
-                .process("Resources"),
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -2120,10 +2105,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // Links libghostty (GhosttyNextKit, whose macOS archive has the lib
         // prefix, so SwiftPM test bundles link it too).
+        // CCmuxAppFFI: predictive local echo for remote shells (cmux-terminal-prediction's C ABI).
         .target(
             name: "CmuxNextTerminal",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
-                // CCmuxAppFFI: the terminal selection rule (cmux-motion terminal_selection).
+                // CCmuxAppFFI: the terminal selection rule (cmux-motion terminal_selection)
+                // and predictive local echo (cmux-terminal-prediction).
                 "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextCopyMode",
