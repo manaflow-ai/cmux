@@ -463,7 +463,7 @@ extension CloudHandlers {
         let otherSuggestions = registry.argumentSuggestions
         registry.argumentSuggestions = { source in
             guard source == ActionSuggestions.cloudTeams else { return otherSuggestions?(source) ?? [] }
-            return cloud.auth.teams.map { ActionEnumCase(value: $0.id, title: $0.displayName) }
+            return TeamRowText.suggestions(cloud.auth)
         }
         let otherState = registry.choiceState
         registry.choiceState = { action, target in

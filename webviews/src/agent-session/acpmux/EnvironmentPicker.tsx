@@ -19,6 +19,7 @@ import {
   savedEnvironmentIsFolder,
   savedEnvironmentLabel,
 } from "./environments";
+import { TeamTag, type ActiveTeamTag } from "./TeamTag";
 import { isCloudMachineRow } from "./cloudMachines";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { machineColor } from "./machineColor";
@@ -96,6 +97,7 @@ export function EnvironmentPicker({
   onPick,
   onConnect,
   cloudSignedIn,
+  cloudTeam,
   saved,
   onOpen,
   offload,
@@ -127,6 +129,10 @@ export function EnvironmentPicker({
   /// Sign in for Cloud; before any answer the row is Cloud. The right-click menu keeps Sign in for
   /// Cloud until the app says signed in.
   cloudSignedIn?: boolean;
+  /// The team Cloud runs in (the app's active team): its row names it, so a pick never makes a
+  /// machine in a team the person did not see (Leo, 2026-11-09: "i guess is team? it's kinda hard
+  /// to realize tho").
+  cloudTeam?: ActiveTeamTag;
   saved?: SavedEnvironmentRows;
   /// The list opened, and every few seconds while it stays open: the host reads the machines
   /// again, so each one's status is current.
@@ -582,6 +588,7 @@ export function EnvironmentPicker({
             <span className="acpmux-menu-label">{t("composer.cloud")}</span>
             {listRows === "run" && runDetails && <span className="acpmux-menu-description">{runDetails.cloud}</span>}
           </span>
+          {cloudTeam && <TeamTag team={cloudTeam} />}
           <span className="acpmux-location-check" aria-hidden="true">
             {checked && <CheckIcon />}
           </span>
@@ -609,6 +616,7 @@ export function EnvironmentPicker({
           <span className="acpmux-menu-text acpmux-location-name">
             <span className="acpmux-menu-label">{action.text}</span>
           </span>
+          {action === cloud && !action.signsIn && cloudTeam && <TeamTag team={cloudTeam} />}
           <span className="acpmux-location-check" aria-hidden="true">
             {checked && <CheckIcon />}
           </span>

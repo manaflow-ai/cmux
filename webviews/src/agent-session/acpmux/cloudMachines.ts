@@ -8,6 +8,7 @@
 import { useSyncExternalStore } from "react";
 import { environmentReady, type Environment } from "./environments";
 import { postNative } from "./native";
+import { activeTeamFromReply, type ActiveTeamTag } from "./TeamTag";
 
 /// One machine of the account: its id, name and `CloudMachineStage` name (`ready`, `paused`,
 /// `requesting`, `creating`, `booting`, `connecting`, `failed`). `evictAt` (epoch ms) is when a
@@ -207,6 +208,16 @@ function publish(next: readonly CloudMachine[]): void {
   for (const listener of listeners) listener();
 }
 
+/// The team the account works in (the reply's `team`), shown on the Cloud row and face. Kept only
+/// in memory, from this page's own reply: an account switch never shows the previous team.
+let activeTeam: ActiveTeamTag | undefined;
+
+function publishTeam(next: ActiveTeamTag | undefined): void {
+  if (next?.name === activeTeam?.name && next?.personal === activeTeam?.personal) return;
+  activeTeam = next;
+  for (const listener of listeners) listener();
+}
+
 function publishAccount(next: boolean | undefined): void {
   if (next === accountSignedIn) return;
   accountSignedIn = next;
@@ -225,6 +236,7 @@ export function refreshCloudMachines(call: Call = postNative): Promise<void> {
         const list = cloudMachinesFromReply(reply);
         keepSignedIn(signedIn);
         publishAccount(signedIn);
+        publishTeam(signedIn ? activeTeamFromReply((reply as { team?: unknown } | null | undefined)?.team) : undefined);
         publish(list);
       }
     })
@@ -233,6 +245,7 @@ export function refreshCloudMachines(call: Call = postNative): Promise<void> {
       if (asked === generation) {
         keepSignedIn(undefined);
         publishAccount(undefined);
+        publishTeam(undefined);
         publish([]);
       }
     })
@@ -326,6 +339,19 @@ export function setCloudMachinesForTestAccount(next: boolean | undefined): void 
 }
 
 const accountSnapshot = () => accountSignedIn;
+const teamSnapshot = () => activeTeam;
+/// The team as last read (tests and capture diagnostics).
+export const currentCloudTeam = teamSnapshot;
+
+/// The team the signed-in account works in, once the app said; undefined before or signed out.
+export function useCloudTeam(): ActiveTeamTag | undefined {
+  return useSyncExternalStore(subscribe, teamSnapshot, teamSnapshot);
+}
+
+/// Tests: the team as if the app's reply named it.
+export function setCloudTeamForTest(next: ActiveTeamTag | undefined): void {
+  publishTeam(next);
+}
 
 /// Tests: the page loading again, starting from what localStorage kept (as at module load).
 export function reloadKeptCloudAccountForTest(): void {

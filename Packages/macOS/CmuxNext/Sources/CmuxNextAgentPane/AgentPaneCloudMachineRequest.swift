@@ -116,9 +116,21 @@ public final class AgentPaneCloudMachines {
         /// Whether the list is the server's answer for this read: a machine absent from a complete
         /// list is gone. A failed, superseded or merely cached read is not complete.
         public var complete: Bool
-        public init(signedIn: Bool, loaded: Bool, machines: [Machine], account: [String?]? = nil, complete: Bool = false) {
-            (self.account, self.complete) = (account, complete)
+        /// The team Cloud works in (the active team): its name, and whether it is the person's own.
+        /// The page names it on the Cloud row and face (webviews TeamTag.tsx).
+        public var team: Team?
+        public init(signedIn: Bool, loaded: Bool, machines: [Machine], account: [String?]? = nil, complete: Bool = false, team: Team? = nil) {
+            (self.account, self.complete, self.team) = (account, complete, team)
             (self.signedIn, self.loaded, self.machines) = (signedIn, loaded, machines)
+        }
+    }
+
+    /// The active team as the page reads it (`team` of a `cloudMachine.list` reply).
+    public struct Team: Equatable, Sendable {
+        public var name: String
+        public var personal: Bool
+        public init(name: String, personal: Bool) {
+            (self.name, self.personal) = (name, personal)
         }
     }
 
@@ -211,6 +223,7 @@ extension AgentPaneCloudMachineRequest {
             }
             var value: [String: Any] = ["signedIn": inventory.signedIn, "loaded": inventory.loaded, "machines": rows, "complete": inventory.complete && inventory.machines.count <= Self.maximumListed]
             if let account = inventory.account { value["account"] = account.map { $0 as Any? ?? NSNull() } }
+            if inventory.signedIn, let team = inventory.team { value["team"] = ["name": team.name, "personal": team.personal] as [String: Any] }
             return AgentPaneReply.success(value)
         case .open(let id): return run(machines?.open, on: id, gestures: gestures)
         case .resume(let id): return run(machines?.resume, on: id, gestures: gestures)

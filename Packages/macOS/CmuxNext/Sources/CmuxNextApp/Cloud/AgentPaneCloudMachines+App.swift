@@ -19,12 +19,12 @@ extension AgentPaneCloudMachines {
             let complete = age == .zero ? await services.cloud.refresh() : await services.cloud.refresh(ifOlderThan: age)
             guard services.cloud.isSignedIn, services.cloud.hasLoadedCurrentMachines,
                   age != .zero || (services.cloud.lastError == nil && services.cloud.unavailableReason == nil) else {
-                return Inventory(signedIn: services.cloud.isSignedIn, loaded: false, machines: [])
+                return Inventory(signedIn: services.cloud.isSignedIn, loaded: false, machines: [], team: TeamRowText.paneTeam(services.cloud.auth))
             }
             let machines = services.machines.cloud.compactMap { session in
                 session.effectiveStatus == .destroyed ? nil : Machine(id: session.machineID, name: session.machine.title, stage: session.stage.name, evictAt: session.machine.evictAt)
             }
-            return Inventory(signedIn: true, loaded: true, machines: machines, account: services.cloud.account, complete: complete)
+            return Inventory(signedIn: true, loaded: true, machines: machines, account: services.cloud.account, complete: complete, team: TeamRowText.paneTeam(services.cloud.auth))
         }
         list = { await inventory(Self.listAge) }
         recoveryList = { await inventory(.zero) }
