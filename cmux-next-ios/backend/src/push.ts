@@ -629,7 +629,7 @@ export const notifyFailures = (results: ReadonlyArray<ApnsSendResult>): Array<No
     .map((r) => ({
       environment: r.environment,
       status: r.status,
-      reason: r.status === 0 ? "network" : r.reason && APNS_REASON.test(r.reason) ? r.reason : "unknown"
+      reason: r.status === 0 ? "network" : typeof r.reason === "string" && APNS_REASON.test(r.reason) ? r.reason : "unknown"
     }))
 
 /** Sends one event to every target; never throws. */
@@ -646,7 +646,9 @@ export const sendApns = async (
     targets.map(async (t) => {
       try {
         const res = await fetcher(apnsRequest(t, e, token, now))
-        const reason = res.status === 200 ? undefined : ((await res.json().catch(() => ({}))) as { reason?: string }).reason
+        const body = res.status === 200 ? undefined : ((await res.json().catch(() => ({}))) as { reason?: unknown } | null)?.reason
+        // A malformed body (`{"reason": true}`, `null`) has no reason.
+        const reason = typeof body === "string" ? body : undefined
         if (res.status === 403 && (reason === "ExpiredProviderToken" || reason === "InvalidProviderToken")) cached = undefined
         return { token: t.token, environment: t.environment, outcome: classifyApns(res.status, reason), status: res.status, ...(reason ? { reason } : {}) }
       } catch (err) {

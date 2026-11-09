@@ -154,13 +154,15 @@ describe("push registration and notify", () => {
         r(0, "TypeError: connect failed to api.push.apple.com"),
         r(500, "free text: not an APNs reason"),
         r(503),
+        { ...r(502), reason: true as unknown as string },
         { ...r(200), outcome: "sent" }
       ])
     ).toEqual([
       { environment: "production", status: 403, reason: "TopicDisallowed" },
       { environment: "production", status: 0, reason: "network" },
       { environment: "production", status: 500, reason: "unknown" },
-      { environment: "production", status: 503, reason: "unknown" }
+      { environment: "production", status: 503, reason: "unknown" },
+      { environment: "production", status: 502, reason: "unknown" }
     ])
   })
 
