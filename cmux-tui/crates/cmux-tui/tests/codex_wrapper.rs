@@ -70,29 +70,41 @@ impl Launch {
 
     fn event(&self) -> serde_json::Value {
         let deadline = Instant::now() + Duration::from_secs(5);
-        let mut stream = loop {
-            match self.listener.accept() {
-                Ok((stream, _)) => break stream,
+        loop {
+            let mut stream = match self.listener.accept() {
+                Ok((stream, _)) => stream,
                 Err(error)
                     if error.kind() == std::io::ErrorKind::WouldBlock
                         && Instant::now() < deadline =>
                 {
                     std::thread::sleep(Duration::from_millis(10));
+                    continue;
                 }
                 result => panic!("hook must reach this session: {result:?}"),
+            };
+            // run_hook waits for the hook before this reads its requests, so
+            // the Codex SessionStart context read (session_context.rs, 1.5 s)
+            // has given up and closed its connection: macOS refuses
+            // SO_RCVTIMEO there, but its request is still buffered.
+            let _ = stream.set_nonblocking(false);
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
+            let mut line = String::new();
+            if BufReader::new(&stream).read_line(&mut line).unwrap_or(0) == 0 {
+                continue;
             }
-        };
-        stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
-        let mut line = String::new();
-        BufReader::new(&stream).read_line(&mut line).unwrap();
-        let request: serde_json::Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(request["operation"], "session.journal.append");
-        let response = serde_json::json!({
-            "protocol":"cmux.protocol/2", "type":"response", "id":request["id"],
-            "ok":true, "result":{"value":{"sequence":"1"}}
-        });
-        writeln!(stream, "{response}").unwrap();
-        request["params"]["event"].clone()
+            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+            if request["operation"] != "session.journal.append" {
+                let operation = request["operation"].as_str().unwrap_or_default();
+                assert!(operation.ends_with(".get"), "unexpected hook request {request}");
+                continue;
+            }
+            let response = serde_json::json!({
+                "protocol":"cmux.protocol/2", "type":"response", "id":request["id"],
+                "ok":true, "result":{"value":{"sequence":"1"}}
+            });
+            writeln!(stream, "{response}").unwrap();
+            return request["params"]["event"].clone();
+        }
     }
 }
 
@@ -154,7 +166,20 @@ fn run_hook(command: &str, stale_socket: Option<&Path>, session: &str) {
     writeln!(child.stdin.take().unwrap(), "{{\"session_id\":\"{session}\"}}").unwrap();
     let output = child.wait_with_output().unwrap();
     assert!(output.status.success(), "{output:?}");
-    assert_eq!(output.stdout, b"{}\n");
+    // Codex reads one JSON object: the launch SessionStart hook's session
+    // context (cmux-tui-hook session_context.rs), `{}` for every other event.
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|error| panic!("{error}: {:?}", String::from_utf8_lossy(&output.stdout)));
+    if command.contains("codex 'SessionStart'") {
+        assert_eq!(value["hookSpecificOutput"]["hookEventName"], "SessionStart", "{value}");
+        let context = value["hookSpecificOutput"]["additionalContext"].as_str().unwrap();
+        // It names this build's CLI, the launcher the shim's hooks run.
+        let cli = fs::canonicalize(env!("CARGO_BIN_EXE_cmux-tui")).unwrap();
+        assert!(context.contains(&*cli.to_string_lossy()), "{context}");
+        assert!(context.contains(" skill show`"), "{context}");
+    } else {
+        assert_eq!(value, serde_json::json!({}));
+    }
 }
 
 #[test]

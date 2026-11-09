@@ -31,7 +31,13 @@ pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// Version 2 added the agent adapter id to roster entries. Version 3
 /// added screen-detected events and hook/screen/socket arbitration. Version 5
 /// adds durable plugin-exit fences so late observations cannot resurrect rows.
-pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 5;
+/// Version 7 keeps each terminal's last screen observation, so a hook
+/// `blocked` row clears when the screen shows its dialog gone; the re-fold
+/// clears rows that stayed blocked after a dialog was dismissed with Esc. (6
+/// is skipped so 7 means this fold on main and on feat-cmux-next, where 6 is
+/// the hook session fence.) Version 8 ties that record to the plugin child
+/// that saw it, so a restarted plugin cannot clear a block.
+pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 8;
 /// Stable envelope used by userland agent plugins. The producer id is the
 /// plugin identity; the payload id must match it before the event is folded.
 pub(crate) const AGENT_PLUGIN_FORMAT: &str = "cmux.agent-plugin.v1";
@@ -353,6 +359,10 @@ pub(crate) struct AgentRoster {
     /// grows only when a configured producer is observed by the journal.
     #[serde(default)]
     plugin_exit_fences: HashMap<String, PluginExitFence>,
+    /// The last plugin screen observation per terminal public id
+    /// ([`ScreenEvidence`]).
+    #[serde(default)]
+    screen_evidence: HashMap<String, ScreenEvidence>,
 }
 
 impl AgentRoster {
@@ -380,6 +390,7 @@ impl AgentRoster {
                 return Vec::new();
             }
             self.record_plugin_exit_fence(plugin_id, generation_number, cutoff);
+            self.forget_screen_evidence_of(plugin_id, generation_number);
             let retired = self
                 .entries
                 .iter()
@@ -423,60 +434,67 @@ impl AgentRoster {
             return Vec::new();
         }
         let Some(terminal_id) = event.terminal_id() else { return Vec::new() };
-        let (state, source, producer, producer_generation, session, agent, updated_at_ms) =
-            if event.plugin_event() {
-                let Some(event_name) = event.plugin_event_name() else { return Vec::new() };
-                let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
-                    return Vec::new();
-                };
-                if event_name != "state.changed" && event_name != "session.ended" {
-                    return Vec::new();
-                }
-                let updated_at_ms = event.plugin_observed_at_ms().unwrap_or(event.committed_at_ms);
-                let producer_generation = event
-                    .normalized("plugin_generation")
-                    .and_then(|value| value.parse::<u64>().ok())
-                    .map(|value| value.to_string());
-                let session = event.normalized("source_session").map(str::to_string);
-                let agent = event.adapter_id().map(str::to_string);
-                (
-                    if event_name == "session.ended" { AgentState::Done } else { state },
-                    AgentSource::Plugin,
-                    Some(event.producer_id.to_string()),
-                    producer_generation,
-                    session,
-                    agent,
-                    updated_at_ms,
-                )
-            } else if event.adapter_id() == Some(SOCKET_REPORT_ADAPTER) {
-                // Socket echo: explicit state and timestamp carried in the
-                // payload, so the roster mirrors the direct projection
-                // commit exactly. The reporter does not know the agent type.
-                let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
-                    return Vec::new();
-                };
-                let source = event
-                    .normalized("source")
-                    .and_then(agent_source_from_str)
-                    .unwrap_or(AgentSource::Socket);
-                let updated_at_ms =
-                    event.normalized_u64("updated_at_ms").unwrap_or(event.committed_at_ms);
-                let session = event.normalized("source_session").map(str::to_string);
-                (state, source, None, None, session, None, updated_at_ms)
-            } else if event.native_event() == Some(LEGACY_SCREEN_DETECT_NATIVE_EVENT) {
-                // Screen detection: the daemon parsed the terminal tail.
-                // Explicit state like the socket echo, but the adapter is
-                // the detected agent and the source is `detected`.
-                let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
-                    return Vec::new();
-                };
-                let agent = event.adapter_id().map(str::to_string);
-                (state, AgentSource::Detected, None, None, None, agent, event.committed_at_ms)
-            } else {
-                let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
-                let agent = event.adapter_id().map(str::to_string);
-                (state, AgentSource::Hook, None, None, None, agent, event.committed_at_ms)
+        // The screen proves that no dialog is up any more ([`Self::screen_clears_hook_blocker`]).
+        let mut screen_cleared_blocker = false;
+        let (state, source, producer, producer_generation, session, agent, updated_at_ms) = if event
+            .plugin_event()
+        {
+            let Some(event_name) = event.plugin_event_name() else { return Vec::new() };
+            let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
+                return Vec::new();
             };
+            if event_name != "state.changed" && event_name != "session.ended" {
+                return Vec::new();
+            }
+            let updated_at_ms = event.plugin_observed_at_ms().unwrap_or(event.committed_at_ms);
+            let generation =
+                event.normalized("plugin_generation").and_then(|value| value.parse::<u64>().ok());
+            let producer_generation = generation.map(|value| value.to_string());
+            let session = event.normalized("source_session").map(str::to_string);
+            let agent = event.adapter_id().map(str::to_string);
+            let state = if event_name == "session.ended" { AgentState::Done } else { state };
+            let saw_blocker_go =
+                self.note_screen_evidence(terminal_id, event.producer_id, generation, state);
+            screen_cleared_blocker =
+                saw_blocker_go || (state == AgentState::Idle && event.plugin_visible_idle());
+            (
+                state,
+                AgentSource::Plugin,
+                Some(event.producer_id.to_string()),
+                producer_generation,
+                session,
+                agent,
+                updated_at_ms,
+            )
+        } else if event.adapter_id() == Some(SOCKET_REPORT_ADAPTER) {
+            // Socket echo: explicit state and timestamp carried in the
+            // payload, so the roster mirrors the direct projection
+            // commit exactly. The reporter does not know the agent type.
+            let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
+                return Vec::new();
+            };
+            let source = event
+                .normalized("source")
+                .and_then(agent_source_from_str)
+                .unwrap_or(AgentSource::Socket);
+            let updated_at_ms =
+                event.normalized_u64("updated_at_ms").unwrap_or(event.committed_at_ms);
+            let session = event.normalized("source_session").map(str::to_string);
+            (state, source, None, None, session, None, updated_at_ms)
+        } else if event.native_event() == Some(LEGACY_SCREEN_DETECT_NATIVE_EVENT) {
+            // Screen detection: the daemon parsed the terminal tail.
+            // Explicit state like the socket echo, but the adapter is
+            // the detected agent and the source is `detected`.
+            let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
+                return Vec::new();
+            };
+            let agent = event.adapter_id().map(str::to_string);
+            (state, AgentSource::Detected, None, None, None, agent, event.committed_at_ms)
+        } else {
+            let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
+            let agent = event.adapter_id().map(str::to_string);
+            (state, AgentSource::Hook, None, None, None, agent, event.committed_at_ms)
+        };
         // Source arbitration: hook > screen > socket per terminal. Hook
         // events always win. Screen detection may not overwrite an entry a
         // live hook owns (fresher than STALE_HOOK_MS), and its exit removal
@@ -494,7 +512,16 @@ impl AgentRoster {
             AgentSource::Plugin => {
                 if let Some(existing) = self.entries.get(terminal_id) {
                     let existing_source = existing.agent_source();
-                    if existing_source == AgentSource::Hook {
+                    // The dialog a hook announced is gone from the screen,
+                    // and no hook will say so: the screen's state wins.
+                    let dialog_gone = existing_source == AgentSource::Hook
+                        && Self::screen_clears_hook_blocker(
+                            existing,
+                            screen_cleared_blocker,
+                            state,
+                            updated_at_ms,
+                        );
+                    if existing_source == AgentSource::Hook && !dialog_gone {
                         // The producer observation is the evidence clock. A
                         // delayed append must not turn an old screen read
                         // into fresh evidence just because the journal
@@ -621,7 +648,9 @@ impl AgentRoster {
     /// tombstoned). Terminal lifecycle does not flow through `agent.*`
     /// events yet, so the host retires entries explicitly.
     pub(crate) fn retire_terminal(&mut self, terminal_id: &str) -> bool {
-        self.entries.remove(terminal_id).is_some()
+        let entry = self.entries.remove(terminal_id).is_some();
+        let evidence = self.screen_evidence.remove(terminal_id).is_some();
+        entry || evidence
     }
 
     fn record_plugin_exit_fence(
@@ -670,6 +699,9 @@ impl AgentRoster {
         if !roster.entries.values().all(valid_restored_entry) {
             return None;
         }
+        if !roster.screen_evidence.values().all(ScreenEvidence::valid) {
+            return None;
+        }
         if !roster.plugin_exit_fences.iter().all(|(plugin_id, fence)| {
             plugin_id != AGENT_HOOK_PRODUCER_ID
                 && valid_component(plugin_id)
@@ -716,6 +748,14 @@ fn valid_decimal_generation(value: &str) -> bool {
         && value.bytes().all(|byte| byte.is_ascii_digit())
         && value.parse::<u64>().is_ok()
 }
+
+#[path = "journal_reducers_screen_evidence.rs"]
+mod screen_evidence;
+use screen_evidence::ScreenEvidence;
+
+#[cfg(test)]
+#[path = "journal_reducers_blocker_tests.rs"]
+mod blocker_tests;
 
 #[cfg(test)]
 mod tests {

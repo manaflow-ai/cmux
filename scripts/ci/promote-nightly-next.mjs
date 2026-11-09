@@ -74,10 +74,13 @@ const BOT_LOGINS = new Set(['web-flow', 'github-actions[bot]', 'GitHub']);
 const MAX_ACTIVITY_PAGES = 20;
 
 // GitHub's Actions installation shares its hourly core budget across jobs.
-// Wait for the server's reset once per decision, without probing an empty
-// bucket. The 65-minute cap covers an hourly reset plus clock skew; the job
-// leaves ten more minutes for the guard and move. Never retry a write or a
-// permission failure, and never extend this into a second quota window.
+// Wait briefly for the server's reset once per decision, without probing an
+// empty bucket. The read client is normally the quota-isolated glaeda-route
+// App token (nightly.yml), while the GITHUB_TOKEN remains the fallback when
+// that token cannot be minted. A long reset is surfaced after three minutes
+// instead of holding the promotion until a later hourly window. Never retry a
+// write or a permission failure.
+export const QUOTA_RESET_WAIT_MS = 3 * 60 * 1000;
 export function quotaResetRetry({
   core, now = () => Date.now(), sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
 } = {}) {
@@ -91,7 +94,7 @@ export function quotaResetRetry({
       const delay = Math.max(1000, reset * 1000 - now() + 1000);
       if (waited || options.method !== 'GET' || error.status !== 403 ||
           String(headers['x-ratelimit-remaining']) !== '0' || !Number.isFinite(reset) || reset <= 0 ||
-          delay > 65 * 60 * 1000) throw error;
+          delay > QUOTA_RESET_WAIT_MS) throw error;
       waited = true;
       core?.warning?.(`Actions installation quota exhausted; waiting ${Math.ceil(delay / 1000)}s until ${new Date(reset * 1000).toISOString()} before one read retry.`);
       await sleep(delay);

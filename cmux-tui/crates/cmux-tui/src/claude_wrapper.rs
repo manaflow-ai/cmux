@@ -1,13 +1,16 @@
 //! `cmux-tui agent claude-wrapper [claude args...]`: starts Claude Code with
 //! cmux-tui's agent hooks.
 //!
-//! Panes put a `claude` shim first on PATH that execs this verb, so launchers
-//! that resolve `claude` from PATH and set their own CLAUDE_CONFIG_DIR are
-//! covered too. The hooks travel in
+//! Panes put a `claude` shim first on PATH that execs this verb (the shim
+//! folder and hook helper are the daemon's own build's: own_build_helpers.rs),
+//! so launchers that resolve `claude` from PATH and set their own
+//! CLAUDE_CONFIG_DIR are covered too. The hooks travel in
 //! `--settings`, which applies under any config directory. Claude Code honors
 //! only the last `--settings` flag, so every `--settings` value is folded into
 //! one private file that also carries the hooks. Any failure starts Claude
-//! unchanged.
+//! unchanged. A launch that gets the hooks this way, or that turns them off,
+//! loses cmux-tui's Claude Code plugin from `CLAUDE_CODE_PLUGIN_DIRS`
+//! (claude_plugin.rs), which covers the launches that skip the shim.
 
 use std::ffi::{CString, OsStr, OsString};
 use std::fs;
@@ -51,7 +54,8 @@ pub(crate) fn invocation(args: &[OsString]) -> Option<&[OsString]> {
 /// Execs the real Claude. Returns only when it could not be started.
 pub(crate) fn run(args: &[OsString]) -> i32 {
     let messages = &crate::localization::catalog().agent_wrapper;
-    let shim_dir = shim_directory();
+    let shim_dir =
+        current_executable().ok().and_then(|exe| crate::own_build_helpers::wrapper_shim_dir(&exe));
     let path = std::env::var_os("PATH").unwrap_or_default();
     let Some(claude) = find_real_claude(&path, shim_dir.as_deref()) else {
         eprintln!("{}", messages.agent_not_found);
@@ -60,11 +64,17 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     let mut command = Command::new(&claude);
     command.env("PATH", path_without_shims(&path, shim_dir.as_deref()));
     let mut launch_args = args.to_vec();
+    if std::env::var_os(HOOKS_DISABLED_ENV).is_some_and(|value| value == "1") {
+        drop_cmux_plugin(&mut command);
+    }
     if should_inject(args, |name| std::env::var_os(name)) {
         match prepare_hooks(args) {
             Ok((injected, helper)) => {
                 launch_args = injected;
                 command.env(WRAPPER_ACTIVE_ENV, "1");
+                // The merged `--settings` carries the hooks; the pane's plugin
+                // would report every event a second time.
+                drop_cmux_plugin(&mut command);
                 if let Some(helper) = helper {
                     command.env("CMUX_TUI_HOOK", helper);
                 }
@@ -77,22 +87,19 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     126
 }
 
-/// PATH for pane processes: the `claude` shim directory first, then the
-/// server's PATH. `None` leaves PATH alone (the shim could not be written).
-pub(crate) fn pane_path() -> Option<String> {
-    let dir = shim_directory()?;
-    let executable = current_executable().ok()?;
-    install_shim(&dir, &executable).ok()?;
-    path_with_shim_first(&std::env::var_os("PATH").unwrap_or_default(), &dir)?.into_string().ok()
-}
-
-/// Directory holding the `claude` shim, under cmux-tui's data home.
-fn shim_directory() -> Option<PathBuf> {
-    agent_hook_install::runtime_cmux_tui_data_home().map(|home| home.join("shims"))
+/// Removes cmux-tui's Claude Code plugin from the `CLAUDE_CODE_PLUGIN_DIRS`
+/// Claude inherits (claude_plugin.rs), keeping every other folder.
+fn drop_cmux_plugin(command: &mut Command) {
+    let env = crate::claude_plugin::PLUGIN_DIRS_ENV;
+    let Some(value) = std::env::var_os(env) else { return };
+    match crate::claude_plugin::without_cmux_plugins(&value) {
+        Some(kept) => command.env(env, kept),
+        None => command.env_remove(env),
+    };
 }
 
 /// This cmux-tui binary's canonical path, which the shim and fallback hooks run.
-fn current_executable() -> anyhow::Result<PathBuf> {
+pub(crate) fn current_executable() -> anyhow::Result<PathBuf> {
     let executable = std::env::current_exe().context("resolve the cmux-tui executable")?;
     Ok(executable.canonicalize().unwrap_or(executable))
 }
@@ -123,28 +130,39 @@ fn should_inject(args: &[OsString], getenv: impl Fn(&str) -> Option<OsString>) -
 /// Builds the launch arguments and picks the hook helper the settings use.
 fn prepare_hooks(args: &[OsString]) -> anyhow::Result<(Vec<OsString>, Option<PathBuf>)> {
     let executable = current_executable()?;
-    let helper = hook_helper(&executable);
-    let hooks = session_hook_settings(helper.is_none().then_some(executable.as_path()))?;
+    let helper = crate::own_build_helpers::launch_hook_helper(
+        &executable,
+        std::env::var_os("CMUX_TUI_HOOK"),
+    );
+    let hooks =
+        session_hook_settings(helper.is_none().then_some(executable.as_path()), &executable)?;
     let cache = agent_hook_install::runtime_cmux_tui_data_home()
         .context("no data directory for Claude settings")?
         .join("claude-settings");
     Ok((args_with_hooks(args, hooks, &cache)?, helper))
 }
 
-/// The detached `cmux-tui-hook` helper: the one `agent hook install` placed
-/// (the same path a remote host's hook install writes), else the one shipped
-/// beside this binary. The installed hook commands run
-/// `$CMUX_TUI_HOOK`, which the wrapper points at this absolute path.
-fn hook_helper(executable: &Path) -> Option<PathBuf> {
-    agent_hook_install::runtime_helper_path()
-        .filter(|path| agent_hook_install::is_executable_file(path))
-        .or_else(|| agent_hook_install::locate_helper_source(Some(executable)))
-        .filter(|path| path.is_absolute())
-}
-
-/// The hook settings fragment merged into every wrapped launch.
-fn session_hook_settings(emit_binary: Option<&Path>) -> anyhow::Result<Map<String, Value>> {
+/// The hook settings fragment merged into every wrapped launch: the agent
+/// hooks, and a `SessionStart` hook that runs `executable` (this build) to
+/// tell the model where it runs (agent_session_context.rs).
+fn session_hook_settings(
+    emit_binary: Option<&Path>,
+    executable: &Path,
+) -> anyhow::Result<Map<String, Value>> {
     let mut settings = agent_hook_install::claude_session_hook_settings(emit_binary)?;
+    // A path the hook command cannot spell drops only this hook.
+    if let Some(command) = crate::agent_session_context::hook_command(executable) {
+        let context = serde_json::json!({"hooks": [{
+            "type": "command",
+            "command": command,
+            "timeout": 10,
+        }]});
+        let mut extra = Map::new();
+        extra.insert("SessionStart".into(), Value::Array(vec![context]));
+        let mut fragment = Map::new();
+        fragment.insert("hooks".into(), Value::Object(extra));
+        merge_settings(&mut settings, fragment);
+    }
     // The hooks drive cmux notifications; Claude's own would duplicate them.
     settings.insert("preferredNotifChannel".into(), Value::from("notifications_disabled"));
     Ok(settings)
@@ -301,7 +319,7 @@ fn path_without_shims(path: &OsStr, shim_dir: Option<&Path>) -> OsString {
 }
 
 /// Prepends `shim_dir` to `path`, dropping any later copy so repeated startups stay idempotent.
-fn path_with_shim_first(path: &OsStr, shim_dir: &Path) -> Option<OsString> {
+pub(crate) fn path_with_shim_first(path: &OsStr, shim_dir: &Path) -> Option<OsString> {
     let inherited = std::env::split_paths(path).filter(|dir| dir != shim_dir);
     let entries = std::iter::once(shim_dir.to_path_buf());
     if path.is_empty() {
@@ -332,7 +350,7 @@ fn is_claude_shim(path: &Path) -> bool {
 }
 
 /// Writes `<dir>/claude` (0700 in a 0700 directory) when its content changed.
-fn install_shim(dir: &Path, executable: &Path) -> anyhow::Result<PathBuf> {
+pub(crate) fn install_shim(dir: &Path, executable: &Path) -> anyhow::Result<PathBuf> {
     let script = shim_script(executable, dir)?;
     fs::create_dir_all(dir).context("create the shim directory")?;
     fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
@@ -694,7 +712,7 @@ mod tests {
             "literal",
         ]);
         let cache = root.path().join("cache");
-        let hooks = session_hook_settings(None).unwrap();
+        let hooks = session_hook_settings(None, Path::new("/opt/cmux/cmux-tui")).unwrap();
         let out = args_with_hooks(&args, hooks.clone(), &cache).unwrap();
 
         assert_eq!(out[0], "--settings");
@@ -723,12 +741,16 @@ mod tests {
     /// Hook commands match `agent hook install`, or call `agent hook emit` without a helper.
     #[test]
     fn claude_wrapper_hook_commands_match_the_installed_hooks_or_fall_back_to_emit() {
-        let installed = session_hook_settings(None).unwrap();
+        let installed = session_hook_settings(None, Path::new("/opt/cmux/cmux-tui")).unwrap();
         let command = installed["hooks"]["Stop"][0]["hooks"][0]["command"].as_str().unwrap();
         assert!(command.contains("\"${h:-:}\" 'claude' 'Stop'"), "{command}");
         assert_eq!(installed["hooks"]["Stop"][0]["hooks"][0]["async"], true);
 
-        let emit = session_hook_settings(Some(Path::new("/opt/cmux tui/cmux-tui"))).unwrap();
+        let emit = session_hook_settings(
+            Some(Path::new("/opt/cmux tui/cmux-tui")),
+            Path::new("/opt/cmux/cmux-tui"),
+        )
+        .unwrap();
         let command = emit["hooks"]["Stop"][0]["hooks"][0]["command"].as_str().unwrap();
         assert!(
             command.starts_with(
@@ -742,11 +764,46 @@ mod tests {
         );
     }
 
+    /// Every wrapped launch adds one more `SessionStart` hook, after the
+    /// installed ones: this build's `agent session-context`, which tells the
+    /// model it runs in cmux, its ids and `cmux skill show`.
+    #[test]
+    fn session_context_claude_wrapper_adds_the_hook_of_this_build() {
+        let hooks = session_hook_settings(None, Path::new("/opt/cmux tui/cmux-tui")).unwrap();
+        let groups = hooks["hooks"]["SessionStart"].as_array().unwrap();
+        let commands = groups
+            .iter()
+            .flat_map(|group| group["hooks"].as_array().cloned().unwrap_or_default())
+            .filter_map(|hook| hook["command"].as_str().map(str::to_owned))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            commands.iter().filter(|command| command.ends_with(" agent session-context")).count(),
+            1,
+            "{commands:?}"
+        );
+        assert_eq!(
+            commands.last().map(String::as_str),
+            Some("'/opt/cmux tui/cmux-tui' agent session-context")
+        );
+        assert!(commands.len() >= 2, "the installed SessionStart hook stays: {commands:?}");
+        let last = groups.last().unwrap();
+        assert_eq!(last["hooks"][0]["timeout"], 10);
+        assert!(last["hooks"][0].get("async").is_none(), "Claude must read its output");
+
+        // A path the command cannot spell drops only the context hook.
+        use std::os::unix::ffi::OsStrExt as _;
+        let invalid = Path::new(OsStr::from_bytes(b"/opt/\xff/cmux-tui"));
+        let hooks = session_hook_settings(None, invalid).unwrap();
+        let text = serde_json::to_string(&hooks["hooks"]).unwrap();
+        assert!(!text.contains("session-context"), "{text}");
+        assert!(hooks["hooks"]["SessionStart"].as_array().is_some_and(|groups| !groups.is_empty()));
+    }
+
     /// Unreadable or malformed `--settings` values fail so the launch proceeds without hooks.
     #[test]
     fn claude_wrapper_skips_injection_for_bad_settings_arguments() {
         let root = tempfile::tempdir().unwrap();
-        let hooks = session_hook_settings(None).unwrap();
+        let hooks = session_hook_settings(None, Path::new("/opt/cmux/cmux-tui")).unwrap();
         for args in [
             os(&["--model", "opus", "--settings"]),
             os(&["--settings", "/nonexistent/settings.json"]),
