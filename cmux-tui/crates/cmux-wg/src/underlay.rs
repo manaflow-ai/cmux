@@ -164,6 +164,15 @@ pub trait Underlay: Send + 'static {
     fn peer_hint(&self) -> Option<SocketAddr> {
         None
     }
+
+    /// Whether the carrier moved the session to another route since the last
+    /// call (a switch, datagrams going on every path after the current one
+    /// went quiet, or the peer roaming to a new address). The driver then has
+    /// the tunnel's TCP resend what was in flight at once, instead of waiting
+    /// out a timer that backed off while the old route lost it.
+    fn take_path_change(&mut self) -> bool {
+        false
+    }
 }
 
 /// A datagram socket: Tokio's UDP socket, or a simulated one in tests.
@@ -251,6 +260,8 @@ pub struct SocketPath<S> {
     retry: Option<Pin<Box<Sleep>>>,
     retry_after: Duration,
     refusals: u32,
+    /// The peer roamed to a new address since the last `take_path_change`.
+    roamed: bool,
 }
 
 /// The default underlay: one UDP socket, one peer address.
@@ -266,6 +277,7 @@ impl<S: DatagramSocket> SocketPath<S> {
             retry: None,
             retry_after: INTERFACE_RETRY_MIN,
             refusals: 0,
+            roamed: false,
         }
     }
 
@@ -390,6 +402,8 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
 
     fn authenticated(&mut self, origin: Origin) {
         if let Some(addr) = origin.addr {
+            // Learning the first address is not a move; a new one is.
+            self.roamed |= self.peer.is_some_and(|peer| peer != addr);
             self.peer = Some(addr);
         }
     }
@@ -400,6 +414,10 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
 
     fn peer_hint(&self) -> Option<SocketAddr> {
         self.peer
+    }
+
+    fn take_path_change(&mut self) -> bool {
+        std::mem::take(&mut self.roamed)
     }
 }
 

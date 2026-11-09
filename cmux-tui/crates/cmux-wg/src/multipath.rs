@@ -136,6 +136,9 @@ struct Shared {
     fixed_paths: bool,
     /// This machine's interfaces, for each new path's medium.
     networks: Vec<LocalNetwork>,
+    /// The session left the path that carried it since the last
+    /// `take_path_change` (to another path, or to every path).
+    left_path: bool,
 }
 
 impl Shared {
@@ -149,8 +152,13 @@ impl Shared {
         if current.is_some() {
             self.last_path = current;
         }
-        let switched =
-            self.current.send_if_modified(|seen| std::mem::replace(seen, current) != current);
+        let mut left = false;
+        let switched = self.current.send_if_modified(|seen| {
+            let previous = std::mem::replace(seen, current);
+            left = previous.is_some() && previous != current;
+            previous != current
+        });
+        self.left_path |= left;
         let held = self.selector.chosen();
         let held_died = self.held.is_some() && held.is_none();
         self.held = held;
@@ -290,6 +298,7 @@ impl Multipath {
             held: None,
             fixed_paths: false,
             networks: local_networks(),
+            left_path: false,
         }));
         (Self { shared: Arc::clone(&shared) }, MultipathControl { shared })
     }
@@ -635,6 +644,17 @@ impl Underlay for Multipath {
 
     fn has_peer(&self) -> bool {
         lock(&self.shared).slots.iter().any(|slot| !slot.failed && slot.carrier.has_peer())
+    }
+
+    fn take_path_change(&mut self) -> bool {
+        let mut shared = lock(&self.shared);
+        // A path's own carrier roaming (the peer's address on it moved)
+        // counts too.
+        let mut roamed = false;
+        for slot in &mut shared.slots {
+            roamed |= slot.carrier.take_path_change();
+        }
+        std::mem::take(&mut shared.left_path) || roamed
     }
 
     fn peer_hint(&self) -> Option<SocketAddr> {

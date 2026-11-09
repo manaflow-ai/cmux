@@ -615,6 +615,9 @@ impl Driver {
     /// bytes between sockets and streams, then poll again so anything the
     /// streams produced leaves in the same pass.
     fn service(&mut self) {
+        if self.underlay.take_path_change() {
+            self.stack.path_changed();
+        }
         loop {
             let progressed = self.stack.step();
             self.flush_tx();
