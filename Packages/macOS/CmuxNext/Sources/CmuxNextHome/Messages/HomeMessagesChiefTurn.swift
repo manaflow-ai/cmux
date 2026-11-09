@@ -40,6 +40,9 @@ public protocol HomeMessagesChiefControl {
     func continueStoppedTurn() async -> Result<(continued: Bool, reason: String?), HomeMessagesChiefRefusal>
     /// `chief.stop {restart: names}` (Restart on the stop-all toast).
     func restartAgents(_ names: [String]) async -> HomeMessagesChiefRefusal?
+    /// `chief.stop {start: name}`: Start now on an agent the Chief queued behind its cap (its pill's
+    /// card and menu, user 2026-11-08); nil when it started.
+    func startQueuedAgent(_ name: String) async -> HomeMessagesChiefRefusal?
 }
 
 /// The Messages page's Chief turn ops (the App's `HomeMessagesHostProvider` routes these here),
@@ -47,7 +50,8 @@ public protocol HomeMessagesChiefControl {
 /// - `chief.stop {conversation}` -> `{stopped}`: the Stop button, Escape and Cmd-. in the message box;
 /// - `chief.stopAll {conversation}` -> `{stopped, subagents, errors, note?}`: Option-click on Stop;
 /// - `chief.continue {conversation}` -> `{continued, reason?}`: Continue after a stop;
-/// - `chief.restart {conversation, names}` -> `{restarted: true}`: Restart on the stop-all toast.
+/// - `chief.restart {conversation, names}` -> `{restarted: true}`: Restart on the stop-all toast;
+/// - `chief.startAgent {conversation, agent}` -> `{started: true}`: Start now on a queued agent's pill.
 /// A refusal (no Chief here, a hosted cloud Chief, the brain unreachable) throws its words.
 @MainActor
 public final class HomeMessagesChiefTurn {
@@ -55,7 +59,7 @@ public final class HomeMessagesChiefTurn {
     public typealias Control = @MainActor (ConversationID) -> (any HomeMessagesChiefControl)?
     /// The code of a refused control; the message is the words the page shows.
     public static let refusedCode = "cmux.home.chief.refused"
-    static let ops: Set<String> = ["chief.stop", "chief.stopAll", "chief.continue", "chief.restart"]
+    static let ops: Set<String> = ["chief.stop", "chief.stopAll", "chief.continue", "chief.restart", "chief.startAgent"]
 
     private let control: Control
 
@@ -86,6 +90,11 @@ public final class HomeMessagesChiefTurn {
             var out: [String: JSONValue] = ["continued": .bool(answer.continued)]
             if let reason = answer.reason { out["reason"] = .string(reason) }
             return .object(out)
+        case "chief.startAgent":
+            let agent = fields["agent"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
+            guard !agent.isEmpty else { throw PageError.invalidParams("agent must name the queued agent") }
+            if let refusal = await chief.startQueuedAgent(agent) { throw PageError(code: Self.refusedCode, message: refusal.text) }
+            return .object(["started": .bool(true)])
         default:
             let names = (fields["names"]?.arrayValue ?? []).compactMap(\.stringValue).filter { !$0.isEmpty }
             guard !names.isEmpty else { throw PageError.invalidParams("names must list the agents to restart") }

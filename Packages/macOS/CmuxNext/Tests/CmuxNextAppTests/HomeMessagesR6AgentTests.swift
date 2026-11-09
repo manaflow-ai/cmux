@@ -34,6 +34,12 @@ struct HomeMessagesR6AgentTests {
             calls.append("restart:" + names.joined(separator: ","))
             return restartRefusal
         }
+
+        var startRefusal: HomeMessagesChiefRefusal?
+        func startQueuedAgent(_ name: String) async -> HomeMessagesChiefRefusal? {
+            calls.append("start:" + name)
+            return startRefusal
+        }
     }
 
     private func turn(_ chief: FakeChief?, asked: ((ConversationID) -> Void)? = nil) -> HomeMessagesChiefTurn {
@@ -44,6 +50,25 @@ struct HomeMessagesR6AgentTests {
     }
 
     private let conversation: [String: JSONValue] = ["conversation": .string("conv_chief")]
+
+    /// A queued agent's pill: Start now asks the conversation's Chief to start it past its cap
+    /// (`chief.stop {start}`, as the native pill card did); a refusal comes back in its words.
+    @Test func startNowAsksTheChiefToStartTheQueuedAgent() async throws {
+        let chief = FakeChief()
+        let fields = conversation.merging(["agent": .string("a2")]) { $1 }
+        #expect(try await turn(chief).call("chief.startAgent", fields, userGesture: true) == .object(["started": .bool(true)]))
+        #expect(chief.calls == ["start:a2"])
+        chief.startRefusal = HomeMessagesChiefRefusal("a2 is not waiting")
+        do {
+            _ = try await turn(chief).call("chief.startAgent", fields, userGesture: true)
+            Issue.record("a refused start must throw")
+        } catch let error as PageError {
+            #expect(error.code == HomeMessagesChiefTurn.refusedCode)
+            #expect(error.message == "a2 is not waiting")
+        }
+        await #expect(throws: PageError.self) { try await turn(chief).call("chief.startAgent", conversation, userGesture: true) }
+        await #expect(throws: PageError.self) { try await turn(chief).call("chief.startAgent", fields, userGesture: false) }
+    }
 
     @Test func stopReachesTheConversationsChief() async throws {
         let chief = FakeChief()

@@ -588,10 +588,24 @@ function fakeAgentStore(entries: RunEntry[]) {
   return { store: store as never, sent, loads };
 }
 
-function AgentsHarness(props: { store: never; messages: HomeMessage[]; openOutside?: (link: string) => boolean }) {
-  const view = useAgents(props.store, props.messages, "me", props.openOutside, cardStrings(["en"]), true);
+function AgentsHarness(props: {
+  store: never;
+  messages: HomeMessage[];
+  openOutside?: (link: string) => boolean;
+  startAgent?: (peer: string) => Promise<boolean>;
+}) {
+  const view = useAgents(
+    props.store,
+    props.messages,
+    "me",
+    props.openOutside,
+    cardStrings(["en"]),
+    true,
+    props.startAgent,
+  );
   return (
     <div>
+      {view.card}
       {[...view.after].map(([anchor, extras]) => (
         <div key={anchor} data-anchor={anchor}>
           {extras.map((extra) => (
@@ -603,7 +617,7 @@ function AgentsHarness(props: { store: never; messages: HomeMessage[]; openOutsi
   );
 }
 
-test("a pill opens its agent's workspace right of Home through the host; with no link it opens nothing", async () => {
+test("a pill opens its agent's workspace right of Home through the host; with no link it opens nothing else", async () => {
   const link = "cmux://chief/0123abcd/session/sess-1";
   const ask = homeMessage({ id: "m1", seq: 1, author: "chief", clientMessageId: "send-c1-turn1-0123456789abcdef" });
   const reply = homeMessage({ id: "m2", seq: 2, author: "chief", clientMessageId: "turn1", text: `[a1](${link})` });
@@ -632,4 +646,58 @@ test("a pill opens its agent's workspace right of Home through the host; with no
   expect(opened).toEqual([link]);
   expect(container.querySelector(".hm-agent-pane")).toBeNull();
   expect(sent).toEqual([]);
+});
+
+test("a queued agent's pill with no link shows its card, and Start now asks the Chief to start it", async () => {
+  // User 2026-11-08: "a queued agent's pill must never do nothing on a click".
+  const ask = homeMessage({ id: "m1", seq: 1, author: "chief", clientMessageId: "send-c1-turn1-0123456789abcdef" });
+  const reply = homeMessage({ id: "m2", seq: 2, author: "chief", clientMessageId: "turn1", text: "On it." });
+  const { store } = fakeAgentStore([runEntry("r1", "turn1", [spawnStep])]);
+  const started: string[] = [];
+  let answer = false;
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <AgentsHarness
+        store={store}
+        messages={[ask, reply]}
+        openOutside={() => true}
+        startAgent={async (peer) => (started.push(peer), answer)}
+      />,
+    );
+  });
+  const pills = () => [...container.querySelectorAll<HTMLButtonElement>("[data-anchor=m1] .hm-pill")];
+  await act(async () => pills()[1]!.click());
+  // The ui/ Popover portals the card out of the transcript.
+  const card = () => document.querySelector<HTMLElement>(".hm-pill-card");
+  expect(card()?.querySelector(".hm-pill-card__status")?.textContent).toBe("Starts next");
+  const start = () => card()!.querySelector<HTMLButtonElement>(".hm-pill-card__start")!;
+  expect(start().textContent).toBe("Start now");
+  // A refused start keeps the card and its button.
+  await act(async () => start().click());
+  await settle();
+  expect(started).toEqual(["a2"]);
+  expect(start().disabled).toBe(false);
+  answer = true;
+  await act(async () => start().click());
+  await settle();
+  expect(started).toEqual(["a2", "a2"]);
+  expect(card()).toBeNull();
+  // Escape closes a card.
+  await act(async () => pills()[1]!.click());
+  expect(card()).not.toBeNull();
+  await act(async () => {
+    document.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+  expect(card()).toBeNull();
+  // The queued pill's menu has Start now.
+  const menuItems = () => [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent);
+  await act(async () => {
+    pills()[1]!.dispatchEvent(new dom!.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+  });
+  expect(menuItems()).toEqual(["Start now"]);
+  await act(async () => document.querySelector<HTMLElement>('[role="menuitem"]')!.click());
+  await settle();
+  expect(started).toEqual(["a2", "a2", "a2"]);
 });

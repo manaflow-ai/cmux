@@ -48,6 +48,7 @@ import { useChiefTurn } from "../transcript/useChiefTurn";
 import { ChiefStatusLine, useChiefActivity } from "../transcript/ChiefStatusLine";
 import type { TranscriptExtras } from "../transcript/extras";
 import { useAgents } from "../cards/pills/useAgents";
+import { CHIEF_TURN_OPS } from "../transcript/chiefTurn";
 import {
   bubbleHostActions,
   chatAppearance,
@@ -462,7 +463,20 @@ function ConversationView(
         : undefined,
     [host],
   );
-  const agents = useAgents(store, snapshot.messages, me?.id, openOutside, words.cards, conversation.kind === "chief");
+  const isChief = conversation.kind === "chief";
+  // Start now on a queued agent's pill or card: the brain starts it past its cap (chief.startAgent).
+  const startAgent = useMemo(
+    () =>
+      host && isChief
+        ? (agent: string) =>
+            host
+              .call(CHIEF_TURN_OPS.startAgent, { conversation: conversation.id, agent })
+              .then(() => true)
+              .catch(() => false)
+        : undefined,
+    [host, isChief, conversation.id],
+  );
+  const agents = useAgents(store, snapshot.messages, me?.id, openOutside, words.cards, isChief, startAgent);
   const extras = useMemo<TranscriptExtras | undefined>(
     () => {
       const tail =
@@ -528,7 +542,6 @@ function ConversationView(
     );
   }
   return (
-    // The agent pane takes the chat's right (min(440, max(280, 42%)), leaving the chat 320).
     <div className="hm-detail-split">
       <MessagesTranscript
         ref={props.transcript}
@@ -601,6 +614,7 @@ function ConversationView(
             }
           : {})}
       />
+      {agents.card}
     </div>
   );
 }

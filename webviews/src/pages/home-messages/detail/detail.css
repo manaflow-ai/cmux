@@ -42,8 +42,7 @@
   overflow: hidden;
 }
 
-/* The open conversation and, on its right, the agent pane (HomeNativeTranscriptView+AgentPane):
-   the pane is min(440, max(280, 42%)) wide and leaves the chat at least 320. */
+/* The open conversation (Home never splits: no agent pane beside it). */
 .hm-detail-frame > .hm-detail-split {
   flex: 1;
   min-height: 0;
@@ -52,10 +51,4 @@
 .hm-detail-split > .mt-transcript {
   flex: 1;
   min-width: 0;
-}
-.hm-detail-split > .hm-agent-pane {
-  flex: none;
-  width: min(440px, max(280px, 42%));
-  max-width: calc(100% - 320px);
-  border-left: 1px solid var(--cmux-separator);
 }

@@ -359,6 +359,18 @@ export function agentWorkspaceLink(peer: string, messages: readonly HomeMessage[
   return workspaceLink(peer, messages.filter((message) => message.author !== me).map(plain));
 }
 
+/** The agents still waiting for a slot in the rows, in the order the Chief starts them (lowest id first,
+ * HomeStore.queuedAgents): a queued agent's card says how many are ahead of it. */
+export function queuedPeers(rows: Iterable<AgentsRow>): string[] {
+  const out: string[] = [];
+  for (const row of rows)
+    row.peers.forEach((peer, index) => {
+      if (row.states?.[index] === "queued") out.push(peer);
+    });
+  const number = (peer: string) => Number(/\d+$/.exec(peer)?.[0] ?? Number.NaN);
+  return out.sort((a, b) => number(a) - number(b) || (a < b ? -1 : a > b ? 1 : 0));
+}
+
 /** `peer`'s newest report time (its pill's unread dot clears once the person opened it). */
 export function newestReportAt(peer: string, entries: readonly RunEntry[]): number | undefined {
   let newest: number | undefined;

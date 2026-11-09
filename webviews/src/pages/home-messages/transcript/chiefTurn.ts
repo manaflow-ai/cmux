@@ -13,6 +13,7 @@ export const CHIEF_TURN_OPS = {
   stopAll: "cmux.home.messages.chief.stopAll",
   continue: "cmux.home.messages.chief.continue",
   restart: "cmux.home.messages.chief.restart",
+  startAgent: "cmux.home.messages.chief.startAgent",
 } as const;
 
 /** What Stop all agents did (the brain's `chief.stop {all}` answer). */
