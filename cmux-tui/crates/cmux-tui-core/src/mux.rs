@@ -22,8 +22,9 @@ use terminal_records::{
 mod terminal_host_records;
 #[cfg(any(unix, windows))]
 use terminal_host_records::{
-    acknowledge_exact_terminal_host_exit, cleanup_terminal_host_record,
-    terminal_host_record_liveness, terminate_discovered_terminal_host_in,
+    HostEnd, acknowledge_exact_terminal_host_exit, cleanup_terminal_host_record,
+    request_terminal_host_end, terminal_host_record_liveness,
+    terminate_discovered_terminal_host_in,
 };
 mod detached_terminals;
 pub(crate) use detached_terminals::DetachedTerminalSpawn;
@@ -155,7 +156,7 @@ use guards::PendingWorkspaceSurface;
 pub(crate) use guards::ResourceWaitWake;
 mod agent_reports;
 mod agent_roster_fold;
-mod agent_roster_restore;
+pub(crate) mod agent_roster_restore;
 mod apply_layout;
 mod browser_create;
 mod browser_providers;
@@ -225,7 +226,9 @@ use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
 mod agent_prompts;
 pub use agent_presence::{AgentActivity, AgentPresence};
-pub(crate) use agent_prompts::{with_agent_list_replies, with_agent_session, with_last_reply};
+pub(crate) use agent_prompts::{
+    with_agent_list_replies, with_agent_session, with_kept_session, with_last_reply,
+};
 mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
 use agent_types::{
@@ -328,6 +331,8 @@ mod terminal_move_topology;
 mod terminal_progress;
 mod terminal_publisher;
 mod terminal_reap;
+mod terminal_tail_pins;
+pub(crate) use terminal_tail_pins::RESERVED_TAIL_KEY_PREFIX;
 #[cfg(unix)]
 mod terminal_rehost;
 mod terminal_relaunch;
@@ -684,6 +689,8 @@ pub struct Mux {
     command_history_worker: Mutex<Option<SyncSender<command_history::CommandHistoryMessage>>>,
     /// Makes the durable commits terminal output asks for, off the output readers.
     terminal_publisher: terminal_publisher::TerminalPublisher,
+    /// Pinned terminals' last lines and their publisher (`terminal-tail-pin-v1`).
+    terminal_tail_pins: terminal_tail_pins::TerminalTailPins,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     /// Per-client read marks. The shared unread marker above answers "does this terminal need
     /// attention on the shared console"; this map answers "has this client install seen this
@@ -716,6 +723,8 @@ pub struct Mux {
     /// Periodic checkpoint, segment sealing and incremental vacuum worker
     /// (mux/journal_maintenance.rs); `None` for an in-memory session.
     journal_maintenance: Mutex<Option<journal_maintenance::JournalMaintenance>>,
+    /// Sealed segment sums `server-stats` `disk` keeps between requests.
+    disk_usage: Mutex<crate::diagnostics::DiskUsageCache>,
     /// The one-time stored-output cleanup worker (mux/output_cleanup.rs).
     output_cleanup: output_cleanup::OutputCleanupState,
     /// The maintenance worker's stop and journal-change wake; every
@@ -905,6 +914,7 @@ impl Mux {
                 machine_name: None,
                 session_id: &self.session_public_id,
                 session_name: &self.session,
+                in_process_host: Some(&|host: &str| self.in_process_terminal_by_host(host)),
             },
             target,
             selectors,
@@ -926,6 +936,7 @@ impl Mux {
                 machine_name: None,
                 session_id: registry.session_id(),
                 session_name: &self.session,
+                in_process_host: Some(&|host: &str| self.in_process_terminal_by_host(host)),
             },
             target,
             selectors,

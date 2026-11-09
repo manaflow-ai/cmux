@@ -42,6 +42,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_WEB_TOKEN_ROTATE,
     method::MUX_HARNESSES,
     method::MUX_COMPLETE,
+    method::MUX_HUNK_SUMMARY,
     method::MUX_RELOAD_CONFIG,
     method::MUX_WATCH,
     method::MUX_HARNESS_INVENTORY_WATCH,
@@ -882,7 +883,10 @@ async fn forward_inner(
             hub.peer_accepts.forget(&peer.name, &id, prompt_id, token);
         }
         // `Peer::request` already took the peer's display lines out of the result and the error.
-        if first_attach && m == method::MUX_ATTACH && let Err(e) = &result {
+        if first_attach
+            && m == method::MUX_ATTACH
+            && let Err(e) = &result
+        {
             // Do not strand the marker when the first baseline request failed.
             // A retry must be able to establish a fresh no-history cursor.
             peer.clear_attached(&id);

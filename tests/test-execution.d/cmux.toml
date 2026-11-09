@@ -405,3 +405,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_tui_tree_handoff.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_tree_takeover.py"
+lane = "linux-guard"

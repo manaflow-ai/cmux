@@ -38,6 +38,9 @@ use serde_json::{Value, json};
 use super::agents::turn::{self, Begin};
 use super::cloud_start_chat::{self, Machine};
 use super::{GlobalArgs, OutputMode, UsageError};
+use cmux_cloud_start_core::machine_repo::Repo;
+
+mod local_repo;
 
 /// This command's flags that take the next word as their value.
 const TAKES_VALUE: &[&str] = &[
@@ -48,9 +51,11 @@ const TAKES_VALUE: &[&str] = &[
     "--harness",
     "--model",
     "--cwd",
+    "--repo",
     "--name",
     "--timeout",
     "--attach",
+    "--environment",
 ];
 
 /// `--wait` and `--no-wait` take no value in `cmux chat …` and `cloud start-chat` (unlike
@@ -90,9 +95,9 @@ const LIST_DEVICES: &str = "run `cmux machine list` for your devices and their i
 const LIST_VMS: &str = "run `cmux vm list-machines` for your VMs, or use --on vm:new";
 
 pub(super) const USAGE: &str = "\
-usage: cmux chat [--on TARGET] [--agent AGENT] [--model MODEL] [--cwd DIR]
-                 [--name NAME] [--attach FILE]... [--wait] [--timeout SECONDS] [--json]
-                 [[--prompt] TEXT]
+usage: cmux chat [--on TARGET] [--environment ENV] [--agent AGENT] [--model MODEL]
+                 [--cwd DIR] [--repo URL] [--name NAME] [--attach FILE]... [--wait]
+                 [--timeout SECONDS] [--json] [[--prompt] TEXT]
 
 Starts an agent chat, right here unless --on names another target:
 
@@ -107,6 +112,10 @@ Starts an agent chat, right here unless --on names another target:
   `cmux config set on TARGET` saves a default target (the chat.on setting),
   used when neither --on nor CMUX_ON names one; `cmux config reset on` clears it.
 
+  --environment ENV  The Cloud environment (its env_ id or its name) a Cloud chat's
+                     new machine boots in, with --on cloud or --on vm:new; without
+                     it, Auto, as in the app's composer
+
   --agent AGENT      claude (default), codex, ...
   --attach FILE      A file the first prompt carries; repeat for more (a chat here).
                      Any type and size: small files go inline, larger ones are uploaded
@@ -114,6 +123,10 @@ Starts an agent chat, right here unless --on names another target:
                      and exits non-zero (attach.not_found, not_a_file, unreadable)
   --model MODEL      The agent's model (a chat here)
   --cwd DIR          The chat's folder (absolute)
+  --repo URL         A chat here in a clone of URL: OWNER/NAME on GitHub or any https
+                     git URL (GitLab's too), @REF for a branch, tag or commit. Cloned
+                     with your git into ~/cmux/repos/HOST/OWNER/NAME, or --cwd DIR;
+                     a clone of it already there is used as it is
   --name NAME        The chat's name (a chat here)
   --prompt TEXT      A first prompt (`-` reads it from stdin); a Cloud chat needs one
   --wait             Wait for the chat's turn to end and print the reply
@@ -122,8 +135,10 @@ Starts an agent chat, right here unless --on names another target:
 EXAMPLES
   cmux chat 'Summarize README.md'
   cmux chat --prompt 'Summarize README.md' --wait --json
+  cmux chat --repo https://gitlab.com/group/project --prompt 'Summarize README.md'
   cmux chat --on studio-mac 'Run the tests'
   cmux chat --on vm:new --prompt 'Summarize README.md' --wait --json
+  cmux chat --on cloud --environment staging-db --prompt 'Run the migrations' --wait
   cmux chat --on vm:dev --cwd /home/cmux/work --prompt 'Run the tests' --json
 
 With --wait the answer has session_id, workspace_id, tab_id and reply, here
@@ -147,14 +162,22 @@ pub(super) struct Start {
     pub agent: Option<String>,
     pub model: Option<String>,
     pub cwd: Option<String>,
+    /// `--repo`: the repository a chat here starts in a clone of (local_repo.rs).
+    pub repo: Option<Repo>,
     pub name: Option<String>,
     pub prompt: Option<String>,
     /// `--attach` files for the first prompt (a chat here; a Cloud chat refuses them).
     pub attach: Vec<String>,
+    /// `--environment ENV`: the Cloud environment a new machine boots in (`cloud start-chat
+    /// --environment`); None is Auto, as the composer's Environment chip defaults to.
+    pub environment: Option<String>,
     pub wait: bool,
     pub timeout: Option<String>,
 }
 
+// Parsed once per `cmux chat` run and matched at once: the size of `Run` costs nothing, and a
+// box would only add an allocation.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Parsed {
     Help,
@@ -222,9 +245,11 @@ pub(super) fn parse_with(
         agent: None,
         model: None,
         cwd: None,
+        repo: None,
         name: None,
         prompt: None,
         attach: Vec::new(),
+        environment: None,
         wait: false,
         timeout: None,
     };
@@ -280,8 +305,21 @@ pub(super) fn parse_with(
             "--agent" | "--harness" => start.agent = Some(value()?),
             "--model" => start.model = Some(value()?),
             "--cwd" => start.cwd = Some(value()?),
+            "--repo" => {
+                if start.repo.is_some() {
+                    return Err(UsageError::new("give --repo once"));
+                }
+                start.repo = Some(local_repo::parse(value()?.trim()).map_err(UsageError::new)?);
+            }
             "--name" => start.name = Some(value()?),
             "--attach" => start.attach.push(value()?),
+            "--environment" => {
+                let environment = value()?.trim().to_owned();
+                if environment.is_empty() {
+                    return Err(UsageError::new("--environment needs an environment's id or name"));
+                }
+                start.environment = Some(environment);
+            }
             "--timeout" => start.timeout = Some(value()?),
             "--wait" => start.wait = true,
             "--no-wait" => start.wait = false,
@@ -604,9 +642,26 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
         signed_in: || cloud_start_chat::app_signed_in(global),
         cloud_machines: || cloud_start_chat::app_machines(global),
     };
-    let route = match route(start.on.as_deref(), reads) {
+    let route = match route_start(&start, reads) {
         Ok(route) => route,
         Err(error) => return super::wire::print_local_error(&error, global.output, 1),
+    };
+    let route = match in_environment(&start, route) {
+        Ok(route) => route,
+        Err(error) => return usage_failure(&error, global.output),
+    };
+    let start = match route {
+        Route::Here => match in_repo(start, global.output) {
+            Ok(start) => start,
+            Err(Failure::Usage(error)) => return usage_failure(&error, global.output),
+            Err(Failure::Repo(error)) => {
+                return super::wire::print_local_error(&error, global.output, 1);
+            }
+        },
+        Route::Cloud(_) if start.repo.is_some() => {
+            return usage_failure(&UsageError::new(REPO_HERE_ONLY), global.output);
+        }
+        Route::Cloud(_) => start,
     };
     match route {
         Route::Here => match here_wait(&start) {
@@ -637,6 +692,82 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
             }
             Err(error) => usage_failure(&error, global.output),
         },
+    }
+}
+
+/// Why [`in_repo`] started nothing.
+enum Failure {
+    Usage(UsageError),
+    Repo(Value),
+}
+
+const REPO_HERE_ONLY: &str = "--repo starts a chat here in a clone; a Cloud chat goes to a \
+     repository with cmux chat cd SESSION --repo REPO once it has started";
+
+/// `start` with `--repo`'s clone made (or found) and its folder as the chat's `--cwd`; without
+/// `--repo`, `start` as it is. `--cwd` with `--repo` names where the clone goes.
+fn in_repo(mut start: Start, output: OutputMode) -> Result<Start, Failure> {
+    let Some(repo) = start.repo.clone() else { return Ok(start) };
+    let dir = match &start.cwd {
+        Some(cwd) if std::path::Path::new(cwd).is_absolute() => std::path::PathBuf::from(cwd),
+        Some(cwd) => {
+            return Err(Failure::Usage(UsageError::new(format!(
+                "--cwd {cwd}: give the clone's folder as an absolute path"
+            ))));
+        }
+        None => {
+            let Some(home) = std::env::var_os("HOME").filter(|home| !home.is_empty()) else {
+                return Err(Failure::Usage(UsageError::new(
+                    "--repo clones into ~/cmux/repos, but HOME is not set; give --cwd DIR",
+                )));
+            };
+            local_repo::default_dir(std::path::Path::new(&home), &repo)
+        }
+    };
+    if output == OutputMode::Human {
+        eprintln!("cmux: {} in {}", repo.display(), dir.display());
+    }
+    local_repo::ensure(&repo.url(), repo.r#ref.as_deref(), &dir).map_err(Failure::Repo)?;
+    start.cwd = Some(dir.to_string_lossy().into_owned());
+    Ok(start)
+}
+
+/// Where `start` runs. An environment makes the chat's machine, so `--on cloud --environment`
+/// (cmux Cloud's choice of place) is a new machine in it, decided before any VM of yours is
+/// looked at: the VMs `--on cloud` would otherwise pick from (or refuse as several) are not its
+/// choice then. Only the sign-in is checked first. Anything else is [`route`]'s.
+pub(super) fn route_start<C, S, L>(start: &Start, reads: Reads<C, S, L>) -> Result<Route, Value>
+where
+    C: FnOnce() -> Result<Value, Value>,
+    S: FnOnce() -> bool,
+    L: FnOnce() -> Result<Value, Value>,
+{
+    if start.environment.is_some() && start.on.as_deref() == Some("cloud") {
+        if let Err(refusal) = cmux::resolve_chat_target("cloud", &Value::Null, (reads.signed_in)())
+        {
+            return Err(refused(&refusal));
+        }
+        return Ok(Route::Cloud(Machine::New));
+    }
+    route(start.on.as_deref(), reads)
+}
+
+/// The route once `--environment` is read: `--on cloud` and `--on vm:new` make the chat's machine
+/// in it ([`route_start`]). A chat here or on a machine that exists has no environment to pick:
+/// refused, never dropped. Without `--environment` the route is unchanged.
+pub(super) fn in_environment(start: &Start, route: Route) -> Result<Route, UsageError> {
+    if start.environment.is_none() {
+        return Ok(route);
+    }
+    match route {
+        Route::Cloud(Machine::New) => Ok(Route::Cloud(Machine::New)),
+        Route::Cloud(_) => Err(UsageError::new(
+            "--environment makes a new machine; with --on cloud or --on vm:new, not a VM that \
+             already has its environment",
+        )),
+        Route::Here => {
+            Err(UsageError::new("--environment picks a Cloud chat's environment; add --on cloud"))
+        }
     }
 }
 
@@ -761,9 +892,12 @@ pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String
         Machine::Target(id) => words.extend(["--target".to_owned(), format!("machine:{id}")]),
         Machine::New => {}
     }
-    for (flag, value) in
-        [("--agent", &start.agent), ("--cwd", &start.cwd), ("--timeout", &start.timeout)]
-    {
+    for (flag, value) in [
+        ("--agent", &start.agent),
+        ("--cwd", &start.cwd),
+        ("--environment", &start.environment),
+        ("--timeout", &start.timeout),
+    ] {
         if let Some(value) = value {
             words.extend([flag.to_owned(), value.clone()]);
         }

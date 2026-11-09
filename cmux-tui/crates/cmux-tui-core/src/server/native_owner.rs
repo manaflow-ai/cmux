@@ -41,6 +41,8 @@ const COMMANDS: &[&str] = &[
     "agent-session-typing",
     "agent-session-view",
     "agent-session-context",
+    // The owner's `/btw` on its Cloud chat (`agent-session-btw-v1`): owner-only in its handler.
+    "agent-session-btw",
     "agent-transfer-receive",
     "agent-transfer-write",
     "agent-transfer-finish",
@@ -127,6 +129,7 @@ const CAPABILITIES: &[&str] = &[
     AGENT_SESSION_START_MODEL_CAPABILITY,
     agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY,
     agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_BTW_CAPABILITY,
     agent_session_attach::agent_session_children::AGENT_SESSION_CHILDREN_CAPABILITY,
     AGENT_SESSION_FORK_CAPABILITY,
     agent_session_attach::AGENT_SESSION_SIDE_CAPABILITY,
@@ -150,6 +153,7 @@ const CAPABILITIES: &[&str] = &[
     crate::fs_ops::FS_READ_NOFOLLOW_CAPABILITY,
     crate::git_seed::GIT_SEED_CAPABILITY,
     crate::git_seed::GIT_SEED_EXPORT_CAPABILITY,
+    crate::git_seed::GIT_SEED_HOLD_CAPABILITY,
     crate::blob_fetch::BLOB_FETCH_CAPABILITY,
 ];
 

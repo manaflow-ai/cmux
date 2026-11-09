@@ -336,6 +336,9 @@ pub mod method {
     /// Replace the folders a chat sees beside its own (`hub/additional_dirs.rs`):
     /// `{sessionId, additionalDirectories}`; its agent restarts on them.
     pub const MUX_SET_DIRECTORIES: &str = "_acpmux/set_directories";
+    /// Make a new project folder with an empty git repository for a chat to start in
+    /// (`server/project_new.rs`): `{name}` -> `{cwd, name, git}`.
+    pub const MUX_PROJECT_NEW: &str = "_acpmux/project_new";
     /// Reconnect one of a Claude Code chat's MCP servers (`hub/tools.rs`):
     /// `{sessionId, server}`.
     pub const MUX_MCP_RECONNECT: &str = "_acpmux/mcp/reconnect";
@@ -650,6 +653,9 @@ pub mod method {
     /// naming chats and workspaces (hq#1957, `crate::complete`): no chat
     /// session, tools, MCP, hooks or session file. The unix socket only.
     pub const MUX_COMPLETE: &str = "_acpmux/complete";
+    /// One plain sentence for one diff hunk (`crate::hunk_summary`), kept by the hunk's content
+    /// hash; a `_acpmux/complete` run on a miss. The unix socket only.
+    pub const MUX_HUNK_SUMMARY: &str = "_acpmux/hunk_summary";
     /// Update Everything (cx-1mbnu; `hub/health_view.rs`): run now the
     /// no-sudo updater of the named outdated harnesses. The unix socket only.
     pub const MUX_HARNESS_UPDATE: &str = "_acpmux/harness/update";
@@ -766,6 +772,13 @@ pub mod method {
     pub const MUX_MACHINE_CONSENT_SET: &str = "_acpmux/machine_consent_set";
     pub const MUX_MACHINE_CONSENT_REFUSED: &str = "_acpmux/machine_consent_refused";
     pub const MUX_MACHINE_CONSENT_GET: &str = "_acpmux/machine_consent_get";
+    // This Mac's Cloud tunnel on the team mesh (`crate::machine_tunnel`,
+    // `server/machine_tunnel.rs`): the app's person-proved connection only, with the person's
+    // cmux access token in `token`. `attach|detach {token, networkId?}` -> the platform's
+    // answer; `rekey {token}` -> `{machineId, wgPublicKey, restarted}`.
+    pub const MUX_MACHINE_TUNNEL_ATTACH: &str = "_acpmux/machine.tunnel.attach";
+    pub const MUX_MACHINE_TUNNEL_DETACH: &str = "_acpmux/machine.tunnel.detach";
+    pub const MUX_MACHINE_TUNNEL_REKEY: &str = "_acpmux/machine.tunnel.rekey";
     pub const MUX_PAIR_SET: &str = "_acpmux/pair_set";
     pub const MUX_PAIR_REDEEM: &str = "_acpmux/pair_redeem";
     // The person's vault on this machine (`crate::vault`, `server/vault.rs`).

@@ -215,6 +215,16 @@ pub(super) fn send(
         }
     }
     if let Some(expected) = expect_agent {
+        // While the start's roster replay runs in the background, the roster holds older states
+        // (an `idle` from before the agent's last prompt) next to the current session id, so the
+        // check below could pass for an agent that works or asks. Refused until the replay and its
+        // reconcile are done: nothing was written, and the same send succeeds then.
+        if mux.agent_roster_settling() {
+            return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
+                "agent roster replay in progress: agent states are still being restored; retry \
+                 the send shortly"
+            )));
+        }
         // Only this surface's own terminal's record: a surface with no terminal id fails closed
         // (an unfiltered roster would name another terminal's agent).
         let agent = surface.terminal_public_id().cloned().and_then(|terminal| {
