@@ -2202,6 +2202,17 @@ class GhosttyApp {
     }
 
     @MainActor
+#if DEBUG
+    var debugConfigurationReloadDiagnosticsForTesting: String {
+        let c = configurationReloadCoordinator
+        return "phase=\(c.debugPhaseForTesting)"
+            + " pendingRequest=\(c.debugHasPendingRequestForTesting)"
+            + " outstandingCompletions=\(c.debugOutstandingCompletionCountForTesting)"
+            + " activeCompletions=\(c.debugActiveCompletionCountForTesting)"
+            + " schedulerHasPendingWork=\(terminalConfigurationApplyScheduler.hasPendingWork)"
+    }
+#endif
+
     var isConfigurationReloadActive: Bool {
         configurationReloadCoordinator.isReloadActive
     }

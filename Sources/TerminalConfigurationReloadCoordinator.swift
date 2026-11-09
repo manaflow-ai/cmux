@@ -31,6 +31,13 @@ final class TerminalConfigurationReloadCoordinator {
             maximumOutstandingCompletionCount > 0 ? 1 : 0
     }
 
+#if DEBUG
+    var debugPhaseForTesting: TerminalConfigurationReloadPhase { phase }
+    var debugHasPendingRequestForTesting: Bool { pendingRequest != nil }
+    var debugOutstandingCompletionCountForTesting: Int { outstandingCompletionCount }
+    var debugActiveCompletionCountForTesting: Int { activeCompletionCount }
+#endif
+
     var isReloadActive: Bool {
         phase == .preparing || phase == .reconciling
     }
