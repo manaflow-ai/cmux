@@ -3,9 +3,12 @@
    scale; added and removed lines take the agent pane's status greens and reds. */
 html[data-cmux-page="artifacts"] body { overflow: hidden; }
 
+/* The tree's width: the default track until its edge is dragged (SplitEdge sets --artifacts-side-width
+   here). The track reads invalid while that is unset, so the default holds; the preview keeps 320px. */
 .artifacts {
+  --artifacts-side-track: clamp(180px, var(--artifacts-side-width), 100% - 320px);
   display: grid;
-  grid-template-columns: minmax(200px, 28%) minmax(0, 1fr);
+  grid-template-columns: var(--artifacts-side-track, minmax(200px, 28%)) minmax(0, 1fr);
   height: 100vh;
   color: var(--page-text);
 }
@@ -18,7 +21,7 @@ html[data-cmux-page="artifacts"] body { overflow: hidden; }
   min-height: 0;
 }
 
-.artifacts-side { border-inline-end: var(--cmux-hairline) solid var(--page-separator); }
+.artifacts-side { position: relative; border-inline-end: var(--cmux-hairline) solid var(--page-separator); }
 
 .artifacts-header {
   flex: none;

@@ -1827,7 +1827,7 @@ fn sensitivity_rank(value: JournalSensitivity) -> u8 {
     }
 }
 
-fn random_event_id(category: &str) -> String {
+pub(super) fn random_event_id(category: &str) -> String {
     format!("event_{category}_{}", new_uuid_v4().replace('-', ""))
 }
 

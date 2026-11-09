@@ -986,10 +986,17 @@
    carry here; left on, its side hairlines stood in the gap above the card's top corners. */
 :root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-strip::after { content: none; }
 :root[data-top-strip="plain"] .acpmux-composer-strip .acpmux-composer-context { padding: 0; }
-:root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-queue,
-:root[data-top-strip="plain"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
+/* Focus paints only (Leo, 2026-11-06: "I click into a chat and I refocus it, like it does a little jump
+   and a hop"): the focused selector restates the queue's paint over the focused rim rule, never its
+   margin or padding, which stay with the unfocused selectors and the strip rule after them. Carried
+   here, they outranked that rule's margin-bottom: 0 and the focused composer grew 4 px
+   (chat-focus-paints-only.test.ts). */
+:root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-queue {
   margin: 0 var(--acpmux-top-strip-edge) var(--acpmux-strip-gap);
   padding: 0;
+}
+:root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-queue,
+:root[data-top-strip="plain"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
   border-radius: 0;
   background: none;
   box-shadow: none;
@@ -1065,11 +1072,14 @@
 :root[data-top-strip="tray"] .acpmux-composer-strip .acpmux-composer-context { padding: 0; }
 /* A started chat's queue is the tray: the same inset, tuck, corners, fill and edge. Over a new
    chat's strip it is the tray's top, flush on the strip. */
+/* Focus paints only, as in plain above: margin and padding stay off the focused selector. */
+:root[data-top-strip="tray"] .acpmux-composer > .acpmux-composer-queue {
+  margin: 0 var(--acpmux-tray-inset) calc(-1 * var(--acpmux-tray-tuck));
+  padding: 4px 0 calc(4px + var(--acpmux-tray-tuck));
+}
 :root[data-top-strip="tray"] .acpmux-composer > .acpmux-composer-queue,
 :root[data-top-strip="tray"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
   --acpmux-composer-tray: var(--acpmux-top-tray);
-  margin: 0 var(--acpmux-tray-inset) calc(-1 * var(--acpmux-tray-tuck));
-  padding: 4px 0 calc(4px + var(--acpmux-tray-tuck));
   border-radius: 14px 14px 0 0;
   background: var(--acpmux-queue-fill);
   box-shadow: inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-composer-edge);

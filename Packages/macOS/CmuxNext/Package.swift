@@ -184,8 +184,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-d66737e4daffe147f662c40764cb2a2874302323/CCmuxAppFFI.xcframework.zip",
-    checksum: "47fb5f5d48c02a973f86bf5cfd2f36bad4685c732494249c136fef1fe94e317e"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-0ee67db0f28dae50381e01e015fcd36a1b1d1958/CCmuxAppFFI.xcframework.zip",
+    checksum: "200eed780dda79f368f7083d68456ab70632c49bc6a40e72ae51ffcf1a731149"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -1205,15 +1205,19 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: uiSwiftSettings
         ),
         // Keep awake (sessions.keepAwake): one idle-sleep hold for the Keep Mac Awake
-        // action and working local agents, released on battery unless the user
-        // chose Always. IOKit's power-source notification, no polling.
+        // action, working local agents and (sessions.keepAwakeForCommands) long terminal
+        // commands, released on battery unless the user chose Always. IOKit's power-source
+        // notification and one deadline from the Rust command rule, no polling.
         .target(
             name: "CmuxNextKeepAwake",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
+                "CmuxNextActions",
                 "CmuxNextBridge",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextSettings",
+                "CmuxNextWakeups",
             ],
             swiftSettings: uiSwiftSettings
         ),

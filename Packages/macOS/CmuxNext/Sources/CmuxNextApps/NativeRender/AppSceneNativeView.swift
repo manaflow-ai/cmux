@@ -11,7 +11,7 @@ import CmuxNextDesign
 /// makes views for new nodes and drops the views of removed ones. A change is noticed by Observation
 /// (no polling) while the view is in a window, and any layout pass draws a pending one; ``onContentSizeChange`` tells the host when the
 /// height may have changed. Loading draws nothing; a failed or disconnected mount draws one quiet row
-/// with the reason. Every node type of the kit has an AppKit view here, so no scene falls back to
+/// (``AppFailureNSView``): what happened in plain words, with the raw reason under Details. Every node type of the kit has an AppKit view here, so no scene falls back to
 /// SwiftUI.
 final class AppSceneNativeView: NSView {
     let model: AppSceneModel
@@ -21,39 +21,28 @@ final class AppSceneNativeView: NSView {
     var onContentSizeChange: (() -> Void)?
     private var views: [String: AppSceneNodeNSView] = [:]
     private var rootView: AppSceneNodeNSView?
-    /// A failed mount's card: the reason, the script line it names, and Reload (``AppScriptFailure``).
-    private let failure = ChromeLabel(wrappingLabelWithString: "")
-    private let failureLocation = ChromeLabel(labelWithString: "")
-    private lazy var reloadButton: NSButton = {
-        let button = NSButton(title: AppsStrings.reload, target: self, action: #selector(reloadScript))
-        button.isBordered = false
-        button.setButtonType(.momentaryChange)
-        button.toolTip = AppsStrings.reloadHelp
-        button.setAccessibilityLabel(AppsStrings.reloadHelp)
-        return button
-    }()
+    /// The failed or disconnected mount's row (plain words, Copy Error, Details).
+    private let failure: AppFailureNSView
     private var drawnRevision = -1
     private var drawnStatus: AppSceneModel.Status?
 
-    init(model: AppSceneModel, bundleDirectory: URL? = nil) {
+    /// - Parameter copyText: What the failure row's Copy Error does with the raw reason (the general
+    ///   pasteboard); tests pass a recorder.
+    init(model: AppSceneModel, bundleDirectory: URL? = nil,
+         copyText: @escaping @MainActor (String) -> Void = AppFailureNSView.copyToPasteboard) {
         self.model = model
         self.bundleDirectory = bundleDirectory
+        failure = AppFailureNSView(copyText: copyText)
         super.init(frame: .zero)
         wantsLayer = true
-        failure.font = Typography.caption
-        // The whole reason: a clipped syntax error hides the part that says what to fix.
-        failure.maximumNumberOfLines = 12
-        failure.isSelectable = true
-        failure.focusRingType = .none
         failure.isHidden = true
+        failure.onSizeChange = { [weak self] in
+            self?.needsLayout = true
+            self?.invalidateIntrinsicContentSize()
+            self?.onContentSizeChange?()
+        }
+        failure.onReload = { [model] in model.reload() }
         addSubview(failure)
-        failureLocation.font = Typography.system(.monospaced, size: Typography.caption.pointSize)
-        failureLocation.isSelectable = true
-        failureLocation.focusRingType = .none
-        failureLocation.isHidden = true
-        addSubview(failureLocation)
-        reloadButton.isHidden = true
-        addSubview(reloadButton)
         needsLayout = true
     }
 
@@ -102,23 +91,12 @@ final class AppSceneNativeView: NSView {
 
     private func reconcile() {
         switch model.status {
-        case .failed(let reason), .disconnected(let reason):
-            let parsed = AppScriptFailure(reason: reason)
-            failure.stringValue = parsed.message
-            failure.isHidden = false
-            failureLocation.stringValue = parsed.location ?? ""
-            failureLocation.isHidden = parsed.location == nil
-            // A disconnected mount comes back with its connection; only a failed one offers Reload.
-            if case .failed = model.status { reloadButton.isHidden = false } else { reloadButton.isHidden = true }
-            updateReloadTitle()
-            rootView?.removeFromSuperview()
-            rootView = nil
-            views.removeAll()
-            return
+        case .failed(let reason):
+            return showFailure { $0.show(failure: AppFailureCopy(reason: reason)) }
+        case .disconnected(let reason):
+            return showFailure { $0.show(disconnected: reason) }
         case .loading, .ready:
             failure.isHidden = true
-            failureLocation.isHidden = true
-            reloadButton.isHidden = true
         }
         var live = Set<String>()
         let next = model.scene.root.flatMap { view(for: $0, live: &live) }
@@ -128,6 +106,15 @@ final class AppSceneNativeView: NSView {
             if let next { addSubview(next) }
             rootView = next
         }
+    }
+
+    /// Draws the failure row in place of the scene.
+    private func showFailure(_ configure: (AppFailureNSView) -> Void) {
+        configure(failure)
+        failure.isHidden = false
+        rootView?.removeFromSuperview()
+        rootView = nil
+        views.removeAll()
     }
 
     /// The view of node `id`, reused when the node keeps its type, configured with its current value,
@@ -190,7 +177,7 @@ final class AppSceneNativeView: NSView {
     /// The scene's height laid out `width` points wide.
     func preferredHeight(width: CGFloat) -> CGFloat {
         redrawIfNeeded()
-        if !failure.isHidden { return failureFrames(width: width).height }
+        if !failure.isHidden { return ceil(failure.height(width: width)) }
         return ceil(rootView?.height(width: width) ?? 0)
     }
 
@@ -198,62 +185,15 @@ final class AppSceneNativeView: NSView {
         NSSize(width: NSView.noIntrinsicMetric, height: preferredHeight(width: bounds.width))
     }
 
-    private var failureInset: CGFloat { Metrics.space4 }
-
-    /// The failure card's lines, top to bottom at `width`: message, location, Reload; and its height.
-    private func failureFrames(width: CGFloat) -> (message: CGRect, location: CGRect, reload: CGRect, height: CGFloat) {
-        let inner = max(0, width - 2 * failureInset)
-        var y = Metrics.space2
-        let message = CGRect(x: failureInset, y: y, width: inner, height: ceil(failure.size(forWidth: inner).height))
-        y = message.maxY
-        var location = CGRect.zero
-        if !failureLocation.isHidden {
-            y += Metrics.space1
-            location = CGRect(x: failureInset, y: y, width: inner, height: ceil(failureLocation.size(forWidth: inner).height))
-            y = location.maxY
-        }
-        var reload = CGRect.zero
-        if !reloadButton.isHidden {
-            y += Metrics.space1
-            let size = reloadButton.fittingSize
-            reload = CGRect(x: failureInset, y: y, width: ceil(size.width), height: ceil(size.height))
-            y = reload.maxY
-        }
-        return (message, location, reload, y + Metrics.space2)
-    }
-
-    /// Reload in the accent color at caption size: one quiet text action under the error.
-    private func updateReloadTitle() {
-        reloadButton.attributedTitle = NSAttributedString(string: AppsStrings.reload, attributes: [
-            .font: Typography.caption, .foregroundColor: Palette.accent,
-        ])
-    }
-
-    @objc private func reloadScript() {
-        model.reload()
-    }
-
     override func layout() {
         redrawIfNeeded()
         super.layout()
         if !failure.isHidden {
-            let frames = failureFrames(width: bounds.width)
-            failure.frame = frames.message
-            failureLocation.frame = frames.location
-            reloadButton.frame = frames.reload
+            failure.frame = CGRect(x: 0, y: 0, width: bounds.width, height: ceil(failure.height(width: bounds.width)))
         }
         guard let rootView else { return }
         let width = min(rootView.naturalWidth ?? bounds.width, bounds.width)
         rootView.frame = CGRect(x: 0, y: 0, width: width, height: rootView.height(width: width))
     }
 
-    override func updateLayer() {
-        performWithTheme {
-            failure.textColor = Palette.textSecondary
-            failureLocation.textColor = Palette.textTertiary
-            updateReloadTitle()
-        }
-    }
-
-    nonisolated override var wantsUpdateLayer: Bool { true }
 }

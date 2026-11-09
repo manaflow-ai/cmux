@@ -120,6 +120,37 @@ export default agentPaneEntry({
         next,
       ]),
     },
+    "background-update-hover": {
+      note: '"Background update" under the pointer: its words light all the way through, as a tool row\'s do; its clock stays (Leo, 2026-11-09).',
+      snapshot: chat([...opening, ...quiet("lone-bg", 8), next]),
+      play: async (ctx) => ctx.hover({ selector: "button.cv-background-turn .cv-agent-activity__sentence" }),
+    },
+    "background-tasks-run-hover": {
+      note: '"3 background tasks finished" under the pointer: its words light all the way through, as a tool row\'s do (Leo, 2026-11-09).',
+      snapshot: chat([
+        ...opening,
+        ...quiet("lone-run-a", 9, "task_notification"),
+        ...quiet("lone-run-b", 8, "task_notification"),
+        ...quiet("lone-run-c", 7, "task_notification"),
+        next,
+      ]),
+      play: async (ctx) => ctx.hover({ selector: "button.cv-background-turn .cv-agent-activity__sentence" }),
+    },
+    "subagent-finished-hover": {
+      note: '"Subagent finished" under the pointer: its words light all the way through, as a tool row\'s do (Leo, 2026-11-09).',
+      snapshot: chat([
+        ...opening,
+        {
+          id: "subagentDone:lone-agent",
+          version: 1,
+          kind: "subagentDone",
+          at: subagent.endedAt!,
+          subagents: [subagent],
+        },
+        next,
+      ]),
+      play: async (ctx) => ctx.hover({ selector: "button.cv-subagent-done .cv-agent-activity__sentence" }),
+    },
     "received-message": {
       note: "Another agent's message after the turn ended keeps the block gap under the footer (footer-to-received, 51 centre to centre): it is another speaker, not this turn's tail.",
       snapshot: chat([
