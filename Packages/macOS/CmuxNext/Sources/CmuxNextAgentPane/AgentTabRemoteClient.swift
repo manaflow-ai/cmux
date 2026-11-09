@@ -78,6 +78,8 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
         try await mapped { try await client.login(op, fields) }
     }
 
+    public func btw(_ question: String) async throws -> Data { try await mapped { try await client.btw(question) } }
+
     public func close() async { await client.close() }
 
     /// A daemon push as the pane's event: the record or request object, or the close reason.

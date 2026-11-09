@@ -40,6 +40,8 @@ const COMMANDS: &[&str] = &[
     "agent-session-typing",
     "agent-session-view",
     "agent-session-context",
+    // The owner's `/btw` on its Cloud chat (`agent-session-btw-v1`): owner-only in its handler.
+    "agent-session-btw",
     "agent-transfer-receive",
     "agent-transfer-write",
     "agent-transfer-finish",
@@ -126,6 +128,7 @@ const CAPABILITIES: &[&str] = &[
     AGENT_SESSION_START_MODEL_CAPABILITY,
     agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY,
     agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_BTW_CAPABILITY,
     agent_session_attach::agent_session_children::AGENT_SESSION_CHILDREN_CAPABILITY,
     AGENT_SESSION_FORK_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_CAPABILITY,

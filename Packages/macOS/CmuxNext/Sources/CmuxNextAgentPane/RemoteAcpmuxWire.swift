@@ -17,8 +17,10 @@ import os
 /// daemon's `agent-session-login`, `agent-session-login-v1`; never on an observation), and the
 /// person's model, mode and option picks (`session/set_model`,
 /// `session/set_mode`, `session/set_config_option`, through the daemon's `agent-session-set-*`,
-/// `agent-session-settings-v1`; the host already checked their gesture and full-access rule).
-/// Every other method, and any frame that names another session, is answered
+/// `agent-session-settings-v1`; the host already checked their gesture and full-access rule), and
+/// the composer's inline `/btw` (`_acpmux/btw` with `inline: true`, through the daemon's
+/// `agent-session-btw`, `agent-session-btw-v1`; the host already checked its gesture; never on an
+/// observation). Every other method, and any frame that names another session, is answered
 /// `remote.unsupported`: nothing on the other machine reads a folder or spawns a process from here.
 ///
 /// A new chat's wire (``init(start:)``) has no session yet: its page's first `session/new` (the
@@ -32,6 +34,8 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     public static let readOnly = "agent_session.read_only"
     /// A sign-in step acpmux refused (its reason in `data.reason`).
     public static let loginRefused = "agent_login.refused"
+    /// A side question acpmux refused (its reason in `data.reason`).
+    public static let btwRefused = "btw.refused"
 
     /// Starts a new chat on the other machine in `cwd` with `harness` (the page's `session/new`
     /// values; nil leaves the host's own choice) and answers its attachment and session.
@@ -293,6 +297,33 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                     // acpmux's reason, as a JSON-RPC error the card words (`data.reason`).
                     let reason = refused["reason"] as? String ?? "failed"
                     self?.fail(id, code: Self.loginRefused, message: "sign-in refused: \(reason)", data: ["reason": reason])
+                } catch let error as AgentSessionRemoteError {
+                    self?.fail(id, code: error.code, message: error.message)
+                } catch {
+                    self?.fail(id, code: Self.unsupported, message: String(describing: error))
+                }
+            }
+        case "_acpmux/btw":
+            // `/btw <question>` on this chat, answered inline on its machine: the daemon pins the
+            // session and owns the read-only side question. A side session to open beside the chat
+            // (no `inline`) has no pane here, so only the inline form is served.
+            guard !isReadOnly else { return refuseReadOnly(id, method) }
+            guard names(params["sessionId"]), params["inline"] as? Bool == true,
+                  params["model"] == nil || params["model"] is NSNull,
+                  let question = params["question"] as? String,
+                  !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let client = state.withLock({ $0.client }) else { return refuse(id, method) }
+            // task-owner: one side question per frame; its reply ends it
+            Task { [weak self] in
+                do {
+                    let answer = try await client.btw(question)
+                    let object = (try? JSONSerialization.jsonObject(with: answer)) as? [String: Any]
+                    guard let refused = object?["refused"] as? [String: Any] else {
+                        self?.emit(id.map { #"{"jsonrpc":"2.0","id":\#($0),"result":"# + String(decoding: answer, as: UTF8.self) + "}" })
+                        return
+                    }
+                    let reason = refused["reason"] as? String ?? "failed"
+                    self?.fail(id, code: Self.btwRefused, message: "side question refused: \(reason)", data: ["reason": reason])
                 } catch let error as AgentSessionRemoteError {
                     self?.fail(id, code: error.code, message: error.message)
                 } catch {
@@ -640,7 +671,8 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         if ownerCloud { acpmux["ownerCloud"] = true }
         // A feature, not `capabilities`: a remote chat names no acpmux capability list, and the page
         // reads an absent list as "try the method" (turnRetry.ts).
-        if login { acpmux["features"] = ["agent_login"] }
+        // `btw_inline`: the page asks `/btw` here, inline (`_acpmux/btw`), not through the host.
+        acpmux["features"] = login ? ["agent_login", "btw_inline"] : ["btw_inline"]
         return ["protocolVersion": 1, "agentCapabilities": [String: Any](), "_meta": ["acpmux": acpmux]]
     }
 

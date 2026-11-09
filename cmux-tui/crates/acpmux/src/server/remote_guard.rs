@@ -48,9 +48,12 @@
 //!   machine; unlike a mode, no asking table makes that safe.
 //! - Web and Peer: no `session/cancel` of a chat started on this machine, but from the
 //!   owner's own peer daemon (`cancel_owner.rs`).
-//! - Web and Peer: no `_acpmux/btw` (`btw.remote`). A side session is a new
-//!   session on this machine, in the chat's harness and folder, with a policy
-//!   that approves reads: the app and the unix socket only.
+//! - Web and Peer: no `_acpmux/btw` (`btw.remote`), but from the owner's own peer daemon
+//!   (`cancel_owner.rs` `owner`). A side session is a new session on this machine, in the
+//!   chat's harness and folder, with a policy that approves reads: the app, the unix socket,
+//!   and the person's own daemon on another machine asking for itself or for its app, whose
+//!   own guard already held its callers to this rule (it marks a Web client's request
+//!   `via: web` and a paired machine's `via: device`, and both stay refused here).
 //! - Web and LocalApp: no `_acpmux/peer_add`, `_acpmux/peer_remove` or
 //!   `_acpmux/peer_lease` (they change which machines this daemon reaches
 //!   with the user's ssh keys and tokens); `peer_reconnect` only retries a
@@ -362,11 +365,12 @@ async fn check_inner(
     if m == method::MUX_WEB_TOKEN_ROTATE {
         return Err(refused("rotating the web token"));
     }
-    // A side session starts a new local session that approves reads (`hub/btw.rs`):
-    // never for a Web connection or a peer, whatever the chat.
-    if m == method::MUX_BTW && origin.web_class() {
+    // A side session starts a new local session that approves reads (`hub/btw.rs`): never for
+    // a Web connection, a paired device or a peer forwarding for either, whatever the chat. The
+    // owner's own peer daemon may: the same proof that lets it stop a chat started here.
+    if m == method::MUX_BTW && origin.web_class() && !cancel_owner::owner(origin, auth, params) {
         return Err(RpcError::invalid_params(
-            "btw.remote: a side session is opened only in the app or over the local unix socket",
+            "btw.remote: a side session is opened only in the app, over the local unix socket or by the owner's own daemon",
         )
         .with_data(serde_json::json!({"reason": "btw.remote"})));
     }

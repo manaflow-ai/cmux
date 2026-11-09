@@ -140,3 +140,36 @@ for (const reason of ["trust.pending", "trust.untrusted"] as const) {
     expect(f.legacy).toEqual([]);
   });
 }
+
+test("a Cloud chat's machine answers inline itself: no app host call, no legacy side", async () => {
+  // The wire names `btw_inline` and no acpmux capability list (RemoteAcpmuxWire).
+  const f = fixture(undefined);
+  const here: string[][] = [];
+  const client = {
+    ...f.client,
+    answersBtwInline: true,
+    async btwInline(question: string, sessionId: string) {
+      here.push([question, sessionId]);
+      return "from its machine";
+    },
+  };
+  expect(await askBtwQuestion(client, "why?", "main", f.actions)).toBe("from its machine");
+  expect(here).toEqual([["why?", "main"]]);
+  expect(f.inline).toEqual([]);
+  expect(f.legacy).toEqual([]);
+  expect(f.opened).toEqual([]);
+});
+
+test("a Cloud chat's refused question fails without a legacy side", async () => {
+  const f = fixture(undefined);
+  const client = {
+    ...f.client,
+    answersBtwInline: true,
+    async btwInline(): Promise<string> {
+      throw Object.assign(new Error("side question refused: btw.no_read_only_mode"), { code: "btw.refused" });
+    },
+  };
+  await expect(askBtwQuestion(client, "why?", "main", f.actions)).rejects.toThrow("btw.no_read_only_mode");
+  expect(f.legacy).toEqual([]);
+  expect(f.opened).toEqual([]);
+});

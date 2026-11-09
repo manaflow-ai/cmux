@@ -284,6 +284,11 @@ fn serve(
                 "overrides": {"scope": params["scope"], "text": params["text"]},
             })),
             "session/set_model" | "session/set_mode" => Some(json!({})),
+            // A side question (`/btw`): a harness with no read-only mode is refused with its reason.
+            "_acpmux/btw" if params["question"] == json!("no read-only mode") => Some(json!({
+                FAKE_ERROR: "this agent has no read-only mode",
+                FAKE_ERROR_DATA: {"reason": "btw.no_read_only_mode"}})),
+            "_acpmux/btw" => Some(json!({"text": "It flaked on a timeout."})),
             // A Cloud chat's sign-in: a wrong code is refused with acpmux's reason.
             "_acpmux/agent_login/start" => Some(json!({"loginId": "login_1",
                 "url": "https://claude.ai/oauth/authorize", "needsCode": true})),
@@ -697,6 +702,7 @@ fn every_verb(surface: SurfaceId) -> Vec<Value> {
         json!({"id":13,"cmd":"agent-session-context","surface":surface,"op":"get"}),
         json!({"id":14,"cmd":"agent-session-context","surface":surface,"op":"set",
                "scope":"user","text":"Read early."}),
+        json!({"id":15,"cmd":"agent-session-btw","surface":surface,"question":"why?"}),
     ]
 }
 
@@ -1142,6 +1148,66 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
                "sessionId":"acp_other"}),
         json!({"cmd":"agent-session-login","surface":surface,"op":"finish","login_id":"l",
                "code":"x".repeat(5000)}),
+    ] {
+        assert_code(&client.request(bad), "agent_session.bad_request");
+    }
+    fake.no_frame();
+}
+
+// MARK: Side question
+
+/// The composer's `/btw <question>` on a Cloud chat (`agent-session-btw-v1`): acpmux's inline
+/// `_acpmux/btw` on the tab's own session, its `{text}` back unchanged, its refusal as an answer
+/// with only its reason. Nothing but the question passes.
+#[test]
+fn a_side_question_goes_inline_to_the_pinned_session() {
+    let fake = FakeAcpmux::start("btw");
+    let mux = mux_with(&fake, "asa-btw");
+    let identity = run(&mux, json!({"cmd":"identify"}));
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == agent_session_attach::AGENT_SESSION_BTW_CAPABILITY)
+    );
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "btw");
+    assert_code(
+        &client.request(json!({"cmd":"agent-session-btw","surface":surface,"question":"why?"})),
+        "agent_session.not_attached",
+    );
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    for (question, sent, data) in [
+        (" why did it flake? ", "why did it flake?", json!({"text": "It flaked on a timeout."})),
+        (
+            "no read-only mode",
+            "no read-only mode",
+            json!({"refused": {"reason": "btw.no_read_only_mode"}}),
+        ),
+    ] {
+        let reply = client
+            .request(json!({"cmd":"agent-session-btw","surface":surface,"question":question}));
+        assert_eq!(reply["ok"], json!(true), "{reply}");
+        assert_eq!(reply["data"], data, "{reply}");
+        let frame = fake.frame();
+        assert_eq!(frame["method"], json!("_acpmux/btw"));
+        assert_eq!(
+            frame["params"],
+            json!({"sessionId": SESSION, "question": sent, "inline": true}),
+            "the session is the tab's own and the answer inline; nothing else is passed"
+        );
+    }
+    for bad in [
+        json!({"cmd":"agent-session-btw","surface":surface}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"  "}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"x".repeat(17 * 1024)}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"why?","sessionId":"acp_other"}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"why?","model":"opus"}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"why?","inline":false}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"why?",
+               "_meta":{"acpmux":{"via":"app"}}}),
     ] {
         assert_code(&client.request(bad), "agent_session.bad_request");
     }
