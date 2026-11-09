@@ -411,7 +411,7 @@ fn sessions(topology: &Value) -> &[Value] {
 }
 
 /// The app's topology (`snapshot.get`), or why it could not be read.
-fn topology(global: &GlobalArgs) -> Result<Value, Value> {
+pub(super) fn topology(global: &GlobalArgs) -> Result<Value, Value> {
     let read =
         super::mcp::agent_app(global, "snapshot.get", json!({}), super::app::READ_TIMEOUT, None)?;
     read.get("topology").cloned().ok_or(read)

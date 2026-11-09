@@ -32,12 +32,12 @@ members = [
     "bindings/rust-daemon-client",
     "crates/ghostty-vt-sys",
     "crates/ghostty-vt",
-    "crates/cmux-mux2",
     "crates/cmux-tui-cdp",
     "crates/cmux-browser-host",
     "crates/cmux-git",
     "crates/cmux-worktree-care",
     "crates/cmux-conductor-import",
+    "crates/cmux-classic-import",
     "crates/cmux-tui-core",
     "crates/cmux-tui-cloud-conversations",
     "crates/cmux-tui-platform",
@@ -108,6 +108,7 @@ members = [
     "crates/cmux-daemon-conn-core",
     "crates/cmux-daemon-launch-core",
     "crates/cmux-cookie-sync",
+    "crates/cmux-terminal-prediction",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
     "crates/cmux-app-host",
@@ -123,6 +124,7 @@ members = [
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
     "crates/acpmux-hot",
+    "crates/cmux-command-class",
 ]
 default-members = [
     "crates/acpmux",
@@ -140,6 +142,7 @@ default-members = [
     "crates/cmux-git",
     "crates/cmux-worktree-care",
     "crates/cmux-conductor-import",
+    "crates/cmux-classic-import",
     "crates/cmux-tui-core",
     "crates/cmux-tui-cloud-conversations",
     "crates/cmux-tui-platform",
@@ -201,6 +204,7 @@ default-members = [
     "crates/cmux-local-auth",
     "crates/cmux-daemon-launch-core",
     "crates/cmux-cookie-sync",
+    "crates/cmux-terminal-prediction",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
     "crates/cmux-app-host",
@@ -266,6 +270,7 @@ cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
+cmux-classic-import = { path = "crates/cmux-classic-import" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-focus-core = { path = "crates/cmux-focus-core" }
@@ -383,6 +388,9 @@ jsonschema = { version = "0.34", default-features = false }
 # lets the host count every byte the VM allocates (32 MiB limit per app).
 rquickjs = { version = "=0.14.0", default-features = false, features = ["std", "allocator"] }
 flate2 = "1"
+# Journal segments at rest (`zstd-json-v1`). No dictionary builder: whole-segment
+# frames compress the repeated records better than per-record dictionaries.
+zstd = { version = "0.13", default-features = false }
 bindgen = "0.72"
 smallvec = "1"
 getrandom = "0.3"

@@ -109,9 +109,10 @@ public struct DaemonLauncher: Sendable {
     public let ensureOutcome = EnsureOutcome()
     let clock: any Clock<Duration>
     private let ensureTimeout: Duration
-    /// Hard cap on one `server ensure`. The daemon bounds a restore itself
-    /// (2 minutes, then `server.restore_timeout`), so this only has to be
-    /// longer than that bound plus the time to reach the owner.
+    /// Hard cap on one `server ensure` from a binary that reports no restore
+    /// progress. A bundled binary has none: the daemon ends its wait once the
+    /// owner made no progress for 2 minutes (`server.restore_timeout`), and an
+    /// owner that restores a large registry for longer is awaited, never cut off.
     static let ensureRestoreCap: Duration = .seconds(150)
     private let environmentProvider: @Sendable () async -> [String: String]
 
@@ -282,15 +283,24 @@ public struct DaemonLauncher: Sendable {
         return "cmux-app-\(cleaned)"
     }
 
-    /// `~/Library/Application Support/cmux/tags/<tag>/tui`.
+    /// `~/Library/Application Support/cmux-next/tags/<tag>/tui`.
     public static func tagStateDirectory(tag: String) -> URL {
         tagStateDirectory(tag: tag, applicationSupport: applicationSupportDirectory())
     }
 
-    /// `<applicationSupport>/cmux/tags/<tag>/tui`.
+    /// `<applicationSupport>/cmux-next/tags/<tag>/tui`.
     public static func tagStateDirectory(tag: String, applicationSupport: URL) -> URL {
         let component = (try? sessionName(tag: tag).dropFirst("cmux-app-".count)).map(String.init) ?? "default"
-        return applicationSupport.appendingPathComponent("cmux/tags/\(component)/tui", isDirectory: true)
+        return nextSupport(applicationSupport).appendingPathComponent("tags/\(component)/tui", isDirectory: true)
+    }
+
+    /// NEXT's own folder in `applicationSupport`, `cmux-next`, which holds the
+    /// daemon state of every build (``BuildIdentity/daemonStateDirectory(appSupport:)``).
+    /// Classic cmux owns `cmux` beside it: NEXT keeps nothing there, so removing
+    /// classic never removes NEXT's workspaces (``StateFolderMove`` moved what
+    /// older builds kept there).
+    public static func nextSupport(_ applicationSupport: URL = applicationSupportDirectory()) -> URL {
+        applicationSupport.appendingPathComponent("cmux-next", isDirectory: true)
     }
 
     /// The user's `~/Library/Application Support`.
@@ -351,9 +361,11 @@ public struct DaemonLauncher: Sendable {
            let running = await runningOwner() { return running }
         async let reapGrace = supportsReapGrace()
         // The bundled binary reports restore progress (`--restore-progress`): the app
-        // then waits while the owner restores and gives up only when the
-        // progress stops for `ensureTimeout` (cx-n3bs). An external binary
-        // may lack the option; the daemon's own restore bound ends it.
+        // then waits while the owner restores, with no fixed cap, and gives up
+        // only when the progress lines stop for `ensureTimeout` (cx-n3bs). The
+        // daemon itself ends the wait once the owner stops working. A fixed cap
+        // killed every owner of a 59 GB registry partway through its restore
+        // (2026-11-08). An external binary may lack the option; the cap bounds it.
         let progress = configuration.binaryIsBundled
         let arguments = Self.ensureArguments(configuration, reapGrace: await reapGrace, progress: progress)
         DaemonLaunchTimings.shared.mark("daemon.ensure_start")
@@ -363,7 +375,7 @@ public struct DaemonLauncher: Sendable {
             arguments: arguments,
             environment: environment,
             stdin: configuration.installKey?.payload,
-            timeout: progress ? Self.ensureRestoreCap : max(ensureTimeout, Self.ensureRestoreCap),
+            timeout: progress ? nil : max(ensureTimeout, Self.ensureRestoreCap),
             progressIdle: progress ? ensureTimeout : nil,
             clock: clock
         )

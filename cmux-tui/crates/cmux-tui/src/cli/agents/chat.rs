@@ -51,6 +51,9 @@ pub(in crate::cli) enum ChatCommand {
     Send {
         target: String,
         text: String,
+        /// `--attach` files: an agent message carries text only, so a send with any is refused
+        /// (`chat.attach_send_unsupported`) and names `chat new --attach`.
+        attach: Vec<String>,
     },
     Read {
         target: String,
@@ -81,6 +84,7 @@ pub(in crate::cli) fn parse(words: &[&str]) -> Result<ChatCommand, UsageError> {
         ["continue", target] => Ok(ChatCommand::Send {
             target: chat_word(target)?,
             text: super::chat_control::CONTINUE_TEXT.to_owned(),
+            attach: Vec::new(),
         }),
         ["continue", target, rest @ ..] => {
             let mut words = vec!["send", *target];
@@ -89,6 +93,7 @@ pub(in crate::cli) fn parse(words: &[&str]) -> Result<ChatCommand, UsageError> {
         }
         ["send", target, rest @ ..] => {
             let target = chat_word(target)?;
+            let (attach, rest) = super::chat_control::take_attach(rest, "agents chat send")?;
             // One argument: cmux reads its own flags (`--session`, `--json`)
             // anywhere before `--`, so unquoted words could lose one to it.
             let text = match rest {
@@ -108,7 +113,7 @@ pub(in crate::cli) fn parse(words: &[&str]) -> Result<ChatCommand, UsageError> {
             // The body rules of `cmux agent message`: not empty, at most 32 KiB.
             let text = agent_message::read_body(Body::Text(text.to_owned()))
                 .map_err(|error| UsageError::new(format!("agents chat send: {}", error.0)))?;
-            Ok(ChatCommand::Send { target, text })
+            Ok(ChatCommand::Send { target, text, attach })
         }
         ["read", target, rest @ ..] => {
             let target = chat_word(target)?;
@@ -180,7 +185,12 @@ pub(in crate::cli) fn run(
     origin: &str,
 ) -> Result<Value, CallFailure> {
     match command {
-        ChatCommand::Send { target, text } => send(global, target, text, idempotency_key, origin),
+        ChatCommand::Send { attach, .. } if !attach.is_empty() => {
+            Err(super::chat_control::attach_send_unsupported())
+        }
+        ChatCommand::Send { target, text, .. } => {
+            send(global, target, text, idempotency_key, origin)
+        }
         ChatCommand::Read { target, after, limit } => read(global, target, *after, *limit),
         ChatCommand::New(chat) => super::chat_control::new(global, chat, origin),
         ChatCommand::State { target } => super::chat_control::state(global, target),
@@ -821,6 +831,23 @@ pub(super) mod acp {
         block_on(async {
             let client = client(socket).await?;
             acpmux::deliver::deliver(client, session, text, id, false, provenance).await
+        })
+    }
+
+    /// [`prompt`] with the files at `paths` (`acpmux::attach::blocks_for`, as `acpmux send
+    /// --attach` adds them); the uploads' progress lines go to stderr.
+    pub(in crate::cli) fn prompt_attached(
+        session: &str,
+        text: &str,
+        id: &str,
+        paths: &[std::path::PathBuf],
+        socket: Option<&Path>,
+    ) -> Result<Value, String> {
+        block_on(async {
+            let client = client(socket).await?;
+            let say = |line: &str| eprintln!("{line}");
+            acpmux::deliver::deliver_attached(client, session, text, id, false, None, paths, &say)
+                .await
         })
     }
 

@@ -23,6 +23,7 @@ const inboxLaneNotice = (notice: InboxNotice): LaneNotice => {
       ...(message.unverified ? { unverified: message.unverified } : {}),
       ...(message.harness ? { harness: message.harness } : {}),
       ...(message.sender?.session ? { session: message.sender.session } : {}),
+      ...(message.at !== undefined ? { at: message.at } : {}),
     }));
     const sender = messages?.at(-1)?.sender ?? thread.from.at(-1) ?? "inbox";
     const lookup = messages?.length ? messages.at(-1)!.lookup : thread.sender && senderKey(sender, thread.sender);
@@ -31,6 +32,7 @@ const inboxLaneNotice = (notice: InboxNotice): LaneNotice => {
       id: thread.threadId,
       sender,
       ...(lookup && { lookup }),
+      ...(thread.sender && { senderRecord: thread.sender }),
       ...(preview ? { preview } : {}),
       ...(messages?.length ? { messages } : {}),
       ...(thread.label ? { label: thread.label } : {}),
@@ -166,6 +168,7 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
                 ...(thread.fromSession ? { fromSession: thread.fromSession } : {}),
                 ...(thread.fromHarness ? { fromHarness: thread.fromHarness } : {}),
                 ...(delivery.unverified ? { unverified: delivery.unverified } : {}),
+                ...(thread.senderRecord ? { senderRecord: { ...thread.senderRecord } } : {}),
               },
             }
           : {}),
@@ -189,6 +192,7 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
                 ? { harness: thread.fromHarness }
                 : {}),
             ...(delivery.unverified ? { unverified: delivery.unverified } : {}),
+            ...(delivery.at !== undefined ? { at: delivery.at } : {}),
           },
         },
       });

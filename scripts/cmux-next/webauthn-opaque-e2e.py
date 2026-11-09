@@ -37,7 +37,8 @@ if not APP:
 BINARY = os.path.join(APP, "Contents/MacOS/cmux DEV")
 SCRATCH = tempfile.mkdtemp(prefix=f"webauthn-{opts.tag}-")
 SUPPORT = os.path.expanduser("~/Library/Application Support")
-TAG_STATE = [os.path.join(SUPPORT, "cmux/tags", opts.tag, "tui"),
+# NEXT's own folder first, then the one in classic's of a build from before it (a new build adopts that at launch).
+TAG_STATE = [os.path.join(SUPPORT, "cmux-next/tags", opts.tag, "tui"), os.path.join(SUPPORT, "cmux/tags", opts.tag, "tui"),
              os.path.join(SUPPORT, "cmux-next", f"com.cmuxterm.app.debug.{opts.tag}")]
 CONFIG = os.path.join(SCRATCH, "cmux.json")
 GHOSTTY = os.path.join(SCRATCH, "ghostty")

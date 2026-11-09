@@ -426,7 +426,7 @@ class PrePushGateTests(unittest.TestCase):
         self.commit("reserved-key data")
         self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
         self.git("fetch", "--quiet", "origin")
-        for number, name in enumerate(("check-leo-bans.py", "check-ghostty-reserved-keys.py")):
+        for number, name in enumerate(("check-ui-font.py", "check-ghostty-reserved-keys.py")):
             with self.subTest(name=name):
                 installed = snapshot.resolve() / name
                 if installed.exists():
@@ -1962,7 +1962,8 @@ let package = Package(
     # and it was red on every pull request until a fix landed (#31032, #31252).
     HIGHLIGHT_NO_LINK = ("title: Continue a stopped reply\ncategory: improved\n\n"
                          "Continue picks up a reply you stopped, and Retry asks again.\n")
-    HIGHLIGHT_WITH_DOCS = ("title: Continue a stopped reply\ncategory: improved\ndocs: https://cmux.com/docs/chief\n\n"
+    HIGHLIGHT_WITH_DOCS = ("title: Continue a stopped reply\ncategory: improved\ndocs: https://cmux.com/docs/chief\n"
+                           "gallery: agent-pane.continue/stopped\n\n"
                            "Continue picks up a reply you stopped, and Retry asks again.\n")
     HIGHLIGHTS = "release-notes/next/highlights"
 
@@ -2060,6 +2061,54 @@ let package = Package(
         self.assertNotEqual(result.returncode, 0, output)
         self.assertEqual(self.remote_head(), before)
         self.assertIn(f"{self.HIGHLIGHTS}/continue-retry.md: is not UTF-8 text", output)
+
+    # What's New pictures (goal whats-new-pretty): on 2026-11-08, 61 of 166 New or Improved highlights in 21 days
+    # changed only Swift, got no gallery state and went out with no picture.
+    HIGHLIGHT_NO_PICTURE = ("title: Side chats from the command prompt\ncategory: new\n"
+                            "docs: https://cmux.com/docs/chief\n\nType /side to fork the chat into a side chat.\n")
+
+    def test_a_pushed_new_highlight_with_no_picture_source_is_refused_by_the_hook_only(self):
+        before = self.remote_head()
+        self.write(f"{self.HIGHLIGHTS}/side-chat.md", self.HIGHLIGHT_NO_PICTURE)
+        self.commit("adds a highlight with no picture source")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("What's New pictures", output)
+        self.assertIn(f"{self.HIGHLIGHTS}/side-chat.md: a new highlight with no picture source", output)
+        self.assertIn("release-notes/next/clips/<id>.json", output)
+        for args in (["--base", "HEAD~1", "--head", "HEAD"], ["--commits", "HEAD~1..HEAD"]):
+            with self.subTest(args=args):
+                ci = subprocess.run(["python3", "-I", GATE, *args], cwd=self.repo, env=self.env, text=True,
+                                    capture_output=True)
+                self.assertNotIn("What's New pictures", ci.stdout + ci.stderr)
+
+    def test_each_picture_source_lets_a_new_highlight_through(self):
+        sources = {
+            "gallery line": {f"{self.HIGHLIGHTS}/side-chat.md": self.HIGHLIGHT_NO_PICTURE.replace(
+                "category: new\n", "category: new\ngallery: agent-pane.side-chat/open\n")},
+            "clip spec": {f"{self.HIGHLIGHTS}/side-chat.md": self.HIGHLIGHT_NO_PICTURE,
+                          "release-notes/next/clips/side-chat.json": "{}\n"},
+            "gallery change": {f"{self.HIGHLIGHTS}/side-chat.md": self.HIGHLIGHT_NO_PICTURE,
+                               "webviews/src/side/SideChat.gallery.ts": "export {};\n"},
+            "fixed entry": {f"{self.HIGHLIGHTS}/side-chat.md": self.HIGHLIGHT_NO_PICTURE.replace(
+                "category: new", "category: fixed")},
+        }
+        for name, files in sources.items():
+            with self.subTest(source=name):
+                self.git("reset", "--quiet", "--hard", "origin/feat-cmux-next")
+                for path, text in files.items():
+                    self.write(path, text)
+                self.commit(f"adds a highlight with a {name}")
+
+                direct = subprocess.run(["python3", "-I", GATE, "--only", "pictures"], cwd=self.repo, env=self.env,
+                                        text=True, capture_output=True)
+
+                self.assertEqual(direct.returncode, 0, direct.stdout + direct.stderr)
+                self.assertNotIn("no picture source", direct.stdout + direct.stderr)
 
     def test_a_validator_warning_on_stderr_does_not_turn_a_refusal_into_a_pass(self):
         # The validator's result is read from its own file, never from its output: a warning it prints (a future

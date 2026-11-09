@@ -13,7 +13,7 @@
 //!   harness-independent half of the signal; the records cover an agent
 //!   that thinks with a still screen. A record older than the send cannot
 //!   hold the wait (a harness killed mid-turn leaves `working` behind).
-//!   An agent that stops on a dialog ends the wait as `waiting-for-input`.
+//!   An agent that stops on a dialog ends the wait as `blocked`.
 //! - `prompt`: the shell shows its prompt again (OSC 133) and the screen
 //!   is still, or at once when the shell reported the command finished
 //!   (OSC 133 `D`) and drew its prompt. The receipt's `exit_status` is that
@@ -234,8 +234,9 @@ pub(in crate::cli) fn snapshot<B: Daemon + ?Sized>(
 }
 
 /// The terminal record `target` names: a `term_` id or unique prefix, a
-/// `tab_` id it shows in, `current` (the caller's terminal), or an exact
-/// title.
+/// `tab_` id it shows in, `current` (the caller's terminal), an exact title,
+/// or (when no title matches) an agent name or unique tab name
+/// (agent_names.rs).
 pub(in crate::cli) fn find_terminal<'a>(
     snapshot: &'a Value,
     target: &str,
@@ -262,6 +263,29 @@ pub(in crate::cli) fn find_terminal<'a>(
     } else {
         terminals.iter().filter(|terminal| terminal["title"] == target).collect()
     };
+    // An agent name (or a unique tab name) only where no title matches, so a
+    // title that selected a terminal before still selects it.
+    if matches.is_empty() && !target.starts_with("term_") {
+        use super::super::agent_names::{Found, resolve};
+        match resolve(snapshot, target) {
+            Found::One(place) => {
+                if let Some(found) =
+                    terminals.iter().find(|terminal| terminal["id"] == place.terminal)
+                {
+                    return Ok(found);
+                }
+            }
+            Found::Ambiguous(tabs) => {
+                return Err(SendFailure::local(
+                    "selector.ambiguous",
+                    format!("{} tabs are named {target:?}; name one by its id", tabs.len()),
+                    json!({"target": target, "candidates": tabs}),
+                    1,
+                ));
+            }
+            Found::Missing => {}
+        }
+    }
     match matches.as_slice() {
         [one] => Ok(one),
         [] => Err(SendFailure::local(
@@ -345,7 +369,7 @@ impl Settle {
             Wait::None => Verdict::Done(AgentState::Idle),
             Wait::Prompt if sample.prompt => Verdict::Done(AgentState::Idle),
             Wait::Prompt => Verdict::Pending,
-            Wait::Idle if sample.waiting_for_input => Verdict::Done(AgentState::WaitingForInput),
+            Wait::Idle if sample.waiting_for_input => Verdict::Done(AgentState::Blocked),
             Wait::Idle if sample.busy => Verdict::Pending,
             Wait::Idle => Verdict::Done(AgentState::Idle),
         }
@@ -381,8 +405,8 @@ pub(in crate::cli) fn sample(
             Value::Null => screen["text"].as_str().unwrap_or_default().to_owned(),
             revision => revision.to_string(),
         },
-        busy: command || progress || states.contains(&AgentState::Busy),
-        waiting_for_input: states.contains(&AgentState::WaitingForInput),
+        busy: command || progress || states.contains(&AgentState::Working),
+        waiting_for_input: states.contains(&AgentState::Blocked),
         prompt: extra["prompt"].is_object(),
         exited: terminal["lifecycle"] == "exited",
         finished: false,
@@ -451,7 +475,7 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
     let agent = roster::agent_of_terminal(terminal, agents, false);
     if !request.force
         && let Some(agent) = &agent
-        && agent.state == AgentState::WaitingForInput
+        && agent.state == AgentState::Blocked
     {
         return Err(SendFailure::local(
             "agent.waiting_for_input",
@@ -538,7 +562,20 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
     let (state, timed_out) = match waited.verdict {
         Verdict::Done(state) => (state.as_str(), false),
         Verdict::Exited => ("exited", false),
-        Verdict::Pending => ("busy", true),
+        Verdict::Pending => (AgentState::Working.as_str(), true),
+    };
+    // `status` is the word `terminal list --agents` says for this turn: a
+    // finished turn nobody viewed yet (an unread notification, read after
+    // the wait) is `done`; `state` keeps the wait's own word.
+    let status = match waited.verdict {
+        Verdict::Done(state) => {
+            let after = self::snapshot(backend, session).ok();
+            let unseen = roster::unseen(after.as_ref().unwrap_or(&snapshot), &id);
+            roster::status_of(state.as_str(), unseen)
+                .map_or(state.as_str(), |status| status.as_str())
+        }
+        Verdict::Exited => AgentState::Ended.as_str(),
+        Verdict::Pending => AgentState::Working.as_str(),
     };
     receipt.set("sent", Value::Bool(true));
     if let Some(code) = waited.finished.as_ref().and_then(exit_status) {
@@ -548,6 +585,7 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         receipt.set("matched", Value::Bool(waited.matched));
     }
     receipt.set("state", Value::String(state.to_owned()));
+    receipt.set("status", Value::String(status.to_owned()));
     receipt.set("timed_out", Value::Bool(timed_out));
     receipt.set("waited_ms", json!(sent_at.elapsed().as_millis().to_string()));
     receipt.set("anchored", Value::Bool(anchored));

@@ -775,7 +775,7 @@ mod agent_messaging {
 
     /// A Claude Code subagent's message names the subagent beside its lead's session, and the notice
     /// says how each sender gets an answer: the one that waits gets this turn's reply, another
-    /// session `inbox_reply` or `acpmux send`, and a subagent only the reply to its own send.
+    /// session `inbox_reply` or the `send` tool, and a subagent only the reply to its own send.
     #[test]
     fn a_notice_names_a_subagent_and_says_how_each_sender_gets_its_answer() {
         let sub = json!({"id": "a0a68e7af3df5967e", "type": "general-purpose"});
@@ -807,14 +807,17 @@ mod agent_messaging {
             hint.contains("goes back to claude-17's general-purpose subagent a0a68e7a, waiting"),
             "{hint}"
         );
-        assert!(hint.contains("`acpmux send claude-17` reaches claude-17 itself"), "{hint}");
+        assert!(
+            hint.contains("the send tool (to: \"claude-17\") reaches claude-17 itself"),
+            "{hint}"
+        );
 
         // Another session that no longer waits: the commands that reach it.
         let mut lane = item("p2", "from:lane-b", "lane-b", PromptClass::Result, 2, "merged");
         lane.from_session = Some("s-b".into());
         let hint = reply_hint(&[&lane]).unwrap();
         assert!(
-            hint.contains("To answer lane-b, inbox_reply or `acpmux send lane-b \"…\"`"),
+            hint.contains("To answer lane-b, inbox_reply or the send tool (to: \"lane-b\")"),
             "{hint}"
         );
         assert!(!hint.contains("goes back"), "nobody waits: {hint}");
@@ -837,4 +840,34 @@ mod agent_messaging {
             "only a proven session"
         );
     }
+}
+
+/// An inbox notice past `WHOLE_BYTES` opens its thread with `_acpmux/inbox_thread` (review of
+/// #37652, F2): the transcript draws each message's `fromName`, the name alone, as a notice's parts
+/// do. `from` stays the agent's words (`inbox_read`, `acpmux session inbox`, the team read), and
+/// `sender` keeps the whole record, its verification included.
+#[tokio::test]
+async fn an_opened_thread_names_its_senders_plainly_for_the_transcript() {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let meta = json!({"schema": crate::store::META_SCHEMA, "id": "inbox-open",
+        "name": "inbox-open", "harness": "claude", "cwd": "/tmp", "status": "idle",
+        "createdAt": 1, "updatedAt": 2});
+    store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+    let hub = Hub::new(cfg, store);
+    hub.begin_startup(false);
+    let session = hub.resolve("inbox-open").unwrap();
+    let declared = crate::prompt_provenance::named_sender("dot", "inbox-open");
+    let mut message = item("p1", "declared:dot", "dot", PromptClass::Result, 1, "hello");
+    message.sender = crate::prompt_provenance::sender_record(Some(&declared), None, None);
+    session.inbox.lock().unwrap().items.push(message);
+    let thread = hub.inbox_thread(&session, "declared:dot", false);
+    let m = &thread["messages"][0];
+    assert_eq!(m["fromName"], "dot", "{thread}");
+    assert_eq!(m["from"], "dot (self-declared, unauthenticated)", "{thread}");
+    assert_eq!(
+        (&m["sender"]["verification"], &m["sender"]["label"]),
+        (&json!("declared"), &json!("dot"))
+    );
 }

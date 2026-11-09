@@ -67,8 +67,8 @@ final class LinkOpener {
     /// The pane an open from tab `key` (a tab id or resource id) starts from (``route(tab:)``): never another workspace's focused pane.
     func source(tab key: String?) -> PaneController? { route(tab: key).pane }
     func route(tab key: String?) -> LinkSourceRoute<PaneController> {
-        services.map { services in LinkSourceRoute<PaneController>.resolve(key: key, shown: { key in services.locateTabOnAnyMachine(key).flatMap { services.paneController(for: $0.1) } ?? services.paneController(showingTab: key) },
-                                            exists: { services.locateTabOnAnyMachine($0) != nil }, focused: { services.windows.active?.focusedPane }) } ?? .none
+        services.map { services in let found = key.flatMap { key in services.locateTabOnAnyMachine(key) } // one lookup answers shown: and exists:
+            return LinkSourceRoute<PaneController>.resolve(key: key, shown: { key in found.flatMap { services.paneController(for: $0.1) } ?? services.paneController(showingTab: key) }, exists: { _ in found != nil }, focused: { services.windows.active?.focusedPane }) } ?? .none
     }
 
     /// The pane showing `view` (a Home or agent chat, a cmux page) in any window, or nil: a click
@@ -308,15 +308,15 @@ final class LinkOpener {
     /// `asText` (Open as Text, u9489): a page cmux renders (Markdown, HTML, SVG) opens as its source
     /// in the code editor, placed as any open is. `besideChat`: on the chat's right whatever `layout.linkPlacement` says (a viewer opened on a chat).
     func openFile(_ file: URL, on machine: DaemonService? = nil, from source: PaneController?, markdown: Bool = false, asText: Bool = false,
-                  at position: FilePosition? = nil, besideChat: Bool = false) -> Bool {
+                  at position: FilePosition? = nil, besideChat: Bool = false, noFollow: Bool = false) -> Bool {
         open(from: source, besideChat: besideChat) { [weak self] pane, placed in
             // A tab that already shows the file is selected where it is and never reports to `placed`:
             // it says so, so its turn ends now (review of the #28044 carry at 1eb458cf).
             var inPlace: (@MainActor () -> Void)?
             if placed != nil { inPlace = { self?.openedInPlace() } }
             if let machine, !machine.isLocal {
-                return pane.services.viewers.openFile(file, on: machine, in: pane, asText: asText, at: position, placed: placed,
-                                                      shownInPlace: inPlace)
+                return pane.services.viewers.openFile(file, on: machine, in: pane, asText: asText, at: position, noFollow: noFollow,
+                                                      placed: placed, shownInPlace: inPlace)
             }
             return pane.services.viewers.openFile(file, in: pane, markdown: markdown, asText: asText, at: position, placed: placed,
                                                   shownInPlace: inPlace)

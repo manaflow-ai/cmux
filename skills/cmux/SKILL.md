@@ -73,6 +73,8 @@ To run a prompt on a Cloud machine and read the reply, use one command, `cmux cl
 
 To start another agent on a task and show it, use one command, `acpmux new -n NAME --worktree REPO@BASE --prompt-file BRIEF.md --report-to ME --group G -d` (the `acpmux` skill): it makes the worktree, starts the session, sends the brief and opens its chat in group G; running it again changes nothing.
 
+To give a new chat on this Mac files (a screenshot, a log), add `--attach FILE` once per file to `cmux chat TEXT` or `cmux agents chat new -- TEXT` (MCP `agents_chat_new` with `attachments`, absolute paths): the first prompt carries them as `acpmux send --attach` does, any type and size. A missing or unreadable file starts nothing (`attach.not_found`, `attach.not_a_file`, `attach.unreadable`). A message to a running chat (`cmux agents chat send`) carries text only and refuses `--attach` (`chat.attach_send_unsupported`); a Cloud chat refuses it too.
+
 To open a link, the MCP tool `workspace_open_url` loads it on the workspace's right side, but it navigates a browser tab already there; `cmux browser profile open URL --profile default --background true` (MCP `browser_profile_open` with `activate: false`) adds a tab and keeps the pane's selected tab. `tab focus`, `workspace focus`, `agents tab select` and `focus: true` do move the person's focus: use them only when asked. `current` is the workspace the person looks at, not yours: from a cmux terminal `status set` without a selector targets that terminal's workspace, but an agent chat has no terminal, so name the workspace (`$CMUX_WORKSPACE_ID` when set).
 
 ## Messaging a Chief or a person

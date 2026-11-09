@@ -33,6 +33,14 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "ledger",
+        &[
+            ("Show what the last week cost, per repository", "acpmux ledger"),
+            ("Show the last 30 days per pull request", "acpmux ledger --since 30d --by pr"),
+            ("Print today's spend per model as JSON", "acpmux --json ledger --since 1d --by model"),
+        ],
+    ),
+    (
         "dispatch",
         &[
             (

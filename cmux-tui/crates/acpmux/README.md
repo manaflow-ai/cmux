@@ -376,8 +376,17 @@ acpmux ls --since 24h --limit 100 --json                     # sessions changed 
 acpmux ls --json --live --fields name,status,peer             # what an agent should read: `ls --json` alone is every record
 acpmux session tail NAME --since <sessionId>:<seq> --follow   # raw events as JSON lines; a cursor past the log is exit 2
 acpmux compare -m claude -m codex/gpt-5.5 "prompt"                    # one temporary session per harness, run one after another
+# Race CLI commands run inside an authenticated acpmux agent session:
+acpmux race new -m codex/gpt-6.1-sol -m codex/gpt-6-astra --reviewer claude/opus --reviewer-effort medium "task"
+acpmux race show RACE                                          # candidate replies, worktrees and reviewer choice
+acpmux race stats                                              # each model's wins / completed races
+acpmux race stop RACE                                          # cancel this race's work, retain its record
 acpmux guide                                                  # the agent guide (also --guide, --skill); acpmux daemon schema prints the RPC surface
 ```
+
+Race commands default to the authenticated calling agent's own chat. `--parent CHAT` may
+name that chat or a descendant it can manage; it does not authenticate an ordinary terminal.
+Use the chat's **menu → Tools → Race models** control in cmux NEXT from an ordinary terminal.
 
 Waits run in the daemon: a per-session `stateSeq` bumps on every status, permission and
 turn change and the wait subscribes to hub events, so nothing is missed between the check
@@ -1255,7 +1264,11 @@ own environment lacks. Every child: PATH (login PATH first), MISE_*, ASDF_*, NVM
 BUN_INSTALL, HTTPS_PROXY, HTTP_PROXY, ALL_PROXY, NO_PROXY (both cases),
 NODE_EXTRA_CA_CERTS, SSL_CERT_FILE, SSL_CERT_DIR. Claude harnesses also: ANTHROPIC_*, CLAUDE_*,
 DISABLE_*, *_TELEMETRY; AWS_* only with the person's own CLAUDE_CODE_USE_BEDROCK (a profile's switch unlocks only AWS_PROFILE, AWS_REGION, AWS_DEFAULT_REGION, AWS_CONFIG_FILE, AWS_SHARED_CREDENTIALS_FILE); GOOGLE_*, CLOUDSDK_*, GCLOUD_*, CLOUD_ML_REGION, VERTEX_REGION_* (non-secret ones only from a profile's switch) only
-with CLAUDE_CODE_USE_VERTEX. Codex harnesses also: OPENAI_*, CODEX_*. Nothing else (GITHUB_TOKEN,
+with CLAUDE_CODE_USE_VERTEX. Codex harnesses also: OPENAI_*, CODEX_*. Gemini: GEMINI_*, GOOGLE_*.
+Muse: MUSE_*, META_*. OpenCode, pi, omp, cmux Harness and Hermes also: a fixed list of provider
+keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, GROQ_API_KEY, DEEPSEEK_API_KEY, HF_TOKEN
+and the rest of `PROVIDER_KEYS` in `src/login_env.rs`, plus ANTHROPIC_BASE_URL and OPENAI_BASE_URL),
+exact names only. Nothing else (GITHUB_TOKEN,
 GH_TOKEN, NPM_TOKEN, ...) unless `loginEnvAllow` in config.json names it (exact names or `PREFIX_*`;
 default empty), or (for local launches only, never a remote-origin one) it is a machine declaration below or a name delivered to this machine in `~/.config/cmux/machine-secrets.env`
 (`cmux cloud deliver-secrets`; its value is never cached). Local child launches also read
@@ -1674,6 +1687,14 @@ records of a failed turn, and so on the session's `lastTurn`. The error's own me
 
 Each session logs every JSON-RPC line in both directions plus acpmux records, with a
 per-session sequence number. Clients resume from a sequence number after a disconnect.
+
+That sequence number is the one resume cursor of a chat, on every route: a client attaches
+with `afterSeq` = the last `seq` it holds and drops duplicates by `seq`. Transports below
+acpmux keep their own positions only to replay frames within one connection: the Cloud
+carrier's lanes (interactive, control, bulk, tunnel) are transport scheduling, are never
+persisted, and are never a cursor a client sees or sends. After a relay drop, a route switch
+or a new dial, the chat resumes from acpmux's `seq`, so nothing is lost or shown twice
+([Cloud carrier roles](docs/carrier-roles.md#the-resume-cursor)).
 
 `acpmux export` writes a bundle: `session.json`, `events/*.ndjson`, the adapter's own session
 files under `native/` when the adapter is known (Codex rollouts, Claude Code project files),

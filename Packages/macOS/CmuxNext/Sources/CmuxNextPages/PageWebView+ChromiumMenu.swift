@@ -22,7 +22,8 @@ extension PageWebView {
         return last
     }
 
-    /// Shows the host's menu for a right-click in the Chromium page: Copy on a selection, edited by
+    /// Shows the host's menu for a right-click in the Chromium page: Copy Link on a link and Copy on
+    /// a selection, as WebKit offers them, edited by
     /// ``contextMenuEditor`` (or kept to the desktop default), at the click. Nothing shows when the
     /// menu ends up empty. Chromium hears the menu closed either way.
     func showChromiumMenu(_ request: PageChromiumContextMenu) {
@@ -37,12 +38,18 @@ extension PageWebView {
 
     private func buildChromiumMenu(_ request: PageChromiumContextMenu) {
         let menu = NSMenu()
+        if let link = request.link {
+            let copyLink = Self.menuItem(Self.copyLinkTitle) { Self.copyLink(link) }
+            copyLink.identifier = NSUserInterfaceItemIdentifier(PageSelectionMenu.copyLinkItem)
+            menu.addItem(copyLink)
+        }
         if !request.selection.isEmpty {
             let copy = Self.menuItem(Self.copyTitle) { [weak self] in self?.copyChromiumSelection() }
             copy.identifier = NSUserInterfaceItemIdentifier(PageSelectionMenu.copyItem)
             menu.addItem(copy)
         }
         if let contextMenuEditor { contextMenuEditor(menu) } else { Self.keepDefaultMenuItems(in: menu) }
+        appendDeveloperTools(to: menu)
         guard menu.items.contains(where: { !$0.isSeparatorItem }) else { return request.finish() }
         // The menu tracks from a run-loop callout of its own, never inline. The request comes inside
         // a CEF pump pass (the pump skips a pass it re-enters, so Chromium stood still while the
@@ -62,6 +69,13 @@ extension PageWebView {
             // row starts arrive after this.
             chromiumUserInput(at: ProcessInfo.processInfo.systemUptime)
         }
+    }
+
+    /// Puts `link` on the general pasteboard as a URL and its address, as WebKit's Copy Link does.
+    static func copyLink(_ link: URL, to pasteboard: NSPasteboard = .general) {
+        pasteboard.clearContents()
+        pasteboard.writeObjects([link as NSURL])
+        pasteboard.setString(link.absoluteString, forType: .string)
     }
 
     /// Copies the Chromium page's selection, as WebKit's Copy does.
