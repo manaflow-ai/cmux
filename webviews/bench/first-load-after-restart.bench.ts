@@ -465,6 +465,22 @@ try {
     await page.addInitScript(recordFrames, { windowMs, latest: LATEST, hostTag: SNAPSHOT_HOST_TAG });
   };
 
+/// TRACE=1: the boxes in the page's bottom band (from the composer's top down), by class, so a composer
+/// that sits elsewhere in the copy than on the live page names what stands under or over it.
+const bottomBand = () => {
+  const composer = document.querySelector(".acpmux-composer-box")?.getBoundingClientRect();
+  if (!composer) return ["no composer"];
+  const from = composer.top - 40;
+  return [...document.querySelectorAll("#root *")]
+    .map((element) => ({ element, box: element.getBoundingClientRect() }))
+    .filter(({ box }) => box.height > 0 && box.bottom > from && box.height < 200)
+    .slice(0, 60)
+    .map(
+      ({ element, box }) =>
+        `${element.tagName.toLowerCase()}.${String(element.className).split(" ").slice(0, 2).join(".")} ${box.top.toFixed(0)}+${box.height.toFixed(0)}`,
+    );
+};
+
   /// The load before the restart: acpmux up, the chat opened and settled, then its copy written as the
   /// page writes it (chatSnapshot/live.ts `watchChatSnapshot`).
   const warm = async (): Promise<ChatSnapshot> => {
@@ -493,6 +509,7 @@ try {
         const snapshot = w.captureSnapshot(document, theme);
         return { snapshot: snapshot ?? null, miss: snapshot ? "" : w.captureMiss() };
       }, THEME);
+      if (TRACE) console.log(`warm bottom band:\n  ${(await page.evaluate(bottomBand)).join("\n  ")}`);
       if (!written.snapshot) throw new Error(`the settled page wrote no copy: ${written.miss}`);
       return written.snapshot;
     } finally {
@@ -517,6 +534,7 @@ try {
         timeout: RECORD_MS + 60_000,
         polling: 250,
       });
+      if (TRACE) console.log(`${mode} relaunch bottom band:\n  ${(await page.evaluate(bottomBand)).join("\n  ")}`);
       const got = await page.evaluate(() => {
         const w = window as unknown as BenchWindow;
         return {
