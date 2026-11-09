@@ -1161,6 +1161,30 @@ def rust_owner_files(path: str) -> list[str]:
     return [p for p in owners if p != path]
 
 
+def rust_path_declarers(repo: Path, rev: str, paths: list[str]) -> list[str]:
+    """The crate files at REV with a `#[path = "..."]` line that can name one of PATHS or a folder above it (the
+    attribute's last part is a part of the path: `session_backpressure.rs`, `wire.rs` for wire/frames.rs). CI's
+    ratchet reads `#[cfg(test)] #[path = ...] mod x;` in any file of the crate (rust_test_modules), so the trees need
+    those files for it to tell test code; it decides, from their text, which ones declare a test module. One `git grep`
+    per crate; a file it adds that declares nothing changes no count."""
+    by_crate: dict[str, set[str]] = collections.defaultdict(set)
+    for path in paths:
+        parts = path[len(RUST_CRATES):].split("/")
+        if len(parts) < 3:
+            continue
+        by_crate[RUST_CRATES + parts[0]].update(part.removesuffix(".rs") for part in parts[2:] if part != "mod.rs")
+    found: set[str] = set()
+    for crate, names in sorted(by_crate.items()):
+        if not names:
+            continue
+        # POSIX ERE (`git grep -E`): every git build has it; -P needs PCRE.
+        alternatives = "|".join(re.sub(r"([.\[\]()*+?{}|^$\\])", r"\\\1", n) for n in sorted(names))
+        pattern = r'#\[path[[:space:]]*=[[:space:]]*"([^"]*/)?(' + alternatives + r')(\.rs|/mod\.rs)"'
+        out = git(repo, "grep", "-l", "-z", "-E", pattern, rev, "--", crate, check=False).decode(errors="replace")
+        found.update(name.split(":", 1)[1] for name in out.split("\0") if name.startswith(f"{rev}:"))
+    return sorted(p for p in found if p.endswith(".rs"))
+
+
 def add_blobs(repo: Path, tree: Path, rev: str, paths: list[str]) -> None:
     """Write each of PATHS that TREE lacks and REV has into TREE (one `git cat-file --batch`)."""
     wanted = [p for p in paths if not (tree / p).exists()]
@@ -1176,30 +1200,42 @@ def add_blobs(repo: Path, tree: Path, rev: str, paths: list[str]) -> None:
 
 
 def prepare_crash_ratchet(repo: Path, base: str, head: str, head_tree: Path, trusted_scripts: Path | None,
-                          work: Path) -> tuple[bool, object, list[str], float]:
-    """(main-based, the ratchet module, the crate files the push deletes, seconds taken): the git reads of crash_ratchet_findings,
+                          work: Path) -> tuple[bool, object, float]:
+    """(main-based, the ratchet module, seconds taken): the git reads of crash_ratchet_findings,
     which touch no tree, so gate() runs them next to the scanners (the merge-base reads take about a second)."""
     started = time.monotonic()
     on_main = main_based(repo, head, head_tree)
     ratchet = load_crash_ratchet(repo, head_tree, trusted_scripts, on_main, work)
+    return on_main, ratchet, time.monotonic() - started
+
+
+def add_rust_context(repo: Path, base: str, head: str, base_tree: Path, head_tree: Path, crates: list[str]) -> None:
+    """Put into both trees (and their index, which the scanners' ratchet lists) what CI's crash ratchet needs to tell
+    test code in the changed crate files CRATES: the files that declare their module or a folder above it, the crate
+    files whose `#[path = ...]` line names them (rust_test_modules reads `#[cfg(test)] #[path] mod x;` in any file),
+    and, on the base side only, the crate files the push deletes (a file moved within its crate is no new hit). The
+    added files are the same on both sides, so a scanner's findings in them cancel out. Before the scanners run: the
+    "Crash safety" scanner runs the same ratchet over these trees (review of #39767: it and the crash ratchet layer
+    both counted cmux-vnc's #[path] test module session_backpressure.rs as production code)."""
     deleted = [p for p in git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=D", "-z", base, head, "--",
                                RUST_CRATES).decode().split("\0") if p.endswith(".rs")]
-    return on_main, ratchet, deleted, time.monotonic() - started
+    owners = sorted({o for p in crates + deleted for o in rust_owner_files(p)})
+    add_blobs(repo, base_tree, base, owners + deleted + rust_path_declarers(repo, base, crates + deleted))
+    add_blobs(repo, head_tree, head, owners + rust_path_declarers(repo, head, crates))
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    for tree in (base_tree, head_tree):
+        if (tree / ".git").exists():
+            subprocess.run(["git", "-C", str(tree), "add", "-A"], check=True, capture_output=True, env=env)
 
 
 def crash_ratchet_findings(repo: Path, base: str, head: str, base_tree: Path, head_tree: Path, crates: list[str],
-                           prepared: tuple[bool, object, list[str], float]) -> list["Finding"]:
+                           prepared: tuple[bool, object, float]) -> list["Finding"]:
     """The Rust crash ratchet over what the push adds: per crate and class (and waived hits apart), CI's crash
     ratchet code counts the hits in the changed crate files at BASE and at HEAD, and a count that rises is refused,
     less the rows the head's baseline raises over the base's (a reviewed raise, the same rows CI reads) and the hits
-    that moved in from another crate. The trees also get the files that declare each changed file's module (test code
-    is told by a `#[cfg(test)] mod name;` line) and, on the base side, the crate files the push deletes (a file moved
-    within its crate is no new hit). One finding per added hit line, at its place in HEAD. PREPARED is
-    prepare_crash_ratchet's answer."""
-    on_main, ratchet, deleted, _ = prepared
-    owners = sorted({o for p in crates + deleted for o in rust_owner_files(p)})
-    add_blobs(repo, base_tree, base, owners + deleted)
-    add_blobs(repo, head_tree, head, owners)
+    that moved in from another crate. The trees already hold what tells test code (add_rust_context). One finding per
+    added hit line, at its place in HEAD. PREPARED is prepare_crash_ratchet's answer."""
+    on_main, ratchet, _ = prepared
     scans = []
     for tree in (base_tree, head_tree):
         scan = ratchet.Scan()
@@ -1787,6 +1823,12 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     found: list[tuple[str, list[str]]] = list(reserved)
     with tempfile.TemporaryDirectory(prefix="cmux-prepush-") as tmp:
         base_tree, head_tree = build_trees(repo, base, head, changed + deleted, Path(tmp), trusted_scripts)
+        crates = [p for p in changed if p.startswith(RUST_CRATES) and p.endswith(".rs")]
+        if crates:
+            t0 = time.monotonic()
+            add_rust_context(repo, base, head, base_tree, head_tree, crates)
+            if timings:
+                log(f"  {time.monotonic() - t0:5.2f}s  Rust test-module context (module and #[path] declarations)")
         # The tool rules and pins: on a hook run, only the installed reviewed copy's (head_tree/SCRIPTS is that copy);
         # a pin names a binary the gate downloads and runs, and its sha256 proves nothing when the same file names it.
         # An install without them refuses. A manual run reads the head's, else (a commit older than the gate) the
@@ -1844,7 +1886,6 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                 code = 1 if out else 0
             return code, out, time.monotonic() - t0
 
-        crates = [p for p in changed if p.startswith(RUST_CRATES) and p.endswith(".rs")]
         crash_layer = bool(crates) and (highlights_layer if only is None else "crash-ratchet" in only)
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, (os.cpu_count() or 4))) as pool:
             futures = {(name, i): pool.submit(side, job, tree)
@@ -1872,15 +1913,14 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                 fresh = new_records(base_out, head_out, name_base, name_head)
                 if fresh:
                     found.append((name, fresh))
-        # Its scan after the scanners: it adds files to the trees (the modules that declare a changed file, deleted
-        # files). Its git reads ran next to them.
+        # Its scan after the scanners; its git reads ran next to them.
         if prepared is not None:
             ready = prepared.result()
             t0 = time.monotonic()
             fresh = crash_ratchet_findings(repo, base, head, base_tree, head_tree, crates, ready)
             if timings:
                 log(f"  {time.monotonic() - t0:5.2f}s  {CRASH_RATCHET_CHECK} (after the scanners; its git reads, "
-                    f"{ready[3]:.2f}s, ran next to them)")
+                    f"{ready[2]:.2f}s, ran next to them)")
             if fresh:
                 found.append((CRASH_RATCHET_CHECK, fresh))
     if timings:
