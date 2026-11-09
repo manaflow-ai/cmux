@@ -32,9 +32,9 @@ pub(crate) fn run() -> i32 {
     // Read the whole payload so Claude Code's write never fails on a closed pipe.
     let mut payload = Vec::new();
     let _ = std::io::stdin().lock().take(MAX_PAYLOAD_BYTES).read_to_end(&mut payload);
-    let session = serde_json::from_slice::<serde_json::Value>(&payload)
-        .ok()
-        .and_then(|payload| payload.get("session_id")?.as_str().map(str::to_owned));
+    let payload = serde_json::from_slice::<serde_json::Value>(&payload).ok();
+    let text = |key: &str| payload.as_ref()?.get(key)?.as_str().map(str::to_owned);
+    let (session, start_source) = (text("session_id"), text("source"));
     let env = |key: &str| std::env::var(key).ok().filter(|value| !value.trim().is_empty());
     // The plugin's copy of this hook (claude_plugin.rs) runs without the
     // wrapper, which is what otherwise honors the switch.
@@ -52,6 +52,7 @@ pub(crate) fn run() -> i32 {
                 &socket,
                 terminal.as_deref(),
                 session.as_deref(),
+                start_source.as_deref(),
             ) {
                 println!("{{}}");
             } else {

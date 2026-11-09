@@ -186,21 +186,6 @@ fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::R
         inbox::print_nothing(inbox);
         return Ok(());
     }
-    // A Claude that is not the terminal's live agent (started by its hook,
-    // MCP server or teammate, so with no claim in its environment) claims
-    // nothing and gets no messages, banner or context.
-    let foreign = args.source == "claude"
-        && inbox.is_some()
-        && inbox::foreign_session(&socket, terminal.as_deref(), session);
-    if !foreign {
-        plugin_copy::claim_terminal(
-            &args.source,
-            &args.native_event,
-            terminal.as_deref(),
-            session,
-            |name| env::var_os(name),
-        );
-    }
     let start_source = native.get("source").and_then(Value::as_str).unwrap_or("").to_owned();
     // Read before the journal event redacts it; it travels beside the event, never inside it.
     let live = cmux_tui_core::agent_hook_live_fields(&args.source, &args.native_event, &native);
@@ -224,18 +209,44 @@ fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::R
     // Messages for this terminal's agent ride on the hook's own output. A
     // failed handoff means the daemon is not answering, so the helper fails
     // without output and the installed command prints the empty object.
-    if foreign {
-        inbox::print_nothing(inbox);
-        return Ok(());
-    }
+    //
+    // A Claude that is not the terminal's agent (started by its hook, MCP
+    // server or teammate, so with no claim in its environment) claims
+    // nothing and gets no messages or banner (terminal_agent.rs). The check
+    // runs after the handoff, so it never delays the event, and for a prompt
+    // only when messages wait.
+    let pid = plugin_copy::claude_pid(&|name: &str| env::var_os(name));
+    let agent = terminal_agent::Run {
+        socket: &socket,
+        terminal: terminal.as_deref(),
+        session,
+        start_source: (inbox == Some(inbox::Delivery::SessionBanner))
+            .then_some(start_source.as_str()),
+        pid: pid.as_deref(),
+    };
+    let claude = args.source == "claude";
     match inbox {
         Some(inbox::Delivery::SessionBanner) => {
+            if claude && agent.is_nested_at_start() {
+                inbox::print_nothing(inbox);
+                return Ok(());
+            }
+            agent.record_agent();
+            plugin_copy::claim_terminal(
+                &args.source,
+                &args.native_event,
+                terminal.as_deref(),
+                session,
+                |name| env::var_os(name),
+            );
             inbox::session_banner(terminal.as_deref(), &start_source);
         }
         Some(inbox::Delivery::SessionContext) => {
             session_context::print(&socket, terminal.as_deref());
         }
-        Some(inbox) => inbox::deliver(inbox, &socket, terminal.as_deref()),
+        Some(inbox) => {
+            inbox::deliver(inbox, &socket, terminal.as_deref(), || claude && agent.is_nested());
+        }
         None => {}
     }
     Ok(())
@@ -261,10 +272,11 @@ fn inherited_route_is_untrusted(
         && cmux_tui_core::platform::descends_from_codex_app_server_daemon()
 }
 
-/// Whether a Claude in `terminal` with `session` is not the terminal's agent
-/// but one it started: its environment claims the terminal for another
-/// session (plugin_copy.rs), or the roster shows another live hook session
-/// (inbox.rs). The `agent session-context` hook then adds no context.
+/// Whether a Claude in `terminal` with `session` (its `SessionStart` from
+/// `start_source`) is not the terminal's agent but one it started: its
+/// environment claims the terminal for another session (plugin_copy.rs), or
+/// the terminal has another agent (terminal_agent.rs). The
+/// `agent session-context` hook then adds no context.
 #[allow(
     dead_code,
     reason = "only cmux-tui's `agent session-context` calls it; the standalone helper builds this file too"
@@ -273,9 +285,12 @@ pub(crate) fn claude_is_nested(
     socket: &Path,
     terminal: Option<&str>,
     session: Option<&str>,
+    start_source: Option<&str>,
 ) -> bool {
+    let pid = plugin_copy::claude_pid(&|name: &str| env::var_os(name));
     plugin_copy::claimed_elsewhere("claude", terminal, session, |name| env::var_os(name))
-        || inbox::foreign_session(socket, terminal, session)
+        || terminal_agent::Run { socket, terminal, session, start_source, pid: pid.as_deref() }
+            .is_nested()
 }
 
 /// One agent's queue of hook events on disk.
@@ -312,6 +327,10 @@ mod inbox;
 /// The Claude Code plugin's copy of the hooks, beside an installed copy.
 #[path = "cmux-tui-hook/plugin_copy.rs"]
 mod plugin_copy;
+
+/// Which Claude in a terminal is the terminal's agent.
+#[path = "cmux-tui-hook/terminal_agent.rs"]
+mod terminal_agent;
 
 /// cmux's line under Claude Code's startup banner: how the session compacts.
 #[path = "cmux-tui-hook/session_banner.rs"]

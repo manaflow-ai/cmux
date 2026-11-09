@@ -85,7 +85,15 @@ fn print_output(value: &Value) {
     let _ = stdout.flush();
 }
 
-pub(super) fn deliver(delivery: Delivery, socket: &Path, terminal: Option<&str>) {
+/// Hands `terminal`'s queued messages to its agent. `nested` is asked once,
+/// only when messages wait: a Claude that is not the terminal's agent gets
+/// none, and they stay queued.
+pub(super) fn deliver(
+    delivery: Delivery,
+    socket: &Path,
+    terminal: Option<&str>,
+    nested: impl FnOnce() -> bool,
+) {
     let Some(terminal) = terminal.filter(|terminal| terminal.starts_with("term_")) else {
         print_nothing(Some(delivery));
         return;
@@ -102,7 +110,7 @@ pub(super) fn deliver(delivery: Delivery, socket: &Path, terminal: Option<&str>)
         }
     };
     let batch = cmux_tui_core::agent_message_prompt::batch(messages);
-    if batch.is_empty() {
+    if batch.is_empty() || nested() {
         print_nothing(Some(delivery));
         return;
     }
@@ -116,37 +124,6 @@ pub(super) fn deliver(delivery: Delivery, socket: &Path, terminal: Option<&str>)
         true,
         deadline,
     );
-}
-
-/// Whether `terminal`'s agent is a live hook session other than `session`:
-/// this Claude is not the terminal's agent but one that it started (from a
-/// tool command, a hook, an MCP server or a teammate). One `agent.list` read;
-/// a read that fails or times out answers `false`, so the terminal's own
-/// agent keeps reporting when the daemon does not answer in time.
-pub(super) fn foreign_session(
-    socket: &Path,
-    terminal: Option<&str>,
-    session: Option<&str>,
-) -> bool {
-    let (Some(terminal), Some(session)) = (terminal, session) else { return false };
-    let read = || {
-        let deadline = Instant::now() + DEADLINE;
-        request(socket, "agent.list", json!({"terminal_id": terminal}), false, deadline)
-    };
-    foreign_in(read, terminal, session)
-}
-
-/// [`foreign_session`] over one `agent.list` read.
-fn foreign_in(read: impl FnOnce() -> anyhow::Result<Value>, terminal: &str, session: &str) -> bool {
-    let Ok(rows) = read() else { return false };
-    let text = |row: &Value, key: &str| row.get(key).and_then(Value::as_str).map(str::to_owned);
-    rows.as_array().into_iter().flatten().any(|row| {
-        let live = row.get("extra").and_then(|extra| text(extra, "agent_session_id"));
-        text(row, "terminal_id").as_deref() == Some(terminal)
-            && text(row, "source").as_deref() == Some("hook")
-            && text(row, "state").as_deref() != Some("done")
-            && live.is_some_and(|live| live != session)
-    })
 }
 
 /// claude `SessionStart` in a cmux terminal: the startup line for how this
@@ -244,31 +221,4 @@ pub(super) fn request(
     }
     let result = response["result"].clone();
     Ok(if mutation { result["value"].clone() } else { result })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn any_launcher_w5n3_only_another_live_hook_session_is_foreign() {
-        let rows = |rows: Value| move || -> anyhow::Result<Value> { Ok(rows) };
-        let outer = json!([{"terminal_id": "term_a", "source": "hook", "state": "idle",
-            "extra": {"agent_session_id": "outer-1"}}]);
-        // A Claude the terminal's agent started: another live session.
-        assert!(foreign_in(rows(outer.clone()), "term_a", "nested-2"));
-        // The agent itself, and an agent row of another terminal.
-        assert!(!foreign_in(rows(outer.clone()), "term_a", "outer-1"));
-        assert!(!foreign_in(rows(outer), "term_b", "nested-2"));
-        // No agent yet, an ended one, or one that no hook reports: this Claude
-        // is the terminal's agent.
-        assert!(!foreign_in(rows(json!([])), "term_a", "nested-2"));
-        let ended = json!([{"terminal_id": "term_a", "source": "hook", "state": "done",
-            "extra": {"agent_session_id": "outer-1"}}]);
-        assert!(!foreign_in(rows(ended), "term_a", "nested-2"));
-        let screen = json!([{"terminal_id": "term_a", "source": "detected", "state": "idle"}]);
-        assert!(!foreign_in(rows(screen), "term_a", "nested-2"));
-        // A read that fails or times out keeps the hook reporting.
-        assert!(!foreign_in(|| Err(anyhow::anyhow!("timed out")), "term_a", "nested-2"));
-    }
 }

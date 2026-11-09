@@ -70,6 +70,22 @@ impl AgentTexts {
 }
 
 impl Mux {
+    /// Whether `terminal`'s hook fence holds a live session other than `session`: a hook event
+    /// of `session` then comes from a Claude that the terminal's agent started, which the
+    /// fence drops. An event without a session id is the terminal's.
+    pub(crate) fn hook_session_is_another_live(
+        &self,
+        terminal: &TerminalPublicId,
+        session: Option<&str>,
+    ) -> bool {
+        let Some(session) = session.filter(|session| !session.is_empty()) else { return false };
+        self.agent_hook_fences
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(terminal)
+            .is_some_and(|fence| !fence.ended && fence.session_id != session)
+    }
+
     /// Keeps `prompt` (cut to `LIVE_MESSAGE_CHARS`) as `terminal`'s last prompt when the
     /// terminal is live. Returns the prompt it replaced (`Some(None)` for none), so a failed or
     /// replayed append can put it back (`restore_agent_prompt`); `None` when nothing was kept.

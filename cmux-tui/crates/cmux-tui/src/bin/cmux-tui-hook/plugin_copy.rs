@@ -178,7 +178,7 @@ fn claim(getenv: &impl Fn(&str) -> Option<OsString>) -> Option<Claim> {
 }
 
 /// The id of the Claude Code process this hook runs under: digits only.
-fn claude_pid(getenv: &impl Fn(&str) -> Option<OsString>) -> Option<String> {
+pub(super) fn claude_pid(getenv: &impl Fn(&str) -> Option<OsString>) -> Option<String> {
     getenv(CLAUDE_PID_ENV)
         .and_then(|pid| pid.into_string().ok())
         .filter(|pid| !pid.is_empty() && pid.bytes().all(|byte| byte.is_ascii_digit()))

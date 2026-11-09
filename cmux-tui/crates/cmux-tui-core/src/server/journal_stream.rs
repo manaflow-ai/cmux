@@ -120,22 +120,30 @@ pub(super) fn handle_journal_extension_request(
                 )
             })?;
             super::command_history::refuse_reserved_producer(&ingress)?;
+            // The live fields below belong to the terminal's agent: a hook event of another
+            // session while the terminal's session is live (a Claude its agent started) is
+            // journaled and dropped by the fence, and its fields are not kept either.
+            let hook_terminal = (ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID)
+                .then(|| {
+                    ingress.subjects.iter().find(|subject| subject.kind == "terminal").and_then(
+                        |subject| crate::resource::TerminalPublicId::parse(subject.id.clone()).ok(),
+                    )
+                })
+                .flatten()
+                .filter(|terminal| {
+                    let session = ingress
+                        .payload
+                        .get("normalized")
+                        .and_then(|value| value.get("agent_session_id"))
+                        .and_then(Value::as_str);
+                    !mux.hook_session_is_another_live(terminal, session)
+                });
             // A turn-start hook's prompt rides beside the event, memory only: kept before the
             // commit so the agent change the commit folds already carries it, put back when the
             // append fails or replays, never journaled.
-            let noted = request
-                .fields
-                .get("live_prompt")
-                .and_then(Value::as_str)
-                .filter(|_| ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID)
-                .and_then(|prompt| {
-                    let terminal = ingress
-                        .subjects
-                        .iter()
-                        .find(|subject| subject.kind == "terminal")
-                        .and_then(|subject| {
-                            crate::resource::TerminalPublicId::parse(subject.id.clone()).ok()
-                        })?;
+            let noted =
+                request.fields.get("live_prompt").and_then(Value::as_str).and_then(|prompt| {
+                    let terminal = hook_terminal.clone()?;
                     let previous = mux.note_agent_prompt(&terminal, prompt)?;
                     Some((terminal, previous))
                 });
@@ -143,36 +151,16 @@ pub(super) fn handle_journal_extension_request(
             // commit's notification event takes it, and whatever it did not take goes. It is
             // the terminal's last reply only after a new commit: a failed or replayed append
             // puts the one before it back.
-            let reply = request
-                .fields
-                .get("live_reply")
-                .and_then(Value::as_str)
-                .filter(|_| ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID)
-                .and_then(|reply| {
-                    let terminal = ingress
-                        .subjects
-                        .iter()
-                        .find(|subject| subject.kind == "terminal")
-                        .and_then(|subject| {
-                            crate::resource::TerminalPublicId::parse(subject.id.clone()).ok()
-                        })?;
+            let reply =
+                request.fields.get("live_reply").and_then(Value::as_str).and_then(|reply| {
+                    let terminal = hook_terminal.clone()?;
                     let noted = mux.note_agent_reply(&terminal, reply)?;
                     Some((terminal, noted))
                 });
             // A question hook's question rides the same way, for the phone's answer card.
-            let question = request
-                .fields
-                .get("live_question")
-                .and_then(Value::as_str)
-                .filter(|_| ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID)
-                .and_then(|question| {
-                    let terminal = ingress
-                        .subjects
-                        .iter()
-                        .find(|subject| subject.kind == "terminal")
-                        .and_then(|subject| {
-                            crate::resource::TerminalPublicId::parse(subject.id.clone()).ok()
-                        })?;
+            let question =
+                request.fields.get("live_question").and_then(Value::as_str).and_then(|question| {
+                    let terminal = hook_terminal.clone()?;
                     mux.note_agent_question(&terminal, question).then_some(terminal)
                 });
             let idempotency_key = super::wire_values::required_idempotency_key(request)?;
