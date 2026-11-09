@@ -155,7 +155,7 @@ use guards::PendingWorkspaceSurface;
 pub(crate) use guards::ResourceWaitWake;
 mod agent_reports;
 mod agent_roster_fold;
-mod agent_roster_restore;
+pub(crate) mod agent_roster_restore;
 mod apply_layout;
 mod browser_create;
 mod browser_providers;

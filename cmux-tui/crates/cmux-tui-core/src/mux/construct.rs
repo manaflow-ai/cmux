@@ -461,6 +461,15 @@ impl Mux {
         // A replay from zero (a reducer version bump) that the start's
         // budget did not finish goes on in the owner while the daemon serves.
         if let Some(replay) = agent_roster_replay {
+            #[cfg(test)]
+            {
+                *mux.agent_roster_worker
+                    .replay_gate
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner) =
+                    agent_roster_restore::REPLAY_GATE_FOR_TEST
+                        .with(|gate| gate.borrow_mut().take());
+            }
             mux.continue_agent_roster_replay(replay);
         }
         mux.start_command_history_for_persistent_registry();
