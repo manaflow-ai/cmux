@@ -3,12 +3,14 @@
 // surface is reported with its box, level, radius and opacity, shows its content in the frame it
 // mounts (Leo, 2026-11-09: "it loads the placeholder, THEN the content... every single time"), keeps
 // the page's own glass past the deadline or when the App refuses, and its report is withdrawn in the
-// task it goes in.
+// task it goes in. Its box goes to the App only once its content has been on screen for the hold, so
+// the App's glass never shows before the content (Leo, 2026-11-09, on the empty glass box before menus).
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import {
   HOST_GLASS_DEADLINE_MS,
   HOST_GLASS_DRAWN_ATTRIBUTE,
+  HOST_GLASS_HOLD_FRAMES,
   HOST_GLASS_ROOT_ATTRIBUTE,
   hostGlassApplies,
   reportHostGlass,
@@ -50,7 +52,7 @@ function surface(doc: Document, level = "popover"): HTMLElement {
   return element;
 }
 
-const frames = (count = 2) =>
+const frames = (count = HOST_GLASS_HOLD_FRAMES + 2) =>
   new Promise<void>((resolve) => {
     const step = (left: number) => (left === 0 ? resolve() : dom!.window.requestAnimationFrame(() => step(left - 1)));
     step(count);
@@ -304,7 +306,7 @@ test("a surface whose report changes every frame is drawn on an answer to an ear
   const answers: (() => void)[] = [];
   stop = reportHostGlass(doc, () => new Promise<void>((resolve) => answers.push(resolve)));
   const element = surface(doc);
-  await frames(1);
+  await frames(HOST_GLASS_HOLD_FRAMES + 1);
   // The surface moves (a scroll, a fade) and a new report goes out before the first is answered.
   const window = dom!.window as unknown as Window & typeof globalThis;
   window.Element.prototype.getBoundingClientRect = function (this: Element) {
@@ -354,5 +356,34 @@ test("a deadline that ran late behind the page's own work leaves the queued answ
   answerInALaterTask(() => answer!());
   await pastDeadline();
   await pastDeadline();
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+});
+
+test("a new surface's box goes to the App only after its content has been on screen for the hold", async () => {
+  const doc = page();
+  const reports: HostGlassSurface[][] = [];
+  stop = reportHostGlass(doc, (surfaces) => (reports.push(surfaces), new Promise(() => undefined)));
+  const element = surface(doc);
+  // The frames that paint its content, on the page's in-place blur: the App has drawn nothing yet.
+  await frames(HOST_GLASS_HOLD_FRAMES);
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+  expect(reports.flat()).toEqual([]);
+  // The next frame: its content is on screen, and the App's glass goes under it.
+  await frames(1);
+  expect(reports.at(-1)?.map((entry) => entry.id)).toEqual(["g1"]);
+});
+
+test("the deadline starts at a surface's first report, not while it is held", async () => {
+  const doc = page();
+  const window = dom!.window as unknown as Window;
+  // A slow display: the hold alone outlasts the deadline.
+  window.requestAnimationFrame = (callback) => window.setTimeout(() => callback(performance.now()), 40);
+  let answer: (() => void) | undefined;
+  stop = reportHostGlass(doc, () => new Promise<void>((resolve) => (answer ??= resolve)));
+  const element = surface(doc);
+  await frames(HOST_GLASS_HOLD_FRAMES + 1);
+  expect(answer).toBeDefined();
+  answer!();
+  await settled();
   expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
 });

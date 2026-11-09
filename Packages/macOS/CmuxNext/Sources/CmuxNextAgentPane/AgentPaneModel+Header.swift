@@ -264,7 +264,8 @@ extension AgentPaneModel {
             setToastAvoidance(rect)
             return AgentPaneReply.success()
         case .hostGlass(let surfaces):
-            // Drawn before the reply: the page shows a surface once this answers (hostGlass.ts).
+            // Drawn before the reply, which only confirms: the page shows a surface's content first and
+            // reports its box once that content is on screen (hostGlass.ts, the hold).
             hostGlass.update(surfaces)
             return AgentPaneReply.success()
         case .copyText(let text):
