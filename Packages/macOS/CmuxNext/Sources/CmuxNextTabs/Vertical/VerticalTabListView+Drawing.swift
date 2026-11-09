@@ -201,7 +201,10 @@ extension VerticalTabListView {
         }
         let chevron = Metrics.smallIconSize
         let pillHeight = max(Metrics.space5, frame.height - 2 * Metrics.space1)
-        let font = Typography.caption
+        // The rows' own face and size at the regular weight (`Typography.body`, as the tab titles under it), as the
+        // sidebar's group headers (`SidebarStyle.groupHeaderFont`): it was the smaller caption face (Leo 2026-11-05: "this
+        // strange font of the group on the side"). The color sets the group apart, not a different face.
+        let font = VerticalTabListView.groupNameFont
         let name = group.name as NSString
         let iconSize = metrics.iconSize * 0.8
         let iconWidth = group.icon == nil ? 0 : iconSize + Metrics.space1
@@ -225,6 +228,9 @@ extension VerticalTabListView {
             draw(image, in: CGRect(x: frame.maxX - Metrics.space1 - chevron, y: frame.midY - chevron / 2, width: chevron, height: chevron))
         }
     }
+
+    /// A group header's name: the tab rows' font (`Typography.body`).
+    static var groupNameFont: NSFont { Typography.body }
 
     /// Paints a group header's pill (glass with its rim, or the solid fill) and returns the ink for its name and icon.
     /// The row's own hover fill sits behind the pill, so the glass takes no hover step of its own.

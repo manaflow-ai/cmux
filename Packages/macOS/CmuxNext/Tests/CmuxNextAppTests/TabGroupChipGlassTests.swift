@@ -78,6 +78,13 @@ import Testing
         #expect(chip.rim.isHidden)
     }
 
+    /// Leo 2026-11-05, "this strange font of the group on the side": a vertical list group header's name is the tab
+    /// rows' own font, not the smaller caption face.
+    @Test func theVerticalListsGroupNameIsTheRowsFont() {
+        #expect(VerticalTabListView.groupNameFont == Typography.body)
+        #expect(VerticalTabListView.groupNameFont.pointSize > Typography.caption.pointSize || Typography.body == Typography.caption)
+    }
+
     /// The chip follows the sidebar headers' `sidebar.groupGlass`, Vivid by default.
     @Test func theChipFollowsTheHeadersGlassDefault() {
         #expect(GroupChipGlass.current.glass == SidebarGroupGlass.tunable.value)
