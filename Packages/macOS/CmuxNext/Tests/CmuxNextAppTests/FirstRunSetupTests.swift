@@ -1,3 +1,4 @@
+import AppKit
 @testable import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextSettings
@@ -242,6 +243,32 @@ import Testing
         PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: event)
     }
 
+    /// Every card this launch shares one agents model: a card made again mid-install (another Home conversation)
+    /// shows the install running, starts no second one, and the install's sign-in still runs when it ends.
+    @Test func aCardMadeAgainKeepsTheRunningInstall() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        let source = HeldInstallSource()
+        let environment = SetupCardEnvironment(account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in },
+                                               openAgents: {})
+        let first = SetupCardPageProvider(setup: setup, agents: source, environment: environment)
+        await until { first.agents.loaded }
+        let click = { (at: TimeInterval) in PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: at) }
+        _ = try await first.call("cmux.setup.run", params: ["action": ["kind": "installAgent", "id": "claude"]], context: click(1))
+        await until { source.running != nil }
+        first.stop()
+
+        let again = SetupCardPageProvider(setup: setup, agents: source, environment: environment)
+        defer { again.stop() }
+        #expect(again.agents === first.agents)
+        #expect(again.agents.installs["claude"] == .installing)
+        _ = try await again.call("cmux.setup.run", params: ["action": ["kind": "installAgent", "id": "codex"]], context: click(2))
+        #expect(source.installsRun == ["claude"], "one install at a time, across cards")
+
+        source.running?.resume()
+        await until { !source.signIns.isEmpty }
+        #expect(source.signIns == ["claude"], "the install's sign-in runs after the card was made again")
+    }
+
     /// Not Now on the chat history row answers it for good.
     @Test func notNowDismissesTheChatHistoryRow() async throws {
         let defaults = try defaults()
@@ -327,4 +354,23 @@ import Testing
     var cliAfter = "missing"
     var installRuns: CheckedContinuation<Void, Never>?
     var importShows = false
+}
+
+/// Claude Code and Codex missing; an install holds until the test resumes it, then reads as installed.
+@MainActor private final class HeldInstallSource: AgentSignInSource {
+    var agents = [OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .unknown, installed: false),
+                  OnboardingAgent(id: "codex", name: "Codex", brand: "codex", auth: .unknown, installed: false)]
+    var running: CheckedContinuation<Void, Never>?
+    private(set) var installsRun: [String] = []
+    private(set) var signIns: [String] = []
+
+    func agentSignIns(recheck: Bool) async -> [OnboardingAgent] { agents }
+    func signInAgent(_ id: String) async -> Bool { signIns.append(id); return true }
+    func installAgent(_ id: String) async -> String? {
+        installsRun.append(id)
+        await withCheckedContinuation { running = $0 }
+        agents = agents.map { $0.id == id ? OnboardingAgent(id: id, name: $0.name, brand: $0.brand, auth: .signedOut) : $0 }
+        return nil
+    }
+    func agentIcon(_ agent: OnboardingAgent, side: CGFloat) -> NSImage? { nil }
 }
