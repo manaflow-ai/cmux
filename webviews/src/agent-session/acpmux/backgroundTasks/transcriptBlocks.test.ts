@@ -4,7 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { SUBAGENTS } from "../subagents/subagentFold";
-import { MOUNTED, runFold, transcriptBlocks, windowRange } from "./subagentTranscriptModel";
+import { carryRange, MOUNTED, runFold, transcriptBlocks, windowRange } from "./subagentTranscriptModel";
 
 let seq = 0;
 const call = (status = "completed"): AcpmuxActivity => ({
@@ -75,5 +75,38 @@ describe("transcriptBlocks", () => {
     const blocks = transcriptBlocks([...long, reply("r")], 2);
     expect(blocks).toHaveLength(2);
     expect(windowRange(blocks)).toEqual({ start: 0 });
+  });
+});
+
+// Two work rows of one call each draw as two lines until the second's next call folds them into one
+// run: the window keeps the rows it mounted (SubagentTranscript.tsx), it never jumps to the newest.
+describe("carryRange", () => {
+  const thoughtOnly = work("y", thought);
+  const before = transcriptBlocks([reply("r0"), work("x", call()), thoughtOnly, reply("r1"), reply("r2")], 2);
+  const after = transcriptBlocks(
+    [reply("r0"), work("x", call()), work("y", thought, call()), reply("r1"), reply("r2")],
+    2,
+  );
+
+  test("the fold is the case: the same rows draw one block fewer", () => {
+    expect(before.map((block) => block.id)).toEqual(["r0", "x", "y", "r1", "r2"]);
+    expect(after.map((block) => block.id)).toEqual(["r0", "x", "r1", "r2"]);
+  });
+
+  test("a window whose first block folds into the one above starts at the run", () => {
+    expect(carryRange(before, after, { start: 2, end: 4 })).toEqual({ start: 1, end: 3 });
+  });
+
+  test("a window whose last block folds with the one below keeps the whole run", () => {
+    expect(carryRange(before, after, { start: 0, end: 2 })).toEqual({ start: 0, end: 2 });
+  });
+
+  test("a window after the fold moves up by the block it lost", () => {
+    expect(carryRange(before, after, { start: 3, end: 4 })).toEqual({ start: 2, end: 3 });
+    expect(carryRange(before, after, { start: 3 })).toEqual({ start: 2 });
+  });
+
+  test("a window whose start row is gone takes the newest window", () => {
+    expect(carryRange(before, transcriptBlocks([reply("n0")], 2), { start: 3, end: 4 })).toEqual({ start: 0 });
   });
 });

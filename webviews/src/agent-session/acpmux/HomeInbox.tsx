@@ -18,6 +18,7 @@ import { type StringKey, useT } from "./i18n";
 import { askText } from "./needsYou/needsYouModel";
 import type { NeedsYouAnswer, NeedsYouItem, NeedsYouKind } from "./needsYou/model";
 import { PermissionActionButton } from "./PermissionCard";
+import { sessionIndex } from "./sessionIndex";
 import { type AcpmuxSessionEntry, projectLabel } from "./sessionList";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 import { type HomeInboxOutcome, inlineAnswers } from "./homeInboxModel";
@@ -65,7 +66,8 @@ export function HomeInbox({
   // Asks answered here, hidden until acpmux's change takes them off the list.
   const [sent, setSent] = useState<ReadonlySet<string>>(new Set());
   const shown = items.filter((item) => !sent.has(item.id));
-  const byId = new Map(sessions.map((session) => [session.sessionId, session]));
+  // The list's shared id map (sessionIndex.ts), not one of its own per draw.
+  const byId = sessionIndex(sessions);
   // The first row an answer can be given on takes the keys.
   const keyed = shortcuts ? shown.find((item) => inlineAnswers(item).length > 0)?.id : undefined;
   if (shown.length === 0) return null;
@@ -112,7 +114,7 @@ export function HomeInbox({
 /// The asks by their chat's folder, in the order each folder's newest ask came.
 function groups(
   items: readonly NeedsYouItem[],
-  byId: ReadonlyMap<string, AcpmuxSessionEntry>,
+  byId: Pick<ReadonlyMap<string, AcpmuxSessionEntry>, "get">,
   t: ReturnType<typeof useT>,
 ): [string, NeedsYouItem[]][] {
   const folders = new Map<string, NeedsYouItem[]>();
