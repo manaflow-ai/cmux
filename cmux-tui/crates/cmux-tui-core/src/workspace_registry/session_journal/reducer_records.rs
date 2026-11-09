@@ -292,6 +292,17 @@ fn backfill_cursor(connection: &Connection) -> anyhow::Result<u64> {
     Ok(if exists { through } else { 0 })
 }
 
+/// Called by the output cleanup swap after it packed new segments, on the
+/// new registry: the swap empties `journal_segment_reducer_records` (it is
+/// one of the rebuilt tables), and a segment it packs can get the id of the
+/// segment it replaces (ids hash the range and content), so the cursor it
+/// copied across could still name an existing segment and skip the new ones.
+/// The backfill starts over from the first segment.
+pub(crate) fn forget_backfill(connection: &Connection) -> anyhow::Result<()> {
+    connection.execute("DELETE FROM main.meta WHERE key = ?1", [BACKFILL_META_KEY])?;
+    Ok(())
+}
+
 fn write_backfill_cursor(
     connection: &Connection,
     through: u64,

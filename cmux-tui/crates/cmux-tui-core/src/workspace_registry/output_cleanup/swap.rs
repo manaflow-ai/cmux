@@ -676,6 +676,9 @@ fn build_in(tx: &Transaction<'_>, steps: &mut Steps) -> anyhow::Result<Built> {
         tx.query_row("SELECT COUNT(*) FROM main.output_cleanup_records", [], |row| row.get(0))?;
     anyhow::ensure!(kept > 0, "the journal holds no record other than terminal output");
     let (segments, pruned_ranges) = pack_segments(tx, lo, head)?;
+    // The new segments have no kept reducer records (their table is
+    // rebuilt empty); the journal maintenance backfill fills them again.
+    super::super::session_journal::reducer_records::forget_backfill(tx)?;
     steps.mark("pack segments");
 
     copy_index_rows(tx)?;
