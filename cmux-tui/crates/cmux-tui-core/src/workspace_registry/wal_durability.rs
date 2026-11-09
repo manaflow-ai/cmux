@@ -27,6 +27,15 @@
 //! syncer runs that checkpoint instead, on its own connection, once the WAL
 //! passes [`CHECKPOINT_BYTES`]; a PASSIVE checkpoint never blocks a writer.
 //!
+//! A PASSIVE checkpoint never shrinks the WAL file, and while a reader holds
+//! an old snapshot it cannot catch up, so the file grows with every commit
+//! and stays at that size (one registry's WAL reached 15.7 GB). So every
+//! connection runs `journal_size_limit` ([`WAL_SIZE_LIMIT_BYTES`]), which
+//! cuts the file back when the WAL restarts from its first frame, and once a
+//! PASSIVE checkpoint caught up with a WAL over that size the syncer runs one
+//! TRUNCATE checkpoint. It waits at most [`TRUNCATE_BUSY_TIMEOUT`] for a
+//! writer or reader; a busy one is tried again at the next checkpoint.
+//!
 //! Before, each registry commit ran `synchronous=FULL` with `fullfsync`
 //! while it held the registry connection lock: about 4.5 ms per commit on a
 //! fleet M4 Pro, one to three of them on every create and close reply, and
@@ -52,6 +61,14 @@ const CHECKPOINT_BYTES: u64 = 4 * 1024 * 1024;
 /// Each WAL frame is a 24-byte frame header and one page.
 const WAL_FRAME_HEADER_BYTES: u64 = 24;
 
+/// The WAL file size the syncer brings the file back under once nothing
+/// pins it (`journal_size_limit`, and a TRUNCATE checkpoint).
+pub(crate) const WAL_SIZE_LIMIT_BYTES: u64 = 64 * 1024 * 1024;
+
+/// How long the syncer's TRUNCATE checkpoint waits for a writer or reader
+/// before it leaves the WAL for the next checkpoint.
+const TRUNCATE_BUSY_TIMEOUT: Duration = Duration::from_millis(50);
+
 /// Commit counters shared with the syncer thread.
 #[derive(Default)]
 struct SyncState {
@@ -71,6 +88,9 @@ struct SyncState {
     wal_frames: u64,
     /// Bytes of the WAL frames the commits appended (`server-stats` `write_path.registry_wal_frame_bytes`).
     wal_frame_bytes: u64,
+    /// The largest WAL file size seen since the database opened (`server-stats`
+    /// `write_path.registry_wal_file_high_water_bytes`).
+    wal_file_high_water: u64,
 }
 
 struct Shared {
@@ -153,6 +173,11 @@ impl WalDurability {
             .ok()
             .and_then(|size| u64::try_from(size).ok())
             .unwrap_or(4096);
+        // The writer cuts the WAL file back to this size whenever the WAL
+        // restarts from its first frame (module docs).
+        if let Err(error) = connection.execute_batch(&journal_size_limit_pragma()) {
+            eprintln!("cmux-tui: SQLite journal_size_limit failed: {error}");
+        }
         let shared = Arc::new(Shared {
             database_path: database_path.to_path_buf(),
             wal_path: PathBuf::from(wal_path),
@@ -219,6 +244,26 @@ impl WalDurability {
     pub(crate) fn wal_frame_bytes(&self) -> u64 {
         self.shared.state.lock().recover_poison().wal_frame_bytes
     }
+
+    /// (size now, largest size seen since the database opened) of the WAL
+    /// file, for `server-stats` `write_path.registry_wal_file_bytes` and
+    /// `registry_wal_file_high_water_bytes`. A missing WAL is 0 bytes.
+    pub(crate) fn wal_file_bytes(&self) -> (u64, u64) {
+        let size = wal_file_len(&self.shared);
+        (size, self.shared.state.lock().recover_poison().wal_file_high_water)
+    }
+}
+
+/// The WAL file's size, noted in its high-water mark.
+fn wal_file_len(shared: &Shared) -> u64 {
+    let size = std::fs::metadata(&shared.wal_path).map_or(0, |meta| meta.len());
+    let mut state = shared.state.lock().recover_poison();
+    state.wal_file_high_water = state.wal_file_high_water.max(size);
+    size
+}
+
+fn journal_size_limit_pragma() -> String {
+    format!("PRAGMA journal_size_limit={WAL_SIZE_LIMIT_BYTES};")
 }
 
 /// One commit; `frames` is the WAL's frame count after it (the WAL hook's argument).
@@ -281,10 +326,12 @@ fn run(shared: &Shared) {
 
 /// A PASSIVE checkpoint on the syncer's own connection once the WAL is
 /// large: it copies what it can without waiting for a writer or reader.
+/// When it copied the whole WAL and the file is over
+/// [`WAL_SIZE_LIMIT_BYTES`], a TRUNCATE checkpoint empties the file.
 /// True when a checkpoint ran (it synced the WAL before copying it).
 fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>) -> bool {
-    let large = std::fs::metadata(&shared.wal_path).is_ok_and(|meta| meta.len() > CHECKPOINT_BYTES);
-    if !large {
+    let size = wal_file_len(shared);
+    if size <= CHECKPOINT_BYTES {
         return false;
     }
     if checkpointer.is_none() {
@@ -294,19 +341,40 @@ fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>) -
         )
         .and_then(|connection| {
             connection.execute_batch(CHECKPOINTER_PRAGMAS)?;
+            connection.execute_batch(&journal_size_limit_pragma())?;
+            // PASSIVE never waits; this bounds the TRUNCATE checkpoint's wait.
+            connection.busy_timeout(TRUNCATE_BUSY_TIMEOUT)?;
             Ok(connection)
         })
         .map_err(|error| eprintln!("cmux-tui: open the WAL checkpointer failed: {error:#}"))
         .ok();
     }
     let Some(connection) = checkpointer.as_ref() else { return false };
-    match connection.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(())) {
-        Ok(()) => true,
+    let caught_up = match checkpoint(connection, "PASSIVE") {
+        Ok(caught_up) => caught_up,
         Err(error) => {
             eprintln!("cmux-tui: WAL checkpoint failed: {error}");
-            false
+            return false;
         }
+    };
+    if caught_up && size > WAL_SIZE_LIMIT_BYTES {
+        // Busy (a reader still on the WAL, or a writer): the next one tries.
+        if let Err(error) = checkpoint(connection, "TRUNCATE") {
+            eprintln!("cmux-tui: WAL truncate checkpoint failed: {error}");
+        }
+        wal_file_len(shared);
     }
+    true
+}
+
+/// `PRAGMA wal_checkpoint(mode)`: true when it was not busy and every frame
+/// of the WAL is in the database.
+fn checkpoint(connection: &Connection, mode: &str) -> rusqlite::Result<bool> {
+    let (busy, log, checkpointed): (i64, i64, i64) =
+        connection.query_row(&format!("PRAGMA wal_checkpoint({mode})"), [], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+    Ok(busy == 0 && log == checkpointed)
 }
 
 /// The checkpoint orders its writes with plain fsyncs, as the WAL flush does
@@ -480,6 +548,52 @@ mod tests {
             std::thread::sleep(Duration::from_millis(20));
         };
         assert!(db_len > 4 * 1024 * 1024, "the database file is {db_len} bytes: no checkpoint ran");
+        drop(connection);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_wal_a_reader_pinned_shrinks_under_the_limit_once_the_reader_is_gone() {
+        let (dir, connection) = database("pinned");
+        let path = dir.join("r.sqlite");
+        let durability = WalDurability::attach(&connection, &path, None, false);
+        let wal = dir.join("r.sqlite-wal");
+        // A reader holds its snapshot while the commits land, as a long read
+        // of the registry does: no checkpoint can copy past it.
+        let reader = Connection::open(&path).unwrap();
+        reader.execute_batch("BEGIN").unwrap();
+        let _: i64 = reader.query_row("SELECT COUNT(*) FROM t", [], |row| row.get(0)).unwrap();
+        let blob = vec![7u8; 64 * 1024];
+        let commits = (WAL_SIZE_LIMIT_BYTES * 3 / 2) / blob.len() as u64;
+        for commit in 0..commits {
+            connection.execute("INSERT INTO t VALUES (?1)", [&blob]).unwrap();
+            if commit % 64 == 0 {
+                durability.request_flush();
+            }
+        }
+        durability.wait_durable();
+        let pinned = std::fs::metadata(&wal).unwrap().len();
+        assert!(pinned > WAL_SIZE_LIMIT_BYTES, "the pinned WAL is only {pinned} bytes");
+        reader.execute_batch("COMMIT").unwrap();
+        drop(reader);
+        // The next answered request checkpoints it.
+        connection.execute("INSERT INTO t VALUES (1)", []).unwrap();
+        durability.request_flush();
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let after = loop {
+            let len = std::fs::metadata(&wal).map_or(0, |meta| meta.len());
+            if len <= WAL_SIZE_LIMIT_BYTES || std::time::Instant::now() > deadline {
+                break len;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        assert!(
+            after <= WAL_SIZE_LIMIT_BYTES,
+            "the WAL stayed at {after} bytes after its reader ended ({pinned} while pinned)"
+        );
+        let (now, high_water) = durability.wal_file_bytes();
+        assert_eq!(now, after);
+        assert!(high_water >= pinned, "a high-water mark of {high_water} bytes, {pinned} pinned");
         drop(connection);
         let _ = std::fs::remove_dir_all(&dir);
     }
