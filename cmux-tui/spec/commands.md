@@ -9598,7 +9598,9 @@ an agent or an MCP server, and every unknown param is
 `agent_session.bad_request`. Other error codes: `agent_session.not_trusted`,
 `agent_session.unavailable` (no acpmux), `agent_session.not_attached`,
 `agent_session.limit` (8 attachments per connection, 64 per daemon, 8 calls in
-flight per attachment), `agent_session.timeout` (5 s), `agent_session.refused`
+flight per attachment), `agent_session.timeout` (5 s; 30 s for a prompt's
+acceptance, which a chat started a moment before can take longer than 5 s to
+give), `agent_session.refused`
 (acpmux refused), `agent_session.bad_list` (acpmux's session list could not be
 read whole: a bad or repeated cursor, a page with no `sessions`, or a page after
 the first that failed; an attach whose watch list does so is refused, and
