@@ -142,9 +142,11 @@ fn put(
 /// changed then).
 #[cfg(unix)]
 fn exchange(a: &Path, b: &Path) -> bool {
-    let (Some(dir), Some(a), Some(b)) =
-        (b.parent(), a.file_name().and_then(|n| n.to_str()), b.file_name().and_then(|n| n.to_str()))
-    else {
+    let (Some(dir), Some(a), Some(b)) = (
+        b.parent(),
+        a.file_name().and_then(|n| n.to_str()),
+        b.file_name().and_then(|n| n.to_str()),
+    ) else {
         return false;
     };
     crate::write_journal::nofollow::exchange_in(dir, a, b).is_ok()
