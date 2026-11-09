@@ -158,6 +158,9 @@ public final class DaemonService {
     /// Explicit reconnects (``reconnectNow()``): a link-following service retries an incompatible
     /// daemon only after one of these, never on an automatic wake.
     @ObservationIgnored private let reconnectRequests = ReconnectRequests()
+    /// Link wakes since the last connection or explicit reconnect (``linkWake()``), and the store's
+    /// connection count they were counted from.
+    @ObservationIgnored private var linkWakes = (count: 0, connects: 0)
 
     /// Starts a fresh daemon connection attempt. This is deliberately synchronous: callers
     /// stamp their transport attempt and clear its failure before waking the asynchronous loop.
@@ -446,6 +449,7 @@ public final class DaemonService {
     /// link-following service (``start(remote:followsLink:)``) this is also the only wake that retries
     /// an incompatible daemon (the connection ended with `unsupportedProtocol` or `missingCapabilities`).
     public func reconnectNow() {
+        linkWakes.count = 0
         reconnectRequests.note()
         let wake = retryWake
         guard let connection else {
@@ -466,6 +470,20 @@ public final class DaemonService {
         case .unsupportedProtocol?, .missingCapabilities?: true
         default: false
         }
+    }
+
+    /// The link reported connected again or its process exited: wakes the waiting attempt, at most
+    /// ``BootstrapRetry/link`` `timedRetries` times until a connection comes up or a person reconnects.
+    /// A link process that keeps coming up and exiting before the daemon's handshake would otherwise
+    /// wake an attempt each time with no bound. App activation, the network and Reconnect still wake it.
+    public func linkWake() {
+        if linkWakes.connects != store.connects { linkWakes = (0, store.connects) }
+        guard linkWakes.count < BootstrapRetry.link.timedRetries else {
+            logger.info("\(self.machineID, privacy: .public): link wakes spent; waiting for activation, the network or a reconnect")
+            return
+        }
+        linkWakes.count += 1
+        retryWake.fire()
     }
 
     /// Waits for the next retry of an ended or incompatible connection: any event, or when `explicit`

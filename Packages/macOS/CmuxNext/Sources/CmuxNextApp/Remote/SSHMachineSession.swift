@@ -143,7 +143,7 @@ final class SSHMachineSession {
         let previous = linkStatus
         linkStatus = status
         // The link is the only redialer (cmuxterm-hq#7766): the daemon connection waits for its state.
-        if status.wakesDaemon(after: previous) { daemon.retryWake.fire() }
+        if status.wakesDaemon(after: previous) { daemon.linkWake() }
         switch status {
         case .connected:
             if !linkReached {

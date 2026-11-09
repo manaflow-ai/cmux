@@ -61,6 +61,22 @@ import Testing
         #expect(!store.retriesSpent, "A hop that lands after the link came back changes nothing")
     }
 
+    /// Review of 5b0b637, F1: a fast reconnect parks before its disconnect drains on the next frame; the
+    /// store still read connected and dropped the mark, so the header read Connecting forever. The mark
+    /// now applies when the disconnect drains.
+    @Test func aParkThatLandsBeforeTheDisconnectDrainsStillMarksTheStore() throws {
+        let store = DaemonStore()
+        _ = DaemonConnectionChange.connected(try Self.identity(), nil).apply(to: store)
+        store.noteRetriesSpent(true)
+        #expect(!store.retriesSpent, "still connected until the disconnect drains")
+        _ = DaemonConnectionChange.disconnected("link lost").apply(to: store)
+        #expect(store.retriesSpent, "the park that came first applies with the disconnect")
+        _ = DaemonConnectionChange.connected(try Self.identity(), nil).apply(to: store)
+        #expect(!store.retriesSpent)
+        _ = DaemonConnectionChange.disconnected("link lost").apply(to: store)
+        #expect(!store.retriesSpent, "a connect clears a pending park")
+    }
+
     /// Review F2 (fc883e4): a new startup attempt armed the startup deadline, which a recovery inside the
     /// existing connection never cancelled, so a working machine later read as failed to start.
     @Test func reconnectOnADroppedDaemonWakesItWithNoNewStartupAttempt() {

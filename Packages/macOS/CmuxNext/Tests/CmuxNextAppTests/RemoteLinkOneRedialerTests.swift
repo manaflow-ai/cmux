@@ -59,6 +59,29 @@ private nonisolated final class RemoteLinkCalls: Sendable {
         daemon.shutdownConnection()
     }
 
+    /// Review of 5b0b637, F2: a link process that keeps reporting connected and exiting before the daemon's
+    /// handshake fired the retry wake each time, past every budget. Link wakes are bounded until a
+    /// connection comes up or a person reconnects; Reconnect still wakes it.
+    @Test func linkWakesAreBoundedUntilAConnectionOrAReconnect() async throws {
+        let calls = RemoteLinkCalls()
+        let daemon = Self.service(calls, followsLink: true)
+        try await Task.sleep(for: .milliseconds(300))
+        for _ in 0..<25 {
+            daemon.linkWake()
+            try await Task.sleep(for: .milliseconds(60))
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(calls.value <= 1 + BootstrapRetry.link.timedRetries, "link wakes made \(calls.value) attempts")
+        let bounded = calls.value
+        daemon.reconnectNow()
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(calls.value == bounded + 1, "Reconnect still wakes it")
+        daemon.linkWake()
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(calls.value == bounded + 2, "Reconnect gives the link wakes their budget back")
+        daemon.shutdownConnection()
+    }
+
     /// A machine unreachable at launch has no link process yet, so nothing in Rust watches its network:
     /// the network coming back still wakes its first attempt, with no app action.
     @Test func aNeverConnectedLinkStillWakesOnTheNetwork() async throws {
