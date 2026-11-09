@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxScreenKit
 import CmuxSpinner
+import PhotosUI
 import SwiftUI
 
 /// The parts of `ScreenSessionView` an app opts into. `.all` is the cmux
@@ -35,10 +36,13 @@ public struct ScreenFeatures: OptionSet, Sendable {
     /// A Direct Touch / Trackpad choice in the options menu
     /// (`ScreenPreferences.inputMode`).
     public static let inputModeToggle = ScreenFeatures(rawValue: 1 << 11)
+    /// A Paste Image button: pick a photo, and the Mac pastes it (⌘V) where
+    /// its focus is. Shown only for a Mac that takes pasted images, in full control.
+    public static let pasteImage = ScreenFeatures(rawValue: 1 << 12)
 
     public static let all: ScreenFeatures = [.shortcutsBar, .qualityMenu, .orientationLock, .fitToggle, .displayPaging, .stats,
                                              .keyboard, .sendKeysMenu, .refresh, .hideToolbar, .resumeOnForeground,
-                                             .inputModeToggle]
+                                             .inputModeToggle, .pasteImage]
     public static let minimal: ScreenFeatures = [.displayPaging, .resumeOnForeground]
 }
 
@@ -59,6 +63,9 @@ public struct ScreenSessionView: View {
     @State private var signInUser = ""
     @State private var signInPassword = ""
     @State private var orientation = OrientationLock.saved
+    @State private var pickedPhoto: PhotosPickerItem?
+    /// Reading and preparing the picked photo, before it is sent.
+    @State private var preparingPhoto = false
     @Environment(\.scenePhase) private var scenePhase
 
     public init(session: ScreenSession, features: ScreenFeatures = .all,
@@ -85,6 +92,7 @@ public struct ScreenSessionView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
             stateCard
+            if features.contains(.pasteImage) { pasteBanner }
         }
         .background(.black)
         // Remote screens sit on black: dark chrome keeps the bar and stats legible.
@@ -125,6 +133,14 @@ public struct ScreenSessionView: View {
             }
             Spacer(minLength: 8)
             if hasMenu { optionsMenu }
+            if features.contains(.pasteImage), session.supportsImagePaste, case .connected = session.phase {
+                PhotosPicker(selection: $pickedPhoto, matching: .images, preferredItemEncoding: .current) {
+                    Label("Paste Image", systemImage: "photo.badge.plus").labelStyle(.iconOnly)
+                }
+                .disabled(preparingPhoto || session.imagePaste == .sending)
+                .accessibilityIdentifier("screen.pasteImage")
+                .onChange(of: pickedPhoto) { paste(pickedPhoto) }
+            }
             if features.contains(.keyboard) {
                 Button("Keyboard", systemImage: keyboardVisible ? "keyboard.chevron.compact.down" : "keyboard") {
                     keyboardVisible.toggle()
@@ -259,6 +275,61 @@ public struct ScreenSessionView: View {
                     .padding(8)
                     .background(.ultraThinMaterial, in: Circle())
                     .padding(.top, 4)
+            }
+        }
+    }
+
+    /// Reads the picked photo, prepares it off the main thread and sends it to the Mac.
+    private func paste(_ item: PhotosPickerItem?) {
+        guard let item else { return }
+        pickedPhoto = nil
+        preparingPhoto = true
+        Task {
+            let photo = try? await item.loadTransferable(type: Data.self)
+            // task-owner: one decode and re-encode of the picked photo; its result is read below
+            let prepared = await Task.detached(priority: .userInitiated) { photo.flatMap(PastedImage.init(photo:)) }.value
+            preparingPhoto = false
+            guard let prepared else {
+                session.reportImagePasteFailure("This photo could not be read.")
+                return
+            }
+            session.pasteImage(prepared.data, type: prepared.type)
+        }
+    }
+
+    /// Where the last Paste Image is: sending, pasted, or why it failed (tap to dismiss).
+    @ViewBuilder private var pasteBanner: some View {
+        let state: ScreenSession.ImagePaste = preparingPhoto ? .sending : session.imagePaste
+        if state != .idle {
+            VStack {
+                Spacer()
+                Button {
+                    session.dismissImagePaste()
+                } label: {
+                    HStack(spacing: 8) {
+                        switch state {
+                        case .sending:
+                            CmuxSpinner()
+                            Text("Pasting on \(session.title)…")
+                        case .pasted:
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                            Text("Pasted on \(session.title)")
+                        case let .failed(message):
+                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
+                            Text(message)
+                        case .idle:
+                            EmptyView()
+                        }
+                    }
+                    .font(.subheadline)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(.ultraThinMaterial, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(state == .sending)
+                .accessibilityIdentifier("screen.pasteImage.status")
+                .padding(.bottom, 24)
             }
         }
     }
