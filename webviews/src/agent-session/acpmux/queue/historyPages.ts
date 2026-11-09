@@ -113,8 +113,9 @@ export function historyPages({
         // An acpmux that predates the comment (or a chat that did not take it) records the verdict
         // without the words reaching the chat: they go to the clipboard and the chat opens, so
         // the person pastes what should change rather than writing it again.
-        if (params.comment && (reply as { commentDelivered?: unknown } | null)?.commentDelivered !== true) {
-          const copied = await copy(params.comment);
+        const words = typeof params.comment === "string" ? params.comment : undefined;
+        if (words && (reply as { commentDelivered?: unknown } | null)?.commentDelivered !== true) {
+          const copied = await copy(words);
           open(item);
           return { ...(reply as object | null), commentCopied: copied };
         }
