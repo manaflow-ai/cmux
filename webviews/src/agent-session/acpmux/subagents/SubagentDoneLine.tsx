@@ -362,7 +362,7 @@ function DoneLine({
           />
         </div>
       )}
-      {preview && shownReport && <ReportPreview report={shownReport} />}
+      {preview && shownReport && <ReportPreview report={shownReport} onOpenView={open && (() => open(agent.id))} />}
       {/* The chat's quiet reply to its end (ReactionMark.tsx), under the line as text Find reads,
           never only in a tooltip (cmux#33538). */}
       <ReactionReply reaction={agent.reaction} />
@@ -372,7 +372,7 @@ function DoneLine({
 
 /// The preview arm: the report's first two lines always under the line, Show more opening the rest
 /// (capped as an opened report is). Show more appears only when the cut hides lines.
-function ReportPreview({ report }: { report: WholeReport }) {
+function ReportPreview({ report, onOpenView }: { report: WholeReport; onOpenView?: () => void }) {
   const text = report.text;
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -409,6 +409,8 @@ function ReportPreview({ report }: { report: WholeReport }) {
           aria-controls={id}
           onClick={() => {
             // Opening a preview that is only part of the report reads the rest too (wholeReport.ts).
+            // Only the subagent's view holds the rest: Show more opens it.
+            if (!open && report.cut && report.away && onOpenView) return onOpenView();
             if (!open && report.cut && !report.away) report.more();
             setOpen((value) => !value);
           }}

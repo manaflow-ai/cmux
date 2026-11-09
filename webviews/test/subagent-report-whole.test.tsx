@@ -10,6 +10,7 @@ import { JSDOM } from "jsdom";
 import { SubagentDoneLine } from "../src/agent-session/acpmux/subagents/SubagentDoneLine";
 import { SubagentNavContext, SubagentViewsContext } from "../src/agent-session/acpmux/subagents/subagentGroupModel";
 import { SubagentReplyContext } from "../src/agent-session/acpmux/subagents/wholeReport";
+import { DoneReportLookContext } from "../src/agent-session/acpmux/subagents/subagentDoneLineModel";
 import { TurnActionsContext } from "../src/agent-session/acpmux/conversation/turnActions";
 import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
 import {
@@ -64,6 +65,10 @@ test("a cut keeps whole blocks and never a cut span", () => {
   // A tail kept from a long reply starts at its first whole block.
   expect(wholeBlocksAfter("…ted. **Bold\nmore**\n\nWhole one.\n\nWhole two.")).toBe("Whole one.\n\nWhole two.");
   expect(wholeBlocksAfter("…de();\n```\n\nAfter the code.")).toBe("After the code.");
+  // The closing fence ends the cut block: the paragraph right after it is whole.
+  expect(wholeBlocksAfter("…de();\n```\nThe final result is **PASS**.\n\nMore details.")).toBe(
+    "The final result is **PASS**.\n\nMore details.",
+  );
 });
 
 let dom: JSDOM | undefined;
@@ -97,6 +102,7 @@ function render(
   views: Record<string, AcpmuxRow[]> = {},
   readReply?: (id: string) => Promise<string | undefined>,
   opened: string[] = [],
+  arm?: "preview",
 ): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>");
   for (const key of GLOBALS) saved.set(key, scope[key]);
@@ -119,7 +125,9 @@ function render(
         <SubagentViewsContext.Provider value={(id) => views[id]}>
           <SubagentReplyContext.Provider value={readReply}>
             <TurnActionsContext.Provider value={{ retryAgent: async () => undefined }}>
-              <SubagentDoneLine row={row} />
+              <DoneReportLookContext.Provider value={arm}>
+                <SubagentDoneLine row={row} />
+              </DoneReportLookContext.Provider>
             </TurnActionsContext.Provider>
           </SubagentReplyContext.Provider>
         </SubagentViewsContext.Provider>
@@ -211,4 +219,12 @@ test("a short last message is whole and gets no Show more", async () => {
   await open(host);
   expect(report(host).querySelector("strong")?.textContent).toBe("three");
   expect(moreRow(host)).toBeNull();
+});
+
+test("in the preview arm, Show more of a report only the view holds opens the view", async () => {
+  const opened: string[] = [];
+  const host = render(agent({ result: `…tail of it.\n\n${REPORT}` }), {}, undefined, opened, "preview");
+  noRawMarks(report(host));
+  await click(host.querySelector(".cv-subagent-done__more")!);
+  expect(opened).toEqual(["air"]);
 });

@@ -64,11 +64,16 @@ export function wholeBlocksBefore(text: string): string {
 /// The whole blocks of a text cut at its start (a tail acpmux kept, "…the rest"): every block after
 /// the one the cut went through.
 export function wholeBlocksAfter(text: string): string {
-  let lines = text.trimStart().replace(/^…/u, "").split("\n");
+  const lines = text.trimStart().replace(/^…/u, "").split("\n");
   // A tail that starts in code has an odd count of fence lines: its first one closes that code, so
   // the cut block runs through it.
+  // That closing line is the cut block's end: what follows it is whole.
   const fences = lines.filter((line) => FENCE.test(line)).length;
-  if (fences % 2 === 1) lines = lines.slice(lines.findIndex((line) => FENCE.test(line)) + 1);
+  if (fences % 2 === 1)
+    return lines
+      .slice(lines.findIndex((line) => FENCE.test(line)) + 1)
+      .join("\n")
+      .trim();
   const { inside } = fencedLines(lines);
   // The first blank line outside a fence ends the cut block.
   for (let at = 0; at < lines.length; at += 1)

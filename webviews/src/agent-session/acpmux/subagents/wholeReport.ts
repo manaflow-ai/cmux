@@ -61,7 +61,11 @@ export function useWholeReport(agent: Source | undefined, open: boolean, fallbac
       live = false;
     };
   }, [asks, id, readReply]);
-  if (!id) return undefined;
+  // A report whose subagent the loaded rows do not hold still shows what its card has.
+  if (!id)
+    return open && fallback?.trim()
+      ? { text: fallback.trim(), cut: false, loading: false, away: false, more: () => {} }
+      : undefined;
   const more = () => setRead((now) => (now?.id === id ? { ...now, wanted: true } : { id, wanted: true }));
   const whole = (text: string): WholeReport => ({ text, cut: false, loading: false, away: false, more });
   // A reply acpmux kept only the tail of (hub/subsession_results.rs): its whole blocks after the cut.
