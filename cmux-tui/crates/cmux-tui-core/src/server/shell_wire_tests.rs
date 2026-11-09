@@ -112,6 +112,25 @@ fn refusals_are_answers_with_their_code() {
 }
 
 #[test]
+fn a_run_under_the_callers_id_can_be_stopped_without_its_answer() {
+    let mux = Mux::new_for_test("shell-wire", crate::SurfaceOptions::default());
+    let owner = mux.local_test_client(44);
+    let (cwd, _gone) = folder();
+    let id = "run_0123456789abcdef0123456789abcdef";
+    let started =
+        reply(&mux, owner, json!({"cmd":"shell-run","command":"sleep 30","cwd":cwd,"run":id}));
+    assert_eq!(started["data"], json!({"run": id}), "{started}");
+    let again =
+        reply(&mux, owner, json!({"cmd":"shell-run","command":"true","cwd":cwd,"run":id}));
+    assert_eq!(again["data"], json!({"refused": "invalid"}), "a taken id: {again}");
+    let malformed =
+        reply(&mux, owner, json!({"cmd":"shell-run","command":"true","cwd":cwd,"run":"run_X"}));
+    assert_eq!(malformed["data"], json!({"refused": "invalid"}), "{malformed}");
+    let stopped = reply(&mux, owner, json!({"cmd":"shell-stop","run":id}));
+    assert_eq!(stopped["data"], json!({}), "{stopped}");
+}
+
+#[test]
 fn a_relayed_web_or_unregistered_connection_runs_nothing() {
     let mux = Mux::new_for_test("shell-wire", crate::SurfaceOptions::default());
     let (cwd, _gone) = folder();

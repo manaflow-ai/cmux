@@ -4,7 +4,8 @@ public import Foundation
 // shell mode's commands of a chat on another machine run there, on its daemon. A refusal is an
 // answer (`refused`), so its code reaches the app also over a remote link.
 
-/// `shell-run {command, cwd?, scope?}`: starts `command` in `cwd` there; `{run}` or `{refused}`.
+/// `shell-run {command, cwd?, scope?, run?}`: starts `command` in `cwd` there under the id `run`
+/// (chosen here, so a start whose answer is lost can still be stopped); `{run}` or `{refused}`.
 public nonisolated struct ShellRunRequest: DaemonRequest {
     public static let command = "shell-run"
     public static let requiredCapability: String? = "shell-runs-v1"
@@ -12,11 +13,19 @@ public nonisolated struct ShellRunRequest: DaemonRequest {
     public let command: String
     public let cwd: String?
     public let scope: String
+    public let run: String?
 
-    public init(command: String, cwd: String?, scope: String) {
+    public init(command: String, cwd: String?, scope: String, run: String? = nil) {
         self.command = command
         self.cwd = cwd
         self.scope = scope
+        self.run = run
+    }
+
+    /// A new run id in the daemon's form: `run_` and 32 lowercase hex digits (128 random bits).
+    public static func newRunID() -> String {
+        var generator = SystemRandomNumberGenerator()
+        return "run_" + (0..<16).map { _ in String(format: "%02x", UInt8.random(in: .min ... .max, using: &generator)) }.joined()
     }
 
     public nonisolated struct Response: Decodable, Sendable, Equatable {

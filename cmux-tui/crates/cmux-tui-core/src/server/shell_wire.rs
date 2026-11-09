@@ -8,8 +8,9 @@
 //! page or an agent-bound connection is refused before anything runs; the remote relay gate
 //! never admits these commands.
 //!
-//! - `shell-run {command, cwd?, scope?}` answers `{run}` (the run's id), or `{refused}`: `too_many`,
-//!   `folder_missing`, `spawn_failed`, `invalid`.
+//! - `shell-run {command, cwd?, scope?, run?}` answers `{run}` (the run's id: `run` when the caller
+//!   chose one, so a lost answer still leaves it a run it can stop), or `{refused}`: `too_many`,
+//!   `folder_missing`, `spawn_failed`, `invalid` (also a malformed or taken `run`).
 //! - `shell-read {run, after, wait_ms?}` answers `{output, next, truncated?, exit?: {code?,
 //!   signal?}}` once there is output after `after` or the command ended, else after `wait_ms`
 //!   (at most 10 s, the default), or `{refused}`: `unknown_run`, `busy`. A read that waits does
@@ -31,6 +32,10 @@ pub(super) struct RunParams {
     /// The chat pane whose commands these are; each has its own running cap.
     #[serde(default)]
     scope: Option<String>,
+    /// The run's id, chosen by the caller (`run_` and 32 lowercase hex digits), so it can stop
+    /// the command even when this answer is lost; a new random one when absent.
+    #[serde(default)]
+    run: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -89,7 +94,13 @@ mod serve {
     ) -> anyhow::Result<Value> {
         anyhow::ensure!(owner(mux, client), NotOwner);
         let scope = params.scope.unwrap_or_default();
-        Ok(match mux.shell_runs.run(&scope, client, &params.command, params.cwd.as_deref()) {
+        Ok(match mux.shell_runs.run_as(
+            &scope,
+            client,
+            &params.command,
+            params.cwd.as_deref(),
+            params.run.as_deref(),
+        ) {
             Ok(run) => json!({"run": run}),
             Err(refusal) => refused(refusal),
         })

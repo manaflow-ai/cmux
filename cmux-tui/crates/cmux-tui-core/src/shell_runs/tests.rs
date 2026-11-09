@@ -235,3 +235,18 @@ fn a_split_character_waits_for_its_last_byte() {
     assert_eq!(utf8_complete(b"ab\xE2"), 2);
     assert_eq!(utf8_complete(b"plain"), 5);
 }
+
+#[test]
+fn a_run_takes_the_callers_well_formed_unused_id() {
+    let (runs, _home) = runs();
+    let chosen = new_id().expect("random");
+    assert!(is_run_id(&chosen));
+    let id = runs.run_as("pane", 1, "exit 0", None, Some(&chosen)).expect("run");
+    assert_eq!(id, chosen);
+    assert_eq!(runs.run_as("pane", 1, "true", None, Some(&chosen)).err(), Some(Refusal::Invalid));
+    for bad in ["", "run_", "run_0123", "run_0123456789ABCDEF0123456789abcdef", "../etc/passwd"] {
+        assert_eq!(runs.run_as("pane", 1, "true", None, Some(bad)).err(), Some(Refusal::Invalid));
+    }
+    let (_, exit) = read_to_end(&runs, &id);
+    assert_eq!(exit, Exit { code: Some(0), signal: None });
+}

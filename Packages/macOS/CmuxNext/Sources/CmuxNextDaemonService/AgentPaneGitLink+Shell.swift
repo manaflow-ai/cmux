@@ -8,8 +8,17 @@ import Foundation
 extension AgentPaneGitLink: AgentPaneMachineShell {
     static let shellRequestTimeout: Duration = .seconds(10)
 
+    /// The id is chosen here: a start whose answer never comes (a stalled link) is stopped
+    /// under it, so the command does not keep running with no pane that can stop it.
     public func runShell(_ command: String, cwd: String?, scope: String) async throws -> String {
-        let answer = try await request(ShellRunRequest(command: command, cwd: cwd, scope: scope), timeout: Self.shellRequestTimeout)
+        let id = ShellRunRequest.newRunID()
+        let answer: ShellRunRequest.Response
+        do {
+            answer = try await request(ShellRunRequest(command: command, cwd: cwd, scope: scope, run: id), timeout: Self.shellRequestTimeout)
+        } catch {
+            await stopShell(id)
+            throw error
+        }
         guard let run = answer.run else { throw Self.shellFailure(answer.refused) }
         return run
     }

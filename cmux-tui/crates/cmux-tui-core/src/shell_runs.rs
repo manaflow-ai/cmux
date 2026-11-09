@@ -207,6 +207,7 @@ impl ShellRuns {
 
     /// Starts `command` in `cwd` (the home folder when `None`; `~` and `~/…` are in it) for
     /// `scope` (one chat pane) on connection `client`, and returns its id.
+    #[cfg(test)]
     pub(crate) fn run(
         &self,
         scope: &str,
@@ -214,9 +215,24 @@ impl ShellRuns {
         command: &str,
         cwd: Option<&str>,
     ) -> Result<String, Refusal> {
+        self.run_as(scope, client, command, cwd, None)
+    }
+
+    /// ``run``, under the id the caller chose (`run_` and 32 lowercase hex digits, one no run
+    /// has), or a new random one when `None`. A caller that chose the id can stop the command
+    /// even when the start's answer never reached it (a stalled link).
+    pub(crate) fn run_as(
+        &self,
+        scope: &str,
+        client: u64,
+        command: &str,
+        cwd: Option<&str>,
+        chosen: Option<&str>,
+    ) -> Result<String, Refusal> {
         if command.trim().is_empty()
             || command.len() > MAX_COMMAND_BYTES
             || scope.len() > MAX_SCOPE_BYTES
+            || chosen.is_some_and(|id| !is_run_id(id))
         {
             return Err(Refusal::Invalid);
         }
@@ -232,7 +248,11 @@ impl ShellRuns {
         if running(true) >= MAX_RUNNING || running(false) >= MAX_RUNNING_TOTAL {
             return Err(Refusal::TooMany);
         }
-        let id = new_id().ok_or(Refusal::SpawnFailed)?;
+        let id = match chosen {
+            Some(id) if state.runs.contains_key(id) => return Err(Refusal::Invalid),
+            Some(id) => id.to_owned(),
+            None => new_id().ok_or(Refusal::SpawnFailed)?,
+        };
         let (output, input) = std::io::pipe().map_err(|_| Refusal::SpawnFailed)?;
         let (wake_reader, wake_writer) = std::io::pipe().map_err(|_| Refusal::SpawnFailed)?;
         let stderr = input.try_clone().map_err(|_| Refusal::SpawnFailed)?;
@@ -432,6 +452,13 @@ fn new_id() -> Option<String> {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes).ok()?;
     Some(format!("run_{}", bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>()))
+}
+
+/// A run id as ``new_id`` makes them: `run_` and 32 lowercase hex digits.
+fn is_run_id(id: &str) -> bool {
+    id.strip_prefix("run_").is_some_and(|hex| {
+        hex.len() == 32 && hex.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    })
 }
 
 fn signal_group(pgid: i32, signal: i32) {
