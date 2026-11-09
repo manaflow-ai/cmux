@@ -88,7 +88,7 @@ fn substitutions_in(text: &str) -> Result<Vec<String>, LexError> {
                 lexer.pos += 2;
                 let inner = lexer.balanced('(', ')')?;
                 // `$((...))` is arithmetic, which runs nothing itself.
-                match inner.strip_prefix('(').and_then(|s| s.strip_suffix(')')) {
+                match arithmetic_body(&inner) {
                     Some(arith) => subs.extend(substitutions_in(arith)?),
                     None => subs.push(inner),
                 }
@@ -101,6 +101,29 @@ fn substitutions_in(text: &str) -> Result<Vec<String>, LexError> {
         }
     }
     Ok(subs)
+}
+
+/// The expression of `$((expr))`, given what's between `$(` and its `)`:
+/// `(expr)` whose first `(` closes at the very end. `$((a); (b))` is a
+/// substitution of two subshells, not arithmetic, and anything quoted inside
+/// is treated as a substitution too, so it gets classified.
+fn arithmetic_body(inner: &str) -> Option<&str> {
+    let body = inner.strip_prefix('(')?;
+    let mut depth = 1usize;
+    for (at, c) in body.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return (at + 1 == body.len()).then(|| body.get(..at)).flatten();
+                }
+            }
+            '\'' | '"' | '`' | '\\' => return None,
+            _ => {}
+        }
+    }
+    None
 }
 
 struct Lexer {
@@ -372,7 +395,7 @@ impl Lexer {
             Some('(') => {
                 self.pos += 2;
                 let inner = self.balanced('(', ')')?;
-                match inner.strip_prefix('(').and_then(|s| s.strip_suffix(')')) {
+                match arithmetic_body(&inner) {
                     // `$((...))` is arithmetic; only a substitution inside it runs.
                     Some(arith) => word.subs.extend(substitutions_in(arith)?),
                     None => word.subs.push(inner),
@@ -417,10 +440,12 @@ impl Lexer {
     }
 
     /// Reads up to the `close` matching an `open` just before `pos`, and
-    /// returns what's between them. Quotes inside are skipped whole.
+    /// returns what's between them. Quotes inside are skipped whole, and so
+    /// are heredoc bodies, whose lines may hold an unmatched `close`.
     fn balanced(&mut self, open: char, close: char) -> Result<String, LexError> {
         let mut depth = 1usize;
         let mut inner = String::new();
+        let mut heredocs: Vec<(String, bool)> = Vec::new();
         loop {
             let c = self.bump().ok_or(LexError)?;
             match c {
@@ -428,32 +453,23 @@ impl Lexer {
                     inner.push(c);
                     inner.push(self.bump().ok_or(LexError)?);
                 }
-                '\'' => {
-                    inner.push(c);
-                    loop {
-                        let ch = self.bump().ok_or(LexError)?;
-                        inner.push(ch);
-                        if ch == '\'' {
-                            break;
-                        }
-                    }
-                }
-                '"' => {
-                    inner.push(c);
-                    loop {
-                        let ch = self.bump().ok_or(LexError)?;
-                        inner.push(ch);
-                        match ch {
-                            '\\' => inner.push(self.bump().ok_or(LexError)?),
-                            '"' => break,
-                            _ => {}
-                        }
-                    }
-                }
+                '\'' => self.copy_single_quoted(&mut inner)?,
+                '"' => self.copy_double_quoted(&mut inner)?,
                 '`' => {
                     inner.push(c);
                     inner.push_str(&self.backtick()?);
                     inner.push('`');
+                }
+                '<' if self.peek() == Some('<') && self.peek_at(1) != Some('<') => {
+                    self.pos += 1;
+                    inner.push_str("<<");
+                    heredocs.push(self.copy_heredoc_delimiter(&mut inner)?);
+                }
+                '\n' => {
+                    inner.push(c);
+                    for (delimiter, strip_tabs) in heredocs.drain(..) {
+                        self.copy_heredoc_body(&mut inner, &delimiter, strip_tabs)?;
+                    }
                 }
                 _ if c == close => {
                     depth -= 1;
@@ -468,6 +484,95 @@ impl Lexer {
                 }
                 _ => inner.push(c),
             }
+        }
+    }
+
+    /// Copies `'...'`; `pos` is just past the opening quote.
+    fn copy_single_quoted(&mut self, inner: &mut String) -> Result<(), LexError> {
+        inner.push('\'');
+        loop {
+            let ch = self.bump().ok_or(LexError)?;
+            inner.push(ch);
+            if ch == '\'' {
+                return Ok(());
+            }
+        }
+    }
+
+    /// Copies `"..."`; `pos` is just past the opening quote.
+    fn copy_double_quoted(&mut self, inner: &mut String) -> Result<(), LexError> {
+        inner.push('"');
+        loop {
+            let ch = self.bump().ok_or(LexError)?;
+            inner.push(ch);
+            match ch {
+                '\\' => inner.push(self.bump().ok_or(LexError)?),
+                '"' => return Ok(()),
+                _ => {}
+            }
+        }
+    }
+
+    /// Copies a heredoc's `-` and delimiter word after `<<`, and returns the
+    /// delimiter with its quotes removed and whether tabs are stripped.
+    fn copy_heredoc_delimiter(&mut self, inner: &mut String) -> Result<(String, bool), LexError> {
+        let strip_tabs = self.peek() == Some('-');
+        if strip_tabs {
+            self.pos += 1;
+            inner.push('-');
+        }
+        while let Some(c @ (' ' | '\t')) = self.peek() {
+            self.pos += 1;
+            inner.push(c);
+        }
+        let mut delimiter = String::new();
+        while let Some(c) = self.peek().filter(|&c| !is_word_end(c)) {
+            self.pos += 1;
+            inner.push(c);
+            match c {
+                '\'' | '"' => loop {
+                    let ch = self.bump().ok_or(LexError)?;
+                    inner.push(ch);
+                    if ch == c {
+                        break;
+                    }
+                    delimiter.push(ch);
+                },
+                '\\' => {
+                    let ch = self.bump().ok_or(LexError)?;
+                    inner.push(ch);
+                    delimiter.push(ch);
+                }
+                _ => delimiter.push(c),
+            }
+        }
+        Ok((delimiter, strip_tabs))
+    }
+
+    /// Copies a heredoc body up to and including its delimiter line. A body
+    /// with no delimiter line can't be told apart from the rest of the
+    /// substitution, so it is an error.
+    fn copy_heredoc_body(
+        &mut self,
+        inner: &mut String,
+        delimiter: &str,
+        strip_tabs: bool,
+    ) -> Result<(), LexError> {
+        loop {
+            let start = self.pos;
+            while self.peek().is_some_and(|c| c != '\n') {
+                self.pos += 1;
+            }
+            let line: String = self.chars.get(start..self.pos).unwrap_or_default().iter().collect();
+            inner.push_str(&line);
+            let check = if strip_tabs { line.trim_start_matches('\t') } else { line.as_str() };
+            if check == delimiter {
+                return Ok(());
+            }
+            if self.bump().is_none() {
+                return Err(LexError);
+            }
+            inner.push('\n');
         }
     }
 

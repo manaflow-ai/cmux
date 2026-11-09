@@ -404,7 +404,16 @@ impl Hub {
                         if let Some(turn) = open.take() {
                             self.end_watched_turn(session, &turn, at);
                         }
-                        *open = Some(self.begin_watched_turn(session, &text, at, None));
+                        // A prompt acpmux queued into the Codex thread (`bridge.rs`) shows as
+                        // sent, under its id: its rollout line is known by its text alone.
+                        let bridged = (watching.family == "codex")
+                            .then(|| super::bridge::delivered_text(&session.id, &text))
+                            .flatten();
+                        let (text, prompt_id) = match bridged {
+                            Some((prompt_id, sent)) => (sent, Some(prompt_id)),
+                            None => (text, None),
+                        };
+                        *open = Some(self.begin_watched_turn(session, &text, at, prompt_id));
                     }
                     Step::Answer(mut text) => {
                         // The pieces of one answer (text around a tool call) read as paragraphs.
