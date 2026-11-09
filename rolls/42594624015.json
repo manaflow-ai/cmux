@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42594624015",
+  "recorded_at": "2026-11-09T09:43:33Z",
+  "reason": "cmux-tui 09d74d7a9929 changes the image's cmux-tui (pinned a91766dc82b3)",
+  "dry_run": false,
+  "cmux_tui": "09d74d7a9929e2e7e4d242e8983786e6c1c777fe",
+  "fixes": [
+    {
+      "sha": "09d74d7a9929e2e7e4d242e8983786e6c1c777fe",
+      "mergedAt": "2026-11-09T01:20:00-08:00",
+      "subject": "acpmux tests: one daemon_env::bg_runner() for the in-process hub's bg runner (#39455)"
+    },
+    {
+      "sha": "56e1197616bcb940b6d6d3730cb8776e69359591",
+      "mergedAt": "2026-11-09T01:18:19-08:00",
+      "subject": "cmux-tui-core test: a journal checkpoint keeps no agent last_reply (#39456)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T09:43:33Z",
+    "snapshot_id": "sh-184994c7359e420ba38664ed61d34be2",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42594624015): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b0cb056e15ebcf70e33352aecadfb22ba5e23061",
+    "image": "cloud-native-auto-09d74d7a-42594624015-1",
+    "revision": "ci-42594624015-1",
+    "at": "2026-11-09T09:43:33Z"
+  },
+  "rolled_back": false
+}
