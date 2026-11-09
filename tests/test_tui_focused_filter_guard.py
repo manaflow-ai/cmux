@@ -346,10 +346,12 @@ ARTIFACTS_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
 
 
 def test_artifacts_macos_legs_take_the_side_lane_on_attempt_one() -> None:
-    """Attempt 1 takes the owned minis' side lane; a rerun goes to Blacksmith macOS 15.
+    """Attempt 1 takes the owned minis' side lane; a rerun goes to the macOS 15 pool.
 
     Never vars.MACOS_RUNNER_PR, the nightly build's 12 vCPU macOS 26 label,
-    and neither names the retired glaeda-aws pools.
+    and neither names the retired glaeda-aws pools. Since #32457 every runner
+    selection reads its size's declared pool (fromJSON(vars.RUNNER_POOLS).macos_15,
+    declared in .github/runners.json) instead of the Blacksmith literal.
     """
     workflow = yaml.safe_load(ARTIFACTS_WORKFLOW.read_text(encoding="utf-8"))
     builds = [
@@ -363,16 +365,16 @@ def test_artifacts_macos_legs_take_the_side_lane_on_attempt_one() -> None:
             "vars.CI_PR_POOL_OWNED == '1' && "
             "contains(fromJSON('[\"pull_request\",\"push\",\"schedule\",\"workflow_dispatch\"]'), github.event_name) && "
             "github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || "
-            "'blacksmith-6vcpu-macos-15' }}"
+            "fromJSON(vars.RUNNER_POOLS).macos_15 }}"
         )
         assert job["with"]["macos_retry_runner"] == (
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-            "'blacksmith-6vcpu-macos-15' }}"
+            "fromJSON(vars.RUNNER_POOLS).macos_15 }}"
         )
 
 
 def test_dogfood_artifacts_never_wait_for_the_side_lane() -> None:
-    """The release-path dogfood build goes straight to Blacksmith macOS 15.
+    """The release-path dogfood build goes straight to the macOS 15 pool (Blacksmith macOS 15).
 
     On the owned side lane, focused runs' dogfood builds sat queued until the
     run was cancelled (up to 120 min; one success waited 92 min for a 25 min
@@ -389,7 +391,7 @@ def test_dogfood_artifacts_never_wait_for_the_side_lane() -> None:
         assert "MACOS_RUNNER_PR" not in route
         assert route == (
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-            "'blacksmith-6vcpu-macos-15' }}"
+            "fromJSON(vars.RUNNER_POOLS).macos_15 }}"
         )
 
 
