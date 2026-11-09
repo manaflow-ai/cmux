@@ -1,6 +1,7 @@
 //! A link's own local socket (`remote connect`): its state, and a wait until it is connected
 //! by a caller's deadline. The link is the only layer that redials; an owner asks here instead
-//! of retrying on its own.
+//! of retrying on its own. It answers from the start: before the first connect it reports the
+//! first dial ([`LinkCell`]), after it the connection.
 //!
 //! Owner-only like the daemon's admin socket: an owner-controlled directory, the peer's uid
 //! checked on every connection, and nothing but [`AdminRequest::LinkState`] and
@@ -24,6 +25,7 @@ use super::{
     validate_peer,
 };
 use crate::connection::{ClientConnection, ConnectionError};
+use crate::first_dial::{LinkCell, LinkPhase, NotConnected};
 use crate::observability::ConnectionState;
 use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff, UnixSocketError};
 
@@ -33,8 +35,9 @@ pub const LINK_AWAIT_LIMIT: Duration = Duration::from_secs(120);
 /// The answer to both link requests.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LinkStatus {
-    /// `connected`, `reconnecting`, `disconnected` or `closed`; `down` when an
-    /// [`AdminRequest::AwaitReady`] ran out of time.
+    /// `connected`, `reconnecting`, `disconnected` or `closed`; before the first connect also
+    /// `connecting` (a first dial in flight) and `failed` (a permanent error: the link exits);
+    /// `down` when an [`AdminRequest::AwaitReady`] ran out of time.
     pub state: String,
     /// Why the link is not connected, when it is not.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -58,13 +61,33 @@ pub(super) fn response_timeout(request: &AdminRequest) -> Duration {
     }
 }
 
+/// What a link socket answers for.
+#[derive(Clone)]
+enum LinkTarget {
+    Connection(Weak<ClientConnection>),
+    Cell(Weak<LinkCell>),
+}
+
 /// Serve `connection`'s state on `path` until the returned server is shut down or dropped. The
 /// server holds the connection weakly: once its owner lets it go, every answer is `closed`.
 pub async fn serve_link_admin(
     connection: &Arc<ClientConnection>,
     path: impl Into<PathBuf>,
 ) -> Result<AdminServer, AdminError> {
-    let path = path.into();
+    serve(LinkTarget::Connection(Arc::downgrade(connection)), path.into()).await
+}
+
+/// Serve a link's state on `path` from before its first connect: the first dial's state until
+/// [`LinkCell::attach`], then the connection's. Held weakly, as [`serve_link_admin`] holds a
+/// connection.
+pub async fn serve_link_cell_admin(
+    cell: &Arc<LinkCell>,
+    path: impl Into<PathBuf>,
+) -> Result<AdminServer, AdminError> {
+    serve(LinkTarget::Cell(Arc::downgrade(cell)), path.into()).await
+}
+
+async fn serve(target: LinkTarget, path: PathBuf) -> Result<AdminServer, AdminError> {
     let listener = OwnedUnixListener::bind(path.clone()).await.map_err(|error| match error {
         UnixSocketError::Io(error) => AdminError::Io(error),
         UnixSocketError::Protocol(message) => {
@@ -74,7 +97,6 @@ pub async fn serve_link_admin(
     let socket_cleanup = listener.cleanup();
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
     let permits = Arc::new(Semaphore::new(MAX_ADMIN_CONNECTIONS));
-    let connection = Arc::downgrade(connection);
     let task = tokio::spawn(async move {
         let mut accept_backoff = UnixAcceptBackoff::new();
         let mut connections = JoinSet::new();
@@ -103,10 +125,10 @@ pub async fn serve_link_admin(
                 continue;
             }
             let Ok(permit) = permits.clone().try_acquire_owned() else { continue };
-            let connection = connection.clone();
+            let target = target.clone();
             connections.spawn(async move {
                 let _permit = permit;
-                let _ = serve_link_connection(connection, stream).await;
+                let _ = serve_link_connection(target, stream).await;
             });
         }
         connections.shutdown().await;
@@ -115,10 +137,7 @@ pub async fn serve_link_admin(
     Ok(AdminServer { path, socket_cleanup, shutdown: Some(shutdown_tx), task: Some(task) })
 }
 
-async fn serve_link_connection(
-    connection: Weak<ClientConnection>,
-    stream: UnixStream,
-) -> Result<(), AdminError> {
+async fn serve_link_connection(target: LinkTarget, stream: UnixStream) -> Result<(), AdminError> {
     let (reader, mut writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
     let mut encoded = Vec::new();
@@ -133,7 +152,10 @@ async fn serve_link_connection(
         AdminResponse::failure("link request is too large")
     } else {
         match serde_json::from_slice::<AdminRequest>(&encoded) {
-            Ok(request) => dispatch(&connection, request).await,
+            Ok(request) => match &target {
+                LinkTarget::Connection(connection) => dispatch(connection, request).await,
+                LinkTarget::Cell(cell) => dispatch_cell(cell, request).await,
+            },
             Err(error) => AdminResponse::failure(format!("invalid link request: {error}")),
         }
     };
@@ -153,19 +175,78 @@ async fn dispatch(connection: &Weak<ClientConnection>, request: AdminRequest) ->
             let Some(connection) = connection.upgrade() else {
                 return AdminResponse::success(closed());
             };
-            let within = Duration::from_millis(within_ms).min(LINK_AWAIT_LIMIT);
-            let deadline = tokio::time::Instant::now() + within;
-            AdminResponse::success(match connection.await_ready(deadline).await {
-                Ok(()) => current(&connection),
-                Err(ConnectionError::Closed) => closed(),
-                Err(error) => LinkStatus {
-                    state: "down".into(),
-                    reason: Some(connection.last_failure().unwrap_or_else(|| error.to_string())),
-                },
-            })
+            AdminResponse::success(await_connection(&connection, await_deadline(within_ms)).await)
         }
         _ => AdminResponse::failure("a link's socket answers only link-state and await-ready"),
     }
+}
+
+/// A link's answer from its [`LinkCell`]: the first dial's state, or once it connected, the
+/// connection's ([`dispatch`]).
+async fn dispatch_cell(cell: &Weak<LinkCell>, request: AdminRequest) -> AdminResponse {
+    let Some(cell) = cell.upgrade() else {
+        return match request {
+            AdminRequest::LinkState | AdminRequest::AwaitReady { .. } => {
+                AdminResponse::success(closed())
+            }
+            _ => AdminResponse::failure("a link's socket answers only link-state and await-ready"),
+        };
+    };
+    match request {
+        AdminRequest::LinkState => AdminResponse::success(match cell.phase() {
+            LinkPhase::Connected(connection) => match connection.upgrade() {
+                Some(connection) => current(&connection),
+                None => closed(),
+            },
+            LinkPhase::Connecting { reason } => LinkStatus { state: "connecting".into(), reason },
+            LinkPhase::Disconnected { reason } => {
+                LinkStatus { state: state_name(ConnectionState::Disconnected).into(), reason }
+            }
+            LinkPhase::Failed { reason } => failed(reason),
+            LinkPhase::Closed => closed(),
+        }),
+        AdminRequest::AwaitReady { within_ms } => {
+            let deadline = await_deadline(within_ms);
+            match cell.wait_connected(deadline).await {
+                Ok(connection) => {
+                    AdminResponse::success(await_connection(&connection, deadline).await)
+                }
+                Err(NotConnected::TimedOut { reason }) => AdminResponse::success(LinkStatus {
+                    state: "down".into(),
+                    reason: Some(reason.unwrap_or_else(|| NOT_CONNECTED_YET.into())),
+                }),
+                Err(NotConnected::Failed { reason }) => AdminResponse::success(failed(reason)),
+                Err(NotConnected::Closed) => AdminResponse::success(closed()),
+            }
+        }
+        _ => AdminResponse::failure("a link's socket answers only link-state and await-ready"),
+    }
+}
+
+fn await_deadline(within_ms: u64) -> tokio::time::Instant {
+    tokio::time::Instant::now() + Duration::from_millis(within_ms).min(LINK_AWAIT_LIMIT)
+}
+
+/// Wait on a connected-once link until it is connected or `deadline` passes.
+async fn await_connection(
+    connection: &ClientConnection,
+    deadline: tokio::time::Instant,
+) -> LinkStatus {
+    match connection.await_ready(deadline).await {
+        Ok(()) => current(connection),
+        Err(ConnectionError::Closed) => closed(),
+        Err(error) => LinkStatus {
+            state: "down".into(),
+            reason: Some(connection.last_failure().unwrap_or_else(|| error.to_string())),
+        },
+    }
+}
+
+/// The reason a wait that ran out before the first dial finished reports.
+const NOT_CONNECTED_YET: &str = "the link has not connected yet";
+
+fn failed(reason: String) -> LinkStatus {
+    LinkStatus { state: "failed".into(), reason: Some(reason) }
 }
 
 fn current(connection: &ClientConnection) -> LinkStatus {

@@ -15,6 +15,15 @@
 //! outcomes drive the selector with no help from the endpoint. Without one,
 //! the endpoint drives the selector through [`MultipathControl::on_probe`].
 //!
+//! Each path carries the [`Medium`] its peer address is on, read from this
+//! machine's interface table, so a Thunderbolt Bridge beats the office LAN
+//! and the LAN beats a tailnet or relay address at once. With probes, a
+//! current path that goes quiet (datagrams out, nothing authenticated back
+//! for a silence window) is probed at once, and a probe unanswered for a
+//! window makes it suspect: datagrams then go on every path until it
+//! answers or dies, so a dropped fast path costs about two windows instead
+//! of three probe timeouts.
+//!
 //! Both halves share one mutex. The driver holds it only for the duration of
 //! one send or one receive poll, never across an await.
 
@@ -23,8 +32,10 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::{Context, Poll, Waker};
 
+use cmux_transport::selector::default_medium;
 use cmux_transport::{
-    PathId, PathKind, PathView, ProbeOutcome, Selector, SelectorConfig, SelectorError, Switch,
+    LocalNetwork, Medium, PathId, PathKind, PathView, ProbeOutcome, Selector, SelectorConfig,
+    SelectorError, Switch, local_networks, medium_of,
 };
 use tokio::sync::{broadcast, watch};
 use tokio::time::Instant;
@@ -40,6 +51,17 @@ const TRANSIENT_RETRIES: usize = 8;
 const EVENT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 /// Path events a slow subscriber may fall behind before it misses some.
 const EVENT_BACKLOG: usize = 64;
+/// The shortest silence window: below it, scheduling jitter alone would
+/// look like a dead path.
+const SILENCE_FLOOR: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// How long the current path may stay silent, and then leave a probe
+/// unanswered, before the underlay acts: four smoothed round trips, at
+/// least [`SILENCE_FLOOR`].
+pub fn silence_window(rtt_us: Option<u64>) -> std::time::Duration {
+    let rtt = std::time::Duration::from_micros(rtt_us.unwrap_or(0));
+    rtt.saturating_mul(4).max(SILENCE_FLOOR)
+}
 
 /// `path.changed` (transport.md 12a): the path the session uses and how it
 /// performs. Sent on every switch, and every 5 s while the session carries
@@ -48,6 +70,8 @@ const EVENT_BACKLOG: usize = 64;
 pub struct PathEvent {
     pub path: Option<PathId>,
     pub kind: Option<PathKind>,
+    /// What the described path rides (Thunderbolt, LAN, routed).
+    pub medium: Option<Medium>,
     pub rtt_ms: f64,
     pub jitter_ms: f64,
     pub loss_pct: f64,
@@ -78,6 +102,11 @@ struct Slot {
     last_rtt_us: Option<u64>,
     jitter_us: f64,
     loss_pct: f64,
+    /// The first send on this path since it last delivered an
+    /// authenticated datagram: how long it has been silent.
+    unanswered_since: Option<Instant>,
+    /// The outstanding probe that already made this path suspect.
+    flagged_probe: Option<u64>,
 }
 
 struct Shared {
@@ -98,10 +127,15 @@ struct Shared {
     /// The last path that carried the session, described by events while
     /// no path does.
     last_path: Option<PathId>,
+    /// The path the selector holds, sprayed around or not: its death while
+    /// datagrams already go on every path is still an event.
+    held: Option<PathId>,
     /// No path will ever be added: once every path failed, the underlay
     /// reports the last failure and the session ends, as a plain socket's
     /// would. Otherwise the endpoint may still add a path.
     fixed_paths: bool,
+    /// This machine's interfaces, for each new path's medium.
+    networks: Vec<LocalNetwork>,
 }
 
 impl Shared {
@@ -117,7 +151,10 @@ impl Shared {
         }
         let switched =
             self.current.send_if_modified(|seen| std::mem::replace(seen, current) != current);
-        if switched {
+        let held = self.selector.chosen();
+        let held_died = self.held.is_some() && held.is_none();
+        self.held = held;
+        if switched || held_died {
             self.emit(Instant::now());
         }
     }
@@ -138,6 +175,7 @@ impl Shared {
         PathEvent {
             path,
             kind: view.map(|view| view.kind),
+            medium: view.map(|view| view.medium),
             rtt_ms: view.and_then(|view| view.rtt_us).map_or(0.0, |rtt| rtt as f64 / 1000.0),
             jitter_ms: slot.map_or(0.0, |slot| slot.jitter_us / 1000.0),
             loss_pct: slot.map_or(0.0, |slot| slot.loss_pct),
@@ -179,15 +217,21 @@ impl Shared {
         let _ = self.record(id, outcome);
     }
 
-    /// Whether a path the next datagram would take is backlogged: the
-    /// current path, or any path while datagrams go on every path. A
-    /// backlog on a path not in use never holds the session back.
+    /// Whether the next datagram has to wait: the current path is
+    /// backlogged, or, while datagrams go on every path, every path is. A
+    /// stuck path never holds back one that can still send, and a backlog
+    /// on a path not in use never holds the session back.
     fn backlogged(&self) -> bool {
         let current = self.selector.current();
         let targeted = current.is_some_and(|id| self.slots.iter().any(|slot| slot.id == id));
-        self.slots.iter().any(|slot| {
-            !slot.failed && (!targeted || Some(slot.id) == current) && slot.carrier.backlogged()
-        })
+        if targeted {
+            return self
+                .slots
+                .iter()
+                .any(|slot| !slot.failed && Some(slot.id) == current && slot.carrier.backlogged());
+        }
+        let mut live = self.slots.iter().filter(|slot| !slot.failed).peekable();
+        live.peek().is_some() && live.all(|slot| slot.carrier.backlogged())
     }
 }
 
@@ -243,7 +287,9 @@ impl Multipath {
             last_event: None,
             max_datagram: 0,
             last_path: None,
+            held: None,
             fixed_paths: false,
+            networks: local_networks(),
         }));
         (Self { shared: Arc::clone(&shared) }, MultipathControl { shared })
     }
@@ -264,14 +310,27 @@ impl MultipathControl {
     /// next id the selector accepts is used. After all 65536 ids are used,
     /// `add_path` logs, drops the path (its carrier) and returns an id that
     /// names no live path, so `remove_path` and `on_probe` on it fail.
+    ///
+    /// The path's medium comes from where the carrier's peer address is in
+    /// this machine's interface table (a direct path), or from its kind.
     pub fn add_path(&self, kind: PathKind, carrier: impl Underlay) -> PathId {
+        let medium = {
+            let shared = lock(&self.shared);
+            medium_for(&shared.networks, kind, carrier.peer_hint())
+        };
+        self.add_path_on(kind, medium, carrier)
+    }
+
+    /// [`MultipathControl::add_path`] with a medium the caller knows (a
+    /// test, or an engine with better knowledge than the interface table).
+    pub fn add_path_on(&self, kind: PathKind, medium: Medium, carrier: impl Underlay) -> PathId {
         let (id, waker) = {
             let mut shared = lock(&self.shared);
             let mut accepted = None;
             for _ in 0..=u16::MAX {
                 let id = PathId(shared.next_id);
                 shared.next_id = shared.next_id.wrapping_add(1);
-                if shared.selector.add_path(id, kind).is_ok() {
+                if shared.selector.add_path_on(id, kind, medium).is_ok() {
                     accepted = Some(id);
                     break;
                 }
@@ -298,6 +357,8 @@ impl MultipathControl {
                 last_rtt_us: None,
                 jitter_us: 0.0,
                 loss_pct: 0.0,
+                unanswered_since: None,
+                flagged_probe: None,
             });
             (id, shared.waker.take())
         };
@@ -333,6 +394,15 @@ impl MultipathControl {
 
     pub fn on_network_change(&self) -> Option<Switch> {
         let mut shared = lock(&self.shared);
+        // Interfaces came or went: read the table again and re-rank.
+        shared.networks = local_networks();
+        let Shared { slots, selector, networks, .. } = &mut *shared;
+        for slot in slots.iter() {
+            if let Some(view) = selector.path(slot.id) {
+                let medium = medium_for(networks, view.kind, slot.carrier.peer_hint());
+                let _ = selector.set_medium(slot.id, medium);
+            }
+        }
         let switch = shared.selector.on_network_change();
         shared.publish();
         wake_driver(shared);
@@ -394,6 +464,7 @@ impl Underlay for Multipath {
             }
             slot.carrier.send(datagram);
             slot.sent += 1;
+            slot.unanswered_since.get_or_insert_with(Instant::now);
         }
     }
 
@@ -418,26 +489,64 @@ impl Underlay for Multipath {
             return DueProbes { pings: Vec::new(), next: next_event };
         };
         let current = shared.selector.current();
+        let chosen = shared.selector.chosen();
         let mut due = DueProbes { pings: Vec::new(), next: next_event };
         let mut lost = Vec::new();
+        let mut silent = Vec::new();
         let Shared { slots, selector, last_probe_id, .. } = &mut *shared;
         for slot in slots.iter_mut().filter(|slot| !slot.failed) {
             let Some(view) = selector.path(slot.id) else { continue };
             let is_current = current == Some(slot.id);
+            // The chosen path's silence: probe it at once when it went
+            // quiet, and make it suspect when that probe is not answered
+            // within the window.
+            let mut silence_at = None;
+            let window = silence_window(view.rtt_us);
+            if chosen == Some(slot.id) {
+                match slot.probe.outstanding() {
+                    Some((probe, sent)) if slot.flagged_probe != Some(probe) => {
+                        if now >= sent + window {
+                            slot.flagged_probe = Some(probe);
+                            silent.push(slot.id);
+                        } else {
+                            silence_at = Some(sent + window);
+                        }
+                    }
+                    Some(_) => {}
+                    None => match slot.unanswered_since {
+                        Some(since) if now >= since + window => slot.probe.due_now(now),
+                        Some(since) => silence_at = Some(since + window),
+                        None => {}
+                    },
+                }
+            }
             let step = config.step(&mut slot.probe, &view, is_current, last_probe_id, now);
             if step.lost {
                 lost.push(slot.id);
             }
             if let Some(id) = step.ping {
                 due.pings.push((slot.id, id));
+                // A probe just sent on the chosen path (a silence probe
+                // among them) is judged one window from now, not at its
+                // 1 s timeout.
+                if chosen == Some(slot.id) {
+                    let at = now + window;
+                    silence_at = Some(silence_at.map_or(at, |old: Instant| old.min(at)));
+                }
             }
-            due.next = match (due.next, step.next) {
-                (Some(a), Some(b)) => Some(a.min(b)),
-                (a, b) => a.or(b),
-            };
+            for next in [step.next, silence_at] {
+                due.next = match (due.next, next) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    (a, b) => a.or(b),
+                };
+            }
         }
         for id in lost {
             shared.probe(id, ProbeOutcome::Lost);
+        }
+        for id in silent {
+            let _ = shared.selector.on_silence(id);
+            shared.publish();
         }
         due
     }
@@ -519,6 +628,7 @@ impl Underlay for Multipath {
 
     fn authenticated(&mut self, origin: Origin) {
         if let Some(slot) = lock(&self.shared).slot_mut(origin.path) {
+            slot.unanswered_since = None;
             slot.carrier.authenticated(origin);
         }
     }
@@ -536,5 +646,16 @@ impl Underlay for Multipath {
             .find(|slot| Some(slot.id) == current)
             .or_else(|| shared.slots.first())
             .and_then(|slot| slot.carrier.peer_hint())
+    }
+}
+
+/// A path's medium: where its peer address is in the interface table for a
+/// direct path, else what its kind implies.
+fn medium_for(networks: &[LocalNetwork], kind: PathKind, peer: Option<SocketAddr>) -> Medium {
+    match peer {
+        Some(peer) if kind.class().is_direct() && !networks.is_empty() => {
+            medium_of(peer.ip(), networks)
+        }
+        _ => default_medium(kind),
     }
 }

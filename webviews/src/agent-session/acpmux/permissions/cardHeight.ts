@@ -3,7 +3,7 @@
 import { layout, prepare, prepareWithSegments, layoutWithLines } from "@chenglou/pretext";
 import typeScale from "../../../../../schemas/type-scale/type-scale.json";
 import { chatDisplay } from "../chatDisplay";
-import { chatUiMeasureStack } from "../chatUiFont";
+import { chatUiMeasureStack, chatUiTracking } from "../chatUiFont";
 import type { AcpmuxPermission } from "../model";
 import { currentLanguage, translate } from "../i18n";
 import { plainText } from "../question/inlineText";
@@ -31,13 +31,25 @@ export function cardFont(): string {
   return chatUiMeasureStack(chatDisplay().uiFont);
 }
 
+/// The letter-spacing the card's text at `size` px is drawn with, in px: its type-scale step's
+/// `--text-STEP--letter-spacing`, which the Interface Font sets (System UI, tight and cmux Inter
+/// track; the stacks they share with System UI and Inter don't tell them apart). `step` names the
+/// token when it isn't the size's own: the buttons draw body-size labels with detail's tracking.
+export function cardLetterSpacing(size: number, step?: string): number {
+  const name = step ?? typeScale.steps.find((entry) => entry.size === size)?.name;
+  return name ? chatUiTracking(chatDisplay().uiFont, name) * size : 0;
+}
+
 // The same line breaker as prose estimates, using the card's UI font rather than chat text size.
 function textHeight(text: string, width: number, size: number, line: number, mono = false, weight = 400): number {
   const room = Math.max(1, width);
   if (!mono) text = text.replace(/\s+/g, " ");
   try {
     return layout(
-      prepare(text, `${weight} ${size}px ${mono ? "monospace" : cardFont()}`, { whiteSpace: "pre-wrap" }),
+      prepare(text, `${weight} ${size}px ${mono ? "monospace" : cardFont()}`, {
+        whiteSpace: "pre-wrap",
+        letterSpacing: mono ? 0 : cardLetterSpacing(size),
+      }),
       room,
       line,
     ).height;
@@ -47,11 +59,16 @@ function textHeight(text: string, width: number, size: number, line: number, mon
   }
 }
 
-function textWidth(text: string, size: number, weight = 400): number {
+function textWidth(text: string, size: number, weight = 400, step?: string): number {
   try {
     return (
-      layoutWithLines(prepareWithSegments(text, `${weight} ${size}px ${cardFont()}`), Infinity, size).lines[0]?.width ??
-      0
+      layoutWithLines(
+        prepareWithSegments(text, `${weight} ${size}px ${cardFont()}`, {
+          letterSpacing: cardLetterSpacing(size, step),
+        }),
+        Infinity,
+        size,
+      ).lines[0]?.width ?? 0
     );
   } catch {
     return text.length * size * 0.55;
@@ -77,7 +94,8 @@ export function permissionCardHeight(permission: AcpmuxPermission | undefined, w
   if (!permission) return 2 * padding * scale + body.lineHeight * scale;
   // Immutable permission snapshots retain their estimate while unrelated reply tokens stream.
   // Keep only the current width per ask; old asks are released with their snapshot.
-  const key = `${width}/${scale}/${currentLanguage()}/${cardFont()}`;
+  // The font's stack and its name: two fonts that share a stack track differently.
+  const key = `${width}/${scale}/${currentLanguage()}/${cardFont()}/${chatDisplay().uiFont}`;
   const cached = estimates.get(permission);
   if (cached?.key === key) return cached.height;
   const height = estimatePermission(permission, width, scale);
@@ -130,13 +148,14 @@ function estimatePermission(permission: AcpmuxPermission, width: number, scale: 
     ...(external ? [translate("permission.external.openSettings")] : []),
   ];
   const taken = new Set(labels);
-  // Buttons are 12px either side of their label.
-  const widths = labels.map((label, index) => textWidth(label, body.size, allowOnce && index === 0 ? 500 : 400) + 24);
+  // Buttons are 12px either side of their label, which tracks as the detail step (styles.css).
+  const button = (label: string, weight = 400) => textWidth(label, body.size, weight, "detail");
+  const widths = labels.map((label, index) => button(label, allowOnce && index === 0 ? 500 : 400) + 24);
   for (const option of others) {
     const label = optionButtonLabel(option, translate, taken);
     taken.add(label);
     // Custom action labels are ellipsized at 14ch; transcript cards omit keyboard shortcuts.
-    widths.push(Math.min(textWidth(label, body.size), 14 * textWidth("0", body.size)) + 24);
+    widths.push(Math.min(button(label), 14 * button("0")) + 24);
   }
   const rows = wrappedRows(widths, room, GAP);
   height += BAND + EDGE + rows * CONTROL_ROW + Math.max(0, rows - 1) * GAP;

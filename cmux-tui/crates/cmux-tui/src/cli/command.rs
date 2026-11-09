@@ -23,6 +23,7 @@ mod conversation;
 mod flags;
 pub(super) mod git;
 mod history;
+mod list_filter;
 mod machine;
 mod name_flags;
 pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
@@ -30,6 +31,7 @@ pub(super) mod plan;
 mod screen;
 mod session_reset;
 pub(super) use session_reset::run_session_reset_state;
+pub(super) use state::parse_duration_ms;
 mod server_ensure;
 mod settings;
 #[cfg(test)]
@@ -38,6 +40,9 @@ pub(super) use settings::{SettingsList, human_rows as settings_human_rows, resol
 mod sidebar_doc;
 mod state;
 mod workspace;
+#[cfg(test)]
+pub(super) use list_filter::CwdFilter;
+pub(super) use list_filter::ListFilter;
 pub(super) use plan::{
     AgentRosterView, AgentSort, RequestPlan, Resolve, ResponseView, WireOperation, ZoomStep,
 };
@@ -808,7 +813,9 @@ fn parse_pane_strings(
     match words {
         ["list"] => {
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen"])?;
+            let filter = list_filter::take(flags, true, true)?;
             request(ResourceOperation::PaneList, selectors, flags, Map::new())
+                .map(|plan| plan.filtered(filter))
         }
         ["create"] => {
             let mut params = Map::new();
@@ -1053,7 +1060,9 @@ fn parse_terminal(
                 flags,
                 &["workspace", "screen", "pane", "tab"],
             )?;
+            let filter = list_filter::take(flags, false, true)?;
             request(ResourceOperation::TerminalList, selectors, flags, Map::new())
+                .map(|plan| plan.filtered(filter))
         }
         [selector, verb @ ("show" | "status")] => {
             selectors.insert("terminal", "term", selector)?;
@@ -2102,6 +2111,7 @@ fn finalize_request(
         idempotency_key: explicit_key,
         resolve: Vec::new(),
         view: ResponseView::Full,
+        filter: Default::default(),
     })))
 }
 
