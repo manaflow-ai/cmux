@@ -174,7 +174,7 @@ extension TabContentCache {
                 },
                 cloudRd: { [weak services] machine in services?.cloudDesktopRdTransport(machine: machine) },
                 displayName: RemoteViewTabRecord(url: url).flatMap { $0.cloudDesktop ? services.machines.cloudMachineBadge(machine: $0.host) : nil },
-                personInput: services.chiefComputerControlSource(agent: nil, machine: RemoteViewTabRecord(url: url)?.host)?.noteInput, loginKeychain: services.loginKeychain)
+                personInput: services.chiefComputerInputReporter(machine: RemoteViewTabRecord(url: url)?.host), loginKeychain: services.loginKeychain)
             page.onNavigate = { [weak self] target in
                 pages.forget(key)
                 self?.leaveAppPage(key, to: target)

@@ -190,6 +190,13 @@ extension AppServices {
         return .machine(id, store: cloud.computerControl, openInteractive: { [weak self] in self?.openChiefComputerDesktop(machine: machine) })
     }
 
+    /// What a Cloud machine's desktop viewer calls on the person's input: it keeps their hold on its computer.
+    @MainActor
+    func chiefComputerInputReporter(machine: String?) -> (@MainActor () -> Void)? {
+        guard let note = chiefComputerControlSource(agent: nil, machine: machine)?.noteInput else { return nil }
+        return { note() }
+    }
+
     /// Open Desktop (`cloudOpenDesktop`) as the person's own run: the machine's `cmux-rd` desktop over the
     /// carrier, the one viewer Open Desktop has (CloudHandlers.openDesktop).
     @MainActor
