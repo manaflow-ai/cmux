@@ -108,6 +108,7 @@ pub(crate) use idle_census::LaunchServers;
 pub(crate) use idle_census::host_census;
 pub use idle_census::{Sidecar, StoredLaunch};
 pub use tool_start::{ToolStart, tool_start};
+mod closed_rows;
 mod launch_roots;
 mod launchers;
 pub mod lineage;
@@ -641,14 +642,20 @@ pub struct Hub {
     /// Session ids whose metadata is still live. Closed records remain in `sessions` and on
     /// disk for history, search, export and restore, but list/peer hot paths never walk them.
     pub(super) live_session_ids: StdMutex<std::collections::HashSet<String>>,
-    /// Serialized summaries for closed sessions. Metadata commits replace the row before the
-    /// next full list, so full callers do not rebuild closed-session projections.
-    pub(super) closed_summary_cache: StdMutex<HashMap<String, ClosedSummaryCacheEntry>>,
+    /// Serialized summaries for closed sessions, in list order (`closed_rows.rs`). Metadata
+    /// commits replace the row before the next full list, so full callers do not rebuild
+    /// closed-session projections, and a list neither parses nor sorts them.
+    pub(super) closed_summary_cache: StdMutex<closed_rows::ClosedRows>,
+    /// One walk of the closed rows at a time (`Hub::own_rows_in_order`).
+    pub(super) closed_rows_walk: StdMutex<()>,
     /// The closed sessions' chat activity, built once for every chats reader (`chats/activity.rs`).
     pub(crate) chat_activity_cache: crate::chats::ActivityCache,
     /// Closed rows built anew because their cached bytes were missing or stale (tests).
     #[cfg(test)]
     pub(super) closed_summary_builds: AtomicU64,
+    /// Closed rows parsed back from their cached bytes (tests).
+    #[cfg(test)]
+    pub(super) closed_summary_parses: AtomicU64,
     /// Projection-only message repairs in flight, keyed by destination and delivery id. These
     /// retries never resend a prompt and are bounded in `message_events.rs`.
     pub(super) message_repairs: StdMutex<std::collections::HashSet<(String, String)>>,
@@ -989,17 +996,6 @@ pub struct Hub {
     pub(crate) suggestion_gate: StdMutex<crate::suggestion_gate::Gate>,
 }
 
-/// Serialized forms of one closed session. Each form has its own generation and tag-expiry
-/// deadline: building a list row must never make a previously cached full row look fresh.
-pub(super) struct ClosedSummaryCacheEntry {
-    pub(super) list_generation: SummaryStamp,
-    pub(super) list_next_expiry: u64,
-    pub(super) list: String,
-    pub(super) full_generation: SummaryStamp,
-    pub(super) full_next_expiry: u64,
-    pub(super) full: String,
-}
-
 /// What a cached closed row was built after: every row's changes (`Events::summary_generation`),
 /// its own session's (`Session::summary_gen`), and its open children's (`subsessions`). A change
 /// of one session's row moves its own count only, so the other closed rows keep their bytes.
@@ -1097,10 +1093,13 @@ impl Hub {
             forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
-            closed_summary_cache: StdMutex::new(HashMap::new()),
+            closed_summary_cache: StdMutex::new(Default::default()),
+            closed_rows_walk: StdMutex::new(()),
             chat_activity_cache: Default::default(),
             #[cfg(test)]
             closed_summary_builds: AtomicU64::new(0),
+            #[cfg(test)]
+            closed_summary_parses: AtomicU64::new(0),
             message_repairs: StdMutex::new(std::collections::HashSet::new()),
             #[cfg(test)]
             message_projection_failures: StdMutex::new(std::collections::HashSet::new()),
@@ -1739,89 +1738,6 @@ impl Hub {
         self.live_session_ids.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
         // A purged session leaves the map; a replacement may take its id.
         self.chat_activity_cache.invalidate();
-    }
-
-    pub(super) fn cached_closed_summary(&self, session: &Session, with_tools: bool) -> Value {
-        let id = session.id.clone();
-        let now = now_ms();
-        // Its own tags' and its parent's (whether the row folds under it, `Hub::spawned_by`):
-        // a tag that expires changes the row with no event.
-        let (own_expiry, parent) = session.read_meta(|m| {
-            (views::next_tag_expiry(m, now), views::activity_parent_id(m).map(str::to_owned))
-        });
-        let parent_expiry = parent
-            .filter(|parent| *parent != id)
-            .and_then(|parent| self.session_by_id(&parent))
-            .and_then(|parent| parent.read_meta(|m| views::next_tag_expiry(m, now)));
-        let next_expiry = match (own_expiry, parent_expiry) {
-            (Some(a), Some(b)) => a.min(b),
-            (a, b) => a.or(b).unwrap_or(0),
-        };
-        // Read before the row is built: a change while it builds leaves the cached bytes stale.
-        let generation = SummaryStamp {
-            all: self.events.summary_generation.load(Ordering::SeqCst),
-            own: session.summary_gen.load(Ordering::SeqCst),
-            children: self.subsessions.generation(&id),
-        };
-        if session.status() == SessionStatus::Closed
-            && let Some(bytes) = self
-                .closed_summary_cache
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .get(&id)
-                .and_then(|entry| {
-                    let (entry_generation, entry_expiry, bytes) = if with_tools {
-                        (entry.full_generation, entry.full_next_expiry, &entry.full)
-                    } else {
-                        (entry.list_generation, entry.list_next_expiry, &entry.list)
-                    };
-                    (entry_generation == generation
-                        && (entry_expiry == 0 || now < entry_expiry)
-                        && !bytes.is_empty())
-                    .then_some(bytes)
-                })
-            && let Ok(row) = serde_json::from_str(bytes)
-        {
-            return row;
-        }
-        let row = if with_tools {
-            self.session_summary(session)
-        } else {
-            self.session_list_summary(session)
-        };
-        if session.status() == SessionStatus::Closed {
-            #[cfg(test)]
-            self.closed_summary_builds.fetch_add(1, Ordering::SeqCst);
-            let mut cache = self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner());
-            // A summary may have been built while purge was unregistering the session. Recheck
-            // the tombstone while holding the cache lock so a late reader cannot recreate it.
-            if session.purged.load(Ordering::SeqCst) {
-                return row;
-            }
-            let entry = cache.entry(id).or_insert_with(|| ClosedSummaryCacheEntry {
-                list_generation: SummaryStamp::default(),
-                list_next_expiry: 0,
-                list: String::new(),
-                full_generation: SummaryStamp::default(),
-                full_next_expiry: 0,
-                full: String::new(),
-            });
-            let bytes = serde_json::to_string(&row).unwrap_or_default();
-            if with_tools {
-                entry.full_generation = generation;
-                entry.full_next_expiry = next_expiry;
-                entry.full = bytes;
-            } else {
-                entry.list_generation = generation;
-                entry.list_next_expiry = next_expiry;
-                entry.list = bytes;
-            }
-        }
-        row
-    }
-
-    pub(super) fn remove_cached_closed_summary(&self, id: &str) {
-        self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
     }
 
     /// The sessions the daemon may need to summarize on a hot path. Closed records are looked up

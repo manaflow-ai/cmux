@@ -302,7 +302,7 @@ class WorkflowTests(unittest.TestCase):
         # The Sparkle and notary secrets come from release-next on nightly-next.
         self.assertEqual(jobs["recover-nightly-next-notarization"]["environment"], "${{ needs.decide.outputs.environment }}")
         # The finder only reads the routing App key for its owned pick (ci-routing-agent), no release secret.
-        self.assertEqual(jobs["find-nightly-next-recovery"]["environment"], "ci-routing-agent")
+        self.assertEqual(jobs["find-nightly-next-recovery"]["environment"], {"name": "ci-routing-agent", "deployment": False})
         self.assertEqual(set(re.findall(r"secrets\.(\w+)", json.dumps(jobs["find-nightly-next-recovery"]))),
                          {"GLAEDA_ROUTE_APP_KEY"})
         recover_text = json.dumps(jobs["recover-nightly-next-notarization"])

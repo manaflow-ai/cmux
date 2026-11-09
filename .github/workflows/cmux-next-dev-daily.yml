@@ -32,7 +32,9 @@ jobs:
   # vCPU (Leo, 2026-11-01: "surely we measured the signign we dont need 32/16 just for signing").
   pick-sign-runner:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && fromJSON(vars.RUNNER_POOLS).linux_4 || 'ubuntu-24.04' }}
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     continue-on-error: true
     # Checkout, then the token mints 1 + 1 and the pick 3.
     timeout-minutes: 8

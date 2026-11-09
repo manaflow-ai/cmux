@@ -44,7 +44,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/retry",
         "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
         // Take Over a View Only chat (direct.ts takeOver): the chat runs the conversation from then on.
-        "_acpmux/watch_take_over",
+        "_acpmux/watch_take_over", "_acpmux/project_new", // New project: AgentPaneProjectNewRelayTests.
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
         "_acpmux/status", "_acpmux/peers", "_acpmux/draft_get",
         // Session-scoped draft writes are kept separate from the filtered replies above.
