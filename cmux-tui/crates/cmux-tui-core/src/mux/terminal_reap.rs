@@ -14,7 +14,8 @@
 //! The grace holds at most [`MAX_TERMINALS_IN_REAP_GRACE`] closed terminals: each keeps its
 //! shell and so its PTY (a shell cannot outlive its PTY), and a script that closes several tabs a
 //! second held the machine's PTYs until every new tab was refused (STATUS 7998). Past the cap the
-//! longest-closed ends at once.
+//! longest-closed detached terminal ends at once; a terminal a client is attached to is not
+//! counted, and the reap close re-checks attach streams under its locks.
 //!
 //! The grace runs across owner restarts. The registry keeps the wall-clock
 //! time the owner first saw each terminal unplaced
