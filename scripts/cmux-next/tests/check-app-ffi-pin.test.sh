@@ -172,4 +172,31 @@ fi
 [[ "$out" == *"changed since the pinned source $pinned"* ]] || fail "a scripts/ci/json.py changed the --base report: $out"
 rm -f "$repo/scripts/ci/json.py"
 
+# --tree DIR: a copy of the check outside the repository judges the tree at DIR
+# (its Package.swift, its FFI inputs, its history) and reads the pin only with
+# its own reader, never the tree's. cmux-next.yml runs the base's copy so on a
+# pull request's tree.
+code="$tmp/code"
+mkdir -p "$code/scripts/cmux-next" "$code/scripts/ci"
+cp "$script" "$code/scripts/cmux-next/check-app-ffi-pin.sh"
+cp "$pin_reader" "$code/scripts/ci/app_ffi_pin.py"
+check_tree() { (cd "$tmp" && bash "$code/scripts/cmux-next/check-app-ffi-pin.sh" --tree "$repo" "$@" 2>&1); }
+git -C "$repo" checkout -q -f "$rb~1"
+out="$(check_tree)" || fail "--tree failed on a current pin: $out"
+[[ "$out" == *"sources match $pinned"* ]] || fail "--tree did not read the tree's pin: $out"
+out="$(check_tree --list-inputs)" || fail "--tree --list-inputs failed: $out"
+[[ "$out" == *"cmux-tui/crates/cmux-remote-browser"* ]] || fail "--tree --list-inputs did not read the tree's crates: $out"
+git -C "$repo" checkout -q -f "$rb"
+if out="$(check_tree)"; then
+  fail "--tree passed a stale pin: $out"
+fi
+[[ "$out" == *"cmux-remote-browser"* ]] || fail "--tree did not report the tree's stale crate: $out"
+# The tree's own reader, changed to read the pin as HEAD, is not the one that runs.
+printf 'print("%s %s")\n' "$rb" "$zeros" > "$repo/scripts/ci/app_ffi_pin.py"
+if out="$(check_tree)"; then
+  fail "--tree ran the tree's pin reader: $out"
+fi
+[[ "$out" == *"cmux-remote-browser"* ]] || fail "the tree's pin reader changed the --tree report: $out"
+git -C "$repo" checkout -q -f "$rb"
+
 echo "check-app-ffi-pin.test.sh: ok"
