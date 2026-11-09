@@ -291,7 +291,6 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
     SessionMeta {
         tripwires: None,
         tripwire_enabled: false,
-        tripwire_enabled: false,
         schema: META_SCHEMA.into(),
         id: d.id,
         name: String::new(),
