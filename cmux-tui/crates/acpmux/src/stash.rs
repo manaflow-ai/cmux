@@ -560,6 +560,42 @@ mod tests {
     }
 
     #[test]
+    fn a_move_whose_put_back_fails_too_keeps_every_draft_of_the_full_stack() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join(DIR);
+        for n in 0..STASH_LIMIT as u64 {
+            push(&dir, "session", &format!("own {n}"), Vec::new(), None, n).unwrap();
+        }
+        push(&dir, "new", "moving", Vec::new(), None, 9).unwrap();
+        // The source stays, and the put-back cannot write: the stash folder is made read-only (a
+        // root run writes anyway, and then the put-back works; either way no draft may be gone).
+        let session = chat_path(&dir, "session");
+        let refused = move_stack_with(&dir, "new", "session", |_| {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&dir, fs::Permissions::from_mode(0o500)).unwrap();
+            }
+            Err(io::Error::other("refused"))
+        });
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        assert!(refused.is_err());
+        // Whatever the session's file holds now, none of its own drafts is gone.
+        let texts: Vec<String> = load(&session).unwrap().into_iter().map(|d| d.text).collect();
+        for n in 0..STASH_LIMIT {
+            assert!(texts.contains(&format!("own {n}")), "own {n} is gone: {texts:?}");
+        }
+        // Tried again it finishes once: the moved draft on top, the oldest let go.
+        move_stack(&dir, "new", "session").unwrap();
+        let texts: Vec<String> = load(&session).unwrap().into_iter().map(|d| d.text).collect();
+        assert_eq!(texts, ["moving", "own 4", "own 3", "own 2", "own 1"]);
+    }
+
+    #[test]
     fn a_move_at_the_chat_limit_loses_no_draft_of_the_new_chat() {
         let home = tempfile::tempdir().unwrap();
         let dir = home.path().join(DIR);
