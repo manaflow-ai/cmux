@@ -1,14 +1,14 @@
 // The guest page's entry (vite.config.guest-page.mjs; scripts/cmux-next/build-guest-page-web.sh
 // builds it for the room to serve at /g/<share_id>, and at /i/<share_id> for an invite). The page carries the agent pane's own
 // stylesheet, the one the app ships and the gallery draws (dev-server/galleryHost.ts), so the
-// transcript looks as the owner sees it.
-import "virtual:cmux-gallery/agent-pane.css";
+// transcript looks as the owner sees it: the first frame's part here, the rest beside the
+// transcript's chunk (transcriptSheet.ts).
+import "./firstFrame.css";
 import "./page.css";
-import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { UiProvider } from "../../ui/UiProvider";
 import { GuestPage, startGuestPage } from "./GuestPage";
-import { OpenInApp } from "./OpenInApp";
+import { WithOpenInApp } from "./OpenInApp";
 import { appLinkUrl, appScheme, chooseBrowser, offersApp } from "./appLink";
 import {
   acceptOverFetch,
@@ -36,7 +36,7 @@ const link = takeGuestLink(window.location, window.history, storage);
 // The transcript's chunk (GuestTranscript.tsx) loads beside the first frame: a joined guest needs it
 // for the room's snapshot, a new one after Join. Its no-owner host is installed as it arrives,
 // before anything from it draws (GuestPage.tsx startGuestPage).
-if (link) startGuestPage();
+if (link) startGuestPage(() => import("./transcriptSheet"));
 const root = document.getElementById("root")!;
 // A path that names no share opens the join page with Join off ("This link is incomplete").
 const shareId = link?.shareId ?? "";
@@ -50,34 +50,26 @@ const appUrl =
     ? appLinkUrl(scheme, window.location.origin, link)
     : undefined;
 
+// The guest page mounts at once; the app attempt is a banner over it (OpenInApp.tsx), never a step before it.
 function Guest() {
-  const [inBrowser, setInBrowser] = useState(appUrl === undefined);
-  if (!inBrowser && appUrl)
-    return (
-      <OpenInApp
-        appUrl={appUrl}
-        onContinue={() => {
-          chooseBrowser(storage, shareId);
-          setInBrowser(true);
-        }}
-      />
-    );
   return (
-    <GuestPage
-      shareId={shareId}
-      secret={link?.secret}
-      guestId={guestId}
-      name={link ? joinedName(shareId, storage) : undefined}
-      role={link ? joinedRole(shareId, storage, link.invite === true) : undefined}
-      storage={storage}
-      redeem={redeemOverFetch()}
-      invite={link?.invite === true}
-      accept={acceptOverFetch()}
-      whoami={whoamiOverFetch()}
-      attempt={() => attemptId(shareId, storage)}
-      onJoined={(guestId, name, role, via) => rememberJoined(shareId, guestId, storage, name, role, via)}
-      socketUrl={socketUrl}
-    />
+    <WithOpenInApp appUrl={appUrl} onChooseBrowser={() => chooseBrowser(storage, shareId)}>
+      <GuestPage
+        shareId={shareId}
+        secret={link?.secret}
+        guestId={guestId}
+        name={link ? joinedName(shareId, storage) : undefined}
+        role={link ? joinedRole(shareId, storage, link.invite === true) : undefined}
+        storage={storage}
+        redeem={redeemOverFetch()}
+        invite={link?.invite === true}
+        accept={acceptOverFetch()}
+        whoami={whoamiOverFetch()}
+        attempt={() => attemptId(shareId, storage)}
+        onJoined={(guestId, name, role, via) => rememberJoined(shareId, guestId, storage, name, role, via)}
+        socketUrl={socketUrl}
+      />
+    </WithOpenInApp>
   );
 }
 

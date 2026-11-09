@@ -15,7 +15,8 @@ public struct AgentShareLinks {
 
     /// Asks the daemon for `link`'s page, then hands it to `openTab`.
     public func open(_ link: URL, openTab: @escaping @MainActor (URL) -> Void) {
-        let fallback = link.scheme?.lowercased() == "https" ? Self.inApp(link) : nil
+        // A web address the daemon refuses (another site's `/g/<id>`, or no daemon) opens exactly as given.
+        let fallback = link.scheme?.lowercased() == "https" ? link : nil
         // task-owner: AgentShareLinks.open: one daemon request, then one tab; ends with it.
         Task { [self] in
             guard let page = await page(link) ?? fallback else { return }
@@ -23,18 +24,12 @@ public struct AgentShareLinks {
         }
     }
 
-    /// A page opened in cmux without the daemon's answer, marked as inside the app (`in_app=1`), so the guest
-    /// page never asks the operating system to open it in cmux again.
-    public static func inApp(_ page: URL) -> URL {
-        guard var parts = URLComponents(url: page, resolvingAgainstBaseURL: false) else { return page }
-        parts.queryItems = (parts.queryItems ?? []).filter { $0.name != "in_app" } + [URLQueryItem(name: "in_app", value: "1")]
-        return parts.url ?? page
-    }
-
-    /// `link`'s page as the daemon answers it; nil when the daemon refuses or is not there.
+    /// `link`'s page as the daemon answers it, once this Mac's daemon is connected (a cold launch from a link waits
+    /// for it); nil when the daemon refuses or startup gave up.
     public func page(_ link: URL) async -> URL? {
-        guard let connection = host.shareLocalConnection else { return nil }
-        let request = AgentSessionShareOpenLinkRequest(link: link.absoluteString, token: await host.shareSignInToken())
+        let opener = await host.shareLinkOpener()
+        guard let connection = opener.connection else { return nil }
+        let request = AgentSessionShareOpenLinkRequest(link: link.absoluteString, token: opener.token)
         // timeout: a room that never answers the hand-off (the daemon gives it 10 s); past this the link
         // still opens as itself, signed out (the fallback in `open`).
         guard let opened = try? await connection.request(request, timeout: .seconds(20)) else { return nil }

@@ -165,13 +165,17 @@ const ENTRANCES: Record<string, { count: number; what: string }> = {
   },
   "src/agent-session/acpmux/CloudResumeDesigns.tsx": { count: 1, what: "the gallery's slow-resume note designs" },
   "src/agent-session/acpmux/ComposerQueue.tsx": { count: 1, what: "the held prompt's waking line" },
+  "src/agent-session/acpmux/DictationListening.tsx": {
+    count: 1,
+    what: "the dictation waveform's pill beside the mic, from the right",
+  },
   "src/agent-session/acpmux/Inspector.tsx": { count: 1, what: "the event inspector side panel, from the right" },
   "src/agent-session/acpmux/LiveChatChoice.tsx": { count: 1, what: "a banner at the top of the chat" },
   "src/agent-session/acpmux/MissingChat.tsx": { count: 1, what: "a banner at the top of the chat" },
   "src/agent-session/acpmux/PeerCopyBanner.tsx": { count: 3, what: "a banner at the top of the chat" },
   "src/agent-session/acpmux/WatchBanner.tsx": { count: 1, what: "a banner at the top of the chat" },
   "src/agent-session/acpmux/conversation/ArtifactPanel.tsx": { count: 1, what: "the artifact side panel" },
-  "src/agent-session/acpmux/session-info/SessionInfo.tsx": { count: 1, what: "the Session Info side panel" },
+  "src/agent-session/acpmux/session-info/useSessionInfo.tsx": { count: 1, what: "the Session Info side panel" },
   "src/agent-session/acpmux/session-info/TasksSection.tsx": { count: 1, what: "an arriving task row" },
   "src/agent-session/acpmux/summary/SummaryCard.tsx": { count: 1, what: "the summary side panel" },
   "src/agent-session/acpmux/summary/SummaryTasks.tsx": { count: 1, what: "an arriving task row" },
@@ -211,12 +215,16 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
     count: 1,
     what: "a followed reply eases into each new line",
   },
-  "src/agent-session/acpmux/conversation/sendMorph.ts": {
+  "src/agent-session/acpmux/conversation/turnEndFold.ts": {
     count: 1,
-    what: "a sent picture or video moves from its composer chip to its slot in the message (the move's clock)",
+    what: "a turn's end folds its work in one motion: the rows that stay slide to their place, copies of the rows it took away fade where they were",
   },
   "src/agent-session/acpmux/conversation/turnFold.ts": { count: 1, what: "a turn folds" },
   "src/agent-session/acpmux/session-info/SessionInfoGroup.tsx": { count: 1, what: "Session Info sections slide" },
+  "src/agent-session/acpmux/session-info/foldMotion.ts": {
+    count: 1,
+    what: "Session Info Show more / Show less grow and close in place",
+  },
   "src/agent-session/acpmux/newtab/listMotion.ts": { count: 1, what: "New Tab rows move to their new place" },
   "src/agent-session/acpmux/subagents/trayMotion.tsx": {
     count: 1,
@@ -227,6 +235,10 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/files-panel-motion.ts": { count: 2, what: "the files panel slides in from its edge" },
   "src/motion/SyncTitle.tsx": { count: 3, what: "a title's new text cross-fades" },
   "src/motion/useSyncListMotion.ts": { count: 3, what: "list rows arrive, move and leave" },
+  "src/pages/overlay/toasts/useToastMotion.ts": {
+    count: 4,
+    what: "a toast rises and fades in, slides to its new slot, and its copy fades out where it was",
+  },
   "src/ui/motion/SlidingIndicator.tsx": {
     count: 1,
     what: "a tab bar's or segmented control's highlight travels to the selected item",

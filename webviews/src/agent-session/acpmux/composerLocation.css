@@ -235,7 +235,7 @@
    "yeah chatgpt codex has nicer ways to deal with stuff"). A chip without its name keeps its icon,
    its tooltip and its accessible name. test/composer-location-strip.test.ts holds each step.
    Without a branch (a new chat with no project, as on a fresh home):
-   - Another machine (Where "Another machine", Machine "gpu-box" and its dot): all named from 396 px,
+   - Remote (Where "Remote", Machine "gpu-box" and its dot): all named from 396 px,
      Where named from 340 px.
    - This Mac and Cloud (no Machine chip beside Where since cmux NEXT's Cloud is one pick), and the
      one combined control (a started chat's, the combined and cloud-toggle arms): named from 238 px.
@@ -1507,8 +1507,10 @@
    "Where should this chat run?" (Leo, 2026-10-31): This Mac and Cloud; every machine is a list of
    its own (Machines…). No section headers and no second lines; each of the first nine machines ends
    with its ⌥⌘ digit, then the current one's check. */
-/* Its floor beats the folder popover's own rules, whose classes it carries. */
-.acpmux-menu.acpmux-location-menu.acpmux-env-popover { min-width: 220px; }
+/* Its floor beats the folder popover's own rules, whose classes it carries: the location menus'
+   200 px, so This Mac, Cloud and Remote (its longest row now This Mac with its ⌥⌘ digit) are no
+   wider than their fullest row needs (gallery invariants.ts `menu-fit`). */
+.acpmux-menu.acpmux-location-menu.acpmux-env-popover { min-width: 200px; }
 /* Its rows as the model picker's and every other menu's (design/menus.md, popupSurface.css): the
    neutral menu wash (--acpmux-menu-hover, as .acpmux-quick-item), no accent tint and no focus bar,
    inset 5 from the popup's edges at radius 5, the icon at the shared 15 leading. The highlight is

@@ -9,20 +9,6 @@ const GROUP: &str = "NotificationActionCatalog";
 #[rustfmt::skip]
 pub static ACTIONS: &[Action] = &[
     Action {
-        id: "feed.show",
-        group: GROUP,
-        title: t("ActionCatalog", "action.feed.show", "Show Feed"),
-        keywords: &["inbox", "requests", "notifications", "approvals"],
-        default_shortcut: Some(Shortcut { key: "i", modifiers: SHIFT | CMD }),
-        category: "notifications",
-        symbol: "tray.full",
-        surfaces: PALETTE | KEYBOARD | MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        cli_name: "feed show",
-        main_menu: Some("window"),
-        ..Action::DEFAULT
-    },
-    Action {
         id: "showNotifications",
         group: GROUP,
         title: t("ActionCatalog", "action.showNotifications", "Show Notifications"),

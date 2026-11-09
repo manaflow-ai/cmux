@@ -562,3 +562,6 @@ fn on_loopback(listen: &str) -> bool {
 #[cfg(test)]
 #[path = "idle_tests.rs"]
 mod idle_tests;
+// Compact an idle Claude chat before its prompt cache expires.
+#[path = "cache_compact.rs"]
+pub(super) mod cache_compact;

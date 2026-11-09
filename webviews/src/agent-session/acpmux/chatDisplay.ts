@@ -11,6 +11,7 @@
 // own defaults, and an upgrade must not move anyone's chat. Code follows the terminal font
 // (`--cmux-diff-code-font-family`) unless a code font is set.
 import { useSyncExternalStore } from "react";
+import { configureSenderIconLook } from "./subagents/senderIconLook";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
 import { isArm } from "../../experiments/experiment";
 import { threadMinimapLayout } from "./threadMinimap/layout.experiment";
@@ -176,7 +177,7 @@ const FONT_STACKS: Record<ChatFontPreset, string> = {
 };
 /// What the estimator's canvas measures each preset as (a canvas can't read CSS variables).
 const MEASURE_STACKS: Record<ChatFontPreset, string> = {
-  system: '"Inter", system-ui, sans-serif',
+  system: "-apple-system, BlinkMacSystemFont, system-ui, sans-serif",
   serif: '"New York", Georgia, serif',
   mono: '"SF Mono", Menlo, monospace',
 };
@@ -320,6 +321,7 @@ export function applyChatDisplay(root: HTMLElement, display: ChatDisplay): void 
 export function setChatDisplay(value: unknown): void {
   raw = (value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Values) } : {}) as Values;
   configureStatusVerbs(raw);
+  configureSenderIconLook(raw);
   const next = resolveChatDisplay(raw);
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;

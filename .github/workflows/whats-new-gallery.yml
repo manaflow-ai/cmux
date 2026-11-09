@@ -1,0 +1,178 @@
+name: What's New gallery pictures
+
+# Each New or Improved What's New highlight gets its webview gallery state rendered and put on
+# pr-media, where the next nightly's signed notes find them (scripts/cmux-next/media/whats-new-gallery.py,
+# release-notes.py add_gallery_media): the state its `gallery:` line names, else one picked from the
+# gallery files its commit changed; for an improvement, its `before:` state, else the same state
+# rendered at the commit before the highlight's (release-notes/next/WRITING.md). Leo, 2026-10-20: "vids and before/afters for our techincal
+# stuff is p important". It publishes only the states a highlight names (#21400 took out the
+# automatic publishing of every state a pull request touches), gates nothing and is not a check.
+#
+# render renders in Chromium with no secret and no write; publish, in the pr-media environment
+# (protected branches only), reads the pictures as data and writes only through
+# .github/actions/pr-media-publish and its privacy check.
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "release-notes/next/highlights/**"
+  workflow_dispatch:
+    inputs:
+      all:
+        description: Render every state again, also those already on pr-media
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# One at a time, never cancelled: a later push plans only what is still missing.
+concurrency:
+  group: whats-new-gallery
+  cancel-in-progress: false
+
+jobs:
+  render:
+    if: ${{ github.repository_owner == 'manaflow-ai' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 60
+    outputs:
+      count: ${{ steps.plan.outputs.count }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          # The plan reads each highlight's first commit (its age).
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
+          persist-credentials: false
+
+      - name: Plan the states to render
+        id: plan
+        env:
+          ALL: ${{ inputs.all && '--all' || '' }}
+        run: |
+          set -euo pipefail
+          entries=$(python3 scripts/cmux-next/media/whats-new-gallery.py plan $ALL --out "$RUNNER_TEMP/plan.json")
+          echo "count=$(jq length "$RUNNER_TEMP/plan.json")" >> "$GITHUB_OUTPUT"
+          echo "entries=${entries// /,}" >> "$GITHUB_OUTPUT"
+          jq -r '.[] | "- \(.id) \(.role): \(.state // "picked from \(.sources | join(", "))")\(if .parent then " at \(.parent[:12])" else "" end)"' "$RUNNER_TEMP/plan.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Bun
+        if: ${{ steps.plan.outputs.count != '0' }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Setup Node
+        if: ${{ steps.plan.outputs.count != '0' }}
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Cache Playwright's apt packages
+        if: ${{ steps.plan.outputs.count != '0' }}
+        continue-on-error: true
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium
+
+      - name: Render the gallery states
+        if: ${{ steps.plan.outputs.count != '0' }}
+        env:
+          ENTRIES: ${{ steps.plan.outputs.entries }}
+          CMUX_GALLERY_IN_VM: "1"
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/pictures"
+          mkdir -p "$out"
+          cp "$RUNNER_TEMP/plan.json" "$out/plan.json"
+          cd webviews
+          bun install --frozen-lockfile
+          # No ENTRIES: a state is still to be picked, from every entry's cases.
+          bun scripts/gallery/manifest.ts ${ENTRIES:+--entries "$ENTRIES"} --themes pair --widths normal \
+            --frame component --out "$RUNNER_TEMP/cases.json"
+          # Picks the states no line names and writes them into the plan publish reads.
+          python3 ../scripts/cmux-next/media/whats-new-gallery.py manifest --plan "$out/plan.json" \
+            --cases "$RUNNER_TEMP/cases.json" --out "$RUNNER_TEMP/manifest.json"
+          CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
+          (cd ../scripts/gallery-matrix && bun install --frozen-lockfile)
+          "$GITHUB_WORKSPACE/scripts/ci/ensure-system-chrome.sh"
+          render() {
+            # A failed play check still writes its picture; publish skips a state with none.
+            (cd "$GITHUB_WORKSPACE/scripts/gallery-matrix" && bun runner.ts --manifest "$1" --gallery-dir "$2" \
+              --output-dir "$out" --engines chromium --shard-count 1 --shard-index 0) \
+              || echo "::warning::the render exited $?; publish takes the states that rendered"
+          }
+          render "$RUNNER_TEMP/manifest.json" "$RUNNER_TEMP/gallery"
+          # An improvement's before with no `before:` line: the same state at the commit before the
+          # highlight's, from a checkout there. At most 4 commits a run; the next push plans the rest.
+          for parent in $(python3 ../scripts/cmux-next/media/whats-new-gallery.py parents --plan "$out/plan.json" --limit 4); do
+            at="$RUNNER_TEMP/at-$parent"
+            {
+              # The same sparse tree as this checkout (.github/checkout-lean.json).
+              git -C "$GITHUB_WORKSPACE" worktree add --no-checkout --detach "$at" "$parent" &&
+              git -C "$at" sparse-checkout set --no-cone '/*' '!/cmux-next-ios/verify/' &&
+              git -C "$at" reset -q --hard &&
+              (cd "$at/webviews" && bun install --frozen-lockfile &&
+                bun scripts/gallery/manifest.ts --themes pair --widths normal --frame component \
+                  --out "$RUNNER_TEMP/cases-$parent.json") &&
+              python3 "$GITHUB_WORKSPACE/scripts/cmux-next/media/whats-new-gallery.py" manifest --plan "$out/plan.json" \
+                --cases "$RUNNER_TEMP/cases-$parent.json" --parent "$parent" --out "$RUNNER_TEMP/manifest-$parent.json" &&
+              (cd "$at/webviews" && CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-$parent" bun run gallery:build) &&
+              render "$RUNNER_TEMP/manifest-$parent.json" "$RUNNER_TEMP/gallery-$parent"
+            } || echo "::warning title=What's New picture::no gallery at $parent; its befores wait"
+          done
+
+      - name: Keep the pictures for publish
+        if: ${{ steps.plan.outputs.count != '0' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: whats-new-gallery-${{ github.run_id }}
+          path: ${{ runner.temp }}/pictures/
+          retention-days: 3
+
+  publish:
+    needs: render
+    if: ${{ needs.render.outputs.count != '0' && needs.render.result == 'success' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 20
+    # The private-terms secret lives only in this environment, which admits only
+    # the protected branches (main, feat-cmux-next, nightly-next).
+    environment: pr-media
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/pr-media-publish
+            scripts/pr-media.py
+            scripts/ci/pr_media_privacy.py
+            scripts/ci/pr_media_gate.py
+            scripts/ci/pr_media_ocr_tesseract.py
+            scripts/ci/pr_media_ocr.swift
+            scripts/cmux-next/release-notes.py
+            scripts/cmux-next/media/whats-new-gallery.py
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: whats-new-gallery-${{ github.run_id }}
+          path: ${{ runner.temp }}/pictures
+
+      - name: Publish the pictures
+        uses: ./.github/actions/pr-media-publish
+        with:
+          private-terms: ${{ secrets.PR_MEDIA_PRIVATE_TERMS }}
+          agent-authors: ${{ vars.PR_MEDIA_AGENT_AUTHORS }}
+          github-token: ${{ github.token }}
+          command: |
+            python3 scripts/cmux-next/media/whats-new-gallery.py publish \
+              --plan "$RUNNER_TEMP/pictures/plan.json" --results "$RUNNER_TEMP/pictures" | tee -a "$GITHUB_STEP_SUMMARY"

@@ -373,6 +373,7 @@ class AgentRecord:
     agent_session_id: Union[str, None, MissingType] = field(default=MISSING)
     last_prompt: Union[str, None, MissingType] = field(default=MISSING)
     since_ms: Union[int, MissingType] = field(default=MISSING)
+    status: Union[AgentState, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1696,6 +1697,8 @@ class ServerStatsWritePath:
     effect_intents: int
     request_effect_commits: int
     writer_registry_locks: int
+    registry_wal_file_bytes: Union[int, MissingType] = field(default=MISSING)
+    registry_wal_file_high_water_bytes: Union[int, MissingType] = field(default=MISSING)
     registry_wal_frame_bytes: Union[int, MissingType] = field(default=MISSING)
     wal_commits: Union[int, MissingType] = field(default=MISSING)
     wal_synced_commits: Union[int, MissingType] = field(default=MISSING)
@@ -4235,6 +4238,7 @@ class PasteImageRequest:
     op: str
     upload_id: str
     data: Union[str, None, MissingType] = field(default=MISSING)
+    filename: Union[str, None, MissingType] = field(default=MISSING)
     mime: Union[str, None, MissingType] = field(default=MISSING)
     offset: Union[int, None, MissingType] = field(default=MISSING)
     size: Union[int, None, MissingType] = field(default=MISSING)
@@ -4870,6 +4874,7 @@ class ShutdownDaemonRequest:
     force: Union[bool, MissingType] = field(default=MISSING)
     end_terminals: Union[bool, MissingType] = field(default=MISSING)
     keep_layout: Union[bool, MissingType] = field(default=MISSING)
+    restart: Union[bool, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4895,6 +4900,7 @@ class SplitRequest:
     pane: Id
     dir: SplitDirection
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    before: Union[bool, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     cwd: Union[str, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
@@ -5570,6 +5576,7 @@ class ConversationTypingEvent(EventBase):
 class DaemonShutdownEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/daemon-shutdown/payload'
     event: Literal['daemon-shutdown']
+    restart: Union[bool, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 

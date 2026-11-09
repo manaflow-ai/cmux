@@ -14,6 +14,8 @@ there (teamleaderleo/glaeda scripts/glaeda-cmux-runner-hook TRUSTED_NEXT_SIGNING
    so a stale or drifted CI_NIGHTLY_SIGN_RUNNER cannot move them.
 2. Any other event or ref (a dispatch, main's schedule) takes the same route: glaeda admits only the exact
    nightly-next push on the signer, so such a job is refused and fails closed rather than reaching a shared mini.
+   republish-nightly-deltas is the exception (test_nightly_owned_minis_only.NIGHTLY_NEXT_ONLY_OWNED): on any ref
+   but nightly-next (classic, RC) it takes GitHub-hosted Ubuntu, so their rate-limit waits never hold the signer.
 3. One-mini mode (vars.CI_NIGHTLY_MINI set, tests/test_nightly_one_mini.py) overrides 2: Lawrence,
    2026-11-04, the whole nightly builds on one Mac mini, so every event signs on the signer's label.
 4. No signing job, the GitHub-release uploads (publish-nightly-next-github and its -names twin) included, ever
@@ -38,6 +40,7 @@ from test_ci_fork_runner_routing import parse_expression  # noqa: E402
 from test_nightly_trusted_routing import evaluate  # noqa: E402
 import test_nightly_never_blacksmith as never_blacksmith  # noqa: E402
 from test_nightly_never_blacksmith import manaflow_route  # noqa: E402
+from test_nightly_owned_minis_only import NIGHTLY_NEXT_ONLY_OWNED  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
 from signing_runner import SIGNING_JOBS  # noqa: E402
@@ -61,7 +64,7 @@ def route(name: str, context: dict) -> object:
 
 class SigningOnCmux15Test(unittest.TestCase):
     def test_a_nightly_next_push_takes_the_pick_then_the_signer(self) -> None:
-        self.assertEqual(len(JOBS), 4)
+        self.assertEqual(len(JOBS), 6)
         rng = random.Random(15)
         for name in JOBS:
             source = manaflow_route(name)
@@ -107,8 +110,10 @@ class SigningOnCmux15Test(unittest.TestCase):
                     # One-mini mode: every event signs on the one nightly mini.
                     context.update({"vars.CI_NIGHTLY_SIGN_RUNNER": rng.choice((LABEL, "", *DRIFTED)),
                                     "vars.CI_NIGHTLY_MINI": "glaeda-nightly-mini"})
+                    # Except a nightly-next-only job on another track: hosted (NIGHTLY_NEXT_ONLY_OWNED).
+                    other_track = name in NIGHTLY_NEXT_ONLY_OWNED and ref != "refs/heads/nightly-next"
                     with self.subTest(job=name, event=event, ref=ref, mode="one-mini"):
-                        self.assertEqual(route(name, context), LABEL)
+                        self.assertEqual(route(name, context), "ubuntu-24.04" if other_track else LABEL)
 
     def test_the_release_uploads_stay_on_the_signer(self) -> None:
         for name in UPLOADS:
@@ -148,6 +153,12 @@ class SigningOnCmux15Test(unittest.TestCase):
                                 "vars.CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-26.6",
                                 "vars.CI_NIGHTLY_ONLY_RUNNER": "glaeda-nightly-only-m4pro"})
                 value = route(name, context)
+                if name in NIGHTLY_NEXT_ONLY_OWNED and context["github.ref"] != "refs/heads/nightly-next":
+                    # Classic and RC: GitHub-hosted, never a shared mini, so their rate-limit waits never hold the
+                    # signer (NIGHTLY_NEXT_ONLY_OWNED has the reason).
+                    with self.subTest(job=name, context=context):
+                        self.assertEqual(value, "ubuntu-24.04")
+                    continue
                 labels = value if isinstance(value, list) else [value]
                 with self.subTest(job=name, context=context):
                     self.assertTrue(labels)

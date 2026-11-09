@@ -27,12 +27,15 @@ extension AgentPaneView {
         }
         if (!target) return JSON.stringify({ error: 'no visible element matches' });
         // What the page sees of the click (`page_events` in the result).
-        const seen = [];
+        // `__cmuxDebugClickButtons`: each pointer and mouse event's `buttons` (`pointerdown:1`), as the page read them.
+        const seen = [], buttons = [];
         window.__cmuxDebugClick = seen;
-        for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click']) {
+        window.__cmuxDebugClickButtons = buttons;
+        for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
             window.addEventListener(type, function note(e) {
                 if (window.__cmuxDebugClick !== seen) return window.removeEventListener(type, note, true);
-                seen.push(type + (e.isTrusted ? '' : '?'));
+                if (type !== 'click') buttons.push(type + ':' + e.buttons);
+                if (type !== 'pointerup') seen.push(type + (e.isTrusted ? '' : '?'));
             }, true);
         }
         target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -57,6 +60,12 @@ extension AgentPaneView {
 
     /// Whether the chat shows in Chromium (its clicks go through DevTools, ``debugPress(x:y:)``).
     public var debugShowsChromium: Bool { page?.showsChromium == true }
+    /// Whether this pane has the native keyboard: its window is key with the first responder in this pane, or a chat
+    /// shown in Chromium has the keys (its own key child window).
+    public var debugHoldsKeyboard: Bool {
+        if chromiumPage?.hasKeys == true { return true }
+        return window?.isKeyWindow == true && (window?.firstResponder as? NSView)?.isDescendant(of: self) == true
+    }
 
     /// Whether the chat is to show in Chromium but Chromium has not attached yet: the page shows
     /// nothing until it does, or until it falls back to WebKit.

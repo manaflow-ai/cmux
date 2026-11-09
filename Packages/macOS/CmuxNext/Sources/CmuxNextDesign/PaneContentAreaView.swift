@@ -128,6 +128,12 @@ public final class PaneContentAreaView: NSView {
         }
     }
 
+    /// A snapped change that drew its followers' sizes ahead (``drawAheadOfHold(sizeChange:keyPress:)``) showed: each
+    /// follower lets a size its placement did not take go (``PaneMotionHoldFollowing/aheadOfFollowShown()``).
+    public func aheadOfHoldShown() {
+        for case let follower as any PaneMotionHoldFollowing in subviews { follower.aheadOfFollowShown() }
+    }
+
     /// A container in it was shown again during a following hold (a parked tab): it joins in this frame's layout pass.
     public func followerDidShow() {
         if hold != nil { needsLayout = true }

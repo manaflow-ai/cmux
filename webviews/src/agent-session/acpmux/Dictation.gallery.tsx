@@ -7,6 +7,7 @@ import { DictationMic } from "./DictationMic";
 import { deliverDictation, type Dictation } from "./dictation";
 import type { DictationUpdate } from "./dictationText";
 import { DictationNotice } from "./DictationNotice";
+import "./DictationPill.gallery.css";
 import { setDictationApps, type InstalledDictationApp } from "./dictationSources";
 import { SHORTCUT_ACTIONS, ShortcutsContext } from "./shortcuts";
 
@@ -15,6 +16,8 @@ type Props = {
   initialNotice: DictationUpdate | null;
   /// `agentPane.dictationSource` (cmux's own unless a variant picks an app).
   source?: DictationSource;
+  /// A pill look weighed against the shipped one (DictationPill.gallery.css); none is the shipped pill.
+  look?: "contrast" | "accent" | "quiet" | "bare";
 };
 
 /// The dictation apps this fixture Mac has, as the host's `dictation.sources` lists them.
@@ -53,7 +56,7 @@ const update = (state: DictationUpdate["state"], extra: Partial<DictationUpdate>
 /// A second of speech for the waveform: one level per update, as the host sends about 12 a second.
 const SPEECH = [0.12, 0.35, 0.62, 0.48, 0.81, 0.66, 0.3, 0.74, 0.52, 0.9, 0.58];
 
-function GalleryDictation({ initialState, initialNotice, source = "cmux" }: Props) {
+function GalleryDictation({ initialState, initialNotice, source = "cmux", look }: Props) {
   useState(() => {
     const actions = (window.cmuxAcpmuxActions ??= {});
     actions["attachment.sourceIcon"] = async (params) => {
@@ -96,7 +99,10 @@ function GalleryDictation({ initialState, initialNotice, source = "cmux" }: Prop
 
   return (
     <ShortcutsContext.Provider value={{ [SHORTCUT_ACTIONS.toggleDictation]: "⇧⌘D" }}>
-      <div className="acpmux-shell acpmux-dictation-gallery" data-dictation-fixture>
+      <div
+        className={`acpmux-shell acpmux-dictation-gallery${look ? ` acpmux-dictation-gallery--${look}` : ""}`}
+        data-dictation-fixture
+      >
         <div className="acpmux-dictation-notice-host">
           <DictationNotice dictation={dictation} />
         </div>
@@ -186,7 +192,23 @@ export default componentEntry<Props>({
     idle: { props: { initialState: "idle", initialNotice: null } },
     listening: {
       props: { initialState: "listening", initialNotice: null },
-      note: "Listening: a waveform of thin bars that fades to dots at both ends, and the lit mic; no send of its own (the composer's Send ends the session).",
+      note: 'Shipped. Listening: a compact solid pill holding a waveform of thin bars that fades to dots at both ends, and the lit mic; no send of its own (the composer\'s Send ends the session). The pill follows the theme: dark in a dark theme, its light counterpart in a light one (Leo 2026-11-08: "are you able to have it be, like, the [...] black pill?").',
+    },
+    "pill-contrast": {
+      props: { initialState: "listening", initialNotice: null, look: "contrast" },
+      note: "Weighed: the theme's ink as the pill (dark in a light theme, light in a dark one). Loudest of the looks; in a dark theme it is a white capsule, not the dark one asked for.",
+    },
+    "pill-accent": {
+      props: { initialState: "listening", initialNotice: null, look: "accent" },
+      note: "Weighed: the themed pill with accent-colored bars. Reads as a second lit control beside the lit mic.",
+    },
+    "pill-quiet": {
+      props: { initialState: "listening", initialNotice: null, look: "quiet" },
+      note: "Weighed: the themed pill with dimmed bars. Calm, but the level reads poorly on the pill.",
+    },
+    "pill-bare": {
+      props: { initialState: "listening", initialNotice: null, look: "bare" },
+      note: "Before: the waveform alone, with no pill.",
     },
     "source-menu": {
       props: { initialState: "idle", initialNotice: null },
@@ -238,7 +260,7 @@ export default componentEntry<Props>({
     start: {
       props: { initialState: "idle", initialNotice: null },
       play: start,
-      note: "The mic keeps the composer focused while the waveform comes in beside it.",
+      note: "The mic keeps the composer focused while the pill comes in beside it, on the shared presence motion; the mic and the row stay where they are.",
     },
     stop: {
       props: { initialState: "listening", initialNotice: null },

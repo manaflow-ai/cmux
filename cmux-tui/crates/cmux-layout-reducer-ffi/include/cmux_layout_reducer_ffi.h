@@ -378,6 +378,7 @@ typedef struct CmuxFocusTopology {
     uint32_t column_pane_count;
     uint32_t screen_count;
     uint32_t reserved;
+    const CmuxFocusStr *column_siblings; /* NULL, or column_pane_count ids parallel to column_panes: each pane's close sibling (issue 38194); empty is none */
 } CmuxFocusTopology;
 
 typedef struct CmuxFocusResolved {
@@ -507,7 +508,7 @@ uint8_t cmux_input_focus_aims_at_emptied_pane(CmuxInput *input, const uint8_t *w
  * or workspace ids; CMUX_FOCUS_NONE is none. A null array with a nonzero
  * count gives CMUX_FOCUS_NONE (live_openers: -1).
  */
-/* the tab a pane selects after `selected` closed; opener_children[i] was opened by opener_parents[i] */
+/* the tab a pane selects after `selected` closed: the shown tab before it, else after it; the opener arrays no longer pick (null-checked only) */
 uint32_t cmux_close_focus_tab(uint32_t selected, const uint32_t *old, size_t old_count,
                               const uint32_t *surviving, size_t surviving_count,
                               const uint32_t *shown, size_t shown_count,
