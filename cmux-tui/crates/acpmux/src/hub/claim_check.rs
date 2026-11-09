@@ -340,7 +340,10 @@ fn classify_simple(part: &str) -> u8 {
             }
             // The fleet runner: the command after `--` is the one it runs.
             ["cmux-ci", "test", rest @ ..] => {
-                let after = rest.iter().position(|w| *w == "--").map_or(rest, |at| &rest[at + 1..]);
+                let after = rest
+                    .iter()
+                    .position(|w| *w == "--")
+                    .map_or(rest, |at| rest.get(at + 1..).unwrap_or_default());
                 return if after.is_empty() { TESTS } else { classify_simple(&after.join(" ")) };
             }
             _ => break,
@@ -439,16 +442,17 @@ fn script_kinds(name: &str) -> u8 {
 }
 
 /// A sentence that hedges, negates, plans or reports a failure makes no checkable claim.
-static HEDGE: LazyLock<Regex> = LazyLock::new(|| {
+static HEDGE: LazyLock<Option<Regex>> = LazyLock::new(|| {
     Regex::new(
         r"(?i)\b(?:not|no longer|never|isn't|aren't|doesn't|don't|didn't|won't|wasn't|weren't|haven't|hasn't|can't|cannot|couldn't|unable|fail|fails|failed|failing|failure|should|would|could|might|may|will|expect|expected|hopefully|if|once|until|unless|need to|needs to|please|try|let me|let's|next|todo|before|yet|probably|likely|assume|assuming)\b|'ll\b",
     )
-    .expect("hedge pattern")
+    .ok()
 });
 
+/// A pattern that does not compile is left out: its claims get no check.
 static PATTERNS: LazyLock<Vec<(ClaimKind, Regex)>> = LazyLock::new(|| {
-    let p = |kind, re: &str| (kind, Regex::new(re).expect("claim pattern"));
-    vec![
+    let p = |kind, re: &str| Regex::new(re).ok().map(|re| (kind, re));
+    [
         p(
             ClaimKind::Tests,
             r"(?i)\b(?:all\s+)?(?:\d+\s+)?(?:(?:the|unit|integration|e2e|new|existing|relevant|rust|swift|web|cargo)\s+)*(?:tests?|test\s+suite|specs?)\s+(?:now\s+|all\s+|still\s+|also\s+)*(?:pass(?:es|ed)?|are\s+passing|is\s+passing|are\s+green|is\s+green|succeed(?:s|ed)?)\b",
@@ -477,6 +481,9 @@ static PATTERNS: LazyLock<Vec<(ClaimKind, Regex)>> = LazyLock::new(|| {
         p(ClaimKind::Typecheck, r"(?i)\btype[- ]?checks\s+(?:cleanly|fine)\b"),
         p(ClaimKind::Ran, r"(?i)\b(?:ran|re-?ran|executed)\s+`([^`\n]{2,200})`"),
     ]
+    .into_iter()
+    .flatten()
+    .collect()
 });
 
 /// The claims `reply` makes: each one's quoted text, kind, and for `Ran` the command named.
@@ -493,7 +500,8 @@ fn claims(reply: &str) -> Vec<(String, ClaimKind, Option<String>)> {
             continue;
         }
         for sentence in sentences(line) {
-            if HEDGE.is_match(&mask_code(sentence)) {
+            // No hedge pattern, no claims: every sentence might hedge.
+            if HEDGE.as_ref().is_none_or(|hedge| hedge.is_match(&mask_code(sentence))) {
                 continue;
             }
             let mut found: Vec<(usize, String, ClaimKind, Option<String>)> = Vec::new();
@@ -532,14 +540,14 @@ fn sentences(line: &str) -> Vec<&str> {
             b'.' | b'!' | b'?' | b';'
                 if !code && bytes.get(i + 1).is_none_or(|n| n.is_ascii_whitespace()) =>
             {
-                out.push(&line[start..=i]);
+                out.extend(line.get(start..=i));
                 start = i + 1;
             }
             _ => {}
         }
     }
     if start < line.len() {
-        out.push(&line[start..]);
+        out.extend(line.get(start..));
     }
     out
 }
