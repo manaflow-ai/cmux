@@ -383,6 +383,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         subsession: None,
         subsession_limits: Default::default(),
         races: Default::default(),
+        plan_builds: Default::default(),
         lineage: None,
         created_by: None,
         subagent_retry_open: false,

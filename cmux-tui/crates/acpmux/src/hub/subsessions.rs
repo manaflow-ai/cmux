@@ -341,8 +341,6 @@ impl Hub {
             depth,
             offered: true,
             worktree: None,
-            plan_build: None,
-            plan_build_kept: false,
             plan_build_change: None,
         }
     }
@@ -699,8 +697,6 @@ impl Hub {
                 // branch never changes what the run is compared against.
                 base: kept.made.base_commit.clone().or_else(|| Some(kept.made.base.clone())),
             }),
-            plan_build: None,
-            plan_build_kept: false,
             plan_build_change: None,
         };
         if req.fork {

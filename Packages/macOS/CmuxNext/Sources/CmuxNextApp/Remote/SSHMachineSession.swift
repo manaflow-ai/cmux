@@ -68,13 +68,14 @@ final class SSHMachineSession {
     /// In use by another cmux daemon: only a person's Reconnect takes it over (G5). Retries spent: Offline (G4).
     var waitsForUser: Bool { link.waitsForUser }
     var retriesSpent: Bool { daemon.store.retriesSpent }
+    /// The daemon connection dropped (waits for the link's state) or ended for good (an incompatible daemon).
+    var daemonDown: Bool { switch daemon.store.connectionState { case .disconnected, .failed: true; case .connecting, .connected: false } }
     /// Changes at the start of every user or automatic connection attempt, even when the
     /// transport and daemon report the same failure again.
     private(set) var connectionAttemptID: UInt64 = 0
     @ObservationIgnored var connectPresentationTask: Task<Void, Never>?
     @ObservationIgnored private var statusTask: Task<Void, Never>?
     @ObservationIgnored private var startupTask: Task<Void, Never>?
-    @ObservationIgnored private var restartTask: Task<Void, Never>?
 
     /// - Parameter mainWork: The app's main-thread scheduler (the local daemon's), for the machine's event batches.
     init(host: SSHHost, binary: URL, paths: SSHPaths, environment: @escaping @Sendable () async -> [String: String],
@@ -139,7 +140,10 @@ final class SSHMachineSession {
 
     private func linkStatusChanged(_ status: SSHConnectionMachine.Status) {
         guard linkStatus != status else { return }
+        let previous = linkStatus
         linkStatus = status
+        // The link is the only redialer (cmuxterm-hq#7766): the daemon connection waits for its state.
+        if status.wakesDaemon(after: previous) { daemon.linkWake() }
         switch status {
         case .connected:
             if !linkReached {
@@ -176,9 +180,9 @@ final class SSHMachineSession {
                     // The next attempt waits for an event (DaemonStartup.shared.isPermanent).
                     throw DaemonError.endpointBlocked(error.description)
                 }
-            })
+            }, followsLink: true, linkRunning: { link.hasProcess })
             // Already running (a reconnect): wake its wait.
-            self.daemon.retryWake.fire()
+            self.daemon.reconnectNow()
         }
     }
 
@@ -197,40 +201,25 @@ final class SSHMachineSession {
         daemon.beginAttempt()
     }
 
-    /// Disconnect then Connect, with a new retry budget: Reconnect once the retries are spent.
-    func restart() {
-        daemon.shutdownConnection()
-        beginConnectionAttempt()
-        linkStatus = .connecting
-        // task-owner: teardown hop; cancelled by the next restart and by close(), so a closed session never connects
-        restartTask?.cancel()
-        restartTask = Task { [weak self, link] in
-            await link.stop()
-            guard !Task.isCancelled, let self, self.autoConnect else { return }
-            self.connect()
-        }
-    }
-
     /// Reopens a daemon attempt without disturbing an already-connected SSH transport.
     func reconnectDaemon() {
         beginConnectionAttempt()
-        daemon.retryWake.fire()
+        daemon.reconnectNow()
     }
 
     /// An event that may let a blocked attempt succeed: opens the gate,
     /// then wakes the daemon loop.
     func wake(_ wake: SSHConnectionMachine.Wake) {
-        let link = link, retry = daemon.retryWake
-        // task-owner: short actor hop; the retry fires after the gate opened
+        let link = link, daemon = daemon
+        // task-owner: short actor hop; the retry fires after the gate opened (a person's also refills the budget)
         Task {
             await link.handle(.wake(wake))
-            retry.fire()
+            if wake == .user { daemon.reconnectNow() } else { daemon.retryWake.fire() }
         }
     }
 
     func disconnect(keepAutoConnect: Bool = false) {
         if !keepAutoConnect { autoConnect = false }
-        restartTask?.cancel()
         daemon.shutdownConnection()
         linkStatus = .offline
         let link = link

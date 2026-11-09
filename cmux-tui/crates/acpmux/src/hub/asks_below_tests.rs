@@ -30,8 +30,6 @@ async fn child_of(hub: &Arc<Hub>, parent: &Session, short: &str, depth: u32) -> 
             depth,
             offered: false,
             worktree: None,
-            plan_build: None,
-            plan_build_kept: false,
             plan_build_change: None,
         }),
         ..NewRequest::default()

@@ -69,9 +69,9 @@ mod peer_notice_cost_tests;
 #[cfg(test)]
 mod prompt_accept_tests;
 #[cfg(test)]
-mod sender_claim_tests;
-#[cfg(test)]
 mod review_queue_tests;
+#[cfg(test)]
+mod sender_claim_tests;
 #[cfg(test)]
 mod shutdown_scan_tests;
 #[cfg(test)]
@@ -143,6 +143,7 @@ pub use model_options::{
 };
 pub mod ledger;
 mod model_hint;
+mod model_probe;
 mod models_view;
 mod paging;
 mod personal_stats;
@@ -196,6 +197,7 @@ mod lane_report_reads;
 mod lane_report_subagents;
 mod lane_report_text;
 mod lane_reports;
+mod loop_detector;
 mod loop_goal;
 #[cfg(test)]
 mod loop_goal_tests;
@@ -214,6 +216,7 @@ mod silent_listing;
 mod silent_turn;
 mod stalled_turn;
 mod start_retry;
+mod start_watch;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
 pub(super) use session::{newest_first, prompt_text, short_text};
@@ -273,12 +276,12 @@ pub mod person;
 pub mod presence;
 mod processes;
 mod pull_requests;
-pub(crate) mod review_queue;
 pub(crate) mod purge_tombstones;
 pub(crate) mod questions;
 mod remote_cwd;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
+pub(crate) mod review_queue;
 mod touched;
 pub mod vm_boundary;
 pub use vm_boundary::vm_boundary_peer_approves;
@@ -603,6 +606,11 @@ pub struct Hub {
     pub(crate) workflow_runs: crate::workflow_runs::Service,
     pub config: RwLock<Config>,
     pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
+    /// The hub carrier once it starts (`hub_carrier.rs`); every peer holds this slot.
+    #[cfg(feature = "hub-carrier")]
+    pub hub_carrier: crate::hub_carrier::HubCarrierSlot,
+    /// Each peer's last-known-good path (`peer_last_good.rs`), beside the peer caches.
+    pub(crate) peer_paths: Arc<crate::peer_last_good::LastGood>,
     /// The daemon's store, read through each fork's referenced history (`store/fork_view.rs`).
     pub(super) store: Box<dyn Store>,
     pub(super) mailbox: Mailbox,
@@ -978,6 +986,17 @@ impl Hub {
         Self::build(config, store, mailbox, true, true, None)
     }
 
+    /// A hub whose configured peers may dial over `wireguard` first, as a daemon's do: for tests
+    /// that run two daemons in one process and cut that carrier (`tests/carrier_faults.rs`).
+    #[doc(hidden)]
+    pub fn new_with_wireguard(
+        config: Config,
+        store: Box<dyn Store>,
+        wireguard: Arc<crate::wireguard::Transport>,
+    ) -> Arc<Self> {
+        Self::build(config, store, Mailbox::memory(), false, false, Some(wireguard))
+    }
+
     pub(crate) fn new_loading_with_wireguard(
         config: Config,
         store: Box<dyn Store>,
@@ -1009,17 +1028,24 @@ impl Hub {
             caller_registry::CallerRegistry::load(caller_registry::state_file(&config));
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
+        let peer_paths = Arc::new(crate::peer_last_good::LastGood::open(home.as_deref()));
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let audit = audit_log::AuditLog::open(store.audit_dir());
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
+        #[cfg(feature = "hub-carrier")]
+        let hub_carrier =
+            crate::hub_carrier::HubCarrierSlot::for_daemon(&config, wireguard.as_ref());
         let hub = Arc::new(Self {
             hub_ref: std::sync::OnceLock::new(),
             config: RwLock::new(config),
             usage_limits,
             wireguard,
+            #[cfg(feature = "hub-carrier")]
+            hub_carrier,
+            peer_paths,
             store: Box::new(crate::store::ForkView::new(store)),
             mailbox,
             forum: std::sync::OnceLock::new(),
@@ -1589,6 +1615,7 @@ impl Hub {
             heard_at: std::sync::atomic::AtomicI64::new(0),
             stalled_recheck: AtomicU64::new(0),
             open_tools: StdMutex::new(Default::default()),
+            loop_detector: StdMutex::new(Default::default()),
             stalled_counted: StdMutex::new(None),
             stalled_gen: AtomicU64::new(0),
             sign_in_refused_turn: StdMutex::new(None),
@@ -2225,6 +2252,8 @@ impl Hub {
                 | "turn_error"
                 | "stopping"
                 | "unstuck"
+                | "loop_detected"
+                | "loop_cleared"
                 | work_below::RECORD_KIND
                 | asks_below::RECORD_KIND
                 | "queued"

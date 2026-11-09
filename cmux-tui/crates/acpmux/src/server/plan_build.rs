@@ -145,7 +145,11 @@ async fn handle(
                 .ok_or_else(|| {
                     RpcError::invalid_params("target must be here, worktree or compare")
                 })?;
+            // One call per approval at a time: a second waits for nothing and starts nothing.
+            let _claim = plan_build::claim(&session.id, permission_id)?;
             let (plan, request) = hub.pending_plan(&session, permission_id)?;
+            // The turn that asked, as it is now: stopped once the plan is handed to its builds.
+            let asking_turn = session.turn().map(|t| t.turn_id);
             let control = super::remote_guard::control_of(conn.origin, conn.auth, params);
             let mut answerer = crate::hub::person::Answerer::of(conn.is_person(), params);
             let author = crate::author::author(params)?;
@@ -232,6 +236,7 @@ async fn handle(
                 ))
                 .with_data(data)
             })?;
+            hub.stop_plan_turn(&session, asking_turn.as_deref()).await;
             Ok(json!({
                 "target": target.as_str(),
                 "buildId": build_id,
@@ -281,11 +286,11 @@ async fn handle(
         method::MUX_PLAN_COMPARE => hub.plan_compare(&session, required(params, "buildId")?).await,
         _ => {
             let build_id = required(params, "buildId")?;
-            // One Keep at a time: a repeated Keep of the kept run changes nothing, and a Keep of
-            // another run is refused, so no Keep discards the run another one kept.
-            let _one = plan_build::keep_one().await;
-            // A Keep of the run kept before is a retry: it finishes what that Keep left (a tag
-            // that failed to save, worktrees still there), never undoes it.
+            // One Keep per build at a time: a second is refused while the first runs, so no Keep
+            // discards the run another one kept, and two never interleave their writes. A Keep of
+            // the run kept before is a retry: it finishes what that Keep left (a tag that failed
+            // to save, worktrees still there), never undoes it.
+            let _claim = plan_build::claim(&session.id, &format!("keep:{build_id}"))?;
             let (kept, others, again) =
                 match hub.plan_keep_others(&session, build_id, required(params, "keep")?)? {
                     plan_build::Kept::Now(kept, others) => (kept, others, false),
@@ -313,7 +318,7 @@ async fn handle(
                 archived.push(other.id.clone());
             }
             // Only a composer run's worktrees go on Keep: its build id is the daemon's, kept in
-            // each run's lineage, so a plan approval's worktree or compare build never matches.
+            // the plan's record, so a plan approval's worktree or compare build never matches.
             let remove = params.get("removeOthers").and_then(Value::as_bool).unwrap_or(false);
             let removed = if remove && build_id.starts_with(plan_build::RUN_PREFIX) {
                 // A retry leaves alone the runs an earlier Keep already removed.
@@ -327,7 +332,7 @@ async fn handle(
                     let before = hub.plan_compare(&session, build_id).await?;
                     hub.plan_keep_changes(&left, &before);
                 }
-                let mut removed = hub.plan_discard(build_id, &left).await;
+                let mut removed = hub.plan_discard(&left).await;
                 // Every run's outcome, by its id: a retry's answer and record also name the runs
                 // an earlier Keep removed, so none is lost and no earlier error stays on a run
                 // that is gone now.

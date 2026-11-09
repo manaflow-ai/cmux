@@ -731,6 +731,12 @@ fn finish_notification_effect(
             ResourceEffectOutcome::Failure(error) => Err(error),
         },
         ResourceEffectPreparation::Indeterminate => {
+            effects::report_indeterminate_cause(
+                mux,
+                idempotency_key,
+                "notification.create",
+                crate::resource_api::EARLIER_ATTEMPT_CAUSE,
+            );
             Err(indeterminate_error(idempotency_key, "notification.create"))
         }
         ResourceEffectPreparation::Execute { .. } => {
@@ -794,16 +800,19 @@ fn execute_notification_effect(
     };
     if let Some(error) = missing {
         let outcome = ResourceEffectOutcome::Failure(error.clone());
-        if mux
-            .commit_resource_effect(
+        if let Err(commit_error) = mux.commit_resource_effect(
+            idempotency_key,
+            "notification.create",
+            fingerprint,
+            &outcome,
+            None,
+        ) {
+            effects::report_indeterminate_cause(
+                mux,
                 idempotency_key,
                 "notification.create",
-                fingerprint,
-                &outcome,
-                None,
-            )
-            .is_err()
-        {
+                &format!("the failure outcome commit failed: {commit_error:#}"),
+            );
             let _ = mux.mark_resource_effect_indeterminate(idempotency_key);
             return Err(indeterminate_error(idempotency_key, "notification.create"));
         }
@@ -904,7 +913,13 @@ fn execute_notification_effect(
         numeric_id,
     ) {
         Ok(revision) => revision,
-        Err(_) => {
+        Err(error) => {
+            effects::report_indeterminate_cause(
+                mux,
+                idempotency_key,
+                "notification.create",
+                &format!("the outcome commit failed: {error:#}"),
+            );
             let _ = mux.mark_resource_effect_indeterminate(idempotency_key);
             return Err(indeterminate_error(idempotency_key, "notification.create"));
         }

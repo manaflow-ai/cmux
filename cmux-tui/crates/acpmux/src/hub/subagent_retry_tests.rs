@@ -505,8 +505,6 @@ async fn a_sub_session_retry_is_busy_while_its_parents_run_slots_are_full() {
             depth: 1,
             offered: false,
             worktree: None,
-            plan_build: None,
-            plan_build_kept: false,
             plan_build_change: None,
         });
     }

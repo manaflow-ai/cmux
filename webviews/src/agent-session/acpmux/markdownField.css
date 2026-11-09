@@ -143,6 +143,11 @@
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, var(--agent-text) 45%, transparent);
 }
+/* A cmux.com deeplink is markdown's autolink too; one nothing names is plain text, as an app link
+   is (composer/deeplinkTokens.ts), and a named one is its chip, which draws no underline. */
+.acpmux-md a:has(.acpmux-web-deeplink) {
+  text-decoration: none;
+}
 /* A `/name` that names a command (composer/slashTokens.ts), at the prompt's start or after a space:
    the link blue, so the person sees the agent will read it as a command. Only its colour changes. */
 .acpmux-md .acpmux-slash-token {
@@ -153,23 +158,6 @@
   text-decoration: underline dotted;
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
-}
-/* A cmux deeplink in the draft (composer/deeplinkTokens.ts): the link blue and the faint underline
-   a sent prompt's link has (.cv-link), so the draft reads as it will send. Only its look changes;
-   the text is the URL. The chip arm puts it on the session chip's grey wash instead. */
-.acpmux-md .acpmux-deeplink.is-link {
-  color: var(--agent-link, var(--agent-accent));
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
-  text-underline-offset: 3px;
-}
-.acpmux-md .acpmux-deeplink.is-chip {
-  padding: 0 4px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
-  color: var(--agent-link, var(--agent-accent));
-  box-decoration-break: clone;
 }
 .acpmux-md code {
   padding: 1px 4px;
@@ -451,18 +439,17 @@
 /* A huge paste in the text: the strip's page of its first lines (composerAttachments.css
    .acpmux-text-card), as tall as a thumbnail in the text (two control rows), two lines over its
    label; never the underlined name above. */
+/* An oversized paste's chip in the text (composer/PastedTextChip.tsx): as wide as its label needs,
+   never wider than the line. Its width is its own fit (`auto`): the node's box around it shrinks to
+   it, so a percentage cap there would have nothing to measure against. */
 .acpmux-md-inline-chip[data-preview="text"] {
   justify-content: stretch;
-  /* Wide enough for two wrapped lines of the paste and its size ("42 lines · 1.8K characters"). */
-  width: 256px;
-  max-width: min(256px, 100%);
+  width: auto;
+  max-width: 320px;
   height: calc(var(--cmux-control-height, 24px) * 2);
   padding: 0;
 }
 .acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-retry {
-  flex: 1;
-  min-width: 0;
-  padding: 4px 12px;
   border-radius: inherit;
   text-decoration: none;
 }
@@ -475,6 +462,12 @@
 }
 .acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-remove {
   top: 3px;
+}
+.acpmux-md-inline-chip[data-preview="text"][data-design="expand"] {
+  height: auto;
+}
+.acpmux-md-inline-chip[data-preview="text"][data-design="expand"] > .acpmux-paste-chip__face {
+  height: calc(var(--cmux-control-height, 24px) * 2);
 }
 /* A failed tile in the text: its kind's glyph and the strip's small retry button side by side. */
 .acpmux-md-inline-chip[data-state="failed"] {

@@ -5,9 +5,9 @@
 //! There is no tick; an idle bound machine wakes once per heartbeat.
 //!
 //! Resume comes from the supervisor (`HostEvent::Resumed`, its clock-set
-//! wake after a metadata read confirmed the id), replacing the interim
-//! agent's `OnClockChange` timer. A `{"resume": true}` socket line still
-//! works.
+//! wake or its pause watch's, after a metadata read confirmed the id),
+//! replacing the interim agent's `OnClockChange` timer. A
+//! `{"resume": true}` socket line still works.
 
 use crate::json::JsonField;
 use std::fs::{self, OpenOptions};
@@ -28,9 +28,7 @@ use serde_json::{Value, json};
 
 use super::agent_socket::listen;
 use super::carrier_server::{CarrierServer, Resumes};
-use super::client::{
-    BindResult, CloudClient, Http, Store, bind_machine, ensure_install_key, ensure_wg_key,
-};
+use super::client::{BindResult, CloudClient, Http, Store, ensure_install_key, ensure_wg_key};
 use super::github;
 use super::github_minter::{Ask, Minter, Stop};
 use super::handoff::{self, HandoffReport};
@@ -987,7 +985,9 @@ impl Worker {
         // The bind writes carrier.json; the keyset refresher's write waits.
         let carrier_lock = self.keyset.carrier_lock();
         let carrier_held = carrier_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let result = bind_machine(
+        // The updater's connect hold, then the request (`hold_then_bind`).
+        let result = super::client::hold_then_bind(
+            &self.paths,
             &mut self.store,
             &http,
             &key,
@@ -997,14 +997,15 @@ impl Worker {
             wall_ms(),
         );
         drop(carrier_held);
+        let Some(result) = result else {
+            log("bind: a restart of this service is pending; the restarted service binds");
+            self.bind_retry_at = Some(self.now() + 30_000);
+            return;
+        };
         log(&format!("bind: {}", result.describe()));
         match result {
             BindResult::Bound(bound) => {
                 self.bind_backoff.reset();
-                // A person's machine from here: its first link comes up now, so
-                // the updater holds its flip (the supervisor's `Bound` is an
-                // instance id change, which a bind of the same machine is not).
-                crate::updater::role::hold_connects();
                 if let Err(e) = super::client::record_owner_kind(&mut self.store) {
                     log(&format!("vm-kind write: {e}"));
                 }

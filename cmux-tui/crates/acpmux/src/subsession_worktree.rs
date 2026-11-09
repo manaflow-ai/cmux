@@ -295,6 +295,8 @@ fn check_out_without_config(
 ) -> Result<(), String> {
     let scratch = std::env::temp_dir().join(format!("acpmux-wt-{}", uuid::Uuid::now_v7()));
     let result: Result<(), String> = (|| {
+        // Owner-only, made new: it fetches the repository's objects.
+        private_dir(&scratch).map_err(|e| format!("{}: {e}", scratch.display()))?;
         let info = scratch.join("objects/info");
         std::fs::create_dir_all(&info).map_err(|e| format!("{}: {e}", info.display()))?;
         std::fs::create_dir_all(scratch.join("refs")).map_err(|e| e.to_string())?;
@@ -332,6 +334,15 @@ fn check_out_without_config(
     result
 }
 
+/// Makes `dir`, which must not exist yet, readable only by this user (0700 on unix): a scratch
+/// git dir there holds copies of a worktree's files, which another user must not read.
+pub(crate) fn private_dir(dir: &Path) -> std::io::Result<()> {
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(dir)
+}
+
 /// `git diff --numstat` of the work tree at `root` against `from`: its commits, its uncommitted
 /// changes and its untracked files, as `git add -A` would stage them. Read in a throwaway git
 /// directory that borrows the repository's objects and a copy of the worktree's index and nothing
@@ -353,6 +364,8 @@ pub(crate) fn numstat_without_config(
     let format = at(&["rev-parse", "--show-object-format"])?;
     let scratch = std::env::temp_dir().join(format!("acpmux-diff-{}", uuid::Uuid::now_v7()));
     let result: Result<String, String> = (|| {
+        // Owner-only, made new: `add -A` writes whole file contents into its objects.
+        private_dir(&scratch).map_err(|e| format!("{}: {e}", scratch.display()))?;
         let info = scratch.join("objects/info");
         std::fs::create_dir_all(&info).map_err(|e| format!("{}: {e}", info.display()))?;
         std::fs::create_dir_all(scratch.join("refs")).map_err(|e| e.to_string())?;
@@ -1261,6 +1274,20 @@ fn listed_worktree(folder: &Path, root: &Path) -> Option<Option<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The scratch git dir a plan build's diff stages files into is the owner's alone, even under
+    /// a umask that leaves new folders readable by everyone, and it is never an existing folder.
+    #[cfg(unix)]
+    #[test]
+    fn a_scratch_git_dir_is_readable_only_by_its_owner() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = std::env::temp_dir().join(format!("acpmux-private-{}", uuid::Uuid::now_v7()));
+        private_dir(&dir).unwrap();
+        let mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700, "{mode:o}");
+        assert!(private_dir(&dir).is_err(), "an existing folder is refused");
+        std::fs::remove_dir(&dir).unwrap();
+    }
 
     #[cfg(unix)]
     #[test]

@@ -134,6 +134,34 @@ fn exact_startup_load_excludes_the_same_purged_metadata_as_the_list() {
 }
 
 #[test]
+fn a_sub_session_with_its_worktree_record_saves_loads_and_lists() {
+    // Its whole record, the folder's creation time included: a session whose lineage the store
+    // cannot read back is skipped by every list, so a working chat would vanish on restart.
+    let home = tempfile::tempdir().unwrap();
+    let store = LocalStore::new(home.path().join("sessions"), 64 * 1024).unwrap();
+    let meta: SessionMeta = serde_json::from_value(serde_json::json!({
+        "schema": META_SCHEMA, "id": "run", "name": "run", "harness": "fake",
+        "cwd": home.path(), "status": "idle", "createdAt": 1, "updatedAt": 1,
+        "subsession": {
+            "startedBy": "chat", "shortName": "run", "depth": 1, "planBuild": "run-b",
+            "worktree": {
+                "root": "/w/run", "pin": {"dev": 7, "ino": 42}, "born": 1_794_000_000_123_456_789u64,
+                "branch": "cmux/run", "base": "0123456789abcdef0123456789abcdef01234567",
+            },
+        },
+    }))
+    .unwrap();
+    store.save(&meta).unwrap();
+    let listed = store.list().unwrap();
+    assert_eq!(listed.len(), 1, "the session is still listed");
+    let made = listed[0].subsession.as_ref().and_then(|l| l.worktree.clone()).unwrap();
+    assert_eq!(made.born, Some(1_794_000_000_123_456_789));
+    assert_eq!(made.pin, Some(crate::cwd_pin::CwdPin { dev: 7, ino: 42 }));
+    let loaded = store.load("run").unwrap().unwrap();
+    assert_eq!(loaded.subsession.and_then(|l| l.worktree), Some(made));
+}
+
+#[test]
 fn a_session_saved_with_its_worktree_as_a_path_still_lists() {
     // Before a sub-session's worktree was a record, its lineage held the path alone.
     let home = tempfile::tempdir().unwrap();

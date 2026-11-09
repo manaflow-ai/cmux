@@ -253,8 +253,6 @@ async fn lineage_survives_a_daemon_restart() {
         depth,
         offered: false,
         worktree: None,
-        plan_build: None,
-        plan_build_kept: false,
         plan_build_change: None,
     };
     for (who, up, depth) in [(&kid, &coord, 1), (&grandkid, &kid, 2), (&looped, &looped, 1)] {

@@ -232,14 +232,17 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
     assert!(app.said(rid).await.contains("chose yes"));
 
     // Build on two agents: two chats in two new worktrees, the plan's own chat stopped.
-    let (rid, pid) = app.ask_plan(&chat, "plan-ask: Add a license file").await;
+    // A harness that plans on after the rejected plan (as Claude's adapter does) is stopped.
+    let (rid, pid) = app.ask_plan(&chat, "plan-ask-on: Add a license file").await;
     let built = app
         .ok(
             "_acpmux/plan/build",
             json!({"sessionId": chat, "permissionId": pid, "target": "compare", "harnesses": ["fake", "fake"]}),
         )
         .await;
-    assert!(app.said(rid).await.contains("chose no"), "the plan's chat stops: {built}");
+    let said = app.said(rid).await;
+    assert!(said.contains("chose no"), "the plan's chat stops: {built}");
+    assert!(!said.contains("kept planning"), "the plan's turn is stopped: {said}");
     let builds = built["builds"].as_array().unwrap();
     assert_eq!(builds.len(), 2, "{built}");
     let build_id = built["buildId"].as_str().unwrap().to_owned();
@@ -283,6 +286,16 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
 
     let first = builds[0]["sessionId"].as_str().unwrap().to_owned();
     let second = builds[1]["sessionId"].as_str().unwrap().to_owned();
+    // What a build's agent can set on chats: tags. They move nothing: the plan's own record names
+    // its builds, roots and bases, so git never runs in a folder a tag names.
+    let elsewhere = home.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    app.ok(
+        "_acpmux/tag",
+        json!({"sessionId": first, "set": {"planBuild": "other", "planBuildRoot": elsewhere, "planBuildBase": "HEAD~1"}}),
+    )
+    .await;
+    app.ok("_acpmux/tag", json!({"sessionId": chat, "set": {"planBuild": build_id}})).await;
     let compared =
         app.ok("_acpmux/plan/compare", json!({"sessionId": chat, "buildId": build_id})).await;
     let row = |id: &str| {
@@ -295,6 +308,8 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
             .unwrap()
     };
     let (a, b) = (row(&first), row(&second));
+    assert_eq!(compared["builds"].as_array().unwrap().len(), 2, "{compared}");
+    assert_eq!(a["root"], json!(roots[0]), "the recorded root, not the tag: {compared}");
     assert!(!marker.exists(), "comparing ran the repository's filter");
     // LICENSE (2), README.md (+1) and .gitattributes (1).
     assert_eq!((a["added"].as_u64(), a["removed"].as_u64()), (Some(4), Some(0)), "{compared}");
@@ -321,6 +336,15 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
         .call("_acpmux/plan/keep", json!({"sessionId": chat, "buildId": build_id, "keep": chat}))
         .await;
     assert!(r.get("error").is_some(), "only a build is kept: {r}");
+    // One winner: keeping the kept build again answers as before, keeping the other is refused.
+    let again = app
+        .ok("_acpmux/plan/keep", json!({"sessionId": chat, "buildId": build_id, "keep": second}))
+        .await;
+    assert_eq!(again["keptSessionId"], json!(second), "{again}");
+    let other = app
+        .call("_acpmux/plan/keep", json!({"sessionId": chat, "buildId": build_id, "keep": first}))
+        .await;
+    assert_eq!(reason(&other), "plan_build.already_kept", "{other}");
 
     // The composer's Run on N agents: one typed prompt on three agents, three worktrees.
     let few = app

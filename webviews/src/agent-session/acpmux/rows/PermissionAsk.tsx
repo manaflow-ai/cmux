@@ -38,6 +38,7 @@ export function PermissionAsk({
   waiting = 0,
   alwaysAtSource,
   onDraft,
+  buildsPlan = true,
 }: {
   permission: AcpmuxPermission;
   harness?: string;
@@ -55,6 +56,9 @@ export function PermissionAsk({
   alwaysAtSource?: boolean;
   /// The card's deny instructions opened or closed (PermissionCard `onDraft`).
   onDraft?: (open: boolean) => void;
+  /// Whether a plan approval offers its builds elsewhere: only the shown chat's own ask, since
+  /// `_acpmux/plan/build` answers the shown chat's pending approval.
+  buildsPlan?: boolean;
 }) {
   const t = useT();
   if (!permission.question)
@@ -68,7 +72,7 @@ export function PermissionAsk({
         shortcuts={shortcuts}
         onAnswer={answerPermission(permission)}
         onDenyWithFeedback={shownChat && denyWithFeedback(permission, shownChat)}
-        onBuildPlan={permission.plan ? buildPlan(permission) : undefined}
+        onBuildPlan={buildsPlan && permission.plan ? buildPlan(permission) : undefined}
         onDraft={onDraft}
         waiting={waiting}
       />

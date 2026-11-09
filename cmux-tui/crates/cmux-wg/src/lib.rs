@@ -50,12 +50,13 @@ pub mod testing;
 mod timers;
 mod udp;
 mod ultra;
+mod ultra_hello;
 mod ultra_rs;
 mod underlay;
 mod watchdog;
 mod wire;
 
-pub use cmux_transport::{PathId, PathKind};
+pub use cmux_transport::{Medium, PathId, PathKind, SelectorConfig};
 pub use config::{ConfigError, DEFAULT_MTU, Endpoint, InterfaceAddress, WgConfig};
 pub use ip_network::IpNetwork;
 pub use mesh::{WgMesh, WgMeshConfig, WgMeshListener, WgPeer};
