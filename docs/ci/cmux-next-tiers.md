@@ -214,7 +214,12 @@ No runner waits for the tree. `cmux-next path routing` probes it once
   same-tree mode (`scripts/ci/cmux_next_tree_notify.py`) for each run that is
   still current. That run checks out the probed commit (a pull request's merge
   commit), runs only the two jobs, and posts `... (same-tree)` commit statuses
-  on the push or the pull request head;
+  on the push or the pull request head. Each same-tree run has a concurrency
+  group of its own, so after a dispatch on a pull request's head branch the
+  notifier cancels that branch's older same-tree runs that have no Mac job in
+  progress, except the oldest of them (its queued job is nearest a runner, so
+  the pull request still gets verdicts when the Mac wait is longer than its
+  push interval). The newest run and any run with a Mac job in progress stay;
 - superseded push: the two jobs skip;
 - nothing will publish it: `same-tree cmux-tui` fails at once with the reason.
   The marker stays, so a later publication of the key (a re-run, a

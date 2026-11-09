@@ -30,9 +30,17 @@ notify) is the record, and a marker whose run name already has a dispatch
 created after the marker was uploaded is not dispatched again. A ready
 state always dispatches.
 
+A pull request's same-tree run has a concurrency group of its own and no
+cancel, and is_current() is read only at the dispatch, so when the head moves
+on its older same-tree runs stay in the Mac queue (2026-11-09: 14 runs waiting
+only for their scheme compile, 3 of them for one branch). After a dispatch on a
+pull request's head branch, cancel_superseded_same_tree() cancels that
+branch's superseded same-tree runs, but keeps the newest run and the oldest
+candidate (module constant comments; base tier: cmux_next_base_tier.py).
+
 Usage: cmux_next_tree_notify.py --repo OWNER/NAME --key KEY --state ready|failed
        [--reason TEXT]
-Needs GH_TOKEN with actions: write (dispatch, delete markers), contents: read
+Needs GH_TOKEN with actions: write (dispatch, delete markers, cancel runs), contents: read
 and pull-requests: read. Exits 0 when the API fails: a notify problem must not
 turn a good publication red; it prints a ::warning:: instead.
 """
@@ -64,6 +72,14 @@ MAX_MARKERS = 50
 # The run history read for the once-per-marker failed report: 100 runs a page.
 RUN_PAGES = 5
 WORKFLOW = "cmux-next.yml"
+# A run in one of these states has not finished.
+OPEN = ("queued", "in_progress", "waiting", "pending", "requested")
+# The Mac jobs of a same-tree run (its tiers, TIERS). A run with one of them in progress is never cancelled.
+MAC_JOBS = ("cmux-next daemon tests", "cmux app scheme compile (Debug)")
+# Jobs whose `if` reads `inputs.same_tree_sha == ''`: a same-tree run lists both as skipped (run 42607592895),
+# a plain dispatch runs them. The REST API returns no dispatch inputs, and a plain dispatch on the branch has
+# the same `cmux-next · <sha>` name, so these are what tells a same-tree run apart.
+SAME_TREE_SKIPPED_JOBS = ("cmux-next push head preflight", "cmux-next path routing")
 TREE_BASE = "https://files.cmux.com/cmux-tui/tree"
 
 
@@ -245,6 +261,85 @@ def dispatched_runs(api: Api, repo: str, since: str) -> dict[str, list[str]]:
     return names
 
 
+def run_jobs(api: Api, repo: str, run_id: int) -> list[dict] | None:
+    """The jobs of a run's latest attempt, or None when they are unreadable."""
+    try:
+        listed = api.get(f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
+    except (RuntimeError, OSError, ValueError):
+        return None
+    jobs = listed.get("jobs") if isinstance(listed, dict) else None
+    return [job for job in jobs if isinstance(job, dict)] if isinstance(jobs, list) else None
+
+
+def is_same_tree(jobs: list[dict]) -> bool:
+    """Whether these are a same-tree run's jobs: its routing jobs are skipped (SAME_TREE_SKIPPED_JOBS)."""
+    skipped = {job.get("name") for job in jobs if job.get("conclusion") == "skipped"}
+    return all(name in skipped for name in SAME_TREE_SKIPPED_JOBS)
+
+
+def mac_job_running(jobs: list[dict]) -> bool:
+    return any(job.get("name") in MAC_JOBS and job.get("status") == "in_progress" for job in jobs)
+
+
+def cancel_superseded_same_tree(api: Api, repo: str, branch: str,
+                                log: Callable[[str], None] = print) -> list[int]:
+    """Cancel a pull request's superseded same-tree runs on its head BRANCH; returns their ids.
+
+    The runs looked at are cmux-next.yml's open first-attempt dispatch runs on BRANCH named
+    `cmux-next · <their head>` (base tier, tip suite, DEV daily and uncached runs have other names). The
+    newest of them is kept. The others are superseded (a newer run exists, and their head may no longer be
+    the pull request's head); of those, a run whose jobs are unreadable, that is not a same-tree run (is_same_tree) or
+    that has a Mac job in progress is kept, and the rest are the candidates. The OLDEST candidate is kept
+    too: its queued Mac job is nearest a runner, so the pull request still gets verdicts when the Mac wait
+    is longer than its push interval (cancelling every older run starved the DEV publisher on 2026-10-26).
+    The other candidates are cancelled. The jobs are read just before the cancels; a Mac job that starts
+    in the instant between loses seconds of superseded work."""
+    listed = api.get(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={branch}"
+                     f"&event=workflow_dispatch&per_page=100")
+    runs = []
+    for run in (listed.get("workflow_runs") or []) if isinstance(listed, dict) else []:
+        if not isinstance(run, dict):
+            continue
+        sha = str(run.get("head_sha", ""))
+        title = run.get("display_title") or run.get("name") or ""
+        if (run.get("event") != "workflow_dispatch" or run.get("head_branch") != branch or not SHA.match(sha)
+                or title != f"cmux-next · {sha}" or not isinstance(run.get("id"), int)
+                or run.get("status") not in OPEN or not ISO_TIME.match(str(run.get("created_at", "")))):
+            continue
+        runs.append(run)
+    runs.sort(key=lambda run: (run["created_at"], run["id"]))
+    if len(runs) < 2:
+        return []
+    newest = runs[-1]
+    candidates = []
+    for run in runs[:-1]:
+        if run.get("run_attempt", 1) != 1:
+            continue
+        # Every run before the newest is superseded by it (whether or not its head is still HEAD).
+        jobs = run_jobs(api, repo, run["id"])
+        if jobs is None or not is_same_tree(jobs):
+            continue
+        if mac_job_running(jobs):
+            log(f"same-tree run {run['id']} ({run['head_sha'][:12]}) on {branch} has a Mac job running; left alone")
+            continue
+        candidates.append(run)
+    if not candidates:
+        return []
+    oldest = candidates[0]
+    log(f"same-tree run {oldest['id']} ({oldest['head_sha'][:12]}) on {branch} is the oldest superseded run "
+        f"waiting for a Mac; kept, with the newest run {newest['id']} ({newest['head_sha'][:12]})")
+    cancelled: list[int] = []
+    for run in candidates[1:]:
+        status = api.post(f"repos/{repo}/actions/runs/{run['id']}/cancel", {})
+        if status in (202, 204):
+            cancelled.append(run["id"])
+            log(f"cancelled same-tree run {run['id']} ({run['head_sha'][:12]}) on {branch}: superseded by "
+                f"{newest['id']} ({newest['head_sha'][:12]}), no Mac job running")
+        else:
+            log(f"could not cancel same-tree run {run['id']} on {branch}: HTTP {status}")
+    return cancelled
+
+
 def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
            log: Callable[[str], None] = print,
            fetch_completion: Callable[[str], object | None] = fetch_completion) -> int:
@@ -315,6 +410,11 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
                     f"for {marker['sha'][:12]}, tiers {inputs['same_tree_tiers']}")
                 if state == "ready":
                     api.delete(f"repos/{repo}/actions/artifacts/{artifact['id']}")
+                if marker["origin"] == "pull_request" and ref == marker.get("head_ref"):
+                    try:
+                        cancel_superseded_same_tree(api, repo, ref, log)
+                    except (RuntimeError, OSError, ValueError) as error:
+                        log(f"::warning::run {run_id}: could not cancel the superseded same-tree runs on {ref}: {error}")
                 break
             log(f"run {run_id}: dispatch on {ref} refused (HTTP {status})")
         else:
