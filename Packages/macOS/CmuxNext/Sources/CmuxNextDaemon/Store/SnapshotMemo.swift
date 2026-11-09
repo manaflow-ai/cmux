@@ -10,6 +10,11 @@
 struct SnapshotMemo {
     /// The last live snapshot's workspaces by identity (``WorkspaceModel/identity(_:)``).
     var applied: [String: WorkspaceSnapshot] = [:]
+    /// The last live snapshot's workspace identities in its order.
+    var order: [String] = []
+    /// The confirmed workspace list right after that snapshot applied. Held here, any later write to the store's list
+    /// (an event, an intent's overlay) copies it to a new buffer, so the same buffer proves the list is unchanged in O(1).
+    var list: [WorkspaceModel] = []
     /// The connection it belongs to (``DaemonStore/connectionEpoch``).
     var epoch: Int?
     var generation: DaemonGeneration?
@@ -28,5 +33,13 @@ struct SnapshotMemo {
     /// Forgets everything: the next snapshot applies in full.
     mutating func reset() {
         self = SnapshotMemo(revision: revision &+ 1)
+    }
+}
+
+extension Array {
+    /// Whether `other` is this very array value: the same storage, so no write since one was copied from the other
+    /// (a write to storage two values share copies it first). O(1); false says nothing about the elements.
+    func sharesStorage(with other: Self) -> Bool {
+        count == other.count && withUnsafeBufferPointer { mine in other.withUnsafeBufferPointer { $0.baseAddress == mine.baseAddress } }
     }
 }

@@ -364,6 +364,57 @@ struct TerminalResizeProgramHoldTests {
                 "\(short) showed the size only \(short.map { waited[$0]?.refreshes ?? 0 }) refreshes after the program got its grid, not \(TerminalFramePresenter.resizeHoldTicks): the hold counted from the request")
     }
 
+    /// RESIZE P0 24 (review of #39470, P2): a Reduce Motion press's held snap counted its bound from the snap, not from
+    /// the refresh its program got the grid in. When a grid already went in the press's refresh, the press's grid (sent
+    /// with its size drawn ahead) waits in the coalescer for the next refresh (``TerminalGridReportCoalescer``), so the
+    /// program had 2 of the bound's 3 refreshes to redraw before the snap showed its pane with the program's last picture
+    /// at the new size. The presenter's own hold counts from the send (#39470); the snap's wait must too.
+    /// p1 | p2 full-screen programs that print nothing after a resize (the snap shows at its bound); Reduce Motion on.
+    /// A forced report spends the press's refresh for each terminal, then Ctrl-Shift-L on p2 and the key's pass: the
+    /// press's grids wait for the next refresh. Each stepped tick is a refresh of time.
+    @Test func aReduceMotionPressWhoseGridWaitedGetsTheWholeBoundFromItsSend() async throws {
+        let screen = try await Self.ringScreen(RingProgram(redraws: false))
+        defer { screen.close() }
+        screen.root.context.reduceMotionOverride = true
+        let presenter = TerminalFramePresenter.forWindow(screen.window)
+        let owners = screen.sessions.compactMap { $0.io as? AnnouncingTerminalIO }
+        try #require(owners.count == screen.sessions.count, "SETUP: a terminal's IO does not record its reports")
+        let session = screen.sessions[1], view = session.surfaceView, host = session.view
+        let oldHost = host.bounds.size
+
+        // One turn: the forced reports, the press (its snap draws each new size ahead) and the key's pass (the sizes go to
+        // Ghostty, their grids to the coalescer, which holds them: this refresh already sent one).
+        for session in screen.sessions {
+            let grid = try #require(session.surfaceView.fittedGrid, "SETUP: a terminal fits no grid")
+            session.surfaceView.gridReports.now(grid)
+        }
+        let sentBefore = owners[1].reports.withLock { $0.count }
+        try #require(PaneResize.press("p2", .right, model: screen.model, view: screen.root), "Ctrl-Shift-L on p2 moved nothing")
+        presenter.pass()
+        try #require(view.frameOwnership.ahead != nil && view.gridReports.isWaiting,
+                     "SETUP: p2's press drew no size ahead, or its grid went at once (ahead \(String(describing: view.frameOwnership.ahead)), waiting \(view.gridReports.isWaiting))")
+
+        // The tick after which p2's PTY got the press's grid, and the tick that showed p2's pane at its new size.
+        var sentAfter: Int?, shownAt: Int?
+        for tick in 1...8 {
+            _ = screen.root.advanceFrame(1.0 / 120)
+            screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, as the frame tick runs it
+            if host.bounds.width > oldHost.width { shownAt = tick }
+            if shownAt != nil { break }
+            await TerminalKeyResizeFrameTests.refreshOfTime()
+            if sentAfter == nil, owners[1].reports.withLock({ $0.count }) > sentBefore { sentAfter = tick }
+        }
+        await TerminalKeyResizeFrameTests.settle(screen)
+        try #require(host.bounds.width > oldHost.width, "SETUP: Ctrl-Shift-L did not grow p2 (\(oldHost) -> \(host.bounds.size))")
+        let sent = try #require(sentAfter, "SETUP: p2's PTY got no grid before its snap showed (shown at tick \(String(describing: shownAt)))")
+        let shown = try #require(shownAt, "p2's snap did not show within 8 refreshes")
+        let refreshes = shown - sent, bound = Int(TerminalFramePresenter.resizeHoldTicks)
+        print("RESIZE P0 24 RM snap: grid sent after tick \(sent), snap shown at tick \(shown): \(refreshes) refreshes from the send")
+        #expect(refreshes >= bound,
+                "p2's snap showed \(refreshes) refreshes after its program got the grid (sent after tick \(sent), shown at tick \(shown)), not \(bound): the snap counted its bound from the press, not the send")
+        #expect(refreshes <= bound, "p2's snap waited \(refreshes) refreshes after its program got the grid, more than the bound \(bound)")
+    }
+
     /// Whether `color` is the sRGB colour `rgb` (to 1/255), opaque.
     static func sameColor(_ color: CGColor?, _ rgb: (UInt8, UInt8, UInt8)?) -> Bool {
         guard let rgb, let color, let srgb = NSColor(cgColor: color)?.usingColorSpace(.sRGB), srgb.alphaComponent == 1 else { return false }

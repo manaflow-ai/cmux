@@ -314,3 +314,18 @@ fn an_mcp_send_from_codex_under_a_claude_shell_is_codex_by_its_chain_or_by_defau
     let claim = of_mcp(&env(&[]), no_walk, Some(&client)).unwrap();
     assert_eq!(claim["harness"], "claude-ai");
 }
+
+#[test]
+fn ancestors_walk_every_parent_to_the_root_and_stop_at_a_loop() {
+    let table = [
+        proc(50, 40, "acpmux"),
+        proc(40, 30, "bash"),
+        proc(30, 20, "claude"),
+        proc(20, 1, "/Applications/Claude.app/Contents/MacOS/Claude"),
+    ];
+    assert_eq!(ancestors_in(of(&table), 50), vec![50, 40, 30, 20]);
+    // A pid that names itself as its parent ends the walk.
+    assert_eq!(ancestors_in(of(&[proc(9, 9, "x")]), 9), vec![9]);
+    // An unreadable pid reads as nothing.
+    assert!(ancestors_in(of(&table), 77).is_empty());
+}

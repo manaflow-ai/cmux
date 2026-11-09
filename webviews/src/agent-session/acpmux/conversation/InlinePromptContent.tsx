@@ -16,6 +16,8 @@ import {
 import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { experimentArm } from "../../../experiments/experiment";
 import { sentPasteJoin } from "./sentPasteJoin.experiment";
+import { SentUIPickChip } from "./SentUIPick";
+import { sentUIPick } from "./sentUIPickModel";
 
 /** Sent prompt content in ACP order. Text and attachment runs stay in one bubble, like Messages.
  * The typed text and the person's pastes between two attachments are one text body
@@ -73,7 +75,13 @@ export const InlinePromptContent = memo(function InlinePromptContent({
   function renderPart(part: PromptContentPart, index: number, collapsed: boolean, open: () => void): ReactNode {
     if (part.kind === "text")
       return (
-        <PromptTyped key={`text-${index}`} text={part.text} show={show} plain={"huge" in part && part.huge === true} />
+        <PromptTyped
+          key={`text-${index}`}
+          text={part.text}
+          show={show}
+          plain={"huge" in part && part.huge === true}
+          slot={`typed:${index}`}
+        />
       );
     if (part.kind === "image")
       return (
@@ -86,6 +94,11 @@ export const InlinePromptContent = memo(function InlinePromptContent({
     if (part.kind === "pasted" && part.text)
       return <PastedText key={`pasted-${index}`} text={part.text} collapsed={collapsed} />;
     const stored = blockText(part);
+    // An inspector pick placed in the text went as a text file of its report (inlinePrompt.ts): it
+    // draws as the composer's chip, opening the report in place (SentUIPick.tsx), not a file chip.
+    const pick = part.kind === "file" && stored ? sentUIPick(stored) : undefined;
+    // Its disclosure is the file chip's (`paste:<index>`), so a message opened before keeps it open.
+    if (pick) return <SentUIPickChip key={`pick-${index}`} slot={`paste:${index}`} name={pick.name} text={pick.text} />;
     if (part.kind === "file" && stored)
       return (
         <PromptTextFile

@@ -902,7 +902,9 @@ impl<B: Backend> Server<B> {
             return Ok(workflow::internal_call(&self.backend, operation));
         }
         if name == workflow_tools::NAME {
-            return Ok(workflow_tools::call(&self.backend, &arguments));
+            // A script's own call carries no `_meta`: it passes on the script's (`call_meta`).
+            let meta = upstream::passed_meta(params).or_else(|| self.call_meta.clone());
+            return Ok(workflow_tools::call(&self.backend, &arguments, meta));
         }
         if name == code_mode::DOCS {
             let tools = self.list();

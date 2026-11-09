@@ -1,7 +1,8 @@
 /**
  * cmux#35013: before cmux#35012 every production create made a VM at the provider and then failed its receipt check,
  * so no ownership row recorded the VM and it ran unpaused. The sweep deletes exactly those: ours, old enough that no
- * create can still record them, and with no row of any state.
+ * create can still record them, and with no row protecting them. Ask c-a0f5525efc (Leo, 2026-11-04, on 17 orphaned
+ * machines): "if we created them we can remove them...." A VM whose row was deleted long enough ago is swept too.
  */
 import { Effect, Redacted } from "effect";
 import { expect, it } from "vitest";
@@ -105,6 +106,22 @@ it("skips a VM a retried create recorded between the listing and its delete", as
   const report = await Effect.runPromise(sweepOrphanVms(p.config, { nowMs: NOW, dryRun: false, recorded }));
   expect(report.deleted).toEqual(["up-2"]);
   expect(p.deletes).toEqual(["up-2"]);
+});
+
+it("names each orphan's reason: no row, or a row deleted while the VM stayed", async () => {
+  const p = provider([ours(1), ours(2), ours(3)]);
+  // VM 2's row was deleted long ago (the lookup no longer protects it); VM 3's row is live.
+  const deletedRows = (asked: ReadonlyArray<string>) => {
+    const found: ReadonlySet<string> = new Set(asked.filter((x) => x === id(2)));
+    return Effect.succeed(found);
+  };
+  const report = await Effect.runPromise(sweepOrphanVms(p.config, { nowMs: NOW, dryRun: false, recorded: recordedOf([id(3)]), deletedRows }));
+  expect(report.orphans.map((vm) => [vm.upstreamId, vm.reason])).toEqual([["up-1", "no_row"], ["up-2", "deleted_row"]]);
+  expect(p.deletes).toEqual(["up-1", "up-2"]);
+  // Without the lookup every reason is no_row.
+  const q = provider([ours(1)]);
+  const plain = await Effect.runPromise(sweepOrphanVms(q.config, { nowMs: NOW, dryRun: true, recorded: recordedOf([]) }));
+  expect(plain.orphans[0]?.reason).toBe("no_row");
 });
 
 const device = (n: number) => `dev_${String(n).padStart(26, "0")}`;
