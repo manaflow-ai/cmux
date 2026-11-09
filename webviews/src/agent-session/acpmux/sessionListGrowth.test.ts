@@ -274,3 +274,13 @@ test("a sender alias freed by a session listed twice resolves to the session lef
   store.set([counted(1, { name: "new" }), counted(1, { name: "new" }), counted(2, { name: "old" })]);
   expect(store.find("old")).toBe("s2");
 });
+
+test("a session listed twice, then once, drops what only the copy it lost said", () => {
+  const store = new SessionHoverStore();
+  const peer = counted(1, { host: "far", hostKind: "peer", peer: "far", agentSessionId: "x1" });
+  const local = counted(1, { agentSessionId: "x2" });
+  store.set([peer, local]);
+  store.set([counted(1, { agentSessionId: "x2" })]);
+  expect(store.host("s1")).toBeUndefined();
+  expect(store.byAgentSession("x1")).toBeUndefined();
+});
