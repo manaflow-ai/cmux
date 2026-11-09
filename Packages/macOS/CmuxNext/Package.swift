@@ -1205,15 +1205,19 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: uiSwiftSettings
         ),
         // Keep awake (sessions.keepAwake): one idle-sleep hold for the Keep Mac Awake
-        // action and working local agents, released on battery unless the user
-        // chose Always. IOKit's power-source notification, no polling.
+        // action, working local agents and (sessions.keepAwakeForCommands) long terminal
+        // commands, released on battery unless the user chose Always. IOKit's power-source
+        // notification and one deadline from the Rust command rule, no polling.
         .target(
             name: "CmuxNextKeepAwake",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
+                "CmuxNextActions",
                 "CmuxNextBridge",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextSettings",
+                "CmuxNextWakeups",
             ],
             swiftSettings: uiSwiftSettings
         ),

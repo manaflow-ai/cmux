@@ -620,6 +620,9 @@ const AGENT_LOGIN_CAPABILITIES = ["agent_login", "agent-login-v1"];
 /// The capability id an acpmux that serves the memory inbox names (`memory_offer` records and
 /// `_acpmux/memory_resolve`): without it no memory card draws.
 const MEMORY_INBOX_CAPABILITY = "memory-inbox-v1";
+/// The feature a chat on another machine names (Cloud, SSH: the app's RemoteAcpmuxWire) where that
+/// machine opens the chat's side chats there, with `_acpmux/side_chat`.
+const SIDE_CHAT_FEATURE = "side_chat";
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
 
 const objectValue = (value: unknown): Record<string, unknown> | undefined =>
@@ -4639,6 +4642,9 @@ export class AcpmuxDirectClient {
   private since?: Omit<AcpmuxSince, "key"> & { sessionId: string };
   /// Each standalone recap row by the chat and the `since` its record named (`placeSince`).
   private readonly recapsBySince = new Map<string, string>();
+  /// An older page folded in (`foldOlder`): a reply it brought may span `since.seq`, so the drawn
+  /// divider is placed again even when its mark did not change.
+  private sinceStale = false;
   private placeSince(): void {
     // Its attach answered before the list said turns ended unseen (a cold open): acpmux keeps the
     // return on the chat while the person stays (`lastReturn`).
@@ -4659,8 +4665,14 @@ export class AcpmuxDirectClient {
       return this.placeSince();
     }
     const drawn = this.rows.get(SINCE_DIVIDER);
-    if (drawn?.since?.seq === since.seq && drawn.since.turns === since.turns && drawn.since.recap === since.recap)
+    if (
+      !this.sinceStale &&
+      drawn?.since?.seq === since.seq &&
+      drawn.since.turns === since.turns &&
+      drawn.since.recap === since.recap
+    )
       return;
+    this.sinceStale = false;
     this.rows.setAt(this.rows.placeAfter(since.seq), {
       id: SINCE_DIVIDER,
       version: (drawn?.version ?? 0) + 1,
@@ -8592,6 +8604,7 @@ export class AcpmuxDirectClient {
       // Only a peer runs on another clock; this computer's own sessions need no correction.
       ...(summary?.peer && this.clockOffset !== undefined ? { clockOffsetMs: this.clockOffset } : {}),
       canFork: this.canFork,
+      ...(this.features.has(SIDE_CHAT_FEATURE) ? { sideChatOnMachine: true as const } : {}),
       canHandoff: this.handoffSupported,
       handoff: this.handoff.state,
       permissionGroups: this.permissions.state,
@@ -11392,6 +11405,33 @@ export class AcpmuxDirectClient {
       this.forking = false;
     }
   }
+  /// New side chat and `/side [prompt]` of a chat on another machine that opens side chats there
+  /// (`sideChatOnMachine`): that machine forks the open chat through `throughSeq` (`live`: as it is
+  /// now, its turn going on), tags the fork its side chat and sends it `prompt`, in one call, and
+  /// the side chat runs there, in the chat's folder (the app's RemoteAcpmuxWire, cmux-tui
+  /// agent_session_side.rs). Answers its id there, which the host then opens beside the chat, and
+  /// `notSent`, why that machine's acpmux did not take `prompt` when it did not.
+  async sideChatOnMachine(
+    throughSeq: number | "live",
+    prompt?: string,
+  ): Promise<{ sessionId: string; notSent?: string } | undefined> {
+    const sessionId = this.selectedSessionId;
+    if (!this.features.has(SIDE_CHAT_FEATURE) || !sessionId || this.forking) return undefined;
+    this.forking = true;
+    try {
+      const boundary = throughSeq === "live" ? { live: true } : { throughSeq };
+      const result = await this.request("_acpmux/side_chat", {
+        sessionId,
+        ...boundary,
+        ...(prompt ? { prompt } : {}),
+      });
+      if (typeof result?.sessionId !== "string" || !result.sessionId) return undefined;
+      const notSent = typeof result.notSent === "string" ? { notSent: result.notSent } : {};
+      return { sessionId: result.sessionId, ...notSent };
+    } finally {
+      this.forking = false;
+    }
+  }
   /// A side chat's fork that never opened beside its chat: its chat and conversation copy go.
   takeBackSide(sessionId: string): void {
     this.takeBackFork(sessionId);
@@ -12053,6 +12093,7 @@ export class AcpmuxDirectClient {
     } finally {
       this.foldingBelow = undefined;
     }
+    this.sinceStale = true;
     // The held events' compactions take up the ones the page left open, in order, as reading the
     // whole record does (`compaction` above). One whose first record is a running note continues a
     // compaction the page left running, or noted as failed while it may go on (a forced Stop, or an

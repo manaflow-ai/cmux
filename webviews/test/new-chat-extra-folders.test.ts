@@ -19,6 +19,7 @@ function recordingClient(): { client: AcpmuxDirectClient; sent: Record<string, u
     askedSessions: [],
     asks: { sessions: () => undefined, list: () => [], listGrouped: () => [] },
     extensions: [],
+    features: new Set<string>(),
     handoff: { state: {} },
     permissions: {
       state: { supported: false, ready: false, groups: [], chatAllowance: false, loading: false, busy: false },

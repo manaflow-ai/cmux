@@ -75,6 +75,7 @@ import type { AllChatsPage } from "./newtab/allChatsListModel";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
+import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
 import { ContextScreen } from "./context/ContextScreen";
 import { contextAccess, contextSave } from "./context/contextAccess";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
@@ -541,7 +542,7 @@ import { agentAvatarChanged, removeAgentAvatar, setAgentAvatar, useAgentAvatar }
 import { copyRow } from "./header/copyRow";
 import { recordedConversationMarkdown } from "./conversation/exportMarkdown";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
-import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
+import { opensBesideRows, sideChatPlace, sideChatRefusal, sideChatRow } from "./header/sideChatRow";
 import { isCurrentMenuCommand, parseMenuCommand } from "./header/menuCommands";
 import { errorRecovery, lastFailedTurn } from "./conversation/errorRecovery";
 import { type WorkingCounts, WorkingCountsContext } from "./conversation/workingForModel";
@@ -606,7 +607,7 @@ import { FolderChoice } from "./FolderChoice";
 import { showsFolderChoice } from "./folderChoiceModel";
 import { ownMachineFolders, type ExtraFolderDraft } from "./extraFolders";
 import { WorktreeFailure } from "./startFolder";
-import { type FolderAsk, confirmFolder, newWorktree, pickFolder } from "./startFolderModel";
+import { type FolderAsk, confirmFolder, newChatInWorktree, newWorktree, pickFolder } from "./startFolderModel";
 import { NewTabFolderAsk } from "./NewTabFolderAsk";
 import { MissingFolder } from "./missingFolder";
 import { chooseChatFolder } from "./missingFolderModel";
@@ -5511,6 +5512,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The started chat's folder: the session's, else the one picked before the first send.
   // A peer's (SSH, Cloud) folder is a path on that machine: the host's workspace gets none.
   const remoteChat = Boolean(snapshot.summary?.peer) || snapshot.summary?.hostKind === "cloud";
+  const remoteRef = useRef(remoteChat);
+  remoteRef.current = remoteChat;
   // The repo tour's offer and Start (repoTour/) only for a chat on this Mac: not a peer's or Cloud
   // chat, and not one whose page talks to another machine's acpmux (chatMachine.ts `elsewhere`).
   const tourHere = !remoteChat && snapshot.origin !== "remote" && snapshot.origin !== "peer";
@@ -6225,6 +6228,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The chat's folder on whichever machine runs it: the diff tab reads its repository there (the
   /// session host's git), so Changes opens a tab for a Cloud or remote chat too.
   const chatCwd = summary?.cwd || undefined;
+  // New side chat and `/side`: forked on this Mac, or on the chat's own machine (a Cloud or SSH
+  // chat), in the chat's folder there (sideChatRow.ts).
+  const sidePlace = sideChatPlace({ quick, localCwd, onMachine: snapshot.sideChatOnMachine });
   // Stop reaches acpmux even when pressed while the pane reconnects (stopThroughReconnect.ts).
   const stopThroughReconnect = useStopThroughReconnect(snapshot, cancelTurn);
   const keptStopping = stopThroughReconnect.stopping;
@@ -6315,7 +6321,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (!quick) enabledCmuxActions.add("cd");
     if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
     // A working chat offers /side too: its fork is of the chat as it is now (#38042).
-    if (forkRefusal(snapshot) === undefined && localCwd !== undefined && !quick) enabledCmuxActions.add("side");
+    if (sideChatRefusal(snapshot, sidePlace) === undefined) enabledCmuxActions.add("side");
     if (continueAvailable) enabledCmuxActions.add("continue");
     // Reserve /btw even with the kill switch off: it must never become a steer or queued prompt.
     if (snapshot.sessionId && !isSideSession && !quick) enabledCmuxActions.add("btw");
@@ -6346,7 +6352,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     isSideSession,
     startingRows,
     heldRows,
-    localCwd,
+    sidePlace,
     quick,
     keptStopping,
   ]);
@@ -6547,6 +6553,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setFolderConfirming(false);
       const sessionId = shownSession.current;
       const visit = trustVisit();
+      // The machine the worktree is made on, as the click saw it.
+      const remote = remoteRef.current;
       setFolderAsk(undefined);
       // The worktree lands only in the chat it was made for: a chat switched to meanwhile gets nothing.
       const asked = { sessionId, ...visitOf(visit) };
@@ -6558,7 +6566,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         pickedProject.current = folder;
         // A chat that started meanwhile keeps its folder: the worktree gets a new chat of its own.
         if (freshRef.current) setProjectDraft(folder);
-        else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
+        else void newChatInWorktree(callNative, folder, remote).catch(() => undefined);
       };
       void newWorktree(callNative, cwd, (folder) => {
         if (pick === folderPick.current && stillHere()) use(folder);
@@ -8090,12 +8098,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           "chat.side": async ({ throughSeq, live, prompt, splitRight }) => {
             // The chat it is beside, read before the fork (the reader may open another chat meanwhile).
             const chat = client.selectedSession;
+            const split = splitRight === true ? { split: "right" } : {};
+            // A chat on another machine that opens side chats there (Cloud, SSH): that machine forks,
+            // tags and prompts it in one call, in the chat's folder there; the app opens it beside.
+            if (snapshotRef.current?.sideChatOnMachine) {
+              const text = typeof prompt === "string" ? prompt.trim() : "";
+              const boundary = live === true ? "live" : Number(throughSeq);
+              const side = await client.sideChatOnMachine(boundary, text || undefined);
+              if (!side || !chat) throw new Error("");
+              await postNative("chat.sideChat", { sessionId: side.sessionId, ...split });
+              // The side chat is open; a prompt it did not take stays in the composer, which says why.
+              if (side.notSent) throw new CmuxCommandRefused(translate("prompt.notSent", { reason: side.notSent }));
+              return;
+            }
             const sessionId = await client.forkAside(live === true ? "live" : Number(throughSeq));
             if (!sessionId || !chat) throw new Error("");
             try {
               // acpmux marks it the chat's side chat; the app only opens it beside the chat.
               await client.markSide(sessionId, chat);
-              await postNative("chat.sideChat", { sessionId, ...(splitRight === true ? { split: "right" } : {}) });
+              await postNative("chat.sideChat", { sessionId, ...split });
             } catch (error) {
               client.takeBackSide(sessionId);
               throw error;
@@ -8598,8 +8619,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const commandState = (fresh: boolean) => ({
     summary: !fresh && !!snapshot.summary,
     forkable: !fresh && forkable && forkSeq !== undefined,
-    sideFork: forkRefusal(snapshot),
-    sideAvailable: !fresh && localCwd !== undefined && !quick,
+    sideFork: sideChatRefusal(snapshot, sidePlace),
+    sideAvailable: !fresh && sidePlace !== undefined,
     canContinue: !fresh && canContinue,
     sideSessions: opensSideSessions,
     session: !fresh && !!snapshot.sessionId,
@@ -8728,6 +8749,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const prompt = args?.trim();
       return callNative("chat.side", { ...target, splitRight: true, ...(prompt ? { prompt } : {}) }).catch(
         (error: unknown) => {
+          // The side chat opened but its prompt was not sent: that refusal says so itself.
+          if (error instanceof CmuxCommandRefused) throw error;
           const reason = errorMessage(error);
           throw new CmuxCommandRefused(
             reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"),
@@ -9112,8 +9135,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   });
   const lastForkSeq = latestForkSeq(snapshot.rows);
   const sideChat = sideChatRow(
-    // Quick Chat's panel is not a tab: there is no split to open beside it.
-    { canFork: forkable, throughSeq: lastForkSeq, local: localCwd !== undefined && !quick },
+    // Quick Chat's panel is not a tab: there is no split to open beside it (no `sidePlace`).
+    {
+      canFork:
+        sidePlace === "machine" ? !snapshot.isWorking && sideChatRefusal(snapshot, sidePlace) === undefined : forkable,
+      throughSeq: lastForkSeq,
+      place: sidePlace,
+    },
     (throughSeq) => ignoreFailure(callNative("chat.side", { throughSeq })),
     t,
   );
@@ -10360,6 +10388,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       )}
     </div>
   ) : null;
+  // A fresh chat on another machine has no summary yet: its connection's origin, or a folder list
+  // its host marked as that machine's, says where it runs.
+  const startsElsewhere =
+    remoteChat || snapshot.origin === "remote" || snapshot.origin === "peer" || Boolean(machineFolders);
   // A failed start of a folder harness says what it waits for, in place of the switch's Retry
   // card: Enable (sent from the button's click, then the chat starts again), or the Trust answer.
   const block =
@@ -10481,16 +10513,26 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           >
             <SwitchNotice
               switching={snapshot.switching}
+              // Install runs the installer in a terminal tab of this Mac: never for a chat elsewhere.
+              installs={!startsElsewhere}
               onRetry={() => void callNative("chat.harness.retry")}
               // The refused prompt is back in the composer; a chat on another machine starts only
               // with a send, so the share's retry sends it again (as Trust's answer does).
               onShared={() => void callNative("chat.harness.retry").then(() => composerHandle.current?.send())}
               onAction={(action) => {
-                // A fresh chat on another machine has no summary yet: its connection's origin, or a
-                // folder list its host marked as that machine's, says where it runs.
-                const elsewhere =
-                  remoteChat || snapshot.origin === "remote" || snapshot.origin === "peer" || Boolean(machineFolders);
-                const route = startRefusalRoute(action, elsewhere);
+                // Install runs the agent's installer where its output shows, then Retry starts it.
+                if (action === "install") {
+                  const command = snapshot.switching ? INSTALL_COMMANDS[snapshot.switching.harness] : undefined;
+                  if (command)
+                    void callNative("tab.open", {
+                      kind: "terminal",
+                      text: command,
+                      ...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {}),
+                      run: true,
+                    }).catch(() => undefined);
+                  return;
+                }
+                const route = startRefusalRoute(action, startsElsewhere);
                 if (route === "newCloudMachine") connectMachine("cloud");
                 // That machine's folder menu; a menu that is not mounted falls back to the panel's answer.
                 else if (route === "machineFolderMenu") {
@@ -11011,7 +11053,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             {...(snapshot.summary?.hostKind === "cloud" && !quick
               ? { onRepick: (machine: RepickMachine) => repickCloudChat(callNative, machine) }
               : {})}
-            onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
+            // A Cloud or SSH chat's worktree is made on its machine, beside its repository there
+            // (cmuxterm-hq#7856: whatever works on a local chat works on a Cloud chat).
+            onNewWorktree={freshChat && !quick ? startInWorktree : undefined}
             onConnect={connectMachine}
             // The floating chat has no tab to move.
             {...(quick ? {} : { onOffload: offloadChat, offloads })}

@@ -1,6 +1,6 @@
 import Foundation
 
-/// A custom domain owned by the signed-in Cloud account.
+/// A domain Cloud publications are served on (cmux-platform's `GET /v1/cloud/domains`).
 public struct CloudDomain: Sendable, Hashable, Codable {
     public var id: String?
     public var hostname: String?
@@ -17,8 +17,8 @@ public struct CloudDomainPublication: Sendable, Hashable, Codable {
     public var state: String?
 }
 
-/// A Cloud VM publication. Provider and certificate details stay server-side;
-/// the UI receives only the redacted publication view.
+/// A Cloud publication: one machine port's preview (cmux-platform's `GET /v1/cloud/previews`).
+/// Provider and certificate details stay server-side.
 public struct CloudPublication: Sendable, Hashable, Codable {
     public var id: String?
     public var hostname: String?

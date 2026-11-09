@@ -2,7 +2,7 @@
 //! the ssh backup carrier reach `<VM mesh ip>:22` with
 //! `ssh -o ProxyCommand='cmux wg dial --hub S %h %p'`.
 //!
-//! One supervisor per Mac (an flock on `<socket>.lock`; a second one gets
+//! One supervisor per Mac (an flock on `<socket>.tunnel-lock`, 0600; a second one gets
 //! [`StartError::Held`] and uses the first one's socket):
 //!
 //! 1. **Attach.** `POST /v1/mesh/nodes/{machineId}/attach` with the person's
@@ -20,7 +20,9 @@
 //!    `cmux wg dial`; port 22 needs no hub token.
 //! 3. **Refresh.** Every [`TunnelTiming::refresh_every`] the device reads its
 //!    tunnel straight from the VM API, `POST /v1/devices/{id}/signed/tunnel`
-//!    (install-key signed, purpose `tunnel`, no credential). A changed config
+//!    (install-key signed, purpose `tunnel`, no credential), at the origin
+//!    attach named in `vm_api_origin` (else the plan's derived one). The read
+//!    replaces the attach's routes, gateway and keys; a changed config
 //!    restarts the hub; 404 (device deleted, rotated away, team left the
 //!    experiment) re-attaches.
 //! 4. **Re-attach** on 409 `mesh.device.superseded` (the machine was rekeyed
@@ -112,6 +114,9 @@ pub(crate) struct DeviceTunnel {
     pub allowed_ips: Vec<String>,
     pub mtu: u16,
     pub persistent_keepalive_seconds: u16,
+    /// The VM API origin attach named for this device's own reads
+    /// (`vm_api_origin`); `None` uses the plan's derived origin.
+    pub vm_api_origin: Option<String>,
 }
 
 /// Characters a config value may hold: addresses, ports, prefixes, host
@@ -132,6 +137,16 @@ fn text<'a>(value: &'a Value, name: &str) -> Option<&'a str> {
     value.get(name)?.as_str().filter(|s| !s.is_empty())
 }
 
+/// A non-empty route list whose every entry is safe in the config.
+fn routes(value: &Value) -> Option<Vec<String>> {
+    let routes: Vec<String> = value
+        .as_array()?
+        .iter()
+        .map(|ip| ip.as_str().filter(|ip| config_safe(ip)).map(str::to_owned))
+        .collect::<Option<_>>()?;
+    (!routes.is_empty()).then_some(routes)
+}
+
 fn small(value: &Value, name: &str, min: u64, max: u64) -> Option<u16> {
     value.get(name)?.as_u64().filter(|n| (min..=max).contains(n)).and_then(|n| n.try_into().ok())
 }
@@ -141,12 +156,6 @@ impl DeviceTunnel {
     /// would not be safe in a wg-quick config.
     pub(crate) fn from_attach(body: &Value) -> Option<Self> {
         let config = body.get("client_config").filter(|c| c.is_object())?;
-        let allowed_ips: Vec<String> = config
-            .get("allowed_ips")?
-            .as_array()?
-            .iter()
-            .map(|ip| ip.as_str().filter(|ip| config_safe(ip)).map(str::to_owned))
-            .collect::<Option<_>>()?;
         let tunnel = Self {
             tunnel_id: text(body, "tunnel_id")?.to_owned(),
             device_id: text(body, "device_id").filter(|d| d.starts_with("dev_"))?.to_owned(),
@@ -159,17 +168,22 @@ impl DeviceTunnel {
             interface_address: text(config, "interface_address")
                 .filter(|a| config_safe(a))?
                 .to_owned(),
-            allowed_ips,
+            allowed_ips: routes(config.get("allowed_ips")?)?,
             mtu: small(config, "mtu", 576, 9000)?,
             persistent_keepalive_seconds: small(config, "persistent_keepalive_seconds", 0, 3600)?,
+            // An origin that is not a bare https one (or loopback http) is
+            // ignored: the derived origin serves instead.
+            vm_api_origin: text(body, "vm_api_origin")
+                .and_then(|origin| crate::cli::secure_cloud_origin(origin).ok()),
         };
-        (!tunnel.allowed_ips.is_empty()).then_some(tunnel)
+        Some(tunnel)
     }
 
-    /// This tunnel after a VM API `TunnelConfig` read (camelCase). The routes
-    /// stay the attach's (the platform narrows them to the mesh range); the
-    /// gateway, address and timers come from the read. `None` when the read
-    /// names another device or a field is not safe.
+    /// This tunnel after a VM API `TunnelConfig` read (camelCase). The read
+    /// is newer than the attach, so its routes, gateway, keys, address and
+    /// timers replace the attach's; the attach's routes stay only when the
+    /// read has no `allowedIps`. `None` when the read names another device
+    /// or a field is not safe.
     pub(crate) fn refreshed(&self, body: &Value) -> Option<Self> {
         if text(body, "deviceId") != Some(self.device_id.as_str()) {
             return None;
@@ -188,9 +202,13 @@ impl DeviceTunnel {
             interface_address: text(body, "interfaceAddress")
                 .filter(|a| config_safe(a))?
                 .to_owned(),
-            allowed_ips: self.allowed_ips.clone(),
+            allowed_ips: match body.get("allowedIps").filter(|ips| !ips.is_null()) {
+                Some(ips) => routes(ips)?,
+                None => self.allowed_ips.clone(),
+            },
             mtu: small(body, "mtu", 576, 9000)?,
             persistent_keepalive_seconds: small(body, "persistentKeepaliveSeconds", 0, 3600)?,
+            vm_api_origin: self.vm_api_origin.clone(),
         })
     }
 
@@ -380,15 +398,32 @@ pub(crate) fn start(plan: TunnelPlan) -> Result<TunnelHandle, StartError> {
 }
 
 /// The one-per-Mac lock beside the socket.
-fn hold(socket: &Path) -> Result<File, StartError> {
+/// The supervisor's own lock: `<socket>.tunnel-lock`, owner-only (0600) and
+/// never followed through a symlink. Never `<socket>.lock`: that one is the
+/// hub's (`OwnedUnixListener::bind` leases it), and holding it here would
+/// keep the hub from binding.
+pub(crate) fn lock_path(socket: &Path) -> PathBuf {
     let mut path = socket.as_os_str().to_owned();
-    path.push(".lock");
+    path.push(".tunnel-lock");
+    PathBuf::from(path)
+}
+
+fn hold(socket: &Path) -> Result<File, StartError> {
+    use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
+    let io = |e: std::io::Error| StartError::Io(format!("{:?}", e.kind()));
+    // The hub secures (and checks) the socket's directory; it must exist
+    // first for the lock beside the socket, owner-only like the hub makes it.
+    if let Some(parent) = socket.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent).map_err(io)?;
+    }
     let file = std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
-        .open(PathBuf::from(path))
-        .map_err(|e| StartError::Io(format!("{:?}", e.kind())))?;
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(lock_path(socket))
+        .map_err(io)?;
     match file.try_lock() {
         Ok(()) => Ok(file),
         Err(std::fs::TryLockError::WouldBlock) => {
@@ -483,21 +518,32 @@ impl Supervisor {
 
     /// Counts a failure and waits out its delay; `Some` when the supervisor
     /// should end (out of attempts, or stopped while it waited).
+    /// The wait before retry number `failures` (1-based): the floor doubling
+    /// per failure up to the ceiling, full jitter, never under half the floor.
+    fn retry_delay(&self, failures: u32) -> Duration {
+        let timing = &self.plan.timing;
+        let exponent = failures.saturating_sub(1).min(16);
+        let ceiling = timing.retry_floor.saturating_mul(1 << exponent).min(timing.retry_ceiling);
+        (self.plan.jitter)(ceiling).max(timing.retry_floor.checked_div(2).unwrap_or_default())
+    }
+
+    fn ready(&self, tunnel: &DeviceTunnel) {
+        self.status.send_replace(TunnelStatus::Ready {
+            socket: self.plan.socket.clone(),
+            tunnel_id: tunnel.tunnel_id.clone(),
+            device_id: tunnel.device_id.clone(),
+            mesh_id: tunnel.mesh_id.clone(),
+            address_v4: tunnel.address_v4.clone(),
+        });
+    }
+
     async fn failed(&mut self, failures: &mut u32, why: String) -> Option<TunnelStatus> {
         *failures = failures.saturating_add(1);
         if *failures >= self.plan.timing.max_failures {
             return Some(TunnelStatus::Failed(format!("{why} ({failures} attempts)")));
         }
         self.status.send_replace(TunnelStatus::Retrying(why));
-        let exponent = failures.saturating_sub(1).min(16);
-        let ceiling = self
-            .plan
-            .timing
-            .retry_floor
-            .saturating_mul(1 << exponent)
-            .min(self.plan.timing.retry_ceiling);
-        let delay = (self.plan.jitter)(ceiling)
-            .max(self.plan.timing.retry_floor.checked_div(2).unwrap_or_default());
+        let delay = self.retry_delay(*failures);
         tokio::select! {
             _ = tokio::time::sleep(delay) => None,
             _ = self.stop.wait_for(|stop| *stop) => Some(TunnelStatus::Stopped),
@@ -542,7 +588,8 @@ impl Supervisor {
         tunnel: &DeviceTunnel,
     ) -> Result<DeviceTunnel, Miss> {
         let proof = identity.proof("tunnel", &tunnel.device_id, "", "").map_err(Miss::Fatal)?;
-        let url = format!("{}/v1/devices/{}/signed/tunnel", self.plan.vm_api, tunnel.device_id);
+        let origin = tunnel.vm_api_origin.as_deref().unwrap_or(&self.plan.vm_api);
+        let url = format!("{origin}/v1/devices/{}/signed/tunnel", tunnel.device_id);
         let response = client
             .post(url)
             .json(&proof)
@@ -591,17 +638,17 @@ impl Supervisor {
                     continue;
                 }
             };
-            self.status.send_replace(TunnelStatus::Ready {
-                socket: self.plan.socket.clone(),
-                tunnel_id: tunnel.tunnel_id.clone(),
-                device_id: tunnel.device_id.clone(),
-                mesh_id: tunnel.mesh_id.clone(),
-                address_v4: tunnel.address_v4.clone(),
-            });
+            self.ready(&tunnel);
             // The hub runs until it ends, the config changes, or the device
             // must attach again.
             let next = loop {
-                let tick = tokio::time::sleep(self.plan.timing.refresh_every);
+                // After a failed read the next one comes on the retry
+                // backoff, never later than the usual refresh.
+                let wait = match failures {
+                    0 => self.plan.timing.refresh_every,
+                    n => self.retry_delay(n).min(self.plan.timing.refresh_every),
+                };
+                let tick = tokio::time::sleep(wait);
                 // `None` is the refresh tick.
                 let event = tokio::select! {
                     _ = self.stop.wait_for(|stop| *stop) => Some(None),
@@ -636,7 +683,14 @@ impl Supervisor {
                     }
                 }
                 match self.refresh(&client, &identity, &tunnel).await {
-                    Ok(fresh) if fresh == tunnel => failures = 0,
+                    Ok(fresh) if fresh == tunnel => {
+                        // A read that works again after a failure: the
+                        // tunnel the hub serves is current, so it is ready.
+                        if failures > 0 {
+                            failures = 0;
+                            self.ready(&tunnel);
+                        }
+                    }
                     Ok(fresh) => break Some(fresh),
                     Err(Miss::Reattach(_) | Miss::NoMesh(_)) => {
                         hub.stop().await;
@@ -646,12 +700,16 @@ impl Supervisor {
                         hub.stop().await;
                         return HubEnd::Final(TunnelStatus::Failed(why));
                     }
-                    // The hub keeps serving the config it has.
+                    // The hub keeps serving the config it has until the
+                    // reads have failed `max_failures` times in a row, which
+                    // is final: a re-attach would reset the count and an
+                    // unreachable VM API would loop for good.
                     Err(Miss::Retry(why)) => {
                         failures = failures.saturating_add(1);
                         if failures >= self.plan.timing.max_failures {
                             hub.stop().await;
-                            return HubEnd::Reattach;
+                            let why = format!("{why} ({failures} attempts)");
+                            return HubEnd::Final(TunnelStatus::Failed(why));
                         }
                         self.status.send_replace(TunnelStatus::Retrying(why));
                     }

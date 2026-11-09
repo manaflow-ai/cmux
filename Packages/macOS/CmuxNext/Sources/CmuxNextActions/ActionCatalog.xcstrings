@@ -12004,127 +12004,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Decrease Interface Size"
+            "value": "Decrease Text Size"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インターフェイスのサイズを小さく"
+            "value": "文字サイズを小さく"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "تصغير حجم الواجهة"
+            "state": "translated",
+            "value": "تصغير حجم النص"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Smanji veličinu sučelja"
+            "state": "translated",
+            "value": "Smanji veličinu teksta"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Formindsk grænsefladestørrelse"
+            "state": "translated",
+            "value": "Formindsk tekststørrelse"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Oberfläche verkleinern"
+            "state": "translated",
+            "value": "Textgröße verringern"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reducir tamaño de la interfaz"
+            "state": "translated",
+            "value": "Reducir tamaño del texto"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Réduire la taille de l’interface"
+            "state": "translated",
+            "value": "Réduire la taille du texte"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Riduci dimensione interfaccia"
+            "state": "translated",
+            "value": "Riduci dimensione testo"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "បន្ថយទំហំចំណុចប្រទាក់"
+            "state": "translated",
+            "value": "បន្ថយទំហំអក្សរ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "인터페이스 크기 줄이기"
+            "state": "translated",
+            "value": "텍스트 크기 줄이기"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reduser grensesnittstørrelse"
+            "state": "translated",
+            "value": "Reduser tekststørrelse"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Zmniejsz rozmiar interfejsu"
+            "state": "translated",
+            "value": "Zmniejsz rozmiar tekstu"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Diminuir Tamanho da Interface"
+            "state": "translated",
+            "value": "Diminuir tamanho do texto"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Уменьшить интерфейс"
+            "state": "translated",
+            "value": "Уменьшить размер текста"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ลดขนาดอินเทอร์เฟซ"
+            "state": "translated",
+            "value": "ลดขนาดข้อความ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Arayüz Boyutunu Küçült"
+            "state": "translated",
+            "value": "Metin Boyutunu Küçült"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Зменшити інтерфейс"
+            "state": "translated",
+            "value": "Зменшити розмір тексту"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Giảm kích thước giao diện"
+            "state": "translated",
+            "value": "Giảm cỡ chữ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "缩小界面"
+            "state": "translated",
+            "value": "减小文字"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "縮小介面"
+            "state": "translated",
+            "value": "縮小文字"
           }
         }
       }
@@ -12135,127 +12135,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Increase Interface Size"
+            "value": "Increase Text Size"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インターフェイスのサイズを大きく"
+            "value": "文字サイズを大きく"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "تكبير حجم الواجهة"
+            "state": "translated",
+            "value": "تكبير حجم النص"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Povećaj veličinu sučelja"
+            "state": "translated",
+            "value": "Povećaj veličinu teksta"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Forøg grænsefladestørrelse"
+            "state": "translated",
+            "value": "Forøg tekststørrelse"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Oberfläche vergrößern"
+            "state": "translated",
+            "value": "Textgröße erhöhen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Aumentar tamaño de la interfaz"
+            "state": "translated",
+            "value": "Aumentar tamaño del texto"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agrandir la taille de l’interface"
+            "state": "translated",
+            "value": "Augmenter la taille du texte"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Aumenta dimensione interfaccia"
+            "state": "translated",
+            "value": "Aumenta dimensione testo"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "បង្កើនទំហំចំណុចប្រទាក់"
+            "state": "translated",
+            "value": "បង្កើនទំហំអក្សរ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "인터페이스 크기 늘리기"
+            "state": "translated",
+            "value": "텍스트 크기 늘리기"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Øk grensesnittstørrelse"
+            "state": "translated",
+            "value": "Øk tekststørrelse"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Zwiększ rozmiar interfejsu"
+            "state": "translated",
+            "value": "Zwiększ rozmiar tekstu"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Aumentar Tamanho da Interface"
+            "state": "translated",
+            "value": "Aumentar tamanho do texto"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Увеличить интерфейс"
+            "state": "translated",
+            "value": "Увеличить размер текста"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "เพิ่มขนาดอินเทอร์เฟซ"
+            "state": "translated",
+            "value": "เพิ่มขนาดข้อความ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Arayüz Boyutunu Büyüt"
+            "state": "translated",
+            "value": "Metin Boyutunu Büyüt"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Збільшити інтерфейс"
+            "state": "translated",
+            "value": "Збільшити розмір тексту"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Tăng kích thước giao diện"
+            "state": "translated",
+            "value": "Tăng cỡ chữ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "放大界面"
+            "state": "translated",
+            "value": "增大文字"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "放大介面"
+            "state": "translated",
+            "value": "放大文字"
           }
         }
       }
@@ -12266,127 +12266,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reset Interface Size"
+            "value": "Reset Text Size"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インターフェイスのサイズをリセット"
+            "value": "文字サイズをリセット"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "إعادة تعيين حجم الواجهة"
+            "state": "translated",
+            "value": "إعادة تعيين حجم النص"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Resetuj veličinu sučelja"
+            "state": "translated",
+            "value": "Vrati veličinu teksta"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nulstil grænsefladestørrelse"
+            "state": "translated",
+            "value": "Nulstil tekststørrelse"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Oberflächengröße zurücksetzen"
+            "state": "translated",
+            "value": "Textgröße zurücksetzen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Restablecer tamaño de la interfaz"
+            "state": "translated",
+            "value": "Restablecer tamaño del texto"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Réinitialiser la taille de l’interface"
+            "state": "translated",
+            "value": "Réinitialiser la taille du texte"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reimposta dimensione interfaccia"
+            "state": "translated",
+            "value": "Ripristina dimensione testo"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "កំណត់ទំហំចំណុចប្រទាក់ឡើងវិញ"
+            "state": "translated",
+            "value": "កំណត់ទំហំអក្សរឡើងវិញ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "인터페이스 크기 재설정"
+            "state": "translated",
+            "value": "텍스트 크기 재설정"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Tilbakestill grensesnittstørrelse"
+            "state": "translated",
+            "value": "Tilbakestill tekststørrelse"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Przywróć rozmiar interfejsu"
+            "state": "translated",
+            "value": "Resetuj rozmiar tekstu"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Redefinir Tamanho da Interface"
+            "state": "translated",
+            "value": "Redefinir tamanho do texto"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Сбросить размер интерфейса"
+            "state": "translated",
+            "value": "Сбросить размер текста"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "รีเซ็ตขนาดอินเทอร์เฟซ"
+            "state": "translated",
+            "value": "รีเซ็ตขนาดข้อความ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Arayüz Boyutunu Sıfırla"
+            "state": "translated",
+            "value": "Metin Boyutunu Sıfırla"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Скинути розмір інтерфейсу"
+            "state": "translated",
+            "value": "Скинути розмір тексту"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Đặt lại kích thước giao diện"
+            "state": "translated",
+            "value": "Đặt lại cỡ chữ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "重置界面大小"
+            "state": "translated",
+            "value": "重置文字大小"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "重置介面大小"
+            "state": "translated",
+            "value": "重設文字大小"
           }
         }
       }
@@ -81960,127 +81960,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Increase Interface Scale"
+            "value": "Increase App Zoom"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "زيادة تكبير التطبيق"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Povećaj zum aplikacije"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Forøg appzoom"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "App-Zoom erhöhen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Aumentar zoom de la app"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Augmenter le zoom de l’app"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Aumenta zoom dell’app"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "アプリのズームを拡大"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "បង្កើនការពង្រីកកម្មវិធី"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "앱 확대"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Øk appzoom"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Zwiększ powiększenie aplikacji"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Aumentar zoom do app"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Увеличить масштаб приложения"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "เพิ่มการซูมแอป"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Uygulama Yakınlaştırmasını Artır"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Збільшити масштаб застосунку"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Tăng thu phóng ứng dụng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "放大应用"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "放大 App"
           }
         }
       }
@@ -82091,127 +82091,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Decrease Interface Scale"
+            "value": "Decrease App Zoom"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "تقليل تكبير التطبيق"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Smanji zum aplikacije"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Formindsk appzoom"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "App-Zoom verringern"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Reducir zoom de la app"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Réduire le zoom de l’app"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Riduci zoom dell’app"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "アプリのズームを縮小"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "បន្ថយការពង្រីកកម្មវិធី"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "앱 축소"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Reduser appzoom"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Zmniejsz powiększenie aplikacji"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Diminuir zoom do app"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Уменьшить масштаб приложения"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "ลดการซูมแอป"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Uygulama Yakınlaştırmasını Azalt"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Зменшити масштаб застосунку"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Giảm thu phóng ứng dụng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "缩小应用"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "縮小 App"
           }
         }
       }
@@ -82222,127 +82222,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reset Interface Scale"
+            "value": "Reset App Zoom"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "إعادة تعيين تكبير التطبيق"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Vrati zum aplikacije"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Nulstil appzoom"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "App-Zoom zurücksetzen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Restablecer zoom de la app"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Réinitialiser le zoom de l’app"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Ripristina zoom dell’app"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "アプリのズームをリセット"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "កំណត់ការពង្រីកកម្មវិធីឡើងវិញ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "앱 확대/축소 재설정"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Tilbakestill appzoom"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Resetuj powiększenie aplikacji"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Redefinir zoom do app"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Сбросить масштаб приложения"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "รีเซ็ตการซูมแอป"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Uygulama Yakınlaştırmasını Sıfırla"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Скинути масштаб застосунку"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Đặt lại thu phóng ứng dụng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "重置应用缩放"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "重設 App 縮放"
           }
         }
       }

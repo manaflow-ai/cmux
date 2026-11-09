@@ -911,7 +911,20 @@ export function ComposerContext({
                         },
                       },
                     ]
-                  : undefined
+                  : // A new chat on its own Cloud or SSH machine: New Worktree as on this Mac, made
+                    // there beside its repository (cmuxterm-hq#7856).
+                    !readOnly && currentFolder && onNewWorktree && selectedComputer === initialComputer
+                    ? [
+                        {
+                          id: "newWorktree",
+                          label: t("worktree.new"),
+                          onSelect: () => {
+                            browseRequest.current += 1;
+                            onNewWorktree(currentFolder);
+                          },
+                        },
+                      ]
+                    : undefined
               }
               onPick={(cwd) => {
                 if (newChats) {
