@@ -274,7 +274,11 @@ fn run_init(flags: &Flags) -> anyhow::Result<()> {
     let _ensure_lock = server_identity.as_ref().map(|_| ensure::ensure_lock(&state)).transpose()?;
     // `serve` holds this lock for its lifetime: init cannot rewrite its config.
     let _lock = server_identity.as_ref().map(|_| serve_lock(&state)).transpose()?;
+    let local = server_identity.is_none();
     state.init(&LinkConfig { install, port, server_identity })?;
+    if local {
+        key_lock::record_home(&state)?;
+    }
     run_show_state(&state)
 }
 
@@ -496,8 +500,10 @@ async fn serve(
     let config = state.config().context("run `cmux link init --install ID` first")?;
     // One key per machine: the node key in this machine's acpmux home, adopted under the held
     // key lock and the pairing file's lock (`key_adoption.rs`). The paired peers are read
-    // after it (`Peers::load` below), so a peer added during the adoption is not missed.
-    let acpmux_home = crate::acp::key_lock_home();
+    // after it (`Peers::load` below), so a peer added during the adoption is not missed. The
+    // home is the one the app recorded (`key_lock::record_home`): launchd gives `serve` none of
+    // the app's environment, so it is never resolved here.
+    let acpmux_home = acpmux::cli::mesh_node_key::recorded_home(state.dir());
     let served_key = key_adoption::serve_key(&state, key, acpmux_home.as_deref()).await?;
     let public_key = state::public_key(&served_key.key);
     let mut own_keys = vec![public_key];
@@ -551,7 +557,7 @@ async fn serve(
         ready.send(&ready_line);
     }
     // A paired peer's `acpmux` stream goes to this user's acpmux listener.
-    let acpmux = AcpmuxTarget::from_acpmux_home();
+    let acpmux = AcpmuxTarget::for_home(acpmux_home);
     let result = tokio::select! {
         served = serve_local(local, overlay.clone(), peers.clone(), status) => served.map_err(anyhow::Error::from),
         () = serve_overlay(listener, peers.clone(), session_socket, owner, acpmux) => Ok(()),
@@ -674,6 +680,7 @@ fn agent_arguments(state: &LinkState, flags: &Flags) -> Vec<String> {
 fn run_install_agent(flags: &Flags) -> anyhow::Result<()> {
     let state = state(flags)?;
     state.config().context("run `cmux link init --install ID` first")?;
+    key_lock::record_home(&state)?;
     let arguments = agent_arguments(&state, flags);
     let program = std::env::current_exe()?;
     let path = launchd::install(&program, &arguments)?;

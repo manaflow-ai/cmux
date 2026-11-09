@@ -157,9 +157,122 @@ pub(crate) fn refuse_adopted_held(home: &Path, held: &KeyHolder) -> Result<()> {
     Ok(())
 }
 
-/// This machine's link state directory; a test's is beside its home.
+/// This machine's link state directory; a test's is beside its home. The one the app recorded
+/// in `home` ([`record_link_home`]) first: a process launchd or another app started may have
+/// none of the app's environment.
 pub(crate) fn link_dir_for(home: &Path) -> Option<std::path::PathBuf> {
-    if cfg!(test) { Some(home.join("link")) } else { crate::wireguard::link_state_dir() }
+    if cfg!(test) {
+        return Some(home.join("link"));
+    }
+    recorded_link_dir(home).or_else(crate::wireguard::link_state_dir)
+}
+
+/// In a cmux link's state directory: the acpmux home whose node key the link adopts, resolved
+/// in the app's own process (`cmux link init|ensure|install-agent`). `cmux link serve`, which
+/// launchd starts with none of the app's environment, trusts only this record; it never
+/// re-derives the home from its own environment.
+pub const LINK_ACPMUX_HOME: &str = "acpmux-home.json";
+
+/// In an acpmux home: the cmux link state directory that adopts its node key (the other half of
+/// [`LINK_ACPMUX_HOME`]).
+pub const HOME_LINK_DIR: &str = "cmux-link.json";
+
+/// In a cmux link's state directory, once the link found the acpmux home it adopts from copied
+/// from another machine ([`home_copied`]): the link's identity there (its key, its pairings, its
+/// adoption record) is that machine's, and the link never serves it again, a new join included.
+/// Only moving the state directory aside (and pairing again) ends it.
+pub const LINK_COPIED: &str = "copied-from-another-machine.json";
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct HomeRecord {
+    acpmux_home: std::path::PathBuf,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct LinkDirRecord {
+    link_dir: std::path::PathBuf,
+}
+
+/// Record that the cmux link in `link_dir` adopts the node key of acpmux home `home`, resolved
+/// by the caller in the app's own process: [`LINK_ACPMUX_HOME`] in the link's state directory
+/// and [`HOME_LINK_DIR`] in the home. `None` (the link has no acpmux home: another state
+/// directory, a test) removes the link's record, so a stale home is never trusted.
+pub fn record_link_home(link_dir: &Path, home: Option<&Path>) -> Result<()> {
+    let record = link_dir.join(LINK_ACPMUX_HOME);
+    let Some(home) = home else {
+        return match std::fs::remove_file(&record) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                Err(error).context("remove the link's acpmux home record")
+            }
+            _ => Ok(()),
+        };
+    };
+    if recorded_home(link_dir).as_deref() != Some(home) {
+        let bytes = serde_json::to_vec(&HomeRecord { acpmux_home: home.to_owned() })?;
+        write_record(&record, &bytes)?;
+    }
+    if recorded_link_dir(home).as_deref() != Some(link_dir) {
+        crate::config::private_state_dir(home)?;
+        let bytes = serde_json::to_vec(&LinkDirRecord { link_dir: link_dir.to_owned() })?;
+        write_record(&home.join(HOME_LINK_DIR), &bytes)?;
+    }
+    Ok(())
+}
+
+/// The acpmux home the app recorded for the link in `link_dir` ([`record_link_home`]).
+pub fn recorded_home(link_dir: &Path) -> Option<std::path::PathBuf> {
+    let text = std::fs::read(link_dir.join(LINK_ACPMUX_HOME)).ok()?;
+    serde_json::from_slice::<HomeRecord>(&text).ok().map(|record| record.acpmux_home)
+}
+
+/// The link state directory the app recorded in acpmux home `home` ([`record_link_home`]).
+pub(crate) fn recorded_link_dir(home: &Path) -> Option<std::path::PathBuf> {
+    let text = std::fs::read(home.join(HOME_LINK_DIR)).ok()?;
+    serde_json::from_slice::<LinkDirRecord>(&text).ok().map(|record| record.link_dir)
+}
+
+/// Whether acpmux home `home` was copied here from another machine: the one clone check
+/// (`cloud_join::copied_from_another_box_at`), for the daemon and the cmux link alike.
+pub fn home_copied(home: &Path) -> bool {
+    crate::cli::cloud_join::copied_from_another_box_at(home)
+}
+
+/// Whether the cmux link in `link_dir` serves the node key in `home` (or will, at its next
+/// start), so acpmux's own WireGuard transport stays off for it: the link is set up (its
+/// `config.json`), is no server-enrolled link, adopted this home's key (`key-adopted.json`
+/// names it) or the app recorded this home for it ([`LINK_ACPMUX_HOME`]), and the link does not
+/// refuse to serve it because the home or the link was copied from another machine
+/// ([`LINK_COPIED`], [`home_copied`]). Any other link keeps a key of its own, or none, and the
+/// transport runs.
+pub fn link_serves_node_key(link_dir: Option<&Path>, home: &Path) -> bool {
+    let Some(link_dir) = link_dir else { return false };
+    let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let config = std::fs::read(link_dir.join("config.json"))
+        .ok()
+        .and_then(|text| serde_json::from_slice::<serde_json::Value>(&text).ok());
+    let Some(config) = config else { return false };
+    if config.get("server_identity").is_some_and(|identity| !identity.is_null()) {
+        return false;
+    }
+    let adopted_here = std::fs::read(link_dir.join("key-adopted.json"))
+        .ok()
+        .and_then(|text| serde_json::from_slice::<serde_json::Value>(&text).ok())
+        .and_then(|record| record.get("key_dir")?.as_str().map(std::path::PathBuf::from))
+        .is_some_and(|key_dir| canonical(&key_dir) == canonical(home));
+    let recorded_here =
+        recorded_home(link_dir).is_some_and(|recorded| canonical(&recorded) == canonical(home));
+    (adopted_here || recorded_here) && !link_dir.join(LINK_COPIED).exists() && !home_copied(home)
+}
+
+/// `bytes` at `path`, owner-only: a synced temporary file renamed into place.
+fn write_record(path: &Path, bytes: &[u8]) -> Result<()> {
+    let temporary = write_temporary(path, bytes)?;
+    let renamed = std::fs::rename(&temporary, path);
+    if renamed.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    renamed.with_context(|| format!("write {}", path.display()))?;
+    sync_parent(path)
 }
 
 /// Who may delete or replace the node key in `home` ([`lock_to_remove`]).
@@ -305,7 +418,7 @@ fn create_key_if_absent(path: &Path, bytes: &[u8; 32]) -> Result<()> {
 }
 
 /// `bytes` in a new owner-only file next to `path`, fully synced.
-fn write_temporary(path: &Path, bytes: &[u8; 32]) -> Result<std::path::PathBuf> {
+fn write_temporary(path: &Path, bytes: &[u8]) -> Result<std::path::PathBuf> {
     let temporary = path.with_extension(format!("wg-key-{}", uuid::Uuid::new_v4()));
     #[cfg(unix)]
     let mut file = {
@@ -416,6 +529,46 @@ mod tests {
         let refused = replace_at(dir.path()).unwrap_err();
         assert!(refused.to_string().starts_with("node_key.adopted:"), "{refused}");
         assert_eq!(public_key_at(dir.path()), Some(fresh.public_key));
+    }
+
+    /// Review F1 at 9e91bcea: acpmux's transport steps down only for a link that serves this
+    /// home's node key, by the home the app recorded for it or its adoption record, and never
+    /// for one that keeps a key of its own, is server-enrolled, or refuses a copied home.
+    #[test]
+    fn the_transport_steps_down_only_for_a_link_that_serves_this_homes_node_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("acpmux");
+        let link = dir.path().join("link");
+        std::fs::create_dir_all(&link).unwrap();
+        assert!(!link_serves_node_key(None, &home));
+        assert!(!link_serves_node_key(Some(&link), &home), "no link set up");
+        std::fs::write(link.join("config.json"), r#"{"install":"inst_a","port":4101}"#).unwrap();
+        assert!(!link_serves_node_key(Some(&link), &home), "a link with no home keeps its key");
+        record_link_home(&link, Some(&home)).unwrap();
+        assert_eq!(recorded_home(&link).as_deref(), Some(home.as_path()));
+        assert_eq!(recorded_link_dir(&home).as_deref(), Some(link.as_path()));
+        assert!(link_serves_node_key(Some(&link), &home));
+        let other = dir.path().join("other");
+        assert!(!link_serves_node_key(Some(&link), &other), "another home's link");
+        // No home any more (a link on another state directory): the record goes.
+        record_link_home(&link, None).unwrap();
+        assert_eq!(recorded_home(&link), None);
+        assert!(!link_serves_node_key(Some(&link), &home));
+        // An adoption record naming this home serves it, recorded or not.
+        let record = serde_json::json!({ "key_dir": home });
+        std::fs::write(link.join("key-adopted.json"), record.to_string()).unwrap();
+        assert!(link_serves_node_key(Some(&link), &home));
+        // The link refuses a copied home: the transport does not step down for it.
+        std::fs::write(link.join(LINK_COPIED), b"{}").unwrap();
+        assert!(!link_serves_node_key(Some(&link), &home));
+        std::fs::remove_file(link.join(LINK_COPIED)).unwrap();
+        // A server-enrolled link keeps its enrollment's key.
+        std::fs::write(
+            link.join("config.json"),
+            r#"{"install":"inst_a","port":4101,"server_identity":"/s"}"#,
+        )
+        .unwrap();
+        assert!(!link_serves_node_key(Some(&link), &home));
     }
 
     /// Review F1 and F2 at c1898fca: a sign-out archives the adoption record with its install

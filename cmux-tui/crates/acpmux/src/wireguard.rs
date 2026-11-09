@@ -4,13 +4,16 @@
 //! only this daemon's loopback WebSocket listener, which still checks tokens,
 //! peer proofs and policy. They never reach the privileged local socket.
 //!
-//! It runs only on a host with no cmux link ([`link_configured`]): there the
-//! link is the one holder of this machine's WireGuard key, the node key it
-//! adopts (`cmux link serve`), and the transport never takes the key lock, so a
-//! link that starts later still gets it. Peers with a link route dial through
-//! the link; the others go on over their URL or ssh. On a link-less host
-//! (Linux headless) it runs under the same lock the link would take, in the
-//! acpmux home (`cmux_link::key_holder`).
+//! It runs only where no cmux link serves this home's node key
+//! (`mesh_node_key::link_serves_node_key`): where one does (it adopted the key,
+//! or the app recorded this home for it and it adopts at its next start), the
+//! link is the one holder of this machine's WireGuard key and the transport
+//! never takes the key lock, so a link that starts later still gets it. Peers
+//! with a link route dial through the link; the others go on over their URL or
+//! ssh. Anywhere else (a link-less Linux host, a link that keeps a key of its
+//! own, a link that refuses a home copied from another machine) it runs under
+//! the same lock the link would take, in the acpmux home
+//! (`cmux_link::key_holder`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::{IpAddr, SocketAddr};
@@ -76,16 +79,12 @@ pub struct Transport {
 pub(crate) type KeyUser =
     Arc<dyn Fn(&[u8; 32], &mut dyn FnMut() -> Result<()>) -> Result<()> + Send + Sync>;
 
-/// Whether a cmux link is set up in `link_dir` (`cmux link init` wrote its config): the link
-/// then holds this machine's WireGuard key for its whole life, whether it runs now or starts
-/// later.
-pub(crate) fn link_configured(link_dir: Option<&Path>) -> bool {
-    link_dir.is_some_and(|dir| dir.join("config.json").is_file())
-}
-
-/// This machine's cmux link state directory (`<daemon state dir>/link`).
+/// This machine's cmux link state directory: the one the app recorded in this daemon's home
+/// (`mesh_node_key::record_link_home`), else `<daemon state dir>/link` by this process's
+/// environment.
 pub(crate) fn link_state_dir() -> Option<PathBuf> {
-    cmux_tui_platform::platform::workspace_state_dir().map(|dir| dir.join("link"))
+    crate::cli::mesh_node_key::recorded_link_dir(&crate::config::home())
+        .or_else(|| cmux_tui_platform::platform::workspace_state_dir().map(|dir| dir.join("link")))
 }
 
 /// The install the link in `link_dir` paired with `wireguard_key`, if it did.
@@ -142,7 +141,7 @@ impl Transport {
             .as_ref()
             .context("transport.wireguard requires wireguardStatic settings")?;
         let target = local_websocket(websocket)?;
-        if link_configured(link_dir) {
+        if crate::cli::mesh_node_key::link_serves_node_key(link_dir, state_dir) {
             tracing::info!(
                 "WireGuard transport off: the cmux link holds this machine's WireGuard key; peers with a link route use the link, the others their URL or ssh"
             );

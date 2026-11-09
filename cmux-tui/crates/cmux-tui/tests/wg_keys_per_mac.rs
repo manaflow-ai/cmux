@@ -51,7 +51,8 @@ fn keys_on_disk(home: &Path, link: &Path) -> usize {
     publics.len()
 }
 
-/// `cmux link init` of install `inst_a` in `link`.
+/// `cmux link init` of install `inst_a` in `link`, from the app's process: its environment
+/// names the app's acpmux home (`root/acpmux`), which init records for `serve`.
 fn init(root: &Path, link: &Path) {
     let init = cmux(
         root,
@@ -66,15 +67,16 @@ fn init(root: &Path, link: &Path) {
             "0",
         ],
     )
+    .env("ACPMUX_HOME", root.join("acpmux"))
     .output()
     .unwrap();
     assert!(init.status.success(), "{}", String::from_utf8_lossy(&init.stderr));
 }
 
-/// The real `cmux link serve` of `link` under the key lock in the acpmux `home`, as the app
-/// starts it, and its ready line once it serves.
-async fn serve_until_ready(root: &Path, link: &Path, home: &Path) -> (Serving, serde_json::Value) {
-    let mut serve = cmux(
+/// `cmux link serve` of `link` under the key lock in `lock_dir`, as launchd starts it: none of
+/// the app's environment, so no `ACPMUX_HOME`.
+fn serve_command(root: &Path, link: &Path, lock_dir: &Path) -> Command {
+    cmux(
         root,
         &[
             "link",
@@ -82,11 +84,21 @@ async fn serve_until_ready(root: &Path, link: &Path, home: &Path) -> (Serving, s
             "--state-dir",
             link.to_str().unwrap(),
             "--key-lock-dir",
-            home.to_str().unwrap(),
+            lock_dir.to_str().unwrap(),
         ],
-    );
-    // The app's acpmux home, as the app resolves it: the link adopts only there.
-    serve.env("ACPMUX_HOME", home).stdout(Stdio::piped()).stderr(Stdio::null());
+    )
+}
+
+/// The real `cmux link serve` of `link` under the key lock in `lock_dir`, as launchd starts
+/// it (no `ACPMUX_HOME`: the link adopts only the home `init` recorded), and its ready line
+/// once it serves.
+async fn serve_until_ready(
+    root: &Path,
+    link: &Path,
+    lock_dir: &Path,
+) -> (Serving, serde_json::Value) {
+    let mut serve = serve_command(root, link, lock_dir);
+    serve.stdout(Stdio::piped()).stderr(Stdio::null());
     let mut serving = Serving(serve.spawn().unwrap());
     let stdout = serving.0.stdout.take().unwrap();
     let ready = tokio::time::timeout(
@@ -222,4 +234,78 @@ async fn an_archived_adoption_keeps_its_node_key_through_a_leave_and_serves_it_r
     assert!(show.status.success(), "{}", String::from_utf8_lossy(&show.stderr));
     let shown: serde_json::Value = serde_json::from_slice(&show.stdout).unwrap();
     assert_eq!(shown["public_key"], STANDARD.encode(node), "{shown}");
+}
+
+/// Review F1 at 9e91bcea: launchd starts `serve` with no `ACPMUX_HOME`, while the app's acpmux
+/// home is a custom one. The link still adopts that home's node key (the one `init` recorded
+/// from the app's environment), so acpmux's transport stepping down leaves the Mac on its node
+/// key. An arbitrary other `--key-lock-dir` still never adopts.
+#[tokio::test]
+async fn a_launchd_serve_without_acpmux_home_adopts_the_recorded_custom_home() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("acpmux");
+    let link = root.path().join("state/link");
+    let node = acpmux::cli::mesh_node_key::load_or_create_at(&home).unwrap().public_key;
+    init(root.path(), &link);
+    let own = cmux(root.path(), &["link", "show", "--state-dir", link.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let own: serde_json::Value = serde_json::from_slice(&own.stdout).unwrap();
+
+    // Another lock directory: the link keeps its own key, no node key or record is made there.
+    let other = root.path().join("other");
+    drop(serve_until_ready(root.path(), &link, &other).await);
+    assert!(!link.join("key-adopted.json").exists(), "an arbitrary lock dir adopted");
+    assert!(!KeyFile::Node.path_in(&other).exists());
+    assert!(!acpmux::cli::mesh_node_key::link_serves_node_key(Some(&link), &other));
+
+    let (serving, _) = serve_until_ready(root.path(), &link, &home).await;
+    assert!(link.join("key-adopted.json").is_file(), "the recorded home was not adopted");
+    let show = cmux(root.path(), &["link", "show", "--state-dir", link.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let shown: serde_json::Value = serde_json::from_slice(&show.stdout).unwrap();
+    assert_eq!(shown["public_key"], STANDARD.encode(node), "{shown}");
+    assert_ne!(shown["public_key"], own["public_key"]);
+    assert!(acpmux::cli::mesh_node_key::link_serves_node_key(Some(&link), &home));
+    drop(serving);
+}
+
+/// Review F2 at 9e91bcea: once the home turns out copied from another machine (its machine
+/// record marked `cloned`), the real `serve` refuses `key_adoption.cloned_home` before it binds
+/// anything, so the original's peers are never answered from the copy. The same home served
+/// while it was the original's.
+#[tokio::test]
+async fn a_copied_home_with_an_adopted_link_never_serves() {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("acpmux");
+    let link = root.path().join("state/link");
+    acpmux::cli::mesh_node_key::load_or_create_at(&home).unwrap();
+    init(root.path(), &link);
+    drop(serve_until_ready(root.path(), &link, &home).await);
+    assert!(link.join("key-adopted.json").is_file(), "the original did not adopt");
+
+    let record = serde_json::json!({
+        "credential": "cmm_original", "machine_id": "machine_original", "team_id": "team",
+        "name": "original", "hub_origin": "https://example.com", "last_heartbeat": null,
+        "revoked": false, "wgPublicKey": "original-key", "credential_generation": 1,
+        "host_fingerprint": "another-box", "cloned": true,
+    });
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(home.join("machine-credential.json"))
+        .unwrap();
+    std::io::Write::write_all(&mut file, record.to_string().as_bytes()).unwrap();
+    drop(file);
+
+    let refused = serve_command(root.path(), &link, &home).output().unwrap();
+    let stdout = String::from_utf8_lossy(&refused.stdout);
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(!refused.status.success(), "a copied home served: {stdout}");
+    assert!(!stdout.contains("link-ready"), "{stdout}");
+    assert!(stderr.contains("key_adoption.cloned_home"), "{stderr}");
+    assert!(!acpmux::cli::mesh_node_key::link_serves_node_key(Some(&link), &home));
 }

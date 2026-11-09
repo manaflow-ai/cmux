@@ -731,9 +731,12 @@ pub async fn start_configured(
         }
     };
     // A copy of another machine's home never serves (condition 3), whatever its credential.
-    if tokio::task::spawn_blocking(crate::cli::cloud_join::copied_from_another_box)
-        .await
-        .unwrap_or(true)
+    let copied_home = state_dir.to_path_buf();
+    if tokio::task::spawn_blocking(move || {
+        crate::cli::cloud_join::copied_from_another_box_at(&copied_home)
+    })
+    .await
+    .unwrap_or(true)
     {
         tracing::warn!("hub carrier off: this home was copied from another machine");
         return None;

@@ -907,3 +907,97 @@ async fn an_explicit_lock_dir_that_is_not_the_acpmux_home_never_adopts() {
     // The acpmux home itself does.
     assert!(adopts(&state, &machine.home, Some(&machine.home)).unwrap());
 }
+
+/// Marks the acpmux home `home` as copied here from another machine, the way
+/// acpmux's clone check reads it: its machine record is marked `cloned`.
+fn copied_from_another_machine(home: &Path) {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::create_dir_all(home).unwrap();
+    std::fs::set_permissions(home, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let record = serde_json::json!({
+        "credential": "cmm_original", "machine_id": "machine_original", "team_id": "team",
+        "name": "original", "hub_origin": "https://example.com", "last_heartbeat": null,
+        "revoked": false, "wgPublicKey": "original-key", "credential_generation": 1,
+        "host_fingerprint": "another-box", "cloned": true,
+    });
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(home.join("machine-credential.json"))
+        .unwrap();
+    std::io::Write::write_all(&mut file, record.to_string().as_bytes()).unwrap();
+}
+
+/// Review F2 at 9e91bcea: a home copied from another machine, with a link
+/// that adopted its node key, never serves that key (nor the link's own) and
+/// so never answers the original machine's peers; the refusal stays after a
+/// new join. The original machine, on its own home, still serves.
+#[tokio::test]
+async fn a_copied_home_with_an_adopted_link_refuses_to_serve_and_the_original_still_does() {
+    let original = machine();
+    let copy = machine();
+    for machine in [&original, &copy] {
+        pair(machine, &[record("inst_b", [2; 32])]);
+        let state = LinkState::open(Some(machine.link.clone())).unwrap();
+        let holder = KeyHolder::acquire(&machine.home).unwrap();
+        serve_key(&state, &holder, Some(&machine.home)).await.unwrap();
+    }
+    copied_from_another_machine(&copy.home);
+    let state = LinkState::open(Some(copy.link.clone())).unwrap();
+    let holder = KeyHolder::acquire(&copy.home).unwrap();
+    // With the recorded home, and with none (the adoption record names it).
+    for home in [Some(copy.home.as_path()), None] {
+        let Err(refused) = serve_key(&state, &holder, home).await else {
+            panic!("a copied home's node key was served ({home:?})");
+        };
+        let refused = format!("{refused:#}");
+        assert!(refused.starts_with("key_adoption.cloned_home:"), "{refused}");
+        assert!(refused.contains("cmux host join") && refused.contains("aside"), "{refused}");
+    }
+    assert!(copy.link.join(LINK_COPIED).is_file(), "the refusal was not kept");
+    assert!(
+        !acpmux::cli::mesh_node_key::link_serves_node_key(Some(&copy.link), &copy.home),
+        "acpmux would keep its transport off for a link that refuses"
+    );
+    // A new join of the copy (its record no longer marked) leaves the copied link refused.
+    std::fs::remove_file(copy.home.join("machine-credential.json")).unwrap();
+    let Err(refused) = serve_key(&state, &holder, Some(&copy.home)).await else {
+        panic!("a new join made the copied link's identity this machine's");
+    };
+    assert!(refused.to_string().starts_with("key_adoption.cloned_home:"), "{refused}");
+    // The original serves its node key.
+    let state = LinkState::open(Some(original.link.clone())).unwrap();
+    let holder = KeyHolder::acquire(&original.home).unwrap();
+    let served = serve_key(&state, &holder, Some(&original.home)).await.unwrap();
+    assert_eq!(state::public_key(&served.key), node_public(&original.home));
+    acpmux::cli::mesh_node_key::record_link_home(&original.link, Some(&original.home)).unwrap();
+    assert!(acpmux::cli::mesh_node_key::link_serves_node_key(Some(&original.link), &original.home));
+}
+
+/// A copied home whose link has not adopted yet: the link neither adopts
+/// (which would move the original's peers to this copy's key) nor serves its
+/// copied `private.key`, and makes no node key or record.
+#[tokio::test]
+async fn a_copied_home_is_never_adopted_nor_its_link_key_served() {
+    let copy = machine();
+    pair(&copy, &[record("inst_b", [2; 32])]);
+    copied_from_another_machine(&copy.home);
+    let state = LinkState::open(Some(copy.link.clone())).unwrap();
+    let holder = KeyHolder::acquire(&copy.home).unwrap();
+    let Err(refused) = serve_key(&state, &holder, Some(&copy.home)).await else {
+        panic!("a copied home was adopted");
+    };
+    assert!(refused.to_string().starts_with("key_adoption.cloned_home:"), "{refused}");
+    assert!(!copy.home.join(KeyFile::Node.file_name()).exists(), "a node key was made");
+    assert!(adopted(&state).unwrap().is_none());
+    assert!(state.has_link_key(), "the copied link key is kept, unserved");
+    // Under its own lock too: the link key came with the copy.
+    drop(holder);
+    let own = KeyHolder::acquire(&copy.link).unwrap();
+    let Err(refused) = serve_key(&state, &own, Some(&copy.home)).await else {
+        panic!("a copied link key was served");
+    };
+    assert!(refused.to_string().starts_with("key_adoption.cloned_home:"), "{refused}");
+}

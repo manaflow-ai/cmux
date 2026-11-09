@@ -156,6 +156,39 @@ fn a_held_key_lock_steps_the_transport_down_without_binding() {
     });
 }
 
+/// Review F1 at 9e91bcea: a configured link turns the transport off only when it serves this
+/// home's node key (the app recorded this home for it). A link that keeps its own key (no
+/// home recorded, as under launchd before the fix) leaves the transport on, so the machine
+/// is never left with neither on the node key.
+#[test]
+fn the_transport_steps_down_only_for_a_link_that_serves_the_node_key() {
+    runtime().block_on(async {
+        // Occupied: a transport that goes on fails at its bind.
+        let occupied = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.transport.wireguard = true;
+        cfg.transport.wireguard_static = Some(StaticConfig {
+            listen: occupied.local_addr().unwrap(),
+            address: "10.77.0.1:4100".parse().unwrap(),
+        });
+        let link_dir = tempfile::tempdir().unwrap();
+        std::fs::write(link_dir.path().join("config.json"), r#"{"install":"inst_a","port":0}"#)
+            .unwrap();
+        let start = || {
+            Transport::start_with_link(
+                &cfg,
+                dir.path(),
+                Some(link_dir.path()),
+                "127.0.0.1:1".parse().unwrap(),
+            )
+        };
+        assert!(start().await.is_err(), "a link keeping its own key turned the transport off");
+        crate::cli::mesh_node_key::record_link_home(link_dir.path(), Some(dir.path())).unwrap();
+        assert!(start().await.unwrap().is_none(), "the link serving the node key holds it");
+    });
+}
+
 #[test]
 fn a_stopped_transport_releases_the_key_lock() {
     runtime().block_on(async {

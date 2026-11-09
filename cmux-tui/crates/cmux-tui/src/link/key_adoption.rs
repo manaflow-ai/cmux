@@ -2,10 +2,13 @@
 //! in the acpmux home, which the platform already knows as this machine's
 //! key) and retires its own `private.key`.
 //!
-//! A link adopts when its key lock is this machine's acpmux home, resolved
-//! the way the app resolves it ([`crate::acp::key_lock_home`]: `ACPMUX_HOME`,
-//! else the build's home under `~/.acpmux`), or the directory a committed
-//! adoption already serves, and it is not a server-enrolled link. Any other
+//! A link adopts when its key lock is this machine's acpmux home as the app
+//! resolved and recorded it for this link (`key_lock::record_home`, from
+//! [`crate::acp::key_lock_home`]: `ACPMUX_HOME`, else the build's home under
+//! `~/.acpmux`; `serve`, which launchd starts with none of the app's
+//! environment, never resolves it itself), or the directory a committed
+//! adoption already serves, and it is not a server-enrolled link. A home
+//! copied from another machine is never served from ([`refuse_copied`]). Any other
 //! lock directory (its own state directory, or an explicit `--key-lock-dir`
 //! elsewhere) keeps the link's own key. Every step runs under the held key
 //! lock and the pairing file's lock ([`Pairings::lock`]), so a `link peer
@@ -62,6 +65,10 @@ use super::state::{self, LinkState};
 
 /// The commit record of an adoption, in the link's state directory.
 pub(super) const MARKER: &str = "key-adopted.json";
+
+/// The kept refusal of a link whose acpmux home was copied from another
+/// machine ([`refuse_copied`]).
+pub(super) const LINK_COPIED: &str = acpmux::cli::mesh_node_key::LINK_COPIED;
 
 /// How long the retired key still answers peers that were not told.
 pub(super) const RETIRED_KEY_KEPT_FOR: Duration = Duration::from_secs(14 * 24 * 60 * 60);
@@ -135,10 +142,11 @@ fn now_secs() -> u64 {
 }
 
 /// Whether `state`'s link adopts the node key in `lock_dir`: only when it is
-/// `acpmux_home` (this machine's acpmux home, [`crate::acp::key_lock_home`]),
-/// or the directory the link's committed adoption already serves. Any other
-/// lock directory, an explicit `--key-lock-dir` included, is not where the
-/// platform knows this machine's key from.
+/// `acpmux_home` (this machine's acpmux home as the app recorded it for this
+/// link, `key_lock::record_home`), or the directory the link's committed
+/// adoption already serves. Any other lock directory, an explicit
+/// `--key-lock-dir` included, is not where the platform knows this machine's
+/// key from.
 pub(super) fn adopts(
     state: &LinkState,
     lock_dir: &Path,
@@ -203,6 +211,7 @@ pub(super) async fn serve_key(
     holder: &KeyHolder,
     acpmux_home: Option<&Path>,
 ) -> anyhow::Result<ServeKey> {
+    refuse_copied(state, acpmux_home)?;
     if !adopts(state, holder.dir(), acpmux_home)? {
         // An adopted link serves only the node key, under the lock next to it: never its old
         // key again, and never the node key under another lock.
@@ -229,6 +238,56 @@ pub(super) async fn serve_key(
         );
     }
     adopt(state, holder)
+}
+
+/// Refuse to serve `key_adoption.cloned_home` when the acpmux home this link
+/// adopts from (`acpmux_home`, the recorded one, or the one its adoption
+/// record names) was copied here from another machine, by acpmux's own clone
+/// check (`mesh_node_key::home_copied`: the machine record's `cloned` mark or
+/// its host fingerprint). The link's state directory came with it: its key,
+/// its paired peers and its adoption are that machine's, and so may the node
+/// key be (acpmux cannot replace a key an adoption names). Serving any of them
+/// would answer that machine's peers from here, and an adoption would even
+/// move them to this copy's key. The refusal is kept in the state directory
+/// ([`LINK_COPIED`]): a new join of the home does not make the link's copied
+/// pairings this machine's.
+fn refuse_copied(state: &LinkState, acpmux_home: Option<&Path>) -> anyhow::Result<()> {
+    if state.config()?.server_identity.is_some() {
+        return Ok(());
+    }
+    let kept = state.dir().join(LINK_COPIED);
+    let copied = if kept.symlink_metadata().is_ok() {
+        let named = std::fs::read(&kept)
+            .ok()
+            .and_then(|text| serde_json::from_slice::<serde_json::Value>(&text).ok())
+            .and_then(|record| record.get("acpmux_home")?.as_str().map(PathBuf::from));
+        Some(named.unwrap_or_else(|| state.dir().to_path_buf()))
+    } else {
+        let adopted_dir = adopted(state)?.map(|adopted| adopted.key_dir);
+        acpmux_home
+            .map(Path::to_path_buf)
+            .into_iter()
+            .chain(adopted_dir)
+            .find(|home| acpmux::cli::mesh_node_key::home_copied(home))
+    };
+    let Some(home) = copied else { return Ok(()) };
+    if kept.symlink_metadata().is_err() {
+        let record = serde_json::json!({ "acpmux_home": home });
+        if let Err(error) = state::write_private_synced(&kept, record.to_string().as_bytes()) {
+            eprintln!("cmux link: could not keep the copied-home refusal: {error}");
+        }
+    }
+    anyhow::bail!(
+        "key_adoption.cloned_home: the acpmux home {home} was copied here from another machine, \
+         and with it this link's WireGuard identity in {dir} (its key, its paired peers and the \
+         node key it serves): that machine's. This copy never serves it, so that machine's \
+         peers are never answered from here. To pair this copy as a machine of its own: move \
+         {dir} aside, restart cmux (acpmux then gives this machine its own node key), paste a \
+         new join line (`cmux host join`; `cmux machine add` on a signed-in machine makes one), \
+         and pair this machine with its peers again",
+        home = home.display(),
+        dir = state.dir().display(),
+    )
 }
 
 fn canonical(path: &Path) -> PathBuf {

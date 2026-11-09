@@ -222,11 +222,20 @@ pub(crate) fn settle_clone_at_start() -> Result<CloneCheck> {
 
 /// Whether this home's record was joined on another box (marked or not yet marked).
 pub(crate) fn copied_from_another_box() -> bool {
-    let current = host_fingerprint::current();
-    load()
-        .ok()
-        .flatten()
-        .is_some_and(|record| copied_here(&state_dir(), &record, current.as_deref()))
+    copied_from_another_box_at(&state_dir())
+}
+
+/// Whether the record in acpmux home `home` was joined on another box (marked or not yet
+/// marked): the clone check of every caller that knows which home it serves (the hub carrier,
+/// the cmux link through `mesh_node_key::home_copied`), never this process's environment.
+pub(crate) fn copied_from_another_box_at(home: &std::path::Path) -> bool {
+    copied_at(home, host_fingerprint::current().as_deref())
+}
+
+/// [`copied_from_another_box_at`], as the box whose fingerprint is `current`. A record that
+/// cannot be read counts as no join (the daemon's own check reports it).
+fn copied_at(home: &std::path::Path, current: Option<&str>) -> bool {
+    load_at(home).ok().flatten().is_some_and(|record| copied_here(home, &record, current))
 }
 
 /// [`settle_clone_at_start`] in `home`, as the box whose fingerprint is `current`. The caller
@@ -725,6 +734,26 @@ mod tests {
         super::save_at(home, &record).unwrap();
         crate::cli::mesh_node_key::load_or_create_at(home).unwrap();
         std::fs::read(home.join("node.wg.key")).unwrap()
+    }
+
+    /// Review F2 at 9e91bcea: the clone check the cmux link shares, by the home it names.
+    /// A copy whose key could not be replaced (not marked yet) is a copy, as is a marked one;
+    /// the box that joined, an unjoined home and an unknown box are not.
+    #[test]
+    #[cfg(unix)]
+    fn the_shared_clone_check_reads_the_named_home() {
+        let home = tempfile::tempdir().unwrap();
+        assert!(!super::copied_at(home.path(), Some("box-b")), "not joined");
+        joined_on(home.path(), Some("box-a"));
+        assert!(!super::copied_at(home.path(), Some("box-a")));
+        assert!(!super::copied_at(home.path(), None));
+        assert!(super::copied_at(home.path(), Some("box-b")), "an unsettled copy");
+        let mut record = super::load_at(home.path()).unwrap().unwrap();
+        record.cloned = true;
+        super::save_at(home.path(), &record).unwrap();
+        assert!(
+            super::copied_at(home.path(), Some("box-a")) && super::copied_at(home.path(), None)
+        );
     }
 
     #[test]

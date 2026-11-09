@@ -14,6 +14,11 @@
 //! for a tagged DEV build. A link on any other state directory, or outside
 //! any app without `ACPMUX_HOME` (a test, a hand-run link), has a key of its
 //! own and locks in its state directory.
+//!
+//! Which acpmux home a link adopts the node key of (`key_adoption.rs`) is
+//! recorded the same way: `init`, `ensure` and `install-agent` write the home
+//! they resolved ([`record_home`]) into the link's state directory, and `serve`
+//! trusts only that record, never its own environment.
 
 use std::path::{Path, PathBuf};
 
@@ -70,8 +75,23 @@ fn held_message(pid: Option<u32>, dir: &Path) -> String {
 /// The lock directory for `state`'s link by this process's environment: what
 /// `ensure` and `install-agent` pass to `serve` as [`FLAG`].
 pub(super) fn lock_dir(state: &LinkState) -> PathBuf {
+    acpmux_home(state).unwrap_or_else(|| state.dir().to_path_buf())
+}
+
+/// The acpmux home `state`'s link shares the lock with, by this process's
+/// environment: only a link on its app's own state directory has one.
+fn acpmux_home(state: &LinkState) -> Option<PathBuf> {
     let own = state::default_dir().is_some_and(|own| same_dir(&own, state.dir()));
-    own.then(crate::acp::key_lock_home).flatten().unwrap_or_else(|| state.dir().to_path_buf())
+    own.then(crate::acp::key_lock_home).flatten()
+}
+
+/// Record, from the app's own process (`init`, `ensure`, `install-agent`),
+/// the acpmux home [`lock_dir`] resolves for `state`'s link, or that it has
+/// none (`acpmux::cli::mesh_node_key::record_link_home`). `serve` adopts only
+/// that recorded home's node key: launchd starts it with none of the app's
+/// environment, so it never resolves the home itself.
+pub(super) fn record_home(state: &LinkState) -> anyhow::Result<()> {
+    acpmux::cli::mesh_node_key::record_link_home(state.dir(), acpmux_home(state).as_deref())
 }
 
 fn same_dir(a: &Path, b: &Path) -> bool {
