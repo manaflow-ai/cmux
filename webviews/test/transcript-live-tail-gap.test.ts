@@ -364,22 +364,24 @@ test("a lag marker that comes before the attach reply still brings back what acp
   expect(p.reply()).toBe(PARTS.join(""));
 });
 
-/// A lag read that fails every try (its machine away) until `away` is false.
+/// A lag read that fails every try (its machine away) until `away` is false. The turn is still
+/// running, so only the lag read can bring the dropped chunk back (no turn end reads the reply).
 async function gaveUp(peer?: string) {
-  let away = true;
+  let away = false;
   const p = await pane(
     (after) => {
-      if (away && after >= 3) throw new Error("peer unreachable");
-      return all.filter((record) => record.seq > after);
+      if (away) throw new Error("peer unreachable");
+      return [...opened, ...chunks].filter((record) => record.seq > after);
     },
     opened,
     { peer },
   );
+  away = true;
   jest.useFakeTimers();
   try {
     p.live(chunks[0]!);
     p.lagged();
-    for (const record of [...chunks.slice(2), ended]) p.live(record);
+    for (const record of chunks.slice(2)) p.live(record);
     // Every try of `LAG_RETRY_MS` fails; the pane gives up while its socket stays open.
     for (let attempt = 0; attempt < 8; attempt++) {
       await settle();
