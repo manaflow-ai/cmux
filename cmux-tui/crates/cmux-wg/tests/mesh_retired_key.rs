@@ -297,8 +297,9 @@ async fn a_cookie_challenge_to_a_forged_response_never_moves_the_peer() {
         socket.send_to(keepalive, a.udp).await.expect("send");
     }
 
-    // Responses to A's current key from another address: MAC1 right, the
-    // rest garbage, until the current session's rate limiter challenges one.
+    // A burst of responses to A's current key from another address: MAC1
+    // right, the rest garbage. Past the current session's handshake rate (10
+    // a second) its rate limiter challenges them.
     let attacker = UdpSocket::bind("127.0.0.1:0").await.expect("bind");
     let mut forged = [0u8; 92];
     forged[0] = 2;
@@ -306,23 +307,28 @@ async fn a_cookie_challenge_to_a_forged_response_never_moves_the_peer() {
     forged[8..12].copy_from_slice(&receiver);
     forged[12..60].fill(0x5a);
     seal_mac1(&mut forged, a.public);
-    let mut challenged = false;
     for _ in 0..32 {
         attacker.send_to(&forged, a.udp).await.expect("send");
-        let mut reply = [0u8; 256];
-        if let Ok(Ok((length, _))) =
-            timeout(Duration::from_millis(100), attacker.recv_from(&mut reply)).await
-        {
-            assert_eq!(
-                (reply.first(), length),
-                (Some(&3), 64),
-                "a forged response got more than a cookie"
-            );
-            challenged = true;
-            break;
-        }
     }
-    assert!(challenged, "no forged response was challenged");
+    let mut reply = [0u8; 256];
+    let (length, _) =
+        within(attacker.recv_from(&mut reply)).await.expect("no forged response was challenged");
+    assert_eq!((reply.first(), length), (Some(&3), 64), "a forged response got more than a cookie");
+    while let Ok(Ok((length, _))) =
+        timeout(Duration::from_millis(200), attacker.recv_from(&mut reply)).await
+    {
+        assert_eq!(
+            (reply.first(), length),
+            (Some(&3), 64),
+            "a forged response got more than a cookie"
+        );
+    }
+
+    // The current session's timers reset its handshake rate: a second on,
+    // it is not under load, and a lone forgery gets no challenge.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    attacker.send_to(&forged, a.udp).await.expect("send");
+    assert!(!answered(&attacker, Duration::from_millis(500)).await, "still under load");
 
     // Still on the retired key: a probe of the current key is not answered at
     // once (it is for a peer already there) and goes unanswered.
