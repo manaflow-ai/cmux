@@ -167,8 +167,18 @@ pub struct Row {
     /// Values Swift accepts / refuses (conformance samples).
     pub accepts: Vec<Value>,
     pub refuses: Vec<Value>,
+    /// The row as exported, compact JSON: ``Row::raw`` parses it. Kept as text
+    /// because every daemon holds the whole schema, and the rows as parsed
+    /// values took about 6 MB of each one's idle heap.
+    raw: Box<str>,
+}
+
+impl Row {
     /// The row as exported (for `settings.schema` and list replies).
-    pub raw: Value,
+    pub fn raw(&self) -> Value {
+        // The text is this row's own serialization (made in `row`), so it parses.
+        serde_json::from_str(&self.raw).unwrap_or_default()
+    }
 }
 
 /// The whole schema.
@@ -274,7 +284,8 @@ impl Schema {
 }
 
 fn row(raw: Value) -> Result<Row, String> {
-    let parsed: RawRow = serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?;
+    let text = serde_json::to_string(&raw).map_err(|error| error.to_string())?.into_boxed_str();
+    let parsed: RawRow = serde_json::from_value(raw).map_err(|error| error.to_string())?;
     let range = || parsed.range.clone().ok_or_else(|| format!("{}: range missing", parsed.key));
     let kind = match parsed.kind.as_str() {
         "toggle" => Kind::Toggle,
@@ -335,6 +346,6 @@ fn row(raw: Value) -> Result<Row, String> {
         validation,
         accepts: parsed.accepts.into_iter().map(canonical).collect(),
         refuses: parsed.refuses.into_iter().map(canonical).collect(),
-        raw,
+        raw: text,
     })
 }

@@ -45,6 +45,7 @@ import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
 import type { IncomingMessage, IncomingPrompt } from "./conversation/incomingMessage";
 import type { InboxNotice } from "./conversation/inboxNotice";
 import { MEMORY_OFFER, memoryCardState, type MemoryOffer } from "./conversation/memoryInbox";
+import { PRESET_APPROVAL, type PresetApproval } from "./conversation/presetApproval";
 import type { TurnCopyPart } from "./conversation/turnCopy";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
@@ -78,6 +79,7 @@ import { sentPasteJoin } from "./conversation/sentPasteJoin.experiment";
 import { attachmentOnlyPrompt, bubbleLayout } from "./conversation/bubbleParts";
 import { composerSettingsSnapshot } from "./composerSettings";
 import { isPromptMarkdown } from "./conversation/promptMarkdown";
+import { sentUIPick, sentUIPickSegments, type SentPromptSegment } from "./conversation/sentUIPickModel";
 import { SENT_IMAGE_HEIGHT, sentImageSize, sentImageWidth } from "./conversation/userBubbleModel";
 import { sentVideoOf, sentVideosOf } from "./conversation/sentVideos";
 import { fileSizeLabel } from "./fileAttachmentModel";
@@ -426,6 +428,16 @@ export type AcpmuxTurnRetry = {
 /// view draws it; the live line reads it (conversation/turns.ts `withRetry`).
 export const TURN_RETRY = "turn-retry";
 
+/// One claim a reply makes and what its turn's own runs say of it (acpmux hub/claim_check.rs):
+/// `backed`, the newest matching run exited 0; `failed`, it did not; `none`, no run matched.
+export type ClaimCheck = {
+  text: string;
+  kind: "tests" | "build" | "lint" | "typecheck" | "ran";
+  verdict: "backed" | "failed" | "none";
+  toolCallId?: string;
+  command?: string;
+};
+
 export type AcpmuxRow = {
   id: string;
   version: number;
@@ -437,6 +449,9 @@ export type AcpmuxRow = {
   /// transcript rows that belong to one turn use this identity when it is available.
   turnId?: string;
   text?: string;
+  /// A finished reply's checked claims ("tests pass"), from acpmux's `claim_checks` at its turn's
+  /// end (hub/claim_check.rs): each one's phrase draws a mark (conversation/ClaimMark.tsx).
+  claims?: ClaimCheck[];
   streaming?: boolean;
   pending?: boolean;
   failed?: boolean;
@@ -465,6 +480,9 @@ export type AcpmuxRow = {
   planBuild?: PlanBuild;
   /// A memory inbox row's offer (conversation/memoryInbox.ts): facts for the instructions file.
   memory?: MemoryOffer;
+  /// A no-prompt preset's approval card (conversation/presetApproval.ts): the preset an agent of
+  /// this chat tried to start a chat on another machine from, and the person's answer.
+  presetApproval?: PresetApproval;
   /// A background turn's line (conversation/backgroundTurns.ts): the turn it stands for.
   background?: AcpmuxBackgroundTurn;
   /// A row a background turn made: that turn's id, so its line can fold it (backgroundTurns.ts).
@@ -782,6 +800,8 @@ export type AcpmuxRow = {
     label?: string;
     sender: string;
     preview: string;
+    /// The newest message whole, when acpmux sent it (inboxNotice.ts `newest`).
+    newest?: string;
     count: number;
     promptIds: readonly string[];
     fromSession?: string;
@@ -1235,6 +1255,9 @@ export type AcpmuxSnapshot = {
     /// The family (`claude`, `codex`) of a conversation another app runs that this chat only shows
     /// (acpmux `watching`): no prompt goes until the user takes it over.
     watching?: string;
+    /// A watched Claude or Codex desktop session acpmux delivers replies into (`bridgedWatch`): a reply goes
+    /// to the app and takes nothing over.
+    bridged?: boolean;
     /// The MCP servers the harness says it loaded (acpmux `mcpServers`, from Claude Code's
     /// system/init); unset when it reports none (every ACP harness).
     mcpServers?: { name: string; status: "connected" | "failed" | "pending" }[];
@@ -1722,6 +1745,46 @@ function foldedGroupHeight(group: ToolGroup, width: number, closed = true): numb
 
 /// The prepared texts of those messages, for their estimates; cleared past 256, as a row's are.
 const receivedPrepared = new Map<string, PreparedText | null>();
+
+/// An inbox thread's card under its line (conversation/InboxNoticeCard.tsx), from the messages it
+/// draws (the notice's, else what the line read, else the preview): shut, the newest message, cut to
+/// CLAMPED_LINES lines with Show more under it when it runs past them (whole once the person showed
+/// it all); opened, the newest THREAD_PAGE messages (and "Show earlier messages" over them when there
+/// are more), each under its head when there are several, or, in the drill look, a row per message
+/// under the back control.
+function inboxThreadCard(
+  sessionId: string | undefined,
+  key: string,
+  messages: readonly { text: string }[] | undefined,
+  preview: string,
+  width: number,
+  newest?: string,
+): number {
+  // A short one-line newest message reads on the line, with no card (inboxThreadRead.ts `fitsLine`).
+  if (!messageOpened(sessionId, key) && fitsLine(messages?.at(-1)?.text ?? newest)) return messagePreviewLine(true);
+  const { lineHeight } = metrics();
+  if (receivedPrepared.size > 256) receivedPrepared.clear();
+  const measure = (text: string) => (text ? textHeight(text, Math.max(80, width - 44), receivedPrepared) : lineHeight);
+  // 2px above, 4px below, 8px padding each side, as an opened received message's panel.
+  const panel = 2 + 4 + 16;
+  if (!messageOpened(sessionId, key)) {
+    // What the card draws (InboxNoticeCard.tsx `newestText`): the message read, else acpmux's whole
+    // newest, else the preview.
+    const height = measure(messages?.at(-1)?.text ?? newest ?? preview);
+    const limit = CLAMPED_LINES * lineHeight;
+    if (height <= limit + 1) return panel + height;
+    return panel + (messageOpened(sessionId, newestWholeKey(key)) ? height : limit) + CLAMP_MORE_HEIGHT;
+  }
+  const list = messages ?? [{ text: newest ?? preview }];
+  // The back control's line over a 22px row per message.
+  if (inboxThreadLook() === "drill" && messages) return panel + 4 + 24 + 22 * list.length;
+  const shown = list.slice(-THREAD_PAGE);
+  // Several each have their 20px head, 8px apart (InboxNoticeCard.css `.cv-inbox__message`).
+  const heads = list.length > 1 ? shown.length * lineHeight + (shown.length - 1) * 8 : 0;
+  const earlier = list.length > shown.length ? CLAMP_MORE_HEIGHT + 8 : 0;
+  return panel + earlier + heads + shown.reduce((sum, m) => sum + measure(m.text), 0);
+}
+
 /// A row keeps no gap of its own on the grid (grid.md 5.5): the stack gives it.
 const TURN_GAP = 0;
 /// The rest gap (Leo 2026-11-01: "more space between composer and latest messages ... tho maybe not
@@ -2306,6 +2369,20 @@ function fallbackRowHeight(
         (card.error ? 22 : 0),
     );
   }
+  // A preset approval card (conversation/PresetApprovalCard.tsx): open, its 8px padding around the
+  // question, the preset's description, what it starts and the warning (20px lines, English
+  // lengths), an error's line, and the 32px foot of buttons, in its 1px edges and 8px of row
+  // margins; closed, its one 24px note.
+  if (row.kind === PRESET_APPROVAL && row.presetApproval) {
+    const { ask, outcome, error } = row.presetApproval;
+    if (outcome) return finish(8 + 24);
+    const perLine = Math.max(120, width - 40) / 7.5;
+    const lines = (chars: number) => (chars > 0 ? Math.max(1, Math.ceil(chars / perLine)) : 0);
+    const starts = [ask.harness, ask.model, ask.effort, ask.policy, ask.host].join(" ").length;
+    // The question's, what it starts and the warning's English words around their values.
+    const text = lines(ask.preset.length + 40) + lines(ask.description?.length ?? 0) + lines(starts + 24) + lines(98);
+    return finish(8 + 2 + 16 + text * 20 + 4 + (error ? 28 : 0) + 32);
+  }
   // A session start draws nothing (rows/SessionStartRow.tsx): no height, no gap.
   if (row.kind === "sessionStart") return finish(0);
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
@@ -2634,19 +2711,33 @@ function measuredRowHeight(
     // A preview-only inbox thread's line (rows/MessageRow.tsx `inboxThread`) keeps its open state
     // under its thread's key (inboxNotice.ts `inboxThreadKey`), which the digest's head opens too.
     const openKey = row.inboxThread ? inboxThreadKey(row.id, row.inboxThread.threadId) : row.id;
-    if (!messageOpened(sessionId, openKey)) return finish(line + messagePreviewLine(!row.incoming.message.notice));
+    // Its card is always under it, shut or open (inboxThreadCard).
+    if (row.inboxThread) {
+      const read = threadRead(sessionId, openKey, readForIds(row.inboxThread.promptIds)) ?? undefined;
+      return finish(
+        line + inboxThreadCard(sessionId, openKey, read, row.incoming.message.text, width, row.inboxThread.newest),
+      );
+    }
+    const message = row.incoming.message;
+    // The `card` look's message row (conversation/receivedLook.ts; not a tool's notice or a lane's
+    // report, which keep their own line): its card is under the line shut too, the words cut to
+    // CLAMPED_LINES lines with Show more.
+    const card = receivedLook() === "card" && !message.notice && !laneNotice(message);
+    const opened = messageOpened(sessionId, openKey);
+    if (!opened && !card) return finish(line + messagePreviewLine(!message.notice));
     const { lineHeight } = metrics();
-    const text = row.incoming.message.text;
+    const text = message.text;
     if (receivedPrepared.size > 256) receivedPrepared.clear();
-    const lines = text ? textHeight(text, Math.max(80, width - 44), receivedPrepared) : lineHeight;
-    const details = row.incoming.message.raw.trim() === text ? 0 : 24;
-    return finish(line + 2 + 4 + 16 + lines + (row.images?.length ? 128 : 0) + details);
+    const whole = text ? textHeight(text, Math.max(80, width - 44), receivedPrepared) : lineHeight;
+    const cut = card && whole > CLAMPED_LINES * lineHeight + 1;
+    const lines = cut && !opened ? CLAMPED_LINES * lineHeight : whole;
+    const details = opened && message.raw.trim() !== text ? 24 : 0;
+    return finish(line + 2 + 4 + 16 + lines + (cut ? CLAMP_MORE_HEIGHT : 0) + (row.images?.length ? 128 : 0) + details);
   }
   if (row.incoming?.kind === "notice") return finish(lineRow());
   if (row.incoming?.kind === "inbox") {
     // acpmux's inbox notice (conversation/InboxNoticeCard.tsx): a received line per thread, under
-    // the group's line when the group look holds two or more; an opened thread adds its panel as
-    // an opened message does, its text read from the notice (else its preview).
+    // the group's line when the group look holds two or more, each with its card (inboxThreadCard).
     const { threads } = row.incoming.notice;
     const line = toolRowHeight();
     // The group's head is a tool row (MessageGroupHead.tsx) on the one-line rows' line.
@@ -2654,19 +2745,14 @@ function measuredRowHeight(
     const grouped = threads.length > 1 && foldsThreads(inboxNoticeLook());
     if (grouped && !messageOpened(sessionId, row.id))
       return finish(head + LINE_FRAME + messagePreviewLine(inboxNoticeLook() !== "group-count"));
-    const { lineHeight } = metrics();
-    if (receivedPrepared.size > 256) receivedPrepared.clear();
     let height = (grouped ? head : 0) + (threads.length > 1 && inboxNoticeLook() === "card" ? 6 : 0);
     for (const thread of threads) {
-      height += line;
-      // Shut, its preview sits under the sender (stacked look).
-      if (!messageOpened(sessionId, inboxThreadKey(row.id, thread.threadId))) {
-        height += messagePreviewLine(true);
-        continue;
-      }
-      const text = thread.messages?.map((m) => m.text).join("\n\n") ?? thread.preview;
-      const inset = grouped ? 24 : 0;
-      height += 2 + 4 + 16 + (text ? textHeight(text, Math.max(80, width - 44 - inset), receivedPrepared) : lineHeight);
+      const key = inboxThreadKey(row.id, thread.threadId);
+      const messages = thread.messages?.length
+        ? thread.messages
+        : (threadRead(sessionId, key, readForIds(thread.promptIds)) ?? undefined);
+      height +=
+        line + inboxThreadCard(sessionId, key, messages, thread.preview, width - (grouped ? 24 : 0), thread.newest);
     }
     return finish(height + LINE_FRAME);
   }
@@ -2724,6 +2810,7 @@ function measuredRowHeight(
     !chiefEnvelope(row.text) &&
     isPlainUserPrompt(row.text);
   const contentWidth = Math.max(80, row.kind === "user" ? USER_BUBBLE_SHARE * width - userBubbleSides() : width);
+  const picks = row.kind === "user" && !inline && !pasted && !plainUser ? sentUIPickSegments(row.text) : undefined;
   const usedPrepared = new Set<string>();
   let contentHeight: number;
   if (plainUser) {
@@ -2737,11 +2824,15 @@ function measuredRowHeight(
       entry.plainHeight = { key: plainKey, height: contentHeight };
     }
   } else {
-    if (!inline && !pasted && (entry.text !== row.text || entry.lexedLength === 0)) {
+    if (!inline && !pasted && !picks && (entry.text !== row.text || entry.lexedLength === 0)) {
       lexIncrementally(entry, row.text);
     }
     if (inline) {
       contentHeight = inlinePromptHeight(row, inline, contentWidth, entry.prepared, usedPrepared);
+    } else if (picks) {
+      // A prompt with inspector picks draws each as its chip (conversation/SentUIPick.tsx), the text
+      // around it as before: never the report's fenced lines.
+      contentHeight = pickedPromptHeight(picks, contentWidth, entry.prepared, usedPrepared);
     } else if (pasted) {
       // A prompt with pasted blocks: one body of its typed text and the person's pastes, and a paste
       // another agent wrote apart under its "Pasted from" line (conversation/PromptText.tsx). A huge
@@ -2790,6 +2881,10 @@ export const INLINE_ATTACHMENT_MARGIN = { x: 4, y: 2 };
 /// A sent file's chip (composerAttachments.css `.acpmux-file-chip`): 32px tall, at most 340px wide,
 /// 8px each side of its 16px glyph, its name and its size, 6px apart.
 export const INLINE_FILE_CHIP = { height: 32, maxWidth: 340, side: 8, glyph: 16, gap: 6 };
+/// An inspector pick's chip in a sent message (composerAttachments.css `.cv-user__chip`): a block of
+/// its own, its face two control rows tall, 4px above and below. Closed: an opened one is measured.
+export const SENT_UI_PICK_CHIP = { height: 48, marginY: 4 };
+const SENT_UI_PICK_BOX = SENT_UI_PICK_CHIP.height + 2 * SENT_UI_PICK_CHIP.marginY;
 
 /// `text` prepared for a walk of its lines, kept in the row's prepared map with its text heights.
 function preparedLines(
@@ -2983,11 +3078,40 @@ function inlinePromptHeight(
       else text(part.text);
     } else if (part.kind === "pasted" && part.text) {
       block(PASTE_FROM_HEIGHT + measure(promptHead(part.text, HUGE_PROMPT_HEAD_CHARS)));
+    } else if (part.kind === "file" && !part.uri && part.text && sentUIPick(part.text)) {
+      // An inspector pick placed in the text: its chip, a block of its own (InlinePromptContent.tsx).
+      block(SENT_UI_PICK_BOX);
     } else {
       attachment(attachmentBox(part, videos, width, prepared, used));
     }
   });
   close();
+  return height;
+}
+
+/// A legacy prompt with inspector picks (`sentUIPickSegments` of its text), as PromptText.tsx
+/// PromptTyped draws it: each text segment its lines, each pick its chip.
+function pickedPromptHeight(
+  segments: readonly SentPromptSegment[],
+  width: number,
+  prepared: PreparedRow["prepared"],
+  used: Set<string>,
+): number {
+  const { lineHeight } = metrics();
+  let height = 0;
+  for (const segment of segments)
+    height +=
+      segment.kind === "pick"
+        ? SENT_UI_PICK_BOX
+        : Math.max(
+            lineHeight,
+            textHeight(
+              isHugePrompt(segment.text) ? promptHead(segment.text, HUGE_PROMPT_HEAD_CHARS) : segment.text,
+              width,
+              prepared,
+              used,
+            ),
+          );
   return height;
 }
 
@@ -3416,6 +3540,11 @@ import { currentChatMetrics } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
 import { inboxThreadKey } from "./conversation/inboxNotice";
 import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";
+import { fitsLine, newestWholeKey, readForIds, THREAD_PAGE, threadRead } from "./conversation/inboxThreadRead";
+import { inboxThreadLook } from "./conversation/inboxThreadLook";
+import { CLAMP_MORE_HEIGHT, CLAMPED_LINES } from "./conversation/lineCut";
+import { laneNotice } from "./conversation/laneReport";
+import { receivedLook } from "./conversation/receivedLook";
 import { MESSAGE_PREVIEW_LINE_PT, messageLineLook } from "./conversation/messageLineLook";
 import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
 import { planOpen } from "./conversation/planOpen";

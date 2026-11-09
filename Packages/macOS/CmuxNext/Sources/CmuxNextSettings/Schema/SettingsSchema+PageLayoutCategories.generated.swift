@@ -174,7 +174,7 @@ extension SettingsPageLayout {
             // Folders that start an agent without the trust question.
             GroupSpec(group: "settings.group.folderTrust"),
         ],
-        trail: [.computerUse, .harnesses, .agentHarnesses, .agentIntegrations]
+        trail: [.computerUse, .harnesses, .agentHarnesses, .agentIntegrations, .worktreeSetup]
     )
 
     /// Every Chief setting on one page (Leo 2026-10-20: the name pill's popover is the quick version; its All Chief Settings link opens this): Chiefs lists every Chief, each opening its editor (name, picture, backend; u2586); the Chief Pet card (ChatGPT's Mini & Pets) draws the preview, Show/Hide and the characters from its group's two rows; then the chat's look. Voice input (the message box's mic) shows only in builds with Debug Settings. Notices last: a row that opens Notifications (the Chief's notices are the app's notifications; their rows keep their one home there).

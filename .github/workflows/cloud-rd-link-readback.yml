@@ -33,7 +33,9 @@ jobs:
   readback:
     if: github.ref == 'refs/heads/feat-cmux-next'
     # Holds the stack pair: an ephemeral Blacksmith macOS VM from the declared pool, as cloud-chat-proof.yml.
-    environment: cmux-next-cloud-journey
+    environment:
+      name: cmux-next-cloud-journey
+      deployment: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 75
     steps:

@@ -6,31 +6,29 @@
 //! `--pane`) take it wherever a terminal, tab or pane selector goes. Any
 //! other tab name that is unique in the session works the same way.
 //!
-//! Before the CLI parses a command, [`rewrite_args`] looks a selector word
-//! that is not an id, `current`/`caller`/`focused` or a command word (also a
-//! subcommand word of the parser, like `group` in `tab group list`) up in
-//! one `session.snapshot`:
+//! Before the CLI parses a command, [`rewrite_args`] asks the daemon to
+//! resolve each selector word that is not an id, `current`/`caller`/`focused`
+//! or a command word (also a subcommand word of the parser, like `group` in
+//! `tab group list`), as `<scope> <word> show` from the caller, and puts the
+//! id it answers in place of the word. The daemon has the one selector
+//! resolver (W5-P, `resource_selector` in cmux-tui-core): the current scope
+//! first, then a terminal title or pane name, then a tab name in the whole
+//! session, a tab whose terminal runs before one whose terminal exited (kept
+//! by `--on-exit keep`, so `terminal alpha resume` finds it). Two or more at
+//! one step are `selector.ambiguous` with the tab ids. So `--terminal alpha`
+//! gives the full `term_` id that `notification create` and `agent report`
+//! need, and it is the object `terminal alpha …` selects.
 //!
-//! 1. a tab with that name whose terminal runs (with an agent or not);
-//! 2. else a tab with that name whose terminal exited (kept by
-//!    `--on-exit keep`, so `terminal alpha resume` finds it).
-//!
-//! The first step with exactly one tab wins; two or more there is
-//! `selector.ambiguous` with the tab ids (an agent tab and a shell tab with
-//! one name too, as in the daemon's tab-name scope). A name only fills a gap: when a
-//! name matches, the daemon's own selector rules (the current scope,
-//! terminal titles, names under a parent) are asked first, and a word they
-//! find stays as it is. So a selector that resolved before resolves to the
-//! same object. A terminal title and a pane's own name also win over a tab
-//! name.
+//! [`resolve`] is the same tab-name rule over a `session.snapshot`, for the
+//! commands that already read one (`agent start --pane`, `agent resume`,
+//! `terminal … send`).
 
 use std::collections::HashMap;
 
 use cmux_tui_core::resource::ResourceOperation;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use super::command::WireOperation;
-use super::terminal_talk::send;
 
 /// Agent name grammar: a lowercase letter, then up to 31 lowercase letters,
 /// digits, `-` or `_`.
@@ -133,7 +131,7 @@ pub(in crate::cli) fn places_named(snapshot: &Value, name: &str) -> Vec<Place> {
                 terminal: terminal["id"].as_str()?.to_owned(),
                 tab: tab["id"].as_str()?.to_owned(),
                 pane: tab["pane_id"].as_str()?.to_owned(),
-                live: terminal["lifecycle"] != "exited",
+                live: super::terminal_lifecycle::is_live(terminal),
             })
         })
         .collect()
@@ -196,14 +194,6 @@ impl Scope {
             Self::Pane => ResourceOperation::PaneGet,
         }
     }
-
-    fn id(self, place: &Place) -> &str {
-        match self {
-            Self::Terminal => &place.terminal,
-            Self::Tab => &place.tab,
-            Self::Pane => &place.pane,
-        }
-    }
 }
 
 /// One selector word that may be a name: the command word after the scope,
@@ -220,8 +210,9 @@ pub(in crate::cli) struct Target {
     pub inline: bool,
 }
 
-/// The word as a name to look up; `None` for an id, an id prefix, a
-/// keyword or a command word.
+/// The word as a selector to resolve; `None` for a full id, a keyword or a
+/// command word. A unique id prefix (`term_3f0a`) and a bare or host id are
+/// resolved too, so a flag that needs the full id gets it.
 fn candidate(word: &str) -> Option<&str> {
     if let Some(name) = word.strip_prefix("name:") {
         return (!name.is_empty()).then_some(name);
@@ -230,7 +221,7 @@ fn candidate(word: &str) -> Option<&str> {
         || word.starts_with('-')
         || KEYWORDS.contains(&word)
         || cmux_tui_core::resource::is_reserved_selector_token(word)
-        || looks_like_id(word)
+        || (looks_like_id(word) && cmux_tui_core::resource::id_prefix_parts(word).is_none())
     {
         return None;
     }
@@ -336,79 +327,50 @@ pub(in crate::cli) fn replace(words: &mut [String], target: &Target, id: &str) {
     };
 }
 
-/// The id `target` selects in `snapshot` by name: `Ok(None)` for a word that
-/// stays as it is, `Err` with the error for an ambiguous name. A terminal
-/// title wins over a tab name, as in `terminal … send` (send.rs), and a pane
-/// with the name keeps it.
-pub(in crate::cli) fn lookup(snapshot: &Value, target: &Target) -> Result<Option<String>, Value> {
-    let Some(name) = candidate(&target.word) else { return Ok(None) };
-    let named = |key: &str, field: &str| list(snapshot, key).iter().any(|item| item[field] == name);
-    if (target.scope == Scope::Pane && named("panes", "name"))
-        || (target.scope == Scope::Terminal && named("terminals", "title"))
-    {
-        return Ok(None);
-    }
-    match resolve(snapshot, name) {
-        Found::One(place) => Ok(Some(target.scope.id(&place).to_owned())),
-        Found::Missing => Ok(None),
-        Found::Ambiguous(tabs) => Err(json!({
-            "code": "selector.ambiguous",
-            "message": format!(
-                "{} tabs are named {name:?}; name one by its id ({})",
-                tabs.len(),
-                tabs.join(", ")
-            ),
-            "details": {"name": name, "candidates": tabs},
-            "retryable": false,
-        })),
-    }
-}
-
-/// The command `words` with each name replaced by its id; `Ok(None)` when
-/// nothing changes. `found_by_selector_rules` tells whether the daemon's own
-/// selector rules (the current scope, terminal titles, names under a parent)
-/// already find a target's word: such a word stays, so a selector that
-/// resolved before resolves to the same object. It is asked only for a word
-/// that a name matches.
+/// The command `words` with each target's word replaced by the id that
+/// `resolve` gives for it; `Ok(None)` when nothing changes. `resolve` is the
+/// daemon's one selector resolver (W5-P): `Ok(Some(id))` for the object the
+/// word selects, `Ok(None)` for a word that stays as it is (not found, or
+/// no answer), `Err` with the daemon's error (`selector.ambiguous`).
 pub(in crate::cli) fn rewrite_words(
     words: &[String],
-    snapshot: &Value,
-    found_by_selector_rules: &mut dyn FnMut(&Target) -> bool,
+    resolve: &mut dyn FnMut(&Target) -> Result<Option<String>, Value>,
 ) -> Result<Option<Vec<String>>, Value> {
     let mut rewritten = words.to_vec();
     let mut changed = false;
     for target in targets(words) {
-        let Some(id) = lookup(snapshot, &target).transpose() else { continue };
-        if found_by_selector_rules(&target) {
-            continue;
+        let Some(id) = resolve(&target)? else { continue };
+        if id != target.word {
+            replace(&mut rewritten, &target, &id);
+            changed = true;
         }
-        let id = id?;
-        replace(&mut rewritten, &target, &id);
-        changed = true;
     }
     Ok(changed.then_some(rewritten))
 }
 
-/// Whether the daemon resolves `target`'s word with its own selector rules
-/// (as `<scope> <word> show` from this caller). Only `selector.not_found`
-/// counts as "not found": any other answer, or no answer, keeps the word.
-fn daemon_finds(global: &super::GlobalArgs, target: &Target) -> bool {
+/// The id the daemon resolves `target`'s word to, read as
+/// `<scope> <word> show` from this caller: the same rules as every other
+/// command (W5-P's one resolver), so `terminal alpha`, `--terminal alpha`
+/// and `notification create --terminal alpha` select one object. Only
+/// `selector.ambiguous` is an error; any other failure, or no answer, keeps
+/// the word (the command then reports its own error).
+fn daemon_resolves(global: &super::GlobalArgs, target: &Target) -> Result<Option<String>, Value> {
     use super::resolve::{self, Failure, SocketRoute};
     let words = [target.scope.word().to_owned(), target.word.clone(), "show".to_owned()];
     let Ok(super::command::CommandPlan::Protocol(plan)) =
         super::command::parse(&words, super::Surface::current())
     else {
-        return true;
+        return Ok(None);
     };
     let mut plan = *plan;
     if resolve::apply_global_route(global, &mut plan).is_err() {
-        return true;
+        return Ok(None);
     }
     let Ok((socket, derived)) = super::wire::resolve_socket_with_origin(global) else {
-        return true;
+        return Ok(None);
     };
     let Ok(stream) = cmux_tui_core::server::connect_session_socket(&socket, derived) else {
-        return true;
+        return Ok(None);
     };
     let _ = stream.set_read_timeout(Some(PROBE_TIMEOUT));
     let mut reader = std::io::BufReader::new(stream);
@@ -418,29 +380,32 @@ fn daemon_finds(global: &super::GlobalArgs, target: &Target) -> bool {
         let params = plan.params.as_object().cloned().unwrap_or_default();
         resolve::read(&mut reader, target.scope.get(), params)
     });
-    !matches!(
-        found,
+    match found {
+        Ok(object) => Ok(object.get("id").and_then(Value::as_str).map(str::to_owned)),
         Err(Failure::Resource(error))
-            if error.get("code").is_some_and(|code| code == "selector.not_found")
-    )
+            if error.get("code").is_some_and(|code| code == "selector.ambiguous") =>
+        {
+            Err(error)
+        }
+        Err(_) => Ok(None),
+    }
 }
 
 /// How long the selector probe waits for the daemon.
 // timeout: each read of the probe; a daemon that does not answer leaves the args as typed.
 const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// `args` with each agent or unique tab name replaced by its id;
-/// `Ok(None)` when nothing changed (or the session could not be read),
-/// `Err(exit code)` after printing an ambiguous-name error.
+/// `args` with each selector word that may be a name replaced by the id the
+/// daemon resolves it to; `Ok(None)` when nothing changed (or the session
+/// could not be read), `Err(exit code)` after printing an ambiguous-name
+/// error.
 pub(in crate::cli) fn rewrite_args(args: &[String]) -> Result<Option<Vec<String>>, i32> {
     let Ok((global, words)) = super::parse_globals(args) else { return Ok(None) };
     if global.all_sessions || super::has_help_option(&words) || targets(&words).is_empty() {
         return Ok(None);
     }
-    let backend = super::mcp::cli_backend(global.clone());
-    let Ok(snapshot) = send::snapshot(&backend, None) else { return Ok(None) };
-    let mut probe = |target: &Target| daemon_finds(&global, target);
-    let rewritten = match rewrite_words(&words, &snapshot, &mut probe) {
+    let mut resolve = |target: &Target| daemon_resolves(&global, target);
+    let rewritten = match rewrite_words(&words, &mut resolve) {
         Ok(Some(rewritten)) => rewritten,
         Ok(None) => return Ok(None),
         Err(error) => return Err(super::wire::print_local_error(&error, global.output, 1)),

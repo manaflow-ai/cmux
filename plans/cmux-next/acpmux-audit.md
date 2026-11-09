@@ -1,5 +1,7 @@
 # acpmux performance audit (rules D1-D8, A1-A3)
 
+New notices to PL-acpmux go in [acpmux-audit/](acpmux-audit/), one file per change named `YYYY-MM-DD-<slug>.md` (from 2026-11-09, so that parallel PRs do not conflict here); this file keeps the older ones.
+
 Status: audit landed 2026-10-23 (session cmux-4f, PL-acpmux); fixes in progress in the same
 session (the lead moved acpmux ownership here: nobody in cmux-b6 owns acpmux code). Rules and
 targets: [perf-lead.md](perf-lead.md), "Daemon and acpmux targets". Every acpmux op < 2 ms p95
@@ -343,3 +345,38 @@ the subagent was "waiting for it" (the outbox's delivery keeps a request open, s
   - Tests: `w5s_a_forged_from_routes_no_reply_to_the_session_it_names` and
     `hub/question_replies_tests.rs` (red first each), `w5s_a_waited_question_gets_its_reply_on_the_
     call_and_no_report`, `w5s_a_question_steered_into_a_running_turn_reports_at_that_turns_end`.
+
+## Notice to PL-acpmux: CLI friction from bench round 4 (2026-11-08)
+
+From tui-parity bench round 4, friction 6-10 (owner W5-S). CLI only; no daemon change.
+- Policy note (`question_answer.rs` `app_allow_note`): a chat on a daemon default of ask,
+  approve-reads or approve-edits, in a mode that runs every tool unasked
+  (`web_modes::runs_everything_unasked`, keyed by the harness's mode family: Claude
+  `bypassPermissions`, Codex `agent-full-access`), said it "asks before some tools run". It does
+  not (chats start in full access, `hub/policy_gate.rs`). The note now says so and gives `acpmux
+  session set NAME policy=P`; Japanese for a Japanese locale. The other non-asking modes
+  (`acceptEdits`, `dontAsk`, `auto`, Codex `read-only` and `agent`, opencode `build`, which
+  still asks outside the project, for `*.env` and for repeated calls) and a mode of the same
+  name in another harness keep the asking note: they still ask for or deny some tools, and the
+  default answers those (review of #39057). Not a refusal: W5-L's rule
+  refuses a chat's own unenforceable policy, and a default is not the chat's own.
+- Host warning (`cli/host_budget.rs`): once per caller (session or person) and host per 10
+  minutes, kept in `ACPMUX_HOME/host-warnings` (one file per caller and host, named by a stable
+  FNV-1a hash; only that folder is made, 0700, never a missing home); `--json` prints none, as
+  before.
+- `ls --fields` / `session info --fields --json` (`cli/select.rs` `project_fields`): a selected
+  field the record lacks is null, not dropped. `startedBy` is not added: the creator is
+  `createdBy`, and `subsession.startedBy` is a sub-session's parent (flagged to the lead).
+- Guide: a complete private-daemon recipe (unset every `ACPMUX_*` and `CLAUDE_CODE_MESSAGING_*`,
+  an absolute acpmux path, `defaults claude prefer=claude-sr2,claude` for a new home).
+
+## Notice to PL-acpmux: the Chief reads an agent's ACPMUX_BIN wrapper (2026-11-09)
+
+F3 of #39020 (owner W5-S), PR #39552. An agent's `ACPMUX_BIN` can be acpmux's wrapper script
+(`cli_caller::bin_choice`, `BinChoice::Wrapper`: a host prefix with no `acpmux` alias). A Chief
+started from that agent's shell inherits it, and its socket peer check compared the daemon with
+the script. `optchat-chief` `acpmux_wrapper.rs` now reads the exact wrapper shape and checks the
+peer against the binary it runs. The wrapper text is now a contract: a change to its shape in
+`cli_caller.rs` must change `acpmux_wrapper.rs` too (the `BinChoice::Wrapper` doc says so).
+Next (F3b): the Swift app's `ACPMUX_BIN` override and `mux/host` `acpmux-daemon.ts` must not
+take the wrapper as the daemon binary either.

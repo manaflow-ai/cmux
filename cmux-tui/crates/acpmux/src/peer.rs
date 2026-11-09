@@ -35,6 +35,8 @@ pub use dual::DualStats;
 mod features;
 #[path = "peer_health.rs"]
 mod health;
+#[path = "peer_overlay.rs"]
+pub(crate) mod overlay;
 
 #[cfg(feature = "hub-carrier")]
 #[path = "peer_hub.rs"]
@@ -187,6 +189,9 @@ pub struct Peer {
     hub_carrier: std::sync::OnceLock<(crate::hub_carrier::HubCarrierSlot, Option<String>)>,
     /// The paired install the cmux link dials for this peer (`peer_carriers.rs`).
     link_host: std::sync::OnceLock<String>,
+    /// The peer's config names its own route (`wireguard` or `linkHost`): no overlay path is
+    /// found or recalled for it (`peer_overlay.rs`).
+    explicit_route: AtomicBool,
     /// The cmux link's socket when known ahead of its registration (tests); else read per dial.
     link_socket: std::sync::OnceLock<std::path::PathBuf>,
     /// The peer's paths and which one carries the link (`peer_paths.rs`), made on first use.
@@ -478,6 +483,7 @@ impl Peer {
             #[cfg(feature = "hub-carrier")]
             hub_carrier: std::sync::OnceLock::new(),
             link_host: std::sync::OnceLock::new(),
+            explicit_route: AtomicBool::new(false),
             link_socket: std::sync::OnceLock::new(),
             paths: StdMutex::new(None),
             serving: StdMutex::new(None),
