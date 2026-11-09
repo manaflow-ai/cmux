@@ -35,7 +35,7 @@ import Testing
         let demo = try #require(view.transcript.controller.demo, "\(step): no transcript")
         let back = demo.pinnedOffset - demo.collection.contentOffset.y
         let pinned = demo.store.state.ui.scroll.pinnedToBottom
-        print("34562 \(step): messages=\(demo.store.state.conversation.messages.count) pinned=\(pinned) back=\(back) bottom=\(demo.pinnedOffset) top=\(demo.minOffset)")
+        print("34562 \(step): returnPins=\(view.returnPins) messages=\(demo.store.state.conversation.messages.count) pinned=\(pinned) back=\(back) bottom=\(demo.pinnedOffset) top=\(demo.minOffset)")
         return (pinned, back)
     }
 
