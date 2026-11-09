@@ -8,10 +8,12 @@
 #   hyperdrive.sh restart <name>   drains the config's connection pool (its origin connections, all the
 #                                  Worker role's) and starts a new one; the config itself is unchanged
 #
-# HYPERDRIVE_ORIGIN_CONNECTION_LIMIT (optional, for ensure): the most connections Hyperdrive opens to the
-# database (Cloudflare's paid default is 60). Staging sets it below the branch's max_connections, so the
-# Worker's pool can never take the slots the deploy gate, migrations and admins need (2026-11-09: staging
-# full, every deploy refused at the ordering gate with 53300).
+# ensure sets origin_connection_limit, the most connections Hyperdrive opens to the database. Unset, Cloudflare's
+# paid default is 60, and the staging branch has max_connections 25 (3 reserved): on 2026-11-09 the Worker's pool
+# took every slot from 21:49Z and every deploy stopped at the ordering gate with 53300 (cmux#39920 measured it:
+# 12 of 13 backends were Hyperdrive's). So staging gets 10 and preview 5, which leaves room for the gate,
+# migrate-staging, the preview pool and an admin. Hyperdrive's limit is soft, so it stays well under the slots.
+# Production keeps its current limit. HYPERDRIVE_ORIGIN_CONNECTION_LIMIT (5..100) overrides it.
 #
 # Needs CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID (and CMUX_VM_DATABASE_URL
 # for ensure). Never prints the token, the database URL or response bodies.
@@ -20,9 +22,12 @@ set -euo pipefail
 command="${1:-}"
 config_name="${2:-}"
 case "$config_name" in
-  cmux-vm-preview | cmux-vm-staging | cmux-vm-production) ;;
+  cmux-vm-staging) default_limit=10 ;;
+  cmux-vm-preview) default_limit=5 ;;
+  cmux-vm-production) default_limit="" ;;
   *) echo "::error::config name must be cmux-vm-preview, cmux-vm-staging or cmux-vm-production" >&2; exit 2 ;;
 esac
+export HYPERDRIVE_ORIGIN_CONNECTION_LIMIT="${HYPERDRIVE_ORIGIN_CONNECTION_LIMIT:-$default_limit}"
 : "${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_API_TOKEN is required}"
 : "${CLOUDFLARE_ACCOUNT_ID:?CLOUDFLARE_ACCOUNT_ID is required}"
 
@@ -68,7 +73,7 @@ case "$command" in
       const database = decodeURIComponent(url.pathname.replace(/^\//, ""));
       if (!url.hostname || !url.username || !url.password || !database) { console.error("::error::CMUX_VM_DATABASE_URL needs host, user, password and database"); process.exit(1); }
       const limit = process.env.HYPERDRIVE_ORIGIN_CONNECTION_LIMIT || "";
-      if (limit && !/^[0-9]+$/.test(limit)) { console.error("::error::HYPERDRIVE_ORIGIN_CONNECTION_LIMIT must be a whole number"); process.exit(1); }
+      if (limit && !(/^[0-9]+$/.test(limit) && Number(limit) >= 5 && Number(limit) <= 100)) { console.error("::error::HYPERDRIVE_ORIGIN_CONNECTION_LIMIT must be a whole number from 5 to 100"); process.exit(1); }
       const body = {
         name: process.env.CONFIG_NAME,
         ...(limit ? { origin_connection_limit: Number(limit) } : {}),
