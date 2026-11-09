@@ -381,6 +381,8 @@ test("the deadline starts at a surface's first report, not while it is held", as
   let answer: (() => void) | undefined;
   stop = reportHostGlass(doc, () => new Promise<void>((resolve) => (answer ??= resolve)));
   const element = surface(doc);
+  // The mount's observer schedules the reporter's frames before the test counts its own.
+  await Promise.resolve();
   await frames(HOST_GLASS_HOLD_FRAMES + 2);
   expect(answer).toBeDefined();
   answer!();
