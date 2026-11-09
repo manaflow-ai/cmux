@@ -429,6 +429,9 @@ import Testing
         // The screen sends the press's own click count.
         let press = HomeChiefComputerScreenView.press(from: (5, 6), startPoint: .zero, to: (5, 6), endPoint: .zero, button: 1, count: 2)
         #expect(press == .click(x: 5, y: 6, button: 1, count: 2))
+        // AppKit's click count keeps growing with quick clicks; the computer's route takes 1 to 3.
+        let fifth = HomeChiefComputerScreenView.press(from: (5, 6), startPoint: .zero, to: (5, 6), endPoint: .zero, button: 1, count: 5)
+        #expect(fifth == .click(x: 5, y: 6, button: 1, count: 3))
     }
 
     @Test func dropForgetsEveryQueuedInputAndARefusalAfterItSaysNothing() async {

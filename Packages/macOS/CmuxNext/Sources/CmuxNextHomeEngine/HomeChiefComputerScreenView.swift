@@ -45,13 +45,14 @@ final class HomeChiefComputerScreenView: NSView {
         return (Int(x), Int(y))
     }
 
-    /// A finished press: a drag when it moved, else a click (`count` the click count).
+    /// A finished press: a drag when it moved, else a click (`count` the click count, 1 to 3: the
+    /// computer's route refuses any other, and a fourth quick click is still a triple click there).
     static func press(from start: (x: Int, y: Int), startPoint: CGPoint, to end: (x: Int, y: Int), endPoint: CGPoint,
                       button: Int, count: Int) -> HomeChiefComputerInput {
         if hypot(endPoint.x - startPoint.x, endPoint.y - startPoint.y) >= dragSlop {
             return .drag(fromX: start.x, fromY: start.y, toX: end.x, toY: end.y)
         }
-        return .click(x: start.x, y: start.y, button: button, count: max(1, count))
+        return .click(x: start.x, y: start.y, button: button, count: min(3, max(1, count)))
     }
 
     /// The scroll steps for `delta` points of scrolling added to `carried` (what was left over), and
