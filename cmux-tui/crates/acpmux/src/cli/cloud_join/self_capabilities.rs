@@ -491,7 +491,7 @@ mod tests {
         server.join().unwrap();
         assert_eq!(record(home.path()).capabilities, Some(Vec::new()));
         // The build decides what runs and what is sent: the vault's egress proxy, and the list.
-        assert!(RUNS_EGRESS_PROXY);
+        const { assert!(RUNS_EGRESS_PROXY) };
         assert_eq!(machine_capabilities(), vec![VAULT_PROXY_CAPABILITY.to_owned()]);
     }
 

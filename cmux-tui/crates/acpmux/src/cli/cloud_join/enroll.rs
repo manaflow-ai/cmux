@@ -939,7 +939,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         joined(home.path(), |r| r.capabilities = Some(Vec::new()));
         // What this acpmux runs and sends comes from the build, never from the record.
-        assert!(RUNS_EGRESS_PROXY, "the egress proxy runs whatever the record says");
+        const { assert!(RUNS_EGRESS_PROXY, "the egress proxy runs whatever the record says") };
         assert_eq!(machine_capabilities(), vec!["vault.proxy.v1".to_owned()]);
         // A sign-in finds a list recorded: no rotate of its own.
         let port = FakeHub::at(home.path());
