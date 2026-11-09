@@ -354,6 +354,15 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
     }
 
+    /// F2 of #39020: `ACPMUX_BIN` is run from an agent's own working folder, so the wrapper's
+    /// path is absolute even when the acpmux home is named relative to the daemon's.
+    #[test]
+    fn w5s_the_wrapper_path_is_absolute_under_a_relative_home() {
+        let path = wrapper_path(std::path::Path::new("rel/acpmux-home"));
+        assert!(path.is_absolute(), "{}", path.display());
+        assert!(path.ends_with("rel/acpmux-home/bin/acpmux"), "{}", path.display());
+    }
+
     #[test]
     fn this_cli_declares_terminal_outside_a_session_and_agent_inside_one() {
         let mut mux = Map::new();
