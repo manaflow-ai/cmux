@@ -274,7 +274,7 @@ export function scanSources(directory = path.join(root, "src")): Map<string, str
         )
       )
         for (const [k, v] of scanSources(file)) found.set(k, v);
-    } else if (/\.tsx$/.test(entry.name) && !/[._](?:test|spec|gallery|stories)\.tsx$/.test(entry.name)) {
+    } else if (entry.name.endsWith(".tsx") && !/[._](?:test|spec|gallery|stories)\.tsx$/.test(entry.name)) {
       const reads = findWholeListRows(file, readFileSync(file, "utf8"));
       if (reads.length) found.set(path.relative(root, file), reads);
     }
