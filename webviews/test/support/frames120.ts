@@ -6,6 +6,14 @@
 // socket's stand-ins and frame callbacks all run on the real clock, and a frame whose work runs past
 // its slot misses the next one, as on a 120 Hz display. Each frame's time from the ask until Chromium
 // drew it is its frame time; a slot no frame began in is a dropped frame.
+//
+// `clock: "frames"` (with the page's test/browser/frameClock.ts) puts the page on the frames' own
+// clock instead: each frame is given a time exactly one slot after the last (`frameTimeTicks`, never
+// ahead of the wall clock), and the next frame waits until the page ran what the last one left due
+// (`__frameIdle`). Frame callbacks, animations, the page's timers and `performance.now` then see a
+// 120 Hz display that never drops a frame, however late the host draws them: a stall makes the run
+// slower, not its motion different. `frameMs` and `dropped` still report the host's wall time.
+import { dlopen, FFIType, ptr } from "bun:ffi";
 import net from "node:net";
 import { chromium, type Browser, type Page } from "playwright";
 
@@ -43,7 +51,27 @@ async function freePort(): Promise<number> {
 
 /// Opens `url` in a new headless Chromium whose page draws only on this clock's frames. The clock
 /// runs from the page's creation (it draws nothing otherwise); `start`/`stop` mark the measured span.
-export async function open120Hz(url: string, viewport = { width: 900, height: 640 }): Promise<Frames120> {
+/// Chromium's frame clock on Linux (its TimeTicks: CLOCK_MONOTONIC, ms), which `frameTimeTicks` is
+/// read on; undefined elsewhere, where `clock: "frames"` leaves the frames' times to Chromium and only
+/// the page's timers follow its frames. (Bun's `process.hrtime` counts from the process's start.)
+const monotonicMs: (() => number) | undefined = (() => {
+  if (process.platform !== "linux") return undefined;
+  const libc = dlopen("libc.so.6", { clock_gettime: { args: [FFIType.i32, FFIType.ptr], returns: FFIType.i32 } });
+  const CLOCK_MONOTONIC = 1;
+  const spec = new BigInt64Array(2);
+  return () => {
+    libc.symbols.clock_gettime(CLOCK_MONOTONIC, ptr(spec));
+    return Number(spec[0]) * 1000 + Number(spec[1]) / 1e6;
+  };
+})();
+
+export async function open120Hz(
+  url: string,
+  {
+    viewport = { width: 900, height: 640 },
+    clock = "wall",
+  }: { viewport?: { width: number; height: number }; clock?: "wall" | "frames" } = {},
+): Promise<Frames120> {
   const port = await freePort();
   const owner = await chromium.launch({
     headless: true,
@@ -51,6 +79,11 @@ export async function open120Hz(url: string, viewport = { width: 900, height: 64
       `--remote-debugging-port=${port}`,
       "--enable-begin-frame-control",
       "--run-all-compositor-stages-before-draw",
+      // A clip-path animation runs on the compositor in Chromium, and under BeginFrame control its
+      // frames never finish: a sent prompt's bubble reveal (conversation.css SEND-ENTRANCE) hung the
+      // steer and tools turns at their 180 s limit. The app draws with WebKit, which animates
+      // clip-path on the main thread, so the page here does too.
+      "--disable-features=CompositeClipPathAnimation",
     ],
   });
   let browser: Browser | undefined;
@@ -78,8 +111,21 @@ export async function open120Hz(url: string, viewport = { width: 900, height: 64
     let running = true;
     let measuring = false;
     let pacing: FramePacing = { frameMs: [], dropped: 0 };
+    /// `clock: "frames"`: until the page ran what the last frame left due (its frame clock's
+    /// `__frameIdle`, absent until the page loaded it); a second at most, so a page that never answers
+    /// still draws.
+    const pageIdle = () =>
+      Promise.race([
+        cdp
+          .send("Runtime.evaluate", { expression: "globalThis.__frameIdle?.()", awaitPromise: true } as never)
+          .catch(() => undefined),
+        // fixed-wait: the most a frame waits for the page's own work before it is drawn anyway
+        new Promise((resolve) => setTimeout(resolve, 1000)),
+      ]);
     const pump = (async () => {
       let next = performance.now();
+      /// `clock: "frames"`: the next frame's time on the renderer's clock, one slot after the last.
+      let frameAt = monotonicMs?.();
       while (running) {
         const now = performance.now();
         if (now < next - 1.5) {
@@ -89,8 +135,16 @@ export async function open120Hz(url: string, viewport = { width: 900, height: 64
         }
         // The last 1.5 ms spins: a timer lands a millisecond or more late.
         while (performance.now() < next) {}
+        let args: { interval: number; frameTimeTicks?: number } = { interval: FRAME_MS };
+        if (clock === "frames") {
+          await pageIdle();
+          if (frameAt !== undefined) {
+            args = { interval: FRAME_MS, frameTimeTicks: frameAt };
+            frameAt += FRAME_MS;
+          }
+        }
         const asked = performance.now();
-        await cdp.send("HeadlessExperimental.beginFrame", { interval: FRAME_MS } as never).catch(() => undefined);
+        await cdp.send("HeadlessExperimental.beginFrame", args as never).catch(() => undefined);
         const drawn = performance.now();
         // The next slot after the frame was drawn; slots it ran over are dropped.
         let slots = 1;

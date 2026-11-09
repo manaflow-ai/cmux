@@ -54,11 +54,10 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
 }
 
 fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) -> i32 {
-    if plan.stream && global.output == OutputMode::Json {
-        return usage_failure(
-            global.output,
-            "cmux: streams require --jsonl, --quiet, or human output",
-        );
+    if plan.stream
+        && let Some(code) = super::stream_output::refuse_json(global.output)
+    {
+        return code;
     }
     if let Err(error) = super::resolve::apply_global_route(global, &mut plan) {
         return usage_failure(global.output, &format!("cmux: {error}"));
@@ -146,7 +145,7 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
     }
     // The caller's terminal belongs to the session its environment names; an
     // explicit route targets that session's current workspace.
-    let caller_route = global.socket.is_none() && global.session.is_none();
+    let caller_route = routes_to_caller_session(global);
     // An agent's terminal with no place goes beside its chat (beside.rs).
     #[cfg(unix)]
     match super::beside::run_cli(
@@ -626,6 +625,7 @@ fn run_response(
                     #[cfg(unix)]
                     if let Some(listed) = super::cloud_workspaces::for_machine(global, plan, &error)
                     {
+                        let listed = listed.and_then(|rows| list_filter::apply_listed(plan, rows));
                         return match listed {
                             Ok(result) => {
                                 key_report.succeeded();
@@ -685,7 +685,15 @@ fn run_response(
                         ) => super::cloud_workspaces::merge(global, result),
                         _ => result,
                     };
+                    let result = match list_filter::apply(reader, plan, result) {
+                        Ok(result) => result,
+                        Err(error) => return print_operation_error(&error, global.output),
+                    };
                     let result = agent_roster::with_terminals(reader, plan, result);
+                    // The agent status words come from terminal_talk, which is unix
+                    // only; elsewhere the program's own records stay as they are.
+                    #[cfg(unix)]
+                    let result = program_status_view::with_agent_status(reader, plan, result);
                     return super::agent_input_hint::print_result(global, plan, reader, result);
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {
@@ -883,7 +891,19 @@ pub(super) fn print_result(global: &GlobalArgs, plan: &RequestPlan, result: Valu
         && plan.view == super::command::ResponseView::TerminalProgramStatus)
         .then(|| result.pointer("/extra/last_command").cloned())
         .flatten();
-    let result = plan.view.project(result);
+    let mut result = plan.view.project(result);
+    #[cfg(unix)]
+    if global.output == OutputMode::Human
+        && plan.view == super::command::ResponseView::TerminalProgramStatus
+    {
+        result = program_status_view::human_records(result);
+    }
+    if global.output == OutputMode::Human
+        && plan.view == super::command::ResponseView::ScreenText
+        && let Some(text) = result.get("text").and_then(Value::as_str)
+    {
+        return print_screen_text(text);
+    }
     let shown = match global.output {
         OutputMode::Human => human_view(plan, &result),
         output => agent_roster::machine_view(plan, &result, output),
@@ -901,6 +921,20 @@ fn last_command_line(last: &Value) -> String {
     match last.get("exit_code").and_then(Value::as_i64) {
         Some(code) => format!("LAST COMMAND exit {code}"),
         None => "LAST COMMAND exit status unknown".to_owned(),
+    }
+}
+
+/// `terminal <t> screen read` as plain text: the screen's rows as they show,
+/// without trailing blank rows, then one newline.
+fn print_screen_text(text: &str) -> i32 {
+    let mut stdout = io::stdout().lock();
+    let shown = text.trim_end_matches(['\n', ' ']);
+    match writeln!(stdout, "{shown}").and_then(|()| stdout.flush()) {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("stdout error: {error}");
+            3
+        }
     }
 }
 
@@ -1170,8 +1204,11 @@ mod agent_roster;
 mod closed_view;
 mod hints;
 mod human;
+mod list_filter;
 mod list_order;
 mod notify_desktop;
+#[cfg(unix)]
+mod program_status_view;
 mod retry;
 mod sanitize;
 mod socket;
@@ -1198,6 +1235,9 @@ pub(super) use socket::resolve_failure_message;
 #[cfg(test)]
 pub(super) use socket::resolve_socket_with_env;
 pub(super) use socket::resolve_socket_with_origin;
+pub(super) use socket::routes_to_caller_session;
+#[cfg(test)]
+pub(super) use socket::routes_to_caller_session_with;
 pub(super) use socket::{RESOLVE_FAILURE_EXIT, resolve_failure, resolve_socket_or_report};
 
 #[cfg(test)]

@@ -58,6 +58,7 @@
 //!   only the named MCP servers; the Chief's turns keep `cmux` (cx-4a5w2).
 
 pub mod prompt_sources;
+pub mod skill_index;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -65,7 +66,10 @@ use std::path::{Path, PathBuf};
 use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
+pub mod claude_plugin_dirs;
 mod cua_helper;
+
+pub use claude_plugin_dirs::{CLAUDE_PLUGIN_DIRS_ENV, without_cmux_tui_plugins};
 
 /// Directory that overrides where the cmux binaries are looked up.
 pub const BIN_DIR_ENV: &str = "CMUX_AGENT_TOOLS_BIN_DIR";
@@ -231,6 +235,19 @@ const SKILL_FILES: &[(&str, &str)] = &[
     // When and how to ask for one root command (`request_elevation`, `hub/elevation.rs`).
     ("cmux-sudo/SKILL.md", include_str!("../skills/cmux-sudo/SKILL.md")),
 ];
+
+/// The skills that are only about one MCP server's tools, and that server. A session without
+/// the server gets no listing for the skill: each listing is in every turn's prompt, and a
+/// skill for a tool the chat lacks sends the agent to read it for nothing (a Linux or Cloud
+/// chat has no computer use; a chat without `cmux-secrets` has no `request_elevation`).
+const SKILL_SERVERS: &[(&str, &str)] =
+    &[("cmux-cua", crate::cua_v2::SERVER_NAME), ("cmux-sudo", crate::secret_mcp::SERVER_NAME)];
+
+/// The skill a path in [`SKILL_FILES`] belongs to (`cmux-browser/references/x.md` is
+/// `cmux-browser`).
+fn skill_of(path: &str) -> &str {
+    path.split('/').next().unwrap_or(path)
+}
 
 /// One stdio MCP server.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -499,6 +516,7 @@ pub fn claude_args_for(
             // it off, send it to another provider, or opt in to code mode.
             .listing(all_tools_opted_in(env) && claude_lists_all_tools(env, cwd))
             .without_off(env)
+            .fit_skills()
             .folded()
             .claude_args(&mcp_config_path(&crate::config::home(), session_id))
     }
@@ -673,13 +691,14 @@ fn resolve_with_cua_helper(
     }
     // `agents.guidance.claude` off leaves `cmux-chat` out of the plugin, not only the pointer.
     let chat_skill = crate::agent_guidance::Switches::current().claude;
-    let plugin_dir = match materialize(&inputs.state_dir, chat_skill) {
-        Ok(dir) => Some(dir),
-        Err(e) => {
-            tracing::warn!("agent tools: the skills plugin was not written: {e:#}");
-            None
-        }
-    };
+    let plugin_dir =
+        match materialize(&inputs.state_dir, |skill| chat_skill || skill != "cmux-chat") {
+            Ok(dir) => Some(dir),
+            Err(e) => {
+                tracing::warn!("agent tools: the skills plugin was not written: {e:#}");
+                None
+            }
+        };
     let user_plugin_dir = user_plugin(&inputs.state_dir);
     AgentTools { servers, plugin_dir, user_plugin_dir, displays: inputs.displays.clone() }
 }
@@ -842,10 +861,44 @@ impl AgentTools {
         let mut rows: Vec<_> =
             self.servers.iter().map(|s| row(format!("mcp:{}", s.name), &s.name, toggles)).collect();
         if claude && self.plugin_dir.is_some() {
-            let skills = SKILL_FILES.iter().filter_map(|(p, _)| p.strip_suffix("/SKILL.md"));
+            let skills = SKILL_FILES
+                .iter()
+                .filter_map(|(p, _)| p.strip_suffix("/SKILL.md"))
+                .filter(|n| self.lists_skill(n));
             rows.extend(skills.map(|n| row(format!("skill:{PLUGIN_NAME}:{n}"), n, false)));
         }
         rows
+    }
+
+    /// Whether these servers need the `cmux` plugin's skill `name` ([`SKILL_SERVERS`]).
+    pub fn lists_skill(&self, name: &str) -> bool {
+        SKILL_SERVERS
+            .iter()
+            .find(|(skill, _)| *skill == name)
+            .is_none_or(|(_, server)| self.servers.iter().any(|s| s.name == *server))
+    }
+
+    /// The plugin with only the skills these servers need: call it once the session's
+    /// servers are final (after `scoped` and `without_off`, before `folded`). Each set of
+    /// skills is its own content-hashed folder next to the full one; the chat skill stays
+    /// in or out as the full folder has it. A folder that cannot be written keeps the full one.
+    pub fn fit_skills(mut self) -> Self {
+        let Some(dir) = &self.plugin_dir else { return self };
+        if SKILL_FILES.iter().all(|(p, _)| self.lists_skill(skill_of(p))) {
+            return self;
+        }
+        let Some(state_dir) = dir.parent() else { return self };
+        let chat = dir.join("skills/cmux-chat").exists();
+        let fit = materialize(state_dir, |skill| {
+            (chat || skill != "cmux-chat") && self.lists_skill(skill)
+        });
+        match fit {
+            Ok(fit) => self.plugin_dir = Some(fit),
+            Err(e) => {
+                tracing::warn!("agent tools: the fitted skills plugin was not written: {e:#}")
+            }
+        }
+        self
     }
 
     /// `mcpServers` for an ACP `session/new`, `session/load` or `session/fork`.
@@ -1052,10 +1105,11 @@ fn user_plugin(state_dir: &Path) -> Option<PathBuf> {
 
 /// The plugin folder for the compiled-in skills, written once per content
 /// hash (to a temporary folder, then renamed, so a reader never sees half).
-/// `chat_skill` false leaves out `cmux-chat` (the `agents.guidance.claude` switch).
-fn materialize(state_dir: &Path, chat_skill: bool) -> anyhow::Result<PathBuf> {
+/// `keep` picks the skills by name: the `agents.guidance.claude` switch leaves out `cmux-chat`,
+/// [`AgentTools::fit_skills`] the skills of servers a session lacks.
+fn materialize(state_dir: &Path, keep: impl Fn(&str) -> bool) -> anyhow::Result<PathBuf> {
     let skill_files: Vec<&(&str, &str)> =
-        SKILL_FILES.iter().filter(|(p, _)| chat_skill || !p.starts_with("cmux-chat/")).collect();
+        SKILL_FILES.iter().filter(|(p, _)| keep(skill_of(p))).collect();
     let mut all = Vec::new();
     for (path, text) in &skill_files {
         all.extend_from_slice(path.as_bytes());
@@ -1102,7 +1156,10 @@ fn materialize(state_dir: &Path, chat_skill: bool) -> anyhow::Result<PathBuf> {
     }
 }
 
-/// The plugin's `hooks/hooks.json`: `bg_hook.rs` before every `Bash` call, run by this binary
+/// The plugin's `hooks/hooks.json`: `bg_hook.rs` before every `Bash` call, and for a subagent's
+/// calls only ([`hook_command`]) after its `Bash` calls, around its acpmux MCP calls
+/// (`bg_hook::MCP_CALLS`, `subagent_call.rs`) and as it stops (the notices left for a subagent,
+/// `subagent_notice.rs`), run by this binary
 /// with this daemon's home as its argument: the harness's env carries no `ACPMUX_HOME`
 /// (`agent::harness_command` removes every `ACPMUX_` name it inherits), so a tagged build or a
 /// daemon with its own home still finds its chats' MCP configs. The plugin's folder is named by
@@ -1114,21 +1171,38 @@ fn bg_hooks() -> String {
     let mut words = vec![this.exe.to_string_lossy().into_owned()];
     let home = crate::config::home().to_string_lossy().into_owned();
     words.extend(this.args_lossy(&[crate::bg_hook::HOOK_ARG, home.as_str()]));
-    json!({"hooks": {"PreToolUse": [{"matcher": "Bash",
-        "hooks": [{"type": "command", "command": hook_command(&words), "timeout": 10}]}]}})
+    let bash = hook_command(&words, &crate::bg_hook::bash_patterns());
+    let hook = json!([{"type": "command", "command": bash, "timeout": 10}]);
+    // Only a subagent's call has work there: the lead's never starts this binary.
+    let sub = hook_command(&words, &[crate::bg_hook::SUBAGENT_PATTERN.to_owned()]);
+    let subagent = json!([{"type": "command", "command": sub, "timeout": 10}]);
+    let mcp = crate::bg_hook::mcp_matcher();
+    json!({"hooks": {
+        "PreToolUse": [{"matcher": "Bash", "hooks": hook}, {"matcher": mcp, "hooks": subagent}],
+        "PostToolUse": [{"matcher": format!("Bash|{mcp}"), "hooks": subagent}],
+        "PostToolUseFailure": [{"matcher": mcp, "hooks": subagent}],
+        "SubagentStop": [{"hooks": subagent}],
+    }})
     .to_string()
 }
 
-/// The hook's shell command: `words` quoted, then `|| true`. Claude Code blocks the tool call
-/// when a PreToolUse hook exits 2, and the hook only ever turns a call away through the JSON it
-/// prints on success, so a failure (a binary that is gone, or one that does not know
-/// `__bg-hook`, such as the cmux CLI, whose usage errors exit 2) lets the call run instead of
-/// refusing every Bash call of the chat (gcp-codex-swarm-09, 2026-11-02:
-/// `unknown resource scope "__bg-hook"` on each call).
-pub(crate) fn hook_command(words: &[String]) -> String {
+/// A hook's shell command: the shell reads Claude Code's input and starts `words` with it only when
+/// it matches one of `patterns` (shell `case` patterns), so a call the binary has nothing to say
+/// about starts no process (`bg_hook::bash_patterns`; a subagent's call names `agent_id`). It ends
+/// `true`: Claude Code blocks the call when a PreToolUse hook exits 2, and the hook turns a call
+/// away only through the JSON it prints, so a failure (a binary that is gone, or one that does not
+/// know `__bg-hook`, such as the cmux CLI, whose usage errors exit 2) lets the call run instead of
+/// refusing every Bash call of the chat (gcp-codex-swarm-09, 2026-11-02).
+pub(crate) fn hook_command(words: &[String], patterns: &[String]) -> String {
+    let (read, when, run) = ("input=$(cat); case \"$input\" in", patterns.join("|"), quoted(words));
+    format!("{read} {when}) printf '%s' \"$input\" | {run} ;; esac; true")
+}
+
+/// `words` as single-quoted shell words.
+fn quoted(words: &[String]) -> String {
     let quoted: Vec<String> =
         words.iter().map(|w| format!("'{}'", w.replace('\'', "'\\''"))).collect();
-    format!("{} || true", quoted.join(" "))
+    quoted.join(" ")
 }
 
 /// The signed helper's own `cmux-cua` (`<app>/Contents/Library/cmux Computer

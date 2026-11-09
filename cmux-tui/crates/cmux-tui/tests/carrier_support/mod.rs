@@ -4,6 +4,8 @@
 //! fake mux socket behind it. Every key is generated here.
 #![allow(dead_code)]
 
+pub mod host;
+
 use std::io::BufRead;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -37,6 +39,10 @@ pub const TOKEN: &str = "person-test-credential";
 /// the platform answers for.
 pub const JWT_A: &str = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJwZXJzb24tYSJ9.sig";
 pub const JWT_B: &str = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJwZXJzb24tYiJ9.sig";
+/// Two opaque dotted credentials, not JWTs, whose middle segments are the
+/// same `sub` person-a claim; the platform answers for both.
+pub const OPAQUE_1: &str = "opaque.eyJzdWIiOiJwZXJzb24tYSJ9.one";
+pub const OPAQUE_2: &str = "other.eyJzdWIiOiJwZXJzb24tYSJ9.two";
 pub const TEAM: &str = "team_00000000000000000001";
 pub const BIN: &str = env!("CARGO_BIN_EXE_cmux-tui");
 
@@ -140,9 +146,12 @@ pub async fn platform(
                     if let Some(value) = header.strip_prefix("content-length:") {
                         length = value.trim().parse().unwrap();
                     }
-                    if let Some(bearer) = [TOKEN, JWT_A, JWT_B].into_iter().find(|token| {
-                        header == format!("authorization: bearer {}", token.to_ascii_lowercase())
-                    }) {
+                    if let Some(bearer) =
+                        [TOKEN, JWT_A, JWT_B, OPAQUE_1, OPAQUE_2].into_iter().find(|token| {
+                            header
+                                == format!("authorization: bearer {}", token.to_ascii_lowercase())
+                        })
+                    {
                         authorized = true;
                         bearers.lock().unwrap().push(bearer);
                     }
@@ -195,9 +204,34 @@ pub async fn platform(
     address
 }
 
-/// The session's mux socket: echoes each line, then pushes one line of its
-/// own naming the mux connection (`conn`, 0 for the first), so two sessions
-/// tell apart.
+/// Answers `line` when it is the role stamp the session host writes first on a
+/// grant's `mux-control` stream (`cmux-remote` `mux_carrier_role.rs`), the way
+/// the session daemon takes it (`cmux-tui-core` `server/carrier_role.rs`), and
+/// says whether it was. A stand-in that echoed the stamp instead did not take
+/// it, so the host refused every stream of a grant that is not the owner's.
+/// Like the daemon, it takes only a well-formed stamp (the stamp's request id
+/// and exactly a valid `vmk`) and refuses any other `carrier-role` line.
+pub async fn took_role_stamp(line: &str, writer: &mut tokio::net::unix::OwnedWriteHalf) -> bool {
+    use cmux_link::carrier_role::{COMMAND, REQUEST_ID, parse};
+    let Ok(Value::Object(mut fields)) = serde_json::from_str::<Value>(line) else { return false };
+    if fields.get("cmd").and_then(Value::as_str) != Some(COMMAND) {
+        return false;
+    }
+    fields.remove("cmd");
+    let id = fields.remove("id").unwrap_or(Value::Null);
+    let taken = if id == REQUEST_ID && parse(&fields).is_some() {
+        json!({"id": id, "ok": true, "data": {}})
+    } else {
+        let code = "carrier_role.malformed";
+        json!({"id": id, "ok": false, "error": code, "error_code": code})
+    };
+    let _ = writer.write_all(format!("{taken}\n").as_bytes()).await;
+    true
+}
+
+/// The session's mux socket: takes the role stamp ([`took_role_stamp`]),
+/// echoes each line, then pushes one line of its own naming the mux
+/// connection (`conn`, 0 for the first), so two sessions tell apart.
 pub async fn fake_mux(path: &Path) {
     let listener = tokio::net::UnixListener::bind(path).unwrap();
     tokio::spawn(async move {
@@ -207,6 +241,9 @@ pub async fn fake_mux(path: &Path) {
                 let (reader, mut writer) = stream.into_split();
                 let mut lines = tokio::io::BufReader::new(reader).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
+                    if took_role_stamp(&line, &mut writer).await {
+                        continue;
+                    }
                     writer.write_all(format!("{line}\n").as_bytes()).await.unwrap();
                     let pushed = format!("{{\"event\":\"pushed\",\"conn\":{conn}}}\n");
                     writer.write_all(pushed.as_bytes()).await.unwrap();

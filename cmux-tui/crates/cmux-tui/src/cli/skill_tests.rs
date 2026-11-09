@@ -104,6 +104,22 @@ fn every_recipe_command_parses_with_this_cli() {
                         panic!("{command}: {error}");
                     }
                 }
+                ["agents", "events", ..] => {
+                    if let Err(error) = crate::cli::agents::command(&words[1..]) {
+                        panic!("{command}: {}", error.0);
+                    }
+                }
+                ["events", ..] => match crate::cli::app::parse(&words) {
+                    Ok(Some(_)) => {}
+                    Ok(None) => panic!("{command}: not an app command"),
+                    Err(error) => panic!("{command}: {}", error.0),
+                },
+                ["agent", "start" | "resume", ..] | ["terminal", _, "resume", ..] => {
+                    match crate::cli::agent_start::parse(&words) {
+                        Some(Ok(_)) => {}
+                        other => panic!("{command}: {other:?}"),
+                    }
+                }
                 ["terminal", _, "wait", ..] => {
                     assert!(
                         crate::cli::status::terminal_wait_flags_parse(&words[3..]),
@@ -198,6 +214,43 @@ fn the_guide_names_the_callers_place() {
     }
     let location = guide.find("## Where you are").unwrap();
     assert!(location < guide.find("## Rules").unwrap());
+}
+
+/// W5-Q (bench round 4 orchestration #3): in a pane the guide says to run
+/// the session's own cmux as `"$CMUX_TUI_CLI"`, since the `cmux` on PATH can
+/// be an older install without `skill show`. Outside a pane it does not.
+#[test]
+fn w5q_the_guide_in_a_pane_runs_the_sessions_own_cmux() {
+    let identity = json!({
+        "session": {"id": "session_1", "name": "bench"},
+        "caller": {"found": true, "terminal_id": "term_1"},
+    });
+    let section = |pane_cli: Option<&str>| {
+        let guide = render_with(&Some(identity.clone()), pane_cli);
+        let place = guide.find("## Where you are").unwrap_or_default();
+        let rules = guide.find("## Rules").unwrap_or_default();
+        guide.get(place..rules).unwrap_or_default().to_owned()
+    };
+    let own = section(Some("/opt/cmux/bin/cmux"));
+    assert!(own.contains("\"$CMUX_TUI_CLI\""), "{own}");
+    assert!(!own.contains("`cmux` on your PATH talks to this session"), "{own}");
+    let outside = render_with(&None, Some("/opt/cmux/bin/cmux"));
+    assert!(!outside.contains("$CMUX_TUI_CLI"), "{outside}");
+}
+
+/// W5-Q review (PR B finding 4): a pane without an absolute `CMUX_TUI_CLI`
+/// (an older daemon's pane, a build that could not link its own `cmux`)
+/// gets `cmux`, never `"$CMUX_TUI_CLI"`, which would run `""` there.
+#[test]
+fn w5q_the_guide_says_cmux_without_cmux_tui_cli() {
+    let identity = json!({
+        "session": {"id": "session_1", "name": "bench"},
+        "caller": {"found": true, "terminal_id": "term_1"},
+    });
+    for pane_cli in [None, Some(""), Some("cmux")] {
+        let guide = render_with(&Some(identity.clone()), pane_cli);
+        assert!(!guide.contains("CMUX_TUI_CLI"), "{pane_cli:?}: {guide}");
+    }
 }
 
 #[test]

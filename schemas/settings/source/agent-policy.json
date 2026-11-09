@@ -71,7 +71,8 @@
       "agent": "settable",
       "why": "Sidebar control visibility (looks only)",
       "keys": [
-        "sidebar.controlsOnHover"
+        "sidebar.controlsOnHover",
+        "sidebar.floatOnHover"
       ]
     },
     {
@@ -470,10 +471,18 @@
     },
     {
       "agent": "settable",
-      "why": "Where the docked Chief sits and where its links open (layout choices, like pane placement).",
+      "why": "Where the docked Chief sits, how the floating one looks and where its links open (layout choices, like pane placement).",
       "keys": [
         "home.chiefDock.edge",
+        "home.chiefPanel.style",
         "home.chiefDock.openBeside"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, opening the floating Chief gives it a look at the person's screen; only the person turns it on.",
+      "keys": [
+        "home.chiefPanel.seesScreen"
       ]
     },
     {
@@ -1256,6 +1265,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "Whether cmux's own pages open developer tools, which read and change their live content: the person's call.",
+      "keys": [
+        "developerTools.appPages"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "On, a key is taken from every other app system-wide.",
       "keys": [
         "app.globalHotKey",
@@ -1355,7 +1371,8 @@
       "agent": "userOnly",
       "why": "Battery and sleep are the person's call: an agent must not keep the Mac up for itself.",
       "keys": [
-        "sessions.keepAwake"
+        "sessions.keepAwake",
+        "sessions.keepAwakeForCommands"
       ]
     },
     {
@@ -1377,6 +1394,13 @@
       "why": "On, every agent gets tools that start child chats: the person turns that on.",
       "keys": [
         "sessions.promptSuggestions"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Claude's and Codex's next-prompt suggestions make an extra model call per turn that counts toward the person's usage: their call, as `agents.autoRetry.enabled` is.",
+      "keys": [
+        "agents.promptSuggestions"
       ]
     },
     {
@@ -1488,6 +1512,13 @@
       "why": "cmux Remote: the person's call.",
       "keys": [
         "remote.endSharingOnQuit"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Spends about 2 to 3 times the data on every remote connection; only the person turns it on.",
+      "keys": [
+        "remote.ultraMode"
       ]
     },
     {

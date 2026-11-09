@@ -247,6 +247,18 @@
     },
     {
       "kind": "request",
+      "name": "chat.fix_from_link.prepare",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "chat.fix_from_link",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/sessions",
       "params": {
         "$ref": "#/types/SessionsParams"
@@ -387,6 +399,36 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/race/cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/race/get",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/race/list",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/race/start",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/race/stats",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/forum/ack",
       "params": true,
       "result": true
@@ -473,7 +515,31 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/ledger",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/workspace_purge",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/review_queue",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/review_verdict",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/audit",
       "params": true,
       "result": true
     },
@@ -502,6 +568,14 @@
       "name": "_acpmux/bookmark_set",
       "params": {
         "$ref": "#/types/BookmarkSetParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/memory_resolve",
+      "params": {
+        "$ref": "#/types/MemoryResolveParams"
       },
       "result": true
     },
@@ -646,6 +720,24 @@
     {
       "kind": "request",
       "name": "_acpmux/goal/get",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/plan/build",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/plan/compare",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/plan/keep",
       "params": true,
       "result": true
     },
@@ -3306,6 +3398,26 @@
       ],
       "type": "object"
     },
+    "LastReturn": {
+      "description": "A person's return to a chat that kept working (`hub/seen.rs`): the log seq they had seen when\nthey left, and how many turns ended while nobody showed it.",
+      "properties": {
+        "since": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "turns": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "since",
+        "turns"
+      ],
+      "type": "object"
+    },
     "LastTurn": {
       "description": "The outcome of the session's last turn. Keys the turn result lacked\nare absent.",
       "properties": {
@@ -3411,6 +3523,40 @@
         "sequence",
         "source",
         "state"
+      ],
+      "type": "object"
+    },
+    "LoopEpisodeSummary": {
+      "description": "The bounded diagnosis shown beside a looping chat. The daemon emits one event when this\nbecomes active and another when progress clears it; the summary lets a newly attached client\nrender the current state without replaying the transcript.",
+      "properties": {
+        "count": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "diagnosis": {
+          "type": "string"
+        },
+        "episodeId": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "hint": {
+          "type": "string"
+        },
+        "since": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "episodeId",
+        "since",
+        "count",
+        "diagnosis",
+        "hint"
       ],
       "type": "object"
     },
@@ -3753,6 +3899,20 @@
         "decisionNonce",
         "approverDecision"
       ],
+      "type": "object"
+    },
+    "MemoryResolveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "accept": true,
+        "dismiss": true,
+        "file": true,
+        "offerId": true,
+        "sessionId": true
+      },
       "type": "object"
     },
     "MessageEvent": {
@@ -5340,6 +5500,21 @@
         "harness": {
           "type": "string"
         },
+        "harnessSandboxFailed": {
+          "default": null,
+          "description": "Unix milliseconds when its harness first refused a command because the harness's own\nsandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "harnessSandboxFailing": {
+          "default": false,
+          "description": "Whether its harness refuses commands now for that reason; a completed command or a new\nharness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.",
+          "type": "boolean"
+        },
         "indicator": {
           "anyOf": [
             {
@@ -5388,6 +5563,17 @@
             "null"
           ]
         },
+        "lastReturn": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LastReturn"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The person's return to the chat while they stay on it (`hub/seen.rs`): `since` and the\n`turns` that ended unseen. A client opening the chat then draws \"New since you looked\" at\n`since`, also when its attach answers before its list read."
+        },
         "lastSeq": {
           "format": "uint64",
           "minimum": 0,
@@ -5413,6 +5599,18 @@
             }
           ],
           "description": "An optional controller/daemon lifecycle receipt. It is absent until a\nproducer supplies a validated receipt; clients must not infer one from\nstatus or placement fields."
+        },
+        "loopEpisode": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LoopEpisodeSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A live repeated-tool episode (`hub/loop_detector.rs`), if this turn is looping.\nAdditive so older clients and peers can omit it."
         },
         "mcpServers": {
           "description": "The MCP servers the harness says it loaded, from its own report (Claude\nCode's system/init); null when it reports none (every ACP harness).",
@@ -5548,6 +5746,15 @@
         "rulesJson": {
           "description": "The session's permission rules."
         },
+        "seenSeq": {
+          "description": "The log seq the person had seen when they last stopped showing the chat: a client\nopening it while `unreadTurns` is above 0 draws \"New since you looked\" after it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "sessionId": {
           "type": "string"
         },
@@ -5643,6 +5850,17 @@
           "description": "Tags that have not expired.",
           "type": "object"
         },
+        "timeBreakdown": {
+          "anyOf": [
+            {
+              "$ref": "#/types/TimeBreakdown"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Incremental wall-time and token attribution for the chat. This is seeded by a detail or\nattach read and omitted from census rows until then (`hub/time_breakdown.rs`)."
+        },
         "title": {
           "type": [
             "string",
@@ -5698,6 +5916,13 @@
         },
         "unread": {
           "type": "boolean"
+        },
+        "unreadTurns": {
+          "default": 0,
+          "description": "Turns that ended while no client showed the chat, since a person last showed it\n(`hub/seen.rs`): the sidebar's count. Absent from a peer on an older acpmux.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
         },
         "updatedAt": {
           "format": "uint64",
@@ -5973,6 +6198,21 @@
         "harness": {
           "type": "string"
         },
+        "harnessSandboxFailed": {
+          "default": null,
+          "description": "Unix milliseconds when its harness first refused a command because the harness's own\nsandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "harnessSandboxFailing": {
+          "default": false,
+          "description": "Whether its harness refuses commands now for that reason; a completed command or a new\nharness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.",
+          "type": "boolean"
+        },
         "indicator": {
           "anyOf": [
             {
@@ -6021,6 +6261,17 @@
             "null"
           ]
         },
+        "lastReturn": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LastReturn"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The person's return to the chat while they stay on it (`hub/seen.rs`): `since` and the\n`turns` that ended unseen. A client opening the chat then draws \"New since you looked\" at\n`since`, also when its attach answers before its list read."
+        },
         "lastSeq": {
           "format": "uint64",
           "minimum": 0,
@@ -6046,6 +6297,18 @@
             }
           ],
           "description": "An optional controller/daemon lifecycle receipt. It is absent until a\nproducer supplies a validated receipt; clients must not infer one from\nstatus or placement fields."
+        },
+        "loopEpisode": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LoopEpisodeSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A live repeated-tool episode (`hub/loop_detector.rs`), if this turn is looping.\nAdditive so older clients and peers can omit it."
         },
         "mcpServers": {
           "description": "The MCP servers the harness says it loaded, from its own report (Claude\nCode's system/init); null when it reports none (every ACP harness).",
@@ -6169,6 +6432,15 @@
           "description": "The session has its own permission rules.",
           "type": "boolean"
         },
+        "seenSeq": {
+          "description": "The log seq the person had seen when they last stopped showing the chat: a client\nopening it while `unreadTurns` is above 0 draws \"New since you looked\" after it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "sessionId": {
           "type": "string"
         },
@@ -6264,6 +6536,17 @@
           "description": "Tags that have not expired.",
           "type": "object"
         },
+        "timeBreakdown": {
+          "anyOf": [
+            {
+              "$ref": "#/types/TimeBreakdown"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Incremental wall-time and token attribution for the chat. This is seeded by a detail or\nattach read and omitted from census rows until then (`hub/time_breakdown.rs`)."
+        },
         "title": {
           "type": [
             "string",
@@ -6319,6 +6602,13 @@
         },
         "unread": {
           "type": "boolean"
+        },
+        "unreadTurns": {
+          "default": 0,
+          "description": "Turns that ended while no client showed the chat, since a person last showed it\n(`hub/seen.rs`): the sidebar's count. Absent from a peer on an older acpmux.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
         },
         "updatedAt": {
           "format": "uint64",
@@ -6611,6 +6901,122 @@
         "sessionId": true,
         "workspaceId": true
       },
+      "type": "object"
+    },
+    "TimeBreakdown": {
+      "properties": {
+        "categories": {
+          "items": {
+            "$ref": "#/types/TimeCategory"
+          },
+          "type": "array"
+        },
+        "spans": {
+          "items": {
+            "$ref": "#/types/TimeSpan"
+          },
+          "type": "array"
+        },
+        "tokensComplete": {
+          "type": "boolean"
+        },
+        "totalMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "totalTokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "totalMs",
+        "tokensComplete",
+        "categories",
+        "spans"
+      ],
+      "type": "object"
+    },
+    "TimeCategory": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "wallMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "wallMs"
+      ],
+      "type": "object"
+    },
+    "TimeSpan": {
+      "properties": {
+        "category": {
+          "type": "string"
+        },
+        "endAt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "startAt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "turnSeq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "turnTokens": {
+          "description": "Whole-turn usage, not usage attributed to this interval.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "turnSeq",
+        "category",
+        "startAt",
+        "endAt"
+      ],
       "type": "object"
     },
     "ToolSummary": {

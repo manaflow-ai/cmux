@@ -11,7 +11,7 @@
   gap: var(--grid-gap-inner);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   -webkit-font-smoothing: antialiased;
 }
 .cv-agentmsg__line {
@@ -416,6 +416,23 @@ button.cv-agentmsg__name:focus-visible {
 .cv-agentmsg__sentence > .cv-received__sender {
   flex: 0 0.0001 auto;
   min-width: 0;
+}
+/* In the transcript the sentence's parts join the line (conversation.css `display: contents`), and
+   once the first line has given way (shrink 1000, down to nothing) the sender is the one part left
+   to shrink: at 0.0001 it takes only that share of what is left (CSS Flexbox 9.7), and a long name
+   ran past a 320px line, cut bare there with its ellipsis and the chevron out of view (cmux#37653
+   review). At 1 it takes the rest once the first line is gone: its chip cuts the name behind an
+   ellipsis, as a sent row's does. But Flexbox weighs shrink by basis, so against the first line's 1000
+   a name still took its share of every overflow from the first pixel, and an ordinary row cut it
+   while the preview had room to give (cmux#38642 review). Here the first line shrinks at a million:
+   the name's share while it has room (its basis over the preview's basis times a million, of at most
+   the preview's own width) is under the 1/64px layout unit, so the name stays whole until the first
+   line is gone. agent-message-row-css-browser.test.ts, at a 640px and a 320px line. */
+.acpmux-row .cv-agentmsg.cv-received > .cv-agentmsg__line > .cv-agentmsg__sentence > .cv-received__sender {
+  flex-shrink: 1;
+}
+.acpmux-row .cv-agentmsg.cv-received > .cv-agentmsg__line > .cv-agentmsg__sentence > .cv-agentmsg__toggle {
+  flex-shrink: 1000000;
 }
 /* The sender's chip is its span's only child here (the mark is in the icon column), pulled back
    over the icon gap by its own margin (conversation.css `.cv-received__sender > .cv-agent-tag.is-open`):

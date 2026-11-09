@@ -38,7 +38,7 @@ impl Hub {
             (after != before).then_some(after)
         };
         if let Some(count) = count {
-            self.append(session, "mux", super::views::SUBAGENTS_RUNNING, json!({"count": count}));
+            self.subagents_running(session, count);
         }
     }
 
@@ -87,12 +87,16 @@ impl Hub {
     /// A turn of `session` ended while no client showed it: the chat is unread, or, while work
     /// it started still runs, it turns unread when that work ends (`refresh_work_below`). The
     /// mark is held, so the work cannot end between the check and the note.
+    /// Each such turn counts for the sidebar now (`unread_turns`), dot or not: several turns that
+    /// end while the work runs are several turns.
     pub(super) fn mark_unread_unless_work_below(&self, session: &Session) {
         let mark = session.work_below_since.lock().unwrap_or_else(|e| e.into_inner());
         let works = *mark != 0;
         session.unread_after_work.store(works, Ordering::SeqCst);
+        let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        Self::count_unread_turn(&mut meta);
         if !works {
-            session.meta.lock().unwrap_or_else(|e| e.into_inner()).unread = true;
+            meta.unread = true;
         }
     }
 
@@ -107,6 +111,8 @@ impl Hub {
     pub(super) fn end_background_subagents(&self, session: &Session) {
         session.subagents.lock().unwrap_or_else(|e| e.into_inner()).end_background();
         self.refresh_work_below(session);
+        // Reports left for its subagents go to it now (`lane_report_subagents.rs`).
+        self.subagent_notices_sweep(session);
     }
 
     /// Before a daemon adopts `session`'s running host (`hosts.rs` `adopt_held`), its subagents
@@ -150,12 +156,7 @@ impl Hub {
             (before, live.running_count())
         };
         if running_after != running_before {
-            self.append(
-                session,
-                "mux",
-                super::views::SUBAGENTS_RUNNING,
-                json!({"count": running_after}),
-            );
+            self.subagents_running(session, running_after);
         }
         self.refresh_work_below(session);
     }

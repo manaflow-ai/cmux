@@ -37,8 +37,12 @@ pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// journal head so fences exist for every retained lifecycle. Version 7 keeps
 /// each terminal's last screen observation, so a hook `blocked` row clears
 /// when the screen shows its dialog gone; the re-fold clears rows that stayed
-/// blocked after a dialog was dismissed with Esc.
-pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 7;
+/// blocked after a dialog was dismissed with Esc. Version 8 ties that record
+/// to the plugin child that saw it, so a restarted plugin cannot clear a block.
+/// Version 9 lets the screen end a hook `working` row whose turn ended with no
+/// hook (Esc, a lost `Stop`) and end a hook session whose agent exited; the
+/// re-fold clears rows that stayed working after either.
+pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 9;
 /// Stable envelope used by userland agent plugins. The producer id is the
 /// plugin identity; the payload id must match it before the event is folded.
 pub(crate) const AGENT_PLUGIN_FORMAT: &str = "cmux.agent-plugin.v1";
@@ -351,8 +355,8 @@ pub(crate) struct HookFence {
     pub(crate) ended: bool,
     /// Observed time of the latest end of `session_id` on this terminal. It
     /// is the incarnation boundary: an event of this session observed at or
-    /// before it belongs to an ended incarnation, and a `SessionStart`
-    /// observed after it resumes the id as a new incarnation. It survives the
+    /// before it belongs to an ended incarnation, and one observed after it
+    /// resumes the id as a new incarnation. It survives the
     /// resume and resets when another session takes the terminal.
     #[serde(default)]
     pub(crate) ended_at_ms: Option<u64>,
@@ -446,10 +450,13 @@ impl HookFence {
         let observed_after_end = after_end == Some(true);
         let accepted = if fence.session_id == session_id {
             if fence.ended {
-                // Only a start resumes an ended id (`claude --resume`), and
-                // not one observed before that end: that start belongs to the
-                // ended incarnation.
-                is_session_start && !observed_before_end
+                // A start resumes an ended id (`claude --resume`), but not
+                // one observed before that end: that start belongs to the
+                // ended incarnation. So does any event observed after the
+                // end: a session the screen saw leave the foreground
+                // (Ctrl+Z) comes back with `fg` and no start, and an agent
+                // that really ended emits nothing after its end.
+                observed_after_end || (is_session_start && !observed_before_end)
             } else {
                 // A live resumed incarnation rejects events its ended
                 // predecessor emitted before it ended.
@@ -571,8 +578,24 @@ impl RosterEntry {
 /// only mutates roster state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RosterDelta {
-    Upsert { terminal_id: String, entry: RosterEntry },
-    Remove { terminal_id: String, source: AgentSource },
+    Upsert {
+        terminal_id: String,
+        entry: RosterEntry,
+    },
+    Remove {
+        terminal_id: String,
+        source: AgentSource,
+    },
+    /// The screen proved a hook session's agent gone with no `SessionEnd`
+    /// (the plugin's exit at journal `sequence`, observed at
+    /// `observed_at_ms`): the roster ended `session_id`'s fence and dropped
+    /// its row, and the hook projector ends its fence and row the same way.
+    EndHookSession {
+        terminal_id: String,
+        session_id: String,
+        sequence: u64,
+        observed_at_ms: u64,
+    },
 }
 
 /// Live-agent roster: terminal public id to the agent's last reported
@@ -597,9 +620,46 @@ pub(crate) struct AgentRoster {
     /// ([`ScreenEvidence`]).
     #[serde(default)]
     screen_evidence: HashMap<String, ScreenEvidence>,
+    /// The last program status edge per terminal ([`ProgramStatusEvidence`]).
+    #[serde(default)]
+    program_status_evidence: HashMap<String, ProgramStatusEvidence>,
+    /// When a hook last started a turn on each terminal (`agent.turn.started`,
+    /// its commit time). A prompt submitted while the row is already `working`
+    /// keeps the row's `since_ms`, so only this fences the screen's evidence of
+    /// a turn running to the turn now open ([`Self::screen_ends_hook_row`]).
+    #[serde(default)]
+    hook_turn_started_at: HashMap<String, HookTurnStart>,
 }
 
 impl AgentRoster {
+    /// The journal kinds [`Self::apply`] can act on. Its replays read only
+    /// these (`session_journal_kinds_after`), so a replay costs the agent
+    /// records, not the journal's other history. Every other kind is a no-op:
+    ///
+    /// - `apply` folds a record of the agent hook producer or a valid plugin
+    ///   event, and drops the rest first.
+    /// - A plugin event's kind must be `plugin.<producer>.agent.state.changed`
+    ///   or `plugin.<producer>.agent.session.ended` ([`RosterEvent::plugin_event`]).
+    /// - The hook producer appends through journal ingress, which refuses a
+    ///   kind its manifest does not declare; it declares only `agent.*` kinds
+    ///   (`AGENT_EVENT_KINDS`). That covers the plugin exit, program status,
+    ///   socket echo and legacy screen-detect events, which are all hook
+    ///   producer events.
+    /// - A record of another writer whose producer id happens to be the hook
+    ///   producer's (an admin, checkpoint, retention or resource record, named
+    ///   by its origin) has no `agent.*` kind and none of the hook envelope's
+    ///   `adapter` and `native_event` fields, so every branch of `apply`
+    ///   returns before it changes anything: the hook branch needs a kind
+    ///   [`hook_roster_state`] maps, which are `agent.*` kinds.
+    ///
+    /// `mux/tests/agent_roster_kind_scope.rs` checks this on a mixed stream.
+    pub(crate) fn folds_kind(kind: &str) -> bool {
+        kind.starts_with("agent.")
+            || (kind.starts_with("plugin.")
+                && (kind.ends_with(".agent.state.changed")
+                    || kind.ends_with(".agent.session.ended")))
+    }
+
     /// Fold one committed record. Deterministic: identical event sequences
     /// produce identical rosters, so a snapshot plus the journal tail always
     /// reproduces the live state.
@@ -624,6 +684,7 @@ impl AgentRoster {
                 return Vec::new();
             }
             self.record_plugin_exit_fence(plugin_id, generation_number, cutoff);
+            self.forget_screen_evidence_of(plugin_id, generation_number);
             let retired = self
                 .entries
                 .iter()
@@ -658,6 +719,9 @@ impl AgentRoster {
                 })
                 .collect();
         }
+        if event.is_program_status_evidence() {
+            return self.apply_program_status(event);
+        }
         if event.plugin_event()
             && self.plugin_observation_is_fenced(
                 event.producer_id,
@@ -669,6 +733,8 @@ impl AgentRoster {
         let Some(terminal_id) = event.terminal_id() else { return Vec::new() };
         // The screen proves that no dialog is up any more ([`Self::screen_clears_hook_blocker`]).
         let mut screen_cleared_blocker = false;
+        // What the screen proves about a turn's end or an exit ([`Self::screen_ends_hook_row`]).
+        let mut screen_note = ScreenNote::default();
         let (state, source, producer, producer_generation, session, agent, updated_at_ms) = if event
             .plugin_event()
         {
@@ -680,16 +746,24 @@ impl AgentRoster {
                 return Vec::new();
             }
             let updated_at_ms = event.plugin_observed_at_ms().unwrap_or(event.committed_at_ms);
-            let producer_generation = event
-                .normalized("plugin_generation")
-                .and_then(|value| value.parse::<u64>().ok())
-                .map(|value| value.to_string());
+            let generation =
+                event.normalized("plugin_generation").and_then(|value| value.parse::<u64>().ok());
+            let producer_generation = generation.map(|value| value.to_string());
             let session = event.normalized("source_session").map(str::to_string);
             let agent = event.adapter_id().map(str::to_string);
             let state = if event_name == "session.ended" { AgentState::Done } else { state };
-            let saw_blocker_go = self.note_screen_evidence(terminal_id, event.producer_id, state);
+            let visible_idle = event.plugin_visible_idle();
+            screen_note = self.note_screen_evidence(
+                terminal_id,
+                event.producer_id,
+                generation,
+                session.as_deref(),
+                state,
+                visible_idle,
+                updated_at_ms,
+            );
             screen_cleared_blocker =
-                saw_blocker_go || (state == AgentState::Idle && event.plugin_visible_idle());
+                screen_note.cleared_blocker || (state == AgentState::Idle && visible_idle);
             (
                 state,
                 AgentSource::Plugin,
@@ -772,7 +846,33 @@ impl AgentRoster {
                 state == AgentState::Done,
                 observed_at_ms,
             );
+            // Another agent session took the terminal, an ended one came
+            // back, or a new process started (`claude --resume` reuses the
+            // id): what the screen saw belongs to the agent before it, so a
+            // late exit of that process cannot remove this row
+            // ([`Self::screen_ends_hook_row`]). Claude Code's `SessionStart`
+            // for a compaction or `/clear` runs in the same process and keeps it.
+            let new_process = event.kind == "agent.session.started"
+                && !matches!(
+                    event.payload.pointer("/native/source").and_then(Value::as_str),
+                    Some("compact" | "clear")
+                );
+            if new_process
+                || current.is_none_or(|fence| fence.ended || fence.session_id != next.session_id)
+            {
+                self.screen_evidence.remove(terminal_id);
+            }
             self.hook_fences.insert(terminal_id.to_string(), next);
+            if event.kind == "agent.turn.started" {
+                let start = HookTurnStart {
+                    at_ms: event.committed_at_ms,
+                    screen_working_since_ms: self
+                        .screen_evidence
+                        .get(terminal_id)
+                        .and_then(ScreenEvidence::working_since_ms),
+                };
+                self.hook_turn_started_at.insert(terminal_id.to_string(), start);
+            }
             let agent = event.adapter_id().map(str::to_string);
             (state, AgentSource::Hook, None, None, None, agent, event.committed_at_ms)
         };
@@ -781,6 +881,9 @@ impl AgentRoster {
         // live hook owns (fresher than STALE_HOOK_MS), and its exit removal
         // only applies to entries screen detection itself established.
         // Socket reports lose to both stronger sources.
+        // The screen ends a hook row no hook will end (Esc, a lost `Stop`, a
+        // killed harness): it wins over the fresh hook, and its exit removes it.
+        let mut screen_ended_hook_row = false;
         match source {
             AgentSource::Hook => {
                 if let Some(existing) = self.entries.get(terminal_id)
@@ -802,7 +905,18 @@ impl AgentRoster {
                             state,
                             updated_at_ms,
                         );
-                    if existing_source == AgentSource::Hook && !dialog_gone {
+                    screen_ended_hook_row = existing_source == AgentSource::Hook
+                        && Self::screen_ends_hook_row(
+                            existing,
+                            self.hook_turn_started_at.get(terminal_id),
+                            screen_note,
+                            state,
+                            updated_at_ms,
+                        );
+                    if existing_source == AgentSource::Hook
+                        && !dialog_gone
+                        && !screen_ended_hook_row
+                    {
                         // The producer observation is the evidence clock. A
                         // delayed append must not turn an old screen read
                         // into fresh evidence just because the journal
@@ -899,7 +1013,38 @@ impl AgentRoster {
                                 _ => false,
                             }))
             });
-            return if owned_by_event {
+            // The screen proved the hook session's agent gone from the
+            // foreground, which no `SessionEnd` will say (a killed harness,
+            // or one suspended with Ctrl+Z): its session ends here, at the
+            // exit's observation, so another session's hooks take the
+            // terminal, this session's resume only when observed after the
+            // exit (`fg`), and a late hook from before the exit is refused.
+            // The hook projector ends its own fence the same way
+            // ([`RosterDelta::EndHookSession`]).
+            if screen_ended_hook_row
+                && let Some(fence) =
+                    self.hook_fences.get(terminal_id).filter(|fence| !fence.ended).cloned()
+            {
+                let session_id = fence.session_id.clone();
+                self.hook_fences.insert(
+                    terminal_id.to_string(),
+                    HookFence::next(
+                        Some(&fence),
+                        session_id.clone(),
+                        event.sequence.max(fence.sequence),
+                        true,
+                        Some(updated_at_ms),
+                    ),
+                );
+                self.entries.remove(terminal_id);
+                return vec![RosterDelta::EndHookSession {
+                    terminal_id: terminal_id.to_string(),
+                    session_id,
+                    sequence: event.sequence,
+                    observed_at_ms: updated_at_ms,
+                }];
+            }
+            return if owned_by_event || screen_ended_hook_row {
                 self.entries.remove(terminal_id);
                 vec![RosterDelta::Remove { terminal_id: terminal_id.to_string(), source }]
             } else {
@@ -942,7 +1087,9 @@ impl AgentRoster {
         let entry = self.entries.remove(terminal_id).is_some();
         let fence = self.hook_fences.remove(terminal_id).is_some();
         let evidence = self.screen_evidence.remove(terminal_id).is_some();
-        entry || fence || evidence
+        let program = self.program_status_evidence.remove(terminal_id).is_some();
+        let turn = self.hook_turn_started_at.remove(terminal_id).is_some();
+        entry || fence || evidence || program || turn
     }
 
     fn record_plugin_exit_fence(
@@ -998,7 +1145,9 @@ impl AgentRoster {
         {
             return None;
         }
-        if !roster.screen_evidence.values().all(ScreenEvidence::valid) {
+        if !roster.screen_evidence.values().all(ScreenEvidence::valid)
+            || !roster.program_status_evidence.values().all(ProgramStatusEvidence::valid)
+        {
             return None;
         }
         if !roster.plugin_exit_fences.iter().all(|(plugin_id, fence)| {
@@ -1050,11 +1199,19 @@ fn valid_decimal_generation(value: &str) -> bool {
 
 #[path = "journal_reducers_screen_evidence.rs"]
 mod screen_evidence;
-use screen_evidence::ScreenEvidence;
+use screen_evidence::{HookTurnStart, ScreenEvidence, ScreenNote};
+#[path = "journal_reducers_program_status.rs"]
+mod program_status;
+use program_status::ProgramStatusEvidence;
+pub(crate) use program_status::{PROGRAM_STATUS_NATIVE_EVENT, is_program_status_evidence};
 
 #[cfg(test)]
 #[path = "journal_reducers_blocker_tests.rs"]
 mod blocker_tests;
+
+#[cfg(test)]
+#[path = "journal_reducers_turn_end_tests.rs"]
+mod turn_end_tests;
 
 #[cfg(test)]
 mod tests {

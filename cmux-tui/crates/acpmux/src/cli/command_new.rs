@@ -24,7 +24,11 @@ pub struct NewArgs {
     pub name: Option<String>,
     #[arg(long)]
     pub cwd: Option<PathBuf>,
-    /// Permission policy: ask, approve-reads, approve-edits, approve-all, deny-all.
+    /// Permission policy: ask, approve-reads, approve-edits, approve-all, deny-all, or `review`
+    /// for a reviewer: reads, searches and read-only shell commands (`git log`/`diff`/`show`,
+    /// `grep`, `rg`, `ls`, `cat`, `sed -n`) run unasked, and every write or other command is
+    /// denied at once, so it never waits for a person
+    /// (`acpmux run -m claude --policy review "review the diff in ~/proj"`).
     #[arg(long)]
     pub policy: Option<String>,
     /// The harness mode to start in (e.g. `auto`). One that does not ask needs the
