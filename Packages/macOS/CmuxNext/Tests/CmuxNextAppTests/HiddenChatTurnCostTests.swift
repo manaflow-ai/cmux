@@ -53,9 +53,6 @@ struct HiddenChatTurnCostTests {
         defer { rig.window.closeAfterTest() }
         rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .critical)
         rig.turns.setState(.working, session: "s-quick")
-        rig.records["tab_quick"] = AgentSessionRef(host: AgentPageHibernationTests.thisMac, hostName: "This Mac", session: "s-quick",
-                                                   harness: "claude")
-        rig.elapsed += .seconds(AgentPageHibernation.minimumHidden + 1)
         _ = try rig.hiddenChat("tab_quick", session: "s-quick")
         rig.elapsed += .seconds(AgentPageHibernation.minimumHidden + 1)
         rig.hibernation.replan() // due, kept for its turn: the observer re-arms for this page
