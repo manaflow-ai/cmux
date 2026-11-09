@@ -1,7 +1,6 @@
 //! A machine joined before the hub recorded capabilities states them itself, at daemon start.
-//! A machine joined by a pair code or a join line has no person's token, so the sign-in rotate
-//! (`enroll.rs`, `rotate_once`) never reaches it: it sends this acpmux's list
-//! ([`machine_capabilities`]) with its own credential to
+//! A sign-in that finds such a join asks the same way (`enroll.rs`), never by a rotate. It sends
+//! this acpmux's list ([`machine_capabilities`]) with its own credential to
 //! `PUT /v1/machines/credentials/self/capabilities`, and its record keeps the hub's answer, so it
 //! never asks again.
 //!
@@ -144,6 +143,11 @@ fn fire(why: &'static str) {
 /// its record has none.
 pub(crate) fn state_at_start() {
     fire("start");
+}
+
+/// A sign-in found this machine joined with no list (`enroll.rs`): states it, as a start does.
+pub(crate) fn state_on_sign_in() {
+    fire("sign-in");
 }
 
 /// The joined mesh relay's hub answers again after failing (`server/mesh_relay.rs`): states this

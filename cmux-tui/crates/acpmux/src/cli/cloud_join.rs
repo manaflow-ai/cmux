@@ -73,9 +73,9 @@ pub struct MachineCredential {
     /// out removes only that join. None for a pair code or a pasted join line: those stay.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub joined_by: Option<String>,
-    /// What this machine told the hub it can do at its redeem or its last rotate
-    /// ([`machine_capabilities`]); the hub records it with the credential. None: joined before
-    /// the hub took the list (cmux-platform#1015), so the next sign-in rotates once to state it.
+    /// What this machine told the hub it can do at its redeem, or what the hub recorded when it
+    /// stated it later ([`machine_capabilities`]). None: joined before the hub took the list
+    /// (cmux-platform#1015), so it states it with its own credential (`self_capabilities.rs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Vec<String>>,
 }
