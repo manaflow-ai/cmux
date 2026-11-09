@@ -30,6 +30,12 @@
 //!   ([`LocalStore::segments`]); so does its next append, before the line is written.
 //! - A temporary archive, a rehydrate's folder or a folder renamed aside is only ever a leftover,
 //!   removed by the next archive or rehydrate of that chat.
+//!
+//! The format is forward-only. An acpmux build before this one does not read `cold.zst` and
+//! deletes nothing it does not recognize: it lists an archived idle chat from `session.json` with
+//! its history empty, and does not list an archived closed chat at all, since a closed chat with no
+//! log reads to it as a purged one (`has_records`). Either way the archive stays as it is, and the
+//! chat and its history come back once a build with this change opens the store again.
 
 use super::*;
 use sha2::{Digest, Sha256};
