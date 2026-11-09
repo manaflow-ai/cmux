@@ -101,6 +101,8 @@ export type ChipHostFixture = {
   images?: Record<string, string | null>;
   /** `media.load` answers: the URL the player plays for each path. */
   media?: Record<string, string>;
+  /** `video.info` answers: a video's length, size and poster for each path (composer/videoAttachments.ts). */
+  videos?: Record<string, unknown>;
   /** Methods the host refuses (`{ok: false}`), as a chat on another machine's host may refuse
    *  `media.load` and `video.quickLook`. */
   refused?: string[];

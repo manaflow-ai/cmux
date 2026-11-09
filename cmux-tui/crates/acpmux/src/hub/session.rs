@@ -130,6 +130,11 @@ pub struct Session {
     /// settles the logical turn before its cancel reaches the harness; keeping this lock until
     /// that cancel is handed to the child prevents the next turn's prompt from overtaking it.
     pub(super) input_handoff: std::sync::Arc<Mutex<()>>,
+    /// Tests only: a pause once a prompt is written, before its `on_sent` runs
+    /// (`steer_end::agent_prompt_hook`): `arrived` fires there, the writer blocks until `release`.
+    #[cfg(test)]
+    pub(super) sent_seam:
+        StdMutex<Option<(tokio::sync::oneshot::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     /// When the person left it and the recap made meanwhile (`away_recap.rs`).
     pub(super) away: StdMutex<super::away_recap::Away>,
