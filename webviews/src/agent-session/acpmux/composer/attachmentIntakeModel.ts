@@ -69,8 +69,8 @@ export type AttachmentIntakeOptions = {
   /// The chat column a file drag lifts the drop overlay over (composer/dropOverlayState.ts): over
   /// it a drop attaches; elsewhere in the pane the overlay only arms. Unset: the whole page.
   dropZone?(): Element | null;
-  /// True while the composer takes nothing (a Cloud start is out, App.tsx `cloudStarting`): a paste
-  /// or a file drop stages no attachment then, since the tab closes with only the sent prompt.
+  /// True while the field takes nothing (the classic New Tab page while a Cloud start from it is out,
+  /// NewTabScreen `cloudStarting`): a paste or a file drop stages no attachment then.
   locked?(): boolean;
   /// The chat the composer shows. A file is the chat's it was pasted or dropped in: its placeholder
   /// shows only there, and a read that ends after the composer moved to another chat hands its

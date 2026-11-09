@@ -184,9 +184,12 @@ async function mount(ready: Record<string, unknown> = {}) {
     starts,
     calls,
     answer: () => act(async () => settle?.({ ok: true, value: { machine: "paint-dev" } })),
-    fail: () =>
+    fail: (retryable = false) =>
       act(async () =>
-        settle?.({ ok: false, error: { code: "cloud_start_failed", userMessage: "The machine stopped answering." } }),
+        settle?.({
+          ok: false,
+          error: { code: "cloud_start_failed", userMessage: "The machine stopped answering.", retryable },
+        }),
       ),
   };
 }
@@ -262,9 +265,9 @@ test("what was typed during the start lands in the started chat's composer, neve
     () => [...host.querySelectorAll(".cv-user__bubble")].some((bubble) => bubble.textContent?.includes(PROMPT)),
     "the seeded prompt went",
   );
-  expect(
-    [...host.querySelectorAll(".cv-user__bubble")].some((bubble) => bubble.textContent?.includes(TYPED)),
-  ).toBe(false);
+  expect([...host.querySelectorAll(".cv-user__bubble")].some((bubble) => bubble.textContent?.includes(TYPED))).toBe(
+    false,
+  );
 
   // Taken once: another chat opened with the same prompt gets no copy.
   await act(async () => root?.unmount());
@@ -280,4 +283,18 @@ test("a failed start puts the prompt back in front of what was typed", async () 
   await typeWhileStarting(TYPED);
   await pane.fail();
   await until(() => composerText() === `${PROMPT}\n\n${TYPED}`, "the prompt is back, the typed text after it");
+}, 60_000);
+
+test("Retry on a failed start sends its prompt alone, under the same key, and keeps what was typed", async () => {
+  const pane = await startInCloud();
+  await typeWhileStarting(TYPED);
+  await pane.fail(true);
+  await until(() => composerText() === `${PROMPT}\n\n${TYPED}`, "the prompt is back, the typed text after it");
+  const retry = () => host.querySelector<HTMLButtonElement>(".acpmux-cloud-start__retry");
+  await until(() => retry() !== null, "the failure offers Retry");
+  await act(async () => retry()!.click());
+  await until(() => pane.starts.length === 2, "Retry starts again");
+  expect(pane.starts[1]!.task).toBe(PROMPT);
+  expect(pane.starts[1]!.key).toBe(pane.starts[0]!.key);
+  await until(() => composerText() === TYPED, "the typed text stays, unsent");
 }, 60_000);

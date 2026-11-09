@@ -979,3 +979,9 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   outline: 1.5px solid var(--agent-text);
   outline-offset: 1.5px;
 }
+
+/* A Cloud start is out, `dimmed` look (cloudStartComposer.experiment.ts): the prompt takes typing but
+   its words and placeholder sit at the muted ink until the Cloud chat opens. Color only: nothing moves. */
+.acpmux-composer-prompt.is-cloud-starting [contenteditable] {
+  color: var(--agent-muted);
+}

@@ -101,9 +101,6 @@ export type ComposerBoxProps = {
   /// Drawn in the composer's bottom area, centered: the chat's look dots (LookSwitch.tsx), in the
   /// quiet row's empty middle.
   bottom?: React.ReactNode;
-  /// Nothing in the box takes input (inert): a Cloud start is out, and this tab closes once its
-  /// chat opens on the machine, so an edit made meanwhile would go with it (App.tsx `cloudStarting`).
-  inert?: boolean;
 };
 
 /// The one composer box every surface draws (one-composer: the chat pane, New Tab, Quick
@@ -144,7 +141,6 @@ export function ComposerBox({
   trailing,
   chromeItems,
   bottom,
-  inert = false,
 }: ComposerBoxProps) {
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css). Both
   // looks use the same controls and prompt. Codex's gives the prompt its own full-width line,
@@ -296,12 +292,9 @@ export function ComposerBox({
         // The compact grid (composerLocation.css): a state attribute, not a :has() on the box.
         data-composer-grid=""
         data-attachment-view={attachmentView}
-        inert={inert}
         onMouseDown={focusFromCard}
       >
-        <ComposerListAnchor box={boxElement} inert={inert}>
-          {top}
-        </ComposerListAnchor>
+        <ComposerListAnchor box={boxElement}>{top}</ComposerListAnchor>
         <AttachmentStrip
           attachments={attachmentView === "inline" ? attachments.filter((chip) => !placed.has(chip.id)) : attachments}
           {...(pending
