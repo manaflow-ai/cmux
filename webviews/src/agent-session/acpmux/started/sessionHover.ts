@@ -121,6 +121,9 @@ export class SessionHoverStore {
   /// The list the last `set` was given: a list made from it in place (sessionIndex.ts `noteReplaced`)
   /// is patched at the replaced entries only, with no lookup per listed chat.
   private last: readonly AcpmuxSessionEntry[] | undefined;
+  /// The entries in the last list, a session listed twice counted twice: with ``from``'s size it
+  /// shows a list that held a duplicate, which the patch path cannot read.
+  private count = -1;
   private readonly listeners = new Set<() => void>();
 
   /// Replaces the cards with `sessions`'; a card whose content did not change keeps its object.
@@ -165,6 +168,7 @@ export class SessionHoverStore {
     this.agentSessions = agentSessions;
     this.hosts = hosts;
     this.from = from;
+    this.count = sessions.length;
     if (changed) for (const listener of this.listeners) listener();
   }
 
@@ -172,7 +176,7 @@ export class SessionHoverStore {
   /// again, in place. False (nothing done) when a session came or went, a page lists one twice, or a
   /// change moved what the link indexes read (its agent link, its machine): `set` rebuilds them.
   private patch(sessions: readonly AcpmuxSessionEntry[], replaced?: readonly number[]): boolean {
-    if (sessions.length !== this.from.size) return false;
+    if (sessions.length !== this.from.size || sessions.length !== this.count) return false;
     const changed: AcpmuxSessionEntry[] = [];
     // A recorded in-place change keeps every id where it was, so only the replaced entries are read.
     const seen = new Set<string>();
