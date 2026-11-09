@@ -245,6 +245,7 @@ fn ours_into<'a>(
         renders.set(renders.get().saturating_add(1));
         render_toml(path, text, &|servers: &mut toml_edit::Table| {
             servers.insert(SERVER_KEY, toml_edit::value("ours"));
+            Ok(())
         })
     }
 }
@@ -321,6 +322,127 @@ fn a_writer_that_keeps_racing_is_refused_with_its_text_kept() {
         assert!(e.to_string().contains("kept changing"), "{e}");
         let last = format!("edit = {}\n", write::EDIT_TRIES);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), last, "by rename: {swap}");
+    }
+}
+
+/// Holds Codex's config lock while `edit` runs on another thread, writes `theirs` into the file
+/// while the edit waits for the lock (after its `status` read the file), then lets it go: the
+/// edit's row.
+#[cfg(unix)]
+fn while_the_lock_is_held(path: &Path, theirs: &str, edit: impl FnOnce() -> Row + Send) -> Row {
+    let lock_path = path.with_file_name(cmux_tui_platform::codex_config_lock::LOCK_FILE);
+    let lock = std::fs::OpenOptions::new().create(true).append(true).open(&lock_path).unwrap();
+    lock.lock().unwrap();
+    std::thread::scope(|scope| {
+        let editing = scope.spawn(edit);
+        // A bound on how long the edit must not finish, not a wait for it.
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(!editing.is_finished(), "the edit wrote while another writer held the lock");
+        std::fs::write(path, theirs).unwrap();
+        drop(lock);
+        editing.join().unwrap()
+    })
+}
+
+/// Another tool's own `cmux` server in Codex's config, which this command did not write.
+const FOREIGN_TOML: &str = "# theirs\n[mcp_servers.cmux]\ncommand = \"/usr/local/bin/my-cmux\"\n";
+
+/// Review F2 (#39320): ownership is checked on the text the edit is built on, not only by the
+/// `status` read before the lock. A foreign `cmux` written while link or unlink waits for the
+/// lock is neither replaced nor removed, and the row says so.
+#[cfg(unix)]
+#[test]
+fn a_foreign_entry_written_while_the_edit_waits_for_the_lock_is_left_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = env(dir.path(), None);
+    let path = env.config_path(App::Codex);
+    std::fs::write(&path, "# my settings\n").unwrap();
+    let row = while_the_lock_is_held(&path, FOREIGN_TOML, || link(&env, App::Codex, false));
+    assert_eq!(row.state, State::Foreign, "{:?}", row.note);
+    assert!(row.note.unwrap().contains("left alone"));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), FOREIGN_TOML);
+
+    std::fs::write(&path, "# my settings\n").unwrap();
+    assert_eq!(link(&env, App::Codex, false).state, State::Linked);
+    let row = while_the_lock_is_held(&path, FOREIGN_TOML, || unlink(&env, App::Codex, false));
+    assert_eq!(row.state, State::Foreign, "{:?}", row.note);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), FOREIGN_TOML);
+}
+
+/// Review F2 and F3 (#39320): a foreign `cmux` that another writer (outside the lock) puts in
+/// between the compare and the swap is met by the next round, which refuses it; the file ends
+/// with exactly that writer's bytes, for link and unlink, in place or by a rename.
+#[test]
+fn a_foreign_entry_written_during_a_retry_is_left_alone_with_its_bytes() {
+    let renames = cfg!(any(target_os = "linux", target_os = "macos"));
+    for by_rename in [false, true].into_iter().filter(|r| !r || renames) {
+        for unlinking in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let env = env(dir.path(), None);
+            let path = env.config_path(App::Codex);
+            std::fs::write(&path, "# my settings\n").unwrap();
+            if unlinking {
+                assert_eq!(link(&env, App::Codex, false).state, State::Linked);
+            }
+            let mut first = true;
+            let mut other = || {
+                if std::mem::take(&mut first) {
+                    if by_rename {
+                        rename_over(&path, FOREIGN_TOML);
+                    } else {
+                        std::fs::write(&path, FOREIGN_TOML).unwrap();
+                    }
+                }
+            };
+            let linking = link_toml(&env, App::Codex);
+            let render = |text: &str| {
+                if unlinking {
+                    render_toml(&path, text, &unlink_toml)
+                } else {
+                    render_toml(&path, text, &linking)
+                }
+            };
+            let e = write::edit_file_raced(&path, None, render, &mut other).unwrap_err();
+            assert!(e.downcast_ref::<ForeignEntry>().is_some(), "{e:#}");
+            let case = format!("by rename: {by_rename}, unlink: {unlinking}");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), FOREIGN_TOML, "{case}");
+        }
+    }
+}
+
+/// Review F3 (#39320): another writer's text that came out of the swap goes back on every way
+/// out of the edit. Here that writer saves half a JSON file, so the next round's render fails:
+/// the file ends with exactly its bytes, not our text built on the older one.
+#[test]
+fn a_racing_writer_whose_text_fails_the_render_keeps_its_bytes() {
+    let renames = cfg!(any(target_os = "linux", target_os = "macos"));
+    for by_rename in [false, true].into_iter().filter(|r| !r || renames) {
+        let dir = tempfile::tempdir().unwrap();
+        let env = env(dir.path(), None);
+        let path = env.config_path(App::ClaudeDesktop);
+        std::fs::write(&path, r#"{"globalShortcut": "Alt+Space"}"#).unwrap();
+        let half = r#"{"globalShortcut": "Alt+Sp"#;
+        let mut first = true;
+        let mut claude = || {
+            if std::mem::take(&mut first) {
+                if by_rename {
+                    rename_over(&path, half);
+                } else {
+                    std::fs::write(&path, half).unwrap();
+                }
+            }
+        };
+        let linking = link_json(&env, App::ClaudeDesktop);
+        let render = |text: &str| render_json(&path, text, &linking);
+        let e = write::edit_file_raced(&path, None, render, &mut claude).unwrap_err();
+        assert!(format!("{e:#}").contains("is not JSON"), "{e:#}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), half, "by rename: {by_rename}");
+        // Nothing of ours is left beside it.
+        let names: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["claude_desktop_config.json"], "by rename: {by_rename}");
     }
 }
 

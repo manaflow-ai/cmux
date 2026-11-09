@@ -19,6 +19,9 @@
 //!   and the edit is done again on it.
 //! - After [`EDIT_TRIES`] rounds that each met another writer, the last other text is put back
 //!   (when ours is the one in place) and the edit is refused: theirs wins, ours is reported.
+//!   So is every other way out after a swap took their text out: a render that fails on it
+//!   (half-saved JSON, a `cmux` entry that is not ours), a temp file that cannot be made, a read
+//!   that fails. The file their text came out as is what goes back, so its bytes and mode stay.
 //!
 //! A write made through a handle to a file after the swap took it out of place (the one moment
 //! no check can follow) lands in a file no longer at the path, as it would against any writer.
@@ -52,12 +55,71 @@ pub(super) fn edit_file_raced(
     let dir = path.parent().ok_or_else(|| anyhow!("{} has no folder", path.display()))?;
     std::fs::create_dir_all(dir).with_context(|| format!("making {}", dir.display()))?;
     let _lock = lock.and_then(cmux_tui_platform::codex_config_lock::lock);
+    // Ours, in place over another writer's text, from the round that put it there until a later
+    // round builds on that text: every way out of the rounds but success puts theirs back, a
+    // render that fails on their text (half-saved JSON, an entry that is not ours) or a temp
+    // file that cannot be made as much as the last round (review F3 of #39320).
+    let mut pending: Option<Restore> = None;
+    let done = rounds(path, &render, before_swap, &mut pending);
+    match (done, pending) {
+        (Err(e), Some(restore)) => match restore.put_back(path) {
+            Ok(()) => Err(e),
+            Err(lost) => Err(e.context(format!("{lost:#}"))),
+        },
+        (done, _) => done,
+    }
+}
+
+/// Another writer's text that ours replaced at the path, kept until it is put back or built on.
+struct Restore {
+    /// Our text in place over it.
+    ours: String,
+    /// Their text.
+    theirs: String,
+    /// The file it came out as (the exchange's temp name), whose bytes and mode go back as they
+    /// were; `None` after a plain rename, which leaves only the text.
+    file: Option<tempfile::NamedTempFile>,
+}
+
+impl Restore {
+    /// Put their text back where ours still is (one written after ours stays: it is newer).
+    fn put_back(self, path: &Path) -> Result<()> {
+        if read(path)?.as_deref() != Some(self.ours.as_str()) {
+            return Ok(());
+        }
+        let tmp = match self.file {
+            Some(file) => file,
+            None => temp_beside(path, &self.theirs)
+                .with_context(|| format!("putting back the other writer's {}", path.display()))?,
+        };
+        match tmp.persist(path) {
+            Ok(_) => Ok(()),
+            // Never deleted: the error names where their text is.
+            Err(e) => match e.file.keep() {
+                Ok((_, kept)) => bail!(
+                    "putting back the other writer's {}: {}; its text is in {}",
+                    path.display(),
+                    e.error,
+                    kept.display()
+                ),
+                Err(_) => bail!("putting back the other writer's {}: {}", path.display(), e.error),
+            },
+        }
+    }
+}
+
+/// The rounds of [`edit_file_raced`], with what must be put back if they end in an error in
+/// `pending`.
+fn rounds(
+    path: &Path,
+    render: &impl Fn(&str) -> Result<String>,
+    before_swap: &mut dyn FnMut(),
+    pending: &mut Option<Restore>,
+) -> Result<()> {
     // The text the edit is built on, and the text this edit expects at the path (ours, once a
     // round put it in over another writer's).
     let mut base = read(path)?;
     let mut at_path = base.clone();
-    // Ours, in place over another writer's text `base`.
-    let mut stale: Option<String> = None;
     for _ in 0..EDIT_TRIES {
         let ours = render(base.as_deref().unwrap_or_default())?;
         let tmp = temp_beside(path, &ours)?;
@@ -67,6 +129,8 @@ pub(super) fn edit_file_raced(
             None => read(path)?,
         };
         if now != at_path {
+            // Another writer's text replaced ours: theirs is in place, nothing to put back.
+            *pending = None;
             (base, at_path) = (now.clone(), now);
             continue;
         }
@@ -75,28 +139,29 @@ pub(super) fn edit_file_raced(
             Put::Swapped(displaced) => displaced,
             Put::Taken => {
                 let now = read(path)?;
+                *pending = None;
                 (base, at_path) = (now.clone(), now);
                 continue;
             }
         };
-        if displaced != at_path {
-            // Another writer's text came out: the edit is done again on it.
-            (base, at_path, stale) = (displaced, Some(ours.clone()), Some(ours));
+        if displaced.text != at_path {
+            // Another writer's text came out: the edit is done again on it, and it goes back
+            // if the edit ends without that.
+            if let Some(theirs) = displaced.text.clone() {
+                *pending = Some(Restore { ours: ours.clone(), theirs, file: displaced.file });
+            }
+            (base, at_path) = (displaced.text, Some(ours));
             continue;
         }
+        // Ours went in over the text it was built on, which holds every earlier writer's.
+        *pending = None;
         let after = read(path)?;
         if after.as_deref() != Some(ours.as_str()) {
             // A file renamed in after ours: theirs stays, and the edit is done again on it.
-            (base, at_path, stale) = (after.clone(), after, None);
+            (base, at_path) = (after.clone(), after);
             continue;
         }
         return Ok(());
-    }
-    if let (Some(ours), Some(theirs)) = (&stale, &base)
-        && read(path)?.as_deref() == Some(ours.as_str())
-    {
-        let tmp = temp_beside(path, theirs)?;
-        tmp.persist(path).map_err(|e| anyhow!("restoring {}: {}", path.display(), e.error))?;
     }
     bail!(
         "{} kept changing while it was edited; its other writer's text is kept; run it again",
@@ -104,10 +169,18 @@ pub(super) fn edit_file_raced(
     )
 }
 
+/// The file a swap took the place of.
+struct Displaced {
+    /// Its text (`None`: there was none).
+    text: Option<String>,
+    /// The file itself, under the exchange's temp name (removed when dropped).
+    file: Option<tempfile::NamedTempFile>,
+}
+
 /// What putting the new text in did.
 enum Put {
-    /// It is in; the text of the file it took the place of (`None`: there was none).
-    Swapped(Option<String>),
+    /// It is in, in place of [`Displaced`].
+    Swapped(Displaced),
     /// A file appeared where there was none: nothing was put in.
     Taken,
 }
@@ -122,20 +195,38 @@ fn put(
 ) -> Result<Put> {
     if !exists {
         return match tmp.persist_noclobber(path) {
-            Ok(_) => Ok(Put::Swapped(None)),
+            Ok(_) => Ok(Put::Swapped(Displaced { text: None, file: None })),
             Err(e) if e.error.kind() == std::io::ErrorKind::AlreadyExists => Ok(Put::Taken),
             Err(e) => Err(anyhow!("writing {}: {}", path.display(), e.error)),
         };
     }
     if exchange(tmp.path(), path) {
-        // The temp name now holds the file that was at the path; it is removed when `tmp` drops.
-        return Ok(Put::Swapped(read(tmp.path())?));
+        // The temp name now holds the file that was at the path.
+        return match read(tmp.path()) {
+            Ok(text) => Ok(Put::Swapped(Displaced { text, file: Some(tmp) })),
+            Err(e) => {
+                // Unread, it goes back in place of ours as it was.
+                match tmp.persist(path) {
+                    Ok(_) => Err(e),
+                    Err(back) => {
+                        let kept = back.file.keep().map(|(_, p)| p.display().to_string());
+                        Err(e.context(format!(
+                            "putting back {}: {}; it is in {}",
+                            path.display(),
+                            back.error,
+                            kept.unwrap_or_else(|_| "a file that is gone".to_owned())
+                        )))
+                    }
+                }
+            }
+        };
     }
     tmp.persist(path).map_err(|e| anyhow!("replacing {}: {}", path.display(), e.error))?;
-    match kept {
-        Some(mut file) => Ok(Put::Swapped(Some(read_handle(&mut file, path)?))),
-        None => Ok(Put::Swapped(None)),
-    }
+    let text = match kept {
+        Some(mut file) => Some(read_handle(&mut file, path)?),
+        None => None,
+    };
+    Ok(Put::Swapped(Displaced { text, file: None }))
 }
 
 /// Swap the names `a` and `b` (in the same folder) atomically; false when it cannot (nothing
