@@ -7,6 +7,7 @@ import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextWorkspaceRepair
 import Foundation
 
 /// Move to Cloud (cmuxterm-hq#1874 slice 3): the one action behind the palette's
