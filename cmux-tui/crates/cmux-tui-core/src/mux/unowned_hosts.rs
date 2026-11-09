@@ -724,6 +724,35 @@ mod tests {
     }
 
     #[test]
+    fn a_guard_replaced_after_the_check_keeps_every_host_of_its_root() {
+        let (dir, own, roots) = state_with_sessions("guard-replaced", &["cmux-app-back"]);
+        let root = roots[0].clone();
+        let component = crate::workspace_registry::session_guard_component("cmux-app-back");
+        let guard = dir.join("session-locks").join(format!("{component}.lock"));
+        let records = |_: &Path| -> LoadedRecords {
+            Ok((0..2).map(|index| fake_record(&root, index)).collect())
+        };
+        // After the reaper took the guard, the file is deleted and made
+        // again (a daemon starting the session would lock the new one).
+        let liveness = |_: &Path, _: &crate::terminal_host_runtime::TerminalHostRecord| {
+            if std::fs::remove_file(&guard).is_ok() {
+                std::fs::write(&guard, b"").unwrap();
+            }
+            TerminalHostLiveness::Live
+        };
+        let ended = std::cell::Cell::new(0);
+        let end = |_: &crate::terminal_host_runtime::TerminalHostRecord, _: &Path| {
+            ended.set(ended.get() + 1);
+            true
+        };
+        let hosts = HostOps { load: &records, liveness: &liveness, end: &end };
+        let never = || false;
+        reap_pass_with(&hosts, &own, &dir.join(STORE_FILE), 1_000_000, NO_GRACE, &never);
+        assert_eq!(ended.get(), 0, "a host was ended under a guard that no longer guards its root");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_root_whose_listing_failed_keeps_its_entries_when_the_store_is_pruned() {
         let (dir, own, roots) = state_with_sessions("listing-failed", &["cmux-app-flaky"]);
         let flaky = roots[0].clone();
