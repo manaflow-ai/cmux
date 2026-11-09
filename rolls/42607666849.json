@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42607666849",
+  "recorded_at": "2026-11-09T11:24:34Z",
+  "reason": "cmux-tui 89a4981be5cc changes the image's cmux-tui (pinned 79a0cbe2d0b2)",
+  "dry_run": false,
+  "cmux_tui": "89a4981be5ccbe5cc7a5908957fc73d83527873f",
+  "fixes": [
+    {
+      "sha": "89a4981be5ccbe5cc7a5908957fc73d83527873f",
+      "mergedAt": "2026-11-09T10:55:09Z",
+      "subject": "cmux-tui roster: a reducer version bump serves the old snapshot and rebuilds the roster in the background (#39433)"
+    },
+    {
+      "sha": "c61f3174a7ef40e098a60448ee3838b0a3107882",
+      "mergedAt": "2026-11-09T02:44:10-08:00",
+      "subject": "acpmux: an old or unproven acpmux CLI is never the person; agents get ACPMUX_BIN (#39020)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T11:24:34Z",
+    "snapshot_id": "sh-9e3eadbf4c6b4ac3a19ee69ccf7e1f94",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42607666849): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "95626de40a8f7fc28443bcb7f9f3048aaed3f683",
+    "image": "cloud-native-auto-89a4981b-42607666849-1",
+    "revision": "ci-42607666849-1",
+    "at": "2026-11-09T11:24:34Z"
+  },
+  "rolled_back": false
+}
