@@ -320,6 +320,28 @@ requestAnimationFrame(() => {
     await context.close();
   });
 
+  test("a key held on the copy reaches nothing under it, its repeats and release too", async () => {
+    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const before = await written(await context.newPage());
+    const page = await context.newPage();
+    await relaunched(page, before.snapshot, "theme-1", { holdDraw: true });
+    await page.evaluate(() => {
+      const w = window as any;
+      w.keys = [];
+      for (const name of ["keydown", "keyup"])
+        document.addEventListener(name, (event) => w.keys.push(`${name} ${(event as KeyboardEvent).key}`));
+    });
+    await page.keyboard.down("Enter");
+    // A held key's repeats: keydown again with the same code, before the release.
+    await page.keyboard.down("Enter");
+    await page.keyboard.down("Enter");
+    await page.keyboard.up("Enter");
+    expect(await page.evaluate(() => (window as any).keys)).toEqual([]);
+    await page.keyboard.press("Enter");
+    expect(await page.evaluate(() => (window as any).keys)).toEqual(["keydown Enter", "keyup Enter"]);
+    await context.close();
+  });
+
   test("once the live page took over, the first press reaches it", async () => {
     const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
     const before = await written(await context.newPage());

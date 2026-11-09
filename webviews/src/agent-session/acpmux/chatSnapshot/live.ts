@@ -123,6 +123,24 @@ function swallowGesture(): void {
   window.addEventListener("blur", done);
 }
 
+/// Swallows the rest of the key press that ended the copy: its repeats and its release reach
+/// nothing, so holding Enter never sends from the composer under the copy. Ends at the key's
+/// release, or when the window loses focus (the release then never comes).
+function swallowKey(code: string): void {
+  const swallow = (event: Event) => {
+    if ((event as KeyboardEvent).code !== code) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.type === "keyup") done();
+  };
+  const done = () => {
+    for (const name of ["keydown", "keypress", "keyup"]) window.removeEventListener(name, swallow, true);
+    window.removeEventListener("blur", done);
+  };
+  for (const name of ["keydown", "keypress", "keyup"]) window.addEventListener(name, swallow, { capture: true });
+  window.addEventListener("blur", done);
+}
+
 /// Called as the bundle starts: when the copy shows, the host shows the page now, in one frame and
 /// with no fade, as for a kept tail (AgentPaneView+Loading `endLoadingState`). The host's answer
 /// loads `async` (boot.ts), so a copy may draw after this: then it reports when it draws, unless the
@@ -143,6 +161,7 @@ export function reportChatSnapshot(
         event.preventDefault();
         event.stopImmediatePropagation();
         if (event.type === "pointerdown") swallowGesture();
+        else if (event.type === "keydown") swallowKey((event as KeyboardEvent).code);
       }
       removeChatSnapshot();
       stop();
