@@ -42,9 +42,9 @@ struct CloudAPIClientRunTests {
         }
     }
 
-    static let created = #"{"ok":true,"body":{"id":"run-9","status":"queued","attempts":[{"id":"a1","ordinal":1,"status":"queued"}],"environment":"sandboxed","image":null}}"#
-    static let running = #"{"ok":true,"body":{"run":{"id":"run-9","status":"running"},"attempts":[],"artifacts":[],"receipt":null}}"#
-    static let done = #"{"ok":true,"body":{"run":{"id":"run-9","status":"succeeded"},"attempts":[],"artifacts":[],"receipt":{"status":"succeeded","reply":"done"}}}"#
+    nonisolated static let created = #"{"ok":true,"body":{"id":"run-9","status":"queued","attempts":[{"id":"a1","ordinal":1,"status":"queued"}],"environment":"sandboxed","image":null}}"#
+    nonisolated static let running = #"{"ok":true,"body":{"run":{"id":"run-9","status":"running"},"attempts":[],"artifacts":[],"receipt":null}}"#
+    nonisolated static let done = #"{"ok":true,"body":{"run":{"id":"run-9","status":"succeeded"},"attempts":[],"artifacts":[],"receipt":{"status":"succeeded","reply":"done"}}}"#
 
     private func api(_ daemon: FakeDaemon?, access: @escaping @Sendable () async throws -> String = { "access" }) -> CloudAPIClient {
         var api = CloudAPIClient.workerMachines(baseURL: URL(string: "https://owner.standin.invalid") ?? URL(fileURLWithPath: "/"),

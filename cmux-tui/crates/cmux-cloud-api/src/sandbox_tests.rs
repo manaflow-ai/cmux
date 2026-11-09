@@ -214,7 +214,7 @@ fn a_restart_ends_a_run_that_was_going_and_resumes_its_cleanup() {
     }
     // A new daemon over the same store (the old one's thread is left blocked, as a dead daemon's is).
     let fake = Fake::new(None, vec![]);
-    let second = Engine::open(Some(store.clone()), fake.clone(), quick());
+    let second = Engine::open(Some(store), fake.clone(), quick());
     let snapshot = settled(&second, &id, "destroyed");
     assert_eq!(snapshot["run"]["status"], "failed");
     assert!(snapshot["receipt"]["error"].as_str().unwrap().contains("restarted"));
@@ -279,7 +279,7 @@ fn a_create_that_is_not_one_is_refused_and_runs_nothing() {
 #[test]
 fn a_wait_holds_at_most_its_bound_and_answers_no_receipt_while_running() {
     let fake = Fake::new(None, vec![]);
-    let engine = Engine::open(None, fake.clone(), quick());
+    let engine = Engine::open(None, fake, quick());
     let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
     let began = Instant::now();
     let snapshot =

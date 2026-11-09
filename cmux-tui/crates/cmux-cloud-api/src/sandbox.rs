@@ -234,7 +234,7 @@ pub fn clean_reply(text: &str) -> String {
                 // CSI: parameters and intermediates, then one final byte.
                 Some('[') => {
                     chars.next();
-                    while let Some(c) = chars.next() {
+                    for c in chars.by_ref() {
                         if ('\u{40}'..='\u{7e}').contains(&c) {
                             break;
                         }
