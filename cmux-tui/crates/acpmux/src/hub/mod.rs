@@ -1679,7 +1679,7 @@ impl Hub {
     /// Changes a session's metadata in place, with no record or save (tests outside the hub).
     #[cfg(test)]
     pub(crate) fn edit_test_meta(&self, session: &Session, edit: impl FnOnce(&mut SessionMeta)) {
-        edit(&mut session.meta.lock().unwrap());
+        edit(&mut session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
     }
 
     #[cfg(test)]
