@@ -59,10 +59,20 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     /// callback never reaches a freed backend) until `stop()` removes it.
     private var reconfiguration: (callback: CGDisplayReconfigurationCallBack, context: Unmanaged<ScreenCaptureBackend>)?
 
-    public init(log: @escaping @Sendable (String) -> Void) {
+    /// Puts a pasted image on the pasteboard; false when it could not (tests record it instead).
+    private let writePasteboard: @Sendable (Data, String) -> Bool
+
+    public convenience init(log: @escaping @Sendable (String) -> Void) {
+        let timing = CaptureTimingLog()
+        self.init(log: log, timing: timing, input: EventInjector(timing: timing), writePasteboard: Self.writeGeneralPasteboard)
+    }
+
+    init(log: @escaping @Sendable (String) -> Void, timing: CaptureTimingLog?, input: EventInjector,
+         writePasteboard: @escaping @Sendable (Data, String) -> Bool) {
         self.log = log
-        timing = CaptureTimingLog()
-        input = EventInjector(timing: timing)
+        self.timing = timing
+        self.input = input
+        self.writePasteboard = writePasteboard
     }
 
     public func start(frame: @escaping @Sendable (CVPixelBuffer, CGRect) -> Void,
@@ -368,9 +378,34 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         input.handle(message)
     }
 
-    /// Pixel scrolling (`u: "px"`) and pointer events that carry the held modifiers.
+    /// Pixel scrolling (`u: "px"`), pointer events that carry the held modifiers, and pasted images.
     public var inputCapabilities: [String] {
-        [ScreenHostMessage.pixelScrollCapability, ScreenHostMessage.modifiedPointerCapability]
+        [ScreenHostMessage.pixelScrollCapability, ScreenHostMessage.modifiedPointerCapability, ScreenHostMessage.pasteImageCapability]
+    }
+
+    /// The viewer's Paste Image: the image goes on the general pasteboard,
+    /// then ⌘V pastes it where this Mac's focus is (as the viewer's own ⌘V
+    /// would), in order with the input around it.
+    public func pasteImage(_ data: Data, type: String) -> Bool {
+        guard writePasteboard(data, type) else { return false }
+        input.handle(ScreenInput(t: "chord", k: Self.vKeysym, m: [Self.commandKeysym]))
+        return true
+    }
+
+    static let vKeysym: UInt32 = 0x76, commandKeysym: UInt32 = 0xFFE7
+
+    /// Replaces the general pasteboard with the image: its own type, plus
+    /// TIFF for apps that read only that. False when the bytes are no image.
+    static func writeGeneralPasteboard(_ data: Data, type: String) -> Bool {
+        guard let image = NSImage(data: data), image.isValid else { return false }
+        let item = NSPasteboardItem()
+        item.setData(data, forType: NSPasteboard.PasteboardType(type))
+        if type != NSPasteboard.PasteboardType.tiff.rawValue, let tiff = image.tiffRepresentation {
+            item.setData(tiff, forType: .tiff)
+        }
+        let board = NSPasteboard.general
+        board.clearContents()
+        return board.writeObjects([item])
     }
 
     public func stop() {
