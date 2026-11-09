@@ -13,7 +13,13 @@ const call = (status = "completed"): AcpmuxActivity => ({
   tool: { id: `t${++seq}`, title: "step", kind: "execute", status },
 });
 const thought: AcpmuxActivity = { kind: "thought", text: "thinking" };
-const work = (id: string, ...items: AcpmuxActivity[]): AcpmuxRow => ({ id, version: 1, at: 0, kind: "activity", items });
+const work = (id: string, ...items: AcpmuxActivity[]): AcpmuxRow => ({
+  id,
+  version: 1,
+  at: 0,
+  kind: "activity",
+  items,
+});
 const reply = (id: string): AcpmuxRow => ({ id, version: 1, at: 0, kind: "assistant", text: "done" });
 
 const shape = (rows: AcpmuxRow[], fold: number) =>

@@ -140,13 +140,13 @@ export default agentPaneEntry({
       play: drill,
     },
     "run-open": {
-      note: 'The stretch with the failed lint opened in place: "Ran 3 commands, read a file, 1 failed", then its steps, each call opening to what it ran and said.',
+      note: 'The stretch with the failed lint opened in place: "Edited a file, ran 3 commands, and performed 1 other action, 1 failed", then its steps, each call opening to what it ran and said.',
       snapshot,
       play: async (ctx) => {
         await drill(ctx);
-        await ctx.click({ selector: '.acpmux-bg__run[data-run-id="udp-test"] .acpmux-bg__line--fold' });
+        await ctx.click({ selector: '.acpmux-bg__run[data-run-id="udp-edit"] .acpmux-bg__line--fold' });
         await ctx.waitFor(() =>
-          ctx.document.querySelector('.acpmux-bg__run[data-run-id="udp-test"] .acpmux-bg__run-steps'),
+          ctx.document.querySelector('.acpmux-bg__run[data-run-id="udp-edit"] .acpmux-bg__run-steps'),
         );
       },
     },

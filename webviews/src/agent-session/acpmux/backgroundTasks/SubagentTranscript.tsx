@@ -233,7 +233,8 @@ export function SubagentTranscript({
       {notice && <p className="acpmux-bg__notice">{notice}</p>}
       {(first > 0 || loadOlder) && <div ref={top} className="acpmux-bg__sentinel" aria-hidden="true" />}
       {blocks.map((block) => {
-        if (block.type === "row") return <TranscriptRow key={block.row.id} row={block.row} version={block.row.version} />;
+        if (block.type === "row")
+          return <TranscriptRow key={block.row.id} row={block.row} version={block.row.version} />;
         const ids = block.rows.map((row) => row.id);
         const isOpen =
           !ids.some((id) => shut.has(id)) &&

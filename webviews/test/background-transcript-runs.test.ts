@@ -82,9 +82,7 @@ await requireBrowserLane("background-transcript-runs.test.ts", async () => {
       const opened = await lines(page);
       expect(opened.filter((text) => text === "Thought process")).toHaveLength(11);
       expect(opened).toContain("Read an xcstrings entry and i18n loader");
-      expect(
-        await page.locator('.acpmux-bg__run .acpmux-bg__line--fold[aria-expanded="true"]').count(),
-      ).toBe(1);
+      expect(await page.locator('.acpmux-bg__run .acpmux-bg__line--fold[aria-expanded="true"]').count()).toBe(1);
 
       // A second click folds it again.
       await page.locator(".acpmux-bg__run .acpmux-bg__line--fold").first().click();
