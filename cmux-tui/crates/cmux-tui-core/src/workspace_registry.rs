@@ -82,7 +82,8 @@ use resource_store::{
     initialize_resource_mutation_retention, migrate_resource_agent_projections,
     migrate_resource_browser_metadata, migrate_resource_mutations_to_session_scope,
     migrate_resource_tabs_to_multiview, repair_dangling_terminal_resources,
-    resource_tabs_needs_multiview_normalization, validate_resource_invariants,
+    resource_tabs_needs_multiview_normalization, restate_legacy_pending_panes,
+    validate_resource_invariants,
 };
 pub use session_journal::{
     JournalAuthority, JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity,
@@ -2704,6 +2705,7 @@ impl WorkspaceRegistry {
             initialize_resource_input_receipt_retention(&tx)?;
             initialize_resource_mutation_retention(&tx)?;
             repair_dangling_terminal_resources(&tx)?;
+            restate_legacy_pending_panes(&tx)?;
             tx.commit()?;
         }
         let stored_name = required_meta(&connection, "session_name")?;
