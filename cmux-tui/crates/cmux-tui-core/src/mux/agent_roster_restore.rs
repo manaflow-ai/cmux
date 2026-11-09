@@ -152,25 +152,30 @@ pub(super) fn restore_agent_roster(
         neutralize_live_claims(registry, &mut host, &skipped);
         problems.push(skipped_ranges_problem(&skipped));
     }
-    // The stale mark is written before the snapshot it qualifies, so a
-    // stop in between cannot leave a migrated snapshot passing for a rebuilt
-    // one; it goes with the save of a full fold.
-    if let Some(from_version) = rebuild_from
-        && pending.is_none()
-        && registry
-            .mark_journal_reducer_rebuild_pending(AGENT_ROSTER_REDUCER_ID, from_version)
-            .is_err()
-    {
-        eprintln!("cmux-tui: marking the agent roster stale failed");
-    }
+    // A migrated snapshot is saved together with its stale mark, in one
+    // transaction: saved at the current version without it, the snapshot
+    // would pass for the current reducer's fold at every later start. When
+    // that save fails, the old version's state stays, and the next start
+    // migrates it again. An earlier start's mark still stands, so a later
+    // save of the stale roster needs none; the mark goes with the save of a
+    // full fold.
+    let first_mark = rebuild_from.filter(|_| pending.is_none());
     let finished = pending.is_some() && rebuild_from.is_none();
-    if needs_repair || finished || host.cursor != started_at {
-        // The in-memory roster is already correct. A failed write only means
-        // the next start folds this tail again.
+    if needs_repair || finished || first_mark.is_some() || host.cursor != started_at {
+        // The in-memory roster is already what this start serves. A failed
+        // write only means the next start folds this tail again.
         let snapshot = host.roster.snapshot().to_string();
         let saved = if finished {
             registry.finish_journal_reducer_rebuild(
                 AGENT_ROSTER_REDUCER_ID,
+                AGENT_ROSTER_REDUCER_VERSION,
+                host.cursor,
+                &snapshot,
+            )
+        } else if let Some(from_version) = first_mark {
+            registry.start_journal_reducer_rebuild(
+                AGENT_ROSTER_REDUCER_ID,
+                from_version,
                 AGENT_ROSTER_REDUCER_VERSION,
                 host.cursor,
                 &snapshot,

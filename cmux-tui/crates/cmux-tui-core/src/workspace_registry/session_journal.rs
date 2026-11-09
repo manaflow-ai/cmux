@@ -1313,14 +1313,23 @@ impl WorkspaceRegistry {
         }))
     }
 
-    /// Record that a reducer's state is stale until a rebuild finishes
-    /// ([`RegistryConnection::finish_journal_reducer_rebuild`]).
-    pub(crate) fn mark_journal_reducer_rebuild_pending(
+    /// Save a reducer state migrated from `from_version` and mark it stale
+    /// until a rebuild finishes
+    /// ([`RegistryConnection::finish_journal_reducer_rebuild`]), in one
+    /// transaction: a migrated snapshot is never saved at the current version
+    /// without its mark, or a later start would trust it as the current
+    /// reducer's fold.
+    pub(crate) fn start_journal_reducer_rebuild(
         &self,
         reducer_id: &str,
         from_version: u32,
+        version: u32,
+        cursor: u64,
+        snapshot: &str,
     ) -> anyhow::Result<()> {
-        self.connection.get().execute(
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
+        tx.execute(
             "INSERT INTO meta(key, value) VALUES(?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             params![
@@ -1328,6 +1337,8 @@ impl WorkspaceRegistry {
                 serde_json::json!({"from_version": from_version}).to_string()
             ],
         )?;
+        write_journal_reducer_state(&tx, reducer_id, version, cursor, snapshot)?;
+        tx.commit()?;
         Ok(())
     }
 
