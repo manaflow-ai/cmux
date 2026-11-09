@@ -1311,20 +1311,23 @@ export function ModelPicker(props: ModelPickerProps) {
       <span className="sr-only">{forkText}</span>
     </span>
   );
-  // The open picker's own rows keep their own right-click (a model's star, a search field's text).
   return (
-    <ContextMenu items={chipMenu} asChild targets="own" ignore=".acpmux-mp">
-      <span
-        ref={root}
-        className="acpmux-picker acpmux-model"
-        style={{ position: "relative" }}
-        // A hidden logo or effort hides by CSS (composerLocation.css), so the row's fit steps still
-        // bring the logo back once the name is gone and the chip is never a bare chevron.
-        {...(chipLook.providerLogo ? {} : { "data-chip-logo": "off" })}
-        {...(chipLook.effort ? {} : { "data-chip-effort": "off" })}
-        // The controls row's harness mark alone names the model in a tooltip (composerRowFit.ts).
-        {...(rowChip ? { "data-fit-title": chipTitle, "data-fit-title-unit": "model" } : {})}
-      >
+    <span
+      ref={root}
+      className="acpmux-picker acpmux-model"
+      style={{ position: "relative" }}
+      // A hidden logo or effort hides by CSS (composerLocation.css), so the row's fit steps still
+      // bring the logo back once the name is gone and the chip is never a bare chevron.
+      {...(chipLook.providerLogo ? {} : { "data-chip-logo": "off" })}
+      {...(chipLook.effort ? {} : { "data-chip-effort": "off" })}
+      // The controls row's harness mark alone names the model in a tooltip (composerRowFit.ts).
+      {...(rowChip ? { "data-fit-title": chipTitle, "data-fit-title-unit": "model" } : {})}
+    >
+      {/* The chip's right-click menu sits inside the chip, so the composer row keeps its own
+            children; its host draws no box (modelPicker.css). As the host of the chip's one menu
+            button, the composer's capture handler (composerChipMenu.ts) leaves the right-click to
+            it. The open picker's rows keep their own right-click (a model's star, the search). */}
+      <ContextMenu items={chipMenu} targets="own" ignore=".acpmux-mp" className="acpmux-model-menu-host">
         {quick ? (
           // The compact menu's chip is its Base UI menu button (submenus need one); a press while
           // the full picker is open only closes it.
@@ -1870,7 +1873,7 @@ export function ModelPicker(props: ModelPickerProps) {
             </div>
           </PickerDialog>
         )}
-      </span>
-    </ContextMenu>
+      </ContextMenu>
+    </span>
   );
 }
