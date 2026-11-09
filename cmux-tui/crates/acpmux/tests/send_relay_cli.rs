@@ -223,11 +223,13 @@ fn w5s_a_subagents_relayed_send_names_the_subagent_as_a_label() {
     let names = "ACPMUX_SESSION_ID,ACPMUX_SESSION_NAME,ACPMUX_SESSION_TOKEN,\
         ACPMUX_SESSION_TOKEN_SOCKET,ACPMUX_SOCKET";
     let made = cli(&dir, &["run", "-n", "lane", &format!("envs: {names}")]);
-    assert!(made.status.success(), "the session: {}", text(&made));
+    let stderr = String::from_utf8_lossy(&made.stderr);
+    assert!(made.status.success(), "the session ({:?}): {stderr}", made.status.code());
     let stdout = String::from_utf8_lossy(&made.stdout);
     let line = stdout.lines().find(|l| l.trim_start().starts_with('{')).unwrap_or_default();
     let env: std::collections::BTreeMap<String, String> = serde_json::from_str(line.trim())
-        .unwrap_or_else(|_| panic!("no environment: {}", text(&made)));
+        // Never its stdout: it holds the lane's caller token.
+        .unwrap_or_else(|_| panic!("no environment (exit {:?})", made.status.code()));
     assert!(!env["ACPMUX_SESSION_TOKEN"].is_empty(), "no caller token");
     let as_agent_from = |subagent: Option<&str>, from: Option<&str>| {
         let mut cmd = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[]);
