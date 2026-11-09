@@ -190,6 +190,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.customDensity` | string |  |  | Custom Density |
 | `appearance.customDensities` | string | `[]` |  | Custom Densities |
 | `app.uiScale` | real | `1` | 0.85 to 1.5 | App Zoom. Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app. |
+| `appearance.font` | string | `"system"` | `system`, `Helvetica Neue`, `Avenir Next`, `Futura`, `Gill Sans`, `Optima`, `Verdana`, `Trebuchet MS`, `Georgia`, `Palatino`, `Charter`, `Iowan Old Style`, `Baskerville`, `American Typewriter`, `Menlo` | App Font. The font of the whole app: tabs, the sidebar, menus, chats and pages. Terminal and code text keep their own fonts. |
 | `appearance.metrics.chromeFontSize` | real |  | 10 to 16 | Text Size. Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size. |
 | `appearance.interfaceScale` | real |  | 0.9 to 1.25 | Interface Size. Text size of tabs, the sidebar and other controls. Terminal text has its own size. |
 | `appearance.metrics.sidebarWidth` | real |  | 160 to 420 | Sidebar Width |

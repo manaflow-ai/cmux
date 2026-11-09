@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 public import CmuxNextFileGrid
 public import CmuxNextFiles
 import Observation
@@ -70,11 +71,11 @@ public final class ScreenshotsView: NSView {
         sourceMenu.target = self
         sourceMenu.action = #selector(sourceChanged)
         sourceMenu.controlSize = .small
-        sourceMenu.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        sourceMenu.font = Typography.system(size: NSFont.smallSystemFontSize)
         search.placeholderString = ScreenshotsStrings.filter
         search.focusRingType = .none
         search.controlSize = .small
-        search.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        search.font = Typography.system(size: NSFont.smallSystemFontSize)
         search.target = self
         search.action = #selector(searchChanged)
         search.sendsSearchStringImmediately = true

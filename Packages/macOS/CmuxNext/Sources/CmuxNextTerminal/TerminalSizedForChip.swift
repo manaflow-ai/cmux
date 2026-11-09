@@ -22,13 +22,13 @@ final class TerminalSizedForChip: NSView {
         wantsLayer = true
         layer?.cornerRadius = Metrics.surfaceCornerRadius
         layer?.borderWidth = Metrics.lineWidth(1)
-        label.font = .systemFont(ofSize: TypeScale.detail, weight: TypeScale.emphasis)
+        label.font = Typography.system(size: TypeScale.detail, weight: TypeScale.emphasis)
         label.ink = .secondary
         label.lineBreakMode = .byTruncatingTail
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         button.bezelStyle = .rounded
         button.controlSize = .small
-        button.font = .systemFont(ofSize: TypeScale.caption, weight: TypeScale.emphasis)
+        button.font = Typography.system(size: TypeScale.caption, weight: TypeScale.emphasis)
         button.setAccessibilityLabel(title)
         button.target = self
         button.action = #selector(takeOver)

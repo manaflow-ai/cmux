@@ -107,7 +107,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         SystemScrollers.follow(list.scrollView)
         installHeader()
         followHeaderMetrics()
-        noteLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        noteLabel.font = Typography.system(size: NSFont.smallSystemFontSize)
         noteLabel.lineBreakMode = .byTruncatingTail
         noteLabel.isHidden = true
         noteLabel.setAccessibilityIdentifier("cmux.home.sidebar.note")
@@ -115,7 +115,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         requestsButton.bezelStyle = .accessoryBarAction
         requestsButton.isBordered = false
         requestsButton.alignment = .left
-        requestsButton.font = .systemFont(ofSize: TypeScale.caption, weight: TypeScale.emphasis)
+        requestsButton.font = Typography.system(size: TypeScale.caption, weight: TypeScale.emphasis)
         requestsButton.image = NSImage(systemSymbolName: "tray", accessibilityDescription: nil)
         requestsButton.imagePosition = .imageLeading
         requestsButton.target = self
@@ -332,7 +332,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
-        field.font = .systemFont(ofSize: NSFont.systemFontSize)
+        field.font = Typography.system(size: NSFont.systemFontSize)
         field.setAccessibilityIdentifier("cmux.home.sidebar.search")
         field.onEditingChange = { [weak self] _ in self?.searchEditingChanged() }
         // An emptied field (its cancel button) closes the search over an avatar-only list once it stops editing.

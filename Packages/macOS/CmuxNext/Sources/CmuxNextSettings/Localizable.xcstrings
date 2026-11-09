@@ -54362,6 +54362,268 @@
         }
       }
     },
+    "settings.appearance.font": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خط التطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Font aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Appens skrifttype"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "App-Schrift"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Font"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tipo de letra de la app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Police de l’app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Font dell’app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリのフォント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពុម្ពអក្សរកម្មវិធី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "앱 서체"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Appens skrift"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czcionka aplikacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fonte do app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шрифт приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แบบอักษรของแอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uygulama Yazı Tipi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шрифт застосунку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phông chữ ứng dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "App 字体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "App 字體"
+          }
+        }
+      }
+    },
+    "settings.appearance.font.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خط التطبيق كله: علامات التبويب والشريط الجانبي والقوائم والمحادثات والصفحات. يحتفظ نص الطرفية والشيفرة بخطوطه الخاصة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Font cijele aplikacije: kartice, bočna traka, meniji, razgovori i stranice. Tekst terminala i koda zadržava svoje fontove."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrifttypen i hele appen: faner, sidepanelet, menuer, chats og sider. Terminal- og kodetekst beholder deres egne skrifttyper."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Schrift der ganzen App: Tabs, Seitenleiste, Menüs, Chats und Seiten. Terminal- und Codetext behalten ihre eigenen Schriften."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The font of the whole app: tabs, the sidebar, menus, chats and pages. Terminal and code text keep their own fonts."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El tipo de letra de toda la app: pestañas, barra lateral, menús, chats y páginas. El texto del terminal y del código mantiene sus propios tipos de letra."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La police de toute l’app : onglets, barre latérale, menus, discussions et pages. Le texte du terminal et du code garde ses propres polices."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il font di tutta l’app: schede, barra laterale, menu, chat e pagine. Il testo del terminale e del codice mantiene i propri font."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリ全体のフォント：タブ、サイドバー、メニュー、チャット、ページ。ターミナルとコードのテキストは独自のフォントのままです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពុម្ពអក្សររបស់កម្មវិធីទាំងមូល៖ ផ្ទាំង របារចំហៀង ម៉ឺនុយ ការជជែក និងទំព័រ។ អត្ថបទទែមីណាល់ និងកូដរក្សាពុម្ពអក្សររបស់ខ្លួន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "앱 전체의 서체: 탭, 사이드바, 메뉴, 채팅, 페이지. 터미널과 코드 텍스트는 각자의 서체를 유지합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skriften i hele appen: faner, sidefeltet, menyer, chatter og sider. Terminal- og kodetekst beholder sine egne skrifter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czcionka całej aplikacji: karty, pasek boczny, menu, czaty i strony. Tekst terminala i kodu zachowuje własne czcionki."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A fonte do app inteiro: abas, barra lateral, menus, chats e páginas. O texto do terminal e do código mantém suas próprias fontes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шрифт всего приложения: вкладки, боковая панель, меню, чаты и страницы. Текст терминала и кода сохраняет свои шрифты."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แบบอักษรของทั้งแอป: แท็บ แถบด้านข้าง เมนู แชท และหน้า ข้อความเทอร์มินัลและโค้ดใช้แบบอักษรของตัวเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tüm uygulamanın yazı tipi: sekmeler, kenar çubuğu, menüler, sohbetler ve sayfalar. Terminal ve kod metni kendi yazı tiplerini korur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шрифт усього застосунку: вкладки, бічна панель, меню, чати й сторінки. Текст термінала й коду зберігає власні шрифти."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phông chữ của toàn bộ ứng dụng: thẻ, thanh bên, menu, cuộc trò chuyện và trang. Văn bản terminal và mã giữ phông chữ riêng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "整个 App 的字体：标签页、边栏、菜单、聊天和页面。终端和代码文本保留各自的字体。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "整個 App 的字體：分頁、側邊欄、選單、聊天和頁面。終端機和程式碼文字保留各自的字體。"
+          }
+        }
+      }
+    },
     "settings.appearance.interfaceSize": {
       "extractionState": "manual",
       "localizations": {

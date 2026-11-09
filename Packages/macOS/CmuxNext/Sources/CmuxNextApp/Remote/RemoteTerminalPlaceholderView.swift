@@ -32,7 +32,7 @@ final class RemoteTerminalPlaceholderView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         icon.image = NSImage.icon(.machineRemote, size: .iconRowSize(forLabelPointSize: NSFont.systemFontSize))
-        status.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
+        status.font = Typography.system(size: NSFont.systemFontSize, weight: .medium)
         status.lineBreakMode = .byTruncatingMiddle
         connect.title = RemoteStrings.placeholderConnect
         connect.bezelStyle = .rounded

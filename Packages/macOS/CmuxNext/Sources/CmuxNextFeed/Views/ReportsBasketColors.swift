@@ -59,7 +59,7 @@ enum ReportsBasketText {
     static func label(_ text: String = "", size: CGFloat, weight: NSFont.Weight = TypeScale.regular,
                       rounded: Bool = false, lines: Int = 1) -> NSTextField {
         let label = NSTextField(wrappingLabelWithString: text)
-        let font = NSFont.systemFont(ofSize: size, weight: weight)
+        let font = Typography.system(size: size, weight: weight)
         label.font = rounded ? font.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: size) } ?? font : font
         label.isSelectable = false
         label.maximumNumberOfLines = lines

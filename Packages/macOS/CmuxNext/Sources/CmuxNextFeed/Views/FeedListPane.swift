@@ -50,7 +50,7 @@ final class FeedListPane: NSView {
 
     static func label(_ text: String, size: CGFloat, weight: NSFont.Weight = TypeScale.regular) -> NSTextField {
         let label = NSTextField(labelWithString: text)
-        label.font = .systemFont(ofSize: size, weight: weight)
+        label.font = Typography.system(size: size, weight: weight)
         label.lineBreakMode = .byTruncatingTail
         label.isSelectable = false
         return label

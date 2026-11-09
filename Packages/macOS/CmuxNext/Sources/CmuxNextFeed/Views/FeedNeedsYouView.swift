@@ -167,7 +167,7 @@ public final class FeedNeedsYouView: NSView {
         title.stringValue = FeedStrings.needsYou
         count.stringValue = "\(requests.count)"
         self.more.attributedTitle = NSAttributedString(string: more > 0 ? FeedStrings.needsYouMore(more) : "", attributes: [
-            .font: NSFont.systemFont(ofSize: TypeScale.caption, weight: TypeScale.regular), .foregroundColor: colors.basket.secondary,
+            .font: Typography.system(size: TypeScale.caption, weight: TypeScale.regular), .foregroundColor: colors.basket.secondary,
         ])
         self.more.isHidden = more == 0 || style == .bar
         title.isHidden = style == .bar || requests.isEmpty

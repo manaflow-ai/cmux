@@ -45,7 +45,7 @@ final class RestartNoticePanel {
             // The surface recolors its own material on the same change.
             content.performWithTheme { label.textColor = Palette.textPrimary }
         }
-        label.font = .systemFont(ofSize: NSFont.systemFontSize)
+        label.font = Typography.system(size: NSFont.systemFontSize)
         label.setContentCompressionResistancePriority(.required, for: .horizontal)
         var views: [NSView] = [label]
         if onReport != nil {

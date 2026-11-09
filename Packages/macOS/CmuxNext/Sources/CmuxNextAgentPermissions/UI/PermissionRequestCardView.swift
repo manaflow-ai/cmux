@@ -131,7 +131,7 @@ public final class PermissionRequestCardView: NSView {
     private func label(_ text: String, size: CGFloat, weight: NSFont.Weight = TypeScale.regular, color: NSColor = Palette.textPrimary,
                        lines: Int = 4) -> NSTextField {
         let field = NSTextField(wrappingLabelWithString: text)
-        field.font = .systemFont(ofSize: size, weight: weight)
+        field.font = Typography.system(size: size, weight: weight)
         field.textColor = color
         field.maximumNumberOfLines = lines
         field.lineBreakMode = .byTruncatingTail

@@ -16,7 +16,7 @@ final class AgentTabElsewhereView: NSView {
         wantsLayer = true
         icon.image = NSImage.icon(.machineMac, size: .iconRowSize(forLabelPointSize: NSFont.systemFontSize))
         label.stringValue = machine.map(RemoteStrings.agentTabElsewhere) ?? RemoteStrings.agentTabElsewhereUnknown
-        label.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
+        label.font = Typography.system(size: NSFont.systemFontSize, weight: .medium)
         label.lineBreakMode = .byTruncatingMiddle
         let stack = NSStackView(views: [icon, label])
         stack.orientation = .horizontal

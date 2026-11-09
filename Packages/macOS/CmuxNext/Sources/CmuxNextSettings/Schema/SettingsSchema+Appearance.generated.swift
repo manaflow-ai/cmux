@@ -149,6 +149,13 @@ extension UIScaleSetting {
     public nonisolated static let placeholder: Double = 1
 }
 
+extension AppFontSetting {
+    /// `appearance.font`: The app font: every chrome label (Typography, CheckedFont) and every web page's --font-ui (WebTheme `uiFont`). Leo, 2026-11-08: "there's no whole app font change thing ... i wanna just be able to see different fonts just like how i can see different themes as preview". The default is the macOS system font (ui-font-pin.json); the choices are faces every Mac ships, so chrome and pages draw the same one.
+    public nonisolated static let configPath = ["appearance", "font"]
+    public nonisolated static let fallback = "system"
+    public nonisolated static let values = ["system", "Helvetica Neue", "Avenir Next", "Futura", "Gill Sans", "Optima", "Verdana", "Trebuchet MS", "Georgia", "Palatino", "Charter", "Iowan Old Style", "Baskerville", "American Typewriter", "Menlo"]
+}
+
 extension InterfaceSizeSetting {
     /// `appearance.metrics.chromeFontSize`.
     public nonisolated static let configPath = ["appearance", "metrics", "chromeFontSize"]

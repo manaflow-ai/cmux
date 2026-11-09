@@ -39,7 +39,7 @@ final class HomeStarterChips: NSView {
 
     private func repaint() {
         for button in buttons {
-            button.font = .systemFont(ofSize: TypeScale.Base.detail * scale)
+            button.font = Typography.system(size: TypeScale.Base.detail * scale)
             button.contentTintColor = text
             button.layer?.backgroundColor = look == .plain ? NSColor.clear.cgColor : fill.cgColor
             button.layer?.cornerRadius = Metrics.surfaceCornerRadius

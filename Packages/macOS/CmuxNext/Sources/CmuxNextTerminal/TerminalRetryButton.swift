@@ -15,7 +15,7 @@ final class TerminalRetryButton: ClickableButton {
         image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
         imagePosition = .imageLeading
         bezelStyle = .rounded
-        font = .systemFont(ofSize: 12, weight: .medium)
+        font = Typography.system(size: TypeScale.Base.detail, weight: .medium)
         setAccessibilityLabel(title)
         target = self
         action = #selector(clicked)

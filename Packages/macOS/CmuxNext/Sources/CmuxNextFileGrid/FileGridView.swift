@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// A virtualized grid of file tiles: thumbnails for pictures, poster frames
 /// and lengths for movies, newest first as given. Drag tiles out to any app
@@ -177,7 +178,7 @@ public final class FileGridView: NSView {
         scrollView.layer?.cornerRadius = appearanceValues.cornerRadius
         addSubview(scrollView)
         emptyLabel.alignment = .center
-        emptyLabel.font = .systemFont(ofSize: NSFont.systemFontSize)
+        emptyLabel.font = Typography.system(size: NSFont.systemFontSize)
         addSubview(emptyLabel)
         applyAppearance()
     }

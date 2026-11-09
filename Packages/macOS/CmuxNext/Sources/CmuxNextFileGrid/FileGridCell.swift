@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import UniformTypeIdentifiers
 
 /// One tile: the thumbnail (the file's icon until it renders), the name
@@ -24,7 +25,7 @@ final class FileGridCell: NSCollectionViewItem {
         picture.layer?.masksToBounds = true
         name.lineBreakMode = .byTruncatingMiddle
         name.alignment = .center
-        name.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        name.font = Typography.system(size: NSFont.smallSystemFontSize)
         name.maximumNumberOfLines = 1
         badge.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize - 1, weight: .semibold)
         badge.textColor = .white
