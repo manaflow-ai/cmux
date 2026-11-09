@@ -22,6 +22,8 @@
 //! retry the peer queued for an earlier instance of this side (one that
 //! restarted) is not taken as one. A hello with a new instance number is a
 //! restarted peer: this side starts the exchange over with it.
+//! A peer that sends version 1 (no instance numbers) is answered in
+//! version 1, and its `heard` flag counts as an acknowledgement, as it did.
 //!
 //! A hello goes out as soon as a session exists, ahead of that pass's data,
 //! and again at 0.25, 0.5, 1 and 2 s until the peer acknowledges it. Each
@@ -45,9 +47,14 @@ use crate::ultra::UltraMode;
 /// with path probes (different magic and length).
 pub(crate) const HELLO_PORT: u16 = cmux_transport::probe::PROBE_PORT;
 const MAGIC: [u8; 4] = *b"CMXU";
-/// 2: the instance numbers. Version 1 (9 bytes, port 4103) is not read.
+/// 2: the instance numbers.
 const VERSION: u8 = 2;
 const LEN: usize = 25;
+/// Version 1, without instance numbers (9 bytes): what builds with only the
+/// control port send. Read, and answered in kind, so a mixed pair still
+/// agrees.
+const VERSION_1: u8 = 1;
+const LEN_1: usize = 9;
 /// The `heard` flag: the sender has the receiver's hello, whose instance
 /// number it echoes.
 const HEARD: u8 = 1;
@@ -72,11 +79,20 @@ pub(crate) struct Hello {
     pub(crate) instance: u64,
     pub(crate) heard: Option<u64>,
     pub(crate) acknowledged: bool,
+    /// Version 1 on the wire: no instance numbers, and `heard` (any value)
+    /// stands for the version-1 flag.
+    pub(crate) legacy: bool,
 }
 
 impl Hello {
-    fn encode(self) -> [u8; LEN] {
+    fn encode(self) -> Vec<u8> {
         let (kind, a, b) = self.mode.wire();
+        if self.legacy {
+            let flags = if self.heard.is_some() { HEARD } else { 0 };
+            let mut bytes = MAGIC.to_vec();
+            bytes.extend_from_slice(&[VERSION_1, flags, kind, a, b]);
+            return bytes;
+        }
         let mut bytes = [0u8; LEN];
         bytes[..4].copy_from_slice(&MAGIC);
         bytes[4] = VERSION;
@@ -87,10 +103,24 @@ impl Hello {
         bytes[8] = b;
         bytes[9..17].copy_from_slice(&self.instance.to_be_bytes());
         bytes[17..25].copy_from_slice(&self.heard.unwrap_or(0).to_be_bytes());
-        bytes
+        bytes.to_vec()
     }
 
     fn decode(payload: &[u8]) -> Option<Self> {
+        if let Ok(&[m0, m1, m2, m3, VERSION_1, flags, kind, a, b]) =
+            <&[u8; LEN_1]>::try_from(payload)
+            && [m0, m1, m2, m3] == MAGIC
+        {
+            return Some(Self {
+                mode: UltraMode::from_wire(kind, a, b),
+                instance: 0,
+                heard: (flags & HEARD != 0).then_some(0),
+                // Version 1 has no such flag; its own rule (answer until
+                // told) applies.
+                acknowledged: true,
+                legacy: true,
+            });
+        }
         let bytes: &[u8; LEN] = payload.try_into().ok()?;
         if bytes[..4] != MAGIC || bytes[4] != VERSION {
             return None;
@@ -102,7 +132,7 @@ impl Hello {
         let heard = (bytes[5] & HEARD != 0).then(|| number(17..25)).flatten();
         let acknowledged = bytes[5] & ACKNOWLEDGED != 0;
         let mode = UltraMode::from_wire(bytes[6], bytes[7], bytes[8]);
-        Some(Self { mode, instance, heard, acknowledged })
+        Some(Self { mode, instance, heard, acknowledged, legacy: false })
     }
 }
 
@@ -145,6 +175,9 @@ pub(crate) struct Negotiation {
     instance: u64,
     /// The peer's mode and instance, once its hello arrived.
     peer: Option<(UltraMode, u64)>,
+    /// The peer speaks version 1: hellos to it go out in version 1, and its
+    /// `heard` flag acknowledges this side.
+    peer_legacy: bool,
     /// The peer's hello echoed this side's instance.
     acknowledged: bool,
     /// Hellos sent without an acknowledgement.
@@ -172,6 +205,7 @@ impl Negotiation {
             configured,
             instance,
             peer: None,
+            peer_legacy: false,
             acknowledged: false,
             sent: 0,
             next: None,
@@ -214,7 +248,10 @@ impl Negotiation {
             self.told = false;
         }
         self.peer = Some((hello.mode, hello.instance));
-        if hello.heard == Some(self.instance) {
+        self.peer_legacy = hello.legacy;
+        let acknowledges =
+            if hello.legacy { hello.heard.is_some() } else { hello.heard == Some(self.instance) };
+        if acknowledges {
             self.acknowledged = true;
             self.next = None;
         } else {
@@ -234,6 +271,7 @@ impl Negotiation {
             instance: self.instance,
             heard: self.peer.map(|(_, instance)| instance),
             acknowledged: self.acknowledged,
+            legacy: self.peer_legacy,
         })
     }
 
@@ -276,14 +314,16 @@ mod tests {
             for heard in [None, Some(0), Some(u64::MAX)] {
                 for acknowledged in [false, true] {
                     let instance = 0x0123_4567_89ab_cdef;
-                    let hello = Hello { mode, instance, heard, acknowledged };
+                    let hello = Hello { mode, instance, heard, acknowledged, legacy: false };
                     assert_eq!(decode(&packet(a, b, hello)), Some(hello));
                 }
             }
         }
         let probe = udp::packet(SocketAddr::new(a, 4102), SocketAddr::new(b, 4102), &[0; 15]);
         assert_eq!(decode(&probe), None, "a probe is not a hello");
-        let mut wrong = Hello { mode: FEC, instance: 1, heard: None, acknowledged: false }.encode();
+        let mut wrong =
+            Hello { mode: FEC, instance: 1, heard: None, acknowledged: false, legacy: false }
+                .encode();
         wrong[0] ^= 1;
         assert_eq!(Hello::decode(&wrong), None, "the magic is checked");
     }
@@ -294,7 +334,8 @@ mod tests {
     #[test]
     fn a_hello_is_never_application_data() {
         let (a, b) = addresses();
-        let hello = Hello { mode: RS, instance: 7, heard: Some(9), acknowledged: true };
+        let hello =
+            Hello { mode: RS, instance: 7, heard: Some(9), acknowledged: true, legacy: false };
         let bytes = packet(a, b, hello);
         let (_, destination, payload) = udp::parse(&bytes).unwrap();
         assert_eq!(destination.port(), cmux_transport::probe::PROBE_PORT);
@@ -308,10 +349,16 @@ mod tests {
     #[test]
     fn an_unknown_kind_reads_as_off() {
         let mut bytes =
-            Hello { mode: FEC, instance: 3, heard: Some(4), acknowledged: true }.encode();
+            Hello { mode: FEC, instance: 3, heard: Some(4), acknowledged: true, legacy: false }
+                .encode();
         bytes[6] = 0xEE;
-        let expected =
-            Hello { mode: UltraMode::Off, instance: 3, heard: Some(4), acknowledged: true };
+        let expected = Hello {
+            mode: UltraMode::Off,
+            instance: 3,
+            heard: Some(4),
+            acknowledged: true,
+            legacy: false,
+        };
         assert_eq!(Hello::decode(&bytes), Some(expected));
     }
 
@@ -388,19 +435,47 @@ mod tests {
     fn a_restarted_peer_is_answered() {
         let mut side = Negotiation::with_instance(UltraMode::Off, 1);
         let now = Instant::now();
-        side.receive(Hello { mode: FEC, instance: 10, heard: Some(1), acknowledged: false });
-        let answer =
-            Hello { mode: UltraMode::Off, instance: 1, heard: Some(10), acknowledged: true };
+        side.receive(Hello {
+            mode: FEC,
+            instance: 10,
+            heard: Some(1),
+            acknowledged: false,
+            legacy: false,
+        });
+        let answer = Hello {
+            mode: UltraMode::Off,
+            instance: 1,
+            heard: Some(10),
+            acknowledged: true,
+            legacy: false,
+        };
         assert_eq!(side.due(now), Some(answer));
         side.sent(now);
         assert!(side.due(now).is_none(), "acknowledged both ways");
-        side.receive(Hello { mode: RS, instance: 11, heard: None, acknowledged: false });
-        let answer =
-            Hello { mode: UltraMode::Off, instance: 1, heard: Some(11), acknowledged: false };
+        side.receive(Hello {
+            mode: RS,
+            instance: 11,
+            heard: None,
+            acknowledged: false,
+            legacy: false,
+        });
+        let answer = Hello {
+            mode: UltraMode::Off,
+            instance: 1,
+            heard: Some(11),
+            acknowledged: false,
+            legacy: false,
+        };
         assert_eq!(side.due(now), Some(answer), "it starts over with the new instance");
         side.sent(now);
         assert_eq!(side.mode(), RS);
-        side.receive(Hello { mode: RS, instance: 11, heard: Some(1), acknowledged: true });
+        side.receive(Hello {
+            mode: RS,
+            instance: 11,
+            heard: Some(1),
+            acknowledged: true,
+            legacy: false,
+        });
         assert!(side.due(now).is_none(), "the new instance acknowledged this side");
     }
 
@@ -492,5 +567,37 @@ mod tests {
             let quiet = later + Duration::from_secs(120);
             assert!(survivor.due(quiet).is_none() && restarted.due(quiet).is_none());
         }
+    }
+
+    /// A version-1 hello (from a build with only the control port), as that
+    /// build put it on the wire.
+    fn version_1(mode: UltraMode, heard: bool) -> Hello {
+        let (kind, a, b) = mode.wire();
+        Hello::decode(&[b'C', b'M', b'X', b'U', 1, u8::from(heard), kind, a, b]).unwrap()
+    }
+
+    /// A version-1 peer: this side reads its hellos, answers it in version
+    /// 1, takes its `heard` flag as an acknowledgement, and the two agree.
+    /// Its hellos never count as a restart.
+    #[test]
+    fn a_version_1_peer_still_agrees() {
+        let now = Instant::now();
+        let mut side = Negotiation::with_instance(UltraMode::Off, 1);
+        let first = side.due(now).unwrap();
+        assert_eq!(first.encode().len(), LEN, "version 2 until the peer is known");
+        side.sent(now);
+        assert_eq!(side.receive(version_1(RS, false)), RS, "the peer's RS is taken up");
+        let answer = side.due(now).unwrap();
+        let wire = answer.encode();
+        assert_eq!(wire.len(), LEN_1);
+        assert_eq!(wire[4..6], [VERSION_1, HEARD], "version 1, saying it heard the peer");
+        side.sent(now);
+        side.receive(version_1(RS, true));
+        assert!(side.acknowledged, "the version-1 heard flag acknowledges this side");
+        assert!(side.due(now + Duration::from_secs(60)).is_none(), "quiet");
+        assert_eq!(side.mode(), RS);
+        // Its next hello (a retry) is not a restart: nothing starts over.
+        side.receive(version_1(RS, true));
+        assert!(side.acknowledged && side.due(now + Duration::from_secs(60)).is_none());
     }
 }
