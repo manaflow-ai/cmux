@@ -346,8 +346,8 @@ impl Outcome {
             Outcome::Failed(_) => "failed",
         };
         let mut v = json!({"state": state, "detail": self.line()});
-        if let Some(kind) = skipped_hold {
-            v["skipped_hold"] = json!(kind.name());
+        if let (Some(kind), Some(map)) = (skipped_hold, v.as_object_mut()) {
+            map.insert("skipped_hold".into(), json!(kind.name()));
         }
         v
     }
