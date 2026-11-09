@@ -50,9 +50,10 @@ nonisolated struct SidebarRowIndex: Sendable {
         sections[path.section].setRow(row, node: path.node, member: path.member)
     }
 
-    /// Whether `nodes[node]` lists workspace `id` (at `member`, in a group): the same place in another copy of the rows.
-    static func lists(_ id: WorkspaceID, node n: Int, member: Int?, in nodes: [SidebarNode]) -> Bool {
-        guard nodes.indices.contains(n) else { return false }
+    /// Whether `nodes[node]` is the node `nodeID` (the same loose row or the same group) and lists workspace `id` there
+    /// (at `member`, in a group): the same place in another copy of the rows.
+    static func lists(_ id: WorkspaceID, in nodeID: SidebarNode.ID, node n: Int, member: Int?, in nodes: [SidebarNode]) -> Bool {
+        guard nodes.indices.contains(n), nodes[n].id == nodeID else { return false }
         switch nodes[n] {
         case let .workspace(ws): return member == nil && ws.id == id
         case let .group(group):
@@ -146,7 +147,8 @@ extension SidebarListView {
                 // storage, so the model's next in-place write (`SidebarRowIndex.set`) copied that section's whole node
                 // list: O(rows) per patch with a list attached.
                 // (The checks read the caches in one expression each: a copy held over the write would make it copy.)
-                if sections[sectionID].map({ SidebarRowIndex.lists(ws.id, node: path.node, member: path.member, in: $0.nodes) }) == true {
+                let nodeID = modelRows[path.section].nodes[path.node].id
+                if sections[sectionID].map({ SidebarRowIndex.lists(ws.id, in: nodeID, node: path.node, member: path.member, in: $0.nodes) }) == true {
                     sections[sectionID]?.setRow(listed, node: path.node, member: path.member)
                 } else {
                     sections[sectionID] = modelRows[path.section] // another arrangement than the shown one: as the model has it
