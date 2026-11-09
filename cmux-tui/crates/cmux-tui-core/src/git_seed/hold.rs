@@ -44,7 +44,8 @@ pub(super) struct HoldParams {
     pub folder: String,
     #[serde(default)]
     subpath: Option<String>,
-    /// The copy's own name for this hold: a retry whose answer was lost gets the same job.
+    /// The copy's own name for this hold, unique to the copy: a retry whose answer was lost
+    /// gets the same job while the hold runs.
     #[serde(default)]
     key: Option<String>,
     #[serde(default)]
@@ -61,9 +62,11 @@ impl HoldParams {
         Ok(parsed)
     }
 
-    /// What makes a retry this hold ([`super::job`]'s same-job check).
-    pub(super) fn retry_key(&self) -> String {
-        format!("hold\0{}\0{}", self.key.as_deref().unwrap_or(""), self.subpath.as_deref().unwrap_or(""))
+    /// What makes a retry this hold ([`super::job`]'s same-job check); None with no key: a
+    /// hold the copy gave no name of its own is never a retry.
+    pub(super) fn retry_key(&self) -> Option<String> {
+        let key = self.key.as_deref()?;
+        Some(format!("hold\0{key}\0{}", self.subpath.as_deref().unwrap_or("")))
     }
 
     pub(super) fn lease(&self) -> Duration {

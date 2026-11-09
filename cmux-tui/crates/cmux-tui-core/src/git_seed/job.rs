@@ -288,7 +288,7 @@ impl GitSeedService {
         let params = StartParams::parse(params)?;
         let folder = place::folder(&self.roots, &params.folder)?;
         let mut jobs = self.jobs();
-        if let Some(id) = same_job(&jobs, &folder, &params.retry_key())? {
+        if let Some(id) = same_job(&jobs, &folder, Some(&params.retry_key()), true)? {
             return Ok(json!({ "job": id }));
         }
         let mut others = jobs.by_id.values().map(|job| job.folder.as_path());
@@ -379,7 +379,7 @@ impl GitSeedService {
         let mut jobs = self.jobs();
         // A retry whose answer was lost is the same job, even once its bundle
         // is written.
-        if let Some(id) = same_job(&jobs, &folder, &params.retry_key())? {
+        if let Some(id) = same_job(&jobs, &folder, Some(&params.retry_key()), true)? {
             return Ok(json!({ "job": id }));
         }
         refuse_while_filling(&folder)?;
@@ -414,7 +414,10 @@ impl GitSeedService {
         let head = params.head()?;
         let folder = place::folder(&self.roots, &params.folder)?;
         let mut jobs = self.jobs();
-        if let Some(id) = same_job(&jobs, &folder, &params.retry_key())? {
+        // Only a running hold is a retry: a done one is a copy that already ended, and a
+        // hold with no key is never one.
+        let key = params.retry_key();
+        if let Some(id) = same_job(&jobs, &folder, key.as_deref(), false)? {
             if let Some(owner) = self.holder(&id) {
                 let _ = owner.send(hold::Op::Renew);
             }
@@ -426,7 +429,7 @@ impl GitSeedService {
         let job = Arc::new(Job {
             id: new_id(),
             folder: folder.clone(),
-            key: params.retry_key(),
+            key: key.unwrap_or_default(),
             status: Mutex::new(Status::running(Phase::Copy)),
         });
         // The barrier is taken before the hold answers: nothing the copy writes reads ready.
@@ -505,16 +508,18 @@ impl Status {
     }
 }
 
-/// The job a retry of `key` in `folder` is (running or done); a refusal
-/// while another job runs in the folder.
+/// The job a retry of `key` in `folder` is (running, or done when `done_too`); a
+/// refusal while another job runs in the folder.
 fn same_job(
     jobs: &Jobs,
     folder: &std::path::Path,
-    key: &str,
+    key: Option<&str>,
+    done_too: bool,
 ) -> Result<Option<String>, SeedRefusal> {
     for job in jobs.by_id.values().filter(|job| job.folder == folder) {
         let state = job.status().state;
-        if job.key == key && state != State::Failed {
+        let retried = state == State::Running || (done_too && state == State::Done);
+        if key == Some(job.key.as_str()) && retried {
             return Ok(Some(job.id.clone()));
         }
         if state == State::Running && job.status().head_ready {

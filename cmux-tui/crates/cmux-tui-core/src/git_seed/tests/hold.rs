@@ -130,7 +130,9 @@ fn a_hold_takes_only_a_new_folder_and_a_retry_gets_its_job() {
     write(&used.join("x"), "x\n");
     assert_eq!(hold(&service, &used, json!({})).unwrap_err().code, "seed.folder_not_empty");
     let outside = home.path.parent().unwrap().join("elsewhere");
-    assert_eq!(hold(&service, &outside, json!({})).unwrap_err().code, "seed.bad_request");
+    let refused = hold(&service, &outside, json!({})).unwrap_err();
+    assert_eq!(refused.code, "seed.bad_request");
+    assert!(refused.message.contains("outside the folders"), "{}", refused.message);
     let folder = home.join("work/notes");
     let job = hold(&service, &folder, json!({ "key": "send-1" })).unwrap();
     assert_eq!(hold(&service, &folder, json!({ "key": "send-1" })).unwrap(), job);
@@ -142,13 +144,36 @@ fn a_hold_takes_only_a_new_folder_and_a_retry_gets_its_job() {
     );
     service.call("git.seed.hold.head", &json!({ "job": job })).unwrap();
     let nested = folder.join("inner");
-    assert_eq!(hold(&service, &nested, json!({})).unwrap_err().code, "seed.bad_request");
+    let refused = hold(&service, &nested, json!({})).unwrap_err();
+    assert_eq!(refused.code, "seed.bad_request");
+    assert!(refused.message.contains("another seed's folder"), "{}", refused.message);
     assert_eq!(
         hold(&service, &folder, json!({ "key": "send-2" })).unwrap_err().code,
         "seed.filling",
         "a held folder at its head says it is filling"
     );
     service.call("git.seed.hold.end", &json!({ "job": job, "ok": true })).unwrap();
+    assert_eq!(settles(&folder, "ready"), "ready");
+
+    // A done hold is never a retry: the same key on the folder again (emptied since) takes a
+    // new hold, so the old one's ready barrier never stands over the new copy.
+    std::fs::remove_file(folder.join("README.md")).unwrap();
+    let again = hold(&service, &folder, json!({ "key": "send-1" })).unwrap();
+    assert_ne!(again, job, "a new hold, not the done one");
+    assert_eq!(settles(&folder, "syncing"), "syncing");
+    // Nor is a hold with no key, even beside another with none.
+    assert_eq!(
+        hold(&service, &folder, json!({})).unwrap_err().code,
+        "seed.bad_request",
+        "a keyless hold of a held folder is refused, never handed the running one"
+    );
+    service.call("git.seed.hold.end", &json!({ "job": again, "ok": true })).unwrap();
+    // And over a folder with files a done hold's key is refused, not answered with its job.
+    write(&folder.join("README.md"), "r\n");
+    assert_eq!(
+        hold(&service, &folder, json!({ "key": "send-1" })).unwrap_err().code,
+        "seed.folder_not_empty"
+    );
 }
 
 #[test]
