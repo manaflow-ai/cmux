@@ -1844,6 +1844,35 @@ mod tests {
         self.assertEqual(result.returncode, 0, output)
         self.assertNotIn("[crash-ratchet]", output)
 
+    def test_a_new_unwrap_in_a_changed_file_is_refused_when_the_crate_is_over_its_row_on_both_sides(self):
+        # Lead decision on #39853: the files the gate adds to tell test code (here lib.rs, which declares the changed
+        # module) only classify; they never hide a hit. The "Crash safety" scanner compared whole-crate counts with
+        # the baseline row, and a crate over its row on both sides printed the same line, so a new unwrap passed. The
+        # crate has no row: lib.rs's unwrap alone puts it over on both sides. Judged in every mode, the hook and a
+        # direct --base/--head run (fast gates, car guards).
+        crate = "cmux-tui/crates/cmux-fixture/src"
+        self.write(f"{crate}/lib.rs", "pub mod feature;\n\npub fn first(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n")
+        self.write(f"{crate}/feature.rs", "pub fn second(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n")
+        self.commit("base: a crate over its (missing) row")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(f"{crate}/feature.rs", (self.repo / crate / "feature.rs").read_text()
+                   + "\npub fn third(state: &std::sync::Mutex<u32>) -> u32 {\n    *state.lock().unwrap()\n}\n")
+        self.commit("a new lock().unwrap() in a changed file")
+
+        direct = subprocess.run(["python3", "-I", str(self.repo / GATE), "--repo", str(self.repo), "--base", "HEAD~1",
+                                 "--head", "HEAD"], cwd=self.repo, env=self.env, text=True, capture_output=True)
+        pushed = self.push()
+
+        for result in (direct, pushed):
+            output = result.stdout + result.stderr
+            self.assertNotEqual(result.returncode, 0, output)
+            self.assertIn(f"{crate}/feature.rs:", output)
+            self.assertIn("lock().unwrap()", output)
+            self.assertNotIn(f"{crate}/lib.rs:", output, "an unchanged file's hit is never the push's")
+        self.assertEqual(self.remote_head(), before, "the unwrap must not reach origin")
+
     # A ratchet row a push lowers or deletes with the sites it removes (lead 2026-11-03, #33091): the installed
     # baseline cannot know the push lowered it, so it read the fix as "fewer than the baseline" and refused it. Each
     # tree reads its own row where that is lower; a raise or a new row still reads the installed copy.
