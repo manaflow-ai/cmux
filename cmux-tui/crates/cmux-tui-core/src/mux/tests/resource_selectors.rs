@@ -434,8 +434,7 @@ fn w3h_a_tab_name_outside_the_current_pane_resolves_under_current_selectors() {
 /// value that is not an id (cli/command.rs `Selectors::insert`).
 fn w5p_cli_selectors(scope: &str, value: &str) -> crate::ResourceSelectors {
     let mut selectors = Mux::ordinary_resource_selectors();
-    let is_id =
-        matches!(crate::resource::Selector::parse(value), Ok(crate::resource::Selector::Id(_)));
+    let is_id = matches!(Selector::parse(value), Ok(Selector::Id(_)));
     let current = || (!is_id).then(|| "current".to_string());
     let value = Some(value.to_string());
     match scope {
@@ -456,12 +455,11 @@ fn w5p_cli_selectors(scope: &str, value: &str) -> crate::ResourceSelectors {
     selectors
 }
 
+/// The (pane, tab, terminal) ids a selector resolves to.
+type W5pPlace = (Option<String>, Option<String>, Option<String>);
+
 /// The resolved (pane, tab, terminal) of a CLI-shaped selector.
-fn w5p_resolve(
-    mux: &Arc<Mux>,
-    scope: &str,
-    value: &str,
-) -> Result<(Option<String>, Option<String>, Option<String>), crate::resource::ResourceError> {
+fn w5p_resolve(mux: &Arc<Mux>, scope: &str, value: &str) -> Result<W5pPlace, ResourceError> {
     let target = match scope {
         "pane" => crate::ResourceTarget::Pane,
         "tab" => crate::ResourceTarget::Tab,
@@ -493,9 +491,7 @@ fn w5p_one_selector_selects_the_same_object_in_every_scope() {
     assert!(mux.focus_pane(root_pane));
     let (pane, tab, terminal) = mux.with_state(|state| {
         let indexes = &state.resource_indexes;
-        let Some(crate::resource::ContentPublicId::Terminal(terminal)) =
-            indexes.content_ids.get(&agent.id)
-        else {
+        let Some(ContentPublicId::Terminal(terminal)) = indexes.content_ids.get(&agent.id) else {
             panic!("alpha shows no terminal");
         };
         (
@@ -507,9 +503,14 @@ fn w5p_one_selector_selects_the_same_object_in_every_scope() {
     let alpha = (Some(pane.clone()), Some(tab.clone()), Some(terminal.clone()));
 
     // The name: the same tab, terminal and pane from every scope.
-    for scope in ["terminal", "tab"] {
-        assert_eq!(w5p_resolve(&mux, scope, "alpha").unwrap(), alpha, "{scope} alpha");
-    }
+    // A tab target resolves no terminal: its (pane, tab) are alpha's.
+    let pane_tab = |place: W5pPlace| (place.0, place.1);
+    assert_eq!(w5p_resolve(&mux, "terminal", "alpha").unwrap(), alpha, "terminal alpha");
+    assert_eq!(
+        pane_tab(w5p_resolve(&mux, "tab", "alpha").unwrap()),
+        pane_tab(alpha.clone()),
+        "tab alpha"
+    );
     assert_eq!(w5p_resolve(&mux, "pane", "alpha").unwrap().0, Some(pane.clone()));
 
     // Every id form of each object selects it.
@@ -521,6 +522,7 @@ fn w5p_one_selector_selects_the_same_object_in_every_scope() {
                 .unwrap_or_else(|error| panic!("{scope} {form}: {error:?}"));
             match scope {
                 "pane" => assert_eq!(resolved.0, Some(pane.clone()), "{scope} {form}"),
+                "tab" => assert_eq!(pane_tab(resolved), pane_tab(alpha.clone()), "{scope} {form}"),
                 _ => assert_eq!(resolved, alpha, "{scope} {form}"),
             }
         }
@@ -535,7 +537,7 @@ fn w5p_one_selector_selects_the_same_object_in_every_scope() {
         })
         .map(|identity| identity.terminal_id)
         .expect("alpha's terminal has a host id");
-    for form in [host, tab.clone(), pane.clone()] {
+    for form in [host, tab, pane.clone()] {
         let resolved = w5p_resolve(&mux, "terminal", &form)
             .unwrap_or_else(|error| panic!("terminal {form}: {error:?}"));
         assert_eq!(resolved, alpha, "terminal {form}");

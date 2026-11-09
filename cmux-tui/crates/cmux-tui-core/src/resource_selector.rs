@@ -152,6 +152,9 @@ pub struct ResolvedResourcePath {
     pub browser: Option<BrowserPublicId>,
 }
 
+/// Finds the runtime id of the in-process terminal with a host id.
+pub(crate) type InProcessHostLookup<'a> = &'a dyn Fn(&str) -> Option<SurfaceId>;
+
 #[derive(Clone)]
 pub(crate) struct ResourceSelectorContext<'a> {
     pub machine_id: &'a MachinePublicId,
@@ -162,7 +165,7 @@ pub(crate) struct ResourceSelectorContext<'a> {
     /// state's host index does not hold (only hosted terminals are in it);
     /// a terminal selector takes it as it takes a hosted terminal's host id
     /// (id_forms.rs). Asked only when a bare id names nothing else.
-    pub in_process_host: Option<&'a dyn Fn(&str) -> Option<SurfaceId>>,
+    pub in_process_host: Option<InProcessHostLookup<'a>>,
 }
 
 #[derive(Debug, Clone)]

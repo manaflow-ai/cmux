@@ -20,13 +20,13 @@ use crate::resource::{
     ContentPublicId, PanePublicId, ResourceError, TabPublicId, id_prefix_parts, is_bare_id,
 };
 
-use super::{ResourceSelectors, ResourceTarget};
+use super::{InProcessHostLookup, ResourceSelectors, ResourceTarget};
 
 /// `selectors` with every prefix and bare id expanded to the full id;
 /// `Ok(None)` when no selector has such a form.
 pub(super) fn expand(
     state: &State,
-    in_process_host: Option<&dyn Fn(&str) -> Option<SurfaceId>>,
+    in_process_host: Option<InProcessHostLookup<'_>>,
     selectors: &ResourceSelectors,
 ) -> Result<Option<ResourceSelectors>, ResourceError> {
     let mut expanded = selectors.clone();
@@ -120,7 +120,7 @@ fn ids(state: &State, kind: ResourceTarget) -> Vec<String> {
 /// `Ok(None)` for any other word.
 fn expand_one(
     state: &State,
-    in_process_host: Option<&dyn Fn(&str) -> Option<SurfaceId>>,
+    in_process_host: Option<InProcessHostLookup<'_>>,
     kind: ResourceTarget,
     raw: &str,
 ) -> Result<Option<String>, ResourceError> {

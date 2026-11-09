@@ -75,10 +75,8 @@ impl Mux {
     /// (W5-P: a terminal selector takes a host id, and the host index holds
     /// hosted terminals only).
     pub(crate) fn in_process_terminal_by_host(&self, host: &str) -> Option<SurfaceId> {
-        let reserved = self
-            .reserved_in_process_terminals
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let reserved =
+            self.reserved_in_process_terminals.lock().unwrap_or_else(PoisonError::into_inner);
         reserved.iter().find(|(_, identity)| identity.terminal_id == host).map(|(id, _)| *id)
     }
 
