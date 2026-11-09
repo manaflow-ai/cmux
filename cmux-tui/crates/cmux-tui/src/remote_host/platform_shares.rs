@@ -539,7 +539,7 @@ fn narrow(
 ) -> anyhow::Result<Value> {
     let text = &crate::localization::catalog().host_share;
     let failed = |f: Failure| anyhow!("{}", explain(&f));
-    let mut answer = None;
+    let mut answer: Option<Value> = None;
     let mut written: Option<Written> = None;
     for _ in 0..MAX_WRITES {
         let live = api.list(machine).map_err(failed)?;
