@@ -10,6 +10,7 @@ import {
   SummaryStore,
   summaryText,
 } from "./hunkSummaries";
+import { plainEnglishMenuItem, toolbarPillButtons } from "../toolbar-model";
 
 // A fixture diff: one file, two hunks (a retry loop and a removed import).
 const PATCH = `diff --git a/src/upload.ts b/src/upload.ts
@@ -177,4 +178,28 @@ test("the check answer names the toggle's state and reason", () => {
   expect(availabilityFromCheck(null)).toEqual({ kind: "unavailable", reasonKey: "plainEnglishUnavailable" });
   expect(summaryText({ text: "  Adds a retry. " })).toBe("Adds a retry.");
   expect(summaryText({ text: "" })).toBeNull();
+});
+
+test("the toggle is a pill button where it fits and a menu row everywhere, off with its reason", () => {
+  const state = {
+    options: { collapsed: false, layout: "auto" as const, wordWrap: false },
+    filesVisible: false,
+    optionsOpen: false,
+    findOpen: false,
+  };
+  const ready = { kind: "ready" } as const;
+  const ids = (menuOnly: boolean) =>
+    toolbarPillButtons(state, { on: false, availability: ready, menuOnly }).map((button) => button.id);
+  expect(ids(false)).toContain("plainEnglish");
+  // A narrow viewer: the pill keeps its old width.
+  expect(ids(true)).not.toContain("plainEnglish");
+  expect(toolbarPillButtons(state).map((button) => button.id)).toEqual(ids(true));
+  expect(plainEnglishMenuItem({ on: true, availability: ready, menuOnly: true })).toMatchObject({
+    id: "plain-english",
+    checked: true,
+    available: true,
+  });
+  expect(
+    plainEnglishMenuItem({ on: false, availability: { kind: "unavailable", reasonKey: "plainEnglishNoAgent" } }),
+  ).toMatchObject({ available: false, unavailableKey: "plainEnglishNoAgent" });
 });

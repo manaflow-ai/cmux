@@ -9,6 +9,7 @@ import {
   diffLineTotals,
   NO_HOST_CAPABILITIES,
   overflowMenuItems,
+  plainEnglishMenuItem,
   sourceMenuModel,
   type PlainEnglishPill,
   toolbarPillButtons,
@@ -161,6 +162,9 @@ export function DiffPill({
       case "copy-git-apply":
         onCopyGitApply();
         return;
+      case "plain-english":
+        onTogglePlainEnglish?.();
+        return;
       case "rich-preview":
         // No reload: the Preview buttons show or hide.
         onSetOption("richPreview", !state.options.richPreview);
@@ -173,7 +177,10 @@ export function DiffPill({
     <FloatingToolbar
       buttons={toolbarPillButtons(state, plainEnglish)}
       label={label}
-      menuItems={overflowMenuItems(state.options, capabilities, state.whitespaceHidden)}
+      menuItems={[
+        ...overflowMenuItems(state.options, capabilities, state.whitespaceHidden),
+        ...(plainEnglish ? [plainEnglishMenuItem(plainEnglish)] : []),
+      ]}
       menuOpen={state.optionsOpen}
       onButton={onButton}
       onCloseMenu={() => dispatch({ type: "set-options-open", open: false })}

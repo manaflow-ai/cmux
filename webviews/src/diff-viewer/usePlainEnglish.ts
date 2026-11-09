@@ -1,10 +1,10 @@
 // The diff tab's Plain English toggle (PlainEnglishView.tsx): whether a harness here can write
 // the sentences (`cmux.diff.summaryCheck`, asked once per page), the tab's sentence store, and
 // the files it reads. A host that serves no summary op keeps the toggle off with its reason.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { DiffItem } from "../diff-stream";
 import { diffPageClient, diffPageServes, type DiffPageConfig } from "../diff/page";
-import type { PlainEnglishPill } from "../toolbar-model";
+import { PLAIN_ENGLISH_MENU_ONLY, type PlainEnglishPill } from "../toolbar-model";
 import {
   availabilityFromCheck,
   DIFF_PAGE_SUMMARY_CHECK_OP,
@@ -89,6 +89,18 @@ export function usePlainEnglish({
     },
     [items],
   );
-  const pill = useMemo<PlainEnglishPill>(() => ({ on: shown, availability }), [shown, availability]);
+  const menuOnly = useSyncExternalStore(subscribeMenuOnly, menuOnlyNow, () => false);
+  const pill = useMemo<PlainEnglishPill>(
+    () => ({ on: shown, availability, menuOnly }),
+    [shown, availability, menuOnly],
+  );
   return { on: shown, pill, toggle, store, files, openInDiff };
+}
+
+const menuOnlyQuery = () => (typeof window === "undefined" ? undefined : window.matchMedia?.(PLAIN_ENGLISH_MENU_ONLY));
+const menuOnlyNow = () => menuOnlyQuery()?.matches ?? false;
+function subscribeMenuOnly(changed: () => void): () => void {
+  const query = menuOnlyQuery();
+  query?.addEventListener("change", changed);
+  return () => query?.removeEventListener("change", changed);
 }

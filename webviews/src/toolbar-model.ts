@@ -210,7 +210,8 @@ export type OverflowMenuItemId =
   | "word-diffs"
   | "hide-whitespace"
   | "hide-imports"
-  | "copy-git-apply";
+  | "copy-git-apply"
+  | "plain-english";
 
 export type OverflowMenuItem = {
   id: OverflowMenuItemId;
@@ -328,7 +329,16 @@ const LAYOUT_NEXT_LABEL = {
  * Plain English (diff-viewer/PlainEnglishView.tsx): whether it shows, and whether a harness here
  * can write the sentences. Off with its reason as the label while none can.
  */
-export type PlainEnglishPill = { on: boolean; availability: PlainEnglishAvailability };
+export type PlainEnglishPill = {
+  on: boolean;
+  availability: PlainEnglishAvailability;
+  /** A narrow viewer (`PLAIN_ENGLISH_MENU_ONLY`): the toggle is only in the "..." menu, so the pill
+   * keeps its width and the source controls beside it stay whole. */
+  menuOnly?: boolean;
+};
+
+/** Below this the pill has no room for one more button (test/diff-toolbar-narrow.test.ts). */
+export const PLAIN_ENGLISH_MENU_ONLY = "(max-width: 600px)";
 
 export function toolbarPillButtons(
   state: {
@@ -343,7 +353,7 @@ export function toolbarPillButtons(
   return [
     { id: "options", domId: "options-button", icon: "dots", labelKey: "options", expanded: state.optionsOpen },
     { id: "find", domId: "find-toggle", icon: "fileSearch", labelKey: "findInDiff", pressed: state.findOpen },
-    ...(plainEnglish ? [plainEnglishButton(plainEnglish)] : []),
+    ...(plainEnglish && !plainEnglish.menuOnly ? [plainEnglishButton(plainEnglish)] : []),
     { id: "refresh", domId: "refresh-button", icon: "pillRefresh", labelKey: "refresh" },
     { id: "wrap", domId: "wrap-toggle", icon: "pillWrap", labelKey: "wordWrap", pressed: options.wordWrap },
     {
@@ -378,6 +388,19 @@ function plainEnglishButton({ on, availability }: PlainEnglishPill): PillButton 
       return { ...button, labelKey: "plainEnglishChecking", pressed: false, unavailable: true };
     case "unavailable":
       return { ...button, labelKey: availability.reasonKey, pressed: false, unavailable: true };
+  }
+}
+
+/** Plain English's "..." menu row, at every width: checked while it shows, off with its reason. */
+export function plainEnglishMenuItem({ on, availability }: PlainEnglishPill): OverflowMenuItem {
+  const item = { id: "plain-english", icon: "book", labelKey: "plainEnglish" } as const;
+  switch (availability.kind) {
+    case "ready":
+      return { ...item, checked: on, available: true };
+    case "checking":
+      return { ...item, checked: false, available: false, unavailableKey: "plainEnglishChecking" };
+    case "unavailable":
+      return { ...item, checked: false, available: false, unavailableKey: availability.reasonKey };
   }
 }
 
