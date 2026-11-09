@@ -88,6 +88,8 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.focusRing"),
             // Show Workspace Tabs leads the Sidebar card: it is off by default, and this is where a person turns each workspace's tabs back on (#26384).
             GroupSpec(group: "settings.group.sidebar"),
+            // When the sidebar and its parts show (fade, hover, float) get their own card so Sidebar stays under max_rows_per_card.
+            GroupSpec(keys: ["sidebar.noFade", "sidebar.controlsOnHover", "sidebar.floatOnHover", "sidebar.minimalMode"], title: SettingsText.keyed("settings.pageGroup.sidebarVisibility", "Sidebar Visibility")),
             GroupSpec(keys: ["workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree", "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"], title: SettingsText.keyed("settings.pageGroup.sidebarWorkspaces", "Sidebar Workspaces")),
             // The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card.
             GroupSpec(keys: ["sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupPalette", "sidebar.groupGradient"], title: SettingsText.keyed("settings.pageGroup.sidebarLayout", "Sidebar Layout")),

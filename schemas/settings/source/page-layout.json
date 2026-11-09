@@ -161,6 +161,9 @@
             {"group": "settings.group.panes"},
             {"group": "settings.group.focusRing"},
             {"group": "settings.group.sidebar", "note": "Show Workspace Tabs leads the Sidebar card: it is off by default, and this is where a person turns each workspace's tabs back on (#26384)."},
+            {"title": {"key": "settings.pageGroup.sidebarVisibility", "text": "Sidebar Visibility"}, "note": "When the sidebar and its parts show (fade, hover, float) get their own card so Sidebar stays under max_rows_per_card.", "keys": [
+              "sidebar.noFade", "sidebar.controlsOnHover", "sidebar.floatOnHover", "sidebar.minimalMode"
+            ]},
             {"title": {"key": "settings.pageGroup.sidebarWorkspaces", "text": "Sidebar Workspaces"}, "keys": [
               "workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree",
               "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps",

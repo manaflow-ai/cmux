@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Settings > Appearance: three ways to keep the Sidebar card at 16 rows</title>
+<style>
+:root { color-scheme: dark; --bg: #141416; --fg: #ececf0; --muted: #9a9aa2; --line: #2a2a2e; --card: #1b1b1e; --accent: #5e8bff; }
+body { margin: 0; padding: 24px; background: var(--bg); color: var(--fg); font: 13px/1.45 -apple-system, BlinkMacSystemFont, sans-serif; }
+h1 { font-size: 18px; margin: 0 0 4px; }
+p.lead { color: var(--muted); margin: 0 0 20px; max-width: 820px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 22px; align-items: start; }
+.card { border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: var(--card); }
+.card.rec { border-color: var(--accent); box-shadow: 0 0 0 1px #5e8bff55; }
+.card h2 { font-size: 14px; margin: 0 0 2px; display: flex; gap: 8px; align-items: center; }
+.badge { font-size: 11px; background: var(--accent); color: #fff; border-radius: 4px; padding: 1px 6px; }
+.what { color: var(--muted); margin: 0 0 10px; }
+.part { margin-bottom: 14px; }
+.part header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.part header b { font-size: 13px; }
+.part header i { font-style: normal; color: var(--muted); font-size: 12px; }
+.rows { border: 1px solid var(--line); border-radius: 10px; }
+.row { padding: 6px 10px; border-top: 1px solid var(--line); font-size: 12px; }
+.row:first-child { border-top: 0; }
+.row.moved { color: #b9cbff; }
+</style>
+</head>
+<body>
+<h1>Settings &gt; Appearance: the Sidebar card</h1>
+<p class="lead">Float Hidden Sidebar on Hover (f53a01f2eba) made the Sidebar card 17 rows; the page holds a card to 16
+(max_rows_per_card, "look a lot better with sections"). Three ways back under the cap. Blue rows move.</p>
+<div class="grid" id="grid"></div>
+<script>
+const sidebar = ["Sidebar Background", "Border", "Border Width", "Section Look", "Top Sections Height", "Bottom Sections Height",
+  "Scroll Tall Sections", "Show Whole Sidebar Without Fade", "Show Sidebar Controls Only on Hover", "Float Hidden Sidebar on Hover",
+  "Minimal Mode", "Sidebar Style", "Sidebar Density", "Sidebar Text Size", "Workspace Color Style", "Hide Bands Until Hover", "Sidebar Side"];
+const visibility = ["Show Whole Sidebar Without Fade", "Show Sidebar Controls Only on Hover", "Float Hidden Sidebar on Hover", "Hide Bands Until Hover"];
+const look = ["Sidebar Background", "Sidebar Style", "Sidebar Density", "Sidebar Text Size", "Section Look", "Border", "Border Width", "Minimal Mode", "Workspace Color Style"];
+const workspaces = ["New Workspace Position", "Name Workspaces from Tabs", "Group Workspaces by Computer", "Session Tree", "Show Projects",
+  "Group Projects By", "Detailed Status Icons", "Show Timestamps", "Show Workspace Colors", "Mark This Mac's Workspaces",
+  "Show Group Member Count", "Show Group Unread Count", "Group Background", "Priority View", "Show Priority View"];
+const without = (list, drop) => list.filter((row) => !drop.includes(row));
+const variants = [
+  { name: "A. Sidebar Visibility card", rec: true,
+    what: "The four rows about when the sidebar and its parts show get their own card under Sidebar. Both cards keep room to grow (13 and 4).",
+    cards: [["Sidebar", without(sidebar, visibility)], ["Sidebar Visibility", visibility, visibility]] },
+  { name: "B. Look, then sections and hover",
+    what: "Sidebar keeps only how it looks; position, section heights and hover move to a second card. Reorders every row, so people lose their place.",
+    cards: [["Sidebar", look], ["Sidebar Sections and Hover", without(sidebar, look), without(sidebar, look)]] },
+  { name: "C. Move Workspace Color Style",
+    what: "Workspace Color Style joins Show Workspace Colors. No new card, but both cards sit at exactly 16: the next row breaks the cap again.",
+    cards: [["Sidebar", without(sidebar, ["Workspace Color Style"])],
+      ["Sidebar Workspaces", [...workspaces.slice(0, 9), "Workspace Color Style", ...workspaces.slice(9)], ["Workspace Color Style"]]] },
+];
+const grid = document.getElementById("grid");
+for (const variant of variants) {
+  const card = document.createElement("section");
+  card.className = variant.rec ? "card rec" : "card";
+  card.innerHTML = `<h2>${variant.name}${variant.rec ? ' <span class="badge">picked</span>' : ""}</h2><p class="what">${variant.what}</p>`;
+  for (const [title, rows, moved = []] of variant.cards) {
+    const part = document.createElement("div");
+    part.className = "part";
+    part.innerHTML = `<header><b>${title}</b><i>${rows.length} rows</i></header><div class="rows">${rows
+      .map((row) => `<div class="row${moved.includes(row) ? " moved" : ""}">${row}</div>`)
+      .join("")}</div>`;
+    card.append(part);
+  }
+  grid.append(card);
+}
+</script>
+</body>
+</html>
