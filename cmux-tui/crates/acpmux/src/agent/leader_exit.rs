@@ -24,11 +24,9 @@ impl LeaderExit {
         let pid = libc::pid_t::try_from(pid).ok()?;
         // SAFETY: pidfd_open takes a pid and flags and returns a new descriptor or -1.
         let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0 as libc::c_uint) };
-        if raw < 0 {
-            return None;
-        }
+        let raw = libc::c_int::try_from(raw).ok().filter(|fd| *fd >= 0)?;
         // SAFETY: a successful pidfd_open returns a new descriptor owned here.
-        let fd = unsafe { OwnedFd::from_raw_fd(raw as libc::c_int) };
+        let fd = unsafe { OwnedFd::from_raw_fd(raw) };
         let fd = tokio::io::unix::AsyncFd::with_interest(fd, tokio::io::Interest::READABLE).ok()?;
         Some(Self { fd: Some(fd) })
     }
@@ -72,12 +70,9 @@ impl LeaderExit {
     /// Resolves once the process exited (at once, every time after that).
     pub(crate) async fn exited(&self) {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
-        match &self.fd {
-            // The readiness is kept, not cleared: an exit stays an exit.
-            Some(fd) => {
-                let _ = fd.readable().await;
-            }
-            None => {}
+        // The readiness is kept, not cleared: an exit stays an exit.
+        if let Some(fd) = &self.fd {
+            let _ = fd.readable().await;
         }
     }
 }

@@ -994,7 +994,10 @@ impl ChildAgent {
                     let leader = async {
                         match (leader_gone, &exit, leader_check.as_mut()) {
                             // Give buffered output a moment, then stop reading.
-                            (Some(at), _, _) => tokio::time::sleep_until(at + LEADER_DRAIN).await,
+                            (Some(at), _, _) => {
+                                let until = at.checked_add(LEADER_DRAIN).unwrap_or(at);
+                                tokio::time::sleep_until(until).await;
+                            }
                             (None, Some(exit), _) => exit.exited().await,
                             (None, None, Some(check)) => {
                                 check.tick().await;

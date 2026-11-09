@@ -104,7 +104,7 @@ impl WatchTicker {
         let wake = Arc::new(Notify::new());
         let mut watches = self.state.watches.lock().unwrap_or_else(|e| e.into_inner());
         let key = watches.next;
-        watches.next += 1;
+        watches.next = watches.next.wrapping_add(1);
         watches.by_key.insert(
             key,
             Entry {
