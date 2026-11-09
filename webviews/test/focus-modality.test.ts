@@ -259,6 +259,25 @@ describe("the build gate", () => {
     expect(gateFocusVisible(".b:focus-within")).toBe(".b:focus-within");
   });
 
+  test("a rule that only shows a control stays on real focus; a mixed rule gates only its ring", async () => {
+    const run = async (css: string) =>
+      (await postcss([focusRingGate()]).process(css, { from: undefined })).css.replace(/\}\s+/g, "}");
+    // Messages' draft close (display) and the model picker's star (Tailwind focus-visible:visible):
+    // taking the ring away must not hide the focused control.
+    const draft = ".hm-row.draft:hover .hm-draft-close,\n.hm-draft-close:focus-visible{display:inline-flex}";
+    expect(await run(draft)).toBe(draft);
+    expect(await run(".focus-visible\\:visible:focus-visible{visibility:visible}")).toBe(
+      ".focus-visible\\:visible:focus-visible{visibility:visible}",
+    );
+    // A pseudo-element's opacity is the ring's own drawing (the tray tab's hat), gated whole.
+    expect(await run(".t:focus-visible > .h::before{background:red;opacity:1}")).toBe(
+      `.t:focus-visible${FOCUS_RING_GATE} > .h::before{background:red;opacity:1}`,
+    );
+    expect(await run(".y:focus-visible{outline:1px solid;opacity:1}")).toBe(
+      `.y:focus-visible{opacity:1}.y:focus-visible${FOCUS_RING_GATE}{outline:1px solid}`,
+    );
+  });
+
   test("postcss.config.mjs runs it on every webviews stylesheet", async () => {
     const config = (await import("../postcss.config.mjs")).default as { plugins: { postcssPlugin: string }[] };
     expect(config.plugins.map((p) => p.postcssPlugin)).toContain(focusRingGate().postcssPlugin);

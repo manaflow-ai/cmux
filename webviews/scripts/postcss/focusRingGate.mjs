@@ -85,12 +85,50 @@ export function gateFocusVisible(selector) {
   return `${other}, ${out}`;
 }
 
+/** Declarations that show or hide a control rather than draw its ring: they follow real keyboard
+ * focus, ungated, so taking the ring away never hides the control that has focus (a hover-revealed
+ * close button, a model's star, a row's actions) while the keyboard is still on it. */
+const REVEAL = new Set([
+  "visibility",
+  "opacity",
+  "display",
+  "pointer-events",
+  "width",
+  "max-width",
+  "min-width",
+  "height",
+  "max-height",
+  "min-height",
+  "overflow",
+  "clip-path",
+  "transform",
+  "translate",
+  "scale",
+  "z-index",
+]);
+
 export default function focusRingGate() {
   return {
     postcssPlugin: "cmux-focus-ring-gate",
     Rule(rule) {
       const gated = gateFocusVisible(rule.selector);
-      if (gated !== rule.selector) rule.selector = gated;
+      if (gated === rule.selector) return;
+      // A pseudo-element (a dot, a hat's wings) is drawing, never a control the keyboard needs: all
+      // of its rule is the ring's.
+      const drawsOnly = /::?(before|after|marker|backdrop)\b/.test(rule.selector);
+      const reveal = drawsOnly
+        ? []
+        : rule.nodes.filter((node) => node.type === "decl" && REVEAL.has(node.prop.toLowerCase()));
+      // Only reveal declarations: the rule shows a control, it draws no ring.
+      if (reveal.length === rule.nodes.length) return;
+      // A mix: the reveal half stays on real focus, the rest is gated.
+      if (reveal.length) {
+        const shown = rule.clone({ nodes: [] });
+        for (const node of reveal) shown.append(node.clone());
+        rule.before(shown);
+        for (const node of reveal) node.remove();
+      }
+      rule.selector = gated;
     },
   };
 }
