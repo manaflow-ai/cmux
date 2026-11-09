@@ -256,7 +256,8 @@ const CLOUD_START_KEYS = "cmux.cloudStart.keys";
 const CLOUD_START_KEY_TTL_MS = 24 * 60 * 60 * 1000;
 
 /// What makes two sends the same start: the prompt, its chips (by id, name and size, never their
-/// bytes), the folder, the agent, the model and the environment. An edited prompt is a new start.
+/// bytes), the folder, the agent, the model and the environment. An edited prompt is a new start, and so
+/// is a send in another team (the plan card's Switch to <team>): the first team's ledger entry is not its.
 export function cloudStartFingerprint(start: CloudStart): string {
   const chips = (start.attachments ?? []).map((chip) => [chip.id, chip.kind, chip.name, chip.size]);
   const text = JSON.stringify([
@@ -267,6 +268,8 @@ export function cloudStartFingerprint(start: CloudStart): string {
     start.harness ?? null,
     start.model ?? null,
     start.environment ?? null,
+    // Only a send that switches team names it, so every other start keeps the key it had.
+    ...(start.team ? [start.team] : []),
   ]);
   // FNV-1a, two 32-bit lanes: a short stable name for the entry, never the prompt itself.
   let a = 0x811c9dc5;
@@ -340,11 +343,9 @@ export function cloudStartKeys(
     },
     /// The start sent with `start` ended in `answer`: one that opened its chat, or whose prompt goes
     /// to a chat on this Mac, is done, and the next send of the same prompt is a new start. A failure
-    /// keeps the key: the start may have made its machine, and the retry must reach it. A plan
-    /// refusal made none (the platform checks the plan before any machine), and its retry may be in
-    /// another team, so it is a new start too.
+    /// keeps the key: the start may have made its machine, and the retry must reach it.
     ended(start: CloudStart, answer: CloudStartAnswer) {
-      if (!answer.ok && !cloudRunsHere(answer) && answer.code !== "cloud_plan_required") return;
+      if (!answer.ok && !cloudRunsHere(answer)) return;
       const name = cloudStartFingerprint(start);
       const kept = read();
       delete kept[name];

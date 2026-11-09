@@ -76,13 +76,12 @@ test("Switch to <team> sends the team with the start, under a new key", async ()
     "6f1c3a52-6c5e-4c38-9b3e-6b1d2a3c4d5e",
   );
   expect(sent[0]?.team).toBe("t-leo");
-  // The plan refusal made no machine and the retry is in another team: the next send is a new start.
+  // The send in the other team is a new start (its own key); the same prompt in the first team keeps its key.
   let next = 0;
   const keys = cloudStartKeys(undefined, () => 1, () => `key-${++next}`);
   const start: CloudStart = { task: "fix it", cwd: "/w/paint" };
   const first = keys.keyFor(start);
-  keys.ended(start, { ok: false, code: "cloud_start_failed" });
-  expect(keys.keyFor(start)).toBe(first);
   keys.ended(start, { ok: false, code: "cloud_plan_required" });
-  expect(keys.keyFor(start)).not.toBe(first);
+  expect(keys.keyFor(start)).toBe(first);
+  expect(keys.keyFor({ ...start, team: "t-leo" })).not.toBe(first);
 });
