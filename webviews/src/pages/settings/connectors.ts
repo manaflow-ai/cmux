@@ -67,7 +67,11 @@ export function connectorRows(state: ConnectorsState | null): ConnectorRows {
       });
     }
     // A connection of the person's own that needs signing in again offers Connect again.
-    if (!connections.some((connection) => connection.mine && (connection.status === "active" || connection.status === "pending"))) {
+    if (
+      !connections.some(
+        (connection) => connection.mine && (connection.status === "active" || connection.status === "pending"),
+      )
+    ) {
       available.push({
         provider: connector.provider,
         name,

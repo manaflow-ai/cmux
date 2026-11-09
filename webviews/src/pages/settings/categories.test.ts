@@ -44,6 +44,8 @@ test("the categories are the approved ones, in order", () => {
     // Settings > Menus: every right-click menu's arrangement (Customize Menu… opens it).
     "menus",
     "accounts",
+    // Settings > Connectors: the accounts agents may use (Leo, 2026-11-09).
+    "connectors",
     "mobile",
     "devices",
     "server",

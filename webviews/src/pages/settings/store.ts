@@ -761,12 +761,17 @@ export class SettingsStore {
 
   /** Connect or Disconnect on one connector; the host's refusal text, else null. */
   async runConnector(
-    run: { action: "connect"; provider: string; sharing: "private" | "team" } | { action: "disconnect"; provider: string; connection: string },
+    run:
+      | { action: "connect"; provider: string; sharing: "private" | "team" }
+      | { action: "disconnect"; provider: string; connection: string },
   ): Promise<string | null> {
     const reply =
       run.action === "connect"
         ? await this.request("cmux.settings.connectors.connect", { provider: run.provider, sharing: run.sharing })
-        : await this.request("cmux.settings.connectors.disconnect", { provider: run.provider, connection: run.connection });
+        : await this.request("cmux.settings.connectors.disconnect", {
+            provider: run.provider,
+            connection: run.connection,
+          });
     return reply.ok ? null : reply.error.message;
   }
 

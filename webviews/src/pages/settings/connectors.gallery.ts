@@ -17,7 +17,11 @@ const base = mockConnectors();
 const nothing: ConnectorsState = {
   ...base,
   team: null,
-  connectors: base.connectors?.map((connector) => ({ ...connector, state: connector.configured ? "available" : "unavailable", connections: [] })),
+  connectors: base.connectors?.map((connector) => ({
+    ...connector,
+    state: connector.configured ? "available" : "unavailable",
+    connections: [],
+  })),
 };
 
 export default settingsPageEntry({
@@ -41,11 +45,12 @@ export default settingsPageEntry({
       "On a team, Connect on Slack first asks who may use it: Only You (checked) or Your Team.",
       [{ selector: '[data-connector="slack"] [data-connector-action="connect"]', action: "click" }],
     ),
-    "confirm-disconnect": variant(
-      base,
-      "Disconnect asks inline first; the stored sign-in is deleted at once.",
-      [{ selector: '[data-connection="conn_aaaaaaaaaaaaaaaaaaaa"] [data-connector-action="disconnect"]', action: "click" }],
-    ),
+    "confirm-disconnect": variant(base, "Disconnect asks inline first; the stored sign-in is deleted at once.", [
+      {
+        selector: '[data-connection="conn_aaaaaaaaaaaaaaaaaaaa"] [data-connector-action="disconnect"]',
+        action: "click",
+      },
+    ]),
     "signed-out": variant({ available: true, signedIn: false }, "Signed out: one line pointing to Accounts."),
     unavailable: variant({ available: false }, "A preview build: no platform, one line."),
   },

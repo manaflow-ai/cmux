@@ -528,7 +528,8 @@ export class MockSettingsProvider {
       "cmux.settings.tailnet.logout": () => this.stepTailnet("logout"),
       "cmux.settings.shares.list": () => this.shares,
       "cmux.settings.connectors.list": () => this.connectorsState,
-      "cmux.settings.connectors.connect": (params) => this.connectConnector(params as { provider: string; sharing: "private" | "team" }),
+      "cmux.settings.connectors.connect": (params) =>
+        this.connectConnector(params as { provider: string; sharing: "private" | "team" }),
       "cmux.settings.connectors.disconnect": (params) =>
         this.disconnectConnector(params as { provider: string; connection: string }),
       "cmux.settings.shares.revoke": (params) =>
@@ -746,7 +747,15 @@ export class MockSettingsProvider {
     const id = `conn_mock${String(this.connectorRuns.length).padStart(16, "0")}`;
     connector.connections = [
       ...(connector.connections ?? []),
-      { id, status: "pending", sharing: params.sharing, account: null, mine: true, canDisconnect: true, createdAt: Date.now() },
+      {
+        id,
+        status: "pending",
+        sharing: params.sharing,
+        account: null,
+        mine: true,
+        canDisconnect: true,
+        createdAt: Date.now(),
+      },
     ];
     this.connectorsState = structuredClone(this.connectorsState);
     return { opened: true };
@@ -1917,7 +1926,14 @@ export function mockConnectors(): ConnectorsState {
           },
         ],
       },
-      { provider: "google-drive", name: "Google Drive", state: "unavailable", detail: "not_configured", configured: false, connections: [] },
+      {
+        provider: "google-drive",
+        name: "Google Drive",
+        state: "unavailable",
+        detail: "not_configured",
+        configured: false,
+        connections: [],
+      },
       {
         provider: "linear",
         name: "Linear",

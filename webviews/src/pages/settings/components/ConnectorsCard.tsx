@@ -43,7 +43,9 @@ export function ConnectorsCard() {
     };
   });
   const run = async (
-    gesture: { action: "connect"; provider: string; sharing: Sharing } | { action: "disconnect"; provider: string; connection: string },
+    gesture:
+      | { action: "connect"; provider: string; sharing: Sharing }
+      | { action: "disconnect"; provider: string; connection: string },
   ) => {
     setBusy(true);
     try {
@@ -86,9 +88,9 @@ export function ConnectorsCard() {
         )}
       </div>
       {opened && !error && (
-        <div className="row-help" role="status" data-connectors-opened="">
+        <output className="row-help" data-connectors-opened="">
           {t("settingsPage.connectors.opened")}
-        </div>
+        </output>
       )}
       {error && (
         <div className="row-error" role="alert" data-connectors-error="">
@@ -103,7 +105,11 @@ export function ConnectorsCard() {
 function ConnectorMark({ provider, name }: { provider: string; name: string }) {
   return (
     <span className="accounts-mark connectors-mark" aria-hidden="true" data-connector-mark={provider}>
-      {provider === "github" ? <GitHubMark size={16} /> : <span className="connectors-initial">{name.slice(0, 1)}</span>}
+      {provider === "github" ? (
+        <GitHubMark size={16} />
+      ) : (
+        <span className="connectors-initial">{name.slice(0, 1)}</span>
+      )}
     </span>
   );
 }
@@ -112,7 +118,9 @@ function ConnectorMark({ provider, name }: { provider: string; name: string }) {
 export function connectedDetail(row: ConnectedRow): string {
   const parts: string[] = [];
   if (row.account) parts.push(row.account);
-  parts.push(t(row.sharing === "team" ? "settingsPage.connectors.sharingTeam" : "settingsPage.connectors.sharingPrivate"));
+  parts.push(
+    t(row.sharing === "team" ? "settingsPage.connectors.sharingTeam" : "settingsPage.connectors.sharingPrivate"),
+  );
   if (row.status !== "active") parts.push(t(`settingsPage.connectors.status.${row.status}`));
   return parts.join(" · ");
 }
@@ -215,29 +223,40 @@ export function ConnectorsList({
   if (layout === "tiles") {
     return (
       <div className="connectors-tiles">
-        {[...connected.map((row) => ({ kind: "connected" as const, row })), ...available.map((row) => ({ kind: "available" as const, row }))].map(
-          (item) => (
-            <div
-              className="connectors-tile"
-              key={item.kind === "connected" ? item.row.id : `add-${item.row.provider}`}
-              data-connector={item.row.provider}
-            >
-              <ConnectorMark provider={item.row.provider} name={item.row.name} />
-              <div className="row-title">{item.row.name}</div>
-              <div className="row-help">
-                {item.kind === "connected" ? connectedDetail(item.row) : t(`settingsPage.connectors.about.${item.row.provider}`)}
-              </div>
-              {item.kind === "connected" ? confirmLine(item.row) : sharingForm(item.row)}
-              <div className="row-control">{item.kind === "connected" ? disconnectControl(item.row) : connectButton(item.row)}</div>
+        {[
+          ...connected.map((row) => ({ kind: "connected" as const, row })),
+          ...available.map((row) => ({ kind: "available" as const, row })),
+        ].map((item) => (
+          <div
+            className="connectors-tile"
+            key={item.kind === "connected" ? item.row.id : `add-${item.row.provider}`}
+            data-connector={item.row.provider}
+          >
+            <ConnectorMark provider={item.row.provider} name={item.row.name} />
+            <div className="row-title">{item.row.name}</div>
+            <div className="row-help">
+              {item.kind === "connected"
+                ? connectedDetail(item.row)
+                : t(`settingsPage.connectors.about.${item.row.provider}`)}
             </div>
-          ),
-        )}
+            {item.kind === "connected" ? confirmLine(item.row) : sharingForm(item.row)}
+            <div className="row-control">
+              {item.kind === "connected" ? disconnectControl(item.row) : connectButton(item.row)}
+            </div>
+          </div>
+        ))}
       </div>
     );
   }
 
   const connectedRow = (row: ConnectedRow) => (
-    <div className="row accounts-row" key={row.id} data-connector={row.provider} data-connection={row.id} data-connection-status={row.status}>
+    <div
+      className="row accounts-row"
+      key={row.id}
+      data-connector={row.provider}
+      data-connection={row.id}
+      data-connection-status={row.status}
+    >
       <div className="row-main">
         <ConnectorMark provider={row.provider} name={row.name} />
         <div className="row-label">
@@ -252,7 +271,12 @@ export function ConnectorsList({
     </div>
   );
   const availableRow = (row: AvailableRow) => (
-    <div className="row accounts-row" key={`add-${row.provider}`} data-connector={row.provider} data-connector-available="">
+    <div
+      className="row accounts-row"
+      key={`add-${row.provider}`}
+      data-connector={row.provider}
+      data-connector-available=""
+    >
       <div className="row-main">
         <ConnectorMark provider={row.provider} name={row.name} />
         <div className="row-label">
@@ -322,22 +346,32 @@ function SharingChoice({
               type="radio"
               name={group}
               value={value}
+              aria-labelledby={`${group}-${value}`}
               checked={sharing === value}
               onChange={() => setSharing(value)}
             />
             <span>
-              <span className="row-title">
+              <span className="row-title" id={`${group}-${value}`}>
                 {t(value === "team" ? "settingsPage.connectors.sharingTeam" : "settingsPage.connectors.sharingPrivate")}
               </span>
               <span className="row-help">
-                {t(value === "team" ? "settingsPage.connectors.sharingTeamHelp" : "settingsPage.connectors.sharingPrivateHelp")}
+                {t(
+                  value === "team"
+                    ? "settingsPage.connectors.sharingTeamHelp"
+                    : "settingsPage.connectors.sharingPrivateHelp",
+                )}
               </span>
             </span>
           </label>
         ))}
       </ChoiceGroup>
       <div className="accounts-buttons">
-        <Button className="button" data-connector-action="confirmConnect" disabled={busy} onClick={() => onSubmit(sharing)}>
+        <Button
+          className="button"
+          data-connector-action="confirmConnect"
+          disabled={busy}
+          onClick={() => onSubmit(sharing)}
+        >
           {t("settingsPage.connectors.connect")}
         </Button>
         <Button className="button" onClick={onCancel}>
