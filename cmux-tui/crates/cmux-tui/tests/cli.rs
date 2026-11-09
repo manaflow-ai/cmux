@@ -140,6 +140,7 @@ impl HeadlessServer {
         // close every terminal resource, including zero-view terminals that
         // cannot appear in the legacy workspace tree below.
         let mut close_failures = Vec::new();
+        let mut diag_closes: Vec<String> = Vec::new();
         if let Ok(output) = cmux_command()
             .args(["--json", "--socket"])
             .arg(&self.socket)
@@ -150,14 +151,25 @@ impl HeadlessServer {
             && let Ok(terminals) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
             && let Some(terminals) = terminals.as_array()
         {
+            diag_closes.push(format!("listed: {}", serde_json::Value::Array(terminals.clone())));
             for terminal in terminals {
                 let Some(terminal_id) = terminal["id"].as_str() else { continue };
+                let close_started = Instant::now();
                 let output = cmux_command()
                     .args(["--quiet", "--socket"])
                     .arg(&self.socket)
                     .args(["terminal", terminal_id, "close"])
                     .env_remove("CMUX_TUI_SOCKET")
                     .output();
+                if let Ok(output) = output.as_ref() {
+                    diag_closes.push(format!(
+                        "close {terminal_id}: status={:?} stdout={} stderr={} elapsed={:?}",
+                        output.status.code(),
+                        String::from_utf8_lossy(&output.stdout),
+                        String::from_utf8_lossy(&output.stderr),
+                        close_started.elapsed()
+                    ));
+                }
                 match output {
                     Ok(output) if output.status.success() => {}
                     Ok(output) => close_failures.push(format!(
@@ -218,10 +230,70 @@ impl HeadlessServer {
             .copied()
             .filter(|pid| process_exists(*pid) || process_group_exists(*pid))
             .collect::<Vec<_>>();
+        let mut diag = String::new();
+        for path in &record_paths {
+            diag.push_str(&format!(
+                "\nrecord {}: {}",
+                path.display(),
+                fs::read_to_string(path).unwrap_or_default()
+            ));
+        }
+        for entry in fs::read_dir(&host_root).ok().into_iter().flatten().filter_map(Result::ok) {
+            diag.push_str(&format!("\nhost root entry: {}", entry.path().display()));
+        }
+        for pid in live_hosts.iter().chain(live_terminals.iter()) {
+            diag.push_str(&diag_process(*pid));
+        }
         Err(format!(
-            "close failures: {close_failures:?}; records: {record_paths:?}; live hosts: {live_hosts:?}; live terminals or groups: {live_terminals:?}"
+            "close failures: {close_failures:?}; records: {record_paths:?}; live hosts: {live_hosts:?}; live terminals or groups: {live_terminals:?}\nDIAG closes:\n{}\nDIAG processes:{diag}",
+            diag_closes.join("\n")
         ))
     }
+}
+
+/// Diagnostic only: the state of a leaked process and its threads.
+fn diag_process(pid: u32) -> String {
+    let mut out = format!("\n--- pid {pid} ---");
+    let proc_dir = PathBuf::from(format!("/proc/{pid}"));
+    for name in ["status", "cmdline", "wchan", "stat"] {
+        let text = fs::read(proc_dir.join(name))
+            .map(|bytes| String::from_utf8_lossy(&bytes).replace('\0', " "))
+            .unwrap_or_else(|error| format!("<{error}>"));
+        let text: String = if name == "status" {
+            text.lines()
+                .filter(|line| {
+                    ["Name", "State", "PPid", "Tgid", "Threads", "SigBlk", "SigIgn", "SigCgt"]
+                        .iter()
+                        .any(|key| line.starts_with(key))
+                })
+                .collect::<Vec<_>>()
+                .join("; ")
+        } else {
+            text
+        };
+        out.push_str(&format!("\n{name}: {text}"));
+    }
+    for task in
+        fs::read_dir(proc_dir.join("task")).ok().into_iter().flatten().filter_map(Result::ok)
+    {
+        let comm = fs::read_to_string(task.path().join("comm")).unwrap_or_default();
+        let wchan = fs::read_to_string(task.path().join("wchan")).unwrap_or_default();
+        let stat = fs::read_to_string(task.path().join("stat")).unwrap_or_default();
+        let syscall = fs::read_to_string(task.path().join("syscall")).unwrap_or_default();
+        out.push_str(&format!(
+            "\n  task {:?} comm={} wchan={} syscall={} stat={}",
+            task.file_name(),
+            comm.trim(),
+            wchan.trim(),
+            syscall.trim(),
+            stat.trim()
+        ));
+    }
+    for fd in fs::read_dir(proc_dir.join("fd")).ok().into_iter().flatten().filter_map(Result::ok) {
+        let target = fs::read_link(fd.path()).map(|t| t.display().to_string()).unwrap_or_default();
+        out.push_str(&format!("\n  fd {:?} -> {target}", fd.file_name()));
+    }
+    out
 }
 
 #[cfg(unix)]
@@ -292,6 +364,25 @@ impl Drop for HeadlessServer {
         // close their terminal resources first rather than assuming SIGKILL
         // of the daemon also owns or reaps their processes.
         let hosts_stopped = self.close_all_resources();
+        if hosts_stopped.is_err() && !std::thread::panicking() {
+            print_daemon_log(&self.dir);
+            let mut stderr = String::new();
+            let _ = self.child.kill();
+            #[cfg(unix)]
+            if let Some(mut pipe) = self.child.stderr.take() {
+                // SAFETY: diagnostic nonblocking flag on the owned pipe fd.
+                unsafe {
+                    let fd = pipe.as_raw_fd();
+                    let flags = libc::fcntl(fd, libc::F_GETFL);
+                    libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+                }
+                let mut buffer = vec![0u8; 1 << 20];
+                if let Ok(read) = pipe.read(&mut buffer) {
+                    stderr = String::from_utf8_lossy(&buffer[..read]).into_owned();
+                }
+            }
+            eprintln!("--- daemon stderr ---\n{stderr}\n--- end daemon stderr ---");
+        }
         let _ = self.child.kill();
         let _ = self.child.wait();
         let _ = fs::remove_file(&self.socket);
@@ -3950,6 +4041,64 @@ fn raw_protocol_apply_layout_preserves_explicit_surface_size() {
     );
     assert_eq!(state["cols"].as_u64(), Some(111));
     assert_eq!(state["rows"].as_u64(), Some(37));
+}
+
+/// Diagnostic stress (not for merge): the two fixture scenarios that leaked a
+/// terminal host on hosted Linux, run many times at once.
+#[cfg(unix)]
+#[test]
+fn zz_close_leak_stress() {
+    let failures = std::sync::Mutex::new(Vec::<String>::new());
+    std::thread::scope(|scope| {
+        for worker in 0..10 {
+            let failures = &failures;
+            scope.spawn(move || {
+                for round in 0..4 {
+                    let result = std::panic::catch_unwind(|| {
+                        let server = HeadlessServer::start(&format!("leak-{worker}-{round}"));
+                        let applied = raw_json(
+                            &server,
+                            serde_json::json!({
+                                "id":"apply-sized-layout",
+                                "cmd":"apply-layout",
+                                "layout":{"type":"leaf"},
+                                "cols":111,
+                                "rows":37,
+                            }),
+                        );
+                        assert!(applied["panes"][0]["surface"].as_u64().is_some());
+                        raw_json(
+                            &server,
+                            serde_json::json!({"id":"inherited-workspace","cmd":"new-workspace"}),
+                        );
+                        raw_json(
+                            &server,
+                            serde_json::json!({
+                                "id":"partial-layout-size",
+                                "cmd":"apply-layout",
+                                "layout":{"type":"leaf"},
+                                "cols":90,
+                            }),
+                        );
+                        drop(server);
+                    });
+                    if let Err(panic) = result {
+                        let message = panic
+                            .downcast_ref::<String>()
+                            .cloned()
+                            .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
+                            .unwrap_or_default();
+                        failures
+                            .lock()
+                            .unwrap()
+                            .push(format!("worker {worker} round {round}: {message}"));
+                    }
+                }
+            });
+        }
+    });
+    let failures = failures.into_inner().unwrap();
+    assert!(failures.is_empty(), "{} leak(s):\n{}", failures.len(), failures.join("\n\n"));
 }
 
 fn assert_subscribe_reports_tree_changed(server: &HeadlessServer) {
