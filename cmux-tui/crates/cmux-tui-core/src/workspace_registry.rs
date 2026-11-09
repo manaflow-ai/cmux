@@ -37,6 +37,7 @@ mod public_projection_store;
 mod resource_store;
 mod session_journal;
 mod terminal_exit_store;
+mod terminal_unplaced_store;
 
 pub(crate) use effect_store::ResourceWorkspaceClose;
 pub use effect_store::{
@@ -4134,6 +4135,7 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
            ON terminal_events(terminal_id, revision);",
     )?;
     idle_policy_store::create_terminal_idle_policy_schema(transaction)?;
+    terminal_unplaced_store::create_terminal_unplaced_schema(transaction)?;
     Ok(())
 }
 
