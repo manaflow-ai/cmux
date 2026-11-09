@@ -329,6 +329,8 @@ mod terminal_move_topology;
 mod terminal_progress;
 mod terminal_publisher;
 mod terminal_reap;
+mod terminal_tail_pins;
+pub(crate) use terminal_tail_pins::RESERVED_TAIL_KEY_PREFIX;
 #[cfg(unix)]
 mod terminal_rehost;
 mod terminal_relaunch;
@@ -685,6 +687,8 @@ pub struct Mux {
     command_history_worker: Mutex<Option<SyncSender<command_history::CommandHistoryMessage>>>,
     /// Makes the durable commits terminal output asks for, off the output readers.
     terminal_publisher: terminal_publisher::TerminalPublisher,
+    /// Pinned terminals' last lines and their publisher (`terminal-tail-pin-v1`).
+    terminal_tail_pins: terminal_tail_pins::TerminalTailPins,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     /// Per-client read marks. The shared unread marker above answers "does this terminal need
     /// attention on the shared console"; this map answers "has this client install seen this

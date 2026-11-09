@@ -193,9 +193,10 @@ the person's prompt. What the receiver gets depends on who you are to it:
   lead, saying `This report is for your TYPE subagent ID`. If it ended with no
   `SubagentStop` hook, its reports wait until no subagent of the lead runs. The
   end message of a background task it started (`bg_start`, `run_wait`) takes
-  the same rule. On a path that names no subagent (a cmux workflow script), a
-  subagent passes `notify: false` and reads the task
-  with `bg_output`. The receiver reads `From another agent (LEAD's TYPE
+  the same rule. A cmux workflow it starts (`cmux.cmux_workflow`) runs as it:
+  the workflow's commands and its script's sends name it. On a path that names
+  no subagent, a subagent passes `notify: false` and reads the task with
+  `bg_output`. The receiver reads `From another agent (LEAD's TYPE
   subagent ID)` and ends its turn with its answer; it does not send it to the
   lead.
   `acpmux send LEAD` reaches the lead.
