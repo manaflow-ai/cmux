@@ -155,6 +155,7 @@ export function historyPages({
     ledger: {
       load: async (params) => connected().ledger(params),
       openSession: selectSession,
+      copy,
     },
     // History shows it only while the `team-audit` experiment is on (newtab/HistoryScreen.tsx).
     team: { load: async (params) => connected().teamAudit(params) },

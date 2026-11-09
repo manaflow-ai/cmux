@@ -52,7 +52,7 @@ const NOT_STARTED_PAUSE: Duration = Duration::from_secs(2);
 const GUEST_CMUX: &str = "cmux-tui";
 /// An exec may run without a login profile: the work user's home holds the acpmux socket
 /// (`~/.acpmux/acpmux.sock`).
-const GUEST_PRELUDE: &str = "export HOME=\"${HOME:-/home/cmux}\"; c=cmux-tui; \
+pub(super) const GUEST_PRELUDE: &str = "export HOME=\"${HOME:-/home/cmux}\"; c=cmux-tui; \
     [ -x \"$HOME/.cmux/bin/cmux-tui\" ] && c=\"$HOME/.cmux/bin/cmux-tui\"; ";
 
 /// The most of a prompt that goes inside the send's own command, quoted. Longer prompts go to a
@@ -439,6 +439,11 @@ pub(super) trait Runner {
 
 struct SelfRunner {
     globals: Vec<String>,
+}
+
+/// This binary as the runner of another command's steps (`cmux chat cd`, chat_cd.rs), reaching the same app.
+pub(super) fn self_runner(global: &GlobalArgs) -> impl Runner {
+    SelfRunner { globals: forwarded_globals(global) }
 }
 
 impl Runner for SelfRunner {
@@ -1566,7 +1571,7 @@ fn unused_name(runner: &mut dyn Runner, listed: &Value) -> Result<String, Outcom
 }
 
 /// The commands that go on with this chat.
-fn follow_ups(machine: &str, session: &str) -> Value {
+pub(super) fn follow_ups(machine: &str, session: &str) -> Value {
     let on = |command: String| {
         format!("cmux cloud exec --target machine:{machine} --command {}", shell_quote(&command))
     };
@@ -1589,7 +1594,7 @@ fn remove_prompt_file(runner: &mut dyn Runner, machine: &str, file: &str, deadli
     let _ = exec(runner, machine, &format!("{GUEST_PRELUDE}{file}rm -f \"$f\""));
 }
 
-fn exec(runner: &mut dyn Runner, machine: &str, script: &str) -> Result<String, Value> {
+pub(super) fn exec(runner: &mut dyn Runner, machine: &str, script: &str) -> Result<String, Value> {
     let args = vec![
         "cloud".to_owned(),
         "exec".to_owned(),
@@ -1818,7 +1823,9 @@ mod fault;
 mod folder;
 use folder::local_folder;
 mod support;
-use support::{at, last_turn, reply, sections, words};
+use support::{at, last_turn, reply, words};
+// `cmux chat cd` reads the same guest script sections.
+pub(in crate::cli) use support::sections;
 
 #[cfg(test)]
 pub(in crate::cli) mod tests;

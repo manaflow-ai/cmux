@@ -95,7 +95,7 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
   }
 
   /** The usage sync's last push for a subscription period: its identifier, mode and seats (S5 included modes). */
-  async pushState(entity: string, subscription: string, periodStart: number): Promise<{ identifier: string; mode: IncludedMode; seats: number; event_ts: number | null } | null> {
+  async pushState(entity: string, subscription: string, periodStart: number): Promise<{ identifier: string; mode: IncludedMode; seats: number; event_ts: number | null; included_usd: number | null } | null> {
     if (!this.isBound(entity)) return null
     return pushState(this.ctx.storage.sql, subscription, periodStart)
   }
@@ -112,34 +112,38 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     return previousPush(this.ctx.storage.sql, subscription, beforeStart)
   }
 
-  /** The included mode of this subscription period (start in s): the mode it was pushed in, else the setting in force at its start. */
-  async periodMode(entity: string, subscription: string, periodStart: number): Promise<IncludedMode> {
-    if (!this.isBound(entity)) return "per_team"
-    return pushState(this.ctx.storage.sql, subscription, periodStart)?.mode ?? teamModeAt(this.ctx.storage.sql, periodStart * 1000)
+  /**
+   * The included mode of this subscription period (start in s): the mode it was pushed in, else the setting in force at its
+   * start, else `fallback` (the sync's billing-catalog.ts defaultTeamMode for the price set in force).
+   */
+  async periodMode(entity: string, subscription: string, periodStart: number, fallback: IncludedMode = "per_team"): Promise<IncludedMode> {
+    if (!this.isBound(entity)) return fallback
+    return pushState(this.ctx.storage.sql, subscription, periodStart)?.mode ?? teamModeAt(this.ctx.storage.sql, periodStart * 1000, fallback)
   }
 
   /** The operator's included-mode setting (POST /v1/internal/billing/team-mode): recorded now, in force from the next period start. */
-  async setIncludedMode(entity: string, mode: IncludedMode, actor: string, reason: string | null): Promise<{ before: IncludedMode; changed: boolean }> {
+  async setIncludedMode(entity: string, mode: IncludedMode, actor: string, reason: string | null, fallback: IncludedMode = "per_team"): Promise<{ before: IncludedMode; changed: boolean }> {
     this.bind(entity)
-    return setTeamMode(this.ctx.storage.sql, mode, actor, reason, Date.now())
+    return setTeamMode(this.ctx.storage.sql, mode, actor, reason, Date.now(), fallback)
   }
 
-  /** The setting history and the mode in force now (for the operator read). Never binds. */
-  async includedModes(entity: string): Promise<{ requested: IncludedMode; in_force_now: IncludedMode; changes: ReadonlyArray<ModeChange> }> {
-    if (!this.isBound(entity)) return { requested: "per_team", in_force_now: "per_team", changes: [] }
-    const h = teamModeHistory(this.ctx.storage.sql)
+  /** The setting history and the mode in force now (for the operator read; `fallback` with no setting). Never binds. */
+  async includedModes(entity: string, fallback: IncludedMode = "per_team"): Promise<{ requested: IncludedMode; in_force_now: IncludedMode; changes: ReadonlyArray<ModeChange> }> {
+    if (!this.isBound(entity)) return { requested: fallback, in_force_now: fallback, changes: [] }
+    const h = teamModeHistory(this.ctx.storage.sql, 20, fallback)
     const mark = currentBillable(this.ctx.storage.sql, Date.now(), BILLABLE_GRACE_MS)
     const start = mark?.period_start !== undefined ? mark.period_start * 1000 : Date.parse(`${utcMonth(Date.now())}-01T00:00:00Z`)
-    return { ...h, in_force_now: mark?.mode ?? teamModeAt(this.ctx.storage.sql, start) }
+    return { ...h, in_force_now: mark?.mode ?? teamModeAt(this.ctx.storage.sql, start, fallback) }
   }
 
   /**
    * team.ai_limit.get, the team line (S5 console): with a billable mark in force, the billing period's
    * settled level against the included amount the sync saw (x seats per seat); otherwise this UTC
-   * month's model spend (settled plus open, what the included-amount stop counts). Never binds.
+   * month's model spend (settled plus open, what the included-amount stop counts). `fallback`: the unbilled
+   * mode with no operator setting (billing-catalog.ts defaultIncludedMode). Never binds.
    */
-  async teamUsage(entity: string): Promise<{ billable: ({ period_start: number | null; period_end: number; mode: IncludedMode; seats: number; included_usd: number | null; spent_usd: number }) | null; month_spent_usd: number; unbilled: { mode: IncludedMode; seats: number } }> {
-    if (!this.isBound(entity)) return { billable: null, month_spent_usd: 0, unbilled: { mode: "per_team", seats: 1 } }
+  async teamUsage(entity: string, fallback: IncludedMode = "per_team"): Promise<{ billable: ({ period_start: number | null; period_end: number; mode: IncludedMode; seats: number; included_usd: number | null; spent_usd: number }) | null; month_spent_usd: number; unbilled: { mode: IncludedMode; seats: number } }> {
+    if (!this.isBound(entity)) return { billable: null, month_spent_usd: 0, unbilled: { mode: fallback, seats: 1 } }
     const sql = this.ctx.storage.sql
     const now = Date.now()
     const month = utcMonth(now)
@@ -148,7 +152,7 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     const month_spent_usd = Math.round(spent + open) / 1_000_000
     const mark = currentBillable(sql, now, BILLABLE_GRACE_MS)
     // As the stop counts it (usage-user.ts includedRefusal): the mode in force at the month start, the last billable seats.
-    const unbilled = teamModeAt(sql, Date.parse(`${month}-01T00:00:00Z`)) === "per_seat" ? { mode: "per_seat" as const, seats: lastSeenSeats(sql, now) } : { mode: "per_team" as const, seats: 1 }
+    const unbilled = teamModeAt(sql, Date.parse(`${month}-01T00:00:00Z`), fallback) === "per_seat" ? { mode: "per_seat" as const, seats: lastSeenSeats(sql, now) } : { mode: "per_team" as const, seats: 1 }
     if (!mark) return { billable: null, month_spent_usd, unbilled }
     const mode = mark.mode ?? "per_team"
     const seats = mark.seats ?? 1
@@ -161,10 +165,10 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
   }
 
   /** Model router (inference/route.ts): reserve `maxMicros` of the member's monthly limit before the upstream call (usage-user.ts). */
-  async reserveUser(entity: string, user: string, id: string, maxMicros: number, limitMicros: number, includedMicros?: number): Promise<UserReserve> {
+  async reserveUser(entity: string, user: string, id: string, maxMicros: number, limitMicros: number, includedMicros?: number, includedFallback?: IncludedMode): Promise<UserReserve> {
     this.bind(entity)
     const now = Date.now()
-    const r = reserveUser(this.ctx.storage, utcMonth(now), user, id, maxMicros, limitMicros, now, includedMicros)
+    const r = reserveUser(this.ctx.storage, utcMonth(now), user, id, maxMicros, limitMicros, now, includedMicros, includedFallback)
     if (r.ok) this.scheduleAlarm()
     return r
   }
