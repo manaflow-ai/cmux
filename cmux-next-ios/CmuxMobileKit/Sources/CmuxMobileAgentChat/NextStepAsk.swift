@@ -119,10 +119,27 @@ public struct NextStepAsk: Equatable, Sendable {
     /// The answer the person gave: the option their next prompt chose (case and outer space
     /// aside), else that prompt's first line, so a typed answer reads too.
     public func chosenAnswer(_ reply: String) -> String {
-        let said = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+        let said = answer(of: reply).trimmingCharacters(in: .whitespacesAndNewlines)
         if let picked = options.first(where: { $0.label.caseInsensitiveCompare(said) == .orderedSame }) { return picked.title }
         let first = said.components(separatedBy: "\n").first?.trimmingCharacters(in: .whitespaces) ?? ""
         return first.count > 120 ? String(first.prefix(119)) + "…" : first
+    }
+
+    /// The prompt an answer sends: the ask quoted under who asked, then the answer, as the Mac's
+    /// card sends it (nextStepAsk.ts `answerPrompt`), so every surface shows it as a reply to the ask.
+    public func answerPrompt(_ label: String, asker: String?) -> String {
+        guard !question.isEmpty else { return label }
+        let who = asker?.trimmingCharacters(in: .whitespaces) ?? ""
+        let quoted = (who.isEmpty ? question : "\(who): \(question)")
+            .components(separatedBy: "\n").map { "> \($0)" }.joined(separator: "\n")
+        return "\(quoted)\n\n\(label)"
+    }
+
+    /// A reply without its quote of this ask (nextStepAsk.ts `answerOf`); any other prompt as it is.
+    public func answer(of reply: String) -> String {
+        guard !question.isEmpty, let split = UserBubble.leadingQuote(reply) else { return reply }
+        guard split.quote == question || split.quote.hasSuffix(": \(question)") else { return reply }
+        return split.body
     }
 
     nonisolated(unsafe) private static let quote = try? NSRegularExpression(pattern: #"^\s{0,3}>"#)

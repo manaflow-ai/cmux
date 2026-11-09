@@ -912,9 +912,7 @@ struct UserBubble: View {
             if !attachments.isEmpty {
                 SentAttachments(attachments: attachments)
             }
-            Text(prompt)
-                .font(.body)
-                .lineSpacing(4)
+            bubbleText
                 .padding(.horizontal, 16)
                 .padding(.vertical, 11)
                 .background(Color.cmuxMobileBubble, in: .rect(cornerRadius: 20, style: .continuous))
@@ -945,6 +943,34 @@ struct UserBubble: View {
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { selecting = false } } }
             }
             .presentationDetents([.medium, .large])
+        }
+    }
+}
+
+extension UserBubble {
+    /// A reply's leading Markdown quote (`> ` lines, then a blank line), as Quote in Reply and an
+    /// answer to an agent's ask record it on the Mac: the quoted text and the reply under it.
+    static func leadingQuote(_ prompt: String) -> (quote: String, body: String)? {
+        let lines = prompt.components(separatedBy: "\n")
+        let quoted = lines.prefix { $0.hasPrefix(">") }
+        guard !quoted.isEmpty, quoted.count < lines.count else { return nil }
+        let quote = quoted.map { String($0.dropFirst($0.hasPrefix("> ") ? 2 : 1)) }.joined(separator: "\n")
+        let body = lines.dropFirst(quoted.count).joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return body.isEmpty ? nil : (quote.trimmingCharacters(in: .whitespaces), body)
+    }
+
+    /// The prompt, its leading quote drawn as the Mac draws one: muted, behind a bar.
+    @ViewBuilder var bubbleText: some View {
+        if let split = Self.leadingQuote(prompt) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(split.quote)
+                    .font(.body).lineSpacing(4).foregroundStyle(.secondary)
+                    .padding(.leading, 10)
+                    .overlay(alignment: .leading) { Capsule().fill(.tertiary).frame(width: 2) }
+                Text(split.body).font(.body).lineSpacing(4)
+            }
+        } else {
+            Text(prompt).font(.body).lineSpacing(4)
         }
     }
 }
