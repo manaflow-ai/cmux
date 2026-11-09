@@ -56,7 +56,7 @@ export const MARK_FOOTER_SLOT = 7;
 /// the step and status rows beside it, as far from the prose around it as a run is (row-alignment.test.ts: every status row between two replies has
 /// one gap above and one below).
 export const MARK_STATUS = 8;
-/// A finished turn's "Worked for" line (model.ts `WORKED`). Its rule sits midway between its words
+/// A finished turn's "Worked for" line (model.ts `WORKED`). Its rule sits between its words
 /// and the next row, so the room under the rule is the row's own (conversation.css
 /// `.cv-worked.has-divider.is-toggle`) and no stack gap follows it inside the turn (Lucas,
 /// 2026-11-07, Codex parity). Toward the rows above it, it is a step row.

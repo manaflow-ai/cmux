@@ -32,7 +32,7 @@ mod seed;
 mod seed_cli;
 mod start_chat_cli;
 mod state;
-mod sync_cli;
+pub(crate) mod sync_cli;
 
 #[cfg(test)]
 mod acpmux_tests;
