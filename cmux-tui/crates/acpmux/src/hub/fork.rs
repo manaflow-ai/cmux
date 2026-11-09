@@ -199,6 +199,10 @@ impl Hub {
                 "{harness} cannot fork a chat mid-turn, so this fork's agent starts from the chat's transcript"
             )
         };
+        // Held from the copy of the agent's transcript to the read of its recorded rules below:
+        // a prompt written before the copy has recorded what it carried (`steer_end.rs` runs
+        // its `on_sent` under the handoff), and one written after it is not in the copy.
+        let mut handoff = None;
         let made = if empty {
             turn_count = 0;
             Made::Empty
@@ -230,6 +234,7 @@ impl Hub {
                 ));
             }
             let homes = self.harness_homes().with_env(&[&fork_env]);
+            handoff = Some(session.input_handoff.clone().lock_owned().await);
             let copy = match turn_cut {
                 Some(crate::config::TurnCut::Codex) => {
                     super::fork_at::codex_rollout_through_checked(
@@ -263,6 +268,7 @@ impl Hub {
         } else if running.is_some() && turn_cut.is_some() && cwd == parent_meta.cwd {
             // A working Claude or Codex chat: a copy of its transcript as it stands now.
             let homes = self.harness_homes().with_env(&[&fork_env]);
+            handoff = Some(session.input_handoff.clone().lock_owned().await);
             let copy = match turn_cut {
                 Some(crate::config::TurnCut::Codex) => {
                     super::fork_at::codex_rollout_through(&homes.codex, &sid, u64::MAX)
@@ -305,6 +311,7 @@ impl Hub {
             if let Some(dirs) = super::additional_dirs::acp_value(&parent_meta) {
                 fork_params.set(super::additional_dirs::FIELD, dirs);
             }
+            handoff = Some(session.input_handoff.clone().lock_owned().await);
             let asked = child.request(method::SESSION_FORK, fork_params).await;
             let working_now =
                 matches!(session.meta().status, SessionStatus::Running | SessionStatus::Waiting);
@@ -407,6 +414,7 @@ impl Hub {
         let rules_kept = !matches!(made, Made::Fresh | Made::Empty)
             && !moved
             && session.read_meta(|m| crate::context_inventory::fork_keeps_rules(m, fork_seq));
+        drop(handoff);
         let mut meta = SessionMeta {
             schema: META_SCHEMA.into(),
             id: id.clone(),
