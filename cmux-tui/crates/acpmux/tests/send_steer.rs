@@ -324,16 +324,43 @@ async fn a_sub_sessions_send_to_its_busy_parent_steers() {
             .env("ACPMUX_SESSION_TOKEN_SOCKET", &b.socket)
             .kill_on_drop(true);
     };
-    // The child, started from inside the busy session.
-    let mut new = daemon_env::tokio_command(&b.scratch, daemon_env::Agents::Deny);
-    new.args(["--json", "new", "-d", "-n", "queue-drain"]);
-    as_session(&mut new, &b.id);
-    let out = tokio::time::timeout(Duration::from_secs(60), new.output()).await.unwrap().unwrap();
-    assert!(out.status.success(), "new failed: {}", String::from_utf8_lossy(&out.stderr));
-    let created: Value = serde_json::from_slice(&out.stdout).unwrap();
-    let child = created["sessionId"].as_str().unwrap().to_owned();
+    // The child, started by the busy session's own tools (start_session), as a coordinator
+    // starts a lane: a connection that proves the parent's caller token.
+    let (in_tx, in_rx) = tokio::sync::mpsc::channel(16);
+    let (out_tx, mut out_rx) = tokio::sync::mpsc::channel(4096);
+    tokio::spawn(acpmux::server::serve_connection_with(
+        b.hub.clone(),
+        in_rx,
+        out_tx,
+        acpmux::server::Origin::Local,
+    ));
+    let token = acpmux::hub::person::caller_token(&b.id);
+    let calls = [
+        ("initialize", json!({"protocolVersion": 1,
+            "_meta": {"acpmux": {"callerSession": {"sessionId": b.id, "token": token}}}})),
+        ("_acpmux/subsession/start", json!({"prompt": "echo drain the queue", "name": "queue-drain"})),
+    ];
+    let mut started = Value::Null;
+    for (n, (m, params)) in calls.into_iter().enumerate() {
+        let id = n as i64 + 1;
+        in_tx.send(acpmux::rpc::Message::request(id, m, params).to_line()).await.unwrap();
+        started = loop {
+            let line = tokio::time::timeout(Duration::from_secs(30), out_rx.recv()).await.unwrap();
+            let v: Value = serde_json::from_str(&line.unwrap()).unwrap();
+            if v.get("id") == Some(&json!(id)) {
+                assert!(v.get("error").is_none(), "{m}: {v}");
+                break v["result"].clone();
+            }
+        };
+    }
+    let child = started["sessionId"].as_str().unwrap().to_owned();
     let info = b.person.request(method::MUX_INFO, json!({"sessionId": child, "row": true})).await;
     assert_eq!(info.unwrap()["startedBy"], json!(b.id), "not the busy session's sub-session");
+    // Its first turn ends before it sends.
+    b.person
+        .request("_acpmux/wait", json!({"sessions": [child], "until": ["ready"], "timeoutMs": 20000}))
+        .await
+        .unwrap();
 
     for wait in [false, true] {
         let pid = prompt_id();
