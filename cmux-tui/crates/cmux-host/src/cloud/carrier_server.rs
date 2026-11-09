@@ -369,8 +369,15 @@ impl<H: Http + Send + 'static> Fetcher<H> {
 
     /// The machine resumed: a request from before the pause is abandoned (a
     /// spare client on its own transport asks now), the pooled connection
-    /// dropped, and on a carrier machine a fresh ticket asked for.
+    /// dropped, and on a carrier machine a fresh ticket asked for. A resume
+    /// that a bind or another resume overtook since its pick does nothing:
+    /// the old binding's client is not resumed and asks for nothing.
     fn resume(&mut self, generation: u64) {
+        if !self.shared.lock().resume_holds(generation) {
+            return (self.hooks.log)(
+                "carrier ticket: a resume overtaken by a bind or resume is dropped",
+            );
+        }
         let Some(client) = self.hands.for_resume() else {
             // No spare: the resume acts once a client comes back, if no bind
             // or other resume came first.

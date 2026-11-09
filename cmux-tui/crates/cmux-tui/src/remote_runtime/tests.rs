@@ -5,7 +5,11 @@ use cmux_remote::daemon::RemoteDaemon;
 use super::*;
 
 #[cfg(unix)]
+mod first_connect_recovery;
+#[cfg(unix)]
 mod initial_route_budget;
+#[cfg(unix)]
+mod ssh_forced_command;
 
 /// Binds a stream socket at `path` that never listens, as a crashed
 /// client leaves it. A connect to it is refused even while the returned
@@ -1584,6 +1588,7 @@ fn client_startup_timeout_returns_while_the_socket_path_lock_is_held() {
                 auto_install: false,
                 upgrade: false,
                 attempt_timeout: Duration::from_secs(1),
+                forced_command: false,
             },
         });
         let _ = done_tx.send(result.map(|runtime| runtime.shutdown()));
@@ -2197,6 +2202,7 @@ fn reconnect_test_options(routes: Vec<ResolvedRouteCandidate>) -> ClientRuntimeO
             auto_install: true,
             upgrade: false,
             attempt_timeout: Duration::from_millis(500),
+            forced_command: false,
         },
     }
 }
@@ -2354,6 +2360,7 @@ fn client_shutdown_cancels_reconnect_ssh_bootstrap_and_kills_child() {
             auto_install: true,
             upgrade: false,
             attempt_timeout: Duration::from_secs(10),
+            forced_command: false,
         },
     })
     .unwrap();
@@ -2519,6 +2526,7 @@ async fn initial_client_connection_retries_transient_carrier_failure() {
             auto_install: false,
             upgrade: false,
             attempt_timeout: Duration::from_secs(1),
+            forced_command: false,
         },
     };
     let (_shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -2601,6 +2609,7 @@ async fn invitation_approval_outlives_the_route_attempt_timeout() {
             auto_install: false,
             upgrade: false,
             attempt_timeout: Duration::from_secs(1),
+            forced_command: false,
         },
     };
     let (_shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -2831,6 +2840,7 @@ async fn reconnect_bootstraps_an_ssh_candidate_not_attempted_initially() {
             // run concurrently. Keep the watchdog independent of host
             // scheduler latency; the reconnect budget remains 20 ms.
             attempt_timeout: Duration::from_secs(30),
+            forced_command: false,
         },
     };
     let source = RuntimeReconnectGroups::new(options, 0);
@@ -3039,6 +3049,7 @@ async fn connection_timeout_bounds_initial_ssh_bootstrap() {
         auto_install: true,
         upgrade: false,
         attempt_timeout: Duration::from_millis(100),
+        forced_command: false,
     };
 
     let error = bootstrap_initial_ssh_route(
@@ -3083,6 +3094,7 @@ async fn reconnect_source_cycles_candidates_with_sanitized_descriptions() {
             auto_install: true,
             upgrade: false,
             attempt_timeout: Duration::from_secs(1),
+            forced_command: false,
         },
     };
     let source = RuntimeReconnectGroups::new(options, 0);
