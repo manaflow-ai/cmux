@@ -225,6 +225,7 @@ fn group_by_names_the_rollups_and_rejects_unknown_ones() {
         "outputTokens",
         "cacheReadTokens",
         "cacheWriteTokens",
+        "cacheSavedUsd",
         "turns",
         "toolCalls",
         "wallMs",
@@ -233,6 +234,55 @@ fn group_by_names_the_rollups_and_rejects_unknown_ones() {
         assert!(row.get(key).is_some(), "row {key}: {row}");
     }
     assert_eq!(row["person"], "leo@test");
+}
+
+#[test]
+fn cache_reads_count_what_they_saved_against_the_input_price() {
+    let l = mem();
+    // Opus 5.5: input $4, cache read $0.20 per million. 1M cache-read tokens saved $3.80, even
+    // when the agent reported the turn's cost itself.
+    turn(
+        &l,
+        "a",
+        D0 + 1_000,
+        0,
+        json!({"model": "claude-opus-5-5", "costUsd": 1.0, "inputTokens": 10, "cacheReadTokens": 1_000_000}),
+        "claude",
+        "claude",
+    );
+    // Priced from the table: the same saving beside the table's cost.
+    turn(
+        &l,
+        "b",
+        D0 + 2_000,
+        0,
+        json!({"model": "claude-opus-5-5", "inputTokens": 10, "cacheReadTokens": 500_000}),
+        "claude",
+        "claude",
+    );
+    // No cache reads, and a model the table lacks: nothing saved, never a guess.
+    turn(
+        &l,
+        "c",
+        D0 + 3_000,
+        0,
+        json!({"model": "claude-opus-5-5", "inputTokens": 10}),
+        "claude",
+        "claude",
+    );
+    turn(&l, "d", D0 + 4_000, 0, json!({"model": "mystery-1", "cacheReadTokens": 9}), "omp", "omp");
+    let reply = l.query(&all(D0, D0 + DAY - 1));
+    assert!((reply.totals.cache_saved_usd - 5.7).abs() < 1e-9, "{}", reply.totals.cache_saved_usd);
+    let row =
+        |id: &str| reply.rows.iter().find(|r| r.session_id == id).unwrap().totals.cache_saved_usd;
+    assert!((row("a") - 3.8).abs() < 1e-9);
+    assert!((row("b") - 1.9).abs() < 1e-9);
+    assert_eq!(row("c"), 0.0);
+    assert_eq!(row("d"), 0.0);
+    // A rollup adds them up as it adds cost.
+    let models = rollup(&reply, "model");
+    let opus = models.iter().find(|m| m["key"] == "claude-opus-5-5").unwrap();
+    assert!((opus["cacheSavedUsd"].as_f64().unwrap() - 5.7).abs() < 1e-9);
 }
 
 fn scratch(name: &str) -> PathBuf {
@@ -491,6 +541,20 @@ fn a_tombstone_in_the_file_drops_what_came_before_it() {
     let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
     assert_eq!(l.query(&all(D0, D0)).totals.turns, 1);
     assert!(!l.lock().sessions.contains_key("x"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_line_from_before_cache_savings_gets_them_on_fold() {
+    let dir = scratch("cache-saved-backfill");
+    std::fs::create_dir_all(&dir).unwrap();
+    let line = format!(
+        r#"{{"t":"u","sid":"x","at":{D0},"model":"claude-opus-5-5","pv":"v","costUsd":1.0,"cacheReadTokens":1000000,"turns":1}}"#
+    );
+    std::fs::write(dir.join(store::FILE), format!("{line}\n")).unwrap();
+    let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    let saved = l.query(&all(D0, D0)).totals.cache_saved_usd;
+    assert!((saved - 3.8).abs() < 1e-9, "{saved}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
