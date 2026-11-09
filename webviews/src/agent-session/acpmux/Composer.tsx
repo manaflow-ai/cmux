@@ -1512,7 +1512,7 @@ function ComposerFrame({
   const submit = (event: { preventDefault(): void }): boolean => {
     event.preventDefault();
     // Send does what Return does: mid-turn it steers an agent that steers, else it queues.
-    return send(false, steersAlways || returnSteers);
+    return send(false, steersAlways || returnSteers || steersUnseen);
   };
   /// `kept`: the gesture an earlier hold of this send bound (`useSendWhenAttached`). `route` "side":
   /// the draft goes as `/side`'s prompt, to a side chat forked from this one (Send's menu).
@@ -2039,7 +2039,7 @@ function ComposerFrame({
       event.preventDefault();
       const typed = typedWords().trim() !== "";
       const sendAndOpen = (gesture?: SendGesture) => {
-        const sent = submitNow.current(false, steersAlways, gesture);
+        const sent = submitNow.current(false, steersAlways || steersUnseen, gesture);
         // A prompt the host refused stays in the composer, and the chat stays here.
         if (typed && !sent) return;
         openInWindow.current?.(sent);
@@ -2156,6 +2156,15 @@ function ComposerFrame({
   // Queueing off (ChatGPT's and Codex's "Turn off queueing", queueing.ts): ⌘Return and Send steer
   // too, so nothing new waits. An agent that cannot steer still runs it after the turn.
   const steersAlways = steers && !queueing;
+  // Before the pane hears that a turn runs (one another agent's message, a trigger or an automatic
+  // retry started a moment ago), what is sent still goes as a steer to an agent that steers: acpmux
+  // steers it into a turn that runs and starts a turn when none does, so a Return never waits behind
+  // a turn the pane had not shown yet (Leo, 2026-11-05: "hey what the is my thing auto queuing rn?").
+  const steersUnseen =
+    !shell &&
+    !snapshot.isWorking &&
+    snapshot.summary?.steering === true &&
+    !commandWaitsForTurn(text, snapshot.summary?.harness, commands);
   // Mid-turn an agent that steers keeps Claude desktop's "Type / for commands" (Leo 2026-11-03:
   // "well the enter/cmd enter used to be claude code's placeholder... now they have this"); the
   // Send button's tooltip names ↵ steer and ⌘↵ queue instead. The Quick Composer's ⌘Return opens
@@ -2489,7 +2498,7 @@ function ComposerFrame({
   const chooseSend = (choice: SendChoice) => {
     if (choice === "side") send(false, false, undefined, "side");
     // Queue for later is ⌘Return; Send is the button's own send.
-    else send(false, choice === "queue" ? steersAlways : steersAlways || returnSteers);
+    else send(false, choice === "queue" ? steersAlways : steersAlways || returnSteers || steersUnseen);
   };
   const sendOrStop =
     stop && !hasDraft && !listening ? (

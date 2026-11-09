@@ -10,6 +10,9 @@ that made it.
 - `scripts/ci/sealed_secrets.py`: `seal_bundle(repo, environment, key_id, key, {NAME: value})`
   seals with libsodium's `crypto_box_seal` (the encryption GitHub's secrets API takes) and returns a
   bundle (JSON: target repo, environment, `key_id`, `key`, ciphertexts). `put BUNDLE` stores it.
+- A bundle whose environment is `None` goes to the repository's own Actions secrets, for a job with no
+  `environment:` (cmux-platform's `ci.yml`: targets `platform-staging` and `platform-production`). Pin
+  `gh api repos/OWNER/REPO/actions/secrets/public-key` for it; `put` needs write access to that repository's secrets.
 - Pin the target environment's `key_id` and `key` in the producing script. To read them, run
   `gh api repos/OWNER/REPO/environments/ENV/secrets/public-key`.
 - `put` reads the live public key first. If its `key_id` or bytes differ from the bundle's, it writes
