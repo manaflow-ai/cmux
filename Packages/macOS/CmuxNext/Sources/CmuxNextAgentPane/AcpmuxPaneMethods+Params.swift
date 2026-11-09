@@ -122,6 +122,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/permission_chat_revoke": (["sessionId"], []),
         // No `value` declines the card.
         "_acpmux/secret_submit": (["sessionId", "secretId", "value"], []),
+        // The preset approval card's answer only; a preset write (`set`, `clear`) never comes from the pane.
+        "_acpmux/presets": (["name", "approveMode", "approveDigest", "sessionId"], []),
         "_acpmux/archive": (["sessionId", "archived"], []),
         "_acpmux/markUnread": (["sessionId"], []),
         "_acpmux/harness/health": (["refresh", "rescan"], []),

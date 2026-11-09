@@ -707,7 +707,9 @@ import { declineReply, isPending, reply as questionReply, replyParams, selection
 import { defaultRegistry } from "./rows/registry";
 import { ReadOnlyRecapRow } from "./rows/RecapRow";
 import { ReadOnlyMemoryOfferRow } from "./rows/MemoryOfferRow";
+import { ReadOnlyPresetApprovalRow } from "./rows/PresetApprovalRow";
 import { MEMORY_OFFER } from "./conversation/memoryInbox";
+import { PRESET_APPROVAL } from "./conversation/presetApproval";
 import { type ScrollAnchor, VirtualTranscript } from "./VirtualTranscript";
 import { NO_ROWS, rowKind } from "./virtualTranscriptModel";
 import { turnEndedBetween, saveSnapshot, emptySnapshot, cachedSnapshot } from "./snapshotCache";
@@ -4103,9 +4105,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   /// For a transcript that acts on nothing live (a replay, a read-only subagent's): its recaps draw
-  /// no × (ReadOnlyRecapRow), and its memory offers no Accept or Dismiss.
+  /// no × (ReadOnlyRecapRow), its memory offers no Accept or Dismiss, and its preset approvals no
+  /// Approve or Not now.
   const noDismissRegistry = useMemo(
-    () => ({ ...registry, recap: ReadOnlyRecapRow, [MEMORY_OFFER]: ReadOnlyMemoryOfferRow }),
+    () => ({
+      ...registry,
+      recap: ReadOnlyRecapRow,
+      [MEMORY_OFFER]: ReadOnlyMemoryOfferRow,
+      [PRESET_APPROVAL]: ReadOnlyPresetApprovalRow,
+    }),
     [registry],
   );
   const [newTab, setNewTab] = useState<NewTabHost | undefined>(injectedNewTabContext);
@@ -7953,6 +7961,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               Array.isArray(accept) ? accept.map(String) : [],
               Array.isArray(dismiss) ? dismiss.map(String) : [],
             ),
+          // Approve or Not now on a no-prompt preset's card (conversation/PresetApprovalCard.tsx).
+          "chat.presetApproval.answer": async ({ rowId, approve }) =>
+            client.answerPresetApproval(String(rowId), approve === true),
           "chat.removeFailedPrompt": async ({ rowId, rowIds }) => {
             for (const id of failedRowIds(rowId, rowIds)) client.removeFailedPrompt(id);
           },

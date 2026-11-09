@@ -185,6 +185,17 @@ import {
   memoryRowId,
   settleMemoryOffer,
 } from "./conversation/memoryInbox";
+import {
+  PRESET_APPROVAL,
+  PresetApprovalFold,
+  presetApprovalAsk,
+  presetApprovalClosed,
+  presetApprovalDecision,
+  presetApprovalFailed,
+  presetApprovalSending,
+  type PresetApproval,
+  type PresetApprovalOutcome,
+} from "./conversation/presetApproval";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -601,6 +612,10 @@ const SECRET_KINDS = ["secret_request", "secret_decision"];
 /// A sudo card and its answer (acpmux hub/elevation.rs): only this machine's own chats ask, so only
 /// a local attach asks for them (a peer's attach stays at 8 kinds).
 const ELEVATION_KINDS = ["elevation_request", "elevation_decision"];
+/// A no-prompt preset's approval card and its answer (acpmux hub/unattended_presets.rs): the chat
+/// whose agent tried to start a chat on another machine gets them, on this machine's acpmux, so
+/// only a local attach asks for them as for the sudo card.
+const PRESET_APPROVAL_KINDS = ["preset_approval_request", "preset_approval_decision"];
 /// The promptId acpmux gives a task result's prompt: `offer-result-<offerId>` (hub/offers.rs).
 const OFFER_RESULT_PROMPT = "offer-result-";
 /// A queued prompt sent now (`queue_order` `next`) or edited (`queue_updated`): not transcript in
@@ -3324,6 +3339,7 @@ export class AcpmuxDirectClient {
     this.rows.clear();
     this.planBuilds.clear();
     this.memoryEarly.clear();
+    this.presetApprovals.clear();
     this.queueAuthors.clear();
     this.queueEdited.clear();
     // A held prompt's text read for the chat before is not this one's (`fetchHeldText`).
@@ -5174,8 +5190,8 @@ export class AcpmuxDirectClient {
         request?.reject(error instanceof Error ? error : new Error(String(error)));
       }
     };
-    const result = this.expectReply(id, method, deadline, waitsForSlot(method) ? send : undefined);
-    this.budget.admit(id, method, send);
+    const result = this.expectReply(id, method, deadline, waitsForSlot(method, params) ? send : undefined);
+    this.budget.admit(id, method, send, params);
     return result;
   }
 
@@ -5384,7 +5400,7 @@ export class AcpmuxDirectClient {
         ...SECRET_KINDS,
         // The chat's sub-session records: its running limit's `limits` changes (the eighth kind).
         SUBSESSION_KIND,
-        ...(this.localOrigin ? [...QUEUE_KINDS, ...ELEVATION_KINDS] : []),
+        ...(this.localOrigin ? [...QUEUE_KINDS, ...ELEVATION_KINDS, ...PRESET_APPROVAL_KINDS] : []),
       ],
       eventStream: true,
       visible,
@@ -6322,6 +6338,7 @@ export class AcpmuxDirectClient {
     this.messageRows.clear();
     this.offerRows.clear();
     this.receivedOffers.clear();
+    this.presetApprovals.clear();
     this.compactionHeardAt.clear();
     this.toolRows.clear();
     this.reactions.clear();
@@ -7321,6 +7338,18 @@ export class AcpmuxDirectClient {
         // Some of an offer's facts settled (accepted or dismissed, here or from another client).
         const offerId = typeof msg.offerId === "string" ? msg.offerId : "";
         if (offerId) this.settleMemoryRow(offerId, msg);
+      } else if (event.kind === "preset_approval_request") {
+        // acpmux refused an agent's start on another machine until the person approves its
+        // no-prompt preset once: one card per preset and digest (conversation/PresetApprovalCard.tsx).
+        const ask = presetApprovalAsk(msg);
+        if (ask) this.addPresetApproval(event, ask);
+      } else if (event.kind === "preset_approval_decision") {
+        // The person answered (here or in another window): every card for that preset and digest
+        // shown before it closes.
+        const decision = presetApprovalDecision(msg);
+        if (decision)
+          for (const { rowId, outcome } of this.presetApprovals.decide(event.seq, decision))
+            this.updatePresetApproval(rowId, (approval) => presetApprovalClosed(approval, outcome));
       } else if (event.kind === BACKGROUND_TURN_KIND) {
         this.reduceBackgroundTurn(event, msg);
       } else if (event.kind === "host_notice") {
@@ -11241,6 +11270,74 @@ export class AcpmuxDirectClient {
     if (this.rows.get(rowId)?.recap?.key !== key) return;
     this.rows.delete(rowId);
     this.emit();
+  }
+  /// The chat's preset approval cards, folded from their records (conversation/presetApproval.ts).
+  private readonly presetApprovals = new PresetApprovalFold();
+  /// A `preset_approval_request`: a new card, or the open one for its preset and digest updated
+  /// with what it names now (an agent that tried again).
+  private addPresetApproval(event: EventRecord, ask: PresetApproval["ask"]): void {
+    const { rowId, outcome } = this.presetApprovals.request(event.seq, ask);
+    const row = this.rows.get(rowId);
+    if (!row) {
+      this.endAssistantSegment();
+      this.streamingActivity = undefined;
+    }
+    const earlier = row?.presetApproval;
+    const approval: PresetApproval = outcome
+      ? { ask, outcome }
+      : { ask, ...(earlier?.busy ? { busy: earlier.busy } : {}), ...(earlier?.error ? { error: earlier.error } : {}) };
+    this.rows.set(rowId, {
+      id: rowId,
+      version: (row?.version ?? 0) + 1,
+      at: row?.at ?? event.at,
+      kind: PRESET_APPROVAL,
+      presetApproval: approval,
+    });
+  }
+  private updatePresetApproval(rowId: string, change: (approval: PresetApproval) => PresetApproval): boolean {
+    const row = this.rows.get(rowId);
+    if (!row?.presetApproval) return false;
+    this.rows.set(rowId, { ...row, version: row.version + 1, presetApproval: change(row.presetApproval) });
+    return true;
+  }
+  /// Approve or Not now on a preset approval card: `_acpmux/presets {name, approveMode,
+  /// approveDigest, sessionId}` on this chat's own connection, sent on the click with no await
+  /// before it (the host lets it through only on the person's gesture). acpmux records the
+  /// decision in this chat, which closes the card; an accepted answer closes it at once. A refusal
+  /// (the preset changed since the card was drawn, or the host refused it) keeps the card open with
+  /// acpmux's message.
+  async answerPresetApproval(rowId: string, approve: boolean): Promise<void> {
+    const sessionId = this.actingSessionId;
+    const approval = this.rows.get(rowId)?.presetApproval;
+    if (!sessionId || !approval || approval.outcome || approval.busy) return;
+    const outcome: PresetApprovalOutcome = approve ? "approved" : "declined";
+    const { preset, digest } = approval.ask;
+    const sent = this.request("_acpmux/presets", {
+      name: preset,
+      approveMode: approve,
+      approveDigest: digest,
+      sessionId,
+    });
+    if (this.updatePresetApproval(rowId, (current) => presetApprovalSending(current, outcome))) this.emit();
+    try {
+      await sent;
+      if (this.selectedSessionId !== sessionId) return;
+      if (
+        this.updatePresetApproval(rowId, (current) =>
+          current.outcome ? current : presetApprovalClosed(current, outcome),
+        )
+      )
+        this.emit();
+    } catch (error) {
+      if (this.selectedSessionId !== sessionId) return;
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        this.updatePresetApproval(rowId, (current) =>
+          current.outcome ? current : presetApprovalFailed(current, message),
+        )
+      )
+        this.emit();
+    }
   }
   /// Resolutions of memory offers whose `memory_offer` record has not been read yet, by offer id.
   private readonly memoryEarly = new Map<string, unknown[]>();

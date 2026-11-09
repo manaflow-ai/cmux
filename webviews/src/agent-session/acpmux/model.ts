@@ -45,6 +45,7 @@ import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
 import type { IncomingMessage, IncomingPrompt } from "./conversation/incomingMessage";
 import type { InboxNotice } from "./conversation/inboxNotice";
 import { MEMORY_OFFER, memoryCardState, type MemoryOffer } from "./conversation/memoryInbox";
+import { PRESET_APPROVAL, type PresetApproval } from "./conversation/presetApproval";
 import type { TurnCopyPart } from "./conversation/turnCopy";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
@@ -458,6 +459,9 @@ export type AcpmuxRow = {
   planBuild?: PlanBuild;
   /// A memory inbox row's offer (conversation/memoryInbox.ts): facts for the instructions file.
   memory?: MemoryOffer;
+  /// A no-prompt preset's approval card (conversation/presetApproval.ts): the preset an agent of
+  /// this chat tried to start a chat on another machine from, and the person's answer.
+  presetApproval?: PresetApproval;
   /// A background turn's line (conversation/backgroundTurns.ts): the turn it stands for.
   background?: AcpmuxBackgroundTurn;
   /// A row a background turn made: that turn's id, so its line can fold it (backgroundTurns.ts).
@@ -2269,6 +2273,20 @@ function fallbackRowHeight(
         (card.pending > 1 ? 32 : 0) +
         (card.error ? 22 : 0),
     );
+  }
+  // A preset approval card (conversation/PresetApprovalCard.tsx): open, its 8px padding around the
+  // question, the preset's description, what it starts and the warning (20px lines, English
+  // lengths), an error's line, and the 32px foot of buttons, in its 1px edges and 8px of row
+  // margins; closed, its one 24px note.
+  if (row.kind === PRESET_APPROVAL && row.presetApproval) {
+    const { ask, outcome, error } = row.presetApproval;
+    if (outcome) return finish(8 + 24);
+    const perLine = Math.max(120, width - 40) / 7.5;
+    const lines = (chars: number) => (chars > 0 ? Math.max(1, Math.ceil(chars / perLine)) : 0);
+    const starts = [ask.harness, ask.model, ask.effort, ask.policy, ask.host].join(" ").length;
+    // The question's, what it starts and the warning's English words around their values.
+    const text = lines(ask.preset.length + 40) + lines(ask.description?.length ?? 0) + lines(starts + 24) + lines(98);
+    return finish(8 + 2 + 16 + text * 20 + 4 + (error ? 28 : 0) + 32);
   }
   // A session start draws nothing (rows/SessionStartRow.tsx): no height, no gap.
   if (row.kind === "sessionStart") return finish(0);
