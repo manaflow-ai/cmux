@@ -37,9 +37,17 @@ fn long_log(turns: u64) -> Vec<EventRecord> {
         push("mux", "turn_started", json!({"promptId": prompt, "turnId": id}));
         for _ in 0..100 {
             let update = json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": chunk}});
-            push("in", "agent_message_chunk", json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "a", "update": update}}));
+            push(
+                "in",
+                "agent_message_chunk",
+                json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "a", "update": update}}),
+            );
         }
-        push("mux", "turn_result", json!({"status": "completed", "turnId": id, "promptId": prompt}));
+        push(
+            "mux",
+            "turn_result",
+            json!({"status": "completed", "turnId": id, "promptId": prompt}),
+        );
     }
     log
 }
@@ -64,11 +72,31 @@ fn a_long_chats_per_turn_reads_never_read_its_whole_log() {
     if !cfg!(target_os = "linux") {
         return; // A thread's reads are counted on Linux only.
     }
+    let over = per_turn_reads(200, false);
+    assert!(
+        over.is_empty(),
+        "whole-log reads on a long chat's per-turn paths:\n{}",
+        over.join("\n")
+    );
+}
+
+/// The same reads on a chat of `LONG_CHAT_TURNS` turns (default 9,800: a million records), each
+/// timed: run with `cargo test -p acpmux --release --lib -- --ignored --nocapture
+/// long_chat_perf`.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn long_chat_perf() {
+    let turns = std::env::var("LONG_CHAT_TURNS").ok().and_then(|v| v.parse().ok()).unwrap_or(9_800);
+    per_turn_reads(turns, true);
+}
+
+/// Each per-turn read of a chat of `turns` turns, the ones over a tenth of its log named.
+fn per_turn_reads(turns: u64, print: bool) -> Vec<String> {
     let root = std::env::temp_dir().join(format!("acpmux-long-chat-{}", uuid::Uuid::now_v7()));
     let sessions = root.join("sessions");
     {
         let writer = LocalStore::new(sessions.clone(), 8 << 20).unwrap();
-        let log = long_log(200);
+        let log = long_log(turns);
         for rec in &log {
             writer.append("c", rec).unwrap();
         }
@@ -94,13 +122,23 @@ fn a_long_chats_per_turn_reads_never_read_its_whole_log() {
     // Once per chat, ever: the log load makes the copies of the indexed kinds, and the first
     // Session Info folds the log and saves the fold.
     hub.load_session_log(&s);
-    let _ = hub.session_detail(&s);
+    let folded = hub.session_detail(&s)["timeBreakdown"].clone();
+    assert!(folded.is_object(), "{folded}");
 
     let mut over = Vec::new();
     let mut measure = |what: &str, read: &mut dyn FnMut()| {
-        let before = read_bytes();
+        let (before, started) = (read_bytes(), std::time::Instant::now());
         read();
         let bytes = read_bytes() - before;
+        if print {
+            println!(
+                "{what}: {:.1} ms, {:.2} MB read of a {:.0} MB log ({} records)",
+                started.elapsed().as_secs_f64() * 1000.0,
+                bytes as f64 / 1e6,
+                log_bytes as f64 / 1e6,
+                turns * 103
+            );
+        }
         if bytes > budget {
             over.push(format!("{what} read {bytes} bytes of a {log_bytes}-byte log"));
         }
@@ -131,8 +169,9 @@ fn a_long_chats_per_turn_reads_never_read_its_whole_log() {
     let again = later.resolve("c").unwrap();
     later.load_session_log(&again);
     measure("a later daemon's Session Info (views.rs time_breakdown_of)", &mut || {
-        let _ = later.session_detail(&again);
+        let saved = later.session_detail(&again)["timeBreakdown"].clone();
+        assert_eq!(saved, folded, "the saved fold is the log's");
     });
     let _ = std::fs::remove_dir_all(&root);
-    assert!(over.is_empty(), "whole-log reads on a long chat's per-turn paths:\n{}", over.join("\n"));
+    over
 }

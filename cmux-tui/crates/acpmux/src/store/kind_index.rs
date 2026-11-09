@@ -69,6 +69,36 @@ pub const INDEXED_KINDS: &[&str] = &[
     "inbox_answered",
     "inbox_read",
     "inbox_removed",
+    // Reads that run per turn, per prompt or per open, each a few records a turn at most: a
+    // chat of a million records answers them from the copies, not its log (Leo, 2026-11-06:
+    // "we need to be able to work with a 1 million event chat ... it's not like you're reading
+    // 1 million events on each turn"). A resent prompt's state (`hub/prompt_ledger.rs`), a
+    // child's offer result at each of its turn ends (`hub/offer_results.rs`, `hub/offers.rs`),
+    // a turn's stop fence (`hub/auto_resume.rs`), the secrets a machine_info call lists
+    // (`hub/machine_info.rs`) and the team messages a chat sent or read (`hub/team_sent.rs`,
+    // `hub/team_information.rs`).
+    "turn_stop_requested",
+    "session_offer",
+    "session_offer_decision",
+    "prompt_stop_requested",
+    "auto_resume_scheduled",
+    "secret_request",
+    "secret_decision",
+    "team_message",
+    "team_message_consumed",
+    "team_message_read",
+    "team_work_received",
+    "team_message_sent",
+    // A chat's process table (`hub/processes.rs`), read on its first touch: the idle sweep's.
+    "background_task_update",
+    "process_update",
+    "stopped",
+    "exited",
+    "host_started",
+    // A withdrawn prompt's end (`hub/withdraw.rs`).
+    "prompt_retracted",
+    "turn_end",
+    "turn_error",
 ];
 
 /// The folder of a chat's copies, beside its `events`.

@@ -451,24 +451,94 @@ impl Hub {
     }
 
     /// Fold a chat's journal once, then keep the reducer current at the append seam. The append
-    /// lock makes the seed and the next record one ordered view for Session Info.
+    /// lock makes the seed's last records and the next appended one one ordered view for Session
+    /// Info. The fold is saved beside the log (`time_breakdown::FILE`): a daemon's first open of a
+    /// chat reads the records past the saved fold, not its whole log, and that read holds no lock,
+    /// so the chat's live turn never waits on it (a million-record chat held its appends for
+    /// seconds).
     fn time_breakdown_of(
         &self,
         session: &Session,
     ) -> Option<crate::hub::time_breakdown::TimeBreakdown> {
-        let _append = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
-        let mut state = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
-        if !state.initialized {
-            let scanned = self.store.scan(&session.id, 0, &mut |record| {
-                state.record(&record);
-                true
-            });
-            if scanned.is_err() {
-                return None;
+        use crate::hub::time_breakdown::{FILE, SAVE_AFTER, State};
+        let path = self.store.session_dir(&session.id).map(|dir| dir.join(FILE));
+        {
+            let mut state = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+            if state.initialized {
+                let snapshot = state.snapshot(crate::store::now_ms());
+                let save = (state.last_seq() >= state.saved_seq + SAVE_AFTER)
+                    .then(|| {
+                        state.saved_seq = state.last_seq();
+                        state.save()
+                    })
+                    .flatten();
+                drop(state);
+                if let (Some(path), Some(bytes)) = (path, save) {
+                    let _ = crate::config::write_atomic(&path, &bytes);
+                }
+                return Some(snapshot);
             }
-            state.initialized = true;
         }
-        Some(state.snapshot(crate::store::now_ms()))
+        let saved = path.as_ref().and_then(|p| std::fs::read(p).ok());
+        let mut seed = saved.as_deref().map(State::read).unwrap_or_default();
+        let last = session.meta().last_seq;
+        // A fold past the log is another log's (a chat moved back in under its id): fold again.
+        if seed.last_seq() > last {
+            seed = State::default();
+        }
+        let from = seed.last_seq();
+        // Past the saved fold, with no lock held: the records appended meanwhile are read below.
+        self.fold_past(session, &mut seed, last).ok()?;
+        let (snapshot, save) = {
+            let _append = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+            if !state.initialized {
+                self.fold_past(session, &mut seed, session.meta().last_seq).ok()?;
+                seed.initialized = true;
+                *state = seed;
+            }
+            let save = (state.last_seq() != from).then(|| state.save()).flatten();
+            state.saved_seq = state.last_seq();
+            (state.snapshot(crate::store::now_ms()), save)
+        };
+        if let (Some(path), Some(bytes)) = (path, save)
+            && let Err(e) = crate::config::write_atomic(&path, &bytes)
+        {
+            // The breakdown is still right; the next daemon folds the records past the old save.
+            tracing::debug!(session = %session.id, "time breakdown not saved: {e}");
+        }
+        Some(snapshot)
+    }
+
+    /// Folds the records past `seed` up to `last` into it. A few (a saved fold a little behind)
+    /// are read from the log's end, newest first, and folded in order: a forward read past them
+    /// would read the whole segment that holds them. Many are read forward.
+    fn fold_past(
+        &self,
+        session: &Session,
+        seed: &mut crate::hub::time_breakdown::State,
+        last: u64,
+    ) -> anyhow::Result<()> {
+        use crate::hub::time_breakdown::SAVE_AFTER;
+        let after = seed.last_seq();
+        if after >= last && after > 0 {
+            return Ok(());
+        }
+        if after > 0 && last - after <= SAVE_AFTER {
+            let mut past = Vec::new();
+            self.store.scan_back(&session.id, after, u64::MAX, &|_, _| false, &mut |record| {
+                past.push(record);
+                true
+            })?;
+            for record in past.iter().rev() {
+                seed.record(record);
+            }
+            return Ok(());
+        }
+        self.store.scan(&session.id, after, &mut |record| {
+            seed.record(&record);
+            true
+        })
     }
 
     /// Return the breakdown only after a detail/attach read has seeded it. Summary and census

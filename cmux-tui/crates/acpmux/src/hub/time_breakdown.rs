@@ -6,13 +6,13 @@
 
 use crate::store::EventRecord;
 use schemars::JsonSchema;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, VecDeque};
 
 const MAX_SPANS: usize = 512;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 enum Category {
     Read,
     Edit,
@@ -47,7 +47,7 @@ pub struct TimeCategory {
     pub tokens: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, JsonSchema, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TimeSpan {
     pub turn_seq: u64,
@@ -74,14 +74,14 @@ pub struct TimeBreakdown {
     pub spans: Vec<TimeSpan>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Segment {
     category: Category,
     start_at: u64,
     end_at: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct TurnState {
     seq: u64,
     id: Option<String>,
@@ -151,9 +151,28 @@ impl TurnState {
 pub(crate) struct State {
     pub(crate) initialized: bool,
     reducer: Reducer,
+    /// The last record the saved fold read: an open saves again once the chat logged
+    /// [`SAVE_AFTER`] records past it, so a later daemon's read past it stays short.
+    pub(crate) saved_seq: u64,
 }
 
-#[derive(Debug, Clone, Default)]
+/// Records past the saved fold an open saves it again after.
+pub(crate) const SAVE_AFTER: u64 = 10_000;
+
+/// The fold saved beside the chat's log, with the last `seq` it read: a later daemon reads only
+/// the records past it (`hub/views.rs` `time_breakdown_of`), never the whole log again. A chat
+/// of a million records took seconds to fold, each daemon start, on its first open.
+pub(crate) const FILE: &str = "time-breakdown.json";
+/// A saved fold of another shape is folded again from the log.
+const SCHEMA: u32 = 1;
+
+#[derive(Serialize, Deserialize)]
+struct Saved {
+    schema: u32,
+    reducer: Reducer,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct Reducer {
     turn: Option<TurnState>,
     totals: BTreeMap<Category, u64>,
@@ -166,6 +185,26 @@ struct Reducer {
 }
 
 impl State {
+    /// A fold saved by [`Self::save`]; the empty fold when there is none or it does not read.
+    pub(crate) fn read(bytes: &[u8]) -> Self {
+        let reducer = serde_json::from_slice::<Saved>(bytes)
+            .ok()
+            .filter(|saved| saved.schema == SCHEMA)
+            .map(|saved| saved.reducer)
+            .unwrap_or_default();
+        let saved_seq = reducer.last_seq;
+        Self { initialized: false, reducer, saved_seq }
+    }
+
+    pub(crate) fn save(&self) -> Option<Vec<u8>> {
+        serde_json::to_vec(&Saved { schema: SCHEMA, reducer: self.reducer.clone() }).ok()
+    }
+
+    /// The last record the fold read.
+    pub(crate) fn last_seq(&self) -> u64 {
+        self.reducer.last_seq
+    }
+
     pub(crate) fn record(&mut self, record: &EventRecord) {
         if record.seq <= self.reducer.last_seq {
             return;

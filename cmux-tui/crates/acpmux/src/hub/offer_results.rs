@@ -100,8 +100,10 @@ impl Hub {
         let text = |e: &EventRecord, key: &str| {
             e.msg.get(key).and_then(Value::as_str).unwrap_or_default().to_owned()
         };
-        // Streamed, not collected: a long chat's log stays on disk.
-        let scanned = self.store.scan(&parent.id, 0, &mut |e: EventRecord| {
+        // Every turn end of a child reads this, and a parent is often the longest chat there is:
+        // its offers and prompts only, from the log's copies of them (`store/kind_index.rs`).
+        let kinds = ["session_offer", "session_offer_decision", "user_message", "queued"];
+        let scanned = self.store.scan_kinds(&parent.id, &kinds, &mut |e: EventRecord| {
             if e.dir != "mux" {
                 return true;
             }

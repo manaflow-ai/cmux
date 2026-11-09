@@ -1330,7 +1330,9 @@ impl Hub {
         let mut paused: HashMap<String, Vec<String>> = HashMap::new();
         // An attempt's turn, and the turn it continues.
         let mut continues: HashMap<String, String> = HashMap::new();
-        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+        // Its two kinds only, from the log's copies of them (`store/kind_index.rs`).
+        let kinds = ["queue_paused", "user_message"];
+        let _ = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
             let Some(turn) = e.msg.get("turnId").and_then(Value::as_str) else { return true };
             match e.kind.as_str() {
                 "queue_paused" => {
