@@ -68,8 +68,9 @@ the glibc 2.31 floor. The archive holds `bin/cmux-rd`, `LICENSE` (GPL-3.0-or-lat
     keeps it only when the library's SHA-256 matches the pinned value (nothing is written
     otherwise). A session never downloads.
   - Storage: one file per user, `<data dir>/cmux/openh264/<Cisco file name>`, where the
-    data dir is `$XDG_DATA_HOME` or `~/.local/share` on Linux, `~/Library/Application
-    Support` on macOS and `%LOCALAPPDATA%` on Windows. It is written to a temporary file,
+    data dir is `$XDG_DATA_HOME` or `~/.local/share` on Linux and `%LOCALAPPDATA%` on
+    Windows; on macOS it is `~/Library/Application Support/cmux-next/openh264`, outside
+    classic cmux's folder. It is written to a temporary file,
     flushed and renamed, so a reader never sees a partial file.
   - Loading: `--openh264-lib PATH`, else the installed copy. `load_verified` hashes the
     file again and only then loads it with `dlopen`; a file with another hash is refused.

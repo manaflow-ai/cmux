@@ -39,6 +39,7 @@ them. Set these too:
 
 ```sh
 SUPPORT="$HOME/Library/Application Support/cmux"
+NEXT_SUPPORT="$HOME/Library/Application Support/cmux-next"
 if [ "$BUNDLE" = com.cmuxterm.app.nightly ]; then
   ACPMUX_DIR="$HOME/.acpmux"; CHIEF_DIR="$HOME/.cmux/chief/default"; BUILD_DIR=
 else
@@ -204,8 +205,8 @@ This build's own folders:
 | `$BUILD_DIR` | **Loses your data.** This build's app state (empty for NIGHTLY, whose state sits in `$SUPPORT` itself) |
 | `$SUPPORT/tags/$TAG` | **Loses your data.** The session daemon's saved workspaces, layout and scrollback |
 | `$SUPPORT/$BUNDLE` | **Loses your data.** SSH machine links (`ssh-next`) and Cloud tunnel state (`cloud-next`) |
-| `$SUPPORT/managed-status.$BUNDLE.json` | Managed settings status |
-| `$SUPPORT/$TAG/debug-tunables.json` | Debug Settings overrides (DEV, NIGHTLY, cmux NEXT and tagged builds; other builds keep it in `$BUILD_DIR`) |
+| `$NEXT_SUPPORT/managed-status.$BUNDLE.json` | Managed settings status |
+| `$NEXT_SUPPORT/$TAG/debug-tunables.json` | Debug Settings overrides (DEV, NIGHTLY, cmux NEXT and tagged builds; other builds keep it in `$BUILD_DIR`) |
 | `~/Library/Application Support/cmux-next/$BUNDLE` | **Loses your data.** Kept previous versions for rollback (`versions`) and the copy of classic's files read on migration (`classic-migration`) |
 | `~/Library/Application Support/$BUNDLE` | Browser profiles (`BrowserProfiles`), backdrop images, table widths, and the `instance.lock` and `instance.owner` that keep one copy running |
 | `~/Library/WebKit/$BUNDLE` | **Loses your data.** Browser tabs' cookies, logins and site data. Each cmux browser profile has its own WebKit store, named by the profile's id (listed in `~/Library/Application Support/$BUNDLE/BrowserProfiles/profiles.json`), under `WebsiteDataStore/` here |
@@ -217,7 +218,7 @@ This build's own folders:
 
 ```sh
 rm -rf "$ACPMUX_DIR" "$CHIEF_DIR" ${BUILD_DIR:+"$BUILD_DIR"} ${TAG:+"$SUPPORT/tags/$TAG"} "$SUPPORT/$BUNDLE" \
-  "$SUPPORT/managed-status.$BUNDLE.json" ${TAG:+"$SUPPORT/$TAG/debug-tunables.json"} \
+  "$NEXT_SUPPORT/managed-status.$BUNDLE.json" ${TAG:+"$NEXT_SUPPORT/$TAG/debug-tunables.json"} \
   "$HOME/Library/Application Support/cmux-next/$BUNDLE" "$HOME/Library/Application Support/$BUNDLE" \
   "$HOME/Library/WebKit/$BUNDLE" "$HOME/Library/Caches/$BUNDLE" "$HOME/Library/HTTPStorages/$BUNDLE" \
   "$HOME/Library/Saved Application State/$BUNDLE.savedState" "$HOME/Library/Logs/$BUNDLE" \
@@ -238,9 +239,10 @@ Shared by every cmux-next build. Delete these only when you remove the last one:
 | `~/Library/Application Support/cmux-tui` | The default session state root (`sessions`) and the copied daemon binaries (`host-exe`) |
 | `$SUPPORT/Chat Uploads` | **Loses your data.** Files attached to chats |
 | `$SUPPORT/agent-home` | **Loses your data.** The folder chats with no project run in, and what agents wrote there |
-| `$SUPPORT/voice-room` | Voice Room keyframes (Labs) |
-| `$SUPPORT/login-environment.json` | Your login shell's environment, captured for agents |
-| `$SUPPORT/server-fix-ledger` | Which power settings the server helper changed (step 2) |
+| `$NEXT_SUPPORT/recovery` | **Loses your data.** Unsaved file drafts kept for recovery after a crash |
+| `$NEXT_SUPPORT/voice-room` | Voice Room keyframes (Labs) |
+| `$NEXT_SUPPORT/login-environment.json` | Your login shell's environment, captured for agents |
+| `$NEXT_SUPPORT/server-fix-ledger` | Which power settings the server helper changed (step 2) |
 | `$SUPPORT/last-app-cli` | Which app's CLI ran last |
 | `~/Library/Logs/cmux-next` | Crash reports and updater logs of every build |
 | `"$(dirname "$APP")/.$(basename "$APP").installed"` | What the DEV update script installed last, beside the app (DEV only) |

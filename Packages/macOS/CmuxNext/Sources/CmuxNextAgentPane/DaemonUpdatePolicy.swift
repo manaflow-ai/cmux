@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextDaemon
 public import CmuxNextDesign
 public import CmuxNextWakeups
 public import Foundation
@@ -84,13 +85,10 @@ public actor DaemonUpdatePolicy {
     /// No targets: ``Dependencies/targets`` by default.
     @Sendable public nonisolated static func noTargets() async -> [any DaemonUpdateTarget] { [] }
 
-    /// `daemon-update` in this build's own Application Support directory (``BuildIdentity``).
-    public nonisolated static let defaultDirectory: URL = {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
-        return BuildIdentity(bundle: .main).appSupport(support.appendingPathComponent("cmux", isDirectory: true))
-            .appendingPathComponent("daemon-update", isDirectory: true)
-    }()
+    /// `daemon-update` in this build's own folder under `cmux-next` (``BuildIdentity/appSupport(_:)``,
+    /// ``DaemonLauncher/nextSupport(_:)``); markers only, so nothing moves from classic's `cmux`.
+    public nonisolated static let defaultDirectory: URL = BuildIdentity(bundle: .main).appSupport(DaemonLauncher.nextSupport())
+        .appendingPathComponent("daemon-update", isDirectory: true)
 
     /// The bundled acpmux's build (the binary `acpmux host update` pushes); nil when the app has none.
     nonisolated static func bundledAcpmuxBuild() async -> String? {
