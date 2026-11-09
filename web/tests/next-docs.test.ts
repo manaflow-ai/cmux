@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import cliGenerated from "../data/next-docs/cli-reference.generated.json";
@@ -64,6 +64,16 @@ describe("cmux-next docs", () => {
     const broken = nextDocPages.flatMap((page) => (page.links ?? []).filter((slug) => !nextDocPage(slug)).map((slug) => `${page.slug} -> ${slug}`));
     expect(broken).toEqual([]);
     expect(nextDocHref("getting-started")).toBe("/docs/next");
+  });
+
+  // The architecture page points at folders and files; a move or rename must not leave it
+  // linking to nothing.
+  test("every repository path a page links to exists", () => {
+    const missing = nextDocPages.flatMap((page) =>
+      page.body.flatMap((block) => ("files" in block ? block.files : []))
+        .filter((file) => !existsSync(join(repo, file.path)))
+        .map((file) => `${page.slug}: ${file.path}`));
+    expect(missing).toEqual([]);
   });
 
   test("the settings reference is fresh against the settings schema", () => {

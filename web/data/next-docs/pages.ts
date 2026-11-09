@@ -8,7 +8,9 @@ export type DocBlock =
   | { p: string }
   | { ul: string[] }
   | { code: string; lang?: string }
-  | { note: string };
+  | { note: string }
+  /** Places in the repository, each linked to its source; a test checks each path exists. */
+  | { files: { path: string; what: string }[] };
 
 export interface NextDocPage {
   slug: string;
@@ -50,7 +52,7 @@ export const nextDocPages: NextDocPage[] = [
       { ul: [
         "Press Cmd+Shift+P for the command palette. Every action in the app is there, with its shortcut.",
         "Open Home and ask Chief for what you want in plain words.",
-        "Press Cmd+, for Settings. Every setting is also a key in ~/.config/cmux/cmux.json.",
+        "Press Cmd+, for Settings. Every setting is also a key in ~/.config/cmux/cmux-next.json.",
         "Run cmux --help in a cmux terminal. The CLI can do everything the palette can.",
       ] },
       { h2: "Next" },
@@ -447,6 +449,67 @@ export const nextDocPages: NextDocPage[] = [
       { p: "This page is generated from the settings schema, so it matches the app." },
     ],
   },
+  {
+    slug: "architecture",
+    navKey: "nextArchitecture",
+    title: "Architecture",
+    description: "How cmux-next fits together, and where each part lives in the code.",
+    body: [
+      { p: "cmux-next has three layers: a Swift app for macOS, a Rust core, and web views. The Rust core runs as daemons, so terminals and agents keep running when the app quits, updates, or crashes. Each section below links to the code and to the longer docs next to it." },
+      { h2: "The app" },
+      { p: "The macOS app is a Swift package with one module per feature: terminal, browser, Home, Settings, and so on. It draws windows, panes, and tabs, and draws terminals with libghostty from the ghostty-next fork. Rust code that runs inside the app is linked in as one static library." },
+      { files: [
+        { path: "Packages/macOS/CmuxNext", what: "The app, one module per feature" },
+        { path: "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal", what: "Terminal views on libghostty" },
+        { path: "cmux-tui/crates/cmux-app-ffi", what: "The Rust library inside the app" },
+        { path: "ghostty-next", what: "The Ghostty fork that renders terminals" },
+        { path: "skills/cmux-architecture/SKILL.md", what: "Layering and package rules for Swift code" },
+      ] },
+      { h2: "The core: cmux-tui" },
+      { p: "cmux-tui is the Rust core and the cmux command. Its daemon keeps the tree of machines, workspaces, panes, tabs, terminals, and browsers, and owns every shell. The app, the CLI, the terminal UI, and remote clients all talk to it over the same socket protocol. A new app build takes over the running daemon, which is why an update keeps your shells and scrollback." },
+      { files: [
+        { path: "cmux-tui", what: "The Rust workspace: core, CLI, and daemons" },
+        { path: "cmux-tui/crates/cmux-tui", what: "The cmux command and its daemon" },
+        { path: "cmux-tui/crates/cmux-tui-core", what: "The workspace tree and the resources in it" },
+        { path: "cmux-tui/spec/resource-api-v2.md", what: "The socket protocol (cmux.protocol/2)" },
+        { path: "cmux-tui/docs", what: "cmux-tui docs: concepts, remote, protocol" },
+      ] },
+      { h2: "Agents: acpmux" },
+      { p: "acpmux is a daemon that keeps coding agents alive as named sessions: Claude Code, Codex, OpenCode, Pi, Gemini, and any agent that speaks the Agent Client Protocol (ACP). It records every message, so any number of clients can attach to a session, and it adds up what each turn cost. A chat tab in the app is one of those clients." },
+      { files: [
+        { path: "cmux-tui/crates/acpmux", what: "The agent daemon and its CLI" },
+        { path: "webviews/src/agent-session/acpmux", what: "The chat pane, a client of acpmux" },
+      ] },
+      { h2: "Web views" },
+      { p: "Chat, diffs, Markdown, Settings, Home, and the other pages are React, built from one source tree. The app serves each page from its own cmux-page:// origin, and the page talks to the app only over a small bridge. A dev server can feed them to a running app with hot reload." },
+      { files: [
+        { path: "webviews", what: "The React source and its dev server" },
+        { path: "webviews/src/pages", what: "Pages the app hosts: Settings, Home, history, and more" },
+      ] },
+      { h2: "One catalog for every action" },
+      { p: "Every action is declared once in a Rust catalog: its title, shortcut, arguments, and where it shows up. The command palette, the menus, the cmux command, and the MCP tools are all built from it, and so are the CLI, palette, and keyboard shortcut pages of these docs. Settings work the same way, from one schema." },
+      { files: [
+        { path: "cmux-tui/crates/cmux-action-catalog", what: "The action catalog" },
+        { path: "plans/cmux-next/action-surfaces.json", what: "The catalog exported as JSON" },
+        { path: "schemas/settings/settings-schema.json", what: "The settings schema" },
+        { path: "cmux-tui/crates/cmux-tui/src/cli/mcp", what: "The MCP server (cmux mcp serve)" },
+      ] },
+      { h2: "Other machines" },
+      { p: "A remote machine runs the same cmux-tui and acpmux, so its workspaces and agents work like local ones. Cloud machines are remote machines that cmux sets up for you." },
+      { files: [
+        { path: "cmux-tui/crates/cmux-remote", what: "The remote runtime: daemon, client, and connection" },
+        { path: "cmux-tui/docs/remote.md", what: "How the remote daemon and clients connect" },
+      ] },
+      { h2: "Design docs" },
+      { p: "Longer docs live next to the code. Design notes for each feature are in plans/cmux-next, and how-to guides for running and building cmux-next are in docs/cmux-next." },
+      { files: [
+        { path: "plans/cmux-next", what: "Design notes, one per feature" },
+        { path: "docs/cmux-next", what: "Guides: install, dev builds, hot reload, dotfiles" },
+        { path: "plans/cmux-next/docs-DESIGN.md", what: "How these docs are built" },
+      ] },
+    ],
+    links: ["cli", "mcp", "settings"],
+  },
 ];
 
 export function nextDocPage(slug: string): NextDocPage | undefined {
@@ -459,6 +522,11 @@ export function headingId(text: string): string {
 }
 
 /** The docs path of a cmux-next page; Getting started is the track's index. */
+/** Where a repository path of a `files` block opens on GitHub. */
+export function repoSourceHref(path: string): string {
+  return `https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/${path}`;
+}
+
 export function nextDocHref(slug: string): string {
   return slug === "getting-started" ? "/docs/next" : `/docs/next/${slug}`;
 }
