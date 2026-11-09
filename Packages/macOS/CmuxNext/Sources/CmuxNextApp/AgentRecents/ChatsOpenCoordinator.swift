@@ -4,69 +4,24 @@ import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextHistory
 import CmuxNextWindowRules
 import Foundation
-
-/// What Open Chat does with a daemon plan (Lawrence 2026-10-09): one click on a chat shows it in a
-/// NEW WORKSPACE as the ACP agent pane, focus moving there, never a terminal; a chat a tab already
-/// resumes shows that tab instead of a duplicate. A chat acpmux cannot resume over ACP yet opens a
-/// fresh agent chat in its folder on its harness. A terminal only from Open in Terminal (`inTerminal`).
-/// Pure, so the decision is tested without windows.
-enum ChatOpenRoute: Equatable {
-    /// The tab (`TabModel.id`) that already resumes this chat.
-    case reveal(tab: String)
-    /// A new workspace named `name`: its first tab is the agent chat `seed`, or (Open in Terminal)
-    /// a terminal that runs `command` with `env`.
-    case newWorkspace(name: String?, cwd: String?, seed: AgentPaneSeed?, command: String?, env: [String: String])
-    case readOnly(path: String)
-    case needsFolder(reason: String)
-
-    /// `watch`: View Only, for a chat acpmux would adopt (Claude Code, Codex): the tab shows it
-    /// without running it. Any other plan or harness opens as it would.
-    static func route(_ plan: AcpmuxChatOpenPlan, chat: ChatOpenSubject, inTerminal: Bool = false, watch: Bool = false, reveal: String? = nil,
-                      openTab: (AgentPaneAdopt) -> String?) -> ChatOpenRoute {
-        if inTerminal { return terminal(plan, chat: chat) }
-        switch plan.action {
-        case .needsFolder(let reason): return .needsFolder(reason: reason)
-        case .adopt(var adopt, let cwd, _):
-            // Only Claude Code and Codex chats are watched; a daemon without `family` names the
-            // profile after its family.
-            if watch, ["claude", "codex"].contains(plan.family ?? adopt.harness) { adopt.watch = true }
-            return openTab(adopt).map { .reveal(tab: $0) }
-                ?? .newWorkspace(name: chat.title, cwd: cwd, seed: AgentPaneSeed(cwd: cwd, adopt: adopt, pastChat: chat.key, revealTurn: reveal),
-                                 command: nil, env: [:])
-        case .terminal(_, _, let cwd):
-            return .newWorkspace(name: chat.title, cwd: cwd ?? chat.cwd,
-                                 seed: AgentPaneSeed(cwd: cwd ?? chat.cwd, harness: chat.acpHarness, pastChat: chat.key), command: nil, env: [:])
-        case .readOnly:
-            return .newWorkspace(name: chat.title, cwd: chat.cwd,
-                                 seed: AgentPaneSeed(cwd: chat.cwd, harness: chat.acpHarness, pastChat: chat.key), command: nil, env: [:])
-        }
-    }
-
-    /// Open in Terminal (the row's menu): the harness's own resume command in a new workspace.
-    private static func terminal(_ plan: AcpmuxChatOpenPlan, chat: ChatOpenSubject) -> ChatOpenRoute {
-        switch plan.action {
-        case .needsFolder(let reason): return .needsFolder(reason: reason)
-        case .terminal(let argv, let env, let cwd):
-            return .newWorkspace(name: chat.title, cwd: cwd, seed: nil, command: argv.map(AgentResume.shellQuoted).joined(separator: " "), env: env)
-        case .adopt(let adopt, let cwd, _):
-            let command = AgentResume.command(provider: chat.harness ?? adopt.harness, sessionID: adopt.agentSessionId)
-            return .newWorkspace(name: chat.title, cwd: cwd, seed: nil, command: command, env: [:])
-        case .readOnly(let path): return .readOnly(path: path)
-        }
-    }
-}
 
 /// The one user-initiated Open Chat path shared by the sidebar's All chats, the palette and the
 /// New Tab cards.
 @MainActor
 final class ChatsOpenCoordinator {
     private weak var services: AppServices?
+    /// A click while this Mac's sessions restore waits there and opens once they are ready.
+    let pending: PendingSessionOpen
 
     init(services: AppServices) {
         self.services = services
+        pending = PendingSessionOpen(daemon: services.daemon, activeWindow: { [weak services] in services?.windows.active },
+                                     openWindows: { [weak services] in services?.windows.controllers.map { $0 as AnyObject } ?? [] },
+                                     show: { [weak services] in services?.refusalHUD.show($0, in: services?.windows.active?.window ?? services?.keyWindowSource()) })
         // Choose Folder… in a pane whose chat has no folder (cx-nn3e.1): that pane's folder
         // sheet, then `chat_open` again with the pick.
         AgentPaneModel.chatFolderChooser = { [weak self] model, chat in
@@ -87,12 +42,16 @@ final class ChatsOpenCoordinator {
     /// `page`: the New Tab page the row was clicked on; the chat replaces it in its tab. `watch`: View
     /// Only (an All chats row's menu, `agentChat.view`, `cmux agent view`): a tab that shows the chat
     /// and follows the app that runs it, without running it, until Take Over. `reveal`: where it opens scrolled to.
+    /// While this Mac's sessions are not ready (the session owner still restoring), the click waits and
+    /// opens once they are (``PendingSessionOpen``), never doing nothing.
     func open(_ key: String, inTerminal: Bool = false, watch: Bool = false, replacing page: String? = nil, reveal: String? = nil) {
-        guard let services, let environment = QuitAgents.environment(services) else { return }
+        guard let services else { return }
         // A chat a tab already shows (its agent chat, else the terminal running it) is shown there,
         // never opened again in a new workspace that then asks to Fork or Open Anyway. Open in
         // Terminal and an explicit View Only still open their own tab.
         if !inTerminal, !watch, revealRunning(key, reveal: reveal) { return }
+        if pending.holds({ [weak self] in self?.open(key, inTerminal: inTerminal, watch: watch, replacing: page, reveal: reveal) }) { return }
+        guard let environment = QuitAgents.environment(services) else { return }
         // Every Open of an outside Claude Code or Codex chat is View Only unless the Debug toggle is off.
         let watch = watch || AgentPaneTunables.openOutsideChatsViewOnly.value
         Task { [weak self] in
