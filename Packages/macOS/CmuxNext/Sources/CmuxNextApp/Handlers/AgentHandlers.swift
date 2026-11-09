@@ -146,7 +146,7 @@ enum AgentHandlers {
             view.toggleInspector()
         }
         registry.bind(.stopTurn, run: { invocation in
-            guard let view = focusedAgentView(.stopTurn, context, invocation) else { return }
+            guard let view = invocation.target.flatMap({ $0.kind == .tab ? context.services.agentTabs.existingView($0.id, machine: invocation.targetMachineID) : nil }) ?? focusedAgentView(.stopTurn, context, invocation) else { return } // a tab target's chat, shown or not (the sidebar drive indicator)
             view.stopTurn()
         })
         registry.bind("agentPane.togglePointerInspector", unavailable: {
