@@ -1451,33 +1451,56 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
     if complete.as_deref() == Some("1") || connection.is_readonly(rusqlite::MAIN_DB)? {
         return Ok(());
     }
-    // A marker at `0` is a backfill an older build stopped partway: it
-    // inserted kind rows one at a time, so a segment can be left with some
-    // of its kinds (say, without `terminal.output`). Segments after the last
-    // one this build finished are decoded again; the inserts ignore rows
-    // already there. A marker at `2` is this build's run, which never leaves
-    // a segment partly mapped, so only unmapped segments remain.
-    let rescan_after = match complete.as_deref() {
-        Some("0") => Some(
-            connection
-                .query_row(
-                    "SELECT value FROM meta WHERE key = 'journal_segment_kinds_backfill_through'",
-                    [],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()?
-                .and_then(|through| through.parse::<u64>().ok())
-                .unwrap_or(0),
-        ),
-        _ => None,
+    let meta_u64 = |key: &str| -> anyhow::Result<Option<u64>> {
+        Ok(connection
+            .query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| {
+                row.get::<_, String>(0)
+            })
+            .optional()?
+            .and_then(|value| value.parse::<u64>().ok()))
+    };
+    // A run that is not this one's first decodes again every legacy segment
+    // after the last one this build finished, the inserts ignoring rows
+    // already there: an older build inserts kind rows one at a time, so a
+    // segment it was mapping when it stopped can have some of its kinds
+    // (say, without `terminal.output`, or with only `personal.session.put`).
+    // - A marker at `0` is an older build's run.
+    // - A marker at `2` is this build's run. An older build that runs after
+    //   it (a downgrade) keeps the `2` and maps the remaining segments its
+    //   own way, so `2` alone does not prove each segment whole. The run
+    //   recorded the last legacy segment when it began
+    //   (`journal_segment_kinds_backfill_end`): segments sealed later carry
+    //   their kind map from the seal, and only unmapped ones of those remain.
+    let rescan = match complete.as_deref() {
+        None => None,
+        Some("0") => Some((meta_u64("journal_segment_kinds_backfill_through")?.unwrap_or(0), None)),
+        Some(_) => Some((
+            meta_u64("journal_segment_kinds_backfill_through")?.unwrap_or(0),
+            meta_u64("journal_segment_kinds_backfill_end")?,
+        )),
     };
     if complete.is_none() {
-        connection.execute(
-            "INSERT OR IGNORE INTO meta(key, value) VALUES('journal_segment_kinds_backfill', '2')",
-            [],
-        )?;
+        all_or_nothing(connection, || {
+            connection.execute(
+                "INSERT OR IGNORE INTO meta(key, value)
+                 VALUES('journal_segment_kinds_backfill', '2')",
+                [],
+            )?;
+            connection.execute(
+                "INSERT INTO meta(key, value)
+                 SELECT 'journal_segment_kinds_backfill_end', CAST(COALESCE(MAX(start_sequence), 0) AS TEXT)
+                 FROM journal_segments
+                 WHERE NOT EXISTS (
+                   SELECT 1 FROM journal_segment_kinds
+                   WHERE journal_segment_kinds.segment_id = journal_segments.segment_id
+                 )
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [],
+            )?;
+            Ok(())
+        })?;
     }
-    for (segment_id, start_sequence) in legacy_backfill_segments(connection, rescan_after)? {
+    for (segment_id, start_sequence) in legacy_backfill_segments(connection, rescan)? {
         // The kinds are all it needs: output records are named, not
         // validated (a base64 decode and a SHA-256 each). The segment's own
         // digest still covers their bytes.
@@ -1501,14 +1524,12 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
                     params![segment_id, kind],
                 )?;
             }
-            if rescan_after.is_some() {
-                connection.execute(
-                    "INSERT INTO meta(key, value)
-                     VALUES('journal_segment_kinds_backfill_through', ?1)
-                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                    [start_sequence.to_string()],
-                )?;
-            }
+            connection.execute(
+                "INSERT INTO meta(key, value)
+                 VALUES('journal_segment_kinds_backfill_through', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [start_sequence.to_string()],
+            )?;
             Ok(())
         })?;
     }
@@ -1517,8 +1538,12 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
             "UPDATE meta SET value = '1' WHERE key = 'journal_segment_kinds_backfill'",
             [],
         )?;
-        connection
-            .execute("DELETE FROM meta WHERE key = 'journal_segment_kinds_backfill_through'", [])?;
+        connection.execute(
+            "DELETE FROM meta WHERE key IN (
+               'journal_segment_kinds_backfill_through', 'journal_segment_kinds_backfill_end'
+             )",
+            [],
+        )?;
         Ok(())
     })
 }
@@ -1548,24 +1573,28 @@ fn all_or_nothing(
 }
 
 /// The segments a legacy kind backfill decodes, with their start sequence:
-/// those with no kind rows, and with `rescan_after`, every segment that
-/// starts after it (an older build's backfill stopped partway and may have
-/// left them partly mapped).
+/// those with no kind rows, and with `rescan` `(after, through)`, every
+/// segment that starts after `after` (and at or before `through`, when
+/// given): a backfill stopped partway may have left them partly mapped.
 pub(super) fn legacy_backfill_segments(
     connection: &Connection,
-    rescan_after: Option<u64>,
+    rescan: Option<(u64, Option<u64>)>,
 ) -> anyhow::Result<Vec<(String, u64)>> {
     let mut statement = connection.prepare(
         "SELECT segment_id, start_sequence FROM journal_segments
-         WHERE (?1 IS NOT NULL AND start_sequence > ?1) OR NOT EXISTS (
-           SELECT 1 FROM journal_segment_kinds
-           WHERE journal_segment_kinds.segment_id = journal_segments.segment_id
-         )
+         WHERE (?1 IS NOT NULL AND start_sequence > ?1 AND (?2 IS NULL OR start_sequence <= ?2))
+            OR NOT EXISTS (
+              SELECT 1 FROM journal_segment_kinds
+              WHERE journal_segment_kinds.segment_id = journal_segments.segment_id
+            )
          ORDER BY start_sequence ASC",
     )?;
-    let rescan_after = rescan_after.map(i64::try_from).transpose()?;
+    let after = rescan.map(|(after, _)| i64::try_from(after)).transpose()?;
+    let through = rescan
+        .and_then(|(_, through)| through)
+        .map(|through| i64::try_from(through).unwrap_or(i64::MAX));
     Ok(statement
-        .query_map([rescan_after], |row| {
+        .query_map(params![after, through], |row| {
             Ok((row.get::<_, String>(0)?, u64::try_from(row.get::<_, i64>(1)?).unwrap_or(0)))
         })?
         .collect::<Result<Vec<_>, _>>()?)

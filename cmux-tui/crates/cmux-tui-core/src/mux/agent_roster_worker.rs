@@ -177,6 +177,9 @@ pub(in crate::mux) struct AgentRosterWorker {
     /// The replay is not done: the roster may be behind the journal the
     /// start found, so the startup projection reconcile waits for it.
     pub(in crate::mux) replaying: AtomicBool,
+    /// The replay is done, and the projection reconcile it owes waits for a
+    /// pass whose fold reached the journal head (`run_roster_pass`).
+    pub(in crate::mux) reconcile_pending: AtomicBool,
     /// Test seam (`agent_roster_restore::REPLAY_GATE_FOR_TEST`).
     #[cfg(test)]
     pub(in crate::mux) replay_gate: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,

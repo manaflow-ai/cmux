@@ -446,14 +446,27 @@ impl Mux {
                 }
             }
             drop(slot);
+            if replayed.is_some() {
+                self.agent_roster_worker.reconcile_pending.store(true, Ordering::Release);
+            }
             self.agent_roster_worker.replaying.store(false, Ordering::Release);
         }
+        // The reconcile the replay owes writes the roster's entries over the
+        // public projections, so the roster must first fold every record
+        // committed meanwhile: a hook that committed during the replay's last
+        // slice (after this pass took `pass.wanted`) already wrote its row
+        // through the hook projector, and its fold applies no delta. Folded
+        // first, it makes the entry the hook's, which the reconcile leaves.
+        let reconcile = self.agent_roster_worker.reconcile_pending.load(Ordering::Acquire);
         let mut target = pass.wanted;
+        if reconcile {
+            target = target.max(self.wanted_roster_sequence());
+        }
         // The head a retirement waits for. It is read after the close
         // recorded the retirement, so every event of the closed terminal is at
         // or before it.
         let mut head = None;
-        if pass.head || !pass.retire.is_empty() {
+        if pass.head || !pass.retire.is_empty() || reconcile {
             #[cfg(test)]
             fold.note_io_for_test();
             let read = match fold.reader(&self.journal_kernel) {
@@ -558,15 +571,37 @@ impl Mux {
                 eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
             }
         }
+        // The head again, after the fold: a record committed since the read
+        // above holds the reconcile for another pass. A head that cannot be
+        // read holds it for the next request or maintenance tick.
+        let caught_up = if reconcile {
+            #[cfg(test)]
+            fold.note_io_for_test();
+            let read = match fold.reader(&self.journal_kernel) {
+                Some(reader) => reader.head(),
+                None => self.session_journal_head(),
+            };
+            let cursor = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner).cursor;
+            read.ok().map(|head| cursor >= head && cursor >= self.wanted_roster_sequence())
+        } else {
+            None
+        };
         drop(fold);
         let replay_finished = replayed.is_some();
         if let Some(diagnostic) = replayed {
             eprintln!("cmux-tui: the background agent roster replay finished");
-            // The reconcile the start skipped while the roster was behind.
-            self.reconcile_agent_roster_projections();
             if let Some(diagnostic) = diagnostic {
                 self.report_internal_diagnostic(diagnostic);
             }
+        }
+        match caught_up {
+            Some(true) => {
+                // The reconcile the start skipped while the roster was behind.
+                self.agent_roster_worker.reconcile_pending.store(false, Ordering::Release);
+                self.reconcile_agent_roster_projections();
+            }
+            Some(false) => self.continue_agent_roster_replay_later(),
+            None => {}
         }
         for (delta, kind) in deltas {
             self.apply_roster_delta(delta, &kind);
@@ -614,7 +649,9 @@ impl Mux {
         &self,
         terminal_id: &TerminalPublicId,
     ) {
-        if self.agent_roster_replaying() {
+        if self.agent_roster_replaying()
+            || self.agent_roster_worker.reconcile_pending.load(Ordering::Acquire)
+        {
             return;
         }
         let entry = self

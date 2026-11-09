@@ -143,14 +143,19 @@ fn a_resumed_kind_backfill_decodes_partly_mapped_segments_again() {
              INSERT INTO journal_segment_kinds VALUES('partly', 'agent.session.started');",
         )
         .unwrap();
-    let ids = |rescan_after| {
-        super::super::super::session_journal::legacy_backfill_segments(&source, rescan_after)
+    let ids = |rescan| {
+        super::super::super::session_journal::legacy_backfill_segments(&source, rescan)
             .unwrap()
             .into_iter()
             .map(|(id, _)| id)
             .collect::<Vec<_>>()
     };
     assert_eq!(ids(None), vec!["unmapped".to_owned()]);
-    assert_eq!(ids(Some(0)), vec!["done".to_owned(), "partly".to_owned(), "unmapped".to_owned()]);
-    assert_eq!(ids(Some(1)), vec!["partly".to_owned(), "unmapped".to_owned()]);
+    assert_eq!(
+        ids(Some((0, None))),
+        vec!["done".to_owned(), "partly".to_owned(), "unmapped".to_owned()]
+    );
+    assert_eq!(ids(Some((1, None))), vec!["partly".to_owned(), "unmapped".to_owned()]);
+    // A bounded rescan: segments sealed after the run began keep their map.
+    assert_eq!(ids(Some((0, Some(1)))), vec!["done".to_owned(), "unmapped".to_owned()]);
 }
