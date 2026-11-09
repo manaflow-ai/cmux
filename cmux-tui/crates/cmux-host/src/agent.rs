@@ -112,6 +112,12 @@ pub fn paused_for(before_ns: i128, after_ns: i128) -> Option<Duration> {
 pub struct PauseWatch {
     last_look_ns: std::sync::atomic::AtomicI64,
     pauses: std::sync::atomic::AtomicU64,
+    /// Odd while a look is being published: a reader that sees it odd, or
+    /// changed across its reads, reads again ([`PauseWatch::seen`]).
+    version: std::sync::atomic::AtomicU64,
+    /// One publisher at a time (the watch's thread, the supervisor's clock-set
+    /// wake, a reread of the record), and one write of the file.
+    publish: std::sync::Mutex<()>,
     /// Where this watch writes its record ([`PauseWatch::persist_to`]).
     file: std::sync::OnceLock<std::path::PathBuf>,
     /// Where this watch reads its record from at every look ([`PauseWatch::load`]).
@@ -126,6 +132,8 @@ impl PauseWatch {
         Self {
             last_look_ns: std::sync::atomic::AtomicI64::new(0),
             pauses: std::sync::atomic::AtomicU64::new(0),
+            version: std::sync::atomic::AtomicU64::new(0),
+            publish: std::sync::Mutex::new(()),
             file: std::sync::OnceLock::new(),
             source: std::sync::OnceLock::new(),
         }
@@ -133,19 +141,30 @@ impl PauseWatch {
 
     /// One look of the watch at boot time `now_ns`: whether it found a pause.
     pub fn looked(&self, now_ns: i128, paused: bool) {
-        use std::sync::atomic::Ordering;
-        if paused {
-            self.pauses.fetch_add(1, Ordering::SeqCst);
-        }
-        self.last_look_ns.store(i64::try_from(now_ns).unwrap_or(i64::MAX), Ordering::SeqCst);
-        self.write();
+        let look = i64::try_from(now_ns).unwrap_or(i64::MAX);
+        self.publish_with(|pauses, _| (pauses + u64::from(paused), look));
     }
 
     /// A resume another way found (a clock set that moved realtime against
     /// the boot clock, where the boot clock stops).
     pub fn found(&self) {
-        self.pauses.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        self.write();
+        self.publish_with(|pauses, last_look| (pauses + 1, last_look));
+    }
+
+    /// Publishes the count and the last look `next` makes of the current
+    /// ones as one look: the version is odd while the fields change, so a
+    /// reader never takes one field old and the other new. Then the file,
+    /// both fields in one rename.
+    fn publish_with(&self, next: impl FnOnce(u64, i64) -> (u64, i64)) {
+        use std::sync::atomic::Ordering;
+        let _one = self.publish.lock().unwrap_or_else(|e| e.into_inner());
+        let (pauses, last_look) =
+            next(self.pauses.load(Ordering::SeqCst), self.last_look_ns.load(Ordering::SeqCst));
+        self.version.fetch_add(1, Ordering::SeqCst);
+        self.pauses.store(pauses, Ordering::SeqCst);
+        self.last_look_ns.store(last_look, Ordering::SeqCst);
+        self.version.fetch_add(1, Ordering::SeqCst);
+        self.write(pauses, last_look);
     }
 
     /// The count and the last look together, as one look of the watch saw
@@ -154,27 +173,33 @@ impl PauseWatch {
     pub fn seen(&self) -> PauseSeen {
         use std::sync::atomic::Ordering;
         self.refresh();
-        let pauses = self.pauses.load(Ordering::SeqCst);
-        #[cfg(test)]
-        between_reads();
-        let last_look_ns = i128::from(self.last_look_ns.load(Ordering::SeqCst));
-        PauseSeen { pauses, last_look_ns }
+        loop {
+            let version = self.version.load(Ordering::SeqCst);
+            if version % 2 == 1 {
+                std::hint::spin_loop();
+                continue;
+            }
+            let pauses = self.pauses.load(Ordering::SeqCst);
+            #[cfg(test)]
+            between_reads();
+            let last_look_ns = i128::from(self.last_look_ns.load(Ordering::SeqCst));
+            if self.version.load(Ordering::SeqCst) == version {
+                return PauseSeen { pauses, last_look_ns };
+            }
+        }
     }
 
     /// How many pauses were found so far: a reader that keeps the count it
     /// last handled sees every newer one, whenever it was found.
     pub fn pause_seq(&self) -> u64 {
-        self.refresh();
-        self.pauses.load(std::sync::atomic::Ordering::SeqCst)
+        self.seen().pauses
     }
 
     /// Whether the watch has not looked for longer than a pause takes to find
     /// ([`paused_for`] from its last look) at boot time `now_ns`: it is still
     /// waking from one. False while no watch runs.
     pub fn waking(&self, now_ns: i128) -> bool {
-        self.refresh();
-        let look = i128::from(self.last_look_ns.load(std::sync::atomic::Ordering::SeqCst));
-        look != 0 && paused_for(look, now_ns).is_some()
+        self.seen().waking(now_ns)
     }
 
     /// From now on, every look and pause found is also written to `path`, so
@@ -182,7 +207,7 @@ impl PauseWatch {
     /// update check`) read the same record ([`PauseWatch::load`]).
     pub fn persist_to(&self, path: std::path::PathBuf) {
         let _ = self.file.set(path);
-        self.write();
+        self.publish_with(|pauses, last_look| (pauses, last_look));
     }
 
     /// The record another process wrote at `path`, read again at every look
@@ -198,20 +223,15 @@ impl PauseWatch {
     /// Whether the watch has looked at all (a watch runs, here or in the
     /// process that writes the record this one reads).
     pub fn has_looked(&self) -> bool {
-        self.refresh();
-        self.last_look_ns.load(std::sync::atomic::Ordering::SeqCst) != 0
+        self.seen().last_look_ns != 0
     }
 
     /// The record as `{"last_look_ns", "pauses"}`, written beside and renamed
     /// so a reader never sees half of it. Errors are dropped: a record that
     /// can't be written leaves the other processes reading none.
-    fn write(&self) {
-        use std::sync::atomic::Ordering;
+    fn write(&self, pauses: u64, last_look_ns: i64) {
         let Some(path) = self.file.get() else { return };
-        let body = serde_json::json!({
-            "last_look_ns": self.last_look_ns.load(Ordering::SeqCst),
-            "pauses": self.pauses.load(Ordering::SeqCst),
-        });
+        let body = serde_json::json!({ "last_look_ns": last_look_ns, "pauses": pauses });
         let part = path.with_extension("json.part");
         if std::fs::write(&part, body.to_string()).is_ok() {
             let _ = std::fs::rename(&part, path);
@@ -220,7 +240,6 @@ impl PauseWatch {
 
     /// Reads the record again when this watch is another process's copy.
     fn refresh(&self) {
-        use std::sync::atomic::Ordering;
         let Some(path) = self.source.get() else { return };
         let read = std::fs::read(path)
             .ok()
@@ -228,8 +247,7 @@ impl PauseWatch {
         let field = |name: &str| read.as_ref().and_then(|v| v.get(name));
         let look = field("last_look_ns").and_then(serde_json::Value::as_i64).unwrap_or(0);
         let pauses = field("pauses").and_then(serde_json::Value::as_u64).unwrap_or(0);
-        self.last_look_ns.store(look, Ordering::SeqCst);
-        self.pauses.store(pauses, Ordering::SeqCst);
+        self.publish_with(|_, _| (pauses, look));
     }
 }
 

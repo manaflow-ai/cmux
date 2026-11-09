@@ -602,6 +602,9 @@ fn check_inner(paths: &Paths, looks: &Looks<'_>) -> Outcome {
         clear_pending(paths);
         return outcome;
     }
+    // The pause count read again right before the gate, which then sees the
+    // hold a pause found since the look above starts.
+    hold_if_paused(paths, looks.watch, looks.handled, clocks());
     // The connect hold's last look, the flip and the queued restarts run
     // inside the gate (`Gate::run`, shared with every process): a bind or a new session that
     // takes the hold before the restart is seen here, and one after waits.
