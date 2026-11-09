@@ -10,9 +10,10 @@
 //! daemon alone, so two daemons that list each other ask each other once and never in a cycle
 //! (the `_acpmux/models` rule, `models_fanout.rs`).
 //!
-//! A queue reply's `total` counts the items before the `limit` cut, so a page can say more wait.
-//! A verdict of `changes` may carry a `comment`: kept in the audit entry and sent to the chat as a
-//! prompt (`commentDelivered` in the reply).
+//! A queue reply's `total` counts the items before the `limit` cut, a peer's own cut included, so
+//! a page can say more wait. A verdict of `changes` may carry a `comment`: kept in the audit entry
+//! and sent to the chat as a prompt, under the folder's trust rule both when it is sent and when a
+//! queued one is dispatched. `commentDelivered` says the chat accepted it (queued or started).
 
 use cmux_json::JsonSet as _;
 use std::sync::Arc;
@@ -88,6 +89,8 @@ async fn queue(
     let now = crate::store::now_ms();
     let (mut items, _) = hub.review_queue_local(now);
     let mut omitted: Vec<String> = Vec::new();
+    // Items a peer counted but cut at the same `limit` before it answered.
+    let mut peers_cut = 0usize;
     if asks_peers(origin, params) {
         let deadline = tokio::time::Instant::now() + PEERS_BUDGET;
         let peers = hub.connected_peers();
@@ -105,6 +108,7 @@ async fn queue(
                 omitted.push(peer.name.clone());
                 continue;
             };
+            peers_cut += peer_cut(&remote, list.len());
             for item in list {
                 // An item already marked as another machine's is that peer's peer's: left out.
                 if !item.is_object() || item.get("host").is_some() {
@@ -116,8 +120,9 @@ async fn queue(
             }
         }
     }
-    // How many there were before the cut, so a page showing `limit` can say more wait.
-    let total = items.len();
+    // How many there were before the cut, so a page showing `limit` can say more wait: a peer's
+    // own cut counts too.
+    let total = items.len() + peers_cut;
     sort_items(&mut items, limit);
     let mut out = json!({"items": items, "now": now, "total": total});
     if !omitted.is_empty() {
@@ -125,6 +130,14 @@ async fn queue(
         out.set(PEERS_OMITTED, json!(omitted));
     }
     Ok(out)
+}
+
+/// How many items a peer counted (its `total`) beyond the `sent` it answered with: cut at the same
+/// limit before this daemon saw them. A peer that sends no `total` (an older daemon) cut nothing
+/// this daemon can know of.
+fn peer_cut(remote: &Value, sent: usize) -> usize {
+    let reported = remote.get("total").and_then(Value::as_u64).unwrap_or(0);
+    usize::try_from(reported).unwrap_or(usize::MAX).saturating_sub(sent)
 }
 
 async fn verdict(
@@ -175,20 +188,43 @@ async fn verdict(
     })
     .await
     .map_err(|e| RpcError::internal(e.to_string()))??;
-    // Then the chat gets the comment, after any turn it is running, without holding the reply.
-    let delivered = prompt.is_some();
+    // Then the chat gets the comment, after any turn it is running. The reply waits only until
+    // the prompt is accepted (queued or started) or refused, and says which.
+    let mut delivered = false;
     if let Some(text) = prompt {
+        let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
+        let tx = Arc::new(std::sync::Mutex::new(Some(tx)));
+        let send = move |ok: bool| {
+            if let Some(tx) = tx.lock().ok().and_then(|mut t| t.take()) {
+                let _ = tx.send(ok);
+            }
+        };
+        let (accepted, refused) = (send.clone(), send);
+        let opts = crate::hub::PromptOptions {
+            // A comment that waits behind a running turn meets the folder's trust rule again
+            // when it is dispatched, as the app's own prompt does.
+            trust_gate: super::trust_gate::gated(origin, params),
+            on_accepted: Some(Box::new(move |_| accepted(true))),
+            ..Default::default()
+        };
         let hub = hub.clone();
         tokio::spawn(async move {
             let blocks = vec![json!({"type": "text", "text": text})];
-            if let Err(e) = hub.prompt(&session, blocks, "review", false).await {
+            if let Err(e) = hub.prompt_with(&session, blocks, "review", false, opts).await {
                 tracing::warn!(session = %session.id, "review: the comment was not delivered: {e}");
             }
+            refused(false);
         });
+        delivered =
+            tokio::time::timeout(ACCEPT_WAIT, rx).await.ok().and_then(Result::ok) == Some(true);
     }
     Ok(json!({"recorded": true, "sessionId": sid, "prUrl": url, "entry": entry,
               "commentDelivered": delivered}))
 }
+
+/// How long a verdict's reply waits for its comment's prompt to be accepted; past it the reply
+/// says not delivered, and the page opens the chat.
+const ACCEPT_WAIT: Duration = Duration::from_secs(10);
 
 /// The most bytes a Request changes comment may have.
 const COMMENT_BYTES: usize = 16 * 1024;
@@ -251,6 +287,14 @@ mod tests {
             changes_prompt("https://github.com/o/r/pull/7", "Add a test."),
             "Changes requested on https://github.com/o/r/pull/7:\n\nAdd a test."
         );
+    }
+
+    #[test]
+    fn a_peers_own_cut_counts_in_the_total() {
+        assert_eq!(peer_cut(&json!({"items": [], "total": 250}), 200), 50);
+        assert_eq!(peer_cut(&json!({"items": []}), 200), 0);
+        assert_eq!(peer_cut(&json!({"total": 3}), 3), 0);
+        assert_eq!(peer_cut(&json!({"total": "many"}), 3), 0);
     }
 
     #[test]
