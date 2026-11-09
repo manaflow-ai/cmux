@@ -1013,7 +1013,7 @@ async fn acp_steps(
     for a in spawn.argv.iter_mut() {
         *a = crate::hub::expand_env_value(a, folder, &home, &model);
     }
-    let mut cmd = match crate::agent::harness_command(id, &spawn, folder, None, None) {
+    let mut cmd = match crate::agent::harness_command_ready(id, &spawn, folder, None, None).await {
         Ok(cmd) => cmd,
         Err(e) => {
             r.push("launch", StepStatus::Fail, &e.to_string(), None);

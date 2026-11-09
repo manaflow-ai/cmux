@@ -472,6 +472,27 @@ pub fn chain(lookup: impl Fn(u32) -> Option<Proc>, pid: u32) -> Chain {
     found
 }
 
+/// `pid` and its parents, nearest first, at most [`MAX_HOPS`]: what the kernel says of the
+/// socket peer's ancestry, read one pid at a time (`hub/desktop_bridge.rs` binds a desktop chat's
+/// send by it). Empty where no process can be read.
+pub fn ancestors(pid: u32) -> Vec<u32> {
+    ancestors_in(lookup, pid)
+}
+
+fn ancestors_in(lookup: impl Fn(u32) -> Option<Proc>, pid: u32) -> Vec<u32> {
+    let mut found = Vec::new();
+    let mut at = pid;
+    for _ in 0..MAX_HOPS {
+        let Some(p) = lookup(at) else { break };
+        found.push(p.pid);
+        if p.ppid <= 1 || p.ppid == p.pid {
+            break;
+        }
+        at = p.ppid;
+    }
+    found
+}
+
 /// The outermost `.app` bundle in an executable path: its name and its path.
 fn app_bundle(exe: &str) -> Option<(String, String)> {
     let end = exe.find(".app/")? + ".app".len();

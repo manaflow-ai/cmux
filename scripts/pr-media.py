@@ -951,7 +951,9 @@ def with_fallback(repo: str, branch: str, store: MediaBranch | None, by_git, by_
     try:
         return by_api(ApiBranch(repo, branch))
     except MediaError as error:
-        raise MediaError(f"{failed}; the GitHub API fallback failed too: {error}") from None
+        # A lost create-only race stays a MediaConflict, so its caller can keep the other copy and go on.
+        kind = MediaConflict if isinstance(error, MediaConflict) else MediaError
+        raise kind(f"{failed}; the GitHub API fallback failed too: {error}") from None
 
 
 def existing_sha(repo: str, branch: str, path: str, store: MediaBranch | None = None) -> str | None:

@@ -87,7 +87,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/harnesses": (["cwd"], []),
         // `refresh`: the picker's Refresh models; acpmux probes its agents' model lists again. It
         // grants nothing (the same probes acpmux runs in the background), so no gesture rule.
-        "_acpmux/models": (["refresh"], []),
+        // `localOnly`: this machine's lists only, without waiting on the peers (the picker's own read).
+        "_acpmux/models": (["refresh", "localOnly"], []),
         "_acpmux/status": ([], []),
         "_acpmux/peers": ([], []),
         "_acpmux/draft_get": (["sessionId"], []),
@@ -122,6 +123,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/permission_chat_revoke": (["sessionId"], []),
         // No `value` declines the card.
         "_acpmux/secret_submit": (["sessionId", "secretId", "value"], []),
+        // The preset approval card's answer only; a preset write (`set`, `clear`) never comes from the pane.
+        "_acpmux/presets": (["name", "approveMode", "approveDigest", "sessionId"], []),
         "_acpmux/archive": (["sessionId", "archived"], []),
         "_acpmux/markUnread": (["sessionId"], []),
         "_acpmux/harness/health": (["refresh", "rescan"], []),

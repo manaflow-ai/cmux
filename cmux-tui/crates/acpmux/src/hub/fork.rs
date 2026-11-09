@@ -585,6 +585,8 @@ impl Hub {
             super::admission::claim(&id);
         }
         self.update_live_session_index(&new);
+        // A session that came may be another row's parent: every closed row is built again.
+        self.events.changed();
         // Indexed again once published (`transfer.rs` `import_into`).
         self.child_tags.note(&new);
         let creation_guard = super::lifecycle::CreationGuard::new(self.clone(), new.clone(), 0);

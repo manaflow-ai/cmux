@@ -6,7 +6,7 @@
 //! of another session is seen by no one while that session never starts
 //! again: a normal install's host has no orphan grace (cx-t2sqm D1), so it
 //! kept its shell and PTY until reboot. On a Mac every build keeps its own
-//! state root (`cmux/tags/<tag>/tui`), so the hosts of an old NIGHTLY or a
+//! state root (`cmux/tags/<tag>/tui` or `cmux/builds/<key>/tui`), so the hosts of an old NIGHTLY or a
 //! thrown-away DEV tag sit in roots no other owner read. This owner looks at
 //! the other sessions' roots of its own state root and of its siblings
 //! ([`state_roots`]) off its restore, on its own thread: a first pass a
@@ -207,8 +207,9 @@ impl Mux {
 }
 
 /// The state roots this owner looks in, sorted: its own, and on the app's
-/// per-build layout every build's (`<Application Support>/cmux/tags/<tag>/tui`,
-/// `BuildIdentity::state_dir` in cmux-agent-pane-policy) and the shared root
+/// per-build layout every build's (`<Application Support>/cmux/tags/<tag>/tui`
+/// for a build with kept names, `cmux/builds/<key>/tui` for any other bundled
+/// build: CmuxNextCompat `BuildIdentity.daemonStateDirectory`) and the shared root
 /// of the builds before cx-6so.41 (`<Application Support>/cmux-tui/sessions`,
 /// the platform default `workspace_state_dir`). Each build's owner keeps one
 /// of these; a build that is never launched again leaves its hosts in it.
@@ -221,7 +222,7 @@ fn state_roots(own_state_root: &Path) -> Vec<PathBuf> {
     let tag_dir = own_state_root.parent();
     let tags = tag_dir.and_then(Path::parent);
     let base = if name(Some(own_state_root)) == Some("tui")
-        && name(tags) == Some("tags")
+        && matches!(name(tags), Some("tags" | "builds"))
         && name(tags.and_then(Path::parent)) == Some("cmux")
     {
         tags.and_then(Path::parent).and_then(Path::parent)
@@ -232,15 +233,16 @@ fn state_roots(own_state_root: &Path) -> Vec<PathBuf> {
     };
     let mut roots = vec![own_state_root.to_path_buf()];
     if let Some(base) = base {
-        let tags = base.join("cmux").join("tags");
-        roots.extend(
-            std::fs::read_dir(&tags)
-                .into_iter()
-                .flatten()
-                .flatten()
-                .map(|entry| entry.path().join("tui"))
-                .filter(|root| root.is_dir()),
-        );
+        for builds in ["tags", "builds"] {
+            roots.extend(
+                std::fs::read_dir(base.join("cmux").join(builds))
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .map(|entry| entry.path().join("tui"))
+                    .filter(|root| root.is_dir()),
+            );
+        }
         let shared = base.join("cmux-tui").join("sessions");
         if shared.is_dir() {
             roots.push(shared);
@@ -417,6 +419,29 @@ fn walk_roots<T>(
     (cursor, false)
 }
 
+/// Drops the entries of roots not in `visited` whose root no longer holds
+/// their record. A root whose listing fails keeps its entries.
+fn prune_unvisited_entries(hosts: &HostOps<'_>, store: &mut Store, visited: &HashSet<String>) {
+    let mut held = HashMap::<String, Option<HashSet<String>>>::new();
+    store.hosts.retain(|key, _| {
+        let Some(root) = key_root(key) else { return false };
+        if visited.contains(root) {
+            return true;
+        }
+        let records = held.entry(root.to_string()).or_insert_with(|| {
+            (hosts.load)(Path::new(root)).ok().map(|records| {
+                records
+                    .iter()
+                    .map(|(_, record)| {
+                        format!("{root}|{}|{}", record.terminal_id, record.incarnation)
+                    })
+                    .collect()
+            })
+        });
+        records.as_ref().is_none_or(|records| records.contains(key))
+    });
+}
+
 type LoadedRecords =
     anyhow::Result<Vec<(PathBuf, crate::terminal_host_runtime::TerminalHostRecord)>>;
 
@@ -428,14 +453,28 @@ struct HostOps<'a> {
         &Path,
         &crate::terminal_host_runtime::TerminalHostRecord,
     ) -> TerminalHostLiveness,
-    end: &'a dyn Fn(&crate::terminal_host_runtime::TerminalHostRecord, &Path) -> bool,
+    /// Run under the session guard's coordinator: it must not wait on the
+    /// host (see [`request_terminal_host_end`]).
+    end: &'a dyn Fn(&crate::terminal_host_runtime::TerminalHostRecord, &Path) -> HostEnd,
+    remove: &'a dyn Fn(&Path, &crate::terminal_host_runtime::TerminalHostRecord) -> bool,
+}
+
+fn remove_stale_record(
+    record_path: &Path,
+    record: &crate::terminal_host_runtime::TerminalHostRecord,
+) -> bool {
+    matches!(
+        crate::terminal_host_runtime::remove_stale_terminal_host_record(record_path, record),
+        Ok(true)
+    )
 }
 
 impl HostOps<'static> {
     const REAL: Self = Self {
         load: &crate::terminal_host_runtime::load_terminal_host_records,
         liveness: &terminal_host_record_liveness,
-        end: &cleanup_terminal_host_record,
+        end: &request_terminal_host_end,
+        remove: &remove_stale_record,
     };
 }
 
@@ -469,12 +508,16 @@ fn reap_pass_with(
         roots.iter().map(|(_, root, _)| root.display().to_string()).collect::<HashSet<_>>();
     store.hosts.retain(|key, _| key_root(key).is_some_and(|root| present.contains(root)));
     let mut removed = 0;
+    let mut visited = HashSet::new();
     let (cursor, capped) = walk_roots(
         &roots,
         |(_, root, _)| root.as_path(),
         previous.cursor.as_deref(),
         stopped,
         |(state_root, root, component)| {
+            // Reached this pass, listed or not: a root whose listing failed
+            // keeps its entries, and the prune below never lists it again.
+            visited.insert(root.display().to_string());
             let Ok(records) = (hosts.load)(root) else {
                 return Visit::Done;
             };
@@ -492,7 +535,7 @@ fn reap_pass_with(
                 report.owned_roots += 1;
                 return Visit::Done;
             };
-            let _lease = match probe_session_owner(state_root, component) {
+            let lease = match probe_session_owner(state_root, component) {
                 SessionOwnerProbe::Unowned(lease) => lease,
                 SessionOwnerProbe::Owned | SessionOwnerProbe::NoGuard => {
                     report.owned_roots += 1;
@@ -505,6 +548,7 @@ fn reap_pass_with(
             let mut visit = Visit::Done;
             let mut dead = Vec::new();
             let mut all_dead = true;
+            let mut guard_lost = false;
             for (record_path, record) in records {
                 let key = format!("{prefix}{}|{}", record.terminal_id, record.incarnation);
                 // A wall clock set back only restarts the count.
@@ -555,7 +599,27 @@ fn reap_pass_with(
                     store.hosts.insert(key, seen);
                     continue;
                 }
-                if (hosts.end)(&record, &record_path) {
+                // The end is decided and asked for under the guard's
+                // coordinator, right after the check that the guard still
+                // names this lease's file: no daemon can make a new guard
+                // and own the session in between. The wait for the host's
+                // exit comes after the coordinator is released. A guard
+                // deleted and made again since it was taken stops this root.
+                let requested = if guard_lost {
+                    None
+                } else {
+                    lease.while_guarding(|| (hosts.end)(&record, &record_path))
+                };
+                let Some(requested) = requested else {
+                    guard_lost = true;
+                    store.hosts.insert(key, seen);
+                    continue;
+                };
+                let ended = match requested {
+                    HostEnd::Done(ended) => ended,
+                    HostEnd::Requested(wait) => wait(),
+                };
+                if ended {
                     eprintln!(
                         "cmux-tui: ended terminal host {} of another session ({}): no live \
                          session owned it for {} s",
@@ -584,12 +648,18 @@ fn reap_pass_with(
                     store.hosts.insert(key, seen);
                     continue;
                 }
-                match crate::terminal_host_runtime::remove_stale_terminal_host_record(
-                    &record_path,
-                    &record,
-                ) {
-                    Ok(true) => removed += 1,
-                    Ok(false) | Err(_) => {
+                let gone = if guard_lost {
+                    None
+                } else {
+                    lease.while_guarding(|| (hosts.remove)(&record_path, &record))
+                };
+                match gone {
+                    Some(true) => removed += 1,
+                    Some(false) => {
+                        store.hosts.insert(key, seen);
+                    }
+                    None => {
+                        guard_lost = true;
                         store.hosts.insert(key, seen);
                     }
                 }
@@ -597,6 +667,12 @@ fn reap_pass_with(
             visit
         },
     );
+    // Past the cap, the saved roots this pass did not reach (after the root
+    // cap) drop the entries of hosts they no longer hold, so a root that went
+    // empty never keeps the times of hosts seen since from the store.
+    if store.hosts.len() > MAX_STORE_ENTRIES {
+        prune_unvisited_entries(hosts, &mut store, &visited);
+    }
     report.removed = removed;
     report.capped = capped;
     store.cursor = cursor;
@@ -658,6 +734,186 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
     }
 
+    #[test]
+    fn state_roots_cover_the_builds_of_their_key_on_the_app_layout() {
+        // `BuildIdentity` (CmuxNextCompat `daemonStateDirectory`): a build
+        // with kept names in `tags/<tag>/tui`, any other bundled build (the
+        // untagged DEV build, an unknown bundle such as `cmux_NIGHTLY`) in
+        // `builds/<key>/tui`, and release, unbundled and adopted legacy
+        // channel builds in the shared default root.
+        let base = std::env::temp_dir().join(format!("unowned-builds-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let cmux = base.join("cmux");
+        let mut expected = Vec::new();
+        for dir in [
+            cmux.join("tags").join("cmux-next").join("tui"),
+            cmux.join("tags").join("nightly").join("tui"),
+            cmux.join("builds").join("cmux_NIGHTLY").join("tui"),
+            cmux.join("builds").join("com.cmuxterm.app.debug").join("tui"),
+            base.join("cmux-tui").join("sessions"),
+        ] {
+            std::fs::create_dir_all(&dir).unwrap();
+            expected.push(dir);
+        }
+        // A build directory with no daemon state is not a root.
+        std::fs::create_dir_all(cmux.join("builds").join("no-state")).unwrap();
+        expected.sort();
+        for own in &expected {
+            assert_eq!(&state_roots(own), &expected, "from {}", own.display());
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_guard_replaced_after_the_check_keeps_every_host_of_its_root() {
+        let (dir, own, roots) = state_with_sessions("guard-replaced", &["cmux-app-back"]);
+        let root = roots[0].clone();
+        let component = crate::workspace_registry::session_guard_component("cmux-app-back");
+        let guard = dir.join("session-locks").join(format!("{component}.lock"));
+        let records = |_: &Path| -> LoadedRecords {
+            Ok((0..2).map(|index| fake_record(&root, index)).collect())
+        };
+        // After the reaper took the guard, the file is deleted and made
+        // again (a daemon starting the session would lock the new one).
+        let liveness = |_: &Path, _: &crate::terminal_host_runtime::TerminalHostRecord| {
+            if std::fs::remove_file(&guard).is_ok() {
+                std::fs::write(&guard, b"").unwrap();
+            }
+            TerminalHostLiveness::Live
+        };
+        let ended = std::cell::Cell::new(0);
+        let end = |_: &crate::terminal_host_runtime::TerminalHostRecord, _: &Path| {
+            ended.set(ended.get() + 1);
+            HostEnd::Done(true)
+        };
+        let hosts =
+            HostOps { load: &records, liveness: &liveness, end: &end, remove: &|_, _| true };
+        let never = || false;
+        reap_pass_with(&hosts, &own, &dir.join(STORE_FILE), 1_000_000, NO_GRACE, &never);
+        assert_eq!(ended.get(), 0, "a host was ended under a guard that no longer guards its root");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn no_daemon_can_take_a_session_between_the_guard_check_and_the_end() {
+        use crate::workspace_registry::start_session_guard_for_test;
+
+        let dir = std::env::temp_dir().join(format!("unowned-guard-race-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let own = crate::terminal_host_runtime::terminal_host_root(&dir, "mine");
+        let root = crate::terminal_host_runtime::terminal_host_root(&dir, "cmux-app-race");
+        std::fs::create_dir_all(&own).unwrap();
+        std::fs::create_dir_all(&root).unwrap();
+        // The session ran once: its guard exists and is free.
+        drop(start_session_guard_for_test(&dir, "cmux-app-race").unwrap());
+        let component = crate::workspace_registry::session_guard_component("cmux-app-race");
+        let guard = dir.join("session-locks").join(format!("{component}.lock"));
+        let records = |_: &Path| -> LoadedRecords { Ok(vec![fake_record(&root, 0)]) };
+        // Right after the reaper checked its guard, the guard file goes and
+        // a daemon starts the session, which would make a new one.
+        let daemon = std::cell::RefCell::new(Vec::new());
+        let end = |_: &crate::terminal_host_runtime::TerminalHostRecord, _: &Path| {
+            std::fs::remove_file(&guard).unwrap();
+            daemon.borrow_mut().push(start_session_guard_for_test(&dir, "cmux-app-race").is_ok());
+            HostEnd::Done(true)
+        };
+        let hosts = HostOps {
+            load: &records,
+            liveness: &|_, _| TerminalHostLiveness::Live,
+            end: &end,
+            remove: &|_, _| true,
+        };
+        let never = || false;
+        reap_pass_with(&hosts, &own, &dir.join(STORE_FILE), 1_000_000, NO_GRACE, &never);
+        assert_eq!(
+            daemon.into_inner(),
+            vec![false],
+            "a daemon took the session while the reaper was ending its host"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_root_whose_listing_failed_keeps_its_entries_when_the_store_is_pruned() {
+        let (dir, own, roots) = state_with_sessions("listing-failed", &["cmux-app-flaky"]);
+        let flaky = roots[0].clone();
+        let store_path = dir.join(STORE_FILE);
+        let mut store = Store::default();
+        for index in 0..=MAX_STORE_ENTRIES {
+            store.hosts.insert(
+                format!("{}|t{index}|i", flaky.display()),
+                Seen { first_seen_ms: index as u64, owner_mark: String::new(), failed_ms: None },
+            );
+        }
+        // Its listing fails once, then reads back nothing (a partial read).
+        let calls = std::cell::Cell::new(0);
+        let records = |_: &Path| -> LoadedRecords {
+            calls.set(calls.get() + 1);
+            if calls.get() == 1 { Err(anyhow::anyhow!("listing failed")) } else { Ok(Vec::new()) }
+        };
+        let hosts = HostOps {
+            load: &records,
+            liveness: &|_, _| TerminalHostLiveness::Live,
+            end: &|_, _| panic!("nothing to end"),
+            remove: &|_, _| panic!("nothing to remove"),
+        };
+        // A store over its cap, as a pass leaves it before it saves.
+        let bytes = serde_json::to_vec(&store).unwrap();
+        std::fs::write(&store_path, bytes).unwrap();
+        let never = || false;
+        reap_pass_with(&hosts, &own, &store_path, 10_000_000, Timing::STANDARD, &never);
+        assert_eq!(
+            load_store(&store_path).hosts.len(),
+            MAX_STORE_ENTRIES,
+            "the times of a root whose listing failed were dropped"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn entries_of_an_empty_root_past_the_root_cap_leave_before_they_drop_new_hosts() {
+        let sessions = (0..=MAX_ROOTS_PER_PASS)
+            .map(|index| format!("cmux-app-{index:03}"))
+            .collect::<Vec<_>>();
+        let names = sessions.iter().map(String::as_str).collect::<Vec<_>>();
+        let (dir, own, roots) = state_with_sessions("past-cap", &names);
+        // The last root in order is empty and holds a full store's entries;
+        // a pass reaches the root cap before it.
+        let empty = roots[MAX_ROOTS_PER_PASS].clone();
+        let store_path = dir.join(STORE_FILE);
+        let mut store = Store::default();
+        for index in 0..MAX_STORE_ENTRIES {
+            store.hosts.insert(
+                format!("{}|t{index}|i", empty.display()),
+                Seen { first_seen_ms: index as u64, owner_mark: String::new(), failed_ms: None },
+            );
+        }
+        save_store(&store_path, &store);
+        let records = |root: &Path| -> LoadedRecords {
+            Ok(if *root == *empty { Vec::new() } else { vec![fake_record(root, 0)] })
+        };
+        let hosts = HostOps {
+            load: &records,
+            liveness: &|_, _| TerminalHostLiveness::Live,
+            end: &|_, _| panic!("ended in its grace"),
+            remove: &|_, _| panic!("removed in its grace"),
+        };
+        let never = || false;
+        let first = 10_000_000;
+        let report = reap_pass_with(&hosts, &own, &store_path, first, Timing::STANDARD, &never);
+        assert!(report.capped, "{report:?}");
+        let saved = load_store(&store_path);
+        let key = format!("{}|t000|i", roots[0].display());
+        assert_eq!(
+            saved.hosts.get(&key).map(|seen| seen.first_seen_ms),
+            Some(first),
+            "a new host's time was dropped for an empty root's: {} entries kept",
+            saved.hosts.len()
+        );
+        assert_eq!(saved.hosts.len(), MAX_ROOTS_PER_PASS, "stale entries kept");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// A state root with an own record root and one free-guarded record
     /// root per session in `sessions`; returns (own root, other roots).
     fn state_with_sessions(name: &str, sessions: &[&str]) -> (PathBuf, PathBuf, Vec<PathBuf>) {
@@ -714,10 +970,14 @@ mod tests {
         let tried = std::cell::RefCell::new(Vec::<PathBuf>::new());
         let end = |_: &crate::terminal_host_runtime::TerminalHostRecord, path: &Path| {
             tried.borrow_mut().push(path.to_path_buf());
-            !path.starts_with(&stuck)
+            HostEnd::Done(!path.starts_with(&stuck))
         };
-        let hosts =
-            HostOps { load: &records, liveness: &|_, _| TerminalHostLiveness::Live, end: &end };
+        let hosts = HostOps {
+            load: &records,
+            liveness: &|_, _| TerminalHostLiveness::Live,
+            end: &end,
+            remove: &|_, _| true,
+        };
         let store = dir.join(STORE_FILE);
         let never = || false;
         let mut now = 1_000_000;
@@ -760,6 +1020,7 @@ mod tests {
             load: &records,
             liveness: &|_, _| TerminalHostLiveness::Live,
             end: &|_, _| panic!("ended in its grace"),
+            remove: &|_, _| panic!("removed in its grace"),
         };
         let never = || false;
         let first = 10_000_000;
@@ -814,10 +1075,14 @@ mod tests {
             |_: &Path| -> LoadedRecords { Ok(vec![(record_path.clone(), record.clone())]) };
         let end = |_: &crate::terminal_host_runtime::TerminalHostRecord, _: &Path| {
             ended.set(ended.get() + 1);
-            true
+            HostEnd::Done(true)
         };
-        let hosts =
-            HostOps { load: &records, liveness: &|_, _| TerminalHostLiveness::Live, end: &end };
+        let hosts = HostOps {
+            load: &records,
+            liveness: &|_, _| TerminalHostLiveness::Live,
+            end: &end,
+            remove: &|_, _| true,
+        };
         let timing = Timing { ended_grace: Duration::ZERO, ..Timing::STANDARD };
         let store = dir.join(STORE_FILE);
         let never = || false;
