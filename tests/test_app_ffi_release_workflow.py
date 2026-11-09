@@ -515,8 +515,8 @@ class RePinPublication(unittest.TestCase):
         push = workflow[True]["push"]
         self.assertEqual(push["branches"], ["feat-cmux-next"])
         self.assertIn("Packages/macOS/CmuxNext/Package.swift", push["paths"])
-        # A merge pushed with GITHUB_TOKEN fires no push event: the schedule covers it.
-        self.assertTrue(workflow[True]["schedule"])
+        # A schedule would run from main, where the job and its environment refuse it.
+        self.assertNotIn("schedule", workflow[True])
         job = workflow["jobs"]["repin"]
         release = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["repin"]
         self.assertNotIn("needs", job)

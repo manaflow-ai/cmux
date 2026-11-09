@@ -16,11 +16,11 @@ on:
     paths:
       - "Packages/macOS/CmuxNext/Package.swift"
       - "Packages/macOS/CmuxNext/app-ffi-pin.json"
-  # A push made with GITHUB_TOKEN starts no workflow, so a lander that merges
-  # the held PR that way fires no push event here: the schedule re-pins within
-  # 30 minutes anyway. With nothing newer published it changes nothing.
-  schedule:
-    - cron: "7,37 * * * *"
+  # No schedule: a scheduled run starts from the default branch (main), where
+  # neither this job's ref check nor the ffi-release environment admits it.
+  # The landers merge with an App token or a person's token, whose pushes start
+  # this workflow; a merge whose push starts nothing is re-pinned by the next
+  # FFI publish (app-ffi-release.yml), as before this workflow existed.
   workflow_dispatch:
 
 permissions: {}
