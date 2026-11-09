@@ -47,7 +47,9 @@ fn tools(me: App) -> Value {
     ]);
     if let (Some(list), Some(base)) = (all.as_array_mut(), base_tools().as_array()) {
         list.extend(
-            base.iter().filter(|t| matches!(t["name"].as_str(), Some("ls" | "last"))).cloned(),
+            base.iter()
+                .filter(|t| matches!(t.get("name").and_then(Value::as_str), Some("ls" | "last")))
+                .cloned(),
         );
     }
     all
@@ -83,7 +85,7 @@ pub async fn run(app: &str) -> Result<()> {
                 );
             }
             let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-            match params["name"].as_str().unwrap_or_default() {
+            match params.get("name").and_then(Value::as_str).unwrap_or_default() {
                 "send" => send(me, &args).await,
                 "inbox" => inbox(me, &args),
                 "ls" | "last" => call_as(&daemon, &params, None).await,

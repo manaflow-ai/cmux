@@ -70,10 +70,10 @@ pub async fn run(cmd: BridgeCmd, json_out: bool) -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&json!({"steps": steps}))?);
             } else {
                 for step in &steps {
-                    println!("{}", step["text"].as_str().unwrap_or_default());
+                    println!("{}", step.get("text").and_then(Value::as_str).unwrap_or_default());
                 }
             }
-            if steps.iter().all(|s| s["ok"] == false) {
+            if steps.iter().all(|s| s.get("ok") == Some(&Value::Bool(false))) {
                 bail!("nothing was connected");
             }
             Ok(())
@@ -124,7 +124,7 @@ async fn sender() -> String {
         && let Ok(daemon) = crate::daemon::connect(false).await
         && let Ok(info) =
             daemon.request(crate::rpc::method::MUX_INFO, json!({"sessionId": id})).await
-        && let Some(name) = info["name"].as_str().filter(|n| !n.is_empty())
+        && let Some(name) = info.get("name").and_then(Value::as_str).filter(|n| !n.is_empty())
     {
         return name.to_owned();
     }
@@ -257,7 +257,7 @@ async fn register(app: App, argv: &[String], env: &str, entry: &Value) -> Result
             .map_err(anyhow::Error::msg)?;
     }
     let json = serde_json::to_string(
-        &json!({"type": "stdio", "command": entry["command"], "args": entry["args"], "env": entry["env"]}),
+        &json!({"type": "stdio", "command": entry.get("command"), "args": entry.get("args"), "env": entry.get("env")}),
     )?;
     let added =
         run_cmd(&["claude", "mcp", "add-json", "--scope", "user", SERVER_NAME, &json]).await?;
@@ -343,8 +343,9 @@ fn add_to_claude_app_config(path: &Path, entry: &Value) -> Result<()> {
     };
     if let Some(held) = servers.get(SERVER_NAME)
         && !ours(
-            &held["args"]
-                .as_array()
+            &held
+                .get("args")
+                .and_then(Value::as_array)
                 .map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "))
                 .unwrap_or_default(),
         )
