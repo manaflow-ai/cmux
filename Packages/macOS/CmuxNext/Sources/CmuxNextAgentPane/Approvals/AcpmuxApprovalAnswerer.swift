@@ -42,8 +42,10 @@ public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering, AgentAskAnswe
         guard pending.count == 1, let permission = pending[0]["permissionId"] as? String,
               let request = pending[0]["request"] as? [String: Any], AcpmuxPermissionPrompt.isToolPermission(request)
         else { return nil }
+        let offered = request["options"] as? [[String: Any]] ?? []
         return AgentApproval(session: session, permission: permission, digest: AcpmuxPermissionPrompt.digest(request),
-                             summary: AcpmuxPermissionPrompt.summary(request))
+                             summary: AcpmuxPermissionPrompt.summary(request),
+                             alwaysOffered: AcpmuxPermissionPrompt.alwaysOption(offered: offered) != nil)
     }
 
     /// The home inbox's read of one ask (``AgentPaneAskAnswer``): that prompt among the chat's
@@ -65,6 +67,11 @@ public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering, AgentAskAnswe
         await answer(approval, allow: allow, once: false) { true }
     }
 
+    /// A banner's Always allow: the prompt's one `allow_always` option, as the chat's own card sends it.
+    public func answerAlways(_ approval: AgentApproval) async -> Bool {
+        await answer(approval, allow: true, once: false, always: true) { true }
+    }
+
     /// The inbox's answer: as ``answer(_:allow:)``, but only a chat this daemon holds itself, and
     /// only the prompt's allow once or reject once (never `reject_always` in place of a missing
     /// reject once).
@@ -78,7 +85,7 @@ public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering, AgentAskAnswe
         await answer(approval, allow: allow, once: true, through: gate) { true }
     }
 
-    private func answer(_ approval: AgentApproval, allow: Bool, once: Bool,
+    private func answer(_ approval: AgentApproval, allow: Bool, once: Bool, always: Bool = false,
                         through gate: (@Sendable (() -> Void) -> Bool)? = nil,
                         spend: @MainActor () -> Bool) async -> Bool {
         guard let line = await AcpmuxPersonLine.open(environment) else { return false }
@@ -92,7 +99,8 @@ public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering, AgentAskAnswe
         let offered = { (request: [String: Any]) in request["options"] as? [[String: Any]] ?? [] }
         guard let now = pending.first(where: { $0["permissionId"] as? String == approval.permission }),
               let request = now["request"] as? [String: Any], AcpmuxPermissionPrompt.digest(request) == approval.digest,
-              let option = once ? AcpmuxPermissionPrompt.onceOption(allow: allow, offered: offered(request))
+              let option = always ? AcpmuxPermissionPrompt.alwaysOption(offered: offered(request))
+                  : once ? AcpmuxPermissionPrompt.onceOption(allow: allow, offered: offered(request))
                   : AcpmuxPermissionPrompt.option(allow: allow, offered: offered(request))
         else {
             logger.info("approval banner: the prompt ended or changed since its banner posted; nothing answered")

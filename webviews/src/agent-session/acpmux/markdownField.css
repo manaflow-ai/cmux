@@ -143,6 +143,11 @@
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, var(--agent-text) 45%, transparent);
 }
+/* A cmux.com deeplink is markdown's autolink too; one nothing names is plain text, as an app link
+   is (composer/deeplinkTokens.ts), and a named one is its chip, which draws no underline. */
+.acpmux-md a:has(.acpmux-web-deeplink) {
+  text-decoration: none;
+}
 /* A `/name` that names a command (composer/slashTokens.ts), at the prompt's start or after a space:
    the link blue, so the person sees the agent will read it as a command. Only its colour changes. */
 .acpmux-md .acpmux-slash-token {
@@ -153,23 +158,6 @@
   text-decoration: underline dotted;
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
-}
-/* A cmux deeplink in the draft (composer/deeplinkTokens.ts): the link blue and the faint underline
-   a sent prompt's link has (.cv-link), so the draft reads as it will send. Only its look changes;
-   the text is the URL. The chip arm puts it on the session chip's grey wash instead. */
-.acpmux-md .acpmux-deeplink.is-link {
-  color: var(--agent-link, var(--agent-accent));
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
-  text-underline-offset: 3px;
-}
-.acpmux-md .acpmux-deeplink.is-chip {
-  padding: 0 4px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
-  color: var(--agent-link, var(--agent-accent));
-  box-decoration-break: clone;
 }
 .acpmux-md code {
   padding: 1px 4px;
@@ -451,18 +439,26 @@
 /* A huge paste in the text: the strip's page of its first lines (composerAttachments.css
    .acpmux-text-card), as tall as a thumbnail in the text (two control rows), two lines over its
    label; never the underlined name above. */
+/* An oversized paste's chip in the text (composer/PastedTextChip.tsx): as wide as its label needs,
+   never wider than the line. Its width is its own fit (`auto`); the node's box around it is capped at
+   the line, so the chip's percentage cap measures the line less its room: on a narrow line the chip
+   narrows and its label drops trailing parts whole, never pushing past the field to be cut. While the
+   node sizes to its content that percentage is cyclic and counts as no cap, so the node would take
+   the label's whole width and the chip, capped inside it, would leave more than its room after it
+   (the caret one chip gap off: composer-inline-caret-gap.browser.test.ts). The node's own cap is
+   the chip's cap plus the room, so its content ends where the room does. */
+.acpmux-md-inline:has(> .acpmux-md-inline-chip[data-preview="text"]),
+.acpmux-md-inline:has(> .acpmux-attachment-menu > .acpmux-md-inline-chip[data-preview="text"]) {
+  max-width: min(100%, calc(320px + var(--acpmux-inline-room, 8px)));
+}
 .acpmux-md-inline-chip[data-preview="text"] {
   justify-content: stretch;
-  /* Wide enough for two wrapped lines of the paste and its size ("42 lines · 1.8K characters"). */
-  width: 256px;
-  max-width: min(256px, 100%);
+  width: auto;
+  max-width: min(320px, calc(100% - var(--acpmux-inline-room, 8px)));
   height: calc(var(--cmux-control-height, 24px) * 2);
   padding: 0;
 }
 .acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-retry {
-  flex: 1;
-  min-width: 0;
-  padding: 4px 12px;
   border-radius: inherit;
   text-decoration: none;
 }
@@ -475,6 +471,12 @@
 }
 .acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-remove {
   top: 3px;
+}
+.acpmux-md-inline-chip[data-preview="text"][data-opening="panel"] {
+  height: auto;
+}
+.acpmux-md-inline-chip[data-preview="text"][data-opening="panel"] > .acpmux-paste-chip__face {
+  height: calc(var(--cmux-control-height, 24px) * 2);
 }
 /* A failed tile in the text: its kind's glyph and the strip's small retry button side by side. */
 .acpmux-md-inline-chip[data-state="failed"] {
@@ -513,4 +515,59 @@
 /* The agent's suggested next prompt in italics (experiment `prompt-suggestion-look`, arm italic). */
 .acpmux-composer-prompt.is-suggestion-italic .acpmux-md-placeholder {
   font-style: italic;
+}
+/* A cmux link the page knows draws as what it names (composer/deeplinkTitles.ts), as the sent
+   message's chip (chips/cmuxLinkChip.css; startedSessions.css .acpmux-started-chip): the kind's icon,
+   muted, then the title on the session chip's wash, never the link blue. The link's own characters
+   stay the draft's text at no width (the text sent is the link; the caret inside it brings the text
+   back to edit), so the span itself has no height: the chip is its pseudo-elements, which hold real
+   text at the line's own size and an icon no taller than the sent chip's, so the line keeps its
+   height. ::before is the icon; ::after is the title, pulled back under the icon so one wash with
+   the sent chip's padding and radius covers both, and the icon paints over it (position). No break
+   between the icon and the title (nowrap on the span); the title wraps with the sentence. */
+.acpmux-md .is-titled[data-title] {
+  /* The sent chip's measures (startedSessions.css .acpmux-started-chip padding, cmuxLinkChip.css's
+     14px icon and its 4px gap), so the draft's chip is the same box. */
+  --cmux-link-chip-pad-block: 1px;
+  --cmux-link-chip-pad-inline: 5px;
+  --cmux-link-chip-icon: 14px;
+  color: transparent;
+  font-size: 0;
+  /* A zero-size box still takes the line's px line-height, centred on the baseline, and would push
+     the line 5px taller; at 0 it is a point on the baseline, and the title sets the line's own. */
+  line-height: 0;
+  letter-spacing: 0;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.acpmux-md .is-titled[data-title][data-icon]::before {
+  content: "";
+  position: relative;
+  display: inline-block;
+  width: var(--cmux-link-chip-icon);
+  height: var(--cmux-link-chip-icon);
+  margin-inline-start: var(--cmux-link-chip-pad-inline);
+  vertical-align: -2px;
+  background-color: var(--cv-text-muted, var(--agent-muted));
+  -webkit-mask: var(--cmux-link-icon) center / 100% 100% no-repeat;
+  mask: var(--cmux-link-icon) center / 100% 100% no-repeat;
+}
+.acpmux-md .is-titled[data-title]::after {
+  content: attr(data-title);
+  padding: var(--cmux-link-chip-pad-block) var(--cmux-link-chip-pad-inline);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--cv-text, var(--agent-text)) 9%, transparent);
+  color: var(--cv-text, var(--agent-text));
+  font-size: var(--text-content);
+  line-height: var(--text-content--line-height);
+  letter-spacing: var(--text-content--letter-spacing, normal);
+  white-space: normal;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+/* With the icon: the wash starts under it (back by the pad and the icon), the title 4px after it,
+   as chips/cmuxLinkChip.css .cv-cmux-link__icon spaces it. */
+.acpmux-md .is-titled[data-title][data-icon]::after {
+  margin-inline-start: calc(-1 * (var(--cmux-link-chip-pad-inline) + var(--cmux-link-chip-icon)));
+  padding-inline-start: calc(var(--cmux-link-chip-pad-inline) + var(--cmux-link-chip-icon) + var(--ds-space-1, 4px));
 }

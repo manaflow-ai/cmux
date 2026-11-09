@@ -164,6 +164,7 @@ pub(super) enum AppCommand {
     },
     Events {
         params: Value,
+        wait: events::EventsWait,
     },
     /// `browser.page.screenshot`, whose PNG goes to `out` (`-` is stdout,
     /// none is a new file in the temporary directory).
@@ -460,7 +461,11 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             call("bookmark.list", Value::Object(params))
         }
         ("events", _) => {
-            let options = Options::parse(rest, &["after", "name", "category"], &["no-heartbeats"])?;
+            let options = Options::parse(
+                rest,
+                &["after", "name", "category", "timeout", "until", "match"],
+                &["no-heartbeats"],
+            )?;
             let mut params = Map::new();
             if let Some(after) = options.value("after") {
                 let after: i64 = after.parse().map_err(|_| {
@@ -479,7 +484,18 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             if options.flag("no-heartbeats") {
                 params.insert("include_heartbeats".into(), json!(false));
             }
-            AppCommand::Events { params: Value::Object(params) }
+            let timeout = options
+                .value("timeout")
+                .map(|text| super::command::parse_duration_ms("events: --timeout", text))
+                .transpose()?
+                .map(Duration::from_millis);
+            let until = super::event_match::EventMatch::new(
+                "events",
+                options.value("until"),
+                &options.values("match"),
+            )?;
+            let wait = events::EventsWait { until, timeout };
+            AppCommand::Events { params: Value::Object(params), wait }
         }
         // `team invite` is Invite to Team's other name (`home invite-to-team`): one action, one dialog.
         ("team", Some("invite")) => {
@@ -894,8 +910,8 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Screenshot { params, out } => {
             ("browser.page.screenshot", params, Some(SCREENSHOT_TIMEOUT), None, Some(out))
         }
-        AppCommand::Events { params } => {
-            return Ran::Done(stream_events(stream, params, global.output));
+        AppCommand::Events { params, wait } => {
+            return Ran::Done(stream_events(stream, params, &wait, global.output));
         }
         AppCommand::DebugCall { method, params } => {
             return Ran::Done(call::run(global, stream, &method, params));

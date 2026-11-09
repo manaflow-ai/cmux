@@ -21,7 +21,13 @@ import { ChevronRight, Magnifier, OpenBook, Pencil, TerminalSquare } from "./ico
 import { isQuietThought, isThought } from "./thoughts";
 import { countsFailed, groupCalls, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
 import { useT } from "../i18n";
-import { useTranscriptDisclosure, useTranscriptViewContext } from "./transcriptDisclosureModel";
+import {
+  callDisclosureKeys,
+  FoldPin,
+  useFoldPin,
+  useTranscriptDisclosure,
+  useTranscriptViewContext,
+} from "./transcriptDisclosureModel";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { WriteLabel } from "./WriteLabel";
 import { writeCall } from "./writeLabelModel";
@@ -360,6 +366,7 @@ export function ToolGroupRow({
   folded = false,
   findTitle,
   inherits,
+  closedBy,
   thoughtId = (n) => `${disclosureKey}:thought:${n}`,
 }: {
   kind: ToolGroupKind;
@@ -368,6 +375,8 @@ export function ToolGroupRow({
   folded?: boolean;
   /// The key of the run line this group's line takes the place of (TurnRows.tsx): opened, it opens this.
   inherits?: readonly string[];
+  /// The key of the run line this group's line takes the place of: closed by the reader, it closes this.
+  closedBy?: readonly string[];
   /** Original single-call title, revealed when Find matches a path the summary shortens. */
   findTitle?: string;
   /// The id of the group's n-th thought (TurnRows.tsx `thoughtIds`): the same one the thought had
@@ -381,12 +390,15 @@ export function ToolGroupRow({
   // holds a thought, so the thought it opens is on screen.
   const thinking = useTranscriptViewContext() === "thinking";
   const holdsThought = useMemo(() => thinking && items.some(isThought), [thinking, items]);
-  const [open, setOpen] = useTranscriptDisclosure(
-    disclosureKey,
-    (kind !== "edits" && !folded) || holdsThought,
-    true,
+  // A call in the group the reader opened, before or after it was grouped, keeps the group open when
+  // its run finishes; a choice inside the group pins it (`pin`).
+  const members = useMemo(() => callDisclosureKeys(items), [items]);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, (kind !== "edits" && !folded) || holdsThought, true, {
     inherits,
-  );
+    members,
+    closedBy,
+  });
+  const pin = useFoldPin(disclosureKey);
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   // Whether the reader's click opened the run: only then do its rows past the window draw after the
   // fold (StepList). Find opens it with every row drawn, so its match is there to show.
@@ -470,30 +482,32 @@ export function ToolGroupRow({
       <WrittenArtifactButtons tools={tools} />
       <ToolFailureCause failure={failure} />
       {fold.present && (
-        <div {...fold.bodyProps}>
-          {showFindTitle && <pre className="cv-mcp-call__body selectable">{findTitle}</pre>}
-          {kind === "edits" ? (
-            <div className="cv-tool-group" id={detailsId} data-tool-group-items={disclosureKey}>
-              {!files.length
-                ? entryNodes(items, kind, thoughtId)
-                : [
-                    ...files.map((file) => <EditDiff key={file.path} file={file} />),
-                    // Edits that carried no diff (a delete, a move), as rows.
-                    ...entryNodes(items, kind, thoughtId).filter((_, index) => !items[index]!.tool?.diffs?.length),
-                  ]}
-            </div>
-          ) : (
-            <StepList
-              id={detailsId}
-              disclosureKey={disclosureKey}
-              entries={entries}
-              items={items}
-              kind={kind}
-              thoughtId={thoughtId}
-              defer={byClick}
-            />
-          )}
-        </div>
+        <FoldPin.Provider value={pin}>
+          <div {...fold.bodyProps}>
+            {showFindTitle && <pre className="cv-mcp-call__body selectable">{findTitle}</pre>}
+            {kind === "edits" ? (
+              <div className="cv-tool-group" id={detailsId} data-tool-group-items={disclosureKey}>
+                {!files.length
+                  ? entryNodes(items, kind, thoughtId)
+                  : [
+                      ...files.map((file) => <EditDiff key={file.path} file={file} />),
+                      // Edits that carried no diff (a delete, a move), as rows.
+                      ...entryNodes(items, kind, thoughtId).filter((_, index) => !items[index]!.tool?.diffs?.length),
+                    ]}
+              </div>
+            ) : (
+              <StepList
+                id={detailsId}
+                disclosureKey={disclosureKey}
+                entries={entries}
+                items={items}
+                kind={kind}
+                thoughtId={thoughtId}
+                defer={byClick}
+              />
+            )}
+          </div>
+        </FoldPin.Provider>
       )}
     </>
   );

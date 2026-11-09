@@ -122,11 +122,14 @@ pub(super) struct Lease {
 pub(super) struct Refused {
     pub failure: Failure,
     pub dialed: bool,
+    /// How long the held session's stream open ran before it failed (zero
+    /// when it failed waiting for the slot or a dial).
+    pub opened: Duration,
 }
 
 impl Refused {
     fn waiting(failure: Failure) -> Self {
-        Self { failure, dialed: false }
+        Self { failure, dialed: false, opened: Duration::ZERO }
     }
 }
 
@@ -137,6 +140,11 @@ pub(super) struct Stream {
     pub lease: Lease,
     /// Whether this connection dialed the session (else it rode a held one).
     pub dialed: bool,
+    /// On a held session, how long its stream took to open once the slot
+    /// handed the session over (the wait for the slot or another
+    /// connection's dial is not in it). Zero for a dial's own stream, whose
+    /// attempt line has its steps.
+    pub opened: Duration,
 }
 
 impl Slot {
@@ -181,9 +189,15 @@ impl Slot {
                     let held = held.clone();
                     let lease = self.lease(&held);
                     drop(guard);
+                    let opening = Instant::now();
                     match on_held(&held, lease, deadline, &self.identity).await {
-                        Ok(stream) => return Ok(stream),
-                        Err(Some(failure)) => return Err(Refused::waiting(failure)),
+                        Ok(stream) => return Ok(Stream { opened: opening.elapsed(), ..stream }),
+                        Err(Some(failure)) => {
+                            return Err(Refused {
+                                opened: opening.elapsed(),
+                                ..Refused::waiting(failure)
+                            });
+                        }
                         Err(None) if held.retired() || !held.serves((self.identity)().as_ref()) => {
                             continue;
                         }
@@ -200,19 +214,22 @@ impl Slot {
                     }
                 }
                 // Gone, or another person's: no new stream; its last stream
-                // closes it.
+                // closes it. One with none left closes off the slot's lock,
+                // so neither this dial nor the connections waiting on it
+                // wait for the close (the deadline does not bound it).
                 Some(_) => {
                     if let Some(gone) = guard.take() {
                         gone.retired.store(true, Ordering::Release);
                         if gone.streams.load(Ordering::Acquire) == 0 {
-                            gone.close().await;
+                            tokio::spawn(async move { gone.close().await });
                         }
                     }
                 }
                 None => {}
             }
-            let Dialed { connection, multiplexer, mux, vmk } =
-                dial().await.map_err(|failure| Refused { failure, dialed: true })?;
+            let Dialed { connection, multiplexer, mux, vmk, .. } = dial()
+                .await
+                .map_err(|failure| Refused { dialed: true, ..Refused::waiting(failure) })?;
             let held = Arc::new(Held {
                 connection,
                 multiplexer,
@@ -225,14 +242,17 @@ impl Slot {
             });
             // Dialed with a credential another person's replaced meanwhile:
             // closed, never handed out.
+            // Closed off the lock, as above.
             if (self.identity)() != held.identity {
-                mux.close().await;
-                held.close().await;
+                tokio::spawn(async move {
+                    mux.close().await;
+                    held.close().await;
+                });
                 continue;
             }
             let lease = self.lease(&held);
             *guard = Some(held);
-            return Ok(Stream { mux, vmk, lease, dialed: true });
+            return Ok(Stream { mux, vmk, lease, dialed: true, opened: Duration::ZERO });
         }
     }
 
@@ -262,17 +282,16 @@ async fn on_held(
             lease.end().await;
             Err(None)
         }
-        Ok(Ok(mux)) => Ok(Stream { mux, vmk: held.vmk, lease, dialed: false }),
-        Ok(Err(error)) => {
+        Ok(Ok(mux)) => {
+            Ok(Stream { mux, vmk: held.vmk, lease, dialed: false, opened: Duration::ZERO })
+        }
+        // The session is gone (the daemon lost it) or gave up resuming
+        // (`client::RESUME_DEADLINE`): it takes no new stream, and the
+        // caller dials a fresh session for this one.
+        Ok(Err(_)) => {
+            held.retired.store(true, Ordering::Release);
             lease.end().await;
-            if held.alive() {
-                Err(Some(Failure::fatal(
-                    Step::Handshake,
-                    format!("the daemon did not open its mux control stream: {error}"),
-                )))
-            } else {
-                Err(None)
-            }
+            Err(None)
         }
         // The session is resuming (the relay or the machine is away) and did
         // not come back before this connection's deadline.

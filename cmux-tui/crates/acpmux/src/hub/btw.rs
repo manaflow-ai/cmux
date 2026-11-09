@@ -215,6 +215,7 @@ impl Hub {
         session: &Arc<Session>,
         question: &str,
         model: Option<&str>,
+        target_harness: Option<&str>,
         client: &str,
         inline: bool,
         opts: PromptOptions,
@@ -232,7 +233,20 @@ impl Hub {
         } else {
             Box::pin(self.harness_env(&meta)).await
         };
-        let family = meta.family.clone().unwrap_or_else(|| meta.harness.clone());
+        let target_harness =
+            target_harness.map(str::trim).filter(|h| !h.is_empty()).map(str::to_owned);
+        let (family, harness_env) = if let Some(target) = target_harness.as_deref() {
+            let cfg = self.config.read().await;
+            let profile = cfg.resolve_harness(target).map_err(RpcError::invalid_params)?;
+            let family = cfg
+                .harnesses
+                .get(&profile)
+                .map(|p| crate::config::derive_family(&profile, p))
+                .unwrap_or_else(|| profile.clone());
+            (family, std::collections::BTreeMap::new())
+        } else {
+            (meta.family.clone().unwrap_or_else(|| meta.harness.clone()), harness_env)
+        };
         // Claude Code owns a transcript-free side-question callback on its
         // running stream-json process. It never creates a session or sends an
         // ACP prompt, so the main turn and its queue stay untouched.
@@ -241,7 +255,7 @@ impl Hub {
             // active turn. An idle process uses the read-only emulation below.
             // The translator enforces its own active-turn check at dispatch,
             // including when it lives in a separate agent-host process.
-            if is_claude && session.turn().is_some() {
+            if target_harness.is_none() && is_claude && session.turn().is_some() {
                 match with_inline_deadline(
                     inline_deadline,
                     Box::pin(self.btw_inline_claude(session, question)),
@@ -274,6 +288,7 @@ impl Hub {
             inline_deadline,
             family,
             harness_env,
+            target_harness,
         ))
         .await
     }
@@ -288,20 +303,27 @@ impl Hub {
         inline_deadline: Option<tokio::time::Instant>,
         family: String,
         harness_env: std::collections::BTreeMap<String, String>,
+        target_harness: Option<String>,
     ) -> Result<Value, RpcError> {
         let inline = inline_deadline.is_some();
         let explicit = model.map(str::trim).filter(|m| !m.is_empty()).map(str::to_owned);
         let meta = session.meta();
-        // Refused before anything is created when no mode would hold it.
-        let (mode, read_only) =
-            with_inline_deadline(inline_deadline, Box::pin(self.read_only_mode(&meta))).await??;
+        // Refused before anything is created when no mode would hold it. A cross-harness guest
+        // must check the target profile after creation because the source's mode says nothing
+        // about the target's read-only contract.
+        let (mut mode, mut read_only) = if target_harness.is_some() {
+            (String::new(), "policy")
+        } else {
+            with_inline_deadline(inline_deadline, Box::pin(self.read_only_mode(&meta))).await??
+        };
         // Inline emulation uses the chat's current model and folder exactly;
         // the legacy side-session path keeps its cheap default behavior.
-        let mut model = if inline {
+        let mut model = if inline && target_harness.is_none() {
             crate::hub::model_options::current_model(&meta)
         } else {
             match explicit.clone() {
                 Some(m) => Some(m),
+                None if target_harness.is_some() => None,
                 None => self.btw_default_model(&meta).await,
             }
         };
@@ -314,7 +336,13 @@ impl Hub {
         let _owned = inline.then(|| InlineOwned::new(self, &name, &family, &harness_env));
         let (side, context) = match with_inline_deadline(
             inline_deadline,
-            Box::pin(self.btw_fork_point(session, &meta)),
+            Box::pin(async {
+                if target_harness.is_some() {
+                    Ok(None)
+                } else {
+                    self.btw_fork_point(session, &meta).await
+                }
+            }),
         )
         .await??
         {
@@ -348,8 +376,8 @@ impl Hub {
             ),
             None => {
                 let req = NewRequest {
-                    harness: Some(meta.harness.clone()),
-                    preset: meta.preset.clone(),
+                    harness: Some(target_harness.clone().unwrap_or_else(|| meta.harness.clone())),
+                    preset: if target_harness.is_some() { None } else { meta.preset.clone() },
                     name: Some(name.clone()),
                     cwd: Some(meta.cwd.clone()),
                     policy: Some(side_policy(self.btw_chat_policy(session).await, inline)),
@@ -375,6 +403,7 @@ impl Hub {
                     // The person's side chat, as its chat is.
                     person: session.person.load(Ordering::SeqCst),
                     wait_start: false,
+                    require_asking: false,
                 };
                 let side = match with_inline_creation(
                     self.clone(),
@@ -418,6 +447,21 @@ impl Hub {
             }
         };
         let forked = context.is_none();
+        if target_harness.is_some() {
+            let target_mode = match with_inline_deadline(
+                inline_deadline,
+                Box::pin(self.read_only_mode(&side.meta())),
+            )
+            .await
+            {
+                Ok(Ok(mode)) => mode,
+                Ok(Err(e)) | Err(e) => {
+                    Box::pin(self.btw_cleanup(&side, &family, &harness_env)).await;
+                    return Err(e);
+                }
+            };
+            (mode, read_only) = target_mode;
+        }
         let settled = match with_inline_deadline(
             inline_deadline,
             Box::pin(self.btw_settle(session, &side, question, &mode, read_only, inline)),
@@ -848,14 +892,14 @@ fn side_policy(chat: PermissionPolicy, inline: bool) -> PermissionPolicy {
         // Inline fallbacks have no pane to answer a permission card. Read-only
         // questions must therefore allow reads automatically, while DenyAll
         // remains a deliberate refusal from the parent chat.
-        return if chat == PermissionPolicy::DenyAll {
+        return if matches!(chat, PermissionPolicy::DenyAll | PermissionPolicy::Review) {
             chat
         } else {
             PermissionPolicy::ApproveReads
         };
     }
     match chat {
-        PermissionPolicy::Ask | PermissionPolicy::DenyAll => chat,
+        PermissionPolicy::Ask | PermissionPolicy::DenyAll | PermissionPolicy::Review => chat,
         _ => PermissionPolicy::ApproveReads,
     }
 }

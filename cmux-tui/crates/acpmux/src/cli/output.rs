@@ -85,6 +85,17 @@ fn daemon_restarting_error(error: &anyhow::Error) -> bool {
     })
 }
 
+/// The daemon's shutdown refusal of a create it refused before making anything
+/// (`hub::shutting_down_before_create`): sent again to the next daemon, it can never
+/// make a second session, named or not.
+pub(crate) fn refused_before_create(error: &anyhow::Error) -> bool {
+    daemon_restarting_error(error)
+        && error.downcast_ref::<crate::client::DaemonError>().is_some_and(|d| {
+            d.0.data.as_ref().and_then(|v| v.get(crate::hub::REFUSED_CREATED))
+                == Some(&serde_json::Value::Bool(false))
+        })
+}
+
 /// The turn's failure as `agent_error`. ACP internal (-32603) or parse (-32700) errors with
 /// nothing produced are the only retryable failures.
 fn agent_error(e: &anyhow::Error, id: &str, produced: bool) -> crate::cli::errors::AppError {
@@ -127,6 +138,10 @@ pub(crate) fn arg_or_stdin(words: &[String]) -> Result<String> {
 pub(crate) const SUBAGENT_META: &str = "callerSubagent";
 /// `_meta.acpmux` key: refuse a message the receiver's inbox would hold without waking it.
 pub(crate) const WAKE_OR_FAIL_META: &str = "wakeOrFail";
+/// `_meta.acpmux` key: this call waits for the reply and gives it to its caller ([`collect_reply`]),
+/// so a lane's report of the turn does not reach the same session again
+/// (`hub/lane_report_reads.rs`).
+pub(crate) const READS_REPLY_META: &str = "readsReply";
 
 /// A client prompt id (`_meta.acpmux.promptId`). The daemon runs each id
 /// once, so the same prompt sent again after its connection closed answers
@@ -212,6 +227,15 @@ impl PromptId {
                 wake_or_fail: false,
             },
         }
+    }
+
+    /// The same prompt naming the Claude Code subagent in the caller's session that sends it,
+    /// when the Bash hook marked this process (`cli/sender.rs` `SUBAGENT_ENV`): `acpmux run` and
+    /// `acpmux new` with a prompt, which a subagent runs in its lead's session as it runs
+    /// `acpmux send`. The lane then reads that subagent as its sender, and its reports reach it.
+    pub(crate) fn naming_this_caller(mut self) -> Self {
+        self.subagent = crate::cli::sender::subagent_of_this_process().map(|s| s.to_value());
+        self
     }
 
     /// `session/prompt` params; `provenance` names the agent that sent it
@@ -1012,7 +1036,10 @@ async fn collect_once(
     )
     .await?;
     let c = client.clone();
-    let params = prompt.params(id, text, opts.steer, None);
+    let mut params = prompt.params(id, text, opts.steer, None);
+    if let Some(mux) = params.pointer_mut("/_meta/acpmux") {
+        mux.set(READS_REPLY_META, json!(true));
+    }
     let mut turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
     let mut steered = crate::cli::steer_reply::SteerReply::new(&prompt.id, opts.steer);
     let mut end_wait: Option<crate::cli::steer_reply::EndWait> = None;
@@ -1604,6 +1631,22 @@ fn a_restarting_daemons_answer_is_a_restart_not_an_agent_error() {
     // `daemon_closed_error`: the shutdown's answer is a daemon going away there too.
     assert!(daemon_closed_error(&restarting));
     assert!(!daemon_closed_error(&agent));
+}
+
+/// A create the shutting-down daemon refused before making anything is sent again to the next
+/// daemon (an unnamed `new` too); one it may have made is not.
+#[test]
+fn a_create_refused_before_anything_was_made_is_sent_again() {
+    let mut before = crate::hub::shutting_down_before_create();
+    crate::recovery::annotate(&mut before, None);
+    let before: anyhow::Error = crate::client::DaemonError(before).into();
+    assert!(refused_before_create(&before));
+    let mut after = crate::rpc::RpcError::internal(crate::hub::SHUTTING_DOWN);
+    crate::recovery::annotate(&mut after, None);
+    let after: anyhow::Error = crate::client::DaemonError(after).into();
+    assert!(daemon_restarting_error(&after));
+    assert!(!refused_before_create(&after), "a refusal after the insert may have made the session");
+    assert!(!refused_before_create(&crate::client::closed_error("test EOF", None)));
 }
 
 /// Cloud chaos fault `token-rejected` (run 42346668793): the turn failed typed `auth.signed_out`

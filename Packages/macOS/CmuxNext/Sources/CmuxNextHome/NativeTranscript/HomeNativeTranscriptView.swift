@@ -77,12 +77,15 @@ public final class HomeNativeTranscriptView: NSView {
         get { transcript.onAppLink }
         set { transcript.onAppLink = newValue }
     }
-    /// Start now on a queued agent's pill (its card or its menu): the host asks this chat's Chief to start it past
-    /// the cap; true when it did. Nil: no Start now.
+    /// Start now on a queued agent's pill card: the host asks this chat's Chief to start it past the cap; true
+    /// when it did. Nil: no Start now, on the card or in the pill's menu.
     public var onStartAgent: ((String) async -> Bool)?
+    /// The pill's menu row Start now for queued agent `peer`: the host's registry builds it from the
+    /// `home.startQueuedAgent` action, so the menu runs the palette's and the CLI's path. Nil: no row.
+    public var startAgentMenuItem: ((String) -> NSMenuItem?)?
     /// The card a click on a pill with no workspace showed (``openAgent(_:at:)``).
     var agentCard: HomeAgentPillCard?
-    /// The last Start now request (its card's or its menu's), while it runs and after.
+    /// The last Start now request of its card, while it runs and after.
     var pendingAgentStart: Task<Void, Never>?
     /// Forward… on a bubble: the host routes its text to another chat (nil: no Forward…).
     public var onForward: ((String) -> Void)? {
@@ -128,6 +131,9 @@ public final class HomeNativeTranscriptView: NSView {
     }
     /// A chosen sent-bubble colour (opt in); nil keeps the style's (iMessage blue, or the theme's accent).
     public var accentOverride: NSColor? { didSet { applyTheme() } }
+    /// Whether the chat leaves its background clear (the floating Chief's see-through styles): the theme's
+    /// background goes to no alpha, so the window behind shows between the bubbles.
+    public var clearsBackground = false { didSet { if clearsBackground != oldValue { applyTheme() } } }
     /// The bubbles' look: iMessage's (the default) or the theme's colours; follows
     /// `home.chiefBubbleStyle` (`DesignSettings.homeChiefBubblesThemed`, `followBubbleStyle`).
     public var bubbleStyle: HomePalette.BubbleStyle = .iMessage { didSet { if bubbleStyle != oldValue { applyTheme() } } }
@@ -169,6 +175,8 @@ public final class HomeNativeTranscriptView: NSView {
     let headerPanels = HomeHeaderPanelBar()
     /// The section pinned under the header (HomeNativeTranscriptView+PinnedSection.swift) and its measured height.
     var pinned: (view: NSView, height: CGFloat?)?
+    /// The Set Up cmux card under the pinned section (HomeNativeTranscriptView+PinnedSection.swift) and its height.
+    var setupCard: (view: NSView, height: CGFloat)?
     /// The window's key and occlusion observers; each token removes itself when released (on any thread).
     private var observers: [MainActorObservation] = []
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
@@ -177,9 +185,10 @@ public final class HomeNativeTranscriptView: NSView {
     let showsHeader = HomeTunables.chatHeader.value
 
     /// - Parameter diagrams: draws Mermaid fences as diagrams (the app's ``OndineMermaidRenderer``); nil keeps them as text.
+    /// - Parameter widgets: runs agents' widget parts natively (the app's ``HomeWidgetHosting`` over its app host); nil shows their fallback text.
     /// - Parameter openPanel: the app's made-ahead file picker (`AppServices.openPanel`) for the "+"; nil (tests) opens none.
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil,
-                openPanel: MadeAheadOpenPanel? = nil) {
+                widgets: (any HomeWidgetHosting)? = nil, openPanel: MadeAheadOpenPanel? = nil) {
         attachmentPanel = openPanel.map { HomeAttachmentPanel(openPanel: $0) }
         HomeReduceMotion.install()
         self.me = me
@@ -190,7 +199,8 @@ public final class HomeNativeTranscriptView: NSView {
         // first pass installs it at the newest message, as it does a chat another
         // view holds open (https://github.com/manaflow-ai/cmux/issues/26397).
         binding = HomeStoreBinding(store: store, conversation: conversation)
-        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams)
+        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams,
+                                         widgets: widgets)
         // The running indicator's look (Debug Settings > Home), read at each of its ticks.
         transcript.turnProgressStyle = { HomeTunables.turnProgress.value.style }
         attachmentPreparer = store
@@ -594,7 +604,8 @@ public final class HomeNativeTranscriptView: NSView {
     /// Fixture colours, and the first-run panel's colours.
     private func applyTheme() {
         let accent = accentOverride, style = bubbleStyle, chosen = bubbleColors
-        let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }.applying(chosen)
+        var active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }.applying(chosen)
+        if clearsBackground { active.background.alpha = 0 }
         // A chosen sent colour replaces MessagesLab's measured blue (and its white text).
         let measured = chosen.sent == nil && chosen.sentText == nil
             && performWithTheme { HomeThemePalette.usesMessagesBlueInScope(style: style, accentOverride: accent) }

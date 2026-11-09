@@ -88,6 +88,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         (vec!["pane", "create", "--", "make", "watch"], "pane.create"),
         (vec!["screen", "create", "--shell", "make watch"], "screen.create"),
         (vec!["screen", "create", "--", "make", "watch"], "screen.create"),
+        (vec!["screen", "create", "--focus"], "screen.create"),
         (vec!["tab", "create", "terminal", "--shell", "make watch"], "tab.create_terminal"),
         (vec!["tab", "create", "terminal", "--", "make", "watch"], "tab.create_terminal"),
         (
@@ -97,6 +98,27 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         (vec!["tab", TAB, "update", "--marked-unread", "true"], "tab.update"),
         (vec!["attention", "request", "--tab", TAB, "--reason", "Confirm"], "tab.update"),
         (vec!["attention", "clear", "--tab", TAB], "tab.update"),
+        // W5-P: pane.move's other destinations and the parents of a named one.
+        (
+            vec![
+                "pane",
+                PANE,
+                "move",
+                "--to-tab",
+                TAB,
+                "--to-workspace",
+                WORKSPACE,
+                "--to-screen",
+                "screen_00000000000000000000000000000005",
+                "--index",
+                "1",
+                "--focus",
+            ],
+            "pane.move",
+        ),
+        (vec!["pane", PANE, "move", "--new-screen", "--name", "logs"], "pane.move"),
+        // W5-P: agent list --terminal takes any terminal selector.
+        (vec!["agent", "list", "--terminal", "alpha"], "agent.list"),
         (vec!["workspace", WORKSPACE, "close", "--report-closed-ids"], "workspace.close"),
         (
             vec![
@@ -318,6 +340,10 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "stash.restore"
                         | "stash.delete"
                         | "stash.import"
+                        // The move from classic cmux is the app's: it reads
+                        // the plan and records what it made.
+                        | "classic_import.plan"
+                        | "classic_import.record"
                         // Import from Conductor is the app's: it reads the
                         // plan and records what it made.
                         | "conductor_import.plan"
@@ -343,23 +369,17 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "cloud.runs.sandbox"
                         | "cloud.runs.start"
                         | "cloud.runs.wait"
-                        | "cloud.vm.delete_snapshot"
                         | "cloud.vm.domains"
                         | "cloud.vm.firewall_create"
                         | "cloud.vm.firewall_delete"
                         | "cloud.vm.firewall_get"
                         | "cloud.vm.firewall_list"
-                        | "cloud.vm.fork"
                         | "cloud.vm.networks"
                         | "cloud.vm.provision_api"
                         | "cloud.vm.publication_api_keys"
                         | "cloud.vm.publications"
-                        | "cloud.vm.resize"
-                        | "cloud.vm.restore"
                         | "cloud.vm.revoke_publication_api_key"
                         | "cloud.vm.scp_endpoint"
-                        | "cloud.vm.snapshot"
-                        | "cloud.vm.snapshots"
                         | "cloud.vm.tunnel_attach"
                         | "cloud.vm.tunnel_detach"
                         | "cloud.vm.tunnel_enroll"

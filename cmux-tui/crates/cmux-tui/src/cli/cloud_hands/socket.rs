@@ -11,6 +11,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
+// timeout: a WebSocket upgrade that never completes fails the connect.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
 /// The subscribe answer is the user owner's snapshot (up to about 1.5 MB).
 const MAX_MESSAGE: usize = 8 << 20;

@@ -83,15 +83,48 @@
 //! flags and environment and serves the same stream on a Unix socket: one
 //! session per machine, dialed by the first accepted connection, and a mux
 //! control stream on it for each connection ([`serve`]).
+//!
+//! `cmux carrier capabilities [--json] [--wg-hub PATH]` prints one JSON
+//! object on stdout and exits 0: the routes this device can carry a Cloud
+//! session over (`routes`), the faults a probe can inject (`faults`), and
+//! per carrier (`carriers.relay`, `carriers.ssh`) whether it is available
+//! (with a `code` and a `reason` when not), can be probed, and which faults
+//! it takes ([`fault::capabilities`]). ssh is available when the dial's own
+//! check of this device passes ([`ssh::ssh_ready`]: the tunnel hub at
+//! `--wg-hub` or the default socket answers, and the carrier key is there,
+//! made the first time as a dial makes it). It needs no network, sign-in or
+//! app. The probe account's fault switch, `cmux cloud start-chat
+//! --carrier-fault`, is [`fault`]'s.
+//!
+//! `cmux carrier tunnel --machine-id machine_… --name NAME --socket PATH`
+//! keeps this Mac's tunnel into the team's provider Cloud mesh up (attach,
+//! a `wg hub` on PATH, refresh, re-attach) so the ssh carrier reaches a
+//! machine's mesh address through `cmux wg dial --hub PATH %h %p`
+//! ([`tunnel`], [`tunnel_cli`]).
+//!
+//! The dial's routes are the relay, then that ssh carrier ([`ssh`]) when the
+//! answer has an `ssh` candidate, this device has a carrier key and the
+//! tunnel's hub answers: `--wg-hub PATH` names its socket (absolute, a Unix
+//! socket path), else `<workspace state dir>/carrier/tunnel.sock`. Each
+//! attempt and resume appends a `carrier.routes` line to the connect log
+//! after its phases line, naming the ssh route's state and the carrier that
+//! carried it ([`contract::routes_line`]).
 
 mod answer;
 mod client;
 mod contract;
+pub(crate) mod drill;
+pub(crate) mod fault;
 mod held;
 mod noise_key;
+mod rd_link;
 mod route_log;
 mod secrets;
 mod serve;
+mod source;
+mod ssh;
+pub(crate) mod tunnel;
+mod tunnel_cli;
 
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -121,6 +154,9 @@ pub(crate) struct DialArgs {
     /// `dial --answer-fd N`: the file descriptor whose first line is a
     /// handed-over carrier answer (0: stdin, before the stream).
     pub answer_fd: Option<i32>,
+    /// `--wg-hub PATH`: the tunnel hub's socket the ssh backup carrier
+    /// dials through (`carrier tunnel --socket`); else the default one.
+    pub wg_hub: Option<PathBuf>,
 }
 
 /// One `cmux carrier serve` invocation: a dial per connection to `socket`.
@@ -142,7 +178,8 @@ pub(crate) enum DialService {
 }
 
 /// `dial --machine vm_… [--service mux|desktop] [--deadline-ms N] [--cloud-api URL]
-/// [--cloud-token-file PATH] [--team team_…] [--answer-fd N]`, each once, nothing else.
+/// [--cloud-token-file PATH] [--team team_…] [--answer-fd N] [--wg-hub PATH]`, each once,
+/// nothing else.
 pub(crate) fn parse(args: &[String]) -> Option<DialArgs> {
     let (verb, rest) = args.split_first()?;
     if verb != "dial" {
@@ -168,7 +205,7 @@ pub(crate) fn parse_serve(args: &[String]) -> Option<ServeArgs> {
 fn flags(rest: &[String], serve: bool) -> Option<(DialArgs, Option<String>)> {
     let (mut machine, mut service, mut deadline, mut api, mut token_file, mut team, mut socket) =
         (None, None, None, None, None, None, None);
-    let mut answer_fd = None;
+    let (mut answer_fd, mut wg_hub) = (None, None);
     let mut words = rest.iter();
     while let Some(flag) = words.next() {
         let value = words.next()?.clone();
@@ -181,6 +218,7 @@ fn flags(rest: &[String], serve: bool) -> Option<(DialArgs, Option<String>)> {
             "--team" => &mut team,
             "--socket" if serve => &mut socket,
             "--answer-fd" if !serve => &mut answer_fd,
+            "--wg-hub" => &mut wg_hub,
             _ => return None,
         };
         if slot.replace(value).is_some() {
@@ -204,6 +242,10 @@ fn flags(rest: &[String], serve: bool) -> Option<(DialArgs, Option<String>)> {
         Some(text) => Some(contract::parse_answer_fd(&text)?),
         None => None,
     };
+    let wg_hub = match wg_hub.map(PathBuf::from) {
+        Some(hub) if !hub.is_absolute() || !cmux_unix_socket::fits(&hub) => return None,
+        hub => hub,
+    };
     let dial = DialArgs {
         machine,
         service,
@@ -212,6 +254,7 @@ fn flags(rest: &[String], serve: bool) -> Option<(DialArgs, Option<String>)> {
         token_file: token_file.map(PathBuf::from),
         team,
         answer_fd,
+        wg_hub,
     };
     Some((dial, socket))
 }
@@ -227,6 +270,19 @@ pub(crate) fn with_team_env(mut args: DialArgs, env: Option<String>) -> Option<D
         args.team = env;
     }
     Some(args)
+}
+
+/// `team`, else a non-empty `CMUX_CLOUD_TEAM`, checked: `None` when the
+/// value is not a team id, `Some(None)` when neither names one.
+fn with_team_env_value(team: Option<String>) -> Option<Option<String>> {
+    if team.is_some() {
+        return Some(team);
+    }
+    let env = std::env::var(TEAM_ENV).ok().map(|t| t.trim().to_owned()).filter(|t| !t.is_empty());
+    if env.as_deref().is_some_and(|t| !contract::valid_team(t)) {
+        return None;
+    }
+    Some(env)
 }
 
 fn reply(line: &str) {
@@ -291,7 +347,8 @@ fn runtime() -> Result<tokio::runtime::Runtime, i32> {
         .map_err(|_| fail(&Failure::fatal(contract::Step::Relay, "no async runtime")))
 }
 
-/// The full-jitter draw of the session's own reconnect policy.
+/// The full-jitter draw of the session's own reconnect policy (the
+/// tunnel's retry waits, [`tunnel_cli`]).
 fn jitter(ceiling: Duration) -> Duration {
     cmux_remote::connection::ReconnectPolicy::default().retry_delay(ceiling)
 }
@@ -304,20 +361,40 @@ async fn open_desktop(
     multiplexer: &Arc<cmux_remote::service::ServiceMultiplexer>,
     deadline: tokio::time::Instant,
 ) -> Result<Arc<cmux_remote::service::ServiceStream>, Failure> {
-    use cmux_remote::bridge::{BridgeError, CLOUD_DESKTOP_SOCKET, open_local_socket};
+    use cmux_remote::bridge::{CLOUD_DESKTOP_SOCKET, open_local_socket};
     match tokio::time::timeout_at(deadline, open_local_socket(multiplexer, CLOUD_DESKTOP_SOCKET))
         .await
     {
         Ok(Ok(stream)) => Ok(stream),
-        Ok(Err(BridgeError::Rejected(why))) => Err(Failure::fatal(contract::Step::Service, why)),
-        Ok(Err(error)) => Err(Failure::fatal(
-            contract::Step::Relay,
-            format!("the session ended before the desktop opened: {error}"),
-        )),
+        Ok(Err(error)) => Err(desktop_failure(error, multiplexer.session_unavailable())),
         Err(_) => Err(Failure::fatal(
             contract::Step::Relay,
             "the desktop did not open before the deadline",
         )),
+    }
+}
+
+/// Why the desktop stream did not open: the daemon's refusal is the
+/// service's; a session the daemon no longer has (`session_unavailable`:
+/// the multiplexer's reader saw it, or the error itself says so) is dialed
+/// fresh; anything else ended
+/// the session, which is the carrier's.
+fn desktop_failure(error: cmux_remote::bridge::BridgeError, session_unavailable: bool) -> Failure {
+    use cmux_remote::bridge::BridgeError;
+    if let BridgeError::Rejected(why) = error {
+        return Failure::fatal(contract::Step::Service, why);
+    }
+    // The reader may not have marked the session yet when the open's own
+    // send (or a heartbeat) met its typed end first.
+    let gone = session_unavailable
+        || matches!(&error, BridgeError::Service(service) if service.is_session_unavailable());
+    let detail = format!("the session ended before the desktop opened: {error}");
+    // The session host restarted after the session's first stream opened
+    // and no longer has it: the dial opens a fresh one.
+    if gone {
+        Failure::session_gone(contract::Step::Relay, detail)
+    } else {
+        Failure::fatal(contract::Step::Relay, detail)
     }
 }
 
@@ -375,6 +452,40 @@ fn key(args: &[String]) -> i32 {
     }
 }
 
+/// `capabilities [--json] [--wg-hub PATH]`, each once (the answer is JSON
+/// either way): `Some(hub)`, the dial's `--wg-hub` checked the same way.
+pub(crate) fn parse_capabilities(args: &[String]) -> Option<Option<PathBuf>> {
+    let (verb, rest) = args.split_first()?;
+    if verb != "capabilities" {
+        return None;
+    }
+    let rest = match rest {
+        [flag, tail @ ..] if flag == "--json" => tail,
+        _ => rest,
+    };
+    match rest {
+        [] => Some(None),
+        [flag, hub] if flag == "--wg-hub" => {
+            let hub = PathBuf::from(hub);
+            (hub.is_absolute() && cmux_unix_socket::fits(&hub)).then_some(Some(hub))
+        }
+        _ => None,
+    }
+}
+
+/// `cmux carrier capabilities [--json] [--wg-hub PATH]`: this device's
+/// carriers on stdout.
+fn capabilities(args: &[String]) -> i32 {
+    let Some(hub) = parse_capabilities(args) else {
+        return usage("usage: cmux carrier capabilities [--json] [--wg-hub PATH]");
+    };
+    let line = format!("{}\n", fault::capabilities(&fault::this_device(hub)));
+    let mut stdout = std::io::stdout().lock();
+    let _ = stdout.write_all(line.as_bytes());
+    let _ = stdout.flush();
+    0
+}
+
 /// `cmux carrier …` from `main`: the exit code.
 pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().is_some_and(|verb| verb == "serve") {
@@ -386,9 +497,15 @@ pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().is_some_and(|verb| verb == "key") {
         return key(args);
     }
+    if args.first().is_some_and(|verb| verb == "tunnel") {
+        return tunnel_cli::run(args);
+    }
+    if args.first().is_some_and(|verb| verb == "capabilities") {
+        return capabilities(args);
+    }
     let Some(args) = parse(args) else {
         return usage(
-            "usage: cmux carrier dial --machine vm_… [--service mux|desktop] [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…] [--answer-fd N]",
+            "usage: cmux carrier dial --machine vm_… [--service mux|desktop] [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…] [--answer-fd N] [--wg-hub PATH]",
         );
     };
     let (args, source, identity) = match prepare(args) {
@@ -425,23 +542,33 @@ pub(crate) fn run(args: &[String]) -> i32 {
                     route_log::append(path, &line);
                 }
             }),
+            fresh_sessions: contract::FreshSessions::default(),
+            ssh: Arc::new(ssh::SshSetup::from_env(args.wg_hub.clone())),
+            ssh_refusal: ssh::SshRefusal::default(),
         };
-        let dialed = client::dial(&plan, jitter).await;
         // The desktop opens its stream before the reply, so a refusal (not
         // the owner, no desktop on the machine) is the dial's answer. The
-        // open stays inside the dial's one deadline.
-        let (dialed, desktop) = match (dialed, args.service) {
-            (Ok(dialed), DialService::Desktop) => {
-                match open_desktop(&dialed.multiplexer, plan.deadline).await {
-                    Ok(stream) => (Ok(dialed), Some(stream)),
-                    Err(failure) => {
-                        dialed.multiplexer.shutdown().await;
-                        let _ = dialed.connection.close().await;
-                        (Err(failure), None)
+        // open stays inside the dial's one deadline. A session the host lost
+        // before the desktop opened is dialed fresh, from the same budget
+        // as the dial's own fresh sessions (`MAX_FRESH_SESSIONS` in all).
+        let (dialed, desktop) = loop {
+            let dialed = client::dial(&plan).await;
+            match (dialed, args.service) {
+                (Ok(dialed), DialService::Desktop) => {
+                    match open_desktop(&dialed.multiplexer, plan.deadline).await {
+                        Ok(stream) => break (Ok(dialed), Some(stream)),
+                        Err(failure) => {
+                            dialed.multiplexer.shutdown().await;
+                            let _ = dialed.connection.close().await;
+                            if failure.fresh_session && plan.fresh_sessions.take() {
+                                continue;
+                            }
+                            break (Err(failure), None);
+                        }
                     }
                 }
+                (dialed, _) => break (dialed, None),
             }
-            (dialed, _) => (dialed, None),
         };
         let code = match &dialed {
             Ok(dialed) => {
@@ -460,16 +587,43 @@ pub(crate) fn run(args: &[String]) -> i32 {
                 reply(&line);
             }
         });
-        let client::Dialed { connection, multiplexer, mux, .. } = dialed;
+        let client::Dialed { connection, multiplexer, mux, rd_link, .. } = dialed;
         let _ = match desktop {
             Some(stream) => {
                 mux.close().await;
-                cmux_remote::bridge::bridge_raw_stream(
-                    stream,
-                    tokio::io::stdin(),
-                    tokio::io::stdout(),
-                )
-                .await
+                // The datagram link only when the platform turned it on and
+                // `CMUX_RD_LINK=0` does not keep it off; else the plain copy.
+                let killed = std::env::var(rd_link::KILL_SWITCH).is_ok_and(|v| v == "0");
+                match rd_link.filter(|_| !killed) {
+                    Some(link) => {
+                        let machine = args.machine.clone();
+                        let link_log = route_log::default_path();
+                        rd_link::bridge(
+                            stream,
+                            tokio::io::stdin(),
+                            tokio::io::stdout(),
+                            link.stun,
+                            link.turn,
+                            move |note| {
+                                if let Some(path) = &link_log {
+                                    route_log::append(
+                                        path,
+                                        &format!("cloud.desktop_link machine={machine} {note}\n"),
+                                    );
+                                }
+                            },
+                        )
+                        .await
+                    }
+                    None => {
+                        cmux_remote::bridge::bridge_raw_stream(
+                            stream,
+                            tokio::io::stdin(),
+                            tokio::io::stdout(),
+                        )
+                        .await
+                    }
+                }
             }
             None => mux.bridge(tokio::io::stdin(), tokio::io::stdout()).await,
         };

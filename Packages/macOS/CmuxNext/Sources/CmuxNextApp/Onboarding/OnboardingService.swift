@@ -53,14 +53,16 @@ final class OnboardingService {
     var classicMigrationSupport: URL?
     /// Whether launch runs the classic migration; nil decides by build (shipping builds only).
     var classicMigrationAtLaunch: Bool?
-    /// Whether a classic cmux app is running; nil reads it from how recently classic saved.
+    /// Whether a classic cmux app is running; nil checks classic's socket lock and reads its launch sentinel.
     var classicRunning: (@MainActor () -> Bool)?
+    /// Whether the classic socket lock at a path is held; nil asks `flock` (tests answer free).
+    var classicLockHeld: (@MainActor (String) -> Bool)?
     /// Classic's state folder, where its launch sentinel says it runs; nil is this Mac's
     /// (`~/.local/state/cmux`); tests use a scratch folder.
     var classicStateRoot: URL?
     /// Answers the migration preview; nil presents the native cmux dialog.
     /// Tests inject an answer without creating UI.
-    var classicMigrationConfirmation: (@MainActor (ClassicImportPlan) async -> Bool)?
+    var classicMigrationConfirmation: (@MainActor (ClassicImportPlan) async -> ClassicImportAnswer)?
     /// The migration run in flight or last finished: a new run waits for it.
     var classicMigrationRun: Task<ClassicMigrationOutcome, any Error>?
 
@@ -186,9 +188,18 @@ final class OnboardingService {
         return await services.openLocalProviderLogin(line)
     }
 
-    /// Agents, then Bring your history (``OnboardingWindowPresenter/showFirstRunSteps``); never when ``AppEnvironment/skipsOnboarding``.
+    /// Home's Set Up cmux card (``FirstRunSetup``): what a first run offers, in place of the first-run windows.
+    private(set) lazy var setup = FirstRunSetup(skipsOnboarding: services.environment.skipsOnboarding)
+
+    /// A first run starts Home's Set Up cmux card, which offers the agents, the chat history (when found), the
+    /// account and the command line in one place: the Agents window and the CLI toast count as shown, and
+    /// Bring your history opens from the card's row. Otherwise Agents, then Bring your history
+    /// (``OnboardingWindowPresenter/showFirstRunSteps``); never when ``AppEnvironment/skipsOnboarding``.
     func showFirstRunSteps(isFirstRun: Bool) async {
         guard !services.environment.skipsOnboarding else { return }
+        let route = setup.route(isFirstRun: isFirstRun, replacedKeys: [CLIInstallHandlers.offeredAtLaunchKey], screenReader: NSWorkspace.shared.isVoiceOverEnabled)
+        if route == .startCard { DebugTimings.markLaunch("first_run.setup_card_shown") }
+        guard route == .windows else { return }
         await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses) { self.showHistoryAtFirstRun(isFirstRun: isFirstRun) }
     }
 

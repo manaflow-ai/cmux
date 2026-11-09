@@ -1,10 +1,12 @@
 public import Foundation
 import CmuxNextCompat
 
-/// The `/api/vm` REST client (web/app/api/vm). Native auth is
-/// `Authorization: Bearer <access>` plus `X-Stack-Refresh-Token`; the team
-/// rides `X-Cmux-Team-Id`. Every call has a deadline; a miss is
-/// `CloudAPIError.timedOut`, never a hang. Tokens come from the caller per
+/// The Cloud REST client. A Worker machines client (CloudAPIClient+MachineRoutes.swift) sends a
+/// machine's exec, file, SCP and preview calls to cmux-platform's `/v1/cloud/machines`, the only
+/// machine path. The sign-in client (``init(configuration:tokens:teamID:session:appVersion:)``)
+/// keeps only the sandboxed-Run calls (`Authorization: Bearer <access>`, `X-Stack-Refresh-Token`,
+/// `X-Cmux-Team-Id`); a machine call on it answers 501 at once and sends nothing. Every call has a
+/// deadline; a miss is `CloudAPIError.timedOut`, never a hang. Tokens come from the caller per
 /// request and are never stored here.
 public struct CloudAPIClient: Sendable {
     public typealias Tokens = @Sendable () async throws -> (access: String, refresh: String)
@@ -16,11 +18,15 @@ public struct CloudAPIClient: Sendable {
     private(set) var teamID: TeamID
     let session: URLSession
     let appVersion: String
-    /// `/api/vm`, or the Worker's (CloudAPIClient+MachineRoutes.swift, which says what each sends).
-    let machinePath: String, sendsStackSession: Bool
+    /// cmux-platform's machine routes (CloudAPIClient+MachineRoutes.swift, which says what each sends).
+    let machinePath = "/v1/cloud/machines"
+    /// The sign-in client: Stack refresh token and `X-Cmux-Team-Id`, sandboxed Runs only.
+    let sendsStackSession: Bool
     /// A Worker machines client's exec and file routes through cmux-tui (direct to the provider
     /// with a client session); nil: straight to the cmux API (CloudAPIClient+MachineRoutes.swift).
     var machineIO: CloudMachineIO?
+    /// A Worker machines client's install token, for the routes that take an install, not a session (``listNetworks()``).
+    var installToken: (@Sendable () async throws -> String)?
 
     /// Requests that carry the account's bearer token: ephemeral, no URL
     /// cache, no cookies, so no answer (or the request headers stored with
@@ -55,7 +61,6 @@ public struct CloudAPIClient: Sendable {
         self.teamID = teamID
         self.session = session
         self.appVersion = appVersion
-        machinePath = "/api/vm"
         sendsStackSession = true
     }
 
@@ -67,155 +72,97 @@ public struct CloudAPIClient: Sendable {
         self.teamID = teamID
         self.session = session
         self.appVersion = appVersion
-        machinePath = "/v1/cloud/machines"
         sendsStackSession = false
-    }
-
-    // MARK: Machines
-
-    /// `POST /api/vm/{id}/resize`: cpu 1-32, memory 4096-65536 MiB in whole GiB, storage in 4 GiB
-    /// steps up to 256 GiB (grow-only). Only the given dimensions are sent; the server checks them.
-    public func resize(_ id: String, cpu: Int? = nil, memoryMb: Int? = nil, storageMb: Int? = nil) async throws {
-        var body: [String: any Sendable] = [:]
-        if let cpu { body["cpu"] = cpu }
-        if let memoryMb { body["memoryMb"] = memoryMb }
-        if let storageMb { body["storageMb"] = storageMb }
-        _ = try await send("POST", "/api/vm/\(id)/resize", body: body, timeout: .seconds(120), as: Ignored.self)
-    }
-
-    public func snapshot(_ id: String, name: String?, idempotencyKey: String = UUID().uuidString) async throws -> CloudSnapshot {
-        var body: [String: any Sendable] = [:]
-        if let name { body["name"] = name }
-        return try await send("POST", "/api/vm/\(id)/snapshot", body: body, idempotencyKey: idempotencyKey,
-                              timeout: .seconds(300), as: CloudSnapshot.self)
-    }
-
-    public func snapshots(_ id: String) async throws -> [CloudSnapshot] {
-        struct List: CloudServerModel {
-            static var cloudModelKind: String { "snapshots" }
-            var snapshots: [CloudSnapshot]
-            init(from decoder: any Decoder) throws { snapshots = try [CloudSnapshot](from: decoder) }
-        }
-        return try await send("GET", "/api/vm/\(id)/snapshots", as: List.self).snapshots
-    }
-
-    /// Deletes a snapshot scoped to the machine that owns it.
-    public func deleteSnapshot(_ id: String, snapshotID: String) async throws {
-        _ = try await send("DELETE", "/api/vm/\(id)/snapshots/\(snapshotID)", timeout: .seconds(960), as: Ignored.self)
-    }
-
-    public func restore(snapshotID: String, idempotencyKey: String = UUID().uuidString) async throws -> CloudMachine {
-        try await send("POST", "/api/vm/restore", body: ["snapshotId": snapshotID], idempotencyKey: idempotencyKey,
-                       timeout: .seconds(620), as: CloudMachine.self)
-    }
-
-    public func fork(_ id: String, name: String?, idempotencyKey: String = UUID().uuidString) async throws -> CloudMachine {
-        var body: [String: any Sendable] = [:]
-        if let name { body["name"] = name }
-        return try await send("POST", "/api/vm/\(id)/fork", body: body, idempotencyKey: idempotencyKey, timeout: .seconds(620),
-                              as: CloudMachine.self)
     }
 
     // MARK: Files and SCP
 
-    /// Mints a short-lived private SCP route. The public key is the only key
-    /// material sent to the backend; the caller owns the corresponding secret.
+    /// Mints a short-lived private SCP route: cmux-platform's `POST /v1/cloud/machines/{id}/ssh-endpoint` on a
+    /// Worker machines client (``workerMachines(baseURL:accessToken:teamID:session:appVersion:machineIO:)``). The
+    /// public key is the only key material sent; the caller owns the secret.
     public func prepareSCP(_ id: String, publicKey: String) async throws -> CloudSCPEndpoint {
         // cmux-cloud-machine reads only a safe route (port 22, user cmux, an ed25519 host key, not
         // expired); any other answer throws ``CloudAPIError/decoding(_:)``.
-        try await send("POST", "/api/vm/\(id)/scp-endpoint", body: ["publicKey": publicKey],
+        try requireWorker()
+        return try await send("POST", "\(machinePath)/\(id)/ssh-endpoint", body: ["publicKey": publicKey],
                        timeout: .seconds(100), as: CloudSCPEndpoint.self)
     }
 
-    // MARK: Tunnel
-
-    public func attachTunnelNetwork(deviceFingerprint: String, networkID: String, tunnelPurpose: String = "browser") async throws -> CloudTunnelNetworkMutation {
-        try await send("POST", "/api/vm/tunnel/network/attach", body: ["deviceFingerprint": deviceFingerprint, "networkId": networkID, "tunnelPurpose": tunnelPurpose], timeout: .seconds(60), as: CloudTunnelNetworkMutation.self)
-    }
-
-    public func detachTunnelNetwork(deviceFingerprint: String, networkID: String, tunnelPurpose: String = "browser") async throws -> CloudTunnelNetworkMutation {
-        try await send("POST", "/api/vm/tunnel/network/detach", body: ["deviceFingerprint": deviceFingerprint, "networkId": networkID, "tunnelPurpose": tunnelPurpose], timeout: .seconds(60), as: CloudTunnelNetworkMutation.self)
-    }
-
-    public func rotateTunnelKey(deviceFingerprint: String, publicKey: String, tunnelPurpose: String = "browser") async throws -> CloudTunnelNetworkMutation {
-        try await send("POST", "/api/vm/tunnel/network/rotate-key", body: ["deviceFingerprint": deviceFingerprint, "clientPublicKey": publicKey, "tunnelPurpose": tunnelPurpose], timeout: .seconds(60), as: CloudTunnelNetworkMutation.self)
-    }
-
-    public func listFirewallRules(vpcID: String? = nil, vmID: String? = nil, tunnelID: String? = nil) async throws -> [CloudFirewallRule] {
-        var parts: [String] = []
-        if let vpcID { parts.append("vpcId=\(queryComponent(vpcID))") }
-        if let vmID { parts.append("vmId=\(queryComponent(vmID))") }
-        if let tunnelID { parts.append("tunnelId=\(queryComponent(tunnelID))") }
-        struct List: Decodable { var rules: [CloudFirewallRule] }
-        return try await send("GET", "/api/vm/firewall\(parts.isEmpty ? "" : "?\(parts.joined(separator: "&"))")", as: List.self).rules
-    }
-
+    /// The team's Cloud network: cmux-platform's `GET /v1/host/network/target` on a Worker machines
+    /// client, sent as this Mac's install (`installToken`; the route refuses a Stack session), never
+    /// classic Cloud. A team has one network, named by its team id (what tunnel attach takes), with
+    /// its provider mesh as `meshId`; a team with no mesh yet (404) has none.
     public func listNetworks() async throws -> [CloudNetwork] {
-        struct List: Decodable { var networks: [CloudNetwork] }
-        return try await send("GET", "/api/vm/network", as: List.self).networks
-    }
-
-    public func getFirewallRule(_ ruleID: String) async throws -> CloudFirewallRule {
-        try await send("GET", "/api/vm/firewall?ruleId=\(queryComponent(ruleID))", as: CloudFirewallRule.self)
-    }
-
-    public func createFirewallRule(source: CloudFirewallEndpoint, destination: CloudFirewallEndpoint, description: String? = nil) async throws -> CloudFirewallRule {
-        var body: [String: any Sendable] = ["source": endpointBody(source), "destination": endpointBody(destination)]
-        if let description { body["description"] = description }
-        return try await send("POST", "/api/vm/firewall", body: body, timeout: .seconds(60), as: CloudFirewallRule.self)
-    }
-
-    private func endpointBody(_ endpoint: CloudFirewallEndpoint) -> [String: any Sendable] {
-        var body: [String: any Sendable] = [:]
-        if let value = endpoint.vmId { body["vmId"] = value }
-        if let value = endpoint.vpcId { body["vpcId"] = value }
-        if let value = endpoint.tunnelId { body["tunnelId"] = value }
-        if let value = endpoint.cidr { body["cidr"] = value }
-        if let value = endpoint.isPublic { body["public"] = value }
-        if let value = endpoint.port { body["port"] = value }
-        if let value = endpoint.protocolName { body["protocol"] = value }
-        return body
-    }
-
-    public func deleteFirewallRule(_ ruleID: String) async throws {
-        _ = try await send("DELETE", "/api/vm/firewall?ruleId=\(queryComponent(ruleID))", timeout: .seconds(60), as: Ignored.self)
+        guard !sendsStackSession, let installToken else { throw CloudAPIError.transport("the Cloud network list is a cmux API Worker route") }
+        struct Target: Decodable { var team: String; var mesh: String; var ipv4_cidr: String }
+        var install = self
+        install.tokens = { (try await installToken(), "") }
+        do {
+            let target = try await install.send("GET", "/v1/host/network/target", as: Target.self)
+            return [CloudNetwork(id: target.team, meshId: target.mesh, cidr: target.ipv4_cidr, cidrV6: nil, scope: "team")]
+        } catch CloudAPIError.http(status: 404, code: _, message: _, action: _, traceId: _) {
+            return []
+        }
     }
 
     // MARK: Domains and publications
 
-    /// Lists custom domains owned by the signed-in account. Provider
-    /// credentials and certificate material are never returned by this route.
+    // cmux-platform's previews (docs/cloud-previews.md) on a preview client (``previewClient(baseURL:)``): a
+    // publication is one machine port's preview, `vm_…:port`. The sign-in client answers 501 and sends nothing.
+
+    /// `GET /v1/cloud/domains`: the domains Cloud publications are served on (the platform's managed one).
     public func listDomains() async throws -> [CloudDomain] {
         struct List: Decodable { var domains: [CloudDomain] }
-        return try await send("GET", "/api/vm/domains", as: List.self).domains
+        return try await sendPreviews("GET", "/v1/cloud/domains", as: List.self).domains
     }
 
-    /// Lists redacted VM publications owned by the signed-in account.
+    /// `GET /v1/cloud/previews`: the signed-in person's publications in the current team.
     public func listPublications() async throws -> [CloudPublication] {
-        struct List: Decodable { var publications: [CloudPublication] }
-        return try await send("GET", "/api/vm/publications", as: List.self).publications
+        struct List: Decodable { var previews: [CloudPublication] }
+        return try await sendPreviews("GET", "/v1/cloud/previews", as: List.self).previews
     }
 
-    /// `POST /api/vm/apis`: publishes `port` of the machine behind cmux sign-in and mints an
-    /// API key for it in one call. Calling it again for the same port reuses the publication
-    /// and mints another key.
-    public func provisionAPI(machineID: String, port: Int, accessMode: String? = nil, keyName: String? = nil) async throws -> CloudProvisionedAPI {
-        var body: [String: any Sendable] = ["vmId": machineID, "port": port]
-        if let accessMode { body["accessMode"] = accessMode }
-        if let keyName { body["name"] = keyName }
-        return try await send("POST", "/api/vm/apis", body: body, timeout: .seconds(120), as: CloudProvisionedAPI.self)
+    /// `POST /v1/cloud/machines/{id}/previews/{port}/api-keys`: publishes `port` of the machine behind
+    /// cmux sign-in (a refresh, when it has no preview yet) and mints an API key for it in one call.
+    /// Calling it again for the same port reuses the publication and mints another key.
+    public func provisionAPI(machineID: String, port: Int, keyName: String? = nil) async throws -> CloudProvisionedAPI {
+        let body: [String: any Sendable] = keyName.map { ["name": $0] } ?? [:]
+        return try await sendPreviews("POST", "\(machinePath)/\(queryComponent(machineID))/previews/\(port)/api-keys", body: body,
+                                      timeout: .seconds(120), as: CloudProvisionedAPI.self)
     }
 
     /// The live API keys of a publication, named by its id or hostname.
     public func listPublicationAPIKeys(_ publication: String) async throws -> [CloudPublicationAPIKey] {
         struct List: Decodable { var apiKeys: [CloudPublicationAPIKey] }
-        return try await send("GET", "/api/vm/publications/\(queryComponent(publication))/api-keys", as: List.self).apiKeys
+        return try await sendPreviews("GET", "\(try await publicationPath(publication))/api-keys", as: List.self).apiKeys
     }
 
     /// Revokes one key; its next request is refused at the edge.
     public func revokePublicationAPIKey(_ publication: String, keyID: String) async throws -> CloudPublicationAPIKey {
         struct Revoked: Decodable { var apiKey: CloudPublicationAPIKey }
-        return try await send("DELETE", "/api/vm/publications/\(queryComponent(publication))/api-keys/\(queryComponent(keyID))", as: Revoked.self).apiKey
+        let path = "\(try await publicationPath(publication))/api-keys/\(queryComponent(keyID))"
+        return try await sendPreviews("DELETE", path, as: Revoked.self).apiKey
+    }
+
+    /// `/v1/cloud/machines/{id}/previews/{port}` of the publication whose id or hostname is `publication`.
+    private func publicationPath(_ publication: String) async throws -> String {
+        guard let found = try await listPublications().first(where: { $0.id == publication || $0.hostname == publication }),
+              let machine = found.vmId, let port = found.port else {
+            throw CloudAPIError.http(status: 404, code: "cloud.preview.not_found", message: "no such publication: \(publication)")
+        }
+        return "\(machinePath)/\(queryComponent(machine))/previews/\(port)"
+    }
+
+    private func sendPreviews<T: Decodable>(_ method: String, _ path: String, body: [String: any Sendable]? = nil,
+                                            timeout: Duration = .seconds(20), as type: T.Type) async throws -> T {
+        try requireWorker(code: "machine.previews_unsupported")
+        return try await send(method, path, body: body, timeout: timeout, as: type)
+    }
+
+    /// Machine, file, SCP and preview calls are cmux-platform's: the sign-in client refuses them with a
+    /// 501 before any request, never a wait on a route NEXT does not serve.
+    func requireWorker(code: String = "machine.unsupported") throws {
+        guard !sendsStackSession else { throw CloudAPIError.http(status: 501, code: code, message: nil) }
     }
 
     func query(_ value: String) -> String {

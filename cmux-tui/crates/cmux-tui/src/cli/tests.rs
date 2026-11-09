@@ -1337,3 +1337,56 @@ fn root_help_leads_with_person_verbs_and_keeps_the_agents_tasks_near_the_top() {
         assert!(line("  pane ") > line(control), "{locale}");
     }
 }
+
+/// `cmux terminal list --agents --json` (bench rounds 1 and 3): `--agents`
+/// takes no value, so a `--json` after it is the output mode, not its value.
+#[test]
+fn w4j_a_json_switch_after_list_agents_is_the_output_mode() {
+    let (global, command) =
+        parse_globals(&strings(&["terminal", "list", "--agents", "--json"])).unwrap();
+    assert_eq!(global.output, OutputMode::Json);
+    assert_eq!(command, strings(&["terminal", "list", "--agents"]));
+}
+
+/// `pane <p> move --new-screen --help` prints the pane help: `--new-screen`
+/// takes no value, so it does not swallow `--help`.
+#[test]
+fn w4j_pane_move_help_is_the_pane_help() {
+    for args in [
+        &["pane", "current", "move", "--new-screen", "--help"][..],
+        &["pane", "move", "--new-tab", "--help"],
+        &["pane", "pane_1", "move", "--to-pane", "x", "--focus", "--help"],
+    ] {
+        let Ok(ParsedCommand::Help(Some(topic))) = parse(&strings(args), Surface::Cmux) else {
+            panic!("{args:?} is not help");
+        };
+        assert_eq!(topic, "pane", "{args:?}");
+    }
+    let (global, _) = parse_globals(&strings(&["pane", "move", "--new-screen", "--json"])).unwrap();
+    assert_eq!(global.output, OutputMode::Json);
+}
+
+/// W5-Q (bench r4 #10): `cmux help keys` was an unknown scope. It now prints
+/// the TUI's key bindings (the prefix and each bound action, in the
+/// person's language), on both surfaces.
+#[test]
+fn w5q_help_keys_lists_the_tui_key_bindings() {
+    for surface in [Surface::Cmux, Surface::CmuxTui] {
+        let Ok(ParsedCommand::Help(Some(topic))) = parse(&strings(&["help", "keys"]), surface)
+        else {
+            panic!("help keys must be a help topic on {surface:?}");
+        };
+        assert_eq!(topic, "keys");
+    }
+    // Fixed bindings, not the person's config: a changed `split-right` on
+    // the machine must not change this result.
+    let keys = crate::config::Keys::default;
+    let split = keys().shortcut_label(crate::config::Action::SplitRight).expect("split is bound");
+    let english =
+        scope_help_with_keys("keys", crate::localization::catalog_for_locale("en_US.UTF-8"), keys);
+    assert!(english.contains("Split right"), "{english}");
+    assert!(english.contains(&split), "{split}: {english}");
+    let japanese =
+        scope_help_with_keys("keys", crate::localization::catalog_for_locale("ja_JP.UTF-8"), keys);
+    assert!(japanese.contains("右に分割"), "{japanese}");
+}

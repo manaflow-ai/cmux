@@ -279,7 +279,7 @@ mod tests {
     async fn a_refused_sign_in_end_spares_the_turns_next_agent() {
         let (hub, session) = running_turn().await;
         hub.end_sign_in_refused(&session, &refused(3));
-        Hub::hold_stalled_count(&session);
+        hub.hold_stalled_count(&session);
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert!(session.steer_end.borrow().is_none(), "the next agent's turn is not ended");
         // That agent's own refused retries still end the turn.

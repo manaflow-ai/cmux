@@ -54,7 +54,7 @@ import type { Project } from "./ProjectChooser";
 import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
 import { belowCheckout, folderRepo, isMainCheckout, worktreeName, type ProjectRepo } from "./projectRepos";
-import { isAgentHome, projectLabel } from "./sessionList";
+import { isAgentHome, projectLabel, SessionsBy } from "./sessionList";
 import { translate as t, useT } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { CloudEnvironmentChip, useCloudEnvironmentControl, type CloudEnvironmentDropUp } from "./CloudEnvironmentChip";
@@ -82,6 +82,14 @@ export type StripLayout = "where-machine" | "where-machine-always" | "cloud-togg
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 type Session = AcpmuxSnapshot["sessions"][number];
+const NO_SESSIONS: readonly Session[] = [];
+/// What the machine and folder lists read of a chat (`availableComputers`, `availableFolders`).
+const placeFields = (session: Session): readonly unknown[] => [
+  session.cwd,
+  session.peer,
+  session.hostKind,
+  session.host,
+];
 /// `section`: a machine list's section name; `disabled`: listed, but not a pick (still connecting or down).
 type Location = {
   id: string;
@@ -112,7 +120,7 @@ const NO_OFFLOADS: readonly OffloadKind[] = [];
 /// height, so a project chosen later or a host name that arrives late moves nothing.
 export function ComposerContext({
   summary,
-  sessions = [],
+  sessions: listedSessions = NO_SESSIONS,
   peers = [],
   peerKinds = NO_PEER_KINDS,
   peerConnected = NO_PEER_CONNECTED,
@@ -125,6 +133,9 @@ export function ComposerContext({
   machineFolders,
   onBrowseProject,
   onNewWorktree,
+  onNewProject,
+  newProject = false,
+  newProjectName,
   onNoProject,
   noProject = false,
   localName,
@@ -156,7 +167,7 @@ export function ComposerContext({
   cloudEnvironmentDropUp,
 }: {
   summary?: Summary;
-  sessions?: Session[];
+  sessions?: readonly Session[];
   peers?: string[];
   /// Each peer's transport (`AcpmuxSnapshot.peerKinds`): its section in the environment picker.
   peerKinds?: Record<string, "ssh" | "cloud">;
@@ -180,6 +191,12 @@ export function ComposerContext({
   onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
   /// New Worktree (cx-lyqio.2): a new chat on this Mac starts in a worktree of its folder.
   onNewWorktree?(cwd: string): void;
+  /// A new chat's New Project (FolderPopover, newtab/newProject.ts); `newProject` while it is the choice:
+  /// the strip reads New Project until the send makes the folder.
+  onNewProject?(): void;
+  newProject?: boolean;
+  /// The new project's name field, after the folder control while `newProject` (newtab/NewProjectName.tsx).
+  newProjectName?: React.ReactNode;
   /// A new chat's No folder (FolderPopover); `noProject` while it is the choice.
   onNoProject?(): void;
   noProject?: boolean;
@@ -264,6 +281,12 @@ export function ComposerContext({
   /// Gallery seam: how the Environment chip's drop-up draws its rows (`list` ships).
   cloudEnvironmentDropUp?: CloudEnvironmentDropUp;
 }) {
+  // The machines and folders read only where each chat runs (`placeFields`): another chat's status,
+  // unread, title or cost changing leaves the list they are made from as it is, so they are not made
+  // again from every listed chat (sessionList.ts `SessionsBy`).
+  const placeLists = useRef<SessionsBy | null>(null);
+  placeLists.current ??= new SessionsBy(placeFields);
+  const sessions = placeLists.current.of(listedSessions);
   const t = useT();
   const composerSettings = useComposerSettings();
   const newChat = !started && onProject !== undefined;
@@ -858,15 +881,17 @@ export function ComposerContext({
                     )
                   }
                   value={
-                    (currentName
-                      ? currentName
-                      : noProject
-                        ? t(CONTEXT_LABELS.noProject)
-                        : t(CONTEXT_LABELS.chooseFolder)) + extraCount
+                    (newProject
+                      ? t(CONTEXT_LABELS.newProject)
+                      : currentName
+                        ? currentName
+                        : noProject
+                          ? t(CONTEXT_LABELS.noProject)
+                          : t(CONTEXT_LABELS.chooseFolder)) + extraCount
                   }
                   chevron
-                  middle={currentFolder !== undefined}
-                  dim={!currentName && !noProject}
+                  middle={currentFolder !== undefined && !newProject}
+                  dim={!currentName && !noProject && !newProject}
                 />
               }
               folders={folders}
@@ -883,6 +908,7 @@ export function ComposerContext({
               }
               noProject={noProject && !currentFolder}
               onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
+              {...(onNewProject ? { onNewProject } : {})}
               {...(folderNote && !currentFolder ? { note: folderNote } : {})}
               {...(extra ? { extra } : {})}
             />
@@ -911,7 +937,20 @@ export function ComposerContext({
                         },
                       },
                     ]
-                  : undefined
+                  : // A new chat on its own Cloud or SSH machine: New Worktree as on this Mac, made
+                    // there beside its repository (cmuxterm-hq#7856).
+                    !readOnly && currentFolder && onNewWorktree && selectedComputer === initialComputer
+                    ? [
+                        {
+                          id: "newWorktree",
+                          label: t("worktree.new"),
+                          onSelect: () => {
+                            browseRequest.current += 1;
+                            onNewWorktree(currentFolder);
+                          },
+                        },
+                      ]
+                    : undefined
               }
               onPick={(cwd) => {
                 if (newChats) {
@@ -922,6 +961,7 @@ export function ComposerContext({
               }}
             />
           )}
+          {newProject && newProjectName}
           {environmentsShown ? (
             layout === "combined" ? (
               <EnvironmentPicker
@@ -1144,7 +1184,7 @@ const computerId = (summary?: Summary): string => chatComputerId(summary);
 
 function availableComputers(
   summary: Summary | undefined,
-  sessions: Session[],
+  sessions: readonly Session[],
   peers: string[],
   peerKinds: Record<string, "ssh" | "cloud">,
   localName: string | undefined,
@@ -1171,7 +1211,7 @@ function formatFreeMemory(gb: number): string {
   return Number.isInteger(gb) ? String(gb) : gb.toFixed(1);
 }
 
-function availableFolders(summary: Summary | undefined, sessions: Session[], computer: string): Location[] {
+function availableFolders(summary: Summary | undefined, sessions: readonly Session[], computer: string): Location[] {
   const seen = new Set<string>();
   const folders: Location[] = [];
   const add = (cwd?: string) => {

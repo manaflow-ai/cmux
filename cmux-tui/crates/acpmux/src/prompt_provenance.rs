@@ -241,6 +241,18 @@ pub fn with_subagent(mut provenance: Value, params: &Value) -> Value {
     provenance
 }
 
+/// Set beside [`FROM_SUBAGENT`] when the subagent's message starts a turn of a lane of its own
+/// lead: that turn's answer reaches the subagent (`hub/lane_report_subagents.rs`).
+pub const SUBAGENT_GETS_REPLY: &str = "subagentGetsReply";
+
+/// `provenance` marked [`SUBAGENT_GETS_REPLY`] when it names a subagent ([`FROM_SUBAGENT`]).
+pub fn subagent_gets_reply(mut provenance: Value) -> Value {
+    if provenance.get(FROM_SUBAGENT).is_some() {
+        provenance.set(SUBAGENT_GETS_REPLY, json!(true));
+    }
+    provenance
+}
+
 /// The subagent a send names (`_meta.acpmux.callerSubagent`), `{id, type}`, when both are plain
 /// words (`cli::sender::subagent_word`).
 pub fn subagent_of(params: &Value) -> Option<Value> {
@@ -323,7 +335,7 @@ pub fn named_sender(name: &str, to: &str) -> Value {
 /// ([`of`] keeps only its listed fields), and the person's prompt carries none (see [`ORIGIN`]).
 pub const VERIFIED: &str = "verified";
 /// How the prompt reached this daemon, as the daemon saw it: `unix` (the socket, any local
-/// process of the user), `app` (the app's own connection), `web`, `peer`, `trigger`.
+/// process of the user), `app` (the app's own connection), `web`, `peer`, `carrier`, `trigger`.
 pub const TRANSPORT: &str = "transport";
 /// Labels a sender gave about itself that prove nothing (`cliHost`, `fromHarness`): kept apart
 /// from who the daemon knows sent it.
@@ -822,13 +834,23 @@ impl RelaySender {
         json!({"by": self.by, "machine": self.machine, "session": self.session})
     }
 
-    /// How the sender reads: `MACHINE/SESSION`, or the machine alone.
+    /// How the sender reads as its label (`fromAgent`): `MACHINE/SESSION`, or the machine alone,
+    /// cut to [`relayed_label`]'s length. The record keeps the whole name.
     pub fn name(&self) -> String {
         match &self.session {
-            Some(session) => format!("{}/{session}", self.machine),
+            Some(session) => relayed_label(&format!("{}/{session}", self.machine)),
             None => self.machine.clone(),
         }
     }
+}
+
+/// A relayed `MACHINE/SESSION` as a sender label: one line within `fromAgent`'s length
+/// (`hub::declared_sender`), so a long session name never refuses the send. Who sent it is the
+/// relay record's ([`FROM_RELAY`]), whole; the label only names it.
+pub fn relayed_label(name: &str) -> String {
+    let name: String =
+        name.chars().filter(|c| !unshown(*c)).take(crate::hub::MAX_FROM_AGENT_CHARS).collect();
+    name.trim().to_owned()
 }
 
 /// The relay record a prompt's provenance carries ([`FROM_RELAY`]).
@@ -1262,6 +1284,33 @@ mod sender_tests {
         let proven = sender_record_with_auth(Some(&person), None, None, true);
         assert_eq!(proven["actorKind"], "authenticated_human");
         assert_eq!(proven["actorId"], "user-1");
+    }
+
+    /// A relay's MACHINE/SESSION past `fromAgent`'s length (review of #37652, F1): the record
+    /// keeps the whole name and is a verified relay sender; the name it gives the sender label
+    /// fits `fromAgent`, so the send is never refused for it.
+    #[test]
+    fn a_long_relayed_name_is_recorded_whole_and_named_within_from_agent() {
+        let relayed = |session: &str| json!({"_meta": {"acpmux": {"fromRelay": {"by": "lane-gh", "machine": "vm-1", "session": session}}}});
+        let session = format!("cloud-start-matrix-{}", "x".repeat(60));
+        let bound = relay_sender(&relayed(&session)).unwrap();
+        let relay = bound.relay.clone().unwrap();
+        assert_eq!(relay.session.as_deref(), Some(session.as_str()));
+        let name = relay.name();
+        assert_eq!(name.chars().count(), crate::hub::MAX_FROM_AGENT_CHARS);
+        assert!(format!("vm-1/{session}").starts_with(&name), "{name}");
+        let label = json!({"_meta": {"acpmux": {"fromAgent": name}}});
+        assert_eq!(crate::hub::declared_sender(&label).unwrap(), Some(name.clone()));
+        let stamped =
+            stamp_sender(stamp_declared(named_sender(&name, "t"), Some(&name)), Some(&bound));
+        let record = sender_record(Some(&stamped), None, None);
+        assert_eq!(
+            (&record["verification"], &record["relay"]["session"]),
+            (&json!("verified"), &json!(session))
+        );
+        // A short one is named whole; a session past what a relay record holds is no record.
+        assert_eq!(relay_sender(&relayed("coord")).unwrap().relay.unwrap().name(), "vm-1/coord");
+        assert_eq!(relay_sender(&relayed(&"x".repeat(MAX_FIELD_BYTES + 1))), None);
     }
 
     #[test]

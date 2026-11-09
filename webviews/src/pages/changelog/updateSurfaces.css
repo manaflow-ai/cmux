@@ -461,11 +461,12 @@
    their motion still shows (Leo 2026-11-08: "I feel like we should be able to keep it as glass
    though, right?"). */
 /* The one structural move, on the card's own curve (Leo 2026-11-08: "the animation also seems like
-   it's a little bit slow"): a fast start that settles long, 265ms, the native glass's twin
+   it's a little bit slow"): a fast start that settles, 180ms (Leo 2026-11-09: "the animations end to end need to
+   just resolve faster"), the native glass's twin
    (Motion.web.animateCard). On the shared gate (WebTheme's data-cmux-motion: "reduced" keeps
    only fades, so the preview is simply there). */
 .wn-updated {
-  --wn-preview-motion: 265ms; /* motion-allow: Leo's card curve (2026-11-08), the native glass's fixed twin */
+  --wn-preview-motion: 180ms; /* motion-allow: Leo's card curve (2026-11-08), the native glass's fixed twin */
   --wn-preview-ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .wn-preview {

@@ -22,11 +22,10 @@
 // and capped as an opened tool output is. On such a line a click anywhere opens and closes the
 // report, and only the agent's name, a link chip, opens the agent's view (Lucas, 2026-11-08). How
 // it is offered is an experiment (doneReport.experiment.ts).
-import { useContext, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useContext, useId, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { AgentTag } from "../conversation/AgentTag";
-import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "../conversation/headerToggle";
 import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRow";
 import { spanDuration } from "../conversation/turns";
 import { ChevronRight, Retry } from "../conversation/icons";
@@ -51,8 +50,12 @@ import {
 } from "./subsessions";
 import { failedLineLook } from "./failedLine.experiment";
 import { Markdown } from "../conversation/Markdown";
+import { AgentMessageRow } from "../conversation/AgentMessageRow";
+import { messagePreview } from "../conversation/agentMessageRowModel";
 import { doneReportLook } from "./doneReport.experiment";
 import { RetryAffordanceContext, DoneReportLookContext, doneReport, shortReason } from "./subagentDoneLineModel";
+import { useWholeReport, type WholeReport } from "./wholeReport";
+import { WholeReportBody } from "./WholeReportBody";
 
 const DONE_LABEL: Record<string, StringKey> = {
   completed: "subagents.ended.completed",
@@ -110,6 +113,11 @@ function DoneLine({
   const [reportOpen, setReportOpen] = useState(false);
   const reportId = useId();
   const open = pane ?? nav;
+  // The report whole while it shows (wholeReport.ts): `lastMessage` is only acpmux's preview.
+  const shownReport = useWholeReport(
+    agent?.state === "completed" ? agent : undefined,
+    reportOpen || (reportLook === "preview" && agent?.state === "completed"),
+  );
   if (!agent) return null;
   // The row's retry, as every surface reads it (retryState.ts ``subagentRetry``).
   const phase = subagentRetry(agent, retryCapabilities, child);
@@ -177,6 +185,66 @@ function DoneLine({
       () => setNote({ version: row.version, key: "retry.failed" }),
     );
   };
+  const restartButton = restart && (
+    <button
+      type="button"
+      className="cv-iconbtn cv-iconbtn--compact cv-subagent-restart"
+      aria-label={t("subagents.restart")}
+      title={t("subagents.restart")}
+      data-tooltip-detail={t("subagents.restartDetail")}
+      onClick={() => restart(agent)}
+    >
+      <Retry size={14} />
+    </button>
+  );
+  // A finished line with its report is the one message row (conversation/AgentMessageRow.tsx), as a
+  // send and a received message are: "Subagent finished: <name>", the subagent's mark, the report's
+  // first line, and the same card that opens to the whole report as Markdown (Leo, 2026-11-07: "with
+  // the sub-agent conclusions ... They should look basically the same as the other ones"). The name
+  // opens the agent's view, as the line did; the line opens the report.
+  if (disclose)
+    return (
+      <div className="cv-tools">
+        <AgentMessageRow
+          direction="report"
+          className="cv-subagent-done-row cv-subagent-report-row"
+          attributes={{ "data-state": agent.state }}
+          lineClassName="cv-subagent-done"
+          lineAttributes={{ "data-state": agent.state }}
+          icon={
+            <AgentIdentity
+              harness={foreignHarness(agent.harness, chatHarness, senderBadge)}
+              tone={agentTone(agent.id)}
+              size={16}
+              fallback={SUBAGENT_FALLBACK}
+            />
+          }
+          sentence={`${before}\u0000${after}`}
+          name={name}
+          nameTitle={whole}
+          {...(open && { onOpenName: () => open(agent.id), openNameLabel: t("subagents.open", { name }) })}
+          preview={messagePreview(report ?? "")}
+          label={t(reportOpen ? "subagents.report.hide" : "subagents.report.show")}
+          open={reportOpen}
+          onToggle={() => setReportOpen((value) => !value)}
+          meta={agent.reaction ? <ReactionMark reaction={agent.reaction} /> : undefined}
+          time={time}
+          actions={restartButton ? <span className="cv-subagent-done__actions">{restartButton}</span> : undefined}
+          body={
+            <div className="cv-subagent-done__report">
+              {shownReport && (
+                <WholeReportBody
+                  report={shownReport}
+                  className="cv-subagent-done__markdown selectable"
+                  onOpenView={open && (() => open(agent.id))}
+                />
+              )}
+            </div>
+          }
+        />
+        <ReactionReply reaction={agent.reaction} />
+      </div>
+    );
   const inline = action && affordance !== "menu" && (
     <button
       type="button"
@@ -192,23 +260,16 @@ function DoneLine({
     <div className="cv-tools">
       <TranscriptActivityRowShell
         className="cv-tool cv-subagent-done-row"
-        attributes={{
-          "data-state": waiting ? "retrying" : agent.state,
-          ...(look && { "data-look": look }),
-          ...(disclose && { [HEADER_TOGGLE_ATTRIBUTE]: "" }),
-        }}
-        onClick={disclose ? headerToggleClick(() => setReportOpen((value) => !value)) : undefined}
+        attributes={{ "data-state": waiting ? "retrying" : agent.state, ...(look && { "data-look": look }) }}
       >
-        <Line
-          toggles={disclose}
+        <button
+          type="button"
           className="cv-tool cv-bgtask cv-subagent-done cv-agent-activity__control"
-          attributes={{
-            "data-state": waiting ? "retrying" : agent.state,
-            ...(agent.stopReason && { "data-reason": agent.stopReason }),
-          }}
-          label={whole}
+          data-state={waiting ? "retrying" : agent.state}
+          {...(agent.stopReason && { "data-reason": agent.stopReason })}
+          aria-label={whole}
           disabled={!open}
-          onOpen={() => open?.(agent.id)}
+          onClick={() => open?.(agent.id)}
         >
           <span className="cv-tool__icon">
             <AgentIdentity
@@ -228,13 +289,7 @@ function DoneLine({
             /* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */
             <span className="cv-tool__text cv-agent-activity__sentence" title={whole}>
               {!waiting && before}
-              {/* A line with a report opens its agent from the name alone; the rest of the line
-                  opens and closes the report. The chip's hover is AgentTag.css's link chip. */}
-              {disclose && open ? (
-                <AgentTag name={name} title={whole} onClick={() => open(agent.id)} />
-              ) : (
-                <AgentTag name={name} />
-              )}
+              <AgentTag name={name} />
               {!waiting && after}
               {/* Its own box, cut before the chip (subagents.css): the reason and failure go first. */}
               {parts.length > 1 && (
@@ -242,23 +297,12 @@ function DoneLine({
               )}
             </span>
           )}
-        </Line>
+        </button>
         {inline}
         {shown?.key && <output className="cv-subagent-done__note">{t(shown.key)}</output>}
         {(restart || action) && (
           <span className="cv-subagent-done__actions">
-            {restart && (
-              <button
-                type="button"
-                className="cv-iconbtn cv-iconbtn--compact cv-subagent-restart"
-                aria-label={t("subagents.restart")}
-                title={t("subagents.restart")}
-                data-tooltip-detail={t("subagents.restartDetail")}
-                onClick={() => restart(agent)}
-              >
-                <Retry size={14} />
-              </button>
-            )}
+            {restartButton}
             {action && (
               <Menu>
                 <MenuButton
@@ -285,8 +329,8 @@ function DoneLine({
           {!waiting && time && <span className="cv-command__meta cv-subagent-done__time">{time}</span>}
         </span>
         {disclose ? (
-          // A line with a report: the chevron after its words is the report's disclosure for the
-          // keyboard; the pointer opens it anywhere on the line. It opens on the click, no fade.
+          // A line with a report: the chevron after its words is its own control, the report's
+          // disclosure; the line's button still opens the view. It opens on the click, no fade.
           <button
             type="button"
             className="cv-tool__chevron cv-subagent-done__chevron cv-subagent-done__disclose"
@@ -309,14 +353,16 @@ function DoneLine({
           </span>
         )}
       </TranscriptActivityRowShell>
-      {disclose && reportOpen && (
+      {disclose && reportOpen && shownReport && (
         <div id={reportId} className="cv-subagent-done__report">
-          <div className="cv-subagent-done__markdown selectable">
-            <Markdown commits="quiet">{report}</Markdown>
-          </div>
+          <WholeReportBody
+            report={shownReport}
+            className="cv-subagent-done__markdown selectable"
+            onOpenView={open && (() => open(agent.id))}
+          />
         </div>
       )}
-      {preview && <ReportPreview text={report} />}
+      {preview && shownReport && <ReportPreview report={shownReport} onOpenView={open && (() => open(agent.id))} />}
       {/* The chat's quiet reply to its end (ReactionMark.tsx), under the line as text Find reads,
           never only in a tooltip (cmux#33538). */}
       <ReactionReply reaction={agent.reaction} />
@@ -324,43 +370,10 @@ function DoneLine({
   );
 }
 
-/// The line's words. A line with a report is the pointer's wide target for the report's disclosure
-/// (its shell's click, headerToggle.ts): its words are no button then, so its name chip can be the
-/// one that opens the agent, and the chevron stays the keyboard's toggle. Any other line is one
-/// button that opens the agent.
-function Line({
-  toggles,
-  className,
-  attributes,
-  label,
-  disabled,
-  onOpen,
-  children,
-}: {
-  toggles: boolean;
-  className: string;
-  attributes: Record<string, string | undefined>;
-  label: string;
-  disabled: boolean;
-  onOpen: () => void;
-  children: ReactNode;
-}) {
-  if (toggles)
-    return (
-      <div className={className} data-toggle-line="" {...attributes}>
-        {children}
-      </div>
-    );
-  return (
-    <button type="button" className={className} {...attributes} aria-label={label} disabled={disabled} onClick={onOpen}>
-      {children}
-    </button>
-  );
-}
-
 /// The preview arm: the report's first two lines always under the line, Show more opening the rest
 /// (capped as an opened report is). Show more appears only when the cut hides lines.
-function ReportPreview({ text }: { text: string }) {
+function ReportPreview({ report, onOpenView }: { report: WholeReport; onOpenView?: () => void }) {
+  const text = report.text;
   const t = useT();
   const [open, setOpen] = useState(false);
   const [long, setLong] = useState(false);
@@ -388,13 +401,19 @@ function ReportPreview({ text }: { text: string }) {
       >
         <Markdown commits="quiet">{text}</Markdown>
       </div>
-      {(long || open) && (
+      {(long || open || report.cut) && (
         <button
           type="button"
           className="cv-subagent-done__more"
           aria-expanded={open}
           aria-controls={id}
-          onClick={() => setOpen((value) => !value)}
+          onClick={() => {
+            // Opening a preview that is only part of the report reads the rest too (wholeReport.ts).
+            // Only the subagent's view holds the rest: Show more opens it.
+            if (!open && report.cut && report.away && onOpenView) return onOpenView();
+            if (!open && report.cut && !report.away) report.more();
+            setOpen((value) => !value);
+          }}
         >
           {t(open ? "message.less" : "message.more")}
         </button>

@@ -14,15 +14,22 @@
 //! Two threads serve it, with their own [`CloudClient`] (the same bound
 //! machine and install key) from each bind on:
 //!
-//! - The fetch thread makes every platform request. At a bind it mints the
-//!   client's bearer at once and, on a machine with a relay carrier, asks for
-//!   a ticket right then and keeps it ([`Warm`]). At a resume ([`Resumes`],
-//!   noted by the role itself, never through the worker) it drops the kept
-//!   ticket and the pooled connection from before the pause and asks for a
-//!   fresh ticket. A kept ticket is refreshed [`REFRESH_BEFORE`] its expiry
-//!   while no one took it, at most [`MAX_REFRESHES`] times per bind or
-//!   resume; then it lapses and the thread waits with no timer. Otherwise it
-//!   asks for a ticket only when an asker wants one.
+//! - The fetch thread starts every platform request, each on a thread of its
+//!   own, so it is never inside one. At a bind it mints the client's bearer
+//!   at once and, on a machine with a relay carrier, asks for a ticket right
+//!   then and keeps it ([`Warm`]). At a resume ([`Resumes`], noted by the
+//!   role itself, never through the worker) it drops the kept ticket and the
+//!   pooled connection from before the pause and asks for a fresh ticket. A
+//!   request still in flight from before the pause (a dead connection hangs
+//!   to its 20 s bound) is abandoned, not waited for: the fresh ticket is
+//!   asked for on a transport of its own ([`CloudClient::fresh`]) and the late
+//!   reply is dropped. Each bind and resume starts a generation, in the same
+//!   step that notes it; no ticket asked for in an earlier one is kept or
+//!   handed out. A kept ticket is
+//!   refreshed [`REFRESH_BEFORE`] its expiry while no one took it, at most
+//!   [`MAX_REFRESHES`] times per bind or resume; then it lapses and the
+//!   thread waits with no timer. Otherwise it asks for a ticket only when an
+//!   asker wants one.
 //! - The socket thread answers the asks. An ask takes the kept ticket when
 //!   there is one (no request). Otherwise it has the fetch thread ask and
 //!   waits for the answer up to the ask wait ([`ASK_WAIT`], inside the
@@ -32,6 +39,11 @@
 //!   next ask. An ask before the bind waits for it up to [`UNBOUND_WAIT`].
 //!   A ticket handed out is not kept: an ask after that (a failed
 //!   Register, a relay restart) is one request.
+//!
+//! All of the threads' shared state is one [`state::Core`] behind one lock,
+//! and every change to it is one of its transitions (`carrier_state.rs`): a
+//! bind, a resume note, an ask, a hand-out, the fetch thread's next job and
+//! a request's start and answer.
 //!
 //! One line in (`{"carrier_ticket": {}}`, [`super::carrier_ticket::check_ask`]),
 //! one reply line out ([`super::carrier_ticket::reply_for`]), then the
@@ -46,7 +58,6 @@
 use std::io::{self, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -57,6 +68,11 @@ use super::carrier_ticket::{REQUEST_KEY, check_ask};
 use super::client::{CloudClient, Http};
 use super::github::refusal;
 use super::github_minter::{Stop, connected};
+
+#[path = "carrier_state.rs"]
+mod state;
+
+use state::{Asked, Back, Core, Done, Hands, Job, Task, Warm};
 
 /// The socket the ticket command asks first (root and group cmux, 0660,
 /// beside the agent socket). An older cmux-host has none, and the command
@@ -91,31 +107,27 @@ const MAX_LINE: u64 = 1024;
 
 type Waker = Box<dyn Fn() + Send + Sync>;
 
-/// The machine's resumes, noted by the role on `HostEvent::Resumed` and read
-/// by the fetch thread. The role notes them itself, so a resume reaches the
-/// thread even while the worker is in a request.
+/// The machine's resumes, noted by the role on `HostEvent::Resumed`. The
+/// role notes them itself, so a resume reaches the ticket threads even while
+/// the worker is in a request, and the note is a transition on their state:
+/// the ticket kept from before the pause is gone before `note` returns.
 #[derive(Default)]
 pub struct Resumes {
-    count: AtomicU64,
-    /// Wakes the fetch thread (set by [`CarrierServer::spawn`]).
-    waker: Mutex<Option<Waker>>,
+    /// Notes the resume in the ticket threads' state (set by
+    /// [`CarrierServer::spawn`]).
+    noter: Mutex<Option<Waker>>,
 }
 
 impl Resumes {
     /// The machine resumed.
     pub fn note(&self) {
-        self.count.fetch_add(1, Ordering::SeqCst);
-        if let Some(wake) = self.waker.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
-            wake();
+        if let Some(note) = self.noter.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
+            note();
         }
     }
 
-    fn count(&self) -> u64 {
-        self.count.load(Ordering::SeqCst)
-    }
-
-    fn set_waker(&self, waker: Option<Waker>) {
-        *self.waker.lock().unwrap_or_else(PoisonError::into_inner) = waker;
+    fn set_noter(&self, noter: Option<Waker>) {
+        *self.noter.lock().unwrap_or_else(PoisonError::into_inner) = noter;
     }
 }
 
@@ -137,32 +149,58 @@ struct Next<H: Http> {
     prefetch: bool,
 }
 
-/// What the two threads share.
-struct State<H: Http> {
-    /// The latest bind's client, until the fetch thread takes it.
-    next: Option<Next<H>>,
-    stopping: bool,
-    /// The fetch thread holds a bound client.
-    bound: bool,
-    /// The fetch thread is minting or asking for a ticket.
-    fetching: bool,
-    /// An asker wants a ticket asked for.
-    want: bool,
-    /// A ticket asked for ahead, for the next ask.
-    warm: Option<Warm>,
-    /// The answer to a ticket an asker wanted, and when it came: for that
-    /// asker, or, when it gave up, a ticket for the next ask.
-    answered: Option<(Value, Instant)>,
-}
+/// What the threads share: the state and the client-bearing payloads it
+/// carries, behind one lock.
+type State<H> = Core<Next<H>, CloudClient<H>>;
 
 struct Shared<H: Http> {
     state: Mutex<State<H>>,
     changed: Condvar,
+    /// Tests: points where a test steps in between two steps of the threads.
+    #[cfg(test)]
+    test_points: TestPoints,
+}
+
+/// Tests: each is run once, where it is named, then cleared.
+#[cfg(test)]
+#[derive(Default)]
+struct TestPoints {
+    /// The socket thread, right before it hands out a ticket.
+    before_handout: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// The fetch thread waits here (its state unlocked) at the top of its
+    /// job loop until the sender sends or is dropped.
+    hold_fetcher: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+    /// The fetch thread, after it took an asker's want and before it asks.
+    before_wanted: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+}
+
+#[cfg(test)]
+impl TestPoints {
+    fn run(point: &Mutex<Option<Box<dyn FnOnce() + Send>>>) {
+        let step = point.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(step) = step {
+            step();
+        }
+    }
+
+    fn hold(&self) {
+        let gate = self.hold_fetcher.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(gate) = gate {
+            let _ = gate.recv();
+        }
+    }
 }
 
 impl<H: Http> Shared<H> {
     fn lock(&self) -> MutexGuard<'_, State<H>> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Runs one transition under the lock and wakes the threads.
+    fn change<T>(&self, transition: impl FnOnce(&mut State<H>) -> T) -> T {
+        let made = transition(&mut self.lock());
+        self.changed.notify_all();
+        made
     }
 
     fn wait<'g>(
@@ -190,9 +228,8 @@ pub struct CarrierServer<H: Http> {
 
 impl<H: Http> Drop for CarrierServer<H> {
     fn drop(&mut self) {
-        self.shared.lock().stopping = true;
-        self.shared.changed.notify_all();
-        self.resumes.set_waker(None);
+        self.shared.change(|state| state.stop());
+        self.resumes.set_noter(None);
         let _ = self.wake.shutdown(std::net::Shutdown::Both);
         for thread in self.threads.drain(..) {
             let _ = thread.join();
@@ -212,37 +249,23 @@ impl<H: Http + Send + 'static> CarrierServer<H> {
         let (wake, woken) = UnixStream::pair()?;
         woken.set_nonblocking(true)?;
         let shared = Arc::new(Shared {
-            state: Mutex::new(State {
-                next: None,
-                stopping: false,
-                bound: false,
-                fetching: false,
-                want: false,
-                warm: None,
-                answered: None,
-            }),
+            state: Mutex::new(State::default()),
             changed: Condvar::new(),
+            #[cfg(test)]
+            test_points: TestPoints::default(),
         });
-        let waking = Arc::clone(&shared);
-        resumes.set_waker(Some(Box::new(move || {
-            let _held = waking.lock();
-            waking.changed.notify_all();
-        })));
-        let (theirs, fetch_stop, fetch_resumes) =
-            (Arc::clone(&shared), Arc::clone(&stop), Arc::clone(&resumes));
+        let noting = Arc::clone(&shared);
+        resumes.set_noter(Some(Box::new(move || noting.change(|state| state.note_resume()))));
+        let (theirs, fetch_stop) = (Arc::clone(&shared), Arc::clone(&stop));
         let fetcher = std::thread::Builder::new()
             .name("cmux-host-carrier-fetch".to_owned())
             .spawn(move || {
-                let seen = fetch_resumes.count();
                 Fetcher {
-                    shared: &theirs,
-                    stop: &fetch_stop,
-                    resumes: &fetch_resumes,
+                    shared: theirs,
+                    stop: fetch_stop,
                     hooks,
-                    client: None,
-                    prefetch: false,
-                    refreshes: 0,
-                    seen,
+                    hands: Hands::default(),
+                    requests: Vec::new(),
                 }
                 .run();
             })?;
@@ -260,187 +283,170 @@ impl<H: Http + Send + 'static> CarrierServer<H> {
     /// `prefetch` (the machine has a relay carrier), a ticket is asked for at
     /// once and kept for the session host's Register.
     pub fn bound(&self, client: CloudClient<H>, prefetch: bool) {
-        self.shared.lock().next = Some(Next { client, prefetch });
-        self.shared.changed.notify_all();
+        // The bind's generation starts now, not when the fetch thread takes
+        // it: an ask in between waits for the bind's ticket.
+        self.shared.change(|state| state.bind(Next { client, prefetch }));
     }
 }
 
-/// A ticket asked for ahead and kept for the next ask: the reply line, and
-/// its expiry (Unix seconds).
-struct Warm {
-    reply: Value,
-    expires_at: u64,
-}
-
-impl Warm {
-    /// The kept reply for a platform reply that is a ticket good past the
-    /// refresh point at `now_ms`; `None` for a refusal or a ticket too short
-    /// to keep. Only a ticket asked for ahead (prefetched or refreshed in the
-    /// background) is held to this; one asked for an ask is good for
-    /// [`Warm::handout`].
-    fn of(reply: &Value, now_ms: u64) -> Option<Warm> {
-        Self::handout(reply, now_ms).filter(|warm| {
-            warm.expires_at.saturating_mul(1000) > now_ms + REFRESH_BEFORE.as_millis() as u64
-        })
-    }
-
-    /// The reply for a platform reply that is a ticket that may still be
-    /// handed out at `now_ms` ([`HAND_OUT_MARGIN`]); `None` for a refusal or
-    /// a ticket too close to its expiry.
-    fn handout(reply: &Value, now_ms: u64) -> Option<Warm> {
-        let expires_at = reply.get("expires_at").and_then(Value::as_u64)?;
-        let warm = Warm { reply: reply.clone(), expires_at };
-        (reply.get("ok") == Some(&Value::Bool(true)) && warm.usable(now_ms)).then_some(warm)
-    }
-
-    /// How long from `now_ms` until it is refreshed (zero when due).
-    fn refresh_in(&self, now_ms: u64) -> Duration {
-        Duration::from_millis(
-            self.expires_at
-                .saturating_mul(1000)
-                .saturating_sub(REFRESH_BEFORE.as_millis() as u64)
-                .saturating_sub(now_ms),
-        )
-    }
-
-    /// Whether it may still be handed out at `now_ms`.
-    fn usable(&self, now_ms: u64) -> bool {
-        self.expires_at.saturating_mul(1000) > now_ms + HAND_OUT_MARGIN.as_millis() as u64
-    }
-}
-
-/// What the fetch thread does next.
-enum Job<H: Http> {
-    Bind(Box<Next<H>>),
-    Resume,
-    Wanted,
-    Refresh,
-}
-
-/// The fetch thread: every platform request.
-struct Fetcher<'a, H: Http> {
-    shared: &'a Shared<H>,
-    stop: &'a Stop,
-    resumes: &'a Resumes,
+/// The fetch thread: starts every platform request and takes its answer.
+struct Fetcher<H: Http> {
+    shared: Arc<Shared<H>>,
+    stop: Arc<Stop>,
     hooks: Hooks,
-    client: Option<CloudClient<H>>,
-    /// The latest bind has a relay carrier: tickets are asked for ahead.
-    prefetch: bool,
-    /// Refreshes of an unused ticket since the last bind or resume.
-    refreshes: u32,
-    /// The resumes already acted on.
-    seen: u64,
+    /// The bound client and its spare.
+    hands: Hands<CloudClient<H>>,
+    /// The request threads, joined at the stop (each is bounded by the API
+    /// client's timeouts).
+    requests: Vec<JoinHandle<()>>,
 }
 
-impl<H: Http> Fetcher<'_, H> {
+impl<H: Http + Send + 'static> Fetcher<H> {
     fn run(&mut self) {
         while let Some(job) = self.next_job() {
             match job {
-                Job::Bind(next) => self.bind(*next),
-                Job::Resume => {
-                    if let Some(client) = self.client.as_ref() {
-                        client.reset_transport();
-                    }
-                    if self.prefetch {
-                        self.fetch("prefetched after resume", false);
-                    }
+                Job::Stop | Job::Wait(_) => {}
+                Job::Bind(next, generation) => {
+                    let Next { client, prefetch } = *next;
+                    self.hands.bound(client, prefetch);
+                    let ticket = prefetch.then_some(("prefetched", false));
+                    self.start(Task { mint: true, ticket }, generation);
                 }
-                Job::Wanted => self.fetch("fetched for an ask", true),
-                Job::Refresh => {
-                    if self.refreshes >= MAX_REFRESHES {
+                Job::Resume(generation) => {
+                    self.hands.refreshes = 0;
+                    self.resume(generation);
+                }
+                Job::Wanted(generation) => {
+                    #[cfg(test)]
+                    TestPoints::run(&self.shared.test_points.before_wanted);
+                    self.start(Task::ticket("fetched for an ask", true), generation);
+                }
+                Job::Refresh(generation) => {
+                    if self.hands.refreshes >= MAX_REFRESHES {
                         (self.hooks.log)("carrier ticket: the unused ticket lapses");
                         continue;
                     }
-                    self.refreshes += 1;
-                    self.fetch("refreshed", false);
+                    self.hands.refreshes += 1;
+                    self.start(Task::ticket("refreshed", false), generation);
                 }
+                Job::Done(done, back, generation) => self.done(*done, back, generation),
             }
+        }
+        for request in self.requests.drain(..) {
+            let _ = request.join();
         }
     }
 
     /// Waits for the next job; `None` once the server stops. The only timer
     /// is a kept ticket's refresh, bounded by [`MAX_REFRESHES`].
-    fn next_job(&mut self) -> Option<Job<H>> {
-        let mut state = self.shared.lock();
+    fn next_job(&mut self) -> Option<Job<Next<H>, CloudClient<H>>> {
+        let shared = Arc::clone(&self.shared);
+        let mut state = shared.lock();
         loop {
-            if state.stopping {
-                return None;
+            #[cfg(test)]
+            if shared
+                .test_points
+                .hold_fetcher
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .is_some()
+            {
+                drop(state);
+                shared.test_points.hold();
+                state = shared.lock();
             }
-            if let Some(next) = state.next.take() {
-                state.fetching = true;
-                state.warm = None;
-                return Some(Job::Bind(Box::new(next)));
-            }
-            let resumes = self.resumes.count();
-            if resumes != self.seen {
-                self.seen = resumes;
-                self.refreshes = 0;
-                state.warm = None;
-                state.fetching = self.prefetch && self.client.is_some();
-                return Some(Job::Resume);
-            }
-            if state.want && self.client.is_some() {
-                state.want = false;
-                state.fetching = true;
-                return Some(Job::Wanted);
-            }
-            let refresh = state.warm.as_ref().map(|warm| warm.refresh_in((self.hooks.now)()));
-            if refresh.is_some_and(|left| left.is_zero()) {
-                state.warm = None;
-                state.fetching = self.refreshes < MAX_REFRESHES;
-                return Some(Job::Refresh);
-            }
-            state = self.shared.wait(state, refresh);
-        }
-    }
-
-    /// Takes a bind's client and mints its bearer at once, so a ticket is
-    /// one request; on a carrier machine, asks for the first ticket now.
-    fn bind(&mut self, next: Next<H>) {
-        let Next { mut client, prefetch } = next;
-        // A failure here is the first ticket's to report: it mints again.
-        let _ = client.token((self.hooks.now)());
-        self.client = Some(client);
-        self.prefetch = prefetch;
-        self.refreshes = 0;
-        {
-            let mut state = self.shared.lock();
-            state.bound = true;
-            state.fetching = prefetch;
-        }
-        self.shared.changed.notify_all();
-        if prefetch {
-            self.fetch("prefetched", false);
-        }
-    }
-
-    /// Asks for a ticket: kept when it can be, else, when an asker
-    /// `wanted` it, left for that asker. Nothing is asked once the role stops.
-    fn fetch(&mut self, what: &str, wanted: bool) {
-        let started = Instant::now();
-        let reply = match self.client.as_mut() {
-            Some(client) if !self.stop.is_set() => Some(client.carrier_ticket((self.hooks.now)())),
-            _ => None,
-        };
-        {
-            let mut state = self.shared.lock();
-            state.fetching = false;
-            if let Some(reply) = &reply {
-                if wanted {
-                    state.answered = Some((reply.clone(), Instant::now()));
-                } else {
-                    state.warm = Warm::of(reply, (self.hooks.now)());
+            match state.next_job(self.hands.view(), (self.hooks.now)()) {
+                Job::Stop => return None,
+                Job::Wait(left) => state = shared.wait(state, left),
+                job => {
+                    // A request's answer is kept or answered in the pick itself.
+                    shared.changed.notify_all();
+                    return Some(job);
                 }
             }
         }
-        self.shared.changed.notify_all();
-        if let Some(reply) = &reply {
+    }
+
+    /// The machine resumed: a request from before the pause is abandoned (a
+    /// spare client on its own transport asks now), the pooled connection
+    /// dropped, and on a carrier machine a fresh ticket asked for. A resume
+    /// that a bind or another resume overtook since its pick does nothing:
+    /// the old binding's client is not resumed and asks for nothing.
+    fn resume(&mut self, generation: u64) {
+        if !self.shared.lock().resume_holds(generation) {
+            return (self.hooks.log)(
+                "carrier ticket: a resume overtaken by a bind or resume is dropped",
+            );
+        }
+        let Some(client) = self.hands.for_resume() else {
+            // No spare: the resume acts once a client comes back, if no bind
+            // or other resume came first.
+            return self.shared.change(|state| state.defer_resume(generation));
+        };
+        client.reset_transport();
+        if self.hands.prefetch {
+            self.start(Task::ticket("prefetched after resume", false), generation);
+        }
+    }
+
+    /// A request came back. One from an earlier generation is dropped; its
+    /// client is used again only when there is no other or a resume of this
+    /// generation waits for it (`resume`).
+    fn done(&mut self, done: Done<CloudClient<H>>, back: Back, generation: u64) {
+        let Done { client, task, reply, took, .. } = done;
+        self.hands.returned(client, back);
+        let Back { current, resume, .. } = back;
+        let took = took.as_millis();
+        if !current && task.ticket.is_some() && reply.is_some() {
+            (self.hooks.log)(&format!(
+                "carrier ticket: a ticket asked for before a resume or bind is dropped ({took} ms)"
+            ));
+        }
+        if current && let (Some(reply), Some((what, _))) = (&reply, task.ticket) {
             let said =
                 if reply.get("ok") == Some(&Value::Bool(true)) { what } else { outcome(reply) };
-            (self.hooks.log)(&format!(
-                "carrier ticket: {said} in {} ms",
-                started.elapsed().as_millis()
-            ));
+            (self.hooks.log)(&format!("carrier ticket: {said} in {took} ms"));
+        }
+        if resume {
+            self.resume(generation);
+        }
+    }
+
+    /// Runs `task` on the client, on a thread of its own, keeping a spare
+    /// client for a resume while it is in flight. The request is of
+    /// `generation`, the one its job was picked in: when a bind or resume
+    /// came since, its reply is dropped. Nothing is asked once the role stops.
+    fn start(&mut self, task: Task, generation: u64) {
+        let Some(mut client) = self.hands.take(CloudClient::fresh) else {
+            return;
+        };
+        self.shared.change(|state| state.starting(generation));
+        self.requests.retain(|request| !request.is_finished());
+        let (shared, stop, hooks) = (Arc::clone(&self.shared), Arc::clone(&self.stop), self.hooks);
+        let spawned = std::thread::Builder::new()
+            .name("cmux-host-carrier-request".to_owned())
+            .spawn(move || {
+                let started = Instant::now();
+                if task.mint {
+                    // A failure here is the first ticket's to report: it mints again.
+                    let _ = client.token((hooks.now)());
+                }
+                let reply = task
+                    .ticket
+                    .filter(|_| !stop.is_set())
+                    .map(|_| client.carrier_ticket((hooks.now)()));
+                let took = started.elapsed();
+                shared.change(|state| {
+                    state.finished(Done { generation, client, task, reply, took });
+                });
+            });
+        match spawned {
+            Ok(request) => self.requests.push(request),
+            Err(e) => {
+                (self.hooks.log)(&format!("carrier ticket: request thread: {e}"));
+                self.hands.not_started();
+                self.shared.change(|state| state.not_started(generation));
+            }
         }
     }
 }
@@ -487,79 +493,96 @@ fn serve<H: Http>(
 fn answer<H: Http>(stream: UnixStream, shared: &Shared<H>, stop: &Stop, hooks: Hooks) {
     let started = Instant::now();
     let stopping = || refusal("vm.agent_stopping", "the Cloud agent is stopping; retry");
-    let (mut reply, kept) = match read_ask(&stream) {
-        Err(why) => (refusal("request.invalid", &why), false),
-        Ok(()) => ticket(shared, stop, hooks, started),
-    };
-    if reply.get("ok") == Some(&Value::Bool(true)) && !connected(&stream) {
-        // Gone while it waited: the ticket stays here for the next ask while
-        // it may be handed out (the fetch thread refreshes it when it is due).
-        if kept && let Some(warm) = Warm::handout(&reply, (hooks.now)()) {
-            let mut state = shared.lock();
-            if state.warm.is_none() {
-                state.warm = Some(warm);
+    if let Err(why) = read_ask(&stream) {
+        return finish(stream, refusal("request.invalid", &why), false, started, hooks);
+    }
+    loop {
+        let (mut reply, kept, generation) = ticket(shared, stop, hooks, started);
+        if reply.get("ok") == Some(&Value::Bool(true)) && !connected(&stream) {
+            // Gone while it waited: the ticket stays here for the next ask while
+            // it may be handed out (the fetch thread refreshes it when it is due).
+            if kept && let Some(warm) = Warm::handout(&reply, (hooks.now)()) {
+                shared.change(|state| state.keep_unsent(warm, generation));
             }
+            return;
         }
-        return;
+        #[cfg(test)]
+        TestPoints::run(&shared.test_points.before_handout);
+        // The checks and the write hold the state's lock (a bind's or a
+        // resume's generation changes only under it) and then the stop's, so
+        // a stop, a bind or a resume is either before both (no ticket from
+        // before it goes out) or after the write. A ticket from before a
+        // resume or bind is not handed out: the ask waits for the fresh one
+        // (still within its wait). The reply is one short line, far under the
+        // socket's buffer, and its write is bounded by REPLY_WRITE_TIMEOUT.
+        let state = shared.lock();
+        let stopped = stop.lock();
+        if *stopped {
+            reply = stopping();
+        } else if reply.get("ok") == Some(&Value::Bool(true)) && !state.may_hand_out(generation) {
+            drop(stopped);
+            drop(state);
+            continue;
+        }
+        let _ = write_reply(stream, &reply);
+        drop(stopped);
+        drop(state);
+        return (hooks.log)(&note(&reply, kept, started.elapsed()));
     }
-    // The check and the write hold the stop's lock, so a stop is either
-    // before both (no ticket goes out) or after the write.
-    let stopped = stop.lock();
-    if *stopped {
-        reply = stopping();
-    }
+}
+
+/// Writes a reply that is not a ticket and journals it.
+fn finish(stream: UnixStream, reply: Value, kept: bool, started: Instant, hooks: Hooks) {
     let _ = write_reply(stream, &reply);
-    drop(stopped);
     (hooks.log)(&note(&reply, kept, started.elapsed()));
 }
 
-/// The reply for an ask that came at `started`, and whether it was the kept
-/// ticket. Waits for a bind up to [`UNBOUND_WAIT`] and for a ticket being
-/// asked for up to the ask wait.
+/// The reply for an ask that came at `started`, whether it was the kept
+/// ticket, and the generation it is of. Waits for a bind up to
+/// [`UNBOUND_WAIT`] and for a ticket being asked for up to the ask wait.
 fn ticket<H: Http>(
     shared: &Shared<H>,
     stop: &Stop,
     hooks: Hooks,
     started: Instant,
-) -> (Value, bool) {
+) -> (Value, bool, u64) {
     let unbound_until = started + UNBOUND_WAIT;
     let deadline = started + hooks.ask_wait;
     let mut state = shared.lock();
     loop {
-        if state.stopping || stop.is_set() {
-            return (refusal("vm.agent_stopping", "the Cloud agent is stopping; retry"), false);
+        if stop.is_set() {
+            let stopping = refusal("vm.agent_stopping", "the Cloud agent is stopping; retry");
+            return (stopping, false, state.generation);
         }
-        if let Some(warm) = state.warm.take()
-            && warm.usable((hooks.now)())
-        {
-            return (warm.reply, true);
-        }
-        // A ticket asked for an ask is this ask's while it is good; a
-        // refusal only when it came after this ask did.
-        if let Some((answered, at)) = state.answered.take() {
-            let good = Warm::handout(&answered, (hooks.now)()).is_some();
-            let fresh = answered.get("ok") != Some(&Value::Bool(true)) && at >= started;
-            if good || fresh {
-                return (answered, false);
+        match state.ask((hooks.now)(), started) {
+            Asked::Stopping => {
+                let stopping = refusal("vm.agent_stopping", "the Cloud agent is stopping; retry");
+                return (stopping, false, state.generation);
+            }
+            Asked::Reply { reply, kept, generation } => {
+                shared.changed.notify_all();
+                return (reply, kept, generation);
+            }
+            Asked::Wait { busy } => {
+                shared.changed.notify_all();
+                let until = if busy { deadline } else { unbound_until };
+                if let Some(left) =
+                    until.checked_duration_since(Instant::now()).filter(|d| !d.is_zero())
+                {
+                    state = shared.wait(state, Some(left));
+                    continue;
+                }
+                let generation = state.generation;
+                return if busy {
+                    let slow =
+                        "the carrier ticket is still on its way; it is kept for the next ask";
+                    (refusal("carrier.slow", slow), false, generation)
+                } else {
+                    let unbound = "this machine is not bound to cmux Cloud yet";
+                    (refusal("vm.unbound", unbound), false, generation)
+                };
             }
         }
-        // A bind handed over or in progress counts: its ticket comes within the ask wait.
-        let busy = state.bound || state.fetching || state.next.is_some();
-        if state.bound && !state.fetching && !state.want {
-            state.want = true;
-            shared.changed.notify_all();
-        }
-        let until = if busy { deadline } else { unbound_until };
-        let Some(left) = until.checked_duration_since(Instant::now()).filter(|d| !d.is_zero())
-        else {
-            return if busy {
-                let slow = "the carrier ticket is still on its way; it is kept for the next ask";
-                (refusal("carrier.slow", slow), false)
-            } else {
-                (refusal("vm.unbound", "this machine is not bound to cmux Cloud yet"), false)
-            };
-        };
-        state = shared.wait(state, Some(left));
     }
 }
 

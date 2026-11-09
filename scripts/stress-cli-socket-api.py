@@ -1558,7 +1558,8 @@ def resolve_cli_path(raw: str | None, tag: str | None) -> str:
         candidates.append(os.path.expanduser(f"~/Library/Developer/Xcode/DerivedData/cmux-{tag}/Build/Products/Debug/cmux"))
     # The app opened last writes its CLI path; reload.sh's /tmp pointer is legacy.
     for last_cli in (
-        pathlib.Path.home() / "Library/Application Support/cmux/last-app-cli",
+        pathlib.Path.home() / "Library/Application Support/cmux-next/last-app-cli",
+        pathlib.Path.home() / "Library/Application Support/cmux/last-app-cli",  # a build from before cmux-next/
         pathlib.Path("/tmp/cmux-last-cli-path"),
     ):
         if last_cli.exists():

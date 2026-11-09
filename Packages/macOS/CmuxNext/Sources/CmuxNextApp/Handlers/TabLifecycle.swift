@@ -131,13 +131,13 @@ enum TabLifecycle {
         let user = invocation.origin == .user
         // Agent tabs and pages count as a kind for the user only: a script's
         // `tab new` always gets a terminal or browser it can drive.
-        let onAgentTab = user && controller != nil && selectedID.map(ctx.services.agentTabs.isAgentTab) == true
+        let onAgentTab = user && controller != nil && selectedID.map { ctx.services.agentTabs.isAgentTab($0) } == true
         // Cmd-T opens a tab in the current workspace, like a browser, also in a pane that hides its
         // tab bar (an agent chat alone): Lawrence decided 2026-10-11 (cx-04fy), replacing the
         // "follows the tab bar" rule of cx-xt5k. New Workspace (Cmd-N) opens one in a new workspace.
         // The kind is Rust's (cmux-window-rules `tabs::new_tab_kind`); agent tabs and the page live in a
         // shown pane whose daemon holds agent tabs.
-        let facts = NewTabKind.facts(tab, id: selectedID, agent: onAgentTab, newTabPage: onAgentTab && selectedID.map(ctx.services.agentTabs.isNewTabPage) == true,
+        let facts = NewTabKind.facts(tab, id: selectedID, agent: onAgentTab, newTabPage: onAgentTab && selectedID.map { ctx.services.agentTabs.isNewTabPage($0) } == true,
                                      user: user, followsSetting: followsSetting, canHostAgent: controller.map { ctx.services.agentTabs.canHost(on: $0.daemon) } ?? false)
         // The position action's slot, else a person's setting (the +: `tabs.newTabButtonPosition`, else `tabs.newTabPosition`), else the end (NewTabSlot).
         let slot = NewTabSlot.target(current: tab, pane: pane.tabs, explicit: position, user: user, setting: invocation[StripNewTab.button]?.boolValue == true

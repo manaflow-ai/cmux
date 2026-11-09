@@ -14,9 +14,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var customDensities: [DensityTokens] = []
     /// `appearance.customDensity` when it names one of `customDensities`: it wins over `density`.
     public var customDensity: String?
-    /// The density the file selects: the custom one, else the built-in, else Compact.
+    /// The density the file selects: the custom one, else the built-in, else Default (`cozy`).
     public var selectedDensity: DensityTokens {
-        DensitySetting.resolve(customDensity, custom: customDensities) ?? DensitySetting.resolve(density, custom: []) ?? .compact
+        DensitySetting.resolve(customDensity, custom: customDensities) ?? DensitySetting.resolve(density, custom: [])
+            ?? DensityPreset.cozy.tokens
     }
     /// `app.uiScale` (first-party page scale) and `appearance.interfaceScale` (chrome, only with Labs on).
     public var uiScale: Double = UIScaleSetting.fallback
@@ -74,6 +75,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var chiefDockEdge = ChiefDockSetting.edgeDefault
     /// `home.chiefDock.openBeside`: a link clicked in the Chief opens its workspace with the Chief floating over it; on when unset.
     public var chiefDockOpenBeside = ChiefDockSetting.openBesideDefault
+    /// `home.chiefPanel.style`: how the floating Chief looks (``ChiefDockSetting``); `composeBar` when unset.
+    public var chiefPanelStyle = ChiefDockSetting.styleDefault
+    /// `home.chiefPanel.seesScreen`: opening the floating Chief gives it one look at the screen; on when unset.
+    public var chiefPanelSeesScreen = ChiefDockSetting.seesScreenDefault
     /// `home.server`: cmux Cloud (`hosted`) when unset or invalid, else the self-hosted server's origin.
     public var homeServer: HomeServerSetting.Value = .hosted
     /// `labs.previewFeatures`; off when unset.
@@ -155,7 +160,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var mainPane: MainPaneSetting = .fallback
     /// `workspaces.newPlacement` (`WorkspaceListSettings`).
     public var newWorkspacePlacement: NewWorkspacePlacement = CmuxConfigSnapshot.newWorkspacePlacementDefault
-    /// `layout.closeFocus`; "previousNeighbor" when unset or invalid.
+    /// `layout.closeFocus`; "mostRecent" when unset or invalid.
     public var closeFocus: CloseFocusPolicy = CloseFocusSetting.fallback
     /// `layout.defaultColumnWidth`; two thirds when unset or invalid.
     public var defaultColumnWidth: Double = DefaultColumnWidthSetting.fallback

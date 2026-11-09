@@ -106,6 +106,10 @@ export interface PullRequestDetails {
   conversation: ConversationEntry[];
   /** How many comments and reviews GitHub has; can be more than `conversation` holds. */
   conversationTotal: number;
+  /** How many comments and reviews the read got back, counted as `conversationTotal` is (before the
+   *  host leaves out empty review wrappers, so not `conversation.length`). Below the total, the
+   *  read has only part of the history. */
+  conversationRead: number;
   /** `approved`, `changes_requested`, `commented`, `dismissed` or `requested`. */
   reviewers: { name: string; state: string }[];
   linked: { number: number; title: string; url: string; state: string }[];

@@ -9,8 +9,10 @@
 //! every resume, and every minute. When the channel names another
 //! build than the current profile links, it:
 //!
-//! 1. waits until no acpmux session runs a turn or waits on a permission
-//!    (checked again right before the flip), never mid-turn;
+//! 1. waits until no acpmux session runs a turn or waits on a permission,
+//!    and no carrier session is attached to the session host (for at most
+//!    [`carrier::CARRIER_MAX_HOLD`]; checked again right before the flip),
+//!    never mid-turn;
 //! 2. downloads both binaries into the store, each checked against the
 //!    signed sha256 and size ([`store::add_entry`]);
 //! 3. builds the next profile and flips `/opt/cmux/current` to it with one
@@ -37,7 +39,10 @@
 //! in-place `cmux link machine update` replaced it).
 //! `cmux host update status|check|guard` are the operator verbs ([`role::verb`]).
 
+pub mod carrier;
 pub mod channel;
+#[cfg(unix)]
+pub mod gate;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod store;
@@ -57,6 +62,9 @@ use channel::{Binary, CMUX_TUI, CMUX_TUI_HOOK, Payload};
 pub const OFF_FILE: &str = "/etc/cmux/no-self-update";
 pub const STATE_DIR: &str = "/var/lib/cmux/self-update";
 pub const STATE_FILE: &str = "/var/lib/cmux/self-update/state.json";
+/// The pause watch's record ([`crate::agent::PauseWatch::persist_to`]): its
+/// last look and the last pause it found, for the processes outside the service.
+pub const PAUSE_FILE: &str = "/var/lib/cmux/self-update/pauses.json";
 /// An update between its flip and its health check.
 pub const PENDING_FILE: &str = "/var/lib/cmux/self-update/pending.json";
 pub const DOWNLOAD_DIR: &str = "/var/lib/cmux/self-update/download";

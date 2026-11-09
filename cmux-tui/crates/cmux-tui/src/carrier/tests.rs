@@ -11,12 +11,13 @@ use super::answer::{
 };
 use super::client::{Marks, classify, pinned_daemon, resume_outcome};
 use super::contract::{
-    Backoff, Failure, INITIAL_BACKOFF, MAX_BACKOFF, Phase, PhaseTimes, PhasesOf, StdinLine, Step,
-    Vmk, answer_line, connected_line, detail_code, failure_line, parse_deadline, phases_line,
-    route_line, served_line, serving_line, stdin_line,
+    Failure, Phase, PhaseTimes, PhasesOf, StdinLine, Step, Vmk, answer_line, connected_line,
+    detail_code, failure_line, parse_deadline, phases_line, route_line, served_line, serving_line,
+    stdin_line,
 };
 use super::{
-    DialArgs, DialService, ServeArgs, parse, parse_key, parse_serve, public_key_line, with_team_env,
+    DialArgs, DialService, ServeArgs, desktop_failure, parse, parse_key, parse_serve,
+    public_key_line, with_team_env,
 };
 
 fn words(text: &str) -> Vec<String> {
@@ -212,6 +213,7 @@ fn phase_times_run_mark_to_mark_and_the_open_step_to_now() {
         connected: at(700),
         mux_open: at(730),
         lanes: 3,
+        ..Marks::default()
     };
     let now = t0 + Duration::from_millis(5000);
     let ms = Duration::from_millis;
@@ -245,6 +247,13 @@ fn a_credential_s_subject_is_its_jwt_sub_claim_or_none() {
     assert_eq!(token_subject(&jwt(json!({"sub": 7}))), None);
     assert_eq!(token_subject("opaque-token"), None);
     assert_eq!(token_subject("a.!!!.c"), None);
+    // Only a three-segment credential with a JWT header has a `sub`.
+    let claims = encode(json!({"sub": "user-1"}));
+    let header = encode(json!({"alg": "ES256"}));
+    assert_eq!(token_subject(&format!("opaque.{claims}.sig")), None);
+    assert_eq!(token_subject(&format!("{}.{claims}.sig", encode(json!({"typ": "JWT"})))), None);
+    assert_eq!(token_subject(&format!("{header}.{claims}")), None);
+    assert_eq!(token_subject(&format!("{header}.{claims}.sig.extra")), None);
 }
 
 #[test]
@@ -259,6 +268,7 @@ fn arguments_are_the_machine_and_one_deadline() {
             token_file: None,
             team: None,
             answer_fd: None,
+            wg_hub: None,
         })
     );
     for (fd, want) in [("0", 0), ("3", 3), ("17", 17)] {
@@ -397,37 +407,6 @@ fn the_grant_vmk_claim_is_the_dial_s_ownership_answer() {
     value["grant"] = json!(grant(json!({"vmk": "owner"})));
     assert_eq!(parse_answer(&value).unwrap().vmk, Some(Vmk::Owner));
     assert_eq!(parse_answer(&answer_value()).unwrap().vmk, None);
-}
-
-#[test]
-fn backoff_is_full_jitter_doubling_to_a_cap_and_never_past_the_deadline() {
-    let mut backoff = Backoff::default();
-    let mut ceilings = Vec::new();
-    for _ in 0..8 {
-        let delay = backoff
-            .next(Duration::from_secs(600), |ceiling| {
-                ceilings.push(ceiling);
-                ceiling
-            })
-            .unwrap();
-        assert_eq!(Some(&delay), ceilings.last());
-    }
-    assert_eq!(ceilings[0], INITIAL_BACKOFF);
-    assert_eq!(ceilings[1], INITIAL_BACKOFF * 2);
-    assert_eq!(*ceilings.last().unwrap(), MAX_BACKOFF);
-    assert!(ceilings.windows(2).all(|w| w[1] >= w[0]));
-
-    // A draw of zero retries at once; a draw past the ceiling is held to it.
-    let mut backoff = Backoff::default();
-    assert_eq!(backoff.next(Duration::from_secs(1), |_| Duration::ZERO), Some(Duration::ZERO));
-    assert_eq!(
-        backoff.next(Duration::from_secs(10), |_| Duration::from_secs(99)),
-        Some(INITIAL_BACKOFF * 2)
-    );
-    // No attempt starts when the delay would reach the deadline.
-    let mut backoff = Backoff::default();
-    assert_eq!(backoff.next(Duration::from_millis(100), |c| c), None);
-    assert_eq!(Backoff::default().next(Duration::ZERO, |_| Duration::ZERO), None);
 }
 
 #[test]
@@ -580,6 +559,51 @@ fn the_connect_log_is_only_appended_and_stops_at_its_cap() {
 }
 
 #[test]
+fn the_desktop_link_takes_the_answer_s_turn_relays_over_udp() {
+    let mut value = answer_value();
+    value["rd_link"] = json!({
+        "stun": ["stun.example.net:3478"],
+        "turn": [
+            {"addr": "turn.example.net:3478", "username": "u1", "password": "p1"},
+            {"addr": "turn.example.net:53", "username": "u1"},
+            {"addr": "not a server", "username": "u", "password": "p"},
+            {"addr": "turn.example.net:0", "username": "u", "password": "p"},
+            {"addr": "turn.example.net:3479", "username": "", "password": "p"},
+            "turn:turn.example.net:3478",
+        ],
+    });
+    let link = parse_answer(&value).unwrap().rd_link.unwrap();
+    assert_eq!(link.stun, ["stun.example.net:3478"]);
+    let addrs: Vec<&str> = link.turn.iter().map(|t| t.addr.as_str()).collect();
+    assert_eq!(addrs, ["turn.example.net:3478"], "only whole, well-formed relays");
+    assert_eq!((link.turn[0].username.as_str(), link.turn[0].password.as_str()), ("u1", "p1"));
+    let answer = parse_answer(&value).unwrap();
+    assert!(!format!("{answer:?}").contains("p1"), "Debug never shows a relay password");
+
+    // At most four, and an answer without `turn` (the platform before relays) keeps STUN alone.
+    let many: Vec<Value> = (0..6)
+        .map(
+            |i| json!({"addr": format!("t{i}.example.net:3478"), "username": "u", "password": "p"}),
+        )
+        .collect();
+    value["rd_link"] = json!({"stun": [], "turn": many});
+    assert_eq!(parse_answer(&value).unwrap().rd_link.unwrap().turn.len(), 4);
+    value["rd_link"] = json!({"stun": ["stun.example.net:3478"]});
+    assert!(parse_answer(&value).unwrap().rd_link.unwrap().turn.is_empty());
+
+    // A credential of up to 512 bytes is kept; one byte longer drops the relay.
+    let relay = |user: &str, pass: &str| json!({"stun": [], "turn": [{"addr": "turn.example.net:3478", "username": user, "password": pass}]});
+    let long = "x".repeat(512);
+    value["rd_link"] = relay(&long, &long);
+    assert_eq!(parse_answer(&value).unwrap().rd_link.unwrap().turn.len(), 1);
+    let longer = "x".repeat(513);
+    for (user, pass) in [(longer.as_str(), "p"), ("u", longer.as_str())] {
+        value["rd_link"] = relay(user, pass);
+        assert!(parse_answer(&value).unwrap().rd_link.unwrap().turn.is_empty(), "513 bytes");
+    }
+}
+
+#[test]
 fn a_handed_over_answer_is_a_checked_answer_with_a_grant() {
     let line = json!({ "carrier_answer": answer_value() }).to_string();
     match stdin_line(line.as_bytes()) {
@@ -636,4 +660,27 @@ fn key_prints_only_the_public_key_as_one_base64url_line() {
     assert!(text.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'), "{line}");
     assert_eq!(text, key_text(&identity.public_key()), "the platform's noise_key spelling");
     assert_ne!(text, key_text(identity.private_key()), "never the private key");
+}
+
+/// The desktop open's own send (or a heartbeat) can meet the lost session
+/// before the multiplexer's reader marks it: the error itself says
+/// `SessionUnavailable` while `session_unavailable()` is still false. That
+/// is still a session the host lost, so the dial takes a fresh one.
+#[test]
+fn a_carrier_desktop_open_that_its_send_finds_the_session_gone_takes_a_fresh_session() {
+    use cmux_remote::bridge::BridgeError;
+    use cmux_remote::service::ServiceError;
+    let sent = BridgeError::Service(ServiceError::Client(ConnectionError::SessionUnavailable));
+    let failure = desktop_failure(sent, false);
+    assert!(failure.fresh_session && failure.retryable, "{}", failure.detail);
+    assert_eq!(failure.step, Step::Relay);
+    let typed = desktop_failure(BridgeError::Service(ServiceError::SessionUnavailable), false);
+    assert!(typed.fresh_session, "{}", typed.detail);
+    // A session that ended any other way is still the carrier's, and fatal.
+    let closed = desktop_failure(BridgeError::Service(ServiceError::Closed), false);
+    assert!(!closed.fresh_session && !closed.retryable, "{}", closed.detail);
+    // The daemon's refusal is the service's.
+    let refused = desktop_failure(BridgeError::Rejected("not the owner".into()), false);
+    assert_eq!(refused.step, Step::Service);
+    assert!(!refused.fresh_session);
 }

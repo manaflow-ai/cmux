@@ -66,8 +66,8 @@ enum PaneHandlers {
     }
 
     /// Splits the targeted pane (a shown one or any daemon pane, so the CLI
-    /// can split a background workspace). Left and up split right or down,
-    /// then swap the original into the new slot, so the new pane lands on
+    /// can split a background workspace). Left and up split right or down with the new pane first (`split-before-v1`),
+    /// or on an older daemon split, then swap the original into the new slot, so the new pane lands on
     /// that side. A shown workspace focuses the new pane.
     static func split(_ ctx: AppActionContext, _ invocation: ActionInvocation, direction: PaneDirection) {
         guard let pane = ctx.daemonPane(invocation) else { return }
@@ -139,8 +139,8 @@ enum PaneHandlers {
         let intent = content?.beginFocusIntent()
         let command = PaneSplitCommand(pane: handle, direction: daemonDirection,
                                        options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep), swapTowards: swapTowards)
-        // Cmd+D on a daemon with client keys: the new pane shows and takes focus in this frame
-        // (plans/cmux-next/remote-state-ownership.md S3); otherwise after the reply.
+        // Cmd+D (and Split Left/Up with `split-before-v1`) on a daemon with client keys: the new pane shows and takes focus
+        // in this frame (plans/cmux-next/remote-state-ownership.md S3); otherwise after the reply.
         let provisional = command.isOptimistic(on: daemon) ? ProvisionalPane() : nil
         if let provisional { content?.focus.expect(.tab(provisional.tabID), generation: intent) } // its id is stable through the confirm; its surface is not
         // The window's keys wait until the new pane has the keyboard (cx-wb5.76): on the old path

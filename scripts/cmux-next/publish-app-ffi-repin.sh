@@ -4,7 +4,22 @@ set -euo pipefail
 branch=app-ffi-repin
 staging="${branch}-stage-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}"
 manifest=Packages/macOS/CmuxNext/Package.swift
-remote_head() { git ls-remote origin "refs/heads/$1" | cut -f1; }
+# Read heads from GitHub itself, not `git ls-remote origin`: the runner serves
+# git reads of origin from a cache that can lag a push made a second earlier
+# (run 42493097381 failed "the re-pin head moved" right after its own push).
+# Prints nothing for a missing branch; any other failed read fails loud.
+# gh prints a failed call's error body on stdout too, so print only a head read.
+remote_head() {
+  local err="$RUNNER_TEMP/remote-head.err" head
+  if head="$(GH_TOKEN="$APP_TOKEN" gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$1" --jq '.object.sha' 2>"$err")"; then
+    [[ "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::refs/heads/$1 read as '$head'" >&2; return 1; }
+    echo "$head"
+    return 0
+  fi
+  grep -q 'HTTP 404' "$err" && return 0
+  echo "::error::could not read refs/heads/$1 from GitHub: $(cat "$err")" >&2
+  return 1
+}
 
 # Latest wins: pin the newest published release on feat-cmux-next, whichever run
 # published it, never this run's tag by default and never an unpublished head.
@@ -24,6 +39,51 @@ if git diff --quiet -- "$manifest"; then
 fi
 tip="$(git rev-parse HEAD)"
 previous="$(remote_head "$branch")"
+
+# Hold a head under CI. Each force push cancels the open PR's checks, and its
+# CI (the Mac queue, the fleet compile, daemon tests) takes longer than the gap
+# between FFI publishes: on 2026-11-09 #39384 was moved at 08:22, 10:38, 11:49,
+# 12:13 and 12:45, no head finished its checks, nothing landed for 6 hours and
+# the pin fell 359 min behind (goal fix-running-ffi-pin, bound 120). So an open
+# PR whose head is younger than REPIN_HOLD_MIN and has no failed check keeps
+# its head and lands first; its merge changes Package.swift, and
+# app-ffi-repin.yml then re-pins the newest release at once. A failed check, an
+# older head or any failed read moves the head as before.
+hold_min="${REPIN_HOLD_MIN:-90}"
+# The head's commit, check runs and statuses are read with the job's
+# GITHUB_TOKEN (contents, checks and statuses: read): the pull-request token
+# has none of these, and a failed read would quietly turn the hold off.
+read_api() { GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" gh api "$@"; }
+held_pr() {
+  local number state head age failed status
+  number="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=feat-cmux-next&head=${GITHUB_REPOSITORY%/*}:$branch" --jq '.[0].number // empty')" || return 1
+  [[ "$number" =~ ^[0-9]+$ ]] || return 1
+  read -r state head < <(gh api "repos/$GITHUB_REPOSITORY/pulls/$number" --jq '"\(.state) \(.head.sha)"') || return 1
+  [[ "$state" == open && "$head" == "$previous" ]] || return 1
+  age="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous" --jq '(now - (.commit.committer.date | fromdateiso8601)) / 60 | floor')" || return 1
+  [[ "$age" =~ ^[0-9]+$ ]] || return 1
+  if (( age >= hold_min )); then
+    echo "#$number's head ${previous:0:12} is $age min old (hold $hold_min min): moving it" >&2
+    return 1
+  fi
+  # One bounded page: a head with more check runs than it holds is moved.
+  failed="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous/check-runs?per_page=100" \
+    --jq 'if .total_count > (.check_runs | length) then "unread" else [.check_runs[] | select(.conclusion as $c
+      | ["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"] | index($c))] | length end')" ||
+    return 1
+  [[ "$failed" =~ ^[0-9]+$ ]] || return 1
+  status="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous/status" --jq '.state')" || return 1
+  [[ "$status" =~ ^(success|pending|failure|error)$ ]] || return 1
+  [[ "$status" == failure || "$status" == error ]] && failed=$((failed + 1))
+  if (( failed > 0 )); then
+    echo "#$number's head ${previous:0:12} has $failed failed check(s): moving it" >&2
+    return 1
+  fi
+  echo "kept #$number at ${previous:0:12}: pushed $age min ago (hold $hold_min min), no check failed; it lands first and its merge re-pins $TAG (app-ffi-repin.yml)"
+}
+if [[ -n "$previous" && -n "${GH_TOKEN:-}" ]] && held_pr; then
+  exit 0
+fi
 # Resetting the stable head to the unpinned base auto-closes its PR. Only this
 # run's staging ref may hold that base while the contents API signs the pin.
 cleanup() {
