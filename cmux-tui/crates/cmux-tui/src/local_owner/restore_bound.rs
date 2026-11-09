@@ -56,8 +56,11 @@ impl Work {
     }
 }
 
-/// The work of process `pid` so far, or `None` when it cannot be read.
+/// The work of process `pid` so far, or `None` when it cannot be read. The
+/// Mach timebase's struct and call are deprecated in favour of the `mach2`
+/// crate, which cmux-tui does not depend on; they are not defective.
 #[cfg(target_vendor = "apple")]
+#[allow(deprecated)]
 pub(crate) fn process_work(pid: u32) -> Option<Work> {
     let pid = i32::try_from(pid).ok()?;
     // SAFETY: an all-zero rusage_info_v2 is a valid out-buffer.
