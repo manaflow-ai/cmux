@@ -10,7 +10,9 @@ use std::sync::Arc;
 use rusqlite::{Connection, params};
 use serde_json::{Value, json};
 
-use super::super::stage::{PUT_RECORDS_LIMIT, StageControl, StageOutcome, stage_registry};
+use super::super::stage::{
+    BEFORE_LIVE_COUNT, PUT_RECORDS_LIMIT, StageControl, StageOutcome, stage_registry,
+};
 use super::super::{DONE_META_KEY, V1_DONE_META_KEY, previous_path, staging_path};
 use super::*;
 
@@ -179,20 +181,38 @@ fn expected_kept(before: &BTreeMap<u64, (String, bool)>, bound: u64) -> BTreeSet
 
 #[test]
 fn flapping_session_puts_compact_to_the_latest_and_the_created_put() {
-    flapping_puts_compact("flapping", false);
+    flapping_puts_compact("flapping", SealAt::Never);
 }
 
 #[test]
 fn puts_sealed_while_the_live_rows_stage_are_not_counted_or_held_twice() {
     // The owner seals the live puts during the live step: the build restarts
     // and Phase A stages them again, now from sealed segments.
-    flapping_puts_compact("restart", true);
+    flapping_puts_compact("restart", SealAt::LiveStep);
 }
 
-/// The flapping fixture through Phase A, the build and the swap. With
-/// `seal_during_live`, the owner seals the journal once the build's live
-/// step begins.
-fn flapping_puts_compact(label: &str, seal_during_live: bool) {
+#[test]
+fn puts_sealed_before_the_live_count_are_not_held_twice() {
+    // The owner seals the live puts between Phase A's staging pass and its
+    // live count: Phase A stages the new segments and counts again, after
+    // the held puts were released.
+    flapping_puts_compact("live-count", SealAt::LiveCount);
+}
+
+/// When the owner seals the whole journal while the cleanup runs.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SealAt {
+    Never,
+    /// Once the build's live step begins (the build restarts).
+    LiveStep,
+    /// Between Phase A's staging pass and its live count (Phase A stages
+    /// again and counts again).
+    LiveCount,
+}
+
+/// The flapping fixture through Phase A, the build and the swap, the owner
+/// sealing the journal at `seal_at`.
+fn flapping_puts_compact(label: &str, seal_at: SealAt) {
     let root = temp_root(label);
     let db_path = {
         let mux = open(&root);
@@ -212,9 +232,18 @@ fn flapping_puts_compact(label: &str, seal_during_live: bool) {
     // Phase A while an owner serves, as the cleanup's own thread runs it.
     let mux = open(&root);
     let bound = journal_head(&mux);
+    if seal_at == SealAt::LiveCount {
+        let owner = mux.clone();
+        BEFORE_LIVE_COUNT.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move || seal_all(&owner, "before-count")));
+        });
+    }
     let sealed_during_live = std::cell::Cell::new(false);
     let next_step = || {
-        if seal_during_live && !sealed_during_live.get() && build_step(&db_path) == "live" {
+        if seal_at == SealAt::LiveStep
+            && !sealed_during_live.get()
+            && build_step(&db_path) == "live"
+        {
             sealed_during_live.set(true);
             seal_all(&mux, "during-live");
         }
@@ -235,7 +264,11 @@ fn flapping_puts_compact(label: &str, seal_during_live: bool) {
         StageOutcome::Built,
         "the guards refused a journal of superseded puts and output"
     );
-    assert_eq!(sealed_during_live.get(), seal_during_live, "the live step never ran");
+    assert_eq!(sealed_during_live.get(), seal_at == SealAt::LiveStep, "the live step never ran");
+    assert!(
+        BEFORE_LIVE_COUNT.with(|hook| hook.borrow().is_none()),
+        "the seal before the live count never ran"
+    );
     // The live tail: puts after staging began are never dropped.
     // The last put before was host-1 (round 9,999); these flip from host-0.
     for round in 0..3 {

@@ -83,7 +83,7 @@ const BUILD_STATE: [(&str, &str); 10] = [
 
 /// Kept records per new segment: the sealing limit, smaller in tests so a
 /// small fixture packs several segments.
-fn segment_record_limit() -> usize {
+pub(super) fn segment_record_limit() -> usize {
     #[cfg(debug_assertions)]
     if let Some(records) = std::env::var("CMUX_TUI_TEST_OUTPUT_CLEANUP_SEGMENT_RECORDS")
         .ok()
@@ -340,6 +340,17 @@ fn stage_live(
     let puts = SessionPuts::load(staging)?;
     let archive_end = i64::try_from(state_u64(staging, "live_archive_end")?)?;
     let head = i64::try_from(state_u64(staging, "live_head")?)?;
+    // A staging file whose live rows were counted past its staged segments
+    // (an earlier build counted after a segment sealed): the rows of that
+    // segment are in neither range, so Phase A stages it and counts again.
+    if archive_end != i64::try_from(state_u64(staging, "staged_through")?)? {
+        eprintln!(
+            "cmux-tui: output cleanup: the live rows were counted past the staged segments; \
+             staging the segments and counting the live rows again"
+        );
+        restart_live(staging)?;
+        return Ok(Live::Restart);
+    }
     let columns = record_columns(source)?;
     loop {
         if !next_step() {
@@ -497,7 +508,7 @@ fn finish_live(source: &Connection, staging: &Connection) -> anyhow::Result<()> 
 /// Every record Phase A and the live step saw is either staged or removed:
 /// per staged segment, and for the live rows, whose contiguity and output
 /// count Phase A took in one snapshot.
-fn check_staged_counts(staging: &Connection) -> anyhow::Result<()> {
+pub(super) fn check_staged_counts(staging: &Connection) -> anyhow::Result<()> {
     let kept_in = |after: i64, through: i64| -> anyhow::Result<i64> {
         Ok(staging.query_row(
             "SELECT COUNT(*) FROM output_cleanup_records WHERE sequence > ?1 AND sequence <= ?2",
@@ -509,6 +520,14 @@ fn check_staged_counts(staging: &Connection) -> anyhow::Result<()> {
     let live_head = i64::try_from(state_u64(staging, "live_head")?)?;
     let live_output = i64::try_from(state_u64(staging, "live_output")?)?;
     let live_dropped = i64::try_from(state_u64(staging, "live_dropped")?)?;
+    // The live rows start where the staged segments end, or the records
+    // between the two would be packed as pruned.
+    let staged_through = i64::try_from(state_u64(staging, "staged_through")?)?;
+    anyhow::ensure!(
+        archive_end == staged_through,
+        "the live rows were counted after sequence {archive_end}, the staged segments end at \
+         {staged_through}"
+    );
     let (segments, first, last, records, kept): (i64, Option<i64>, Option<i64>, i64, i64) = staging
         .query_row(
             "SELECT COUNT(*), MIN(start_sequence), MAX(end_sequence),
@@ -549,6 +568,11 @@ fn check_staged_counts(staging: &Connection) -> anyhow::Result<()> {
             |row| row.get(0),
         )?;
         anyhow::ensure!(gaps == 0, "the staged segments are not contiguous");
+    } else {
+        anyhow::ensure!(
+            archive_end == 0,
+            "no segment is staged, but the sealed journal ends at sequence {archive_end}"
+        );
     }
     if live_head > archive_end {
         anyhow::ensure!(
