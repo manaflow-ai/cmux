@@ -1054,6 +1054,28 @@ impl Hub {
                 {
                     self.peer_accepts.accepted(&peer, &params);
                 }
+                // The link attached one of its chats again without history (a reconnect that had
+                // no replay cursor for it): its clients here read on from their own last record.
+                // Only that chat's: the link dropped nothing else, and the copy (`peer_snapshot.rs`)
+                // takes none of the new link's records until a page joins it anyway.
+                PeerNotice::Notification { method: m, params, .. }
+                    if m == crate::peer::REATTACHED_NOTICE =>
+                {
+                    let Some(id) = params.get("sessionId").and_then(Value::as_str) else { return };
+                    let _ = self.events.send(HubEvent {
+                        session_id: id.to_owned(),
+                        record: Arc::new(EventRecord {
+                            seq: 0,
+                            at: now_ms(),
+                            dir: "peer".into(),
+                            kind: PEER_LAGGED.into(),
+                            msg: json!({"sessionIds": [id], "reason": "peer_reattached"}),
+                            host_seq: None,
+                        }),
+                        remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
+                        update_line: Default::default(),
+                    });
+                }
                 PeerNotice::Notification { method: m, params, link } if m == "_acpmux/lagged" => {
                     // This link's live records have a hole now: none of it is kept until a page
                     // (`peer_snapshot.rs`). A copy a later link's page joined is not this link's.

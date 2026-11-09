@@ -81,6 +81,11 @@ fn refuses_tampering_other_keys_purposes_and_expiry() {
     let mut purpose = good.clone();
     purpose["purpose"] = json!("web");
     assert!(channel::verify(&envelope(&purpose, "test"), &keys(), 5_000).is_err());
+    // A Linux release file (cmux-tui/<commit>/release.json, the same key) is not a machine update,
+    // even one that names this channel.
+    let mut release = good.clone();
+    release["purpose"] = json!("cmux-linux-release");
+    assert!(channel::verify(&envelope(&release, "test"), &keys(), 5_000).is_err());
     // Expired.
     assert!(channel::verify(&envelope(&good, "test"), &keys(), 10_000).is_err());
 }

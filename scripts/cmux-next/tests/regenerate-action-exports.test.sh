@@ -54,20 +54,22 @@ run '{"actions": ["old", "devices.setup"]}' $'# Actions\nold\ndevices.setup' > "
 [[ -z "$(find "$repo/.build/exports" -name '*.patch')" ]] || fail "the patch is inside OUT, where base-autofix.sh would commit it"
 grep -q '^patch: .*exports.patch' "$tmp/out" || fail "the log does not name the patch: $(cat "$tmp/out")"
 git clone -q "$repo" "$tmp/lane"
-git -C "$tmp/lane" apply "$repo/.build/exports.patch" || fail "the patch does not apply to a clean checkout"
+git -C "$tmp/lane" apply --allow-empty "$repo/.build/exports.patch" || fail "the patch does not apply to a clean checkout"
 cmp -s "$tmp/lane/$surfaces" "$repo/$surfaces" || fail "the patched action-surfaces.json differs from the regenerated one"
 cmp -s "$tmp/lane/$md" "$repo/$md" || fail "the patched actions.md differs from the regenerated one"
 [[ "$(git -C "$tmp/lane" diff --name-only | LC_ALL=C sort | tr '\n' ' ')" == "$(printf '%s\n' "$md" "$surfaces" | LC_ALL=C sort | tr '\n' ' ')" ]] || fail "the patch touches other files: $(git -C "$tmp/lane" diff --name-only)"
 
-# 2. Nothing changed: the patch is empty (an earlier run's patch is not handed over again). `git
-#    apply` refuses an empty patch, so the lane command in the script's header skips it; that command
-#    succeeds here and changes nothing.
+# 2. Nothing changed: the patch holds no diff (an earlier run's patch is not handed over again), yet
+#    is not an empty file: the fleet's artifact store refuses a 0-byte artifact (cache_http_400; step
+#    70f3a60755bda32f6b5e4280 at cmux#38644's head, 2026-11-09), which failed the step. The lane
+#    command in the script's header (`git apply --allow-empty`) succeeds on it and changes nothing.
 git -C "$repo" checkout -q -- plans
 run '{"actions": ["old"]}' $'# Actions\nold' > "$tmp/out" 2>&1 || fail "the clean regeneration failed: $(cat "$tmp/out")"
-[[ -f "$repo/.build/exports.patch" && ! -s "$repo/.build/exports.patch" ]] || fail "a run with no change left a non-empty patch"
+[[ -s "$repo/.build/exports.patch" ]] || fail "a run with no change left an empty file, which the artifact store refuses"
+! grep -q '^diff --git' "$repo/.build/exports.patch" || fail "a run with no change left a diff in the patch"
 [[ -z "$(find "$repo/.build/exports" -type f)" ]] || fail "a run with no change left exports in OUT"
 git -C "$tmp/lane" checkout -q -- plans
-(cd "$tmp/lane" && [ ! -s "$repo/.build/exports.patch" ] || git apply "$repo/.build/exports.patch") || fail "the lane command fails on an empty patch"
+git -C "$tmp/lane" apply --allow-empty "$repo/.build/exports.patch" || fail "the lane command fails on a patch with no diff"
 [[ -z "$(git -C "$tmp/lane" status --porcelain)" ]] || fail "the lane command changed files for an empty patch"
 
 echo "regenerate-action-exports.test.sh: ok"
