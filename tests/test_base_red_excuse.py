@@ -1492,10 +1492,32 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         # Review of cmux#39194: a PR changing the pin check, its workflow or this classifier could make the pin error
         # print for any change; such a PR is never excused this way.
         for path in ("scripts/cmux-next/check-app-ffi-pin.sh", ".github/workflows/cmux-next.yml",
-                     "scripts/ci/base_red_excuse.py"):
+                     "scripts/ci/base_red_excuse.py", "scripts/ci/app_ffi_pin.py", "scripts/ci/api_call_log/env.sh"):
             self.files = [{"filename": "cmux-tui/crates/cmux-app-ffi/src/lib.rs"}, {"filename": path}]
             with self.assertRaises(excuse.Refused, msg=path):
                 self.judge()
+
+    # cmux#37869's real file set (a new FFI crate): the release workflow's push paths, the router, the licence list and
+    # the FFI build script change with every new crate, and none of them decides the pin check's verdict (review of
+    # cmux#39471: the broad list refused every recent step-A PR).
+    STEP_A_37869 = (".github/workflows/app-ffi-release.yml", "cmux-tui/Cargo.lock", "cmux-tui/Cargo.toml",
+                    "cmux-tui/crates/cmux-app-ffi/Cargo.toml", "cmux-tui/crates/cmux-app-ffi/src/lib.rs",
+                    "cmux-tui/crates/cmux-cookie-sync/Cargo.toml", "cmux-tui/crates/cmux-cookie-sync/src/lib.rs",
+                    "scripts/ci/cmux_next_route.py", "scripts/cmux-next/build-app-ffi.sh",
+                    "scripts/cmux-next/check_app_crate_licenses.py", "tests/test_app_crate_licenses.py")
+
+    def test_a_new_crate_with_its_workflow_router_and_licence_changes_is_excused(self):
+        self.files = [{"filename": path} for path in self.STEP_A_37869]
+        self.assertIn(f"only '{FFI_PIN}' is red", self.judge()[0])
+
+    def test_a_json_pin_that_also_changes_the_pin_reader_is_refused(self):
+        # cmux#37645's file set: the pin file and Package.swift move the pin, and scripts/ci/app_ffi_pin.py is the pin
+        # check's reader; this rule never excuses it.
+        self.files = [{"filename": path} for path in ("Packages/macOS/CmuxNext/app-ffi-pin.json",
+                                                      "Packages/macOS/CmuxNext/Package.swift",
+                                                      "scripts/ci/app_ffi_pin.py")]
+        with self.assertRaises(excuse.Refused):
+            self.judge()
 
     def test_a_pr_into_another_base_is_judged_as_before(self):
         self.assertIsNone(excuse.ffi_pin_step_a("main", self.gh.jobs[1], self.gh.logs[1],

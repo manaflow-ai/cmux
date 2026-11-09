@@ -7,6 +7,8 @@
 
 mod directory;
 use directory::PublishedDirectory;
+#[cfg(unix)]
+mod host_frames;
 
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
@@ -1465,6 +1467,24 @@ type PtyGeometryTestHook = Arc<dyn Fn(PtyGeometryTestStep) + Send + Sync>;
 #[cfg(test)]
 type DeferredCellPixelAckTestHook = Arc<dyn Fn() + Send + Sync>;
 
+/// A step of the child-reaper join in `finish_terminal_reader` (tests).
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReaperShutdownTestStep {
+    /// The reaper thread itself runs the teardown and skips its own join.
+    SelfJoinSkipped,
+    /// Another thread is about to join the reaper.
+    JoiningReaper,
+}
+
+#[cfg(test)]
+type ReaperShutdownTestHook = Arc<dyn Fn(ReaperShutdownTestStep) + Send + Sync>;
+
+/// Test seam: runs on the hosted surface reader before it applies each Output
+/// transition, so a test can hold the reader with output still queued.
+#[cfg(test)]
+type HostedOutputTestHook = Arc<dyn Fn() + Send + Sync>;
+
 pub struct PtySurface {
     pub(crate) meta: SurfaceMeta,
     terminal: Arc<PtyTerminalRuntime>,
@@ -1720,6 +1740,10 @@ pub struct PtyTerminalRuntime {
     geometry_test_hook: Mutex<Option<PtyGeometryTestHook>>,
     #[cfg(test)]
     deferred_cell_pixel_ack_test_hook: Mutex<Option<DeferredCellPixelAckTestHook>>,
+    #[cfg(test)]
+    reaper_shutdown_test_hook: Mutex<Option<ReaperShutdownTestHook>>,
+    #[cfg(test)]
+    hosted_output_test_hook: Mutex<Option<HostedOutputTestHook>>,
     #[cfg(test)]
     test_master_control: Option<Arc<TestMasterPtyControl>>,
     #[cfg(test)]
@@ -2645,6 +2669,10 @@ impl Surface {
                 #[cfg(test)]
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
                 #[cfg(test)]
+                reaper_shutdown_test_hook: Mutex::new(None),
+                #[cfg(test)]
+                hosted_output_test_hook: Mutex::new(None),
+                #[cfg(test)]
                 test_master_control: None,
                 #[cfg(test)]
                 vt_replay_builds: AtomicUsize::new(0),
@@ -3170,6 +3198,10 @@ impl Surface {
                 #[cfg(test)]
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
                 #[cfg(test)]
+                reaper_shutdown_test_hook: Mutex::new(None),
+                #[cfg(test)]
+                hosted_output_test_hook: Mutex::new(None),
+                #[cfg(test)]
                 test_master_control: None,
                 #[cfg(test)]
                 vt_replay_builds: AtomicUsize::new(0),
@@ -3237,6 +3269,19 @@ impl Surface {
                     let mut resync_requested = false;
                     let mut journal_target = None;
                     let mut journal_update = None;
+                    // The demultiplexer owns this connection's socket until
+                    // the iteration ends, after a reconnect installed its
+                    // replacement; a reconnect reassigns `reader`.
+                    let frames = match host_frames::HostFrames::spawn(
+                        format!("surface-{id}-host-frames"),
+                        reader,
+                        control_responses.clone(),
+                        protocol_version,
+                        smart_renderer,
+                    ) {
+                        Ok(frames) => frames,
+                        Err(_) => return,
+                    };
                     'host_stream: loop {
                         if journal_update.is_none() {
                             journal_target = pty.journal_target();
@@ -3247,12 +3292,9 @@ impl Surface {
                                 break;
                             }
                         }
-                        let frame = match crate::terminal_host_protocol::read_frame(
-                            &mut reader,
-                            crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
-                        ) {
-                            Ok(Some(frame)) => frame,
-                            Ok(None) | Err(_) => break,
+                        let frame = match frames.recv() {
+                            host_frames::HostFrame::Frame(frame) => frame,
+                            host_frames::HostFrame::End => break,
                         };
                         // Targeted responses must be consumed before live staging:
                         // HostedFrameStager intentionally rejects every nonzero request id.
@@ -3303,6 +3345,12 @@ impl Surface {
                                     }
                                     _ => unreachable!(),
                                 };
+                                #[cfg(test)]
+                                if let Some(hook) =
+                                    pty.hosted_output_test_hook.lock().unwrap().clone()
+                                {
+                                    hook();
+                                }
                                 let mut scroll_changed = None;
                                 let mut title_update = None;
                                 let defaults = mux
@@ -3575,7 +3623,7 @@ impl Surface {
                         drop(journal_update.take());
                         journal_target = None;
                     }
-                    control_responses.fail_all();
+                    frames.abandon();
                     let Some(pty) = surface.as_pty() else { return };
                     if pty.owner_detaching.load(Ordering::Acquire) {
                         return;
@@ -4264,6 +4312,10 @@ impl Surface {
                 #[cfg(test)]
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
                 #[cfg(test)]
+                reaper_shutdown_test_hook: Mutex::new(None),
+                #[cfg(test)]
+                hosted_output_test_hook: Mutex::new(None),
+                #[cfg(test)]
                 test_master_control: None,
                 #[cfg(test)]
                 vt_replay_builds: AtomicUsize::new(0),
@@ -4498,6 +4550,9 @@ impl Surface {
                 kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
                 geometry_test_hook: Mutex::new(None),
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
+                #[cfg(test)]
+                reaper_shutdown_test_hook: Mutex::new(None),
+                hosted_output_test_hook: Mutex::new(None),
                 test_master_control: Some(test_master_control),
                 vt_replay_builds: AtomicUsize::new(0),
                 mux,
@@ -4538,12 +4593,28 @@ impl Surface {
 
     pub(crate) fn finish_terminal_reader(&self, deadline: Instant) -> Option<TerminalJournalGap> {
         let pty = self.as_pty()?;
-        let reaper = pty.reaper_thread.lock().unwrap().take();
-        if let Some(reaper) = reaper {
-            if reaper.thread().id() == std::thread::current().id() {
-                *pty.reaper_thread.lock().unwrap() = Some(reaper);
+        // Decide self-join under the lock and leave the reaper's own handle
+        // in place: taking it and putting it back let a concurrent caller
+        // see an empty slot and return while the handle was restored later.
+        let reaper = {
+            let mut slot = pty.reaper_thread.lock().unwrap();
+            if slot
+                .as_ref()
+                .is_some_and(|reaper| reaper.thread().id() == std::thread::current().id())
+            {
                 eprintln!("cmux-tui: child reaper skipped self-join during shutdown");
-            } else if pty.reaper_completion.wait_until(deadline) {
+                drop(slot);
+                #[cfg(test)]
+                pty.run_reaper_shutdown_test_hook(ReaperShutdownTestStep::SelfJoinSkipped);
+                None
+            } else {
+                slot.take()
+            }
+        };
+        if let Some(reaper) = reaper {
+            if pty.reaper_completion.wait_until(deadline) {
+                #[cfg(test)]
+                pty.run_reaper_shutdown_test_hook(ReaperShutdownTestStep::JoiningReaper);
                 if reaper.join().is_err() {
                     eprintln!("cmux-tui: child reaper thread panicked during shutdown");
                 }
@@ -6938,6 +7009,14 @@ impl PtySurface {
     }
 
     #[cfg(test)]
+    fn run_reaper_shutdown_test_hook(&self, step: ReaperShutdownTestStep) {
+        let hook = self.reaper_shutdown_test_hook.lock().unwrap().clone();
+        if let Some(hook) = hook {
+            hook(step);
+        }
+    }
+
+    #[cfg(test)]
     fn run_geometry_test_hook(&self, step: PtyGeometryTestStep) {
         let hook = self.geometry_test_hook.lock().unwrap().clone();
         if let Some(hook) = hook {
@@ -7677,6 +7756,65 @@ mod tests {
         let pty = surface.as_pty().unwrap();
         surface.finish_terminal_reader(Instant::now() + Duration::from_secs(1));
         assert!(pty.reaper_thread.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn a_concurrent_teardown_returns_only_after_the_self_finishing_reaper_is_joined() {
+        let mux = Mux::new_for_test("reaper-self-join-race", SurfaceOptions::default());
+        let surface = Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux))
+            .expect("test PTY should spawn");
+        let pty = surface.as_pty().unwrap();
+        // The reaper's own teardown reports its self-join step and then waits
+        // there until the concurrent teardown either returned or is about to
+        // join the reaper. That holds the race window open without a sleep.
+        let (entered_tx, entered_rx) = sync_channel(1);
+        let (step_tx, step_rx) = std::sync::mpsc::channel::<&'static str>();
+        let step_rx = Mutex::new(step_rx);
+        let joining_tx = step_tx.clone();
+        *pty.reaper_shutdown_test_hook.lock().unwrap() = Some(Arc::new(move |step| match step {
+            ReaperShutdownTestStep::SelfJoinSkipped => {
+                let _ = entered_tx.try_send(());
+                step_rx
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(30))
+                    .expect("the concurrent teardown neither returned nor joined the reaper");
+            }
+            ReaperShutdownTestStep::JoiningReaper => {
+                let _ = joining_tx.send("joining");
+            }
+        }));
+        let (started_tx, started_rx) = sync_channel(0);
+        let (proceed_tx, proceed_rx) = sync_channel(0);
+        let (finished_tx, finished_rx) = sync_channel(1);
+        pty.reaper_completion.reset();
+        let reaper_completion = pty.reaper_completion.clone();
+        let reaper_surface = surface.clone();
+        let reaper = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            proceed_rx.recv().unwrap();
+            reaper_completion.complete();
+            reaper_surface.finish_terminal_reader(Instant::now() + Duration::from_secs(30));
+            finished_tx.send(()).unwrap();
+        });
+        assert!(pty.reaper_thread.lock().unwrap().replace(reaper).is_none());
+        started_rx.recv().unwrap();
+        proceed_tx.send(()).unwrap();
+        entered_rx
+            .recv_timeout(Duration::from_secs(30))
+            .expect("the reaper did not reach its self-join step");
+
+        surface.finish_terminal_reader(Instant::now() + Duration::from_secs(30));
+        let _ = step_tx.send("returned");
+        finished_rx
+            .recv_timeout(Duration::from_secs(30))
+            .expect("the reaper's own teardown did not finish");
+
+        assert!(
+            pty.reaper_thread.lock().unwrap().is_none(),
+            "a teardown returned while the reaper put its own handle back after it"
+        );
+        *pty.reaper_shutdown_test_hook.lock().unwrap() = None;
     }
 
     #[test]
@@ -9282,6 +9420,90 @@ mod tests {
             crate::terminal_host_protocol::write_frame(&mut host, &first_ack).unwrap();
             first.join().unwrap().unwrap();
         });
+    }
+
+    /// A receipted write resolves when the host's InputAck arrives, even
+    /// when output the host sent before the ack still waits to be applied.
+    /// The hook holds the surface reader inside the first Output until the
+    /// write returned, so the ack can only reach its waiter on arrival
+    /// (issue #39510).
+    #[cfg(unix)]
+    #[test]
+    fn hosted_input_ack_is_not_delayed_behind_queued_output() {
+        let mux = Mux::new_for_test("hosted-input-ack-behind-output", SurfaceOptions::default());
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let (mut attachment, mut host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+        let terminal_id = attachment.record.terminal_id.clone();
+        attachment.record.workspace_key = workspace.key.clone();
+        mux.seed_launching_terminal_for_test(&terminal_id, &workspace.key).unwrap();
+
+        let surface = Surface::spawn_hosted(
+            1,
+            SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+            HostedSurfaceLaunch {
+                attachment,
+                kitty_reservation: None,
+                terminate_on_error: false,
+                defer_launch_activation: false,
+                lifetime: PtyLifetime::SessionOwned,
+                terminal_public_id: None,
+                resource_identity: None,
+            },
+        )
+        .unwrap();
+
+        // The first Output parks the surface reader until `release` is
+        // dropped (after the write returned), bounded at 30 s.
+        let (entered_tx, entered_rx) = sync_channel(1);
+        let (release, release_rx) = sync_channel::<()>(1);
+        let release_rx = Mutex::new(release_rx);
+        let held = AtomicBool::new(false);
+        *surface.as_pty().unwrap().hosted_output_test_hook.lock().unwrap() =
+            Some(Arc::new(move || {
+                if held.swap(true, Ordering::AcqRel) {
+                    return;
+                }
+                let _ = entered_tx.send(());
+                let _ = release_rx.lock().unwrap().recv_timeout(Duration::from_secs(30));
+            }));
+
+        host.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        host.set_write_timeout(Some(Duration::from_secs(10))).unwrap();
+        let output = |sequence: u64| {
+            let mut frame = Frame::new(MessageKind::Output, b"queued output\r\n".to_vec());
+            frame.sequence = sequence;
+            frame
+        };
+        crate::terminal_host_protocol::write_frame(&mut host, &output(1)).unwrap();
+        entered_rx
+            .recv_timeout(Duration::from_secs(30))
+            .expect("the surface reader starts applying the first Output");
+
+        let result = std::thread::scope(|scope| {
+            let write = scope.spawn(|| surface.write_bytes_confirmed(b"typed"));
+            let input = crate::terminal_host_protocol::read_frame(
+                &mut host,
+                crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+            )
+            .expect("observe the receipted input")
+            .expect("hosted connection stays open while the input waits for its ACK");
+            assert_eq!(input.kind, MessageKind::Input);
+            assert_eq!(input.payload, b"typed");
+            assert_ne!(input.request_id, 0);
+            // More output is queued ahead of the acknowledgement.
+            crate::terminal_host_protocol::write_frame(&mut host, &output(2)).unwrap();
+            let mut ack = Frame::new(MessageKind::InputAck, Vec::new());
+            ack.request_id = input.request_id;
+            crate::terminal_host_protocol::write_frame(&mut host, &ack).unwrap();
+            write.join().unwrap()
+        });
+        drop(release);
+        assert!(
+            result.is_ok(),
+            "a receipted write must resolve when its InputAck arrives, not after the \
+             output queued ahead of it: {result:?}"
+        );
     }
 
     #[cfg(unix)]

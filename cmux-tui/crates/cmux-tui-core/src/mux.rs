@@ -8,11 +8,16 @@ mod resource_content;
 mod resource_topology;
 mod terminal_directory;
 mod terminal_last_command;
+mod terminal_reap;
 
 pub(crate) use agent_last_sessions::with_agent_session;
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub(crate) use resource_content::ResourceEffectProjection;
 pub(crate) use resource_topology::SCREEN_CREATE_FOCUS_FIELD;
+pub use terminal_reap::{
+    DEFAULT_TERMINAL_REAP_GRACE, MAX_TERMINAL_REAP_GRACE, TerminalReaper, start_terminal_reaper,
+    validate_terminal_reap_grace,
+};
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -1614,6 +1619,26 @@ pub struct TerminalCloseResult {
     pub terminal_revision: u64,
 }
 
+/// A precondition checked atomically with a terminal close.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TerminalCloseGuard {
+    None,
+    /// The terminal has no tab placement (the unplaced-terminal reaper).
+    Unplaced,
+}
+
+/// The close guard did not hold, so nothing changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TerminalCloseGuardFailed;
+
+impl fmt::Display for TerminalCloseGuardFailed {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("terminal_close_guard_failed")
+    }
+}
+
+impl std::error::Error for TerminalCloseGuardFailed {}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TerminalResolution {
     pub surface: Option<SurfaceId>,
@@ -2599,6 +2624,10 @@ pub struct Mux {
     reserved_in_process_terminals: Mutex<HashMap<SurfaceId, TerminalHostIdentity>>,
     #[cfg(test)]
     viewport_split_after_spawn: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs in an effectful topology operation after its intent is marked
+    /// executing and before the effect runs (tests).
+    #[cfg(test)]
+    topology_effect_before_execute: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_mutation_metrics: Mutex<Option<ResourceMutationMetrics>>,
     #[cfg(test)]
@@ -2705,6 +2734,15 @@ pub struct Mux {
     idle_close: Mutex<idle_close::IdleCloseTracker>,
     /// Wakes the idle-close reaper when a policy changes.
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
+    /// The unplaced-terminal reap grace in milliseconds (`terminal_reap.rs`).
+    terminal_reap_grace_ms: AtomicU64,
+    /// The running unplaced-terminal reaper's event receiver; `Some` while it
+    /// runs (`terminal-reaper-active-v1`).
+    terminal_reaper_events: Mutex<Option<MuxEventReceiver>>,
+    /// The owner will start the unplaced-terminal reaper once its socket is
+    /// bound (`announce_terminal_reaper`); cleared when the reaper stops or
+    /// its start fails.
+    terminal_reaper_announced: AtomicBool,
     #[cfg(unix)]
     pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
@@ -3023,6 +3061,8 @@ impl Mux {
             #[cfg(test)]
             viewport_split_after_spawn: Mutex::new(None),
             #[cfg(test)]
+            topology_effect_before_execute: Mutex::new(None),
+            #[cfg(test)]
             resource_mutation_metrics: Mutex::new(None),
             #[cfg(test)]
             resource_projection_before_commit: Mutex::new(None),
@@ -3118,6 +3158,11 @@ impl Mux {
             control_clients: crate::server::ClientRegistry::new(),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             idle_close_waker: Mutex::new(None),
+            terminal_reap_grace_ms: AtomicU64::new(
+                u64::try_from(DEFAULT_TERMINAL_REAP_GRACE.as_millis()).unwrap_or(u64::MAX),
+            ),
+            terminal_reaper_events: Mutex::new(None),
+            terminal_reaper_announced: AtomicBool::new(false),
             #[cfg(unix)]
             image_pastes: crate::image_paste::ImagePasteStore::default(),
             surface_operation_admission: Arc::new(
@@ -10653,6 +10698,28 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
     ) -> anyhow::Result<TerminalCloseResult> {
+        self.close_terminal_guarded(
+            terminal_id,
+            terminal_incarnation,
+            expected_generation,
+            expected_revision,
+            mutation,
+            TerminalCloseGuard::None,
+        )
+    }
+
+    /// Close a hosted terminal after checking `guard` under the registry
+    /// lock, which serializes every placement commit. A failed guard returns
+    /// [`TerminalCloseGuardFailed`] and changes nothing.
+    pub(crate) fn close_terminal_guarded(
+        &self,
+        terminal_id: &str,
+        terminal_incarnation: Option<&str>,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+        guard: TerminalCloseGuard,
+    ) -> anyhow::Result<TerminalCloseResult> {
         validate_terminal_hex(terminal_id, "invalid_terminal_id")?;
         if let Some(incarnation) = terminal_incarnation {
             validate_terminal_hex(incarnation, "invalid_terminal_incarnation")?;
@@ -10663,11 +10730,24 @@ impl Mux {
             expected_generation,
             expected_revision,
             mutation,
+            guard,
         )? {
             return Ok(result);
         }
         let (commit, terminal_incarnation, public_id, notify_public_id) = {
             let mut registry = self.workspace_registry.lock().unwrap();
+            if guard == TerminalCloseGuard::Unplaced {
+                let placed = {
+                    let state = self.state.lock().unwrap();
+                    state.surfaces.values().any(|surface| {
+                        self.resource_terminal_host_identity(surface)
+                            .is_some_and(|identity| identity.terminal_id == terminal_id)
+                    })
+                };
+                if placed {
+                    return Err(TerminalCloseGuardFailed.into());
+                }
+            }
             let public_id = registry.terminal_resource_id(terminal_id)?;
             let commit = registry.close_terminal(
                 mutation,
@@ -29620,6 +29700,71 @@ mod tests {
             assert_eq!(screen.active_pane, first_pane);
             assert!(screen.layout_column_projection_is_consistent());
         });
+    }
+
+    /// A stale resource undo whose revision read fails is indeterminate, and it
+    /// leaves the registry lock free: the read's guard must not live on into the
+    /// branch that marks the effect indeterminate (that relock blocked forever).
+    #[test]
+    fn a_stale_undo_whose_revision_read_fails_leaves_the_registry_unlocked() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+        assert!(mux.set_viewport_pane_width_in_transaction(right_pane, 0.6, 7, 11));
+        let (selectors, revision) = {
+            let registry = mux.workspace_registry.lock().unwrap();
+            let state = mux.state.lock().unwrap();
+            let (workspace, screen) = state.screen_of(right_pane).unwrap();
+            (
+                crate::ResourceSelectors {
+                    machine: Some(registry.machine_id().to_string()),
+                    session: Some(registry.session_id().to_string()),
+                    workspace: Some(state.workspaces[workspace].public_id.to_string()),
+                    screen: Some(state.workspaces[workspace].screens[screen].public_id.to_string()),
+                    ..crate::ResourceSelectors::default()
+                },
+                registry.resource_topology_snapshot().unwrap().revision,
+            )
+        };
+        // Between the intent and the effect, a new resize makes the undo stale,
+        // and the revision read that follows fails.
+        let hook_mux = Arc::downgrade(&mux);
+        *mux.topology_effect_before_execute.lock().unwrap() = Some(Arc::new(move || {
+            let mux = hook_mux.upgrade().unwrap();
+            assert!(mux.set_viewport_pane_width_in_transaction(right_pane, 0.7, 8, 12));
+            mux.workspace_registry.lock().unwrap().fail_next_topology_snapshots_for_test(1);
+        }));
+
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let worker = {
+            let mux = mux.clone();
+            std::thread::spawn(move || {
+                let mutation = WorkspaceMutation::new("stale-undo-read-failure", "test").unwrap();
+                let result = mux.resource_topology_operation(
+                    ResourceOperation::ScreenLayoutUndo,
+                    selectors,
+                    Map::new(),
+                    Some(revision),
+                    &mutation,
+                );
+                let code = result.err().and_then(|error| {
+                    error.downcast_ref::<ResourceError>().map(|e| e.code.clone())
+                });
+                let _ = done_tx.send(code);
+            })
+        };
+        let code = done_rx.recv_timeout(Duration::from_secs(30)).expect(
+            "the stale undo kept the registry locked while it marked the effect indeterminate",
+        );
+        worker.join().unwrap();
+        assert_eq!(code.as_deref(), Some("mutation.indeterminate"));
+        *mux.topology_effect_before_execute.lock().unwrap() = None;
+
+        assert!(mux.workspace_registry.try_lock().is_ok(), "the registry lock is still held");
+        let later = mux.new_workspace(None, Some((80, 22))).err();
+        assert!(later.is_none(), "a later topology operation failed: {later:?}");
     }
 
     #[test]

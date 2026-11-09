@@ -58,6 +58,13 @@ RELEASE_NEXT_JOBS = {
     "nightly-next-rollback.yml": ["rollback"],
 }
 
+# The cmux-cef-write token (CMUX_CEF_R2_WRITE_*) lives only in `cef-publish`
+# (reviewers required). A job in any other environment reads it as empty: the
+# Cua Driver SDK publish (run 42278271161) and the dev helper signing asked
+# `release` for it and stopped before publishing.
+CEF_WRITE_SECRET = re.compile(r"secrets\.CMUX_CEF_R2_WRITE_[A-Z_]+")
+CEF_WRITE_ENVIRONMENT = "cef-publish"
+
 
 def _check(cond, msg):
     if not cond:
@@ -86,6 +93,17 @@ def main():
             _check(definition.get("environment") == "artifacts", f"{name} {job} runs in the artifacts environment")
             used = set(re.findall(r"secrets\.([A-Za-z0-9_]+)", yaml.dump(definition)))
             _check(used <= ARTIFACT_SECRETS, f"{name} {job} uses only R2 upload secrets (found {sorted(used)})")
+    for name in sorted(os.listdir(WORKFLOWS)):
+        if not name.endswith((".yml", ".yaml")):
+            continue
+        document = yaml.load(open(os.path.join(WORKFLOWS, name), encoding="utf-8"), Loader=yaml.BaseLoader)
+        for job, definition in ((document or {}).get("jobs") or {}).items():
+            if CEF_WRITE_SECRET.search(yaml.dump(definition)):
+                environment = definition.get("environment")
+                if isinstance(environment, dict):
+                    environment = environment.get("name")
+                _check(environment == CEF_WRITE_ENVIRONMENT,
+                       f"{name} {job} reads the cmux-cef-write token from the {CEF_WRITE_ENVIRONMENT} environment")
     gate = yaml.load(open(os.path.join(WORKFLOWS, "iroh-release-gate.yml"), encoding="utf-8"), Loader=yaml.BaseLoader)
     condition = " ".join(str(gate["jobs"]["simulator-e2e"].get("if", "")).split())
     _check(

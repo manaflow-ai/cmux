@@ -1396,6 +1396,12 @@ impl WorkspaceRegistry {
     }
 
     pub fn resource_topology_snapshot(&self) -> anyhow::Result<ResourceTopologySnapshot> {
+        #[cfg(test)]
+        if self.topology_snapshot_failures_remaining.get() > 0 {
+            self.topology_snapshot_failures_remaining
+                .set(self.topology_snapshot_failures_remaining.get() - 1);
+            anyhow::bail!("injected topology snapshot failure");
+        }
         load_resource_topology(&self.connection, self.session_id.clone(), self.generation.clone())
     }
 
@@ -2583,6 +2589,52 @@ pub(super) fn repair_dangling_terminal_resources(
             "repaired_terminals": dangling,
             "retired_tabs": retired_tabs.iter().map(|(tab_id, _, _)| tab_id).collect::<Vec<_>>(),
         }),
+        &Value::Array(changes),
+    )?;
+    Ok(())
+}
+
+/// Meta key of the two-commit restatement shape (#38839): the panes a startup
+/// repair changed and had not restated yet. That shape is gone; a database
+/// that crashed between its two commits can still hold the key.
+const LEGACY_PENDING_RESTATE_META_KEY: &str = "startup_repair_restate_panes";
+
+/// Publishes the restatement that a crashed two-commit startup repair left
+/// pending, and removes its meta key, in `transaction`.
+///
+/// The restatement is one batch at the next revision: an upsert for each
+/// live tab of the listed panes and for each screen that holds them, read
+/// from the current rows. Panes that no longer exist are skipped; when none
+/// is left, only the key is removed.
+pub(super) fn restate_legacy_pending_panes(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let Some(value) = meta_value(transaction, LEGACY_PENDING_RESTATE_META_KEY)? else {
+        return Ok(());
+    };
+    transaction.execute("DELETE FROM meta WHERE key = ?1", [LEGACY_PENDING_RESTATE_META_KEY])?;
+    // A value this build cannot read restates nothing; the key still goes.
+    let pane_ids = serde_json::from_str::<Vec<String>>(&value).unwrap_or_default();
+    let mut changes = Vec::new();
+    restate_repaired_panes(transaction, &pane_ids, &mut changes)?;
+    if changes.is_empty() {
+        return Ok(());
+    }
+    let current_revision = current_resource_revision(transaction)?;
+    let revision = current_revision.checked_add(1).ok_or_else(|| {
+        anyhow::anyhow!("resource revision exhausted during a pending repair restatement")
+    })?;
+    transaction.execute(
+        "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+        [revision.to_string()],
+    )?;
+    append_resource_journal_record(
+        transaction,
+        revision,
+        current_revision,
+        "cmux-startup-repair",
+        &format!("terminal-close-repair-restate-{revision}"),
+        "terminal.close.repair",
+        None,
+        &json!({ "restated_panes": pane_ids }),
         &Value::Array(changes),
     )?;
     Ok(())

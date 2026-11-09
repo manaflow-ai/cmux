@@ -105,9 +105,10 @@ publishes only from a feat-cmux-next push, so such a PR can never carry its own
 pin. With `--pull N`, the cmux-next checks job is excused when its red steps are
 only that check and the rollup naming it, the check printed the pin error and no
 other error, and the PR changes FFI inputs but not the pin (Package.swift,
-app-ffi-pin.json), no Swift and no check code (.github/, scripts/ci/,
-scripts/cmux-next/ but the FFI build script), so no app code calls what the
-pinned library lacks and the PR cannot make the pin error print itself. Only the red steps' own output is read: a green step's line is no red
+app-ffi-pin.json), no Swift and none of the files that decide the pin verdict
+(FFI_PIN_CHECK_CODE), so no app code calls what the pinned library lacks and
+the PR cannot make the pin error print itself. Only the red steps' own output
+is read: a green step's line is no red
 (tests/test_next_batch.py prints a fixture line ending "error error: y" from a
 passing step). Anything else is judged as before.
 
@@ -382,9 +383,13 @@ FFI_PIN_ERROR = "error: the app FFI sources changed since the pinned source"
 FFI_PIN_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
 FFI_PIN_PATHS = ("Packages/macOS/CmuxNext/app-ffi-pin.json", FFI_PIN_MANIFEST)  # a PR changing either moves the pin
 FFI_INPUTS = ("cmux-tui/crates/", "cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh")
-# The code that decides the pin check and its rollup (the check script, the workflow, this classifier): a PR changing
-# it could make the pin error print for any change, so it is never excused this way (review of cmux#39194).
-FFI_PIN_CHECK_CODE = (".github/", "scripts/ci/", "scripts/cmux-next/")
+# The files that decide the pin check's verdict: the check, the pin reader it runs, every step's BASH_ENV, this
+# classifier and the workflow holding the pin step and its rollup (the checks job uses no .github/actions/). A PR
+# changing one could make the pin error print for any change, so it is never excused this way (review of cmux#39194).
+# Only these: a new FFI crate also changes app-ffi-release.yml, the router and the licence list (cmux#37869), which do
+# not decide the verdict (review of cmux#39471).
+FFI_PIN_CHECK_CODE = ("scripts/cmux-next/check-app-ffi-pin.sh", "scripts/ci/app_ffi_pin.py", "scripts/ci/api_call_log/",
+                      "scripts/ci/base_red_excuse.py", ".github/workflows/cmux-next.yml")
 FFI_PIN_BASE = "feat-cmux-next"  # app-ffi-release.yml publishes only from a push to it
 
 
@@ -442,7 +447,7 @@ def ffi_pin_step_a(base: str, job: dict, log: str, changed: set[str] | None, pr:
     into feat-cmux-next, or None, so the job is judged as before: when the base or the job is another, its red steps
     are not exactly the pin check and the rollup naming only it, the pin check printed no pin error or another error,
     a red step shows a crash, or the PR (CHANGED, its paths) moves the pin, changes Swift, changes the check code
-    (FFI_PIN_CHECK_CODE, the FFI build script aside) or changes no FFI input."""
+    (FFI_PIN_CHECK_CODE) or changes no FFI input."""
     if base != FFI_PIN_BASE or job.get("name") != FFI_PIN_JOB or changed is None or pr is None:
         return None
     output = red_step_output(job, log)
@@ -461,8 +466,7 @@ def ffi_pin_step_a(base: str, job: dict, log: str, changed: set[str] | None, pr:
         return None
     if any(path in FFI_PIN_PATHS or path.endswith(".swift") for path in changed):
         return None
-    if any(touches(path, code) and not touches(path, "scripts/cmux-next/build-app-ffi.sh")
-           for path in changed for code in FFI_PIN_CHECK_CODE):
+    if any(touches(path, code) for path in changed for code in FFI_PIN_CHECK_CODE):
         return None
     if not any(touches(path, read) for path in changed for read in FFI_INPUTS):
         return None

@@ -4225,6 +4225,75 @@ fn startup_repair_retires_a_dangling_terminal_tab_and_selects_its_sibling() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A build with #38839 published a startup repair's deletes in one commit
+/// and the restatement of the repaired panes in a second one, and kept the
+/// pending panes in meta key `startup_repair_restate_panes` between the
+/// two. A database that crashed between those commits still has the key.
+/// The next open publishes the restatement and removes the key.
+#[test]
+fn an_open_restates_the_panes_a_crashed_two_commit_repair_left_pending() {
+    let root = temp_root("legacy-pending-restatement");
+    let before = {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        registry
+            .commit_resource_patch(
+                &WorkspaceMutation::new("seed-one-tab", "test").unwrap(),
+                "workspace.create",
+                &json!({"operation":"workspace.create","name":"One"}),
+                None,
+                Some(0),
+                &terminal_topology_patch(),
+                &json!({"workspace_id":workspace(1, "one", "One").public_id}),
+                &json!([{"kind":"workspace.created"}]),
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO meta(key, value) VALUES('startup_repair_restate_panes', ?1)",
+                [json!([pane_id(1).as_str()]).to_string()],
+            )
+            .unwrap();
+        registry.resource_topology_snapshot().unwrap().revision
+    };
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let pending: Option<String> = reopened
+        .connection
+        .query_row("SELECT value FROM meta WHERE key = 'startup_repair_restate_panes'", [], |row| {
+            row.get(0)
+        })
+        .optional()
+        .unwrap();
+    assert_eq!(pending, None, "the open left the legacy restatement key behind");
+    let page = reopened.resource_events_after(before).unwrap();
+    assert_eq!(page.batches.len(), 1, "{:?}", page.batches);
+    let changes = page.batches[0].changes.as_array().unwrap();
+    let topology = reopened.resource_topology_snapshot().unwrap();
+    assert!(
+        changes.iter().any(|change| change["kind"] == "upsert"
+            && change["resource"] == "tab"
+            && change["id"] == tab_id(1).as_str()),
+        "{changes:?}"
+    );
+    assert!(
+        changes.iter().any(|change| change["kind"] == "upsert"
+            && change["resource"] == "screen"
+            && change["id"] == topology.panes[0].screen_id.as_str()),
+        "{changes:?}"
+    );
+    for (sequence, change) in changes.iter().enumerate() {
+        assert_eq!(change["sequence"], sequence);
+    }
+    drop(reopened);
+
+    // Published once: the next open adds no batch.
+    let again = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(again.resource_events_after(before).unwrap().batches.len(), 1);
+    drop(again);
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn terminal_close_tombstones_before_kill_and_retries_safely() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
@@ -6358,4 +6427,61 @@ fn long_database_descendant_is_normalized_even_when_root_is_short() {
     ] {
         assert!(path.to_string_lossy().starts_with(r"\\?\C:\"), "{}", path.display());
     }
+}
+
+fn unplaced_ids(list: &[&str]) -> HashSet<String> {
+    list.iter().map(|id| (*id).to_string()).collect()
+}
+
+/// The time a terminal was first seen unplaced survives a reopen (an owner
+/// restart), a placed terminal loses it, and one the restarted owner has
+/// not adopted yet (in neither set) keeps it (feat #29476).
+#[test]
+fn terminal_reap_unplaced_since_survives_a_reopen_and_clears_when_placed() {
+    let root = temp_root("terminal-unplaced");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "terminal-unplaced").unwrap();
+        seed_workspace(&mut registry, "one");
+        reserve_terminal(&mut registry, TERMINAL_ONE, 0);
+        let since = registry
+            .sync_terminal_unplaced(&unplaced_ids(&[TERMINAL_ONE]), &unplaced_ids(&[]), 1_000)
+            .unwrap()
+            .since_ms;
+        assert_eq!(since[TERMINAL_ONE], 1_000);
+        // A later pass keeps the first time.
+        let since = registry
+            .sync_terminal_unplaced(&unplaced_ids(&[TERMINAL_ONE]), &unplaced_ids(&[]), 5_000)
+            .unwrap()
+            .since_ms;
+        assert_eq!(since[TERMINAL_ONE], 1_000, "a later pass moved the first unplaced time");
+    }
+    let mut registry = WorkspaceRegistry::open(&root, "terminal-unplaced").unwrap();
+    // Not adopted yet: in neither set, the row stays.
+    let adopting =
+        registry.sync_terminal_unplaced(&unplaced_ids(&[]), &unplaced_ids(&[]), 9_000).unwrap();
+    assert!(adopting.since_ms.is_empty());
+    assert!(adopting.rows_left, "the row of a terminal not seen yet stays");
+    let since = registry
+        .sync_terminal_unplaced(&unplaced_ids(&[TERMINAL_ONE]), &unplaced_ids(&[]), 9_000)
+        .unwrap()
+        .since_ms;
+    assert_eq!(since[TERMINAL_ONE], 1_000, "the grace goes on across the reopen");
+    // Placed again: the row goes, and the next unplace starts a new time.
+    registry
+        .sync_terminal_unplaced(&unplaced_ids(&[]), &unplaced_ids(&[TERMINAL_ONE]), 10_000)
+        .unwrap();
+    let since = registry
+        .sync_terminal_unplaced(&unplaced_ids(&[TERMINAL_ONE]), &unplaced_ids(&[]), 12_000)
+        .unwrap()
+        .since_ms;
+    assert_eq!(since[TERMINAL_ONE], 12_000);
+    // Closed (tombstoned): its row is pruned, and no row is left.
+    let close = WorkspaceMutation::new("close-unplaced", "test").unwrap();
+    let revision = registry.terminal_snapshot().unwrap().revision;
+    registry.close_terminal(&close, None, Some(revision), TERMINAL_ONE, None).unwrap();
+    let after =
+        registry.sync_terminal_unplaced(&unplaced_ids(&[]), &unplaced_ids(&[]), 13_000).unwrap();
+    assert!(!after.rows_left, "a closed terminal's row is pruned");
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
 }
