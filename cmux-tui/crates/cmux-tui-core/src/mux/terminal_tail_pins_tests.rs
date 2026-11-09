@@ -41,9 +41,14 @@ impl Fixture {
             .as_array()
             .unwrap()
             .iter()
-            .filter(|entry| entry["key"].as_str().is_some_and(|key| key.starts_with(TAIL_KEY_PREFIX)))
+            .filter(|entry| {
+                entry["key"].as_str().is_some_and(|key| key.starts_with(TAIL_KEY_PREFIX))
+            })
             .map(|entry| {
-                (entry["key"].as_str().unwrap().to_owned(), entry["text"].as_str().unwrap().to_owned())
+                (
+                    entry["key"].as_str().unwrap().to_owned(),
+                    entry["text"].as_str().unwrap().to_owned(),
+                )
             })
             .collect()
     }
@@ -72,7 +77,9 @@ fn a_pinned_terminal_shows_its_last_line_without_escapes_under_its_workspace() {
     assert_eq!(f.tails()[0].0, format!("{TAIL_KEY_PREFIX}{}", terminal.as_str()));
 
     f.print(b"\x1b[33mwarning\x1b[0m: \x1b]8;;https://x\x07unused\x1b]8;;\x07 import\r\n\r\n");
-    wait_for("the new line published", || f.tail_text().as_deref() == Some("warning: unused import"));
+    wait_for("the new line published", || {
+        f.tail_text().as_deref() == Some("warning: unused import")
+    });
     let selectors = f.mux.local_workspace_selectors(&f.workspace);
     let entry = &f.mux.workspace_status_snapshots(&selectors).unwrap()[0]["entries"][0];
     assert_eq!(entry["icon"], "terminal");

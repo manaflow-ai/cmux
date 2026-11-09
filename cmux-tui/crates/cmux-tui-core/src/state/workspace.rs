@@ -131,12 +131,12 @@ impl Mux {
                         meta.validate(|id| state.terminal_catalog.contains_key(id))?;
                         // `tail:term_…` is a terminal tail pin's record
                         // (`mux/terminal_tail_pins.rs`): only the daemon sets one.
-                        if key.starts_with(crate::mux::RESERVED_TAIL_KEY_PREFIX)
+                        if key.starts_with(RESERVED_TAIL_KEY_PREFIX)
                             && !matches!(mutation.actor, Actor::Daemon)
                         {
                             anyhow::bail!(
                                 "bad request: status keys starting with {} are reserved for terminal tail pins",
-                                crate::mux::RESERVED_TAIL_KEY_PREFIX
+                                RESERVED_TAIL_KEY_PREFIX
                             );
                         }
                         // Checked here, after the replay check, so a retry of

@@ -294,7 +294,11 @@ pub(super) fn parse_terminal(
                 (selector, _) if matches!(Selector::parse(selector), Ok(Selector::Id(_))) => {
                     selector.to_owned()
                 }
-                _ => return Err(UsageError::new("terminal pin-tail needs a term_ terminal ID or current")),
+                _ => {
+                    return Err(UsageError::new(
+                        "terminal pin-tail needs a term_ terminal ID or current",
+                    ));
+                }
             };
             validate_prefixed_id("terminal", "term", &selector)?;
             let pinned = match *state {

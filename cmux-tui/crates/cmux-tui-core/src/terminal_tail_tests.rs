@@ -23,7 +23,11 @@ fn osc_titles_links_and_control_bytes_never_reach_the_tail() {
 fn a_progress_bar_redrawn_after_a_carriage_return_shows_its_newest_frame() {
     let mut line = TailLine::default();
     line.feed(b"[==>   ] 10%\r[====> ] 50%\r[======] 100%");
-    assert_eq!(line.tail(), Some("[====> ] 50%"), "the frame still being drawn is not the tail yet");
+    assert_eq!(
+        line.tail(),
+        Some("[====> ] 50%"),
+        "the frame still being drawn is not the tail yet"
+    );
     line.feed(b"\n");
     assert_eq!(line.tail(), Some("[======] 100%"));
 }

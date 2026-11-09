@@ -86,7 +86,9 @@ impl Mux {
             anyhow::bail!("terminal_private: an incognito terminal's output is never pinned");
         }
         let seed = pinned
-            .then(|| surface.try_with_terminal(|term| term.viewport_text()).ok().and_then(Result::ok))
+            .then(|| {
+                surface.try_with_terminal(|term| term.viewport_text()).ok().and_then(Result::ok)
+            })
             .flatten();
         let seed = seed.as_deref().and_then(|text| {
             text.lines().rev().find(|line| !line.trim().is_empty()).map(str::to_owned)
@@ -124,7 +126,8 @@ impl Mux {
     pub(crate) fn placed_surface_of_terminal(&self, terminal: &str) -> Option<SurfaceId> {
         self.with_state(|state| {
             state.surfaces.iter().find_map(|(id, surface)| {
-                let shows = surface.terminal_public_id().is_some_and(|public| public.as_str() == terminal);
+                let shows =
+                    surface.terminal_public_id().is_some_and(|public| public.as_str() == terminal);
                 (shows && state.pane_of(*id).is_some()).then_some(*id)
             })
         })
@@ -240,9 +243,8 @@ impl Mux {
             let workspace = self.workspace_public_id_of_surface(view)?;
             Some((view, surface, workspace))
         };
-        let found = placed(view).or_else(|| {
-            self.placed_surface_of_terminal(terminal.as_str()).and_then(&placed)
-        });
+        let found = placed(view)
+            .or_else(|| self.placed_surface_of_terminal(terminal.as_str()).and_then(&placed));
         let Some((view, surface, workspace)) = found.filter(|(_, surface, _)| {
             surface.terminal_runtime_id() == Some(runtime)
                 && !self.output_store.is_private(self, &terminal)
@@ -303,9 +305,13 @@ impl Mux {
     }
 
     fn clear_terminal_tail(&self, pin: &Pin) {
-        let workspace = pin.workspace.clone().or_else(|| self.workspace_public_id_of_surface(pin.view));
+        let workspace =
+            pin.workspace.clone().or_else(|| self.workspace_public_id_of_surface(pin.view));
         if let Some(workspace) = workspace {
-            self.commit_terminal_tail(&workspace, WorkspaceStatusChange::Clear { key: Some(pin.key()) });
+            self.commit_terminal_tail(
+                &workspace,
+                WorkspaceStatusChange::Clear { key: Some(pin.key()) },
+            );
         }
     }
 

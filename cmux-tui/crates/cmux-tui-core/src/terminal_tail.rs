@@ -22,7 +22,8 @@ pub(crate) const MAX_TAIL_CHARS: usize = 160;
 /// And to this many bytes, under the status store's 512-byte text limit
 /// (`MAX_STATUS_TEXT_BYTES`), so a wide line is cut, never refused.
 pub(crate) const MAX_TAIL_BYTES: usize = 480;
-const _: () = assert!(MAX_TAIL_BYTES <= crate::state::workspace_status_store::MAX_STATUS_TEXT_BYTES);
+const _: () =
+    assert!(MAX_TAIL_BYTES <= crate::state::workspace_status_store::MAX_STATUS_TEXT_BYTES);
 /// A pinned terminal publishes its tail at most this often.
 pub(crate) const PUBLISH_INTERVAL: Duration = Duration::from_millis(500);
 
