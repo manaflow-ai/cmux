@@ -99,8 +99,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// Where the editor puts the cursor on the tab's file (a Find result's line and column): the
     /// next config of that file carries it once as `reveal`. The markdown page ignores it.
     var reveal: FilePosition?
-    /// Another machine's file has no quit document, and edit reports coalesce: no save proves no newer edit waits.
-    private(set) var holdsUnsavedRemoteEdits = false
+    /// The page reported an edit: edit reports coalesce, so no save proves that no newer edit waits in it.
+    private(set) var holdsReportedEdits = false
     /// Whether the tab's file may be saved (the last config's answer).
     private var writable = false
     var isWritable: Bool { writable }
@@ -467,8 +467,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         let url = try path(params["path"])
         guard let file, canonical(url) == file else { throw PageError.invalidParams("path is not this page's file") }
         guard let text = params["text"]?.stringValue else { throw PageError.invalidParams("text is required") }
+        holdsReportedEdits = true
         // Crash drafts are keyed by this Mac's paths (FilePageRecovery): none for another machine's file.
-        guard files.isLocal else { holdsUnsavedRemoteEdits = true; return ["recovery": "invalidID"] }
+        guard files.isLocal else { return ["recovery": "invalidID"] }
         let accepted = host.edited(file, text: text, baseHash: params["baseHash"]?.stringValue, writable: writable)
         return ["recovery": .string(accepted.rawValue)]
     }

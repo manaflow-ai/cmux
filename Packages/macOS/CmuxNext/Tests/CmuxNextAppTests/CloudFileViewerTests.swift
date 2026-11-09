@@ -168,9 +168,9 @@ struct CloudFileViewerTests {
         provider.close()
     }
 
-    /// App health never reloads a page over unsaved edits (#39247): another machine's file has no
-    /// quit document, and the page reports edits in batches, so a save that finishes may already be
-    /// behind an edit still waiting in the page (Codex's review at c2384d5). An edited tab stays held.
+    /// App health never reloads a page over unsaved edits (#39247): the page reports edits in batches,
+    /// so a save that finishes may already be behind an edit still waiting in the page (reviews at
+    /// c2384d5 and 5bcbe91). An edited file tab, on this Mac or another machine, stays held.
     @Test func aCloudTabHoldsItsUnsavedEditsEvenAfterASave() async throws {
         let path = "/home/cmux/notes.md"
         let machine = MachineFiles()
@@ -179,12 +179,12 @@ struct CloudFileViewerTests {
                                         files: RemoteFilePageFiles(client: machine, machine: Self.machine))
         let config = try await Self.call(provider, "config")
         let base = try #require(config["hash"]?.stringValue)
-        #expect(!provider.holdsUnsavedRemoteEdits)
+        #expect(!provider.holdsReportedEdits)
         _ = try await Self.call(provider, "edited", ["path": .string(path), "text": "two\n", "baseHash": .string(base)])
-        #expect(provider.holdsUnsavedRemoteEdits)
+        #expect(provider.holdsReportedEdits)
         // The save of "two" finishes while "three" may still wait in the page's next report.
         _ = try await Self.call(provider, "save", ["path": .string(path), "text": "two\n", "baseHash": .string(base)])
-        #expect(provider.holdsUnsavedRemoteEdits)
+        #expect(provider.holdsReportedEdits)
         provider.close()
     }
 

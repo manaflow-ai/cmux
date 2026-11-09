@@ -216,7 +216,6 @@ final class FilePageService: InternalPageProvider {
             return .invalidID
         }
         if tabs[key]?.stopFlush == nil, let page = tabs[key]?.page {
-            page.holdsUnsavedEdits = { [weak document] in document?.hasUnsavedChanges ?? false }
             tabs[key]?.stopFlush = document.addFlusher { [weak page, op = kind.op("flush")] in
                 guard let page, let answer = try? await page.router.callPage(op, params: .object([:])) else { return true }
                 return answer["dirty"]?.boolValue ?? true
@@ -414,7 +413,7 @@ final class FilePageService: InternalPageProvider {
         }
         page.onOpenExternal = { [weak self] url in self?.openExternal(url, from: key) }
         page.fileDrop = fileDrop(provider: provider, page: page, key: key)
-        if !tab.files.isLocal { page.holdsUnsavedEdits = { [weak provider] in provider?.holdsUnsavedRemoteEdits ?? false } }
+        page.holdsUnsavedEdits = { [weak provider] in provider?.holdsReportedEdits ?? false }
         // One menu: Copy; Comment…, Quote in Chat, Send to Chief and Send To… on a selection; Reset
         // Column Widths on a table (viewer-comments-DESIGN.md).
         installSelectionMenu(on: page, key: key, then: kind == .markdown ? Self.tableMenu(provider: provider, page: page) : nil)
