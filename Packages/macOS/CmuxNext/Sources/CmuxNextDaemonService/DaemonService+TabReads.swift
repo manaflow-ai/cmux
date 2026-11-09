@@ -10,7 +10,7 @@ extension DaemonService {
     public func readNotification(of tab: TabModel,
                                  answered: @escaping @MainActor (AckTabNotificationsRequest.Response) -> Void = { _ in }) {
         let start = shutdowns
-        let sent = reads.readNotification(of: tab, alive: { [weak self] in self?.shutdowns == start }, current: store.holdsRead(of: tab),
+        let sent = reads.readNotification(of: tab, generation: store.generation, alive: { [weak self] in self?.shutdowns == start }, current: store.holdsRead(of: tab),
                                           answered: answered) { [weak self] surface in
             guard let self else { throw CancellationError() }
             // The surface is the store's tree's number: sent on that tree's transport only.
@@ -21,7 +21,10 @@ extension DaemonService {
         }
         guard sent == nil, tab.readingNotification == nil else { return }
         let surface = tab.surface
-        send("ack-tab-notifications") { _ = try await $0.acknowledgeNotifications(of: surface) }
+        send("ack-tab-notifications") { connection in
+            let reply = try await connection.acknowledgeNotifications(of: surface)
+            await answered(reply)
+        }
     }
 
     /// Clears `tab`'s Mark as Unread on its record (`resource`), sent until answered.

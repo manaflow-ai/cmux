@@ -23,9 +23,11 @@ import Foundation
         try? await backoff.wait(owner: "tab read retry")
     }
 
-    /// The notification reads being sent (tab id and notification): a read of one of them stands for this one too.
-    /// A write that ended (answered, refused, or no longer standing) leaves it, so the next read sends again.
-    private var sending: Set<String> = []
+    /// The notification read being sent per tab (by tab id): its daemon generation and notification. A read of the
+    /// same one stands for this one too; a write that ended (answered, refused, or no longer standing) leaves, so the
+    /// next read sends again. A read on another generation takes the tab over: the old write, which a new daemon's
+    /// reused numbers made look the same, neither absorbs it nor rolls it back.
+    private var sending: [String: String] = [:]
 
     public init() {}
 
@@ -67,18 +69,21 @@ import Foundation
     /// its refusal shows the dot again. The tree's echo settles it: read, or a newer notification, which shows (the
     /// person has not seen it) and ends this write. Nil when the tab had no unread notification to read.
     @discardableResult
-    public func readNotification<T: Sendable>(of tab: TabModel, alive: @escaping @MainActor () -> Bool = { true },
+    public func readNotification<T: Sendable>(of tab: TabModel, generation: DaemonGeneration? = nil,
+                                              alive: @escaping @MainActor () -> Bool = { true },
                                               current: @escaping @MainActor () -> Bool = { true },
                                               answered: @escaping @MainActor (T) -> Void = { _ in },
                                               _ ack: @escaping @MainActor (SurfaceID) async throws -> T) -> Task<Void, Never>? {
         tab.expectNotificationRead()
         guard let reading = tab.readingNotification else { return nil }
         // A read of this notification already on its way stands for this one too.
-        let key = "\(tab.id)#\(reading.rawValue)"
-        guard sending.insert(key).inserted else { return nil }
-        return send(stands: { tab.readingNotification == reading }, current: { alive() && current() },
-                    refused: { _ in tab.dropExpectedNotificationRead() }, answered: answered,
-                    ended: { [weak self] in self?.sending.remove(key) }) {
+        let key = "\(generation?.rawValue ?? "")#\(reading.rawValue)"
+        guard sending[tab.id] != key else { return nil }
+        sending[tab.id] = key
+        let owns = { [weak self] in self?.sending[tab.id] == key }
+        return send(stands: { tab.readingNotification == reading && owns() }, current: { alive() && current() },
+                    refused: { _ in if owns() { tab.dropExpectedNotificationRead() } }, answered: answered,
+                    ended: { [weak self] in if owns() { self?.sending[tab.id] = nil } }) {
             // The tab's surface as it is at this try: a daemon that came back may number it anew.
             try await ack(tab.surface)
         }
