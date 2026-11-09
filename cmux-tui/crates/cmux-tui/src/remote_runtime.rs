@@ -789,6 +789,11 @@ struct ClientReady {
 /// `recovering`: the link outlives a failed first connect, and says on stderr why each first
 /// dial failed (an owner that still reads only stderr learns the reason without waiting for an
 /// exit that no longer comes).
+/// The stderr line a recovering link writes once its `PATH.admin` socket is bound. The app
+/// matches it as `SSHMachineLink.socketReadyLine` (CmuxNextRemote/SSH/SSHMachineLink.swift);
+/// `tests/remote_connect_link_socket_ready.rs` checks the binary prints it before any dial reports.
+pub(crate) const LINK_SOCKET_READY_LINE: &str = "remote connect: link socket ready";
+
 async fn run_client(
     options: ClientRuntimeOptions,
     mut shutdown: watch::Receiver<bool>,
@@ -801,6 +806,11 @@ async fn run_client(
             None => default_client_socket(&options.state_dir, options.session)?,
         };
         let sidecars = link_sidecars::PendingSidecars::start(&local_socket).await;
+        if recovering && sidecars.answers() {
+            // The owner forwards a person's wait as soon as the link's socket answers, before
+            // any dial reports (a stalled first dial says nothing on stderr).
+            eprintln!("{LINK_SOCKET_READY_LINE}");
+        }
         let (connection, route) = dial_first_connection(
             &options,
             shutdown.clone(),
@@ -1280,13 +1290,23 @@ fn ssh_bootstrap_failure_is_retryable(error: &anyhow::Error) -> bool {
 
 /// What ssh prints when it reached the host and was refused: a failed authentication or a host
 /// key it will not accept. ssh exits 255 for these as for an unreachable host, but no redial can
-/// fix them, so a link that outlives a failed first connect must not redial them.
+/// fix them, so a link that outlives a failed first connect must not redial them. Matched without
+/// regard to case. The app names the same lines as an authentication or host key failure
+/// (`SSHFailure.hostKeyNeedles` and `authNeedles`), so every one of those is here too.
 const SSH_PERMANENT_REFUSALS: &[&str] = &[
+    // Authentication: ssh's own last word once every method failed. Per-key lines
+    // (`sign_and_send_pubkey: ...`, `no mutual signature algorithm`) are left out: ssh goes on to
+    // the next key, so a later transport failure after one is still worth redialing.
     "Permission denied",
-    "Host key verification failed",
     "Too many authentication failures",
     "No more authentication methods",
-    "REMOTE HOST IDENTIFICATION HAS CHANGED",
+    "Authentication failed",
+    // Host keys: only the lines that end the connection. Warnings (`Permanently added the ...
+    // host key for IP address ...`, the `REMOTE HOST IDENTIFICATION HAS CHANGED` banner, `host
+    // key is known for ...`) can precede a connection that goes on, so no bare prefix matches.
+    "Host key verification failed",
+    "has changed and you have requested strict checking",
+    "No matching host key type",
 ];
 
 fn ssh_refused_permanently(error: &BootstrapError) -> bool {
@@ -1294,7 +1314,8 @@ fn ssh_refused_permanently(error: &BootstrapError) -> bool {
     else {
         return false;
     };
-    SSH_PERMANENT_REFUSALS.iter().any(|refusal| stderr.contains(refusal))
+    let stderr = stderr.to_lowercase();
+    SSH_PERMANENT_REFUSALS.iter().any(|refusal| stderr.contains(&refusal.to_lowercase()))
 }
 
 /// Returns when the owner asks the runtime to stop or a termination signal

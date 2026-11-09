@@ -99,6 +99,7 @@ import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
+import { goalHatPlace } from "./goalHat.experiment";
 import { PageDots } from "./newtab/PageDots";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { editNewTabWidgets, shownPageWidgets, withWidgetEdit } from "./newtab/pageWidgets";
@@ -2462,6 +2463,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // transcript's group cards and the agents pill.
   const subagentTray = useSubagentTray();
   const trayPlacement = useSubagentTrayPlacement();
+  const [goalHatPlaceArm] = useState(() => experimentArm(goalHatPlace));
   const doneLines = useRef<DoneLineCache>(new Map());
   const childDoneLines = useRef<DoneLineCache>(new Map());
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
@@ -10586,6 +10588,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const stuckDiagnosis =
     snapshot.summary?.loopEpisode?.diagnosis ||
     (snapshot.summary?.stalledSince != null ? t("stuck.silentDiagnosis") : undefined);
+  // The chat's goal, a row of the composer hat (TaskGoalStrip.tsx; goalHat.experiment.ts places it
+  // at the hat's top, the default, or its foot over the composer). Its actions are Codex's own
+  // `/goal` subcommands; an edit sends `/goal <text>`, which sets the new objective in its place.
+  const goalNode =
+    !showNewTab && composerSnapshot.summary?.goal ? (
+      <TaskGoalStrip
+        // Its own key: HatQuestions, its sibling in the stack, is keyed by the chat's id.
+        key={`goal:${composerSnapshot.summary.sessionId}`}
+        goal={composerSnapshot.summary.goal}
+        harness={composerSnapshot.summary.harness}
+        command={(action, objective) =>
+          callNative("chat.send", {
+            text: `/goal ${action === "delete" ? "clear" : action === "edit" ? objective : action}`,
+            attachments: [],
+          })
+        }
+      />
+    ) : null;
+  const goalAtFoot = goalNode !== null && goalHatPlaceArm === "foot";
   const composer = readOnlySubagent ? (
     <SubagentComposer
       key={subagentDraftKey}
@@ -10808,6 +10829,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         {/* The agent's questions waiting on the person, over the hat (question/HatQuestions.tsx). */}
         {/* The card under it keeps answering the question it shows; the hat shows only with more to
             step to than that one (hatShows), and stays mounted so it arrives and leaves as a move. */}
+        {!goalAtFoot && goalNode}
         <HatQuestions
           key={shownSessionId}
           questions={hatShows(hatQuestionList) ? hatQuestionList : NO_HAT_QUESTIONS}
@@ -10824,6 +10846,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           ) : (
             trayNode
           ))}
+        {goalAtFoot && goalNode}
         {statusCardOpen && <HarnessStatusCard summary={snapshot.summary} onDismiss={() => setStatusCardOpen(false)} />}
         {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
         <ImageViewerContext.Provider value={openImage}>
@@ -12251,19 +12274,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
                   fallback={snapshot.presence}
                 />
-                {!showNewTab && composerSnapshot.summary?.goal && (
-                  <TaskGoalStrip
-                    key={composerSnapshot.summary.sessionId}
-                    goal={composerSnapshot.summary.goal}
-                    harness={composerSnapshot.summary.harness}
-                    command={(action) => {
-                      return callNative("chat.send", {
-                        text: `/goal ${action === "delete" ? "clear" : action}`,
-                        attachments: [],
-                      });
-                    }}
-                  />
-                )}
                 {/* A draft a refusal put back stays in reach even once the tab's run shows. */}
                 {(!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && composer}
               </div>
