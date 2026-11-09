@@ -51,8 +51,12 @@ final class TerminalFramePresenter {
     /// Refreshes a terminal whose bounds changed without a present is watched for its frame.
     static let watchLimit = 240
     /// Refreshes from the grid's send a resize's new size waits for the program's redraw at that grid (RESIZE P0 12).
+    /// From the refresh the grid went in, not the request's (RESIZE P0 23): a grid the coalescer held to the next refresh
+    /// gave the program one refresh less (P0 22, film 034647).
     /// Send -> first presented program frame, cmux21 1x 120 Hz (diag 2b50b18e): px-keys-held p99 11.7 ms, px-keys-single
-    /// p99 17.4 ms, about 2 refreshes; 3 covers p99 with one refresh of slack (m55: at most 3 refreshes).
+    /// p99 17.4 ms, about 2 refreshes; 3 covers p99 with one refresh of slack (m55: at most 3 refreshes from the send). A
+    /// grid the coalescer held waits at most one refresh more (or its 25 ms backstop when no refresh comes), so from the
+    /// request the worst case is 4 refreshes.
     static let resizeHoldTicks: UInt64 = 3
 
     /// What the presenters did, cumulative (diagnostics and tests).
@@ -84,14 +88,23 @@ final class TerminalFramePresenter {
         weak var view: TerminalSurfaceView?
         /// The refresh it was made in: its group.
         var epoch: UInt64
-        /// Refreshes from `sentEpoch` a frame of the size only waits for the program's frame at its grid; 0: none.
+        /// Refreshes a frame of the size only waits for the program's frame at its grid, from the later of `sentEpoch` and
+        /// the view's real send (``TerminalFrameOwnership/gridSentEpoch``), and while that grid waits; 0: none.
         var holdTicks: UInt64 = 0
-        /// The refresh the request's grid went to the program in.
+        /// The refresh the request's grid went to the program in, as the request knew it (its size's grid may go later:
+        /// ``holdsForProgram(_:of:at:)``).
         var sentEpoch: UInt64 = 0
 
-        /// Whether the pass keeps a frame in state `state` for the program's redraw in refresh `epoch`.
-        func holdsForProgram(_ state: ghostty_host_frame_e, at epoch: UInt64) -> Bool {
-            holdTicks > 0 && state == GHOSTTY_HOST_FRAME_READY && epoch &- sentEpoch < holdTicks
+        /// Whether the pass keeps `view`'s frame in state `state` for the program's redraw in refresh `epoch`. The bound
+        /// counts from the refresh the program got the grid in (RESIZE P0 23): while the grid waits in the coalescer's
+        /// window (a grid went earlier in its refresh, so it goes at the next one, ``TerminalGridReportCoalescer``) the
+        /// program has nothing to redraw at yet; once it goes, its refresh starts the bound. Counted from the request, a
+        /// coalesced grid had one refresh less than the bound (RESIZE P0 22, trace of film 034647: 2 of 3).
+        func holdsForProgram(_ state: ghostty_host_frame_e, of view: TerminalSurfaceView, at epoch: UInt64) -> Bool {
+            guard holdTicks > 0, state == GHOSTTY_HOST_FRAME_READY else { return false }
+            if view.gridReports.isWaiting { return true }
+            let sent = max(sentEpoch, view.frameOwnership.gridSentEpoch ?? sentEpoch)
+            return epoch &- sent < holdTicks
         }
     }
 
@@ -266,7 +279,7 @@ final class TerminalFramePresenter {
         for (_, request) in requests where !waitingGroups.contains(request.epoch) {
             guard let view = request.view else { continue }
             let state = view.hostFrame(present: false)
-            if !Self.isReady(state) || request.holdsForProgram(state, at: epoch) { waitingGroups.append(request.epoch) }
+            if !Self.isReady(state) || request.holdsForProgram(state, of: view, at: epoch) { waitingGroups.append(request.epoch) }
         }
         for (id, request) in requests {
             guard let view = request.view else {
@@ -277,7 +290,7 @@ final class TerminalFramePresenter {
             let state = view.hostFrame(present: false)
             // The program's redraw at the grid that went with this size is due: the old bounds and the program's last frame
             // stay (as for a frame not drawn yet), never the program's last picture clipped or padded at the new size.
-            if request.holdsForProgram(state, at: epoch) {
+            if request.holdsForProgram(state, of: view, at: epoch) {
                 stats.programHolds += 1
                 continue
             }

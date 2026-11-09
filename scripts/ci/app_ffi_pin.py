@@ -2,6 +2,7 @@
 """The app FFI pin of Packages/macOS/CmuxNext/Package.swift, read by one fail-closed canonical match.
 
     python3 scripts/ci/app_ffi_pin.py read [Package.swift]               # prints "SOURCE_SHA CHECKSUM"
+    python3 scripts/ci/app_ffi_pin.py read-pin-file app-ffi-pin.json Package.swift   # the JSON pin, same output
     python3 scripts/ci/app_ffi_pin.py rewrite SHA CHECKSUM [Package.swift]
 
 No Swift is parsed (2026-11-07: five lexer holes in a row, so the reader stopped lexing). The whole file is read as raw
@@ -241,6 +242,12 @@ def main(argv: list[str]) -> int:
         if argv[:1] == ["read"] and len(argv) <= 2:
             path = Path(argv[1]) if len(argv) == 2 else MANIFEST
             sha, checksum, _ = read(path.read_text(encoding="utf-8"))
+            print(sha, checksum)
+            return 0
+        if argv[:1] == ["read-pin-file"] and len(argv) == 3:
+            # The JSON pin (below): the pin file's values, once Package.swift holds only their loader block.
+            sha, checksum = read_pin_file(Path(argv[1]).read_text(encoding="utf-8"))
+            check_loader(Path(argv[2]).read_text(encoding="utf-8"), checksum)
             print(sha, checksum)
             return 0
         if argv[:1] == ["rewrite"] and len(argv) in (3, 4):

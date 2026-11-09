@@ -331,6 +331,10 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let (done, cleared) = wait::link_look(look);
             json!({ "done": done, "cleared": cleared })
         }
+        b"cloud_move_start_redial" => {
+            let look: wait::RedialLook = read(request)?;
+            json!({ "redial": to_value(wait::start_redial(look))? })
+        }
         b"cloud_move_relinked" => {
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]

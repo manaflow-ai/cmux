@@ -6,6 +6,7 @@
 
 pub mod beads;
 pub(crate) mod bounded_child;
+pub mod bridge;
 pub mod chats;
 pub mod cli_agent;
 pub mod cloud_join;
@@ -15,6 +16,7 @@ pub mod command;
 pub mod command_host;
 pub mod command_new;
 pub mod daemon_service;
+pub mod desktop;
 pub mod detach;
 pub mod entry;
 pub mod errors;

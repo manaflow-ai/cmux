@@ -67,7 +67,9 @@ jobs:
   # success, and repair then falls back to Blacksmith 6 vCPU.
   pick-sign-runner:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     continue-on-error: true
     # Checkout, then the token mints 1 + 1 and the pick 3.
     timeout-minutes: 8
