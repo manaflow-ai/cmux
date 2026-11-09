@@ -301,12 +301,21 @@ public final class ConsentGate: Sendable {
     }
 
     /// The window server sets `CGSSessionScreenIsLocked` only while locked: no key is
-    /// unlocked. No session dictionary, or a key that is not a Boolean, is unknown: locked.
+    /// unlocked, but only for a session it reports on the console (`kCGSSessionOnConsoleKey`
+    /// true). No session dictionary, a key that is not a Boolean, or a missing key in a session
+    /// not known to be on the console is unknown: locked.
     static func lockFlag(session: [String: Any]?) -> Bool {
         guard let session else { return true }
-        guard let value = session["CGSSessionScreenIsLocked"] else { return false }
+        guard let value = session["CGSSessionScreenIsLocked"] else {
+            return !isBoolean(session["kCGSSessionOnConsoleKey"], true)
+        }
         guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return true }
         return number.boolValue
+    }
+
+    private static func isBoolean(_ value: Any?, _ expected: Bool) -> Bool {
+        guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return false }
+        return number.boolValue == expected
     }
 
     /// The requirement for `name`, from the driver's own inventory

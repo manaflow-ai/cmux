@@ -205,9 +205,13 @@ import Testing
     }
 
     /// Review of #37239 at fda360ba: a tool runs only on a screen known to be unlocked. No
-    /// session dictionary, or a lock flag that is not a Boolean, counts as locked.
+    /// session dictionary, or a lock flag that is not a Boolean, counts as locked. Review of
+    /// #39426 at 1b154ae4: so does a missing lock flag in a session not known to be on the console.
     @Test func anUnknownLockStateCountsAsLocked() {
         #expect(ConsentGate.lockFlag(session: nil))
+        #expect(ConsentGate.lockFlag(session: [:]))
+        #expect(ConsentGate.lockFlag(session: ["kCGSSessionOnConsoleKey": false]))
+        #expect(ConsentGate.lockFlag(session: ["kCGSSessionOnConsoleKey": NSNumber(value: 1)]))
         #expect(ConsentGate.lockFlag(session: ["CGSSessionScreenIsLocked": "yes"]))
         #expect(ConsentGate.lockFlag(session: ["CGSSessionScreenIsLocked": NSNumber(value: 1)]))
         #expect(ConsentGate.lockFlag(session: ["CGSSessionScreenIsLocked": true]))
