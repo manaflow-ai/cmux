@@ -13,6 +13,16 @@
 // the page paints: still translucent over the sidebar's glass (the composer's fill at the popover
 // level's share, never near opaque), with the composer's edge and rim, and still no `.ui-glass`, no
 // blur of its own in the sidebar and no html fill.
+//
+// Lawrence 2026-11-07, on that card's hover preview: "this ui transparency looks bad now". The open
+// preview grows up over the sidebar's rows, and the page's blur never reaches them (the native rows
+// are under the WebKit view, not in its document), so the translucent tint left every row legible
+// through the list. The card then turned solid while open and dragged, and Leo 2026-11-08 asked for
+// the glass back: "it turns from glass when it's unhovered into opaque when it does get hovered. I
+// feel like we should be able to keep it as glass though, right?" The host now draws a native glass
+// behind the page that frosts the rows (SidebarUpdatedCardHost.glass), so the card keeps the same
+// translucent tint at rest, open, held and settling, in light, dark and over a see-through window,
+// and its fill never swaps (the swap was the hover's flicker).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
@@ -45,6 +55,10 @@ await requireBrowserLane("updated-card-native-glass.test.ts", async () => {
   // window's page color (WebTheme: the surface at alpha 1 when panes paint the background).
   const bootstrap = "html{background:var(--cmux-surface-background) !important}body{background:transparent !important}";
   const theme = "--cmux-surface-background:#1e1e1e;--cmux-surface-solid:#1e1e1e;--cmux-text:#ddd";
+  const themes = {
+    dark: `color-scheme:dark;${theme}`,
+    light: "color-scheme:light;--cmux-surface-background:#ffffff;--cmux-surface-solid:#ffffff;--cmux-text:#24292f",
+  };
 
   // Inside webviews/ so the bundle resolves react from its node_modules.
   const dir = fs.mkdtempSync(path.join(import.meta.dir, ".updated-card-glass-"));
@@ -57,11 +71,12 @@ await requireBrowserLane("updated-card-native-glass.test.ts", async () => {
      import { UpdatedCard } from ${JSON.stringify(path.join(source, "pages/changelog/UpdateSurfaces.tsx"))};
      import { createStrings } from ${JSON.stringify(path.join(source, "pages/shared/i18n.ts"))};
      import table from ${JSON.stringify(path.join(source, "pages/changelog/generated/strings.json"))};
-     (window as any).mount = (glass: boolean | undefined, data: unknown) => {
+     (window as any).mount = (glass: boolean | undefined, data: unknown, previewOpen?: boolean) => {
        const strings = createStrings(table);
        const root = createRoot(document.getElementById("root")!);
-       const props: any = { data, strings, actions: { openChangelog() {}, dismiss() {} }, closeButton: false };
+       const props: any = { data, strings, actions: { openChangelog() {}, dismiss() {} }, closeButton: false, previewMode: "above" };
        if (glass !== undefined) props.glass = glass;
+       if (previewOpen !== undefined) props.previewOpen = previewOpen;
        flushSync(() => root.render(createElement(UpdatedCard, props)));
      };`,
   );
@@ -95,15 +110,25 @@ await requireBrowserLane("updated-card-native-glass.test.ts", async () => {
       });
       afterAll(async () => browser?.close());
 
-      async function open(surface: string | null, glassMode: string, glass: boolean | undefined): Promise<Page> {
+      async function open(
+        surface: string | null,
+        glassMode: string,
+        glass: boolean | undefined,
+        {
+          previewOpen,
+          look,
+          seeThrough,
+        }: { previewOpen?: boolean; look?: "light" | "dark"; seeThrough?: boolean } = {},
+      ): Promise<Page> {
         const page = await browser.newPage({ viewport: { width: 300, height: 300 } });
-        const attrs = `${surface ? ` data-surface="${surface}"` : ""} data-glass="${glassMode}"`;
+        const attrs = `${surface ? ` data-surface="${surface}"` : ""} data-glass="${glassMode}"${seeThrough ? " data-cmux-see-through" : ""}`;
+        const style = look ? themes[look] : theme;
         await page.setContent(
-          `<!doctype html><html${attrs} style="${theme}"><head><style>${css}</style><style id="cmux-theme">${bootstrap}</style></head>` +
+          `<!doctype html><html${attrs} style="${style}"><head><style>${css}</style><style id="cmux-theme">${bootstrap}</style></head>` +
             `<body><div id="root"></div></body></html>`,
         );
         await page.addScriptTag({ content: script });
-        await page.evaluate(([g, d]) => (window as any).mount(g, d), [glass, data] as const);
+        await page.evaluate(([g, d, p]) => (window as any).mount(g, d, p), [glass, data, previewOpen] as const);
         return page;
       }
 
@@ -140,6 +165,72 @@ await requireBrowserLane("updated-card-native-glass.test.ts", async () => {
           await page.close();
         });
       }
+
+      for (const look of ["light", "dark"] as const) {
+        for (const seeThrough of [false, true]) {
+          const where = `${look}${seeThrough ? ", see-through window" : ""}`;
+          test(`the open hover preview keeps the card's translucent material (${where})`, async () => {
+            const resting = await open("updated", "plain", false, { previewOpen: false, look, seeThrough });
+            const rest = (await paint(resting)).card;
+            await resting.close();
+            const page = await open("updated", "plain", false, { previewOpen: true, look, seeThrough });
+            await page.waitForSelector('.wn-updated[data-preview="open"]');
+            const got = await paint(page);
+            // The host's native glass frosts the rows under the WebKit view; the page paints only the tint.
+            expect(got.backdrop).toBe("none");
+            expect(got.card).toBe(rest);
+            expect(alpha(got.card)).toBeLessThan(0.9);
+            expect(await page.locator(".wn-preview").innerText()).toContain("Tables scroll");
+            await page.close();
+          });
+          test(`the resting card keeps the composer's translucent material (${where})`, async () => {
+            const page = await open("updated", "plain", false, { previewOpen: false, look, seeThrough });
+            expect(alpha((await paint(page)).card)).toBeLessThan(0.9);
+            await page.close();
+          });
+        }
+      }
+
+      for (const look of ["light", "dark"] as const) {
+        for (const seeThrough of [false, true]) {
+          const where = `${look}${seeThrough ? ", see-through window" : ""}`;
+          test(`the dragged card keeps the card's translucent material, through its settle (${where})`, async () => {
+            const page = await open("updated", "plain", false, { previewOpen: false, look, seeThrough });
+            const got = await page.evaluate(() => {
+              const card = document.querySelector<HTMLElement>(".wn-card")!;
+              const fill = () => getComputedStyle(card).backgroundColor;
+              const resting = fill();
+              card.dataset.dragging = "";
+              const held = fill();
+              // Let go: the host springs the card back over the rows to its rest.
+              delete card.dataset.dragging;
+              const settling = fill();
+              return { resting, held, settling };
+            });
+            expect(alpha(got.resting)).toBeLessThan(0.9);
+            expect(got.held).toBe(got.resting);
+            expect(got.settling).toBe(got.resting);
+            await page.close();
+          });
+        }
+      }
+
+      test("a card with its own page glass (the gallery over a wallpaper) keeps the tint, open or held", async () => {
+        // Its blur frosts what is under it in its own document: the solid surface is only for the
+        // sidebar's card, whose page has no glass and nothing under it the blur could read.
+        const page = await open("updated", "plain", true, { previewOpen: true, look: "dark" });
+        await page.waitForSelector('.wn-updated[data-preview="open"]');
+        const got = await page.evaluate(() => {
+          const card = document.querySelector<HTMLElement>(".wn-card")!;
+          const open = getComputedStyle(card).backgroundColor;
+          card.dataset.dragging = "";
+          const held = getComputedStyle(card).backgroundColor;
+          return { open, held };
+        });
+        expect(alpha(got.open)).toBeLessThan(0.9);
+        expect(alpha(got.held)).toBeLessThan(0.9);
+        await page.close();
+      });
     });
   }
 });

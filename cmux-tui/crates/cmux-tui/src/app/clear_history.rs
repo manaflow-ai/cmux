@@ -2,6 +2,7 @@
 //! shortcut claim policy, and active tab adjustment after a tab is removed.
 
 use cmux_tui_core::{ClearHistoryDelivery, ClearHistoryFailure, SurfaceKind};
+use std::collections::HashSet;
 
 use crate::localization;
 use crate::pty_input::mark_operation_known_not_delivered;
@@ -60,10 +61,18 @@ pub(super) fn should_claim_clear_history_shortcut(
     surface_kind == SurfaceKind::Pty && supports_atomic_fallback
 }
 
+/// Repairs `pane`'s selection after the tab at `removed_tab_index` left it (already removed):
+/// the daemon's and the app's rule, from the one place it lives (cmux-focus-core
+/// `close_focus::tab`): the tab before the closed one, else the one after it; an unselected
+/// close keeps the selection. The rule runs over the strip positions before the removal.
 pub(super) fn adjust_active_tab_after_removal(pane: &mut PaneView, removed_tab_index: usize) {
-    if pane.active_tab > removed_tab_index {
-        pane.active_tab -= 1;
-    } else if pane.active_tab >= pane.tabs.len() {
-        pane.active_tab = pane.tabs.len().saturating_sub(1);
-    }
+    let old: Vec<usize> = (0..=pane.tabs.len()).collect();
+    let surviving: Vec<usize> =
+        old.iter().copied().filter(|index| *index != removed_tab_index).collect();
+    let shown: HashSet<usize> = surviving.iter().copied().collect();
+    // A stale index past the old strip stands for its last tab, as before the shared rule.
+    let active = pane.active_tab.min(pane.tabs.len());
+    let pick = cmux_focus_core::close_focus::tab(Some(&active), &old, &surviving, &shown);
+    let index = pick.map_or(0, |index| index - usize::from(index > removed_tab_index));
+    pane.active_tab = index.min(pane.tabs.len().saturating_sub(1));
 }

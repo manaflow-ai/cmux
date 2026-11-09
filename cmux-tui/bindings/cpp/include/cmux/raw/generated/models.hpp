@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86";
+inline constexpr std::string_view kProtocolIrSha256 = "62625fc976e69a44b62563b404477f91207f431e3b472e3b79007ead92baffb6";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -658,6 +658,7 @@ struct ScrollChangedEvent;
 struct SelectionChangedEvent;
 struct SettingsChangedEvent;
 struct SizeStateEvent;
+struct StashChangedEvent;
 struct StatusEvent;
 struct SurfaceExitedEvent;
 struct SurfaceOutputEvent;
@@ -843,6 +844,7 @@ struct AgentRecord {
     std::optional<std::uint64_t> since_ms{};
     AgentSource source{};
     AgentState state{};
+    Field<AgentState> status{};
     Id surface{};
     std::uint64_t updated_at_ms{};
     friend bool operator==(const AgentRecord&, const AgentRecord&) = default;
@@ -2743,6 +2745,7 @@ struct CreateWorkspaceRequest {
 };
 
 struct DaemonShutdownEvent {
+    std::optional<bool> restart{};
     friend bool operator==(const DaemonShutdownEvent&, const DaemonShutdownEvent&) = default;
 };
 
@@ -4331,6 +4334,7 @@ struct ParticipantAvatarChangedEvent {
 
 struct PasteImageRequest {
     Field<std::string> data{};
+    Field<std::string> filename{};
     std::string lease{};
     Field<std::string> mime{};
     Field<std::uint64_t> offset{};
@@ -5133,6 +5137,8 @@ struct ServerStatsWritePath {
     std::uint64_t effect_intent_batches{};
     std::uint64_t effect_intent_failures{};
     std::uint64_t effect_intents{};
+    std::optional<std::uint64_t> registry_wal_file_bytes{};
+    std::optional<std::uint64_t> registry_wal_file_high_water_bytes{};
     std::optional<std::uint64_t> registry_wal_frame_bytes{};
     std::uint64_t request_effect_commits{};
     std::optional<std::uint64_t> wal_commits{};
@@ -5431,6 +5437,7 @@ struct ShutdownDaemonRequest {
     std::string generation{};
     std::optional<bool> keep_layout{};
     std::uint32_t pid{};
+    Field<bool> restart{};
     friend bool operator==(const ShutdownDaemonRequest&, const ShutdownDaemonRequest&) = default;
 };
 
@@ -5493,6 +5500,7 @@ struct SnapshotRequestResult {
 };
 
 struct SplitRequest {
+    std::optional<bool> before{};
     Field<std::uint16_t> cols{};
     Field<std::string> cwd{};
     SplitDirection dir{};
@@ -5508,6 +5516,11 @@ struct SplitRequest {
     Field<std::string> terminal_id{};
     Field<std::string> url{};
     friend bool operator==(const SplitRequest&, const SplitRequest&) = default;
+};
+
+struct StashChangedEvent {
+    std::uint64_t revision{};
+    friend bool operator==(const StashChangedEvent&, const StashChangedEvent&) = default;
 };
 
 struct StatusEvent {
@@ -10112,6 +10125,12 @@ template <>
 struct Codec<SizeStateEvent> {
     static Result<Json> encode(const SizeStateEvent& value);
     static Result<SizeStateEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<StashChangedEvent> {
+    static Result<Json> encode(const StashChangedEvent& value);
+    static Result<StashChangedEvent> decode(const Json& value);
 };
 
 template <>

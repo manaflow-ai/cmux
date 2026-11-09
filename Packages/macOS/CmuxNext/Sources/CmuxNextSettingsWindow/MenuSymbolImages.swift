@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// Settings > Menus' row icons: `cmux-page://cmux.settings/symbol/<name>` answers the SF Symbol
 /// `name` as a black template PNG at twice the menu's point size, which the page tints with a CSS
@@ -12,8 +13,10 @@ public struct MenuSymbolImages {
     /// The PNG of `name`; nil for a name that is not an SF Symbol name or that macOS lacks.
     public func png(_ name: String) -> Data? {
         guard !name.isEmpty, name.allSatisfy({ $0.isASCII && ($0.isLowercase || $0.isNumber || $0 == ".") }) else { return nil }
-        let configuration = NSImage.SymbolConfiguration(pointSize: NSFont.menuFont(ofSize: 0).pointSize * 2, weight: .regular)
-        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else { return nil }
+        let pointSize = NSFont.menuFont(ofSize: 0).pointSize * 2
+        let configuration = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
+        guard let image = NSImage.packOverride(forSymbol: name, pointSize: pointSize)
+            ?? NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else { return nil }
         let size = NSSize(width: ceil(image.size.width), height: ceil(image.size.height))
         guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height),
                                             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,

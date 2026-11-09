@@ -333,6 +333,30 @@ extension PageWebViewChromiumTests {
         #expect(finished == 3)
         view.close()
     }
+
+    /// Leo, 2026-11-09: "feel like this should have a copy link button". A right-click on a link in
+    /// the Chromium page offers Copy Link, as WebKit's page menu keeps it, and it copies the href.
+    @Test func aRightClickOnALinkInTheChromiumPageOffersCopyLink() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try makeView(hosting)
+        view.chromiumClock = PageTestClock.never
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        var shown: NSMenu?
+        view.chromiumMenuPresenter = { menu, _, _ in shown = menu }
+        let link = try #require(URL(string: "https://github.com/manaflow-ai/cmux/commit/50a4e17d"))
+        page.onEvent?(.contextMenu(PageChromiumContextMenu(location: .zero, selection: "", isEditable: false, link: link) {}))
+        await PageMenuCallout.drain { shown != nil }
+        #expect(shown?.items.map(\.title) == [PageWebView.copyLinkTitle])
+        #expect(shown?.items.first?.identifier?.rawValue == PageSelectionMenu.copyLinkItem)
+
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.copyLink.\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        PageWebView.copyLink(link, to: pasteboard)
+        #expect(pasteboard.string(forType: .string) == link.absoluteString)
+        view.close()
+    }
 }
 
 extension PageWebViewChromiumTests {

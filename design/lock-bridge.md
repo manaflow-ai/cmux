@@ -104,9 +104,13 @@ Narrowing it to -34018 is a Swift change for its own PR.
   reads it after the helper connection and the consent answer, just before it sends the call, and
   the helper reads it in its consent gate (`ConsentGate.admit`), after the target check, the
   takeover wait and the consent answer, with no await before the driver runs. The helper says so in
-  its admission reply (`screen-lock-at-execution-v1`), and the bridge sends no call to a helper
-  that does not (a DEV build's prebuilt helper from before the check): each call gets
-  `cua_helper_outdated`. The legacy
+  its admission reply (`screen-lock-at-execution-v1`). A helper that does not (a DEV build's
+  prebuilt helper from before the check, `cua-helper-dev.pin.json`) still gets calls, each only
+  after the bridge's own read just before it sends it; a takeover wait inside that helper is the
+  one window left. The signing workflow (`cmux-next-cua-helper-dev-sign.yml`) can rebuild the pin
+  only from a `feat-cmux-next` commit that has the check, so refusing the old helper before then
+  would stop Computer Use in every DEV build. Once the re-signed pin lists the capability, the
+  bridge refuses a helper without it (`cua_helper_outdated`), as the legacy path does. The legacy
   `cmux-cua` reads it in its tool registry after its last consent check, right before dispatch
   (`scripts/cmux-cua-lock-at-execution.patch`). Only the process that knows where a call runs says
   so in its `initialize` answer (`capabilities.experimental["cmux/lock-at-execution-v2"]`): the

@@ -240,12 +240,11 @@ fn a_worker_refusal_names_its_nested_code_and_the_header_code_wins() {
 
 #[test]
 fn classic_calls_send_the_stack_session_and_the_team() {
-    let (origin, seen) = fake(|_| ok(r#"{"snapshots":[{"id":"s-1"}]}"#));
-    let answer =
-        go(&request(&origin, Auth::Stack, "vm.snapshots", json!({ "id": "vm-1" }))).unwrap();
-    assert_eq!(answer, json!([{ "id": "s-1" }]));
+    let (origin, seen) = fake(|_| ok(r#"{"networks":[{"id":"net-1"}]}"#));
+    let answer = go(&request(&origin, Auth::Stack, "vm.networks", json!({}))).unwrap();
+    assert_eq!(answer, json!([{ "id": "net-1" }]));
     let seen = seen.lock().unwrap();
-    assert_eq!(seen[0].target(), "GET /api/vm/vm-1/snapshots");
+    assert_eq!(seen[0].target(), "GET /api/vm/network");
     assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer access"));
     assert_eq!(seen[0].header("x-stack-refresh-token").as_deref(), Some("refresh"));
     assert_eq!(seen[0].header("x-cmux-team-id").as_deref(), Some("team-1"));
@@ -253,71 +252,73 @@ fn classic_calls_send_the_stack_session_and_the_team() {
     assert_eq!(seen[0].header("x-cmux-app-version").as_deref(), Some("cmux-next"));
 }
 
-#[test]
-fn a_snapshot_sends_its_idempotency_key() {
-    let (origin, seen) = fake(|s| match s.header("idempotency-key") {
-        Some(_) => ok(r#"{"id":"snapshot-1","name":null}"#),
-        None => Some((400, r#"{"error":"vm_idempotency_key_required"}"#.into())),
-    });
-    let args = json!({ "id": "machine-1", "idempotencyKey": "key-1" });
-    let answer = go(&request(&origin, Auth::Stack, "vm.snapshot", args)).unwrap();
-    assert_eq!(answer["id"], "snapshot-1");
-    assert_eq!(seen.lock().unwrap()[0].json(), json!({}));
-}
+const PUBLICATION: &str = r#"{"id":"vm_abc:3000","hostname":"p3000-abc.preview.test","url":"https://p3000-abc.preview.test","domainKind":"managed","vmId":"vm_abc","port":3000,"targetPort":3000,"protocol":"https","accessMode":"personal","teamId":"team-1","state":"active"}"#;
+const KEY: &str = r#"{"id":"key_0123456789abcdefghij","publicationId":"vm_abc:3000","name":"agent","hint":"wxyz","createdAt":"2026-11-08T12:00:00.000Z","expiresAt":null,"revokedAt":null}"#;
 
 #[test]
-fn a_resize_sends_only_the_dimensions_given() {
-    let (origin, seen) = fake(|_| ok("{}"));
-    for args in [
-        json!({ "id": "vm-1", "storageMb": 65536 }),
-        json!({ "id": "vm-1", "cpu": 4, "memoryMb": 16384, "storageMb": 131072 }),
-        json!({ "id": "vm-1", "cpu": 2, "memoryMb": 8192 }),
-    ] {
-        assert_eq!(go(&request(&origin, Auth::Stack, "vm.resize", args)).unwrap(), Value::Null);
-    }
-    let seen = seen.lock().unwrap();
-    assert!(seen.iter().all(|s| s.target() == "POST /api/vm/vm-1/resize"));
-    assert_eq!(seen[0].json(), json!({ "storageMb": 65536 }));
-    assert_eq!(seen[1].json(), json!({ "cpu": 4, "memoryMb": 16384, "storageMb": 131072 }));
-    assert_eq!(seen[2].json(), json!({ "cpu": 2, "memoryMb": 8192 }));
-}
-
-#[test]
-fn provision_and_the_api_key_routes_address_the_publication_and_key() {
+fn provision_and_the_api_key_routes_go_to_the_platforms_previews() {
     let (origin, seen) = fake(|s| {
+        let revoked =
+            KEY.replace(r#""revokedAt":null"#, r#""revokedAt":"2026-11-08T12:05:00.000Z""#);
         if s.line.starts_with("POST") {
-            ok(r#"{"url":"https://hello--owner--3000.cmux.sh","token":"cmux_api_secret"}"#)
+            Some((
+                201,
+                format!(
+                    r#"{{"url":"https://p3000-abc.preview.test","publication":{PUBLICATION},"apiKey":{KEY},"token":"k1.secret","cookieName":"__Host-cmux-preview","cookie":"__Host-cmux-preview=k1.secret"}}"#
+                ),
+            ))
+        } else if s.line.starts_with("GET /v1/cloud/previews") {
+            ok(&format!(r#"{{"previews":[{PUBLICATION}]}}"#))
+        } else if s.line.starts_with("GET /v1/cloud/domains") {
+            ok(
+                r#"{"domains":[{"id":"preview.test","hostname":"preview.test","kind":"managed","verificationState":"verified","certificateState":"managed","publications":[]}]}"#,
+            )
         } else if s.line.starts_with("GET") {
-            ok(r#"{"apiKeys":[{"id":"key-1"}]}"#)
+            ok(&format!(r#"{{"apiKeys":[{KEY}]}}"#))
         } else {
-            ok(r#"{"apiKey":{"id":"key-1","revokedAt":"2026-10-26T12:05:00.000Z"}}"#)
+            ok(&format!(r#"{{"apiKey":{revoked}}}"#))
         }
     });
-    let args = json!({ "vmId": "vm-1", "port": 3000, "keyName": "agent" });
-    let provisioned = go(&request(&origin, Auth::Stack, "vm.provision_api", args)).unwrap();
-    assert_eq!(provisioned["token"], "cmux_api_secret");
-    let keys = go(&request(
-        &origin,
-        Auth::Stack,
-        "vm.publication_api_keys",
-        json!({ "publication": "hello--owner--3000.cmux.sh" }),
-    ))
-    .unwrap();
-    assert_eq!(keys, json!([{ "id": "key-1" }]));
-    let revoked = go(&request(
-        &origin,
-        Auth::Stack,
+    let go_with_args = |call: &str, args: Value| go(&request(&origin, Auth::Worker, call, args));
+    let args = json!({ "vmId": "vm_abc", "port": 3000, "keyName": "agent" });
+    let provisioned = go_with_args("vm.provision_api", args).unwrap();
+    assert_eq!(provisioned["token"], "k1.secret");
+    assert_eq!(provisioned["cookie"], "__Host-cmux-preview=k1.secret");
+    let keys =
+        go_with_args("vm.publication_api_keys", json!({ "publication": "p3000-abc.preview.test" }))
+            .unwrap();
+    assert_eq!(keys[0]["hint"], "wxyz");
+    let revoked = go_with_args(
         "vm.revoke_publication_api_key",
-        json!({ "publication": "pub/1", "keyId": "key-1" }),
-    ))
+        json!({ "machine": "vm_abc", "port": 3000, "keyId": "key_0123456789abcdefghij" }),
+    )
     .unwrap();
-    assert_eq!(revoked["revokedAt"], "2026-10-26T12:05:00.000Z");
+    assert_eq!(revoked["revokedAt"], "2026-11-08T12:05:00.000Z");
+    let publications = go_with_args("vm.publications", json!({})).unwrap();
+    assert_eq!(publications[0]["id"], "vm_abc:3000");
+    let domains = go_with_args("vm.domains", json!({})).unwrap();
+    assert_eq!(domains[0]["hostname"], "preview.test");
+    let unknown = go_with_args("vm.publication_api_keys", json!({ "publication": "vm_x:1" }));
+    assert!(matches!(unknown, Err(Failure::Http { status: 404, .. })), "{unknown:?}");
     let seen = seen.lock().unwrap();
-    assert_eq!(seen[0].target(), "POST /api/vm/apis");
-    assert_eq!(seen[0].json(), json!({ "vmId": "vm-1", "port": 3000, "name": "agent" }));
-    assert_eq!(seen[1].target(), "GET /api/vm/publications/hello--owner--3000.cmux.sh/api-keys");
-    // A publication name never adds a path part.
-    assert_eq!(seen[2].target(), "DELETE /api/vm/publications/pub%2F1/api-keys/key-1");
+    let targets: Vec<String> = seen.iter().map(|s| s.target()).collect();
+    assert_eq!(
+        targets,
+        [
+            "POST /v1/cloud/machines/vm_abc/previews/3000/api-keys",
+            "GET /v1/cloud/previews",
+            "GET /v1/cloud/machines/vm_abc/previews/3000/api-keys",
+            "DELETE /v1/cloud/machines/vm_abc/previews/3000/api-keys/key_0123456789abcdefghij",
+            "GET /v1/cloud/previews",
+            "GET /v1/cloud/domains",
+            "GET /v1/cloud/previews",
+        ]
+    );
+    assert_eq!(seen[0].json(), json!({ "name": "agent" }));
+    // The person's session and team, never classic's refresh token.
+    assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer access"));
+    assert!(seen.iter().all(|s| s.header("x-stack-refresh-token").is_none()));
+    assert!(targets.iter().all(|t| !t.contains("/api/vm")));
 }
 
 #[test]
@@ -343,10 +344,10 @@ fn firewall_and_tunnel_queries_are_encoded_and_the_purpose_defaults_to_browser()
 #[test]
 fn an_scp_endpoint_is_used_only_when_it_is_safe() {
     let good = json!({ "host": "h", "port": 22, "username": "cmux", "hostPublicKey": "ssh-ed25519 AAA", "expiresAtUnix": 2000 });
-    assert!(classic::safe_scp_endpoint(&good, 1000));
+    assert!(machine::safe_scp_endpoint(&good, 1000));
     let snake = json!({ "port": 22, "username": "cmux", "host_public_key": "ssh-ed25519 AAA", "expires_at_unix": 2000 });
-    assert!(classic::safe_scp_endpoint(&snake, 1000));
-    assert!(!classic::safe_scp_endpoint(&good, 2000));
+    assert!(machine::safe_scp_endpoint(&snake, 1000));
+    assert!(!machine::safe_scp_endpoint(&good, 2000));
     for (field, bad) in [
         ("port", json!(2222)),
         ("username", json!("root")),
@@ -354,8 +355,62 @@ fn an_scp_endpoint_is_used_only_when_it_is_safe() {
     ] {
         let mut endpoint = good.clone();
         endpoint[field] = bad;
-        assert!(!classic::safe_scp_endpoint(&endpoint, 1000), "{field}");
+        assert!(!machine::safe_scp_endpoint(&endpoint, 1000), "{field}");
     }
+}
+
+#[test]
+fn an_scp_endpoint_comes_from_the_platform_never_classic() {
+    let route = r#"{"host":"10.0.0.7","port":22,"username":"cmux","hostPublicKey":"ssh-ed25519 AAA","expiresAtUnix":4102444800}"#;
+    let (origin, seen) = fake(move |_| ok(route));
+    let args = json!({ "id": VM, "publicKey": "ssh-ed25519 CALLER" });
+    let endpoint = go(&request(&origin, Auth::Worker, "vm.scp_endpoint", args.clone())).unwrap();
+    assert_eq!(endpoint["host"], "10.0.0.7");
+    {
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].target(), format!("POST /v1/cloud/machines/{VM}/ssh-endpoint"));
+        assert_eq!(seen[0].json(), json!({ "publicKey": "ssh-ed25519 CALLER" }));
+        assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer access"));
+        assert_eq!(seen[0].header("x-cmux-team").as_deref(), Some("team-1"));
+        assert_eq!(seen[0].header("x-stack-refresh-token"), None);
+    }
+    // A classic session and an id that is not a Worker machine's send nothing.
+    assert!(matches!(
+        go(&request(&origin, Auth::Stack, "vm.scp_endpoint", args)),
+        Err(Failure::Transport(_))
+    ));
+    let bad_id = json!({ "id": "vm_x/../../api/vm", "publicKey": "ssh-ed25519 CALLER" });
+    assert!(matches!(
+        go(&request(&origin, Auth::Worker, "vm.scp_endpoint", bad_id)),
+        Err(Failure::Transport(_))
+    ));
+    assert_eq!(seen.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn an_unsafe_platform_scp_endpoint_or_refusal_is_not_answered() {
+    let (origin, _) = fake(|_| {
+        ok(
+            r#"{"host":"h","port":2222,"username":"cmux","hostPublicKey":"ssh-ed25519 AAA","expiresAtUnix":4102444800}"#,
+        )
+    });
+    let args = json!({ "id": VM, "publicKey": "ssh-ed25519 CALLER" });
+    assert!(matches!(
+        go(&request(&origin, Auth::Worker, "vm.scp_endpoint", args.clone())),
+        Err(Failure::Decoding(_))
+    ));
+    let (origin, _) = fake(|_| {
+        Some((
+            409,
+            r#"{"ok":false,"error":{"code":"machine.not_running","message":"Start it first."}}"#
+                .into(),
+        ))
+    });
+    assert_eq!(
+        go(&request(&origin, Auth::Worker, "vm.scp_endpoint", args)),
+        Err(Failure::http(409, Some("machine.not_running".into()), Some("Start it first.".into())))
+    );
 }
 
 // MARK: Runs (CloudAPIClientRunTests)
@@ -898,16 +953,16 @@ fn a_base_url_is_https_or_loopback_http_with_no_user_query_or_fragment() {
 
 #[test]
 fn a_base_path_is_kept() {
-    let (origin, seen) = fake(|_| ok(r#"{"domains":[]}"#));
-    go(&request(&format!("{origin}/prefix/"), Auth::Stack, "vm.domains", json!({}))).unwrap();
-    assert_eq!(seen.lock().unwrap()[0].target(), "GET /prefix/api/vm/domains");
+    let (origin, seen) = fake(|_| ok(r#"{"networks":[]}"#));
+    go(&request(&format!("{origin}/prefix/"), Auth::Stack, "vm.networks", json!({}))).unwrap();
+    assert_eq!(seen.lock().unwrap()[0].target(), "GET /prefix/api/vm/network");
 }
 
 #[test]
 fn a_local_backend_that_is_not_running_is_no_backend() {
     let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
     let mut call =
-        request(&format!("http://127.0.0.1:{port}"), Auth::Stack, "vm.domains", json!({}));
+        request(&format!("http://127.0.0.1:{port}"), Auth::Stack, "vm.networks", json!({}));
     call.local_only = true;
     assert_eq!(go(&call), Err(Failure::NoBackend));
     call.local_only = false;
@@ -916,7 +971,7 @@ fn a_local_backend_that_is_not_running_is_no_backend() {
 
 #[test]
 fn a_refusal_never_carries_a_credential_back() {
-    let mut call = request("https://x.invalid", Auth::Stack, "vm.domains", json!({}));
+    let mut call = request("https://x.invalid", Auth::Stack, "vm.networks", json!({}));
     call.credential = "secret-access".into();
     call.refresh = Some("secret-refresh".into());
     let line = scrub(
@@ -1124,8 +1179,8 @@ fn a_sandboxed_runs_longest_wait_is_its_whole_bound() {
     let sandbox =
         request("https://cmux.com", Auth::Stack, "runs.sandbox", json!({ "timeoutMs": 1_000_000 }));
     assert_eq!(longest(&sandbox), Duration::from_millis(1_000_000 + 180_000 + 60_000));
-    let domains = request("https://cmux.com", Auth::Stack, "vm.domains", json!({}));
-    assert_eq!(longest(&domains), Duration::from_secs(960));
+    let networks = request("https://cmux.com", Auth::Stack, "vm.networks", json!({}));
+    assert_eq!(longest(&networks), Duration::from_secs(960));
 }
 
 #[test]
@@ -1166,9 +1221,9 @@ fn a_keyed_start_refusal_that_echoes_the_key_carries_no_service_text() {
 
 #[test]
 fn an_answer_over_the_limit_is_refused_while_it_is_read() {
-    let big = format!(r#"{{"domains":"{}"}}"#, "x".repeat(MAX_ANSWER_BYTES));
+    let big = format!(r#"{{"networks":"{}"}}"#, "x".repeat(MAX_ANSWER_BYTES));
     let (origin, _seen) = fake(move |_| ok(&big));
-    let failure = go(&request(&origin, Auth::Stack, "vm.domains", json!({}))).unwrap_err();
+    let failure = go(&request(&origin, Auth::Stack, "vm.networks", json!({}))).unwrap_err();
     assert!(
         matches!(&failure, Failure::Transport(message) if message.contains("larger than")),
         "{failure:?}"
@@ -1177,7 +1232,7 @@ fn an_answer_over_the_limit_is_refused_while_it_is_read() {
 
 #[test]
 fn a_success_is_never_scrubbed_whatever_its_field_order() {
-    let call = request("https://cmux.com", Auth::Stack, "vm.domains", json!({}));
+    let call = request("https://cmux.com", Auth::Stack, "vm.networks", json!({}));
     let line = answer_line(&Ok(json!({ "note": "access" })));
     assert_eq!(scrub(line.clone(), &call), line);
     let refusal = answer_line(&Err(Failure::Transport("echo access".into())));

@@ -86,7 +86,10 @@ public final class SidebarFaceBatch {
 
     /// Adds one row. `listTitle` is the tab list's title of a tab (`tabTitle`, else a New Tab page's title, else
     /// its display title); `branded` whether its agent has a brand mark or its chat's harness its own icon.
+    /// `focusedPane` is the pane id the window last focused in the workspace: it ranks as the most recently
+    /// focused pane, over the daemon's `focused_at` (a default the app never writes); nil keeps the daemon's.
     func append(_ workspace: WorkspaceModel, local: Bool, status: String?, selectedTab: (PaneModel) -> String?,
+                focusedPane: String? = nil,
                 newTabPages: Set<String>, listTitle: (TabModel) -> String, branded: (TabModel) -> Bool) {
         var row = CmuxSidebarFaceWorkspace()
         row.pane_start = UInt32(clamping: panes.count)
@@ -95,7 +98,8 @@ public final class SidebarFaceBatch {
         for screen in workspace.screens {
             for pane in screen.panes {
                 let selected = selectedTab(pane).flatMap { id in pane.tabs.firstIndex { $0.id == id } }
-                panes.append(CmuxSidebarFacePane(focused_at: pane.focusedAt, default_tab: Int64(pane.defaultTabIndex),
+                let focusedAt = pane.id == focusedPane ? UInt64.max : pane.focusedAt
+                panes.append(CmuxSidebarFacePane(focused_at: focusedAt, default_tab: Int64(pane.defaultTabIndex),
                                                  tab_count: UInt32(clamping: pane.tabs.count),
                                                  selected: selected.map { UInt32(clamping: $0) } ?? Self.none))
                 for tab in pane.tabs {
@@ -214,6 +218,13 @@ public final class SidebarFaceBatch {
         }
 
         private static func index(_ value: UInt32) -> Int? { value == SidebarFaceBatch.none ? nil : Int(value) }
+
+        /// Row `row`'s picked tabs alone (indexes into its tabs), no text decoded: what a caller that names one
+        /// workspace reads (`SidebarMapping.faceTabs`).
+        func picks(_ row: Int) -> (front: Int?, label: Int?, face: Int?, work: Int?, chat: Int?) {
+            let raw = reply.faces[row]
+            return (Self.index(raw.front), Self.index(raw.label), Self.index(raw.face), Self.index(raw.work), Self.index(raw.chat))
+        }
 
         /// Row `row`'s face, with `tabCount` listed tabs.
         func face(_ row: Int, tabCount: Int) -> SidebarFace {

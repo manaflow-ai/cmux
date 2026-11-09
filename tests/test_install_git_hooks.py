@@ -76,6 +76,7 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/cmux-next/prepush-gate.py",
             "scripts/cmux-next/git_batch.py",
             "scripts/ci/base_merge_warning.py",
+            "scripts/ci/github_release_download.py",
         ):
             source, target = SOURCE / relative, root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -643,7 +644,6 @@ cat > node_modules/.bin/vp <<'VP'
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/pane.js",
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/locales/en.js",
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/highlight-worker.js",
-            "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
             "webviews/src/agent-session/acpmux/generated/strings.json",
             "webviews/src/pages/settings/generated/strings.json",
             # Other checked exports: lanes committed "regenerate after the tip
@@ -651,6 +651,8 @@ cat > node_modules/.bin/vp <<'VP'
             "plans/cmux-next/actions.md",
             "plans/cmux-next/action-surfaces.json",
             "schemas/settings/settings-schema.json",
+            # The docs reference that follows the schema: 13 conflicts in a week.
+            "web/data/next-docs/settings-reference.generated.json",
             "docs/mdm/com.manaflow.cmux.plist",
             "Packages/macOS/CmuxNext/ci-target-graph.json",
             "cmux-tui/bindings/go/raw/generated_types.go",
@@ -1148,6 +1150,20 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.installed_checks() / "swift_source_mask.py").read_bytes(),
                          (SOURCE / "scripts/swift_source_mask.py").read_bytes(), "the refreshed copy has no masker")
+
+    def test_a_refresh_puts_the_release_download_fallback_beside_the_gate(self):
+        # #38454 review: the gate loads scripts/ci/github_release_download.py from beside itself, so a refresh that
+        # rewrites the gate rewrites the helper from the same feat-cmux-next.
+        hook_dir = self.common_dir() / "cmux-git-hooks"
+        self.stale_install()
+        (hook_dir / "github_release_download.py").unlink()  # an install from before the helper
+        helper = self.repo / "scripts/ci/github_release_download.py"
+        helper.write_text(helper.read_text() + "# newer\n")
+        self.commit_all("newer helper")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", self.git("rev-parse", "HEAD").stdout.strip())
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((hook_dir / "github_release_download.py").read_bytes(), helper.read_bytes())
 
     def test_refresh_leaves_other_pushes_and_lookalike_remotes_alone(self):
         self.stale_install()

@@ -7,11 +7,12 @@
 // Files and Split Down; each while it applies). Before them, the chat branch's pull request with its
 // checks (cx-tcwj, Codex desktop's PR chip; PullRequestChip.tsx), when the App found one. Every control
 // renders from the first frame at its final size; data fills in place.
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { memo, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { HeaderIcon } from "./HeaderIcon";
 import { useCountedRender } from "../perfRender";
+import { useStableProps } from "../stableProps";
 import {
   activityCue,
   morphIntoTab,
@@ -29,6 +30,8 @@ import { useHeaderFold } from "./headerOverflow";
 import { nativeChatMenu, nativeCustomizeMenu } from "./nativeMenuBindings";
 import { HEADER_SYMBOLS } from "./headerSymbols";
 import { useNativeRowTools, type NativeRowToolsHost } from "./useNativeRowTools";
+import type { NativeRowNeedsYou } from "./nativeRowTools";
+import type { NeedsYouItem } from "../needsYou/model";
 import { newKinds, type HeaderControls, type NewKind } from "./headerTrio";
 import { HeaderNewButton } from "./HeaderNewButton";
 import { useShortcut } from "../shortcuts";
@@ -49,6 +52,8 @@ import { headerState, useHeaderState } from "./headerState";
 import { PullRequestChip } from "./PullRequestChip";
 import { WorktreePill } from "./WorktreePill";
 import { useWorktree } from "./worktreePillModel";
+import { useWorktreeOps } from "./worktreeOps";
+import { usePullRequestOps } from "./pullRequestOps";
 import type { MergeResult } from "./PullRequestMerge";
 import {
   QUICK_ACTION_DEFAULTS,
@@ -70,7 +75,24 @@ import {
   menuItemForShortcut,
 } from "./chatHeaderToolsModel";
 import { tooltipProps } from "../shortcuts";
-export function ChatHeaderTools({
+
+/// The header's tools, drawn again only when what the pane hands them changes. The pane renders on
+/// every snapshot it draws and builds the header's callbacks, its native row's options, the Needs you
+/// button and the menu inline, so the header rendered on each pane render with nothing in it changed
+/// (bench/delta-renders.bench.ts). Its props go through
+/// stableProps.ts: a callback is a stable function that calls the pane's newest one, an option object
+/// or element with the same parts is the one given before. The menu's rows and the summary button are
+/// read while the header renders, so they are read here on each pane render and hand over a change.
+/// `chat` names the chat the props are for: on a switch every callback is new, so a menu kept open
+/// across it runs the chat it opened for (through that chat's guardedChatMenu), never the new one's.
+export function ChatHeaderTools({ chat, ...props }: ChatHeaderToolsProps & { chat?: string }) {
+  const stable = useStableProps(props, { menu: [[]], summary: [[true], [false]] }, chat);
+  return <ChatHeaderToolsMemo {...stable} />;
+}
+
+type ChatHeaderToolsProps = Parameters<typeof ChatHeaderToolsView>[0];
+
+function ChatHeaderToolsView({
   onTerminal,
   onSplitDown,
   onBrowser,
@@ -102,6 +124,7 @@ export function ChatHeaderTools({
   newButton,
   controls,
   nativeRowTools,
+  nativeNeedsYou,
   working = false,
   motion,
 }: {
@@ -165,6 +188,8 @@ export function ChatHeaderTools({
   controls?: HeaderControls;
   /// Only the migrated icons; the host offers this opt-in while its native tab row is visible.
   nativeRowTools?: NativeRowToolsHost;
+  /// Needs You's native menu data; the web inbox remains the source while native tools are off.
+  nativeNeedsYou?: NativeRowNeedsYou;
   /// The chat's turn runs: with a motion style, Changes carries the activity dot (headerMotion.ts).
   working?: boolean;
   /// The motion style, when the gallery picks one; else the App's (`agentChat.headerMotion`).
@@ -181,6 +206,33 @@ export function ChatHeaderTools({
   const style = motion ?? headerMotion;
   const actions = useQuickActions();
   const worktree = useWorktree(folder, readStatus, statusKey);
+  const worktreeOps = useWorktreeOps(worktree, folder, onApplyWorktree, onRemoveWorktree);
+  const pullRequestOps = usePullRequestOps(pullRequest, onMergePullRequest);
+  const nativeNeedsYouMenu = nativeNeedsYou?.nativeMenu === true;
+  const [needsYouFailure, setNeedsYouFailure] = useState<NativeRowNeedsYou["failure"]>();
+  const nativeNeedsYouForTools = nativeNeedsYouMenu
+    ? {
+        ...nativeNeedsYou,
+        failure: needsYouFailure,
+        actions: {
+          ...nativeNeedsYou.actions,
+          answer: async (...args: Parameters<NativeRowNeedsYou["actions"]["answer"]>) => {
+            setNeedsYouFailure(undefined);
+            return nativeNeedsYou.actions.answer(...args);
+          },
+          ask: async (...args: Parameters<NativeRowNeedsYou["actions"]["ask"]>) => {
+            setNeedsYouFailure(undefined);
+            return nativeNeedsYou.actions.ask(...args);
+          },
+        },
+        onFailure: (item: NeedsYouItem, action: "answer" | "ask", error: unknown) =>
+          setNeedsYouFailure({
+            itemId: item.id,
+            action,
+            ...(error instanceof Error && error.message ? { reason: error.message } : {}),
+          }),
+      }
+    : undefined;
   // The right-clicked button, read as the menu opens.
   const target = useRef<QuickActionId>(undefined);
   const [menuTarget, setMenuTarget] = useState<QuickActionId>();
@@ -324,9 +376,17 @@ export function ChatHeaderTools({
               menu: chatMenu.items,
             },
             runMenu: chatMenu.invoke,
+            // The chat menu is reserved before the variable check and ask lists spend the budget.
+            menuPriority: "fixed" as const,
           },
         ]
       : [],
+    extras: {
+      worktree: worktree ? { value: worktree, ops: worktreeOps } : undefined,
+      pullRequest: pullRequest && pullRequestChip !== false ? { value: pullRequest, ops: pullRequestOps } : undefined,
+      needsYou: nativeNeedsYouForTools,
+    },
+    t,
   });
   const shortcuts: Partial<Record<QuickActionId, string | undefined>> = {
     terminal: terminalKey,
@@ -454,14 +514,16 @@ export function ChatHeaderTools({
       data-activity-on={cue?.on}
     >
       {preview && <HeaderToolPreview target={preview} />}
-      {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
-      {pullRequest && pullRequestChip !== false && (
-        <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
+      {!native && worktree && (
+        <WorktreePill ops={worktreeOps} worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />
+      )}
+      {!native && pullRequest && pullRequestChip !== false && (
+        <PullRequestChip ops={pullRequestOps} pullRequest={pullRequest} onMerge={onMergePullRequest} />
       )}
       {/* The panel toggle leads the icons, as in Claude and ChatGPT desktop. */}
       {!native && sessionInfo}
       {typeof summary === "function" ? summary(native) : !native && summary}
-      {inbox}
+      {(!native || !nativeNeedsYouMenu) && inbox}
       {buttons ? (
         <div className="acpmux-header-tool-group acpmux-header-tool-group-actions">
           {onCustomize ? (
@@ -736,7 +798,11 @@ function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
   const registeredShortcut = useShortcut(item.shortcutAction ?? "");
   const shortcut = menuKeycap(registeredShortcut);
   return (
-    <MenuItem className="acpmux-chat-menu-item" disabled={item.disabled} onSelect={item.onSelect}>
+    <MenuItem
+      className={item.destructive ? "acpmux-chat-menu-item ui-menu-item-destructive" : "acpmux-chat-menu-item"}
+      disabled={item.disabled}
+      onSelect={item.onSelect}
+    >
       {item.image ? (
         <img className="acpmux-chat-menu-image" src={item.image} alt="" width={14} height={14} />
       ) : (
@@ -823,3 +889,5 @@ function ChatMenuChildRow({ child }: { child: ChatMenuChild }) {
     </MenuItem>
   );
 }
+
+const ChatHeaderToolsMemo = memo(ChatHeaderToolsView);

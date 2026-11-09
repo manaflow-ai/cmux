@@ -1,14 +1,21 @@
 /* A provider-neutral goal stays in the bottom stack, directly above the composer. The row is
    deliberately quiet: its controls belong to the goal, while the objective remains the strongest
-   text. */
+   text. It stands in the composer's column, on the card's two edges as the running tray and the host
+   line do (--cv-inset, --cv-inset-end, less the narrow outset: bottomStack.css), never as a band the
+   pane's width wide: in a wide pane its text ran past the transcript's column (cmux#38051).
+   test/agent-pane-goal-strip-column.test.ts holds it there. */
 .acpmux-goal {
   position: relative;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--ds-space-2);
+  min-width: 0;
   min-height: var(--ds-control-row);
-  padding: var(--ds-space-1) var(--cv-edge, var(--ds-space-4));
+  margin: 0 calc(var(--cv-inset-end, var(--cv-inset, var(--ds-space-4))) - var(--acpmux-stack-outset, 0px)) 0
+    calc(var(--cv-inset, var(--ds-space-4)) - var(--acpmux-stack-outset, 0px));
+  padding: var(--ds-space-1) var(--ds-space-2);
   color: var(--agent-soft);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
@@ -53,7 +60,6 @@
 }
 
 .acpmux-goal-state { color: var(--agent-text); }
-.acpmux-goal-objective { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-goal-time { margin-left: auto; white-space: nowrap; }
 
 .acpmux-goal-action {
@@ -94,3 +100,377 @@
 @media (prefers-reduced-motion: reduce) {
   .acpmux-goal-action { transition: none; }
 }
+
+/* The chat's goal as a row of the composer hat (TaskGoalStrip.tsx `GoalStrip`; Leo, 2026-11-09, on a
+   reference goal pill). One 28 px line on the hat's columns: the state mark and words, the objective
+   cut to the row, then the time in tabular figures and the chevron in the column every hat line's
+   chevron ends in. Its buttons fade in over the objective's end while the pointer or focus is on it,
+   so showing them moves nothing. The line is one button (`.acpmux-goal-toggle`, under the text);
+   open, the objective unfolds in place under its own first line, which never moves.
+   The fold's height moves on the reference's open and close curves (frame-stepped: cmuxterm-hq
+   docs/design/goal-ui-reference-study). */
+.acpmux-goal[data-look] {
+  --acpmux-goal-row: var(--ui-row-height, 28px);
+  --acpmux-goal-line: 18px;
+  --acpmux-goal-inset: var(--acpmux-tray-inset, var(--acpmux-composer-inset, 8px));
+  --acpmux-goal-actions: calc(3 * var(--ds-control-icon) + 2 * var(--ds-space-1));
+  --acpmux-goal-radius: var(--acpmux-composer-radius, 11px);
+  /* The reference, frame-stepped: opens in about 200 ms on an ease-out quad, closes in about 110 ms
+     on an ease-out cubic, no overshoot. Both scale with the motion token, so the motion gate's 0 ms
+     and the app's animation speed apply. */
+  --acpmux-goal-open: calc(var(--agent-motion-move, 180ms) * 10 / 9);
+  --acpmux-goal-open-ease: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --acpmux-goal-close: calc(var(--agent-motion-move, 180ms) * 0.6);
+  --acpmux-goal-close-ease: cubic-bezier(0.215, 0.61, 0.355, 1);
+  display: grid;
+  grid-template-columns: 16px auto minmax(0, 1fr);
+  align-items: start;
+  column-gap: var(--ds-space-2);
+  flex-wrap: nowrap;
+  min-height: var(--acpmux-goal-row);
+  padding: calc((var(--acpmux-goal-row) - var(--acpmux-goal-line)) / 2) var(--acpmux-goal-inset);
+  overflow: clip;
+  border-radius: var(--acpmux-goal-radius);
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
+  color: var(--agent-text);
+  font-family: var(--cv-font);
+  font-size: var(--text-control);
+  line-height: var(--acpmux-goal-line);
+  letter-spacing: var(--text-control--letter-spacing);
+}
+/* Everything but its buttons and the field lets the click through to the line's own button. */
+.acpmux-goal[data-look] > :not(.acpmux-goal-toggle) {
+  position: relative;
+  z-index: var(--layer-raised);
+  pointer-events: none;
+}
+.acpmux-goal[data-look] :is(button, textarea) {
+  pointer-events: auto;
+}
+.acpmux-goal-toggle {
+  position: absolute;
+  inset: 0;
+  z-index: var(--layer-base);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: default;
+}
+.acpmux-goal-toggle:hover:not(:disabled) { background: var(--acpmux-row-hover); }
+.acpmux-goal-toggle:focus-visible {
+  outline: var(--cmux-focus-ring-width) solid var(--cmux-focus-ring-color);
+  outline-offset: calc(-1 * var(--cmux-focus-ring-width));
+}
+
+.acpmux-goal[data-look] .acpmux-goal-mark {
+  width: 16px;
+  height: var(--acpmux-goal-line);
+}
+.acpmux-goal[data-look] .acpmux-goal-mark > span {
+  width: var(--ds-space-2);
+  height: var(--ds-space-2);
+  border-radius: 50%;
+  background: currentColor;
+}
+.acpmux-goal[data-look][data-state="paused"] .acpmux-goal-mark > span {
+  background: none;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
+.acpmux-goal[data-look]:is([data-state="done"], [data-state="complete"]) .acpmux-goal-mark {
+  color: var(--agent-success, var(--agent-accent));
+}
+.acpmux-goal[data-look] .acpmux-goal-state {
+  color: var(--agent-text);
+  font-weight: var(--font-weight-emphasis);
+  font-size: inherit;
+  letter-spacing: inherit;
+  white-space: nowrap;
+}
+
+/* The objective's box: one line folded, the whole text open. Its height is the one thing the fold
+   moves; the script sets it from the frame's current height, so a click mid-way turns it around. */
+.acpmux-goal-clip {
+  min-width: 0;
+  margin-inline-end: calc(var(--acpmux-goal-trail, 0px) + var(--ds-space-2));
+  height: var(--acpmux-goal-line);
+  overflow: hidden;
+  transition: height var(--acpmux-goal-close) var(--acpmux-goal-close-ease);
+}
+.acpmux-goal[data-open] .acpmux-goal-clip {
+  transition: height var(--acpmux-goal-open) var(--acpmux-goal-open-ease);
+}
+/* Open, the scroller takes the pointer: the wheel scrolls a long goal (the dock passes a wheel on to
+   the transcript only where nothing under the pointer scrolls), and its text can be selected. The
+   mark, the state words, the chevron and Escape fold it (review of cmux#39151, F1). */
+.acpmux-goal[data-look][data-open] > .acpmux-goal-clip {
+  pointer-events: auto;
+}
+/* A long goal or draft scrolls inside the open card, at most ten lines and never past 40% of the
+   pane, so its lower lines and Save stay in reach in a short pane (review of cmux#39151, F3). */
+.acpmux-goal[data-look][data-open] {
+  /* The stack gives up height in a short pane (bottomStack.css): the open card's one row takes what
+     is left, and its scroller fits it. */
+  grid-template-rows: minmax(0, 1fr);
+}
+.acpmux-goal[data-look][data-open] .acpmux-goal-clip {
+  max-height: min(calc(10 * var(--acpmux-goal-line) + var(--ds-space-6)), 40vh, 100%);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.acpmux-goal-objective {
+  display: block;
+  color: var(--agent-soft);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.acpmux-goal[data-clamped] .acpmux-goal-objective {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The buttons over the cut end: the text fades out under them. */
+.acpmux-goal[data-look]:is(:hover, :focus-within):not([data-open]) .acpmux-goal-clip {
+  mask-image: linear-gradient(
+    to left,
+    transparent calc(var(--acpmux-goal-actions) - var(--ds-space-2)),
+    #000 calc(var(--acpmux-goal-actions) + var(--ds-space-3))
+  );
+}
+/* Folded, the line stops short of the time; open, only its first line does (and of the buttons
+   too), and the lines under it take the card's full width. The first line ends where it did. */
+.acpmux-goal-spacer {
+  display: none;
+  float: inline-end;
+  width: calc(var(--acpmux-goal-trail, 0px) + var(--acpmux-goal-actions) + var(--ds-space-2));
+  height: var(--acpmux-goal-line);
+}
+.acpmux-goal[data-look]:not([data-clamped]) .acpmux-goal-clip {
+  margin-inline-end: 0;
+}
+.acpmux-goal[data-look]:not([data-clamped]) .acpmux-goal-spacer {
+  display: block;
+}
+/* A field does not flow around a float: while editing, every line stops where the first one does. */
+.acpmux-goal[data-look][data-editing] .acpmux-goal-spacer {
+  display: none;
+}
+.acpmux-goal[data-look][data-editing] .acpmux-goal-content {
+  padding-inline-end: calc(var(--acpmux-goal-trail, 0px) + var(--acpmux-goal-actions) + var(--ds-space-2));
+}
+.acpmux-goal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-1) var(--ds-space-3);
+  padding-top: var(--ds-space-1);
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height, 16px);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.acpmux-goal-meta .acpmux-goal-budget { font-variant-numeric: tabular-nums; }
+.acpmux-goal-detail { margin: var(--ds-space-1) 0 0; color: var(--agent-muted); font-size: var(--text-caption); }
+.acpmux-goal[data-look] .acpmux-goal-step { color: var(--agent-muted); font-size: var(--text-caption); }
+.acpmux-goal-edit-actions { display: inline-flex; gap: var(--ds-space-1); margin-inline-start: auto; }
+.acpmux-goal-text-action {
+  height: var(--ds-control-icon);
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: none;
+  color: var(--agent-soft);
+  font: inherit;
+}
+.acpmux-goal-text-action:hover:not(:disabled) { background: var(--acpmux-row-hover); color: var(--agent-text); }
+.acpmux-goal-text-action[data-primary] { color: var(--agent-text); font-weight: var(--font-weight-emphasis); }
+.acpmux-goal-text-action:disabled { opacity: 0.45; }
+.acpmux-goal-text-action:focus-visible { outline: var(--cmux-focus-ring-width) solid var(--cmux-focus-ring-color); }
+/* The field takes the text's place, type and line: the objective's first line stays where it was. */
+.acpmux-goal-field {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  min-height: var(--acpmux-goal-line);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  field-sizing: content;
+  background: transparent;
+  color: var(--agent-text);
+  font: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  caret-color: var(--cmux-caret, var(--agent-text));
+}
+.acpmux-goal[data-editing] .acpmux-goal-clip {
+  box-shadow: 0 1px 0 0 var(--agent-accent, currentColor);
+}
+
+.acpmux-goal[data-look] > .acpmux-goal-trail {
+  position: absolute;
+  top: calc((var(--acpmux-goal-row) - var(--acpmux-goal-line)) / 2);
+  right: var(--acpmux-goal-inset);
+  display: flex;
+  align-items: center;
+  height: var(--acpmux-goal-line);
+}
+.acpmux-goal[data-look] .acpmux-goal-time {
+  margin: 0;
+  color: var(--agent-muted);
+  font-size: inherit;
+  letter-spacing: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-goal-chevron {
+  display: inline-grid;
+  width: var(--acpmux-tray-chevron-width, var(--acpmux-composer-control, 28px));
+  place-items: center;
+  color: var(--agent-muted);
+}
+.acpmux-goal-chevron > svg {
+  rotate: 180deg;
+  transition: rotate var(--acpmux-goal-close) var(--acpmux-goal-close-ease);
+}
+.acpmux-goal[data-open] .acpmux-goal-chevron > svg {
+  rotate: 0deg;
+  transition: rotate var(--acpmux-goal-open) var(--acpmux-goal-open-ease);
+}
+.acpmux-goal-actions {
+  position: absolute;
+  right: 100%;
+  display: inline-flex;
+  gap: var(--ds-space-1);
+  margin-inline-end: var(--ds-space-1);
+  opacity: 0;
+  transition: opacity var(--agent-motion-quick, 120ms) var(--agent-ease-out, ease-out);
+}
+.acpmux-goal[data-look]:hover .acpmux-goal-actions,
+.acpmux-goal[data-look]:has([data-popup-open]) .acpmux-goal-actions,
+.acpmux-goal[data-look]:is(:focus-within, [data-open]) .acpmux-goal-actions {
+  opacity: 1;
+}
+.acpmux-goal[data-look]:not(:hover, :has([data-popup-open]), :focus-within, [data-open]) .acpmux-goal-actions button { pointer-events: none; }
+.acpmux-goal[data-look] .acpmux-goal-action {
+  width: var(--ds-control-icon);
+  height: var(--ds-control-icon);
+}
+.acpmux-goal[data-look] .acpmux-goal-error {
+  grid-column: 3 / -1;
+  padding-inline-end: var(--ds-space-2);
+  font-size: var(--text-caption);
+}
+
+/* The hover card: the whole goal, wrapped to a readable measure. */
+.acpmux-goal-preview { max-width: min(420px, calc(100vw - 32px)); }
+.acpmux-goal-preview-text { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Placement (goalHat.experiment.ts). The goal heads the hat (or, `foot`, closes it over the composer)
+   as one glass stack: where it meets the running lines or the composer neither rounds and the lower
+   part draws the hairline, as the tray meets the composer (bottomStack.css). Cards mode and the
+   pill keep one gap and their own corners. */
+.acpmux-dock > .acpmux-goal[data-look] {
+  margin-bottom: var(--ds-space-1);
+}
+:root:not([data-bottom-stack="cards"])
+  .acpmux-dock
+  > .acpmux-goal:is([data-look="head"], [data-look="foot"]):has(+ :is(.acpmux-running-tray[data-card], .acpmux-composer)) {
+  margin-bottom: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  box-shadow:
+    inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-composer-edge, transparent),
+    inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-composer-edge, transparent),
+    inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge, transparent);
+}
+:root:not([data-bottom-stack="cards"])
+  .acpmux-dock
+  > .acpmux-goal[data-look="head"]
+  + .acpmux-running-tray[data-card] {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+:root:not([data-bottom-stack="cards"])
+  .acpmux-dock
+  > .acpmux-running-tray[data-card]:has(+ .acpmux-goal[data-look="foot"]) {
+  margin-bottom: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+:root:not([data-bottom-stack="cards"])
+  .acpmux-dock
+  > .acpmux-running-tray[data-card]
+  + .acpmux-goal[data-look="foot"] {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+:root:not([data-bottom-stack="cards"])
+  .acpmux-dock
+  > .acpmux-goal:is([data-look="head"], [data-look="foot"])
+  + .acpmux-composer
+  > :is(.acpmux-composer-queue, .acpmux-composer-box:not(.acpmux-composer-queue ~ *)) {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+:root:not([data-bottom-stack="cards"])
+  .acpmux-dock
+  > .acpmux-goal:is([data-look="head"], [data-look="foot"])
+  + .acpmux-composer
+  > .acpmux-composer-box:not(.acpmux-composer-queue ~ *)::before {
+  border-radius: inherit;
+}
+.acpmux-goal[data-look="pill"] {
+  border-radius: calc(var(--acpmux-goal-row) / 2);
+}
+.acpmux-goal[data-look="pill"][data-open] {
+  border-radius: var(--acpmux-goal-radius);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-goal-clip,
+  .acpmux-goal-chevron > svg,
+  .acpmux-goal-actions { transition: none; }
+}
+
+/* A Claude Code /loop (cmux#38051): one quiet chip. It says only when the loop checks back; the
+   agent's wake prompt is in its tooltip and, on demand, in the details, which wrap inside the column
+   and scroll past a few lines instead of widening or growing the stack. */
+.acpmux-goal[data-kind="loop"] .acpmux-goal-copy {
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+.acpmux-goal-loop-mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  color: var(--agent-muted);
+}
+.acpmux-goal[data-kind="loop"] .acpmux-goal-state {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--agent-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-goal[data-kind="loop"] .acpmux-goal-action {
+  width: var(--ds-control-icon);
+  height: var(--ds-control-icon);
+}
+.acpmux-goal-loop-details {
+  min-width: 0;
+  max-height: calc(6 * var(--text-caption--line-height, 18px));
+  margin-left: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.acpmux-goal-loop-details p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.acpmux-goal-loop-prompt { color: var(--agent-soft); }

@@ -15,7 +15,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::peer_states::Observed;
-use acpmux::protocol::peer_state::PeerLinkState;
+use acpmux::protocol::peer_state::MachineLink as PeerLinkState;
 use acpmux::rpc::{Message, method};
 use acpmux::server::{Origin, serve_connection, serve_connection_with};
 use serde_json::{Value, json};
@@ -92,7 +92,7 @@ impl Watcher {
 }
 
 fn seen(state: PeerLinkState, error: Option<&str>) -> Observed {
-    Observed { state, last_seen: None, error: error.map(str::to_owned) }
+    Observed::new(state, None, error.map(str::to_owned))
 }
 
 fn peer_names(rows: &Value) -> Vec<String> {

@@ -79,12 +79,6 @@ import Testing
         #expect(ThemedOverlayColorsTests.same(swatch, scope.perform { Palette.textTertiary }), "\(swatch)")
     }
 
-    /// The cookie card's quiet link starts in the theme's tertiary ink before its card's first theme
-    /// pass, never macOS's secondary label gray (theme sweep 3, batch G).
-    @Test func theCookieCardsLinkStartsInTheAppTheme() {
-        Self.expect(CookieCardLinkButton().color, Self.app.textTertiary, "link")
-    }
-
     /// A session color the CUA host sent unreadably draws the theme's tertiary ink, not the system
     /// gray (theme sweep 3, batch G).
     @Test func anUnreadableSessionColorIsTheAppThemesInk() {

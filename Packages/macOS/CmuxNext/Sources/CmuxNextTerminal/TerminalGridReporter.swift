@@ -5,9 +5,10 @@ import GhosttyNextKit
 /// Every report goes through one ``TerminalGridReportCoalescer``, so its last sent grid is the PTY's: a person's divider
 /// drag sends its grids while it moves, coalesced to the display refresh (cmux-ad m29, RESIZE P0 6: the newest grid at
 /// most once per refresh, so a full-screen program, which the reflow preview does not re-wrap, follows its pane); every other report
-/// (at rest, forced, a spring's final grid) goes now. A drag's grid is the grid of a size shown on screen: a size asked of
-/// Ghostty and not shown yet waits for the commit that shows it with its frame (``shown(_:live:)``), so the program never
-/// redraws at a size the person does not see (the RESIZE OWNER's rule, cmux-ad m29).
+/// (at rest, forced, a spring's final grid) goes now. A drag's grid, like a key resize's, is the grid of the size asked of
+/// Ghostty, and the presenter holds that size's frame for the program's redraw (RESIZE P0 12, m55 "terminals: zero lag";
+/// it replaced cmux-ad m29's rule that a drag's grid waits until its size shows, which made the program redraw a refresh
+/// after the divider).
 @MainActor
 final class TerminalGridReporter {
     private weak var view: TerminalSurfaceView?
@@ -34,65 +35,22 @@ final class TerminalGridReporter {
 
     /// Whether a drag's grid waits in the coalescer's window.
     var isWaiting: Bool { coalescer.isWaiting }
-    /// A drag's grid that waits for its size to show (asked of Ghostty, not shown yet); nil when none waits.
-    private(set) var awaitingShown: TerminalGridSize?
-    /// The pointer let go while a size was in flight: that size's grid goes the moment it shows, not coalesced.
-    private var sendsAwaitedNow = false
-
-    /// A drag's grid: coalesced when its size shows now (the bounds took it), else when the presenter shows it.
-    func drag(_ grid: TerminalGridSize, shownNow: Bool) {
-        if shownNow { coalesced(grid) } else { awaitingShown = grid }
-    }
-
-    /// The presenter's commit showed a size with its frame (``TerminalSurfaceView/frameDidLand()``): the grid that size
-    /// fits goes, coalesced while the drag `live`s, else now (a size that landed after the drag ended).
-    func shown(_ grid: TerminalGridSize?, live: Bool) {
-        guard awaitingShown != nil, let grid else { return }
-        awaitingShown = nil
-        if live, !sendsAwaitedNow { coalesced(grid) } else { now(grid) }
-        sendsAwaitedNow = false
-    }
-
     /// The pointer let go (a drag's mouse-up, in its turn): the newest grid goes to the program now, not when the
     /// window or the release's landing ends (the RESIZE OWNER's film of px-col-drag-2, STATUS 15707: the program was
-    /// whole only 4 refreshes after its pane rested). The newest shown grid is the one that waits in the window; if a newer
-    /// size is in flight, the waiting grid is older and is dropped, and that size's grid goes when its frame shows.
-    /// Sizes a release spring moves through after this coalesce again.
+    /// whole only 4 refreshes after its pane rested). Sizes a release spring moves through after this coalesce again.
     func release() {
-        guard awaitingShown == nil else {
-            coalescer.cancel()
-            sendsAwaitedNow = true
-            return
-        }
         coalescer.flush()
     }
 
-    /// The presenter cancelled the size a drag's grid waited for (the view was hidden, or left its window, before its
-    /// frame landed). Without a report the program kept an older grid until the next resize (review of #36631). The grid
-    /// that goes is `taken`, the grid of the bounds the view took at the cancel, never the stored one: the stored grid is
-    /// the committed bounds' grid when the size was asked (T-KEYS: the PTY gets only shown grids), older than the bounds
-    /// the view takes now (frame-owner-s2's rule for #36478). It goes coalesced while the drag `live`s, else as a grid at
-    /// rest (nothing when the PTY has it). `taken` nil (the view is not shown, so its grid is not measured): the caller
-    /// sends the view's grid when it shows. Returns whether a drag grid waited.
-    @discardableResult
-    func shownCancelled(_ taken: TerminalGridSize?, live: Bool) -> Bool {
-        guard awaitingShown != nil else { return false }
-        awaitingShown = nil
-        guard let taken else { return true }
-        coalescer.viewSized(taken)
-        if !live { coalescer.flush() }
-        return true
-    }
-
-    /// A drag's grid: it waits for the window, or opens one.
-    func coalesced(_ grid: TerminalGridSize) {
-        coalescer.viewSized(grid)
+    /// A drag's or a key spring's grid: it waits for the window, or opens one. `waitsForRefresh`: never at once;
+    /// `replacesUnshown`: at once, in place of a grid whose frame never shows
+    /// (``TerminalGridReportCoalescer/viewSized(_:waitsForRefresh:replacesUnshown:)``).
+    func coalesced(_ grid: TerminalGridSize, waitsForRefresh: Bool = false, replacesUnshown: Bool = false) {
+        coalescer.viewSized(grid, waitsForRefresh: waitsForRefresh, replacesUnshown: replacesUnshown)
     }
 
     /// `grid` goes now; a grid that waits is older and is dropped.
     func now(_ grid: TerminalGridSize) {
-        awaitingShown = nil // a size that waits to show is older than this grid; its landing sends nothing after it
-        sendsAwaitedNow = false
         coalescer.reportNow(grid)
     }
 

@@ -126,6 +126,18 @@ struct AcpmuxRecords {
             // A question's answers, as acpmux put them into the tool's input.
             let answers = outcome?["_meta"]?["updatedInput"]?["answers"].flatMap { try? Self.convert($0, to: AgentQuestionJSON.self) }
             return [.permissionDecision(permissionId: permissionID, optionId: optionID, answers: answers)]
+        case "elevation_request":
+            // A card with no nonce comes from an acpmux whose sudo cards a phone cannot approve.
+            guard let id = msg["secretId"]?.stringValue, let nonce = msg["decisionNonce"]?.stringValue,
+                  let instance = msg["personInstance"]?.stringValue else { return [] }
+            let argv = (msg["argv"]?.arrayValue ?? []).compactMap(\.stringValue)
+            let timeout = msg["timeoutSecs"]?.numberValue.map { Int($0) }
+            return [.elevationRequest(AgentElevationAsk(
+                id: id, argv: argv, reason: msg["reason"]?.stringValue ?? "", host: msg["host"]?.stringValue ?? "",
+                timeoutSecs: timeout, nonce: nonce, instance: instance))]
+        case "elevation_decision":
+            guard let id = msg["secretId"]?.stringValue else { return [] }
+            return [.elevationDecision(id: id)]
         default:
             return []
         }

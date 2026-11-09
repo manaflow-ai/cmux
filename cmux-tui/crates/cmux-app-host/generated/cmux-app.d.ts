@@ -52,6 +52,8 @@ declare namespace Cmux {
   type ChiefRetryResult = { retried: boolean; reason?: string }
   type ChiefRevision = { rev: number; at: string; actor: string; operation: string; record: Cmux.ChiefRecord }
   type ChiefStopResult = { stopped: boolean; subagents?: Array<string>; note?: string; restarted?: Array<string>; errors?: Array<string> }
+  type ClassicImportPlanResult = { ledger: "none" | "ledger" | "newer" | "unreadable" | "failed"; decision: Cmux.JsonValue | null; source: Cmux.JsonValue | null; backups: Array<string>; error: string | null; plan: Cmux.JsonValue | null; preview: Cmux.JsonValue | null }
+  type ClassicImportRecordResult = { state: "inProgress" | "completed" | null; runs: number; workspaces: number; changed: boolean }
   type ClientSnapshot = { id: string /* client_… */; session_id: string /* session_… */; name: string | null; client_kind: string | null; transport: Cmux.ClientTransport; connected_seconds: string; attached_terminal_ids: Array<string /* terminal_… */>; sizes: Array<Cmux.ClientTerminalSize>; self: boolean; extra?: Record<string, Cmux.JsonValue> }
   type ClientTerminalSize = { terminal_id: string /* terminal_… */; cols: number | null; rows: number | null; participating: boolean }
   type ClientToken = string
@@ -317,7 +319,7 @@ declare namespace Cmux {
   type PaletteRankEntry = { title: string; keywords?: Array<string> | null; subtitle?: string | null; accessory?: string | null; rankBias?: number | null; frecencyKey?: string | null; isEnabled?: boolean | null; isVisibleWhenQueryEmpty?: boolean | null; queryPrefix?: string | null; hidesWhenTyping?: boolean | null; sectionIndex?: number | null; entersScope?: boolean | null; typingSectionIndex?: number | null; suggestedRank?: number | null; suggestedSectionIndex?: number | null; actionID?: string | null; demoted?: boolean | null; hasShortcut?: boolean | null; keycaps?: Array<string> | null; handles?: Array<string> | null }
   type PaletteRankFrecency = { entries?: Record<string, Cmux.PaletteRankUse> | null; halfLife?: number | null; picks?: Array<Cmux.PaletteRankPick> | null; pickHalfLife?: number | null; hidden?: Array<string> | null }
   type PaletteRankPick = { prefix: string; key: string; score: number; lastUsed: number; last: boolean }
-  type PaletteRankResult = { sections: Array<Cmux.PaletteRankSection> }
+  type PaletteRankResult = { sections: Array<Cmux.PaletteRankSection>; strictMatches: number }
   type PaletteRankRow = { index: number; score: number; highlights: Array<number> }
   type PaletteRankSection = { sectionIndex: number | null; rows: Array<Cmux.PaletteRankRow> }
   type PaletteRankUse = { score: number; lastUsed: number }
@@ -1294,7 +1296,7 @@ interface CmuxGlobal {
     /** `project.sync` (mutation, scope `project:write`) */
     sync: CmuxOp<{ machine?: string; session?: string; existing?: Array<string>; gone?: Array<string> }, Cmux.MutationResult<Cmux.ProjectChange>>
     /** `project.update` (mutation, scope `project:write`) */
-    update: CmuxOp<{ machine?: string; session?: string; path: string; rename?: string | null; pinned?: boolean; hidden?: boolean; order?: number | null; worktree?: Cmux.WorktreeRecipe | null }, Cmux.MutationResult<Cmux.ProjectChange>>
+    update: CmuxOp<{ machine?: string; session?: string; path: string; rename?: string | null; pinned?: boolean; hidden?: boolean; order?: number | null; worktree?: Cmux.WorktreeRecipe | null; keep_saved_worktree?: boolean }, Cmux.MutationResult<Cmux.ProjectChange>>
   }
   push: {
     target: {
@@ -1388,7 +1390,7 @@ interface CmuxGlobal {
   }
   screen: {
     /** `screen.create` (mutation, scope `workspace:write`) */
-    create: CmuxOp<{ machine?: string; session?: string; workspace?: string; correlation_key?: string; name?: string; argv?: Array<string>; shell?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
+    create: CmuxOp<{ machine?: string; session?: string; workspace?: string; correlation_key?: string; name?: string; argv?: Array<string>; shell?: string; focus?: boolean; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     /** `screen.focus` (mutation, scope `workspace:write`) */
     focus: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen: string; expected_revision?: string }, Cmux.MutationResult<Cmux.ScreenSnapshot>>
     /** `screen.get` (read, scope `workspace:read`) */
@@ -1697,7 +1699,7 @@ interface CmuxGlobal {
     /** `terminal.attach` (stream_open, scope `terminal:execute`) */
     attach: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; stream_id: string /* stream_… */; cols?: number; rows?: number; read_only?: boolean }, Cmux.ViewAttachmentStreamOpened>
     /** `terminal.copy` (read, scope `terminal:read`) */
-    copy: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; mode?: "screen" | "selection" | "scrollback" }, Cmux.TerminalCopyResult>
+    copy: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; mode?: "screen" | "selection" | "scrollback"; unwrap?: boolean }, Cmux.TerminalCopyResult>
     /** `terminal.get` (read, scope `terminal:read`) */
     get: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string }, Cmux.TerminalSnapshot>
     history: {
@@ -1728,7 +1730,7 @@ interface CmuxGlobal {
     project: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; destination_workspace: unknown; destination_screen: unknown; destination_pane: unknown; index: number; name?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>>
     screen: {
       /** `terminal.screen.read` (read, scope `terminal:read`) */
-      read: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string }, Cmux.TerminalScreenResult>
+      read: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; unwrap?: boolean; lines?: number }, Cmux.TerminalScreenResult>
     }
     state: {
       /** `terminal.state.read` (read, scope `terminal:read`) */
@@ -1739,7 +1741,7 @@ interface CmuxGlobal {
       scroll: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; delta_rows: number; expected_revision?: string }, Cmux.MutationResult<Cmux.EmptyResult>>
     }
     /** `terminal.wait` (read, scope `terminal:read`) */
-    wait: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; pattern: string; timeout_ms?: string }, Cmux.TerminalWaitResult>
+    wait: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; pattern: string; timeout_ms?: string; new?: boolean }, Cmux.TerminalWaitResult>
     /** `terminal.wait_exit` (read, scope `terminal:read`) */
     wait_exit: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; timeout_ms?: string }, Cmux.TerminalWaitExitResult>
   }

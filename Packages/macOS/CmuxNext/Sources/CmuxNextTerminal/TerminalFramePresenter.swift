@@ -16,7 +16,7 @@ import QuartzCore
 /// their frame, which would stretch or crop it). The pass never draws and never waits.
 ///
 /// In a spring the next refresh's size is known: after the pass, each terminal its pane's spring asked to
-/// (``TerminalSurfaceView/drawAhead(_:)``) gives Ghostty that size (render only), so the renderer draws it during the
+/// (``TerminalSurfaceView/drawAhead(_:)``) gives Ghostty that size (a key resize's with its grid to the PTY), so the renderer draws it during the
 /// refresh and the next pass presents it with its bounds: no refresh is kept after the spring's first. A divider drag or
 /// a Reduce Motion jump has no next size: the last bounds and frame stay until the new frame is drawn. Chromium does the
 /// same at a resize: the browser compositor shows a new size only with a frame the renderer submitted for it, keeps the
@@ -28,6 +28,18 @@ import QuartzCore
 /// the screen off the main thread again. A new display scale is the same request: the layer keeps its scale until the
 /// frame drawn at the new one shows (``TerminalSurfaceView/holdsScale(_:)``). The lock span holds only the present and
 /// the geometry; what follows the new size runs after it (``TerminalSurfaceView/frameDidLand()``).
+///
+/// The program's redraw (RESIZE P0 12, Lawrence m55 "terminals: zero lag"): a resize whose grid went to the program with
+/// its size (``request(_:holdTicks:sentEpoch:)``, a key resize) shows its new size only with the frame Ghostty drew after
+/// the program's output at that grid (`GHOSTTY_HOST_FRAME_READY_PROGRAM`), for at most `holdTicks` refreshes from the
+/// send. Until then the view keeps its old bounds and the program's last frame, as for a frame not drawn yet; at the
+/// bound a frame of the size only (`READY`: the program's last picture clipped or padded) shows, so a program that does
+/// not redraw never stops the resize. Only a program-drawn screen holds (Ghostty's alternate screen,
+/// ``TerminalSurfaceView/programHoldTicks``); a primary-screen terminal shows Ghostty's reflow at the new size in the first
+/// frame. Each request has its own bound: a missed one never turns the hold off for later sizes. Ghostty wakes the main run loop when such a frame completes, so the pass that
+/// presents it runs at once, not at the next refresh. The divider and the pane chrome never wait: their layout never asks
+/// the presenter. Chromium does the same for a renderer's new size: the compositor keeps the old surface until the
+/// renderer submits a frame for the new size, then shows it with its bounds.
 final class TerminalFramePresenter {
     /// Refreshes a group of requests waits for its slowest member.
     static let groupTicks: UInt64 = 2
@@ -38,6 +50,10 @@ final class TerminalFramePresenter {
     static let passOrder: CFIndex = 1_999_999
     /// Refreshes a terminal whose bounds changed without a present is watched for its frame.
     static let watchLimit = 240
+    /// Refreshes from the grid's send a resize's new size waits for the program's redraw at that grid (RESIZE P0 12).
+    /// Send -> first presented program frame, cmux21 1x 120 Hz (diag 2b50b18e): px-keys-held p99 11.7 ms, px-keys-single
+    /// p99 17.4 ms, about 2 refreshes; 3 covers p99 with one refresh of slack (m55: at most 3 refreshes).
+    static let resizeHoldTicks: UInt64 = 3
 
     /// What the presenters did, cumulative (diagnostics and tests).
     struct Stats: Equatable {
@@ -52,6 +68,12 @@ final class TerminalFramePresenter {
         var longKeeps = 0
         /// Sizes drawn ahead of a spring's next refresh (``TerminalSurfaceView/applyAhead()``).
         var drawnAhead = 0
+        /// Passes that kept a frame of the size only while the program's redraw at its grid was due (``resizeHoldTicks``).
+        var programHolds = 0
+        /// Requests with a hold that showed the frame the program drew at their grid.
+        var programPresents = 0
+        /// Requests with a hold that showed a frame of the size only at the hold's bound (the program did not redraw).
+        var boundPresents = 0
         var longestPass: Duration = .zero
     }
 
@@ -62,6 +84,15 @@ final class TerminalFramePresenter {
         weak var view: TerminalSurfaceView?
         /// The refresh it was made in: its group.
         var epoch: UInt64
+        /// Refreshes from `sentEpoch` a frame of the size only waits for the program's frame at its grid; 0: none.
+        var holdTicks: UInt64 = 0
+        /// The refresh the request's grid went to the program in.
+        var sentEpoch: UInt64 = 0
+
+        /// Whether the pass keeps a frame in state `state` for the program's redraw in refresh `epoch`.
+        func holdsForProgram(_ state: ghostty_host_frame_e, at epoch: UInt64) -> Bool {
+            holdTicks > 0 && state == GHOSTTY_HOST_FRAME_READY && epoch &- sentEpoch < holdTicks
+        }
     }
 
     private struct Watch {
@@ -108,10 +139,15 @@ final class TerminalFramePresenter {
         return presenter
     }
 
+    /// The current refresh (a grid's send is stamped with it, ``request(_:holdTicks:sentEpoch:)``).
+    var currentEpoch: UInt64 { epoch }
+
     /// `view` asked Ghostty for a frame at a new size: the next commits present it with its bounds, or keep both.
-    func request(_ view: TerminalSurfaceView) {
+    /// `holdTicks`: its grid went to the program in refresh `sentEpoch` (now when nil), and a frame of the size only waits
+    /// for the program's redraw at that grid until `holdTicks` refreshes after it (``resizeHoldTicks``); 0: no wait.
+    func request(_ view: TerminalSurfaceView, holdTicks: UInt64 = 0, sentEpoch: UInt64? = nil) {
         let id = ObjectIdentifier(view)
-        requests[id] = Request(view: view, epoch: epoch)
+        requests[id] = Request(view: view, epoch: epoch, holdTicks: holdTicks, sentEpoch: sentEpoch ?? epoch)
         watched[id] = nil
         armPass()
         client.activate()
@@ -150,6 +186,10 @@ final class TerminalFramePresenter {
     /// span), before this turn's sizes drawn ahead go to Ghostty. What Ghostty drew last is the frame just presented then.
     var presentedHook: ((TerminalSurfaceView) -> Void)?
 
+    /// Tests: called in the pass just before it tries to present a request's frame, with what Ghostty said of it
+    /// (READY_PROGRAM: drawn after the program's output at its grid; READY: the size only).
+    var presentingHook: ((TerminalSurfaceView, ghostty_host_frame_e) -> Void)?
+
     /// What this presenter holds for `view` (`debug.motion` trace): "request" (a size waits for its frame), "watch"
     /// (its shown size changed outside a present), "commit" (its commit is reported at the next refresh), or "-".
     func debugState(of view: TerminalSurfaceView) -> String {
@@ -186,7 +226,8 @@ final class TerminalFramePresenter {
             case GHOSTTY_HOST_FRAME_HIDDEN:
                 // Shown again, it is watched again (``TerminalSurfaceView/updateOcclusion()``).
                 watched[id] = nil
-            case GHOSTTY_HOST_FRAME_READY where view.frameOwnership.ahead == nil:
+            case GHOSTTY_HOST_FRAME_READY where view.frameOwnership.ahead == nil,
+                 GHOSTTY_HOST_FRAME_READY_PROGRAM where view.frameOwnership.ahead == nil:
                 // Its bounds already have the host size (they were given without a present): the frame fits them. Not a
                 // frame drawn ahead: it waits for the bounds of its refresh.
                 CATransaction.lock()
@@ -224,7 +265,8 @@ final class TerminalFramePresenter {
         var waitingGroups: [UInt64] = []
         for (_, request) in requests where !waitingGroups.contains(request.epoch) {
             guard let view = request.view else { continue }
-            if !Self.isReady(view.hostFrame(present: false)) { waitingGroups.append(request.epoch) }
+            let state = view.hostFrame(present: false)
+            if !Self.isReady(state) || request.holdsForProgram(state, at: epoch) { waitingGroups.append(request.epoch) }
         }
         for (id, request) in requests {
             guard let view = request.view else {
@@ -232,10 +274,20 @@ final class TerminalFramePresenter {
                 continue
             }
             let age = epoch &- request.epoch
-            if waitingGroups.contains(request.epoch), age < Self.groupTicks {
-                if Self.isReady(view.hostFrame(present: false)) { stats.groupWaits += 1 }
+            let state = view.hostFrame(present: false)
+            // The program's redraw at the grid that went with this size is due: the old bounds and the program's last frame
+            // stay (as for a frame not drawn yet), never the program's last picture clipped or padded at the new size.
+            if request.holdsForProgram(state, at: epoch) {
+                stats.programHolds += 1
                 continue
             }
+            if waitingGroups.contains(request.epoch), age < Self.groupTicks {
+                if Self.isReady(state) { stats.groupWaits += 1 }
+                continue
+            }
+            #if DEBUG || CMUX_BENCH_HOOKS
+            presentingHook?(view, state)
+            #endif
             // Ghostty's call-site rule: the present and the new bounds under the Core Animation lock, so no off-main
             // commit of another terminal can ship this one's new frame with its old bounds in between.
             CATransaction.lock()
@@ -247,6 +299,7 @@ final class TerminalFramePresenter {
             CATransaction.unlock()
             if presented {
                 stats.presented += 1
+                if shown == GHOSTTY_HOST_FRAME_PRESENTED, request.holdTicks > 0 { countHold(state) }
                 #if DEBUG || CMUX_BENCH_HOOKS
                 presentedHook?(view)
                 #endif
@@ -267,7 +320,13 @@ final class TerminalFramePresenter {
         stats.longestPass = max(stats.longestPass, started.duration(to: .now))
     }
 
-    /// After the pass: each spring's next size goes to Ghostty (render only), so its frame is drawn during the refresh.
+    /// A held request's frame showed: the program's redraw at its grid, or a frame of the size only at its bound. Each
+    /// request has its own bound (RESIZE P0 15): a missed bound does not stop the next size waiting.
+    private func countHold(_ state: ghostty_host_frame_e) {
+        if state == GHOSTTY_HOST_FRAME_READY_PROGRAM { stats.programPresents += 1 } else { stats.boundPresents += 1 }
+    }
+
+    /// After the pass: each spring's next size goes to Ghostty (a key resize's with its grid), so its frame is drawn during the refresh.
     private func applyAheads() { // perf-hot: 1ms motion-frame
         guard !aheads.isEmpty else { return }
         for (id, ahead) in aheads {
@@ -304,7 +363,7 @@ final class TerminalFramePresenter {
     }
 
     private static func isReady(_ state: ghostty_host_frame_e) -> Bool {
-        state == GHOSTTY_HOST_FRAME_READY || state == GHOSTTY_HOST_FRAME_SHOWN
+        state == GHOSTTY_HOST_FRAME_READY || state == GHOSTTY_HOST_FRAME_READY_PROGRAM || state == GHOSTTY_HOST_FRAME_SHOWN
             || state == GHOSTTY_HOST_FRAME_NONE || state == GHOSTTY_HOST_FRAME_HIDDEN
     }
 }

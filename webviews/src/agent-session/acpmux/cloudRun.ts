@@ -349,7 +349,10 @@ export function cloudStartKeys(
 /// sign-in's own reason), so the page says nothing more.
 export function cloudStartSaid(answer: CloudStartAnswer): boolean {
   return (
-    !answer.ok && ["cloud_start_failed", "cloud_chat_already_started", "cloud_prompt_changed"].includes(answer.code)
+    !answer.ok &&
+    ["cloud_start_failed", "cloud_plan_required", "cloud_chat_already_started", "cloud_prompt_changed"].includes(
+      answer.code,
+    )
   );
 }
 

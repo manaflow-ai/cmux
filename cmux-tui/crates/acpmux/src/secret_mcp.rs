@@ -1,5 +1,5 @@
 //! `acpmux secret-mcp`: the agent's `request_secret` and `run_with_secret`
-//! tools (cx-ncc.42) and `connect_mcp_server` (`hub/mcp_connect.rs`): every
+//! tools (cx-ncc.42), `request_elevation` (one sudo command, `hub/elevation.rs`) and `connect_mcp_server` (`hub/mcp_connect.rs`): every
 //! tool here waits on a card only the person answers, an MCP stdio server for one agent session that
 //! `agent_tools.rs` registers. Each call is one daemon request
 //! (`hub/secrets.rs`) for the session in [`SESSION_ENV`]; the value never
@@ -82,6 +82,20 @@ fn all_tools() -> Value {
             }
         },
         {
+            "name": "request_elevation",
+            "description": "Ask the user to run one command as root (sudo) on this machine. cmux shows them a card with the exact argv, this chat and your reason, and they type their password there; you never see it and must never ask for it in chat. On Approve cmux runs `sudo -- argv` itself (no shell: pass argv, not a command line), leaves no cached sudo login behind, and returns exitCode, stdout and stderr (512 KiB each at most); a run past timeoutSecs is stopped and timedOut is true. outcome is approved, denied or cancelled. A deny is final: do not ask again for the same thing unless the user asks you to. Use it only for what needs root: a read-only diagnostic (fs_usage, dtruss, powermetrics, a protected log) or a fix the user asked for. The call waits for the user (10 minutes at most, or until your turn ends).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "argv": {"type": "array", "items": {"type": "string"}, "description": "The command and its arguments, run by sudo as is, e.g. [\"fs_usage\", \"-w\", \"-f\", \"filesys\", \"-t\", \"10\"]. Bound a command that never ends on its own (fs_usage -t SECONDS)."},
+                    "reason": {"type": "string", "description": "One sentence the card shows: why this needs root and what you will do with the output."},
+                    "host": {"type": "string", "description": "The machine it runs on; must be this chat's own machine. Leave it out for this machine."},
+                    "timeoutSecs": {"type": "integer", "minimum": 1, "maximum": 600, "description": "Stop the command after this many seconds (default 60)."}
+                },
+                "required": ["argv", "reason"]
+            }
+        },
+        {
             "name": "connect_mcp_server",
             "description": "Ask the user to connect an MCP server (a known service such as linear, github, sentry or notion; an https:// URL; or a local command such as `npx -y @scope/server`). cmux checks it, then shows the user a card in this chat with the exact server, its publisher and the access it asks for; only the user can approve it, and they pick who gets it. You never see a token or key. The call waits until the user answers (15 minutes at most, or until your turn ends). Returns status approved (with the scope the user chose), declined, cancelled, or unknown (with near names to suggest). An address that is unsafe (a private network, http:// to another machine, a user name before the host) or a shell line is refused with the reason. Use it only when the user asked for the server.",
             "inputSchema": {
@@ -141,6 +155,7 @@ where
         let verb = message["method"].as_str().unwrap_or_default().to_owned();
         let reply = match verb.as_str() {
             "initialize" => {
+                crate::sender_harness::note_mcp_client(&message["params"]);
                 let mut reply = json!({
                     "protocolVersion": protocol_version(&message["params"]),
                     "capabilities": {"tools": {}},
@@ -200,6 +215,13 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
                 "name": arguments["name"], "reason": arguments["reason"],
             }),
         ),
+        Some("request_elevation") => (
+            method::MUX_ELEVATION_REQUEST,
+            json!({
+                "argv": field(&arguments, "argv"), "reason": field(&arguments, "reason"),
+                "host": field(&arguments, "host"), "timeoutSecs": field(&arguments, "timeoutSecs"),
+            }),
+        ),
         Some("connect_mcp_server")
             if std::env::var(MCP_CONNECT_PREVIEW_ENV).as_deref() != Ok("1") =>
         {
@@ -233,7 +255,9 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
     request.set("sessionId", Value::String(session.to_owned()));
     match daemon.request(m, request).await {
         Ok(result) => {
-            let text = if result["outcome"] == "cancelled" {
+            let text = if *field(&result, "outcome") == "denied" {
+                "The user denied this command. The deny is final: do not ask again for it unless they ask you to.".to_owned()
+            } else if *field(&result, "outcome") == "cancelled" {
                 "The card closed before the user answered (the turn stopped, or a newer ask replaced it).".to_owned()
             } else if *field(&result, "status") == "cancelled" {
                 "The connect card closed before the user answered (the turn stopped, or a newer ask replaced it).".to_owned()

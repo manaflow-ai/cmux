@@ -65,7 +65,7 @@ test("the place is remembered as the toasts' anchors are, the bottom as nothing"
 });
 
 /** A card in a jsdom page, its rest box at (0, 400) 236 x 48, and a host that records the drag. */
-function stage() {
+function stage(place: CardPlace = atBottom) {
   const dom = new JSDOM(
     "<!doctype html><section><div class=rest><span class=words>Updated</span><button>x</button></div></section>",
   );
@@ -76,7 +76,7 @@ function stage() {
     ({ left: 0, top: 400, width: 236, height: 48, right: 236, bottom: 448 }) as DOMRect;
   const log: string[] = [];
   const host: CardDragHost = {
-    place: () => atBottom,
+    place: () => place,
     move: (offset) => log.push(`move ${Math.round(offset.x)},${Math.round(offset.y)}`),
     drop: (row: CardRow, offset) => log.push(`drop ${row} ${Math.round(offset.x)},${Math.round(offset.y)}`),
     dismiss: () => log.push("dismiss"),
@@ -84,12 +84,20 @@ function stage() {
   const scope = globalThis as Record<string, unknown>;
   const savedElement = scope.HTMLElement;
   scope.HTMLElement = dom.window.HTMLElement;
-  const pointer = (type: string, x: number, y: number, at: number, target: Element = section, buttons = 1) => {
+  const pointer = (
+    type: string,
+    x: number,
+    y: number,
+    at: number,
+    target: Element = section,
+    buttons = 1,
+    pointerId = 1,
+  ) => {
     const event = new dom.window.Event(type, { bubbles: true });
     for (const [key, value] of Object.entries({
       button: 0,
       buttons,
-      pointerId: 1,
+      pointerId,
       clientX: x,
       clientY: y,
       screenX: x,
@@ -108,6 +116,7 @@ function stage() {
     log,
     pointer,
     outside: document.body,
+    blur: () => dom.window.dispatchEvent(new dom.window.Event("blur")),
     words: document.querySelector(".words")!,
     button: document.querySelector("button")!,
     close: () => {
@@ -236,6 +245,105 @@ test("the drop starts from where the pointer was let go, not from its last move"
     pointer("pointerup", 100, 390, 1100);
     expect(log.at(-2)).toBe("move 0,-20");
     expect(log.at(-1)).toBe("drop bottom 0,-30");
+  } finally {
+    close();
+  }
+});
+
+// Review of #37790 (P2): the press's window listeners took every pointer, so a second touch or pen
+// could move or let go of the first press. A press follows only the pointer that started it.
+test("another pointer neither moves nor ends a press", () => {
+  const { log, pointer, section, close } = stage();
+  try {
+    pointer("pointerdown", 100, 420, 0);
+    pointer("pointermove", 100, 300, 100, section, 1, 2);
+    pointer("pointerup", 100, 300, 150, section, 1, 2);
+    expect(section.dataset.dragging).toBeUndefined();
+    expect(log).toEqual([]);
+    // The press's own pointer still drags and lets go.
+    pointer("pointermove", 100, 410, 200);
+    pointer("pointermove", 100, 400, 300);
+    pointer("pointerup", 100, 400, 400);
+    expect(log[0]).toBe("start");
+    expect(log.at(-1)).toBe("drop bottom 0,-20");
+  } finally {
+    close();
+  }
+});
+
+// Review of #37802 at 0a6b6a0f: a second pointerdown on the card started a second press, and the two
+// shared the card's dragging mark, so letting go of the second pointer dropped the first one's drag.
+test("a second pointer pressed while a press is active is ignored", () => {
+  const { log, pointer, section, close } = stage();
+  try {
+    pointer("pointerdown", 100, 420, 0);
+    pointer("pointermove", 100, 400, 100);
+    expect(section.dataset.dragging).toBe("");
+    pointer("pointerdown", 100, 300, 150, section, 1, 2);
+    pointer("pointermove", 100, 250, 200, section, 1, 2);
+    pointer("pointerup", 100, 250, 250, section, 0, 2);
+    expect(section.dataset.dragging).toBe("");
+    expect(log.filter((line) => line.startsWith("drop"))).toEqual([]);
+    // The first press still holds the card and lets go once.
+    pointer("pointermove", 100, 390, 300);
+    pointer("pointerup", 100, 390, 400, section, 0);
+    expect(log.filter((line) => line.startsWith("drop"))).toEqual(["drop bottom 0,-30"]);
+    // Its end frees the card for the next press.
+    pointer("pointerdown", 100, 420, 500);
+    pointer("pointermove", 100, 400, 600);
+    expect(section.dataset.dragging).toBe("");
+    pointer("pointerup", 100, 400, 700, section, 0);
+  } finally {
+    close();
+  }
+});
+
+// Review F3 of #37790: the pointer's screen deltas are in points, the card's offsets in CSS px; the
+// host scales the page's offsets by its zoom, so at a zoom other than 1 the card ran ahead of the
+// pointer (or behind it). The host's place says the zoom, and the page reads screen deltas in CSS px.
+test("at the page's zoom the card stays under the pointer", () => {
+  const { log, pointer, close } = stage({ ...atBottom, zoom: 2 });
+  try {
+    pointer("pointerdown", 100, 420, 0);
+    pointer("pointermove", 100, 380, 100);
+    expect(log).toContain("move 0,-20");
+  } finally {
+    close();
+  }
+});
+
+// Review F1 of #37802 at 11ec0b83: a release missed over the native sidebar left the card marked
+// pressed, so the next press on it was ignored until that pointer moved again.
+test("a press whose release was missed gives way to the same pointer's next press", () => {
+  const { log, pointer, section, close } = stage();
+  try {
+    pointer("pointerdown", 100, 420, 0);
+    // Let go over the native sidebar: no pointerup, no move. The next press is the same mouse.
+    pointer("pointerdown", 100, 440, 500);
+    pointer("pointermove", 100, 420, 600);
+    expect(section.dataset.dragging).toBe("");
+    // The drag counts from the new press, not the stale one.
+    expect(log).toContain("move 0,-20");
+    pointer("pointerup", 100, 420, 700, section, 0);
+    expect(log.filter((line) => line.startsWith("drop"))).toEqual(["drop bottom 0,-20"]);
+  } finally {
+    close();
+  }
+});
+
+test("a window that loses focus mid-press ends the press, and the next press drags", () => {
+  const { log, pointer, section, blur, close } = stage();
+  try {
+    pointer("pointerdown", 100, 420, 0);
+    pointer("pointermove", 100, 400, 100);
+    blur();
+    expect(section.dataset.dragging).toBeUndefined();
+    expect(log.at(-1)).toBe("drop bottom 0,-20");
+    // A touch or pen after it is not ignored.
+    pointer("pointerdown", 100, 420, 500, section, 1, 7);
+    pointer("pointermove", 100, 400, 600, section, 1, 7);
+    expect(section.dataset.dragging).toBe("");
+    pointer("pointerup", 100, 400, 700, section, 0, 7);
   } finally {
     close();
   }

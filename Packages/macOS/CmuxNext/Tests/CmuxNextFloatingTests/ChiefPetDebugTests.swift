@@ -1,6 +1,8 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextDesign
 @testable import CmuxNextFloating
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -14,7 +16,7 @@ import Testing
 
     static func controller(_ sent: Sent) -> ChiefPetController {
         let name = "ChiefPetDebugTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name) ?? .standard
+        let defaults = UserDefaults(testSuiteName: name) ?? .standard
         defaults.removePersistentDomain(forName: name)
         return ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
                                   actions: ChiefPetActions(open: { _ in }, send: { target, text in
@@ -62,6 +64,40 @@ import Testing
         #expect(panel.frame.origin.x == start.x - 40)
         #expect(controller.debug("drop", [:])["dragging"] as? Bool == false)
         #expect(controller.debug("drop", [:])["error"] != nil, "no press is left")
+    }
+
+    /// A capture app is never active, so the frames stand still; `motion` lets a working chat's look tour run there,
+    /// and Reduce Motion still stops it.
+    @Test func motionRunsTheLookTourOfAWorkingChatWhileTheAppIsInactive() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let name = "ChiefPetDebugTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(testSuiteName: name) ?? .standard
+        defaults.removePersistentDomain(forName: name)
+        let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
+                                            actions: ChiefPetActions(open: { _ in }, send: { _, _ in true }), appIsActive: { false })
+        defer { controller.sync(false) }
+        var reduce = false
+        controller.reduceMotion = { reduce }
+        controller.setMascot(.mochi)
+        controller.sync(true)
+        controller.setState(.working)
+        let panel = try #require(controller.panel)
+        #expect(!controller.characterMoves, "an inactive app: the frames stand")
+        #expect(panel.pet.sprite.pose == .state)
+        let on = controller.debug("motion", ["on": true])
+        #expect(on["motion"] as? Bool == true)
+        // Covered or off screen (a headless runner) the frames still stand: only the app's activity is overridden.
+        let seen = panel.isVisible && panel.occlusionState.contains(.visible)
+        #expect(controller.characterMoves == seen)
+        #expect((panel.pet.sprite.pose == .lookTour) == seen, "working looks around while it moves")
+        #expect(controller.debugWait(untilMotionSeconds: 0) == 0)
+        reduce = true
+        controller.drawCharacter()
+        #expect(!controller.characterMoves, "Reduce Motion still wins")
+        #expect(panel.pet.sprite.pose == .state)
+        _ = controller.debug("motion", ["on": false])
+        #expect(controller.debugWait(untilMotionSeconds: 1) == nil)
     }
 
     @Test func aSnapshotWritesThePetsLayers() {

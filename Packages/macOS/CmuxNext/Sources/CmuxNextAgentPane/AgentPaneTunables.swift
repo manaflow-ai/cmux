@@ -229,28 +229,6 @@ public nonisolated struct AgentPaneTunables {
         help: "How the agent chat's top-right icons move: still (shipped), a cue (the pressed plate grows, a dot while the turn runs), a spring (icons arrive and make room), or a morph (an icon becomes the pane's tab, hover previews it). Follows the agent pane's Motion setting.",
         default: .still, code: "AgentPaneTunables.headerMotion")
 
-    /// How wide the chat's column draws on a wide pane (cx-ncc.107, a trial before real Settings).
-    /// The page gets it with the theme (`AgentPaneTheme`, `chatWidth`), again on each change.
-    public static let chatWidth = Tunable<ChatWidth>.choice(
-        "agent.chatWidth", PageTunables.section, "Agent chat width",
-        help: "Standard: 800px. Wide: 960px. Wide blocks: code, tables and tools 1120px, prose 800px.",
-        default: .standard, code: "AgentPaneTunables.chatWidth")
-
-    /// The chat column choices (the page's acpmux chatWidth.ts).
-    public nonisolated enum ChatWidth: String, Sendable, CaseIterable, TunableChoice {
-        case standard
-        case wide
-        case wideBlocks
-
-        public var tunableTitle: String {
-            switch self {
-            case .standard: "Standard"
-            case .wide: "Wide"
-            case .wideBlocks: "Wide blocks"
-            }
-        }
-    }
-
     /// Claude Code desktop's in-session status in an agent chat: the live plan card and the recap
     /// card. Off by default; each open agent page follows a change (``AgentPaneView/sessionStatus``).
     public static let sessionStatus = Tunable<Bool>.toggle(
@@ -274,14 +252,6 @@ public nonisolated struct AgentPaneTunables {
         help: "A folded thought reads how long the agent thought, or Thought and its first line. New agent tabs.",
         default: .duration, code: "AgentPaneTunables.thoughtHeader")
 
-    /// A turn that started or mentioned a local web page gets a preview card under its answer
-    /// (webviews conversation/PreviewCard.tsx: the address, Load preview, Open in tab, Open in). Off
-    /// by default (Leo 2026-10-20: a mentioned dev server is not worth a card nobody asked for); the
-    /// address stays a link in the reply. New agent tabs read it.
-    public static let turnPreviewCards = Tunable<Bool>.toggle(
-        "agentPane.debug.turnPreviewCards", PageTunables.section, "Local page preview cards in the agent pane",
-        help: "A turn that started or mentioned a local web page shows a card under its answer with Load preview. New agent tabs.",
-        default: false, code: "AgentPaneTunables.turnPreviewCards")
 
     /// The top strip's look (webviews composerLocation.css): `default` sets nothing, so the page
     /// draws as before; the others set `data-top-strip` on `<html>`. New agent tabs read it.
@@ -312,7 +282,7 @@ public nonisolated struct AgentPaneTunables {
         default: .symbols, code: "AgentPaneTunables.harnessPlacement")
 
     /// Repaints every window when ``turnActionsPlacement`` changes, so open agent pages get it with
-    /// the theme at once (as AppServices.observeBorders does for ``chatWidth``). The first theme push
+    /// the theme at once (as AppServices.observeBorders does for `appearance.borders`). The first theme push
     /// starts it (``AgentPaneTheme/values(_:motion:surface:)``).
     @MainActor static func followTurnActionsPlacement() {
         guard turnActionsPlacementFollow == nil else { return }
@@ -334,15 +304,13 @@ public nonisolated struct AgentPaneTunables {
         attributes(topStripStyle: topStripStyle.value, thoughtHeader: thoughtHeader.value,
                    thoughtFoldThreshold: thoughtFoldThreshold.value,
                    needsYou: needsYouStyle(installed: needsYouInstalled(), debug: needsYou.value),
-                   needsYouPill: needsYouPill.value, turnPreviewCards: turnPreviewCards.value,
-                   iconFamily: IconFamily.tunable.value)
+                   needsYouPill: needsYouPill.value, iconFamily: IconFamily.tunable.value)
     }
 
     static func attributes(topStripStyle: AgentPaneTopStripStyle,
                            thoughtHeader: AgentPaneThoughtHeader = .duration,
                            thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .every,
                            needsYou: AgentPaneNeedsYouStyle = .pinned, needsYouPill: Bool = true,
-                           turnPreviewCards: Bool = false,
                            iconFamily: IconFamily = .pack) -> [String: String] {
         var attributes: [String: String] = [:]
         if needsYou != .pinned { attributes["needs-you"] = needsYou.rawValue }
@@ -350,7 +318,6 @@ public nonisolated struct AgentPaneTunables {
         if thoughtFoldThreshold != .every { attributes["thought-fold-threshold"] = thoughtFoldThreshold.rawValue }
         if thoughtHeader != .duration { attributes["thought-header"] = thoughtHeader.rawValue }
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
-        if turnPreviewCards { attributes["turn-preview-cards"] = "on" }
         // Debug Settings `icons.family`: the page lays the same overlay over its icon pack (iconPack.ts).
         if let overlay = iconFamily.overlay { attributes["icon-family"] = overlay }
         return attributes
@@ -412,7 +379,6 @@ public nonisolated struct AgentPaneTunables {
             agentPairGuard.descriptor,
             agentPairCap.descriptor,
             agentPairWindow.descriptor,
-            chatWidth.descriptor,
             chromium.descriptor,
             composerPlainFooter.descriptor,
             harnessSwitchInStartedChat.descriptor,
@@ -439,7 +405,6 @@ public nonisolated struct AgentPaneTunables {
             thoughtFoldThreshold.descriptor,
             thoughtHeader.descriptor,
             topStripStyle.descriptor,
-            turnPreviewCards.descriptor,
             turnActionsPlacement.descriptor,
             agentLinks.descriptor,
             pointerInspector.descriptor,

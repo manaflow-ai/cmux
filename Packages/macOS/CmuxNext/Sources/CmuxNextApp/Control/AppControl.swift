@@ -8,7 +8,6 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextErrorJournal
-import CmuxNextImportCards
 import CmuxNextMacScreen
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -130,8 +129,8 @@ final class AppControl {
         ])
         // Diagnostics for tagged DEV builds; a release build registers none (ControlRouter drops them: Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS
-        // The newest action runs and the over-budget counters (zero-latency.md, the budget contract), and the import note's capture stand-in.
-        service.router.register([budget.method(registry: registry), .mainActor("debug.import_note") { call in .value(ImportSuggestionsCenter.shared.debugImportNote(call.params)) }])
+        // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
+        service.router.register([budget.method(registry: registry)])
         service.router.register(DebugHibernationControl.methods(services))
         service.router.register([services.chiefPetMini.debugMethod()])  // debug.chief_pet: the pet and its reply box for captures
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugRequestLatencyMethod()] + services.daemon.creationHold.methods + services.daemon.closeReadHold.methods)
@@ -507,7 +506,7 @@ final class AppControl {
                 guard let services else { return .null }
                 return await DebugFilePages.run(call.params, services)
             },
-            // The quit sheet (Quit and the local terminals).
+            // The quit (Quit and the local terminals), and its failure alert.
             .mainActor("debug.quit") { [weak services] call in
                 .value(services.map { DebugQuit.run(call.params, $0) } ?? .null)
             },

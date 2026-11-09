@@ -134,6 +134,11 @@ pub struct Sender {
     pub daemon_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
+    /// The harness or app the send came from, as the sender says (`sender_harness.rs`), kept by
+    /// the receiver as self-reported only: what the sending daemon checked is not carried, since
+    /// the receiver cannot look at another machine's processes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claim: Option<serde_json::Value>,
 }
 
 /// When a message reaches a busy session: after its turn (`turn-end`), or into the running

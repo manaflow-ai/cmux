@@ -11,7 +11,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { exactPretty, inputFields, rawMembers } from "./toolInputFields";
 import { ToolRow } from "./ToolRow";
 import { ToolRows } from "./TurnRows";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

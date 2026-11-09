@@ -28,6 +28,10 @@
 //! Tool names and arguments stay upstream-shaped. The trusted bridge adds
 //! the session's target allow-list to the helper envelope, outside model
 //! arguments; the Swift host resolves targets and enforces the policy.
+//!
+//! The bridge serves one tool of its own, [`wait_for::TOOL`]: it waits for an
+//! element with repeated `get_window_state` reads (AX tree only, no
+//! screenshot) instead of an agent's sleep-and-look loop.
 
 use std::path::{Path, PathBuf};
 
@@ -39,6 +43,7 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufRea
 use tokio::net::UnixStream;
 
 mod liveness;
+pub mod wait_for;
 
 pub use liveness::Owner;
 #[cfg(target_os = "macos")]
@@ -157,14 +162,19 @@ pub struct Helper<S> {
     stream: BufReader<S>,
     next_id: u64,
     /// Whether the admission reply listed [`LOCK_CAPABILITY`]: the helper reads the screen lock
-    /// right before a tool runs. A helper without it gets no call.
+    /// right before a tool runs.
     checks_lock: bool,
 }
 
 /// The admission capability of a helper that reads the screen lock after its last await before
-/// a tool runs (`ConsentGate.lockCapability`). A call can wait in the helper (on consent, on a
-/// takeover) after this bridge read the lock, so only such a helper is sent one; a DEV build's
-/// prebuilt helper from before the check is not (review of #37239, round 8).
+/// a tool runs (`ConsentGate.lockCapability`). A call can wait in the helper (on a takeover)
+/// after this bridge read the lock; only such a helper closes that window.
+///
+/// A helper without it still gets calls, after this bridge's own read just before it sends one:
+/// every DEV build embeds a prebuilt helper (`cua-helper-dev.pin.json`) that the signing workflow
+/// can rebuild only from a `feat-cmux-next` commit that has the check, so refusing it here would
+/// stop Computer Use in every DEV build until then (review of #37239, round 8). Once the pin
+/// lists the capability, [`Helper::checks_lock`] decides again (design/lock-bridge.md item 3).
 pub const LOCK_CAPABILITY: &str = "screen-lock-at-execution-v1";
 
 #[cfg(unix)]
@@ -206,6 +216,11 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
         Ok(helper)
     }
 
+    /// Whether this helper reads the screen lock itself right before a tool runs.
+    pub fn checks_lock(&self) -> bool {
+        self.checks_lock
+    }
+
     /// `tools/list` or `tools/call`; returns the helper's `result`. A call fails with
     /// [`MAC_LOCKED`](crate::mac_lock::MAC_LOCKED) if `locked()` says the screen locked while it
     /// waited for the connection or the consent answer.
@@ -217,9 +232,6 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
         locked: impl Fn() -> bool,
     ) -> Result<Value> {
         if method == "tools/call" {
-            if !self.checks_lock {
-                bail!(crate::cua_lock_gate::HELPER_OUTDATED);
-            }
             // Only the admitted host can select the machine's consent authority.
             // Never consult this agent descendant's HOME, ACPMUX_HOME or socket env.
             let status = tokio::time::timeout(
@@ -390,12 +402,30 @@ where
             "tools/list" => {
                 forward(&mut helper, &connect, "tools/list", None, Value::Null, &locked)
                     .await
-                    .map(tools_list_result)
+                    .map(|inventory| wait_for::with_definition(tools_list_result(inventory)))
             }
             "tools/call" => {
                 let name = message["params"]["name"].as_str().unwrap_or_default().to_owned();
                 let arguments =
                     message["params"].get("arguments").cloned().unwrap_or_else(|| json!({}));
+                if name == wait_for::TOOL {
+                    let result = match wait_for::Wait::parse(&arguments) {
+                        Ok(wait) => {
+                            let mut reader = HelperReader {
+                                helper: &mut helper,
+                                connect: &connect,
+                                locked: &locked,
+                            };
+                            wait_for::run(&wait, &mut reader).await
+                        }
+                        Err(text) => {
+                            json!({"content": [{"type":"text", "text":text}], "isError":true})
+                        }
+                    };
+                    write_line(&mut output, &json!({"jsonrpc": "2.0", "id": id, "result": result}))
+                        .await?;
+                    continue;
+                }
                 Ok(
                     match forward(
                         &mut helper,
@@ -410,9 +440,6 @@ where
                         Ok(result) => call_result(result),
                         Err((_, text)) if text == crate::mac_lock::MAC_LOCKED => {
                             crate::cua_lock_gate::locked_result()
-                        }
-                        Err((_, text)) if text == crate::cua_lock_gate::HELPER_OUTDATED => {
-                            crate::cua_lock_gate::outdated_result()
                         }
                         Err((_, text)) => {
                             json!({"content": [{"type":"text", "text":text}], "isError":true})
@@ -484,9 +511,6 @@ where
                 if e.to_string() == crate::mac_lock::MAC_LOCKED {
                     return Err((-32000, crate::mac_lock::MAC_LOCKED.to_owned()));
                 }
-                if e.to_string() == crate::cua_lock_gate::HELPER_OUTDATED {
-                    return Err((-32000, crate::cua_lock_gate::HELPER_OUTDATED.to_owned()));
-                }
                 *helper = None;
                 if attempt == 1 || !is_connection_error(&e) {
                     return Err((-32000, format!("{e:#}")));
@@ -495,6 +519,34 @@ where
         }
     }
     Err((-32000, "the Computer Use helper is unavailable".into()))
+}
+
+/// [`wait_for`]'s checks: `get_window_state` through [`forward`], so each one
+/// passes the machine consent check, the screen-lock check and reconnects like a direct call.
+struct HelperReader<'a, S, C, L> {
+    helper: &'a mut Option<Helper<S>>,
+    connect: &'a C,
+    locked: &'a L,
+}
+
+impl<S, C, F, L> wait_for::TreeReader for HelperReader<'_, S, C, L>
+where
+    S: tokio::io::AsyncRead + AsyncWrite + Unpin,
+    C: Fn() -> F,
+    F: std::future::Future<Output = Result<Helper<S>>>,
+    L: Fn() -> bool,
+{
+    async fn read(&mut self, arguments: Value) -> Result<Value, String> {
+        let name = Some(wait_for::READ_TOOL);
+        forward(self.helper, self.connect, "tools/call", name, arguments, self.locked)
+            .await
+            .map_err(|(_, text)| text)
+    }
+
+    fn abandon(&mut self) {
+        // The cut-off call may still answer on this connection.
+        *self.helper = None;
+    }
 }
 
 fn is_connection_error(e: &anyhow::Error) -> bool {

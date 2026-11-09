@@ -11,7 +11,19 @@
 //! checked and signed by `_acpmux/app_reply` (`server/app_reply.rs`) and sent by the app as the
 //! replying chat's cmux agent message, which the daemon's pump delivers here.
 //! A queued prompt keeps it, across a restart too (`queue.rs`); an edit of a waiting prompt
-//! (`_acpmux/queue_edit`) drops it: the person rewrote the prompt.
+//! (`_acpmux/queue_edit`) keeps it and names its editor (`editedBy`).
+//!
+//! Who sent a prompt is kept apart from what it claims (Leo, 2026-11-05: "why is it sending it as
+//! if it were me?"): `verified` says whether the daemon bound the sender (a caller-proven session,
+//! the hub's own prompt) or the sender only named itself; `transport` is how it came (`unix`,
+//! `app`, `web`, `peer`, `trigger`); `claimed` holds labels it gave that prove nothing (`cliHost`,
+//! `fromHarness`). No label or environment variable makes a prompt the person's: a connection
+//! that proved the person (`hub/person.rs`), an authenticated paired client, a peer attesting its
+//! own proven connection, or the owner's own terminal send (a plain unix connection with no caller
+//! token that claims no sender, harness or relay, `server/requests.rs` `owner_terminal`). Any
+//! other prompt naming no sender is `unverified` ([`unverified`]), and the person's own record
+//! says `_meta.origin` ([`ORIGIN`]).
+//! What a prompt may do (permissions, approvals) is decided elsewhere and never from these.
 //!
 //! The hub sets two more kinds itself, never taken from a client: `{kind: "offer_result",
 //! offerId, childSessionId, title}` on the prompt that brings a suggested task's first reply
@@ -208,7 +220,48 @@ pub fn offer_result(offer_id: &str, child_session_id: &str, title: &str) -> Valu
 /// (`hub/person.rs` (a), `server/requests.rs`). Never for the person, nor a prompt to the sender
 /// itself. `from` is the sender's session id, so the receiver's transcript opens its chat.
 pub fn session_message(from: &str, from_name: &str, to: &str) -> Value {
-    json!({"kind": "session_message", "from": from, "fromName": from_name, "to": to})
+    json!({"kind": "session_message", "from": from, "fromName": from_name, "to": to, VERIFIED: true})
+}
+
+/// On a [`session_message`]: the Claude Code subagent in the sending session that sent it,
+/// `{id, type}` (`cli/sender.rs` `SUBAGENT_ENV`, marked by acpmux's Bash hook). The session is
+/// still the one its caller token proves (`from`, `verified`); this says only which of its
+/// agents, so the receiver knows its reply reaches that subagent through the send it answers,
+/// and a later `acpmux send` to the session reaches the lead.
+pub const FROM_SUBAGENT: &str = "fromSubagent";
+
+/// `provenance` (a [`session_message`] the daemon bound to the caller's proven session) with the
+/// subagent the send named (`_meta.acpmux.callerSubagent`), when well formed; else unchanged.
+pub fn with_subagent(mut provenance: Value, params: &Value) -> Value {
+    if provenance.get("kind").and_then(Value::as_str) != Some("session_message") {
+        return provenance;
+    }
+    let Some(sub) = subagent_of(params) else { return provenance };
+    provenance.set(FROM_SUBAGENT, sub);
+    provenance
+}
+
+/// Set beside [`FROM_SUBAGENT`] when the subagent's message starts a turn of a lane of its own
+/// lead: that turn's answer reaches the subagent (`hub/lane_report_subagents.rs`).
+pub const SUBAGENT_GETS_REPLY: &str = "subagentGetsReply";
+
+/// `provenance` marked [`SUBAGENT_GETS_REPLY`] when it names a subagent ([`FROM_SUBAGENT`]).
+pub fn subagent_gets_reply(mut provenance: Value) -> Value {
+    if provenance.get(FROM_SUBAGENT).is_some() {
+        provenance.set(SUBAGENT_GETS_REPLY, json!(true));
+    }
+    provenance
+}
+
+/// The subagent a send names (`_meta.acpmux.callerSubagent`), `{id, type}`, when both are plain
+/// words (`cli::sender::subagent_word`).
+pub fn subagent_of(params: &Value) -> Option<Value> {
+    let sub = params.pointer("/_meta/acpmux/callerSubagent")?;
+    let word = |key: &str| {
+        sub.get(key).and_then(Value::as_str).filter(|w| crate::cli::sender::subagent_word(w))
+    };
+    let (id, kind) = (word("id")?, word("type")?);
+    Some(json!({"id": id, "type": kind}))
 }
 
 /// On a session a Chief host made for one of its turns (optchat-chief `acpmux::turn_tags`): the
@@ -273,8 +326,118 @@ pub const NAMED_SENDER: &str = "fromAgent";
 /// agent's message, never the person's own: the transcript draws its sender's
 /// chip, found by name (`from` opens no chat, as a person at a shell's `cli` does not).
 pub fn named_sender(name: &str, to: &str) -> Value {
-    json!({"kind": "agent_message", "from": NAMED_SENDER, "fromName": name, "to": to})
+    json!({"kind": "agent_message", "from": NAMED_SENDER, "fromName": name, "to": to, VERIFIED: false})
 }
+
+/// Whether the daemon itself bound the sender's identity (`true`: a caller-proven session, the
+/// hub's own prompt), or the sender only claimed it (`false`: a name, a peer's label, a
+/// provenance a client sent). Set by the daemon only: a client's own `verified` is never read
+/// ([`of`] keeps only its listed fields), and the person's prompt carries none (see [`ORIGIN`]).
+pub const VERIFIED: &str = "verified";
+/// How the prompt reached this daemon, as the daemon saw it: `unix` (the socket, any local
+/// process of the user), `app` (the app's own connection), `web`, `peer`, `carrier`, `trigger`.
+pub const TRANSPORT: &str = "transport";
+/// Labels a sender gave about itself that prove nothing (`cliHost`, `fromHarness`): kept apart
+/// from who the daemon knows sent it.
+pub const CLAIMED: &str = "claimed";
+
+/// The provenance kind of a prompt no proof attributes: not the proven person's (the app's own
+/// connection, a paired device, the owner's own terminal send), and naming no sender. A local
+/// process that claims a harness or relay, or holds a caller token it could not prove, may send
+/// it, so it is shown as an unknown sender, never as the person (Leo, 2026-11-05: "why is it
+/// sending it as if it were me?").
+pub const UNVERIFIED_KIND: &str = "unverified";
+
+/// Who started a handoff whose start is not the proven person's (`hub/handoff/ops.rs`): its
+/// first prompt is [`unverified`], over `transport`.
+#[derive(Clone, Copy, Debug)]
+pub struct HandoffSender {
+    pub transport: &'static str,
+}
+
+/// The provenance of a prompt no proof attributes ([`UNVERIFIED_KIND`]), with the transport it
+/// came over and the labels it claimed.
+pub fn unverified(to: &str, transport: &str, claimed: Map<String, Value>) -> Value {
+    let mut out = json!({"kind": UNVERIFIED_KIND, "to": to, TRANSPORT: transport, VERIFIED: false});
+    if !claimed.is_empty() {
+        out.set(CLAIMED, Value::Object(claimed));
+    }
+    out
+}
+
+/// `provenance` with labels its sender claimed ([`CLAIMED`]), beside any it had.
+pub fn with_claimed<'a>(
+    mut provenance: Value,
+    labels: impl IntoIterator<Item = (&'a str, String)>,
+) -> Value {
+    if let Some(fields) = provenance.as_object_mut() {
+        let claimed = fields.entry(CLAIMED).or_insert_with(|| json!({}));
+        if let Some(claimed) = claimed.as_object_mut() {
+            for (key, value) in labels {
+                claimed.insert(key.to_owned(), json!(value));
+            }
+        }
+    }
+    provenance
+}
+
+/// `provenance` with `verified` false unless the daemon set it, and the transport it came over.
+pub fn observed(mut provenance: Value, transport: &str) -> Value {
+    if let Some(fields) = provenance.as_object_mut() {
+        fields.entry(VERIFIED).or_insert(json!(false));
+        fields.entry(TRANSPORT).or_insert(json!(transport));
+    }
+    provenance
+}
+
+/// Who edited a waiting prompt (`hub/queue_edit.rs`): `{actor: "owner"}`, or `{actor: "person",
+/// id}` for another person (`author.rs`). The prompt keeps its sender's provenance; this says
+/// only who changed the words, and authorizes nothing.
+pub const EDITED_BY: &str = "editedBy";
+
+/// `provenance` with its editor ([`EDITED_BY`]) for `editor` (`author::Editor`).
+pub fn edited_by(mut provenance: Value, editor: crate::author::Editor<'_>) -> Value {
+    let by = match editor {
+        Some(Some(id)) => json!({"actor": "person", "id": id}),
+        Some(None) => json!({"actor": "owner"}),
+        None => return provenance,
+    };
+    if let Some(fields) = provenance.as_object_mut() {
+        fields.insert(EDITED_BY.to_owned(), by);
+    }
+    provenance
+}
+
+/// Whether `provenance` is [`UNVERIFIED_KIND`]: no one's for sure. It is never the person's (no
+/// protected hold goes on for it, `hub/turns.rs`, and the apps draw no person's bubble), and it names
+/// no other sender either, so what acpmux does for an unnamed prompt's activity (the person's
+/// presence, the CLI host on its record, a withdraw's refusal) stays as it was.
+pub fn is_unverified(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some(UNVERIFIED_KIND)
+}
+
+/// Who passed the prompt on to this daemon when its sender is elsewhere: `{actor: "peer"}` and the
+/// peer's `via` (`server/remote_guard.rs` `mark_forwarded`) for a prompt a peer daemon forwarded.
+/// Kept beside the original sender, never in its place, and it authorizes nothing.
+pub const FORWARDED_BY: &str = "forwardedBy";
+
+/// `provenance` with the peer that forwarded it ([`FORWARDED_BY`]); `via` is the peer's word for
+/// where it came from there (`web`, `app`, `device`), kept as a claim.
+pub fn forwarded_by_peer(mut provenance: Value, via: Option<&str>) -> Value {
+    let mut by = json!({"actor": "peer"});
+    if let Some(via) = via.filter(|v| !v.is_empty() && v.len() <= MAX_FIELD_BYTES) {
+        by.set("via", json!(via));
+    }
+    if let Some(fields) = provenance.as_object_mut() {
+        fields.insert(FORWARDED_BY.to_owned(), by);
+    }
+    provenance
+}
+
+/// On a `user_message` or `queued` record with no provenance: the daemon admitted the prompt as
+/// the proven person's (`_meta.origin`). A record with neither predates it and is shown as
+/// unverified, never as the person.
+pub const ORIGIN: &str = "origin";
 
 /// The provenance kind of a tool's notice ([`notice`]).
 pub const NOTICE_KIND: &str = "notice";
@@ -503,15 +666,23 @@ pub const MESSAGE_META: &str = "_acpmuxMessage";
 /// `record` with `_meta.provenance` when the prompt has one (a `user_message` or `queued`). Its
 /// message copies (its own, and each joined message's in a digest) go to `_meta._acpmuxMessage`.
 pub fn marked(mut record: Value, provenance: Option<&Value>) -> Value {
-    if let (Some(p), Some(fields)) = (provenance, record.as_object_mut()) {
-        let mut p = p.clone();
-        let messages = take_message_meta(&mut p);
-        let mut meta = json!({"provenance": p});
-        if let Some(messages) = messages {
-            meta.set(MESSAGE_META, messages);
+    let Some(fields) = record.as_object_mut() else { return record };
+    let Some(p) = provenance else {
+        // Every prompt the daemon cannot attribute to the proven person carries a provenance
+        // (`unverified` at the least), so one without is the person's: say so positively.
+        let meta = fields.entry("_meta").or_insert_with(|| json!({}));
+        if let Some(meta) = meta.as_object_mut() {
+            meta.insert(ORIGIN.to_owned(), json!({"actor": "person", VERIFIED: true}));
         }
-        fields.insert("_meta".to_owned(), meta);
+        return record;
+    };
+    let mut p = p.clone();
+    let messages = take_message_meta(&mut p);
+    let mut meta = json!({"provenance": p});
+    if let Some(messages) = messages {
+        meta.set(MESSAGE_META, messages);
     }
+    fields.insert("_meta".to_owned(), meta);
     record
 }
 
@@ -663,13 +834,23 @@ impl RelaySender {
         json!({"by": self.by, "machine": self.machine, "session": self.session})
     }
 
-    /// How the sender reads: `MACHINE/SESSION`, or the machine alone.
+    /// How the sender reads as its label (`fromAgent`): `MACHINE/SESSION`, or the machine alone,
+    /// cut to [`relayed_label`]'s length. The record keeps the whole name.
     pub fn name(&self) -> String {
         match &self.session {
-            Some(session) => format!("{}/{session}", self.machine),
+            Some(session) => relayed_label(&format!("{}/{session}", self.machine)),
             None => self.machine.clone(),
         }
     }
+}
+
+/// A relayed `MACHINE/SESSION` as a sender label: one line within `fromAgent`'s length
+/// (`hub::declared_sender`), so a long session name never refuses the send. Who sent it is the
+/// relay record's ([`FROM_RELAY`]), whole; the label only names it.
+pub fn relayed_label(name: &str) -> String {
+    let name: String =
+        name.chars().filter(|c| !unshown(*c)).take(crate::hub::MAX_FROM_AGENT_CHARS).collect();
+    name.trim().to_owned()
 }
 
 /// The relay record a prompt's provenance carries ([`FROM_RELAY`]).
@@ -767,6 +948,16 @@ pub fn drop_sender_fields(params: &mut Value) {
         mux.remove(FROM_HARNESS);
         mux.remove(FROM_RELAY);
     }
+}
+
+/// The harness a local named sender declared for itself (`_meta.acpmux.fromHarness`, an agent
+/// harness's own shell, `cli/sender.rs`): only a label the card draws, never a proof of anything,
+/// and only beside a sender name (`fromAgent`). `None` when absent or not a harness family name.
+pub fn declared_harness(params: &Value) -> Option<BoundSender> {
+    let mux = params.pointer("/_meta/acpmux")?;
+    mux.get("fromAgent").and_then(Value::as_str)?;
+    let harness = mux.get(FROM_HARNESS)?.as_str().filter(|h| harness_fits(h))?;
+    Some(BoundSender { session_id: None, harness: Some(harness.to_owned()), relay: None })
 }
 
 /// `provenance` with the bound sender's fields set (replacing any it had).
@@ -907,7 +1098,7 @@ pub fn sender_record_with_auth(
             })
         });
 
-    json!({
+    let mut record = json!({
         "session": session,
         "authenticated": authenticated,
         "harness": harness,
@@ -921,12 +1112,38 @@ pub fn sender_record_with_auth(
         "parent": parent,
         "delegator": delegator,
         "verification": verification,
-    })
+    });
+    // The sending subagent ([`FROM_SUBAGENT`]) only where there is one: other records stay as
+    // they were.
+    if let Some(sub) = provenance.get(FROM_SUBAGENT).filter(|s| s.is_object()) {
+        record.set("subagent", sub.clone());
+    }
+    record
 }
 
 #[cfg(test)]
 mod sender_tests {
     use super::*;
+
+    #[test]
+    fn a_named_local_sender_may_say_its_harness_and_nothing_else() {
+        let sent = |mux: Value| json!({"_meta": {"acpmux": mux}});
+        let named = sent(json!({"fromAgent": "codex@workstation", "fromHarness": "codex"}));
+        let harness = declared_harness(&named);
+        assert_eq!(
+            harness,
+            Some(BoundSender { session_id: None, harness: Some("codex".into()), relay: None })
+        );
+        let stamped = stamp_sender(named_sender("codex@workstation", "s-2"), harness.as_ref());
+        assert_eq!(stamped["kind"], "agent_message");
+        assert_eq!(sender_of(Some(&stamped)), (None, Some("codex".into())));
+        // No name, or a harness that is not a family name: no label.
+        assert_eq!(declared_harness(&sent(json!({"fromHarness": "codex"}))), None);
+        assert_eq!(
+            declared_harness(&sent(json!({"fromAgent": "a", "fromHarness": "co dex"}))),
+            None
+        );
+    }
 
     #[test]
     fn a_peer_link_names_a_sender_only_for_its_own_prompt_and_only_well_formed() {
@@ -1067,6 +1284,33 @@ mod sender_tests {
         let proven = sender_record_with_auth(Some(&person), None, None, true);
         assert_eq!(proven["actorKind"], "authenticated_human");
         assert_eq!(proven["actorId"], "user-1");
+    }
+
+    /// A relay's MACHINE/SESSION past `fromAgent`'s length (review of #37652, F1): the record
+    /// keeps the whole name and is a verified relay sender; the name it gives the sender label
+    /// fits `fromAgent`, so the send is never refused for it.
+    #[test]
+    fn a_long_relayed_name_is_recorded_whole_and_named_within_from_agent() {
+        let relayed = |session: &str| json!({"_meta": {"acpmux": {"fromRelay": {"by": "lane-gh", "machine": "vm-1", "session": session}}}});
+        let session = format!("cloud-start-matrix-{}", "x".repeat(60));
+        let bound = relay_sender(&relayed(&session)).unwrap();
+        let relay = bound.relay.clone().unwrap();
+        assert_eq!(relay.session.as_deref(), Some(session.as_str()));
+        let name = relay.name();
+        assert_eq!(name.chars().count(), crate::hub::MAX_FROM_AGENT_CHARS);
+        assert!(format!("vm-1/{session}").starts_with(&name), "{name}");
+        let label = json!({"_meta": {"acpmux": {"fromAgent": name}}});
+        assert_eq!(crate::hub::declared_sender(&label).unwrap(), Some(name.clone()));
+        let stamped =
+            stamp_sender(stamp_declared(named_sender(&name, "t"), Some(&name)), Some(&bound));
+        let record = sender_record(Some(&stamped), None, None);
+        assert_eq!(
+            (&record["verification"], &record["relay"]["session"]),
+            (&json!("verified"), &json!(session))
+        );
+        // A short one is named whole; a session past what a relay record holds is no record.
+        assert_eq!(relay_sender(&relayed("coord")).unwrap().relay.unwrap().name(), "vm-1/coord");
+        assert_eq!(relay_sender(&relayed(&"x".repeat(MAX_FIELD_BYTES + 1))), None);
     }
 
     #[test]
@@ -1316,5 +1560,66 @@ mod notice_tests {
         assert_eq!(e.data.as_ref().unwrap()["reason"], "notice.origin_refused");
         assert!(notice_present(&params(fire())));
         assert!(!notice_present(&params(Value::Null)));
+    }
+
+    #[test]
+    fn a_record_with_no_provenance_says_it_is_the_proven_persons_and_one_with_keeps_its_own() {
+        let own = marked(json!({"promptId": "p", "_meta": {"x": 1}}), None);
+        assert_eq!(own["_meta"]["origin"], json!({"actor": "person", "verified": true}));
+        assert_eq!(own["_meta"]["x"], 1, "the rest of its _meta stays");
+        let theirs = marked(json!({"promptId": "p"}), Some(&named_sender("lane-a", "s")));
+        assert!(theirs["_meta"].get("origin").is_none(), "{theirs}");
+        assert_eq!(theirs["_meta"]["provenance"]["verified"], false);
+    }
+
+    #[test]
+    fn an_unverified_prompt_names_no_one_and_keeps_its_claims_apart() {
+        let mut claimed = Map::new();
+        claimed.insert("cliHost".into(), json!("workstation"));
+        let p = unverified("s", "unix", claimed);
+        assert_eq!(
+            p,
+            json!({"kind": "unverified", "to": "s", "transport": "unix", "verified": false,
+                   "claimed": {"cliHost": "workstation"}})
+        );
+        assert!(p.get("fromName").is_none());
+        assert!(unverified("s", "unix", Map::new()).get("claimed").is_none());
+    }
+
+    #[test]
+    fn observed_never_raises_what_the_daemon_set() {
+        let session = observed(session_message("a", "lane-a", "b"), "unix");
+        assert_eq!(session["verified"], true);
+        assert_eq!(session["transport"], "unix");
+        let named = observed(named_sender("lane-a", "b"), "peer");
+        assert_eq!(named["verified"], false);
+        assert_eq!(named["transport"], "peer");
+    }
+
+    #[test]
+    fn an_edit_and_a_forward_are_named_beside_the_sender_not_in_its_place() {
+        let p = named_sender("lane-a", "s");
+        let owner = edited_by(p.clone(), Some(None));
+        assert_eq!(owner["fromName"], "lane-a");
+        assert_eq!(owner["editedBy"], json!({"actor": "owner"}));
+        let guest = edited_by(p.clone(), Some(Some("guest:ana")));
+        assert_eq!(guest["editedBy"], json!({"actor": "person", "id": "guest:ana"}));
+        assert_eq!(edited_by(p.clone(), None), p);
+        let forwarded = forwarded_by_peer(p, Some("device"));
+        assert_eq!(forwarded["fromName"], "lane-a");
+        assert_eq!(forwarded["forwardedBy"], json!({"actor": "peer", "via": "device"}));
+    }
+
+    #[test]
+    fn a_client_cannot_send_verified_or_an_editor_or_a_forwarder() {
+        let params = json!({"_meta": {"acpmux": {"provenance": {
+            "kind": "agent_message", "from": "acp:x", "to": "acp:y", "msgId": "m", "threadId": "t",
+            "verified": true, "editedBy": {"actor": "owner"}, "forwardedBy": {"actor": "peer"}}}}});
+        let p = of(&params, Sender::Local).unwrap().unwrap();
+        assert!(p.get("verified").is_none(), "{p}");
+        assert!(p.get("editedBy").is_none(), "{p}");
+        assert!(p.get("forwardedBy").is_none(), "{p}");
+        let unverified = json!({"_meta": {"acpmux": {"provenance": {"kind": "unverified"}}}});
+        assert!(of(&unverified, Sender::Local).is_err());
     }
 }

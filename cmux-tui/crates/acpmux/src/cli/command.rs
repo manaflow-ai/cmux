@@ -22,6 +22,9 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Run a task on several models in separate worktrees and compare the reviewer's winner.
+    #[command(subcommand)]
+    Race(crate::cli::race::RaceCmd),
     /// Own one dedicated Codex sign-in over private stdin/stdout pipes.
     #[cfg(unix)]
     #[command(hide = true)]
@@ -60,6 +63,10 @@ pub enum Command {
     /// files, what the session this shell runs in edited lately.
     #[command(name = "who-else", alias = "whoelse", alias = "overlap")]
     WhoElse(crate::cli::who_else::WhoElseArgs),
+    /// What turns on this machine cost, whatever harness ran them: totals, then one line per
+    /// repository, pull request, day, person, workspace, vendor, model or account.
+    #[command(alias = "cost", alias = "spend")]
+    Ledger(crate::cli::ledger::LedgerArgs),
     /// Link a session to the tracker beads it works on (`bd` ids), unlink them, list them.
     #[command(subcommand)]
     Bead(crate::cli::beads::BeadCmd),
@@ -124,6 +131,10 @@ pub enum Command {
         /// Create it on exactly the harness SESSION ran (profile, preset, model, effort).
         #[arg(long, value_name = "SESSION", conflicts_with_all = ["model", "preset", "effort"])]
         harness_from: Option<String>,
+        /// With --json, print the whole record, with the command, tool and option catalogs that
+        /// `--json` leaves out.
+        #[arg(long)]
+        full: bool,
     },
     /// Continue a session's work on another harness: prepare a reviewed
     /// first message for a new session there, then start or discard it.
@@ -268,10 +279,13 @@ pub enum Command {
         #[arg(long, value_name = "KEY")]
         supersede: Option<String>,
         /// What your message asks of the receiver: block or blocker (you cannot go on until it
-        /// acts), question (you wait for its answer), result or action (work you finished, or
-        /// work for it; the default for an agent's message) or fyi. Another agent's message goes
-        /// into the receiver's inbox, never a turn of its own: blockers wake an idle receiver,
-        /// actions only from the session that started it or gave it its first work, FYIs never.
+        /// acts), question (you wait for its answer; the default for an agent's send that
+        /// waits), result or action (work you finished, or work for it; the default for one that
+        /// does not wait) or fyi. The session that started the receiver or gave it its first
+        /// work sends a prompt, its own turn. Anyone else's message goes into the receiver's
+        /// inbox: blockers and questions wake an idle receiver, actions only from that session,
+        /// FYIs never. A send that waits and would not wake the idle receiver fails at once
+        /// (exit 1, send.not_woken), and nothing is delivered.
         #[arg(long, value_name = "CLASS", value_parser = ["block", "question", "result", "fyi", "blocker", "action"])]
         class: Option<String>,
         #[command(flatten)]
@@ -327,7 +341,7 @@ pub enum Command {
         preset: Option<String>,
         #[arg(long, short)]
         effort: Option<String>,
-        /// Permission policy: ask, approve-reads, approve-edits, approve-all, deny-all.
+        /// Permission policy: ask, approve-reads, approve-edits, approve-all, deny-all, review.
         #[arg(long)]
         policy: Option<String>,
     },
@@ -568,6 +582,7 @@ pub enum Command {
         all_idle: bool,
         interrupt: bool,
         leave_dirty: bool,
+        carry_changes: bool,
         cwd: Option<String>,
         dry_run: bool,
         from: Option<String>,
@@ -994,6 +1009,11 @@ pub enum SessionCmd {
         /// Move a chat whose checkout has uncommitted changes; they stay on this machine.
         #[arg(long)]
         leave_dirty: bool,
+        /// Carry a chat's uncommitted changes with it: tracked edits, deletions and untracked files
+        /// that are not ignored arrive uncommitted in its worktree there. Likely secrets (`.env`,
+        /// keys) stay on this machine.
+        #[arg(long, conflicts_with = "leave_dirty")]
+        carry_changes: bool,
         /// Run the moved chats in this folder on the machine, as it is there: no worktree is made
         /// and no branch pushed. For a folder outside this machine's home.
         #[arg(long, value_name = "PATH")]
@@ -1411,6 +1431,7 @@ pub fn flatten(c: Command) -> Command {
                 all_idle,
                 interrupt,
                 leave_dirty,
+                carry_changes,
                 cwd,
                 dry_run,
                 from,
@@ -1420,6 +1441,7 @@ pub fn flatten(c: Command) -> Command {
                 all_idle,
                 interrupt,
                 leave_dirty,
+                carry_changes,
                 cwd,
                 dry_run,
                 from,

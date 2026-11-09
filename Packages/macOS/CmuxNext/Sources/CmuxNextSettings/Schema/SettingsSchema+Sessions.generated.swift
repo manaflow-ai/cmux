@@ -5,6 +5,9 @@ extension SessionSettings {
     /// `sessions.keepAwake`: Idle system sleep stays off while a local agent works (KeepAwakeService). The display can still sleep, and closing the lid still sleeps the Mac.
     public nonisolated static let keepAwakePath = ["sessions", "keepAwake"]
     public nonisolated static let keepAwakeDefault: SessionKeepAwakeSetting = .pluggedIn
+    /// `sessions.keepAwakeForCommands`: On: a terminal command on this Mac that has run a minute and printed in the last ten minutes also keeps the Mac awake, under the same Off, While Plugged In or Always choice as sessions.keepAwake (KeepAwakeService; the rule is Rust keep_awake_plan). Off by default: Leo has not said whether it should be on.
+    public nonisolated static let keepAwakeForCommandsPath = ["sessions", "keepAwakeForCommands"]
+    public nonisolated static let keepAwakeForCommandsDefault = false
     /// `sessions.keepAwakeWhenLocked`: Off by default. On: while this Mac's screen is locked and an agent turn runs, acpmux holds idle sleep off too, also on battery, so the turn keeps running (hub/lock_bridge.rs, design/lock-bridge.md). At most 2 hours per locked stretch, and 10 minutes after the last running turn while one waits for the person. Keep Mac Awake set to Off turns it off. A closed lid on battery and low battery still sleep the Mac. Computer use and permission prompts wait while the screen is locked, on or off.
     public nonisolated static let keepAwakeWhenLockedPath = ["sessions", "keepAwakeWhenLocked"]
     public nonisolated static let keepAwakeWhenLockedDefault = false
@@ -17,6 +20,9 @@ extension SessionSettings {
     /// `sessions.promptSuggestions`: Agents get the cmux-sessions MCP tools (ACPMUX_OFFER_TOOLS=1, read at each acpmux daemon start) and the pages show their suggested tasks (AgentPaneSuggestedTasks). On by default, as the Debug toggle agent.suggestedTasks was (Leo 2026-10-19); off here turns them off. That toggle is now off by default and only forces them on.
     public nonisolated static let promptSuggestionsPath = ["sessions", "promptSuggestions"]
     public nonisolated static let promptSuggestionsDefault = true
+    /// `agents.promptSuggestions`: Claude Code's own prompt suggestion, and the same switch for Codex chats: after a turn the next prompt shows as ghost text in an empty composer (Tab or Right Arrow takes it). Not sessions.promptSuggestions, which is suggested child tasks. The acpmux daemon reads this key (nested or flat) at each Claude or Codex process start (cmux-tui/crates/acpmux/src/claude_stdio/prompt_suggestions.rs, codex_app_server.rs); off: no suggestions and no per-chat switch. Each suggestion is one extra model call that counts toward usage.
+    public nonisolated static let claudePromptSuggestionsPath = ["agents", "promptSuggestions"]
+    public nonisolated static let claudePromptSuggestionsDefault = true
 }
 
 extension SessionSettings {
@@ -55,7 +61,17 @@ nonisolated enum SessionSettingsSchema {
                     SettingChoice(SessionKeepAwakeSetting.always.rawValue, SettingsText.keyed("settings.choice.keepAwakeAlways", "Always")),
                 ]),
                 default: .string(SessionSettings.keepAwakeDefault.rawValue),
-                keywords: ["sleep", "awake", "caffeinate", "battery", "power", "agents"]
+                keywords: ["sleep", "awake", "keep awake", "stay awake", "prevent sleep", "no sleep", "idle", "caffeinate", "battery", "power", "agents"]
+            ),
+            SettingDescriptor(
+                SessionSettings.keepAwakeForCommandsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.sessions.keepAwakeForCommands", "Also While Terminal Commands Run"),
+                help: SettingsText.keyed("settings.sessions.keepAwakeForCommands.help", "A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work."),
+                kind: .toggle,
+                default: .bool(SessionSettings.keepAwakeForCommandsDefault),
+                keywords: ["sleep", "awake", "keep awake", "stay awake", "prevent sleep", "no sleep", "caffeinate", "terminal", "command", "build"]
             ),
             SettingDescriptor(
                 SessionSettings.keepAwakeWhenLockedPath,
@@ -96,6 +112,16 @@ nonisolated enum SessionSettingsSchema {
                 kind: .toggle,
                 default: .bool(SessionSettings.promptSuggestionsDefault),
                 keywords: ["suggestions", "prompt", "follow-up", "tasks", "child chats", "subagents"]
+            ),
+            SettingDescriptor(
+                SessionSettings.claudePromptSuggestionsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.promptSuggestions", "Suggest Next Prompt"),
+                help: SettingsText.keyed("settings.agents.promptSuggestions.help", "After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change."),
+                kind: .toggle,
+                default: .bool(SessionSettings.claudePromptSuggestionsDefault),
+                keywords: ["suggestions", "prompt", "next prompt", "ghost text", "autocomplete", "claude", "codex", "usage"]
             ),
         ]
     }

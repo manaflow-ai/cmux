@@ -55,10 +55,42 @@
           "keywords": [
             "sleep",
             "awake",
+            "keep awake",
+            "stay awake",
+            "prevent sleep",
+            "no sleep",
+            "idle",
             "caffeinate",
             "battery",
             "power",
             "agents"
+          ]
+        },
+        {
+          "key": "sessions.keepAwakeForCommands",
+          "name": "keepAwakeForCommands",
+          "note": "On: a terminal command on this Mac that has run a minute and printed in the last ten minutes also keeps the Mac awake, under the same Off, While Plugged In or Always choice as sessions.keepAwake (KeepAwakeService; the rule is Rust keep_awake_plan). Off by default: Leo has not said whether it should be on.",
+          "title": {
+            "key": "settings.sessions.keepAwakeForCommands",
+            "text": "Also While Terminal Commands Run"
+          },
+          "help": {
+            "key": "settings.sessions.keepAwakeForCommands.help",
+            "text": "A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sleep",
+            "awake",
+            "keep awake",
+            "stay awake",
+            "prevent sleep",
+            "no sleep",
+            "caffeinate",
+            "terminal",
+            "command",
+            "build"
           ]
         },
         {
@@ -155,6 +187,31 @@
             "tasks",
             "child chats",
             "subagents"
+          ]
+        },
+        {
+          "key": "agents.promptSuggestions",
+          "name": "claudePromptSuggestions",
+          "note": "Claude Code's own prompt suggestion, and the same switch for Codex chats: after a turn the next prompt shows as ghost text in an empty composer (Tab or Right Arrow takes it). Not sessions.promptSuggestions, which is suggested child tasks. The acpmux daemon reads this key (nested or flat) at each Claude or Codex process start (cmux-tui/crates/acpmux/src/claude_stdio/prompt_suggestions.rs, codex_app_server.rs); off: no suggestions and no per-chat switch. Each suggestion is one extra model call that counts toward usage.",
+          "title": {
+            "key": "settings.agents.promptSuggestions",
+            "text": "Suggest Next Prompt"
+          },
+          "help": {
+            "key": "settings.agents.promptSuggestions.help",
+            "text": "After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "suggestions",
+            "prompt",
+            "next prompt",
+            "ghost text",
+            "autocomplete",
+            "claude",
+            "codex",
+            "usage"
           ]
         }
       ]

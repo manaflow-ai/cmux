@@ -102,7 +102,7 @@ extension NewTabWeather {
         services.newTabWeather.onReading = { [weak tabs, weak services] in
             guard let tabs, let services, let widgets = services.settings?.snapshot.newTabWidgets else { return }
             let reading = services.newTabWeather.lastReading(widgets)
-            for key in tabs.newTabPages.keys { tabs.views[key]?.refreshNewTabWeather(reading) }
+            for entry in tabs.newTabPages.entries { tabs.views[entry.key]?.refreshNewTabWeather(reading) }
         }
     }
 }

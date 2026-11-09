@@ -11,7 +11,7 @@
 //   transcript. Between turns a command shows only when acpmux's process registry says it runs; one
 //   only the transcript knows (a peer's chat, whose end never arrived) does not pin the tray.
 // - The tray's lines are the summary card's Subagents rows: one component (AgentLine.tsx).
-import { afterAll, describe, expect, setSystemTime, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -61,9 +61,9 @@ const { trayItems, finishedTrayItems, withSubagentLines, configureSubagentTray }
   await import("../src/agent-session/acpmux/subagents/runningTray");
 const { SubagentTray } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
 const { resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
-const { nestAgents } = await import("../src/agent-session/acpmux/subagents/AgentsPill");
+const { nestAgents } = await import("../src/agent-session/acpmux/subagents/agentsPillModel");
 const { SubagentStatusList } = await import("../src/agent-session/acpmux/summary/SubagentStatusList");
-const { SubagentNavContext } = await import("../src/agent-session/acpmux/subagents/SubagentGroup");
+const { SubagentNavContext } = await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 const { backgroundCommands, commandLabel } = await import("../src/agent-session/acpmux/session-info/processes");
 const { runningBackgroundTasks } = await import("../src/agent-session/acpmux/summary/sessionSummary");
@@ -1770,8 +1770,19 @@ describe("the tray lists only the chat's own work", () => {
 // claude". Under a Claude chat its own subagents draw the subagent sparkle in each one's tone, never the
 // Claude mark on every line; only a subagent of another family (Codex) draws its harness's mark.
 describe("a subagent of the chat's own family draws its toned sparkle, not the chat's mark", () => {
+  // Sender Badge: None draws each row's icon as before the sender badge (SenderIcon.tsx); these
+  // tests pin that look.
+  beforeAll(async () => {
+    const { configureSenderIconLook, SENDER_ICON_BADGE_KEY } =
+      await import("../src/agent-session/acpmux/subagents/senderIconLook");
+    configureSenderIconLook({ [SENDER_ICON_BADGE_KEY]: "none" });
+  });
+  afterAll(async () => {
+    const { configureSenderIconLook } = await import("../src/agent-session/acpmux/subagents/senderIconLook");
+    configureSenderIconLook({});
+  });
   test("Claude subagents under a Claude chat are toned sparkles; a Codex one keeps its mark", async () => {
-    const { SubagentHarnessContext } = await import("../src/agent-session/acpmux/subagents/SubagentGroup");
+    const { SubagentHarnessContext } = await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
     const items = trayItems(
       [
         agent("Reviewer", { startedAt: at(10) }),

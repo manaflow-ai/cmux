@@ -24,10 +24,10 @@ import {
   type PageInfoModel,
   type PageInfoSiteKind,
   type SitePermissionKind,
-  type SitePermissionSetting,
   type SitePermissionState,
 } from "./model";
 import { pageInfoStrings } from "./strings";
+import { choiceTitle, permissionName } from "./words";
 import "./pageInfo.css";
 
 /**
@@ -198,10 +198,6 @@ const NO_ASK_TEXT = new Set<SitePermissionKind>([
   "insecureContent",
 ]);
 
-export function permissionName(strings: Strings, kind: SitePermissionKind): string {
-  return strings.t(`pageInfo.permission.${kind}`);
-}
-
 export function stateText(strings: Strings, state: SitePermissionState): string {
   const t = strings.t;
   if (state.isInUse) return t("pageInfo.state.usingNow");
@@ -215,21 +211,6 @@ export function stateText(strings: Strings, state: SitePermissionState): string 
       return t(state.isDefault ? "pageInfo.state.notAllowedDefault" : "pageInfo.state.notAllowed");
     case "ask":
       return NO_ASK_TEXT.has(state.kind) ? t("pageInfo.choice.ask") : t(`pageInfo.ask.${state.kind}`);
-  }
-}
-
-export function choiceTitle(strings: Strings, setting: SitePermissionSetting, kind: SitePermissionKind): string {
-  const t = strings.t;
-  const isDefault = setting === defaultSetting(kind);
-  switch (setting) {
-    case "ask":
-      return t(isDefault ? "pageInfo.choice.askDefault" : "pageInfo.choice.ask");
-    case "allow":
-      if (kind === "sound") return t(isDefault ? "pageInfo.state.automaticDefault" : "pageInfo.choice.allow");
-      return t(isDefault ? "pageInfo.choice.allowDefault" : "pageInfo.choice.allow");
-    case "block":
-      if (kind === "sound") return t("pageInfo.choice.mute");
-      return t(isDefault ? "pageInfo.choice.blockDefault" : "pageInfo.choice.block");
   }
 }
 

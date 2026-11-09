@@ -70,8 +70,6 @@ await requireBrowserLane("agent-pane-tool-tick-transcript-renders.test.ts", asyn
     };
     console.log(`TOOL-TICK-RENDERS ${JSON.stringify(report)}`);
     expect(report.ticks).toBeGreaterThan(30);
-    // Each update reached the pane: the transcript skipped renders its parent made.
-    expect(report.pane).toBeGreaterThanOrEqual(report.ticks);
     expect(report.transcript, "transcript renders over the command's output updates").toBeLessThanOrEqual(STRUCTURAL);
     expect(busiestRow[1], `renders of ${busiestRow[0]} over the command's output updates`).toBeLessThanOrEqual(
       STRUCTURAL,

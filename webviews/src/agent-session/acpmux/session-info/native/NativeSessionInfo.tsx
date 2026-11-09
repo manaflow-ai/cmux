@@ -10,15 +10,16 @@ import { planDone, type SessionInfoPlan } from "../progressSectionModel";
 import { postNative } from "../../native";
 import { opensProcessTerminal } from "../../processTerminal";
 import type { StartedSession } from "../../started/startedSessions";
-import { useNow } from "../../subagents/SubagentGroup";
+import { useNow } from "../../subagents/subagentGroupModel";
 import type { Subagent } from "../../subagents/subagentFold";
 import type { WorkflowAgent, WorkflowSummary } from "../../summary/workflow";
 import type { Artifact } from "../../conversation/artifactPreview";
 import type { TurnFile } from "../../diff";
 import type { SessionSummary, SummaryBackgroundTask, SummaryWakeup } from "../../summary/sessionSummary";
 import { useScheduledClock } from "../scheduled";
-import { visibleChanges, type SessionInfoPullRequestStatus } from "../ChangesSection";
-import type { OutputArtifact, OutputLink } from "../OutputsSection";
+import { visibleChanges, type SessionInfoPullRequestStatus } from "../changesSectionModel";
+import type { OutputArtifact, OutputLink } from "../outputsSectionModel";
+import type { ProducedLink } from "../producedLinks";
 import { sessionInfoLists, type SessionInfoProcess } from "../processes";
 import { useSectionOrder } from "../sectionOrder";
 import {
@@ -56,7 +57,7 @@ import { chatMachine, type ChatPlace } from "../../chatMachine";
 import { useCloudRepositories } from "./useCloudRepositories";
 import { cloudEnvironmentRequest, openCloudEnvironment, subscribeCloudEnvironment } from "../../cloudEnvironment";
 import { copyText } from "../../conversation/clipboard";
-import { useSubagentLimitController } from "../SubagentLimitStepper";
+import { useSubagentLimitController } from "../subagentLimitStepperModel";
 import { useIMessage } from "../imessage";
 import { orderSections } from "./nativeSessionInfoModel";
 
@@ -100,6 +101,8 @@ export type NativeSessionInfoProps = {
   repository?: string;
   made?: Pick<SessionSummary, "outputs" | "pullRequests" | "scheduled"> & Partial<Pick<SessionSummary, "sources">>;
   links: readonly OutputLink[];
+  /// The pull requests, issues and commits the chat produced (producedLinks.ts).
+  produced?: readonly ProducedLink[];
   artifacts: number;
   documents: readonly OutputArtifact[];
   rows: readonly AcpmuxRow[];
@@ -429,6 +432,8 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
         {
           files: (props.made?.outputs ?? []) as readonly TurnFile[],
           links: props.links,
+          produced: props.produced,
+          repository: props.repository,
           artifacts: props.artifacts,
           documents: props.documents,
           onOpenFile: props.onOpenOutput,

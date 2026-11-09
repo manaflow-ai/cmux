@@ -14,7 +14,7 @@ import UniformTypeIdentifiers
 /// (Return in the field), `drag` (`dx`, `dy` in points, `steps`, `release`:
 /// a press on the character moved through the view's own mouse handlers, so the panel moves and an
 /// animated character leans; `release: false` keeps the press for a still mid-drag), `drop` (the press's
-/// release), or `snapshot` (`window`: `pet` or `reply`; `path`: a PNG of that panel: its views as AppKit draws
+/// release), `motion` (`on`, default true: the frames move as over an active cmux; Reduce Motion still wins), or `snapshot` (`window`: `pet` or `reply`; `path`: a PNG of that panel: its views as AppKit draws
 /// them, and the pet's character on the frame its animation shows now; the glass behind them, which only the
 /// window server draws, is the window background color). Each answers the state after it, or `error`.
 extension ChiefPetController {
@@ -29,10 +29,18 @@ extension ChiefPetController {
         case "drag": debugDrag(dx: params["dx"] as? Double ?? 0, dy: params["dy"] as? Double ?? 0,
                                steps: max(1, min(params["steps"] as? Int ?? 8, 120)), release: params["release"] as? Bool ?? true)
         case "drop": debugDrop()
-        default: "unknown action \(action): state, open_reply, close_reply, type, send, drag, drop or snapshot"
+        case "motion": debugSetMotion(params["on"] as? Bool ?? true)
+        default: "unknown action \(action): state, open_reply, close_reply, type, send, drag, drop, motion or snapshot"
         }
         if let failure { return ["error": failure] }
         return debugState()
+    }
+
+    /// Seconds from now until `at` seconds after `motion` turned on (0 once that has passed; nil with no motion on), so a
+    /// `snapshot` lands on a chosen moment of the character's loop whatever the caller's latency.
+    public func debugWait(untilMotionSeconds at: Double) -> Double? {
+        guard let start = debugMotionStart else { return nil }
+        return max(0, start + at - CACurrentMediaTime())
     }
 
     func debugState() -> [String: Any] {
@@ -47,6 +55,8 @@ extension ChiefPetController {
             state["pose"] = String(describing: panel.pet.sprite.pose)
             state["moving"] = panel.pet.sprite.isMoving
             state["dragging"] = panel.pet.isDragging
+            state["motion"] = debugMotion
+            if let start = debugMotionStart { state["motion_seconds"] = CACurrentMediaTime() - start }
         }
         if let replyPanel, replyPanel.isVisible {
             state["reply_text"] = replyPanel.field.stringValue
@@ -111,6 +121,15 @@ extension ChiefPetController {
             view.mouseDragged(with: event)
         }
         return release ? debugDrop() : nil
+    }
+
+    /// `motion` (`on`): the character's frames move as they do over an active cmux, which a capture app never is;
+    /// Reduce Motion and the other stop conditions still hold (`characterMoves`).
+    private func debugSetMotion(_ on: Bool) -> String? {
+        debugMotion = on
+        debugMotionStart = on ? CACurrentMediaTime() : nil
+        drawCharacter()
+        return nil
     }
 
     private func debugDrop() -> String? {

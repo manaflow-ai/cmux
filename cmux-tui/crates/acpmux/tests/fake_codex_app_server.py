@@ -5,6 +5,9 @@ field. `model/list` answers in two pages; `thread/start` makes one thread and
 `turn/start` streams one message ("ok") and completes the turn.
 FAKE_CODEX=unauth refuses `model/list` as a signed-out Codex does;
 FAKE_CODEX=hang never answers; FAKE_DELAY waits before each answer.
+FAKE_CODEX_CATALOG=<path> answers `model/list` with that file's rows, one page, read at
+each request (a Codex updated behind the same launcher answers with a new catalog), and
+`thread/start` runs the model it asks for, else that catalog's default.
 `account/rateLimits/read` answers a Pro plan's 5-hour and weekly windows and credits.
 
 Background terminals (unified exec): a prompt with "bg-codex" runs `npm run
@@ -144,11 +147,22 @@ for line in sys.stdin:
         if mode == "unauth":
             reply({"id": rid, "error": {"code": -32000, "message": "Not logged in. Run `codex login`."}})
             continue
-        data, cursor = PAGES[message.get("params", {}).get("cursor")]
+        if os.environ.get("FAKE_CODEX_CATALOG"):
+            with open(os.environ["FAKE_CODEX_CATALOG"]) as f:
+                data, cursor = json.load(f), None
+        else:
+            data, cursor = PAGES[message.get("params", {}).get("cursor")]
         reply({"id": rid, "result": {"data": data, "nextCursor": cursor}})
     elif method == "thread/start":
         thread = {"id": "fake-thread-1", "cwd": message.get("params", {}).get("cwd"), "turns": []}
-        reply({"id": rid, "result": {"thread": thread, "model": "gpt-6.1-sol", "reasoningEffort": None}})
+        model = "gpt-6.1-sol"
+        if os.environ.get("FAKE_CODEX_CATALOG"):
+            # The model asked for, else the catalog's default, as an installed Codex starts.
+            with open(os.environ["FAKE_CODEX_CATALOG"]) as f:
+                rows = json.load(f)
+            asked = message.get("params", {}).get("model")
+            model = asked or next((r["id"] for r in rows if r.get("isDefault")), rows[0]["id"])
+        reply({"id": rid, "result": {"thread": thread, "model": model, "reasoningEffort": None}})
     elif method == "turn/start":
         params = message.get("params", {})
         thread, turn = params.get("threadId"), "fake-turn-%s" % rid

@@ -47,7 +47,7 @@ const { createRoot } = await import("react-dom/client");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
-const { linkAttachment } = await import("../src/agent-session/acpmux/attachments");
+const { linkAttachment, promptText } = await import("../src/agent-session/acpmux/attachments");
 
 const PATH = "/Users/dev/Library/Application Support/cmux/Chat Uploads/0190a000-upload/0/screen-demo.mp4";
 const URI = `file://${encodeURI(PATH)}`;
@@ -203,6 +203,39 @@ try {
     const view = shown();
     expect(view.tile).toBeNull();
     expect(view.files.join("")).toContain("screen-demo.mp4");
+  });
+
+  // withoutFrames (composer/videoPrompt.ts) sends a video to an agent that takes no images, or past
+  // the prompt's budget, as its link alone: the pane's own row keeps that chip, frames emptied, and
+  // it stays the file chip acpmux's echo will draw, never a poster tile.
+  test("the pane's own row with a video sent without frames keeps its file chip, no tile", async () => {
+    const chip = {
+      ...linkAttachment(PATH, false),
+      mimeType: "video/mp4",
+      size: 9,
+      video: { durationMs: 16_000, width: 1920, height: 1080, poster: "data:image/jpeg;base64,cG9z", frames: [] },
+    };
+    // The row's text as the pane writes it at send (direct.ts): the prompt and the video's link note.
+    await render({
+      id: "user-4b",
+      version: 1,
+      at: 0,
+      kind: "user",
+      text: promptText("look", [chip]),
+      retryAttachments: [chip],
+    } as AcpmuxRow);
+    const view = shown();
+    expect(view.tile).toBeNull();
+    expect(view.files.join("")).toContain("screen-demo.mp4");
+    // Its frames are what make it a tile: the same chip with one is one.
+    const { sentVideosOf } = await import("../src/agent-session/acpmux/conversation/sentVideos");
+    expect(sentVideosOf({ text: "look", retryAttachments: [chip] })).toEqual([]);
+    expect(
+      sentVideosOf({
+        text: "look",
+        retryAttachments: [{ ...chip, video: { ...chip.video, frames: [{ atMs: 2_000, data: "AA==" }] } }],
+      }),
+    ).toHaveLength(1);
   });
 
   test("a person's own line that only reads like a note, with no frame or link, draws no tile", async () => {

@@ -165,16 +165,25 @@ export function OverlayDialog({ dialog, onEdit, onPress, onLayout, onPainted }: 
         className="overlay-dialog"
         data-layout={dialog.layout}
         data-identifier={dialog.identifier}
+        // The card takes the keyboard when no text field does (Return, Escape), as an open popover does,
+        // and like one it draws no ring around itself: the clear card's ring was a dark second edge around
+        // the native glass (Lawrence 2026-11-07, "weird border"). Its buttons keep their rings.
+        data-focus-ring="none"
         tabIndex={-1}
       >
         {dialog.icon && <img className="overlay-dialog-icon" src={dialog.icon} alt="" />}
         <h1 className="overlay-dialog-title">{dialog.title}</h1>
         {dialog.from && <p className="overlay-dialog-from">{dialog.from}</p>}
-        {dialog.lines.map((line, index) => (
-          <p key={index} className="overlay-dialog-line">
-            {line}
-          </p>
-        ))}
+        {dialog.lines.length > 0 && (
+          // A long message (an import preview) scrolls here, so the buttons stay on screen.
+          <div className="overlay-dialog-lines">
+            {dialog.lines.map((line, index) => (
+              <p key={index} className="overlay-dialog-line">
+                {line}
+              </p>
+            ))}
+          </div>
+        )}
         {leading.map((field, index) => (
           <Field key={fieldKey(field, index)} field={field} values={values} title={dialog.title} onEdit={edit} />
         ))}

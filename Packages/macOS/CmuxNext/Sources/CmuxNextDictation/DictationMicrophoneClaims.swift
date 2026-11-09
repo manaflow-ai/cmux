@@ -12,8 +12,24 @@ public final class DictationMicrophoneClaims {
 
     private weak var holder: AnyObject?
     private var stopHolder: (@MainActor () -> Void)?
+    /// Told after each claim, release and yield (``MicrophoneActivity`` closes its meter on a claim).
+    private var observers: [ObjectIdentifier: @MainActor () -> Void] = [:]
 
     public init() {}
+
+    /// `owner` hears each change of holder, after it applies, until ``unobserve(_:)``.
+    public func observe(_ owner: AnyObject, onChange: @escaping @MainActor () -> Void) {
+        observers[ObjectIdentifier(owner)] = onChange
+    }
+
+    /// `owner` no longer hears changes.
+    public func unobserve(_ owner: AnyObject) {
+        observers.removeValue(forKey: ObjectIdentifier(owner))
+    }
+
+    private func changed() {
+        for observer in Array(observers.values) { observer() }
+    }
 
     /// `owner` starts listening: whoever else holds the microphone stops first.
     /// - Parameters:
@@ -28,6 +44,8 @@ public final class DictationMicrophoneClaims {
         }
         holder = owner
         stopHolder = stop
+        // Before the claimer opens its engine: an outside-dictation meter closes now.
+        changed()
     }
 
     /// `owner`'s session ended; a claim held by someone else stays.
@@ -35,6 +53,7 @@ public final class DictationMicrophoneClaims {
         guard holder === owner else { return }
         holder = nil
         stopHolder = nil
+        changed()
     }
 
     /// Stops whoever holds the microphone, keeping their words: another app takes it now (the
@@ -43,7 +62,11 @@ public final class DictationMicrophoneClaims {
         let previous = stopHolder
         (holder, stopHolder) = (nil, nil)
         previous?()
+        changed()
     }
+
+    /// Whether any of cmux's surfaces holds the microphone now.
+    public var isHeld: Bool { holder != nil }
 
     /// Whether `owner` holds the microphone now.
     public func isHeld(by owner: AnyObject) -> Bool { holder === owner }

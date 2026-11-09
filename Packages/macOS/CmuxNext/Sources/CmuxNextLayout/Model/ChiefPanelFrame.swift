@@ -31,10 +31,11 @@ public nonisolated struct ChiefPanelFrame: Hashable, Sendable {
 
     /// The panel's rect in a content area of `size` (y runs down): at least ``minimumSize`` (or the whole area when
     /// smaller), and always fully inside the area, so a window made smaller never leaves the panel off screen.
-    public func rect(in size: CGSize) -> CGRect {
+    /// `minimum` is a smaller floor for a style that rests smaller (``ChiefPanelStyle``).
+    public func rect(in size: CGSize, minimum: CGSize = Self.minimumSize) -> CGRect {
         guard size.width > 0, size.height > 0 else { return .zero }
-        let w = min(size.width, max(Self.minimumSize.width, width * size.width))
-        let h = min(size.height, max(Self.minimumSize.height, height * size.height))
+        let w = min(size.width, max(minimum.width, width * size.width))
+        let h = min(size.height, max(minimum.height, height * size.height))
         let left = min(max(0, x * size.width), size.width - w)
         let top = min(max(0, y * size.height), size.height - h)
         return CGRect(x: left.rounded(), y: top.rounded(), width: w.rounded(), height: h.rounded())
@@ -42,10 +43,10 @@ public nonisolated struct ChiefPanelFrame: Hashable, Sendable {
 
     /// The frame that puts the panel at `rect` (y runs down) in a content area of `size`, after the same clamping
     /// ``rect(in:)`` does: what a drag or a resize stores.
-    public static func fitting(_ rect: CGRect, in size: CGSize) -> ChiefPanelFrame {
+    public static func fitting(_ rect: CGRect, in size: CGSize, minimum: CGSize = minimumSize) -> ChiefPanelFrame {
         guard size.width > 0, size.height > 0 else { return .initial }
-        let w = min(size.width, max(minimumSize.width, rect.width))
-        let h = min(size.height, max(minimumSize.height, rect.height))
+        let w = min(size.width, max(minimum.width, rect.width))
+        let h = min(size.height, max(minimum.height, rect.height))
         let left = min(max(0, rect.minX), size.width - w)
         let top = min(max(0, rect.minY), size.height - h)
         return ChiefPanelFrame(x: left / size.width, y: top / size.height, width: w / size.width, height: h / size.height)

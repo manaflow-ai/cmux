@@ -19,6 +19,11 @@ await requireBrowserLane("composer-inline-caret-gap.browser.test.ts", async () =
   const ENTRY = "agent-pane.composer";
   const CARET = { r: 255, g: 0, b: 255 };
   /// The sizes the composer is drawn at: the default, compact density, and the interface sizes.
+  /// The pane's width: the composer is Chat Text Width's 800px column (conversation.css --cv-column),
+  /// so at Agent Chat Zoom 1.5 in a 1400px pane WebKit's composer fits the first chip beside the text
+  /// and wraps the second, and the pair no longer sits on one line. At 1280px every size keeps both
+  /// chips on the line after the text, in Chromium and WebKit alike.
+  const WIDTH = 1280;
   const SIZES: Record<string, Record<string, string | number>> = {
     default: {},
     compact: { density: "compact" },
@@ -93,7 +98,7 @@ await requireBrowserLane("composer-inline-caret-gap.browser.test.ts", async () =
 
   async function open(page: Page, port: number, variant: string, size: Record<string, string | number>) {
     await page.goto(
-      `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: 1400, frame: "component", ...size })}`,
+      `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: WIDTH, frame: "component", ...size })}`,
     );
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 90_000,
@@ -172,7 +177,7 @@ await requireBrowserLane("composer-inline-caret-gap.browser.test.ts", async () =
       const port = (vite.httpServer!.address() as { port: number }).port;
       for (const [name, size] of Object.entries(SIZES)) {
         const context = await browser.newContext({
-          viewport: { width: 1400, height: 760 },
+          viewport: { width: WIDTH, height: 760 },
           colorScheme: "dark",
           deviceScaleFactor: 4,
         });
@@ -236,6 +241,19 @@ await requireBrowserLane("composer-inline-caret-gap.browser.test.ts", async () =
           report.push(`${engine} ${name} text card: caret off the chip gap ${off.toFixed(2)}`);
           if (off > TOLERANCE)
             failures.push(`${engine} ${name}: the caret after the text card is ${off.toFixed(2)}px off the chip gap`);
+          // Selected, the card wears the chip's ring: its rules reach it through its right-click
+          // menu's wrapper (markdownField.css). The node's class is the selection ProseMirror marks;
+          // arrows never select a chip (composer-inline-arrows.browser.test.ts).
+          const ring = await page.evaluate(() => {
+            const node = document.querySelector<HTMLElement>(".acpmux-md .acpmux-md-inline");
+            const chip = node?.querySelector<HTMLElement>(".acpmux-md-inline-chip");
+            if (!node || !chip) return "no text card";
+            node.classList.add("ProseMirror-selectednode");
+            const style = getComputedStyle(chip).outlineStyle;
+            node.classList.remove("ProseMirror-selectednode");
+            return style;
+          });
+          if (ring !== "solid") failures.push(`${engine} ${name}: the selected text card's ring is ${ring}`);
           expect(await value(page)).toEqual(sent);
           // The paste's own space after the card stays the only one.
           expect(withoutTokens(sent)).toBe("Why does the build fail?  ");

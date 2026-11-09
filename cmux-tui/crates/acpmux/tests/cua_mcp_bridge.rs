@@ -511,45 +511,56 @@ async fn a_call_whose_mac_locks_during_the_consent_wait_never_reaches_the_helper
     peer.await.unwrap();
 }
 
-/// A v2 helper built before it read the screen lock at execution (review of #37239, round 8): a
-/// call the bridge passed while unlocked could wait in it on consent or a takeover and run after
-/// the Mac locked. Its admission reply does not list the lock capability, so the bridge sends it
-/// no call: each one answers `cua_helper_outdated`, unlocked or not.
+/// A v2 helper built before it read the screen lock at execution (review of #37239, round 8):
+/// every DEV build embeds one until the signing workflow re-pins it from a commit with the check.
+/// It still gets a call, but only after the bridge reads the lock once more just before sending
+/// it: one that locked during the bridge's own waits answers `mac_locked` and never reaches it.
 #[tokio::test]
-async fn a_v2_helper_that_does_not_say_it_checks_the_lock_gets_no_call() {
+async fn a_v2_helper_that_does_not_say_it_checks_the_lock_gets_a_call_only_while_unlocked() {
     use acpmux::cua_v2::{Helper, serve_gated};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
+    let locked = Arc::new(AtomicBool::new(false));
     let (client, server) = tokio::io::duplex(4096);
     let client = std::sync::Mutex::new(Some(client));
-    let peer = tokio::spawn(async move {
-        let mut server = tokio::io::BufReader::new(server);
-        let mut line = String::new();
-        server.read_line(&mut line).await.unwrap();
-        // What a helper built before the lock check answers.
-        let hello = json!({"ok":true,"protocol":1,"capabilities":["machine-consent-gate-v1"]});
-        server.get_mut().write_all(format!("{hello}\n").as_bytes()).await.unwrap();
-        let mut calls = Vec::new();
-        loop {
-            line.clear();
-            if server.read_line(&mut line).await.unwrap() == 0 {
-                return calls;
+    let peer = tokio::spawn({
+        let locked = locked.clone();
+        async move {
+            let mut server = tokio::io::BufReader::new(server);
+            let mut line = String::new();
+            server.read_line(&mut line).await.unwrap();
+            // What a helper built before the lock check answers.
+            let hello = json!({"ok":true,"protocol":1,"capabilities":["machine-consent-gate-v1"]});
+            server.get_mut().write_all(format!("{hello}\n").as_bytes()).await.unwrap();
+            let (mut consents, mut calls) = (0, Vec::new());
+            loop {
+                line.clear();
+                if server.read_line(&mut line).await.unwrap() == 0 {
+                    return calls;
+                }
+                let request: Value = serde_json::from_str(&line).unwrap();
+                let reply = if request["method"] == "machine/consent" {
+                    consents += 1;
+                    // The person locks the Mac while the second call's consent answer is on its way.
+                    if consents == 2 {
+                        locked.store(true, Ordering::SeqCst);
+                    }
+                    json!({"id":request["id"],"ok":true,"result":{"consentRequired":true,
+                        "consent":{"screen":"granted","control":"granted"}}})
+                } else {
+                    calls.push(request.clone());
+                    json!({"id":request["id"],"ok":true,"result":{"content":[]}})
+                };
+                server.get_mut().write_all(format!("{reply}\n").as_bytes()).await.unwrap();
             }
-            let request: Value = serde_json::from_str(&line).unwrap();
-            let reply = if request["method"] == "machine/consent" {
-                json!({"id":request["id"],"ok":true,"result":{"consentRequired":true,
-                    "consent":{"screen":"granted","control":"granted"}}})
-            } else {
-                calls.push(request.clone());
-                json!({"id":request["id"],"ok":true,"result":{"content":[]}})
-            };
-            server.get_mut().write_all(format!("{reply}\n").as_bytes()).await.unwrap();
         }
     });
-    let input = format!(
-        "{}\n",
-        json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"click","arguments":{"x":1,"y":2}}})
-    );
+    let call = |id: u64| {
+        json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"click","arguments":{"x":1,"y":2}}})
+    };
+    let input = format!("{}\n{}\n", call(1), call(2));
     let mut output = Vec::new();
     serve_gated(
         tokio::io::BufReader::new(input.as_bytes()),
@@ -560,14 +571,20 @@ async fn a_v2_helper_that_does_not_say_it_checks_the_lock_gets_no_call() {
                 Helper::admit(stream.ok_or_else(|| anyhow::anyhow!("one helper"))?, SECRET).await
             }
         },
-        || false,
+        || locked.load(Ordering::SeqCst),
     )
     .await
     .unwrap();
-    let reply: Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(reply["id"], 1);
-    assert_eq!(reply["result"]["isError"], true, "{reply}");
-    assert_eq!(reply["result"]["structuredContent"]["error"], "cua_helper_outdated", "{reply}");
+    let replies: Vec<Value> = output
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .map(|line| serde_json::from_slice(line).unwrap())
+        .collect();
+    assert_eq!(replies.len(), 2, "{replies:?}");
+    assert_eq!(replies[0]["id"], 1);
+    assert_ne!(replies[0]["result"]["isError"], true, "{}", replies[0]);
+    assert_eq!(replies[1]["id"], 2);
+    assert_eq!(replies[1]["result"]["structuredContent"]["error"], "mac_locked", "{}", replies[1]);
     let calls = peer.await.unwrap();
-    assert!(calls.is_empty(), "the older helper got a call: {calls:?}");
+    assert_eq!(calls.len(), 1, "only the unlocked call reaches the older helper: {calls:?}");
 }

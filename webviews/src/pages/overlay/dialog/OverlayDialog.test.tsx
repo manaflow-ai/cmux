@@ -382,3 +382,50 @@ test("the card reports its layout box, not its scaled drawn rect", () => {
   card.getBoundingClientRect = () => ({ left: 125, top: 83, width: 368, height: 174 }) as DOMRect;
   expect(layoutBox(card)).toEqual({ x: 120, y: 80, w: 380, h: 180 });
 });
+
+test("a long message's lines sit in one block that scrolls at a bounded height, above the buttons", async () => {
+  const lines = Array.from({ length: 40 }, (_, index) => `• Workspace ${index}: setup: bun install`);
+  const { host } = await render({ ...quit, lines });
+  const block = host.querySelector(".overlay-dialog-lines")!;
+  expect(block.querySelectorAll(".overlay-dialog-line").length).toBe(40);
+  expect(block.compareDocumentPosition(host.querySelector(".overlay-dialog-buttons")!)).toBe(
+    dom!.window.Node.DOCUMENT_POSITION_FOLLOWING,
+  );
+  const css = await Bun.file(new URL("./dialog.css", import.meta.url)).text();
+  const rule = css.slice(css.indexOf(".overlay-dialog-lines {"));
+  expect(rule.slice(0, rule.indexOf("}"))).toMatch(/max-height:[^;]+;[\s\S]*overflow-y: auto;/);
+});
+
+// Lawrence 2026-11-07, a Leave site? dialog over Gmail: "weird roundness", "weird border". A dialog with
+// no text field gives its card the keyboard (so Return and Escape reach it), and the pages' keyboard ring
+// (desktop.css, 1.5 px at 48% of the text color) then drew a dark second edge around the clear card, at
+// the page's corner, not the native glass's. The card is a container, as an open popover is: it takes
+// the focus and draws no ring around itself; its buttons keep theirs.
+test("a dialog with no text field gives its card the keyboard, and the card draws no focus ring", async () => {
+  const leave: DialogState = {
+    id: 8,
+    title: "Leave site?",
+    lines: ["Changes that you made may not be saved."],
+    fields: [],
+    buttons: [
+      { id: "cancel", title: "Cancel", role: "cancel" },
+      { id: "ok", title: "Leave", role: "default" },
+    ],
+    keys: { return: "ok", escape: "cancel", command: {} },
+    layout: "standard",
+    values: {},
+    focus: null,
+  };
+  const { host } = await render(leave);
+  const card = host.querySelector(".overlay-dialog") as HTMLElement;
+  for (let frame = 0; frame < 30 && dom!.window.document.activeElement !== card; frame++) {
+    await act(async () => {
+      await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
+    });
+  }
+  const focused = dom!.window.document.activeElement as HTMLElement;
+  expect(focused === card).toBe(true);
+  expect(focused.getAttribute("data-focus-ring")).toBe("none");
+  // Its buttons keep the keyboard ring.
+  expect(host.querySelector('[data-button="ok"]')!.hasAttribute("data-focus-ring")).toBe(false);
+});

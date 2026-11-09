@@ -5,14 +5,17 @@ import { useT } from "../i18n";
 import { experimentArm } from "../../../experiments/experiment";
 import { hoverActions } from "../../../ui/hoverActions.experiment";
 import { useBlockWrap } from "./blockWrap";
-import { Lines, lineCount, PreviewMore, SIDEWAYS_SCROLLER, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
+import { Lines, PreviewMore, WrapButton } from "./BlockParts";
+import { lineCount, SIDEWAYS_SCROLLER, usePreview, useSidewaysRef } from "./blockPartsModel";
 import { CopyButton } from "./CopyButton";
 import { ChevronRight } from "./icons";
 import { Markdown } from "./Markdown";
 import { menuPartRef } from "./menuParts";
 import { watchOutputViewport } from "./outputViewport";
-import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
+import { OutputMore } from "./toolOutput";
+import { previewedOutput, useOutput } from "./toolOutputModel";
 import type { ToolResult } from "./toolResult";
+import { wholeBlocksAfter } from "./markdownCut";
 
 /// Its own component keeps the sideways watcher mounted with the Raw body when a reader switches
 /// renderers. Markdown never mounts that watcher, and no renderer runs a tool's fences.
@@ -99,7 +102,7 @@ export const ToolOutput = memo(function ToolOutput({
         <span className="cv-tool-output__actions" data-find-skip="">
           {!rendered && <WrapButton kind="output" />}
           {ownCopy && experimentArm(hoverActions) === "all" && (
-            <CopyButton text={raw.text ?? ""} label={t("turn.copy")} className="cv-codeblock__action" />
+            <CopyButton text={raw.text ?? ""} label={t("turn.copy")} />
           )}
         </span>
         {rendered ? (
@@ -112,7 +115,10 @@ export const ToolOutput = memo(function ToolOutput({
             tabIndex={0}
             aria-label={t("handoff.tool_output")}
           >
-            {shown.shown && <Markdown plainCode>{shown.shown}</Markdown>}
+            {/* A cut tail starts at its first whole block: never inside a fence or a span (markdownCut.ts). */}
+            {shown.shown && (
+              <Markdown plainCode>{(shown.cut && wholeBlocksAfter(shown.shown)) || shown.shown}</Markdown>
+            )}
           </div>
         ) : (
           <MonoOutput

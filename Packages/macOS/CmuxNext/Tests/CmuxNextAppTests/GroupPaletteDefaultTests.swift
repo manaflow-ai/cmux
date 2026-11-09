@@ -9,29 +9,27 @@ import CmuxNextTestSupport
 import CmuxTheme
 import Testing
 
-/// Lawrence 2026-10-13: familiar group UI first. Tab and sidebar groups draw his
-/// fixed group palette (the Chrome tab group colors of #15516) whatever the theme,
-/// and a group header's more button opens his group editor (cx-rcby), not the
-/// right-click menu. #18991 and #19179 had moved the colors onto the theme's ANSI
-/// palette, and #19019 had pointed the more button at the full menu.
+/// Lawrence 2026-10-13: familiar group UI first. Tab and sidebar groups draw the fixed group
+/// palette whatever the theme, and a group header's more button opens his group editor (cx-rcby),
+/// not the right-click menu. Since 2026-11-07 that palette is the vibrant one (Leo 2026-11-06: "these
+/// are frumpy"), and pure glass (`sidebar.groupPalette` glass) draws a colored group from it too.
 @MainActor @Suite(.serialized, .closesItsWindows) struct GroupPaletteDefaultTests {
-    /// Lawrence's palette: hue in degrees and relative chroma.
-    static let hues: [GroupColor: (hue: CGFloat, chroma: CGFloat)] = [
-        .grey: (0, 0), .blue: (214, 1), .red: (4, 1), .yellow: (46, 1), .green: (136, 0.9),
-        .pink: (330, 0.95), .purple: (272, 0.9), .cyan: (186, 0.9), .orange: (24, 1),
+    /// The vibrant palette on dark and light glass.
+    static let vibrant: [GroupColor: (dark: UInt32, light: UInt32)] = [
+        .grey: (0xA1A1AA, 0x8E8E93), .red: (0xFD7273, 0xE36364), .orange: (0xFE843D, 0xE57431), .yellow: (0xF5BA14, 0xD6A20A),
+        .green: (0x20C45F, 0x33AC5A), .cyan: (0x14BBC2, 0x10A6AD), .blue: (0x62A7FD, 0x4693F1), .purple: (0xB28BFD, 0x9F79E6),
+        .pink: (0xF46CBF, 0xD465A8),
     ]
     /// The palette's colors without grey and blue, in order.
     static let order: [GroupColor] = [.red, .yellow, .green, .pink, .purple, .cyan, .orange]
 
-    /// A palette color as Lawrence drew it: the color itself (`fill` false) or the
-    /// background that carries a name, in its light or dark variant.
+    /// A palette color: the color itself (`fill` false) or the background that carries a name (the color taken toward
+    /// the sidebar's black or white), in its light or dark variant.
     static func lawrence(_ color: GroupColor, fill: Bool, dark: Bool) throws -> ThemeRGB {
-        let (hue, chroma) = try #require(hues[color])
-        let saturation: CGFloat = fill ? (dark ? 0.34 : 0.30) : (dark ? 0.40 : 0.42)
-        let brightness: CGFloat = fill ? (dark ? 0.40 : 0.86) : (dark ? 0.68 : 0.64)
-        let ns = try #require(NSColor(calibratedHue: hue / 360, saturation: saturation * chroma, brightness: brightness, alpha: 1)
-            .usingColorSpace(.sRGB))
-        return ThemeRGB(red: ns.redComponent, green: ns.greenComponent, blue: ns.blueComponent)
+        let hex = try #require(vibrant[color])
+        let swatch = ThemeRGB(hex: dark ? hex.dark : hex.light)
+        guard fill else { return swatch }
+        return dark ? swatch.mixed(toward: ThemeRGB(hex: 0x1C1C1E), 0.55) : swatch.mixed(toward: .white, 0.7)
     }
 
     static func rgb(_ color: CGColor?) throws -> ThemeRGB {

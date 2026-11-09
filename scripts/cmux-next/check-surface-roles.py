@@ -4,7 +4,7 @@
 
 The one source is schemas/surface-roles/surface-roles.json: every popover, menu, card, toast, sheet
 and tooltip is one of its roles, with its tone (the theme's glass tint or the shared neutral glass),
-veil, rim, corner depth (native) and web radius, shadow and Reduce Transparency fallback. Two hand-kept copies follow it: the
+veil (gray, or the theme's surface with veilTint "theme"), rim, corner depth (native) and web radius, shadow and Reduce Transparency fallback. Two hand-kept copies follow it: the
 app's (CmuxNextDesign/FloatingGlass/SurfaceRole.swift: `SurfaceRole`, and the neutral looks
 `FloatingGlassStyle.toast`, `.dialog` and `.card`) and the webviews' (the surface-roles block of
 webviews/src/ui/glass/glass.css: `--surface-<role>-*` and `--surface-near-opaque`). This script
@@ -30,6 +30,8 @@ END = "/* surface-roles:end */"
 DARK_GRAY, LIGHT_GRAY = 0.11, 0.99
 FIELDS = {"name", "for", "tone", "cornerDepth", "webRadius", "castsShadow", "reduceTransparency"}
 NEUTRAL_FIELDS = FIELDS | {"style", "veil", "rim"}
+# A neutral role may tint its veil with the theme's surface ("theme") instead of the gray ("gray", the default).
+VEIL_TINTS = ("gray", "theme")
 
 
 def load():
@@ -44,7 +46,8 @@ def load():
         # A native corner is a level of the one concentric corner rule, never a literal radius.
         assert isinstance(role["cornerDepth"], int) and role["cornerDepth"] >= 0, role
         if role["tone"] == "neutral":
-            assert set(role) == NEUTRAL_FIELDS, role
+            assert set(role) - {"veilTint"} == NEUTRAL_FIELDS, role
+            assert role.get("veilTint", "gray") in VEIL_TINTS, role
             assert role["style"].isidentifier(), role
             styles.append(role["style"])
             for appearance in ("dark", "light"):
@@ -57,6 +60,10 @@ def load():
             assert role["tone"] == "theme" and set(role) == FIELDS, role
     assert len(styles) == len(set(styles)), "one role per neutral style"
     return data
+
+
+def takes_theme_tint(role):
+    return role.get("veilTint", "gray") == "theme"
 
 
 def doc(text):
@@ -79,7 +86,7 @@ def swift(data):
     looks = "\n".join(
         "    /// %s.\n"
         "    nonisolated public static let %s = FloatingGlassStyle(cornerDepth: %d, darkVeilAlpha: %s, lightVeilAlpha: %s,\n"
-        "                                                         darkRim: (%s, %s), lightRim: (%s, %s), castsShadow: %s)"
+        "                                                         darkRim: (%s, %s), lightRim: (%s, %s), castsShadow: %s%s)"
         % (
             doc(role["for"]),
             role["style"],
@@ -91,6 +98,7 @@ def swift(data):
             num(role["rim"]["light"][0]),
             num(role["rim"]["light"][1]),
             "true" if role["castsShadow"] else "false",
+            ",\n                                                         veilTakesThemeTint: true" if takes_theme_tint(role) else "",
         )
         for role in neutral
     )
@@ -165,6 +173,11 @@ def gray(white, alpha):
     return "rgb(%d %d %d / %s%%)" % (level, level, level, num(round(alpha * 100, 2)))
 
 
+def theme_veil(alpha):
+    # The theme's surface (--glass-surface, the color the popovers' tint mixes) at the veil's opacity.
+    return "color-mix(in srgb, var(--glass-surface) %s%%, transparent)" % num(round(alpha * 100, 2))
+
+
 def css_block(data):
     lines = [
         BEGIN,
@@ -180,8 +193,12 @@ def css_block(data):
         if role["webRadius"] is not None:
             lines.append("%s-radius: %spx; /* %s */" % (prefix, num(role["webRadius"]), role["for"]))
         if role["tone"] == "neutral":
-            lines.append("%s-veil: light-dark(%s, %s);" % (
-                prefix, gray(LIGHT_GRAY, role["veil"]["light"]), gray(DARK_GRAY, role["veil"]["dark"])))
+            if takes_theme_tint(role):
+                lines.append("%s-veil: light-dark(%s, %s);" % (
+                    prefix, theme_veil(role["veil"]["light"]), theme_veil(role["veil"]["dark"])))
+            else:
+                lines.append("%s-veil: light-dark(%s, %s);" % (
+                    prefix, gray(LIGHT_GRAY, role["veil"]["light"]), gray(DARK_GRAY, role["veil"]["dark"])))
             light_top, light_bottom = role["rim"]["light"]
             dark_top, dark_bottom = role["rim"]["dark"]
             lines.append("%s-rim-top: light-dark(%s, %s);" % (prefix, gray(1, light_top), gray(1, dark_top)))

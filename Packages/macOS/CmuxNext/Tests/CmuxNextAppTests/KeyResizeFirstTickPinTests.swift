@@ -69,18 +69,28 @@ struct KeyResizeFirstTickPinTests {
         defer { rig.close() }
         let panes: [PaneID] = ["p1", "p2"]
         for pane in panes { _ = try await Self.grids(pane, rig) }
+        var startGrids: [PaneID: TerminalGridSize] = [:]
+        for pane in panes { startGrids[pane] = try Self.surface(pane, in: rig).fittedGrid }
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
-        var frames = 0
-        while frames < 240, rig.frame() { frames += 1 }
+        var frames = 0, firstChanged: [PaneID: TerminalGridSize] = [:]
+        while frames < 240, rig.frame() {
+            frames += 1
+            for pane in panes where firstChanged[pane] == nil {
+                if let grid = try Self.surface(pane, in: rig).fittedGrid, grid != startGrids[pane] { firstChanged[pane] = grid }
+            }
+        }
         rig.commit()
         #expect(frames > 3, "the presses did not spring")
         for pane in panes {
             let final = try #require(try Self.surface(pane, in: rig).fittedGrid)
             let grids = try await Self.grids(pane, rig)
-            // RESIZE P0 7: the grid of the first landed frame goes at once; these frames run in one turn, so no refresh ends a window and the rest go as the final grid.
-            #expect(grids.last == final && grids.count <= 2 && Set(grids).count == grids.count,
-                    "\(pane.rawValue): two presses before one tick sent \(grids), not at most the first frame's grid and then the final grid \(final)")
+            // RESIZE P0 7: the grid of the first landed frame (the frame that first showed a new grid) goes at once; these
+            // frames run in one turn, so no refresh ends a window and the rest go as the final grid. Exact: any other first
+            // grid (a press's own target, m6) fails (RESIZE P0 8, review of 28a640183a7).
+            let atOnce = firstChanged[pane].map { [$0, final] }
+            #expect(grids == [final] || grids == atOnce,
+                    "\(pane.rawValue): two presses before one tick sent \(grids), not [the first frame's grid \(String(describing: firstChanged[pane])),] then the final grid \(final)")
         }
 
         var sizes: [PaneID: CGSize] = [:]

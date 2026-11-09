@@ -197,7 +197,7 @@ enum SettingsHandlers {
         try AppearanceHandlers.requireUnmanaged(path, context)
         let explicit = invocation["on"]?.boolValue
         let writer = SettingWriter(invocation.origin)
-        Task {
+        context.services.registry.track(Task { // a capturing caller (`action.run`, the CLI) answers once the write applied
             do {
                 let root = try await settings.file.document()
                 if let descriptor {
@@ -205,10 +205,9 @@ enum SettingsHandlers {
                 } else {
                     try await settings.set(.bool(explicit ?? !(root.value(at: path)?.boolValue ?? false)), at: path)
                 }
-            } catch {
-                logger.error("toggle setting \(setting, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-            }
-        }
+            } catch { logger.error("toggle setting \(setting, privacy: .public) failed: \(String(describing: error), privacy: .public)") }
+            return nil
+        })
     }
 
     /// `browser.defaultEngine`: applies at once (the next new tab uses it),

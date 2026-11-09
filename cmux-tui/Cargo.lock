@@ -8,8 +8,12 @@ version = "1.0.0"
 dependencies = [
  "acpmux-build-id",
  "acpmux-hot",
+ "aho-corasick",
  "anyhow",
+ "async-trait",
+ "axum",
  "base64",
+ "blake2",
  "bytes",
  "chrono",
  "chrono-tz",
@@ -27,13 +31,19 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-local-url",
  "cmux-mcp-connect",
  "cmux-palette-ranker",
  "cmux-panic-log",
+ "cmux-relay",
+ "cmux-remote",
+ "cmux-remote-protocol",
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
  "cmux-tailnet",
+ "cmux-transport",
+ "cmux-tui-platform",
  "cmux-unix-socket",
  "cmux-vault-egress",
  "cmux-wg",
@@ -78,6 +88,7 @@ dependencies = [
  "turmoil",
  "unicode-normalization",
  "unicode-width",
+ "url",
  "uuid",
  "wait-timeout",
  "windows-sys 0.61.2",
@@ -1110,6 +1121,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-classic-import"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-cloud-api"
 version = "1.0.0"
 dependencies = [
@@ -1281,6 +1301,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-command-class"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-conductor-import"
 version = "0.1.0"
 dependencies = [
@@ -1447,13 +1471,11 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-cloud-environment",
- "cmux-cloud-wire",
  "cmux-json",
  "cmux-link",
  "cmux-server",
  "cmux-server-core",
  "flate2",
- "futures-util",
  "libc",
  "proptest",
  "ring",
@@ -1463,7 +1485,6 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
- "tokio-tungstenite",
  "url",
  "x25519-dalek",
  "yaml-rust",
@@ -1541,7 +1562,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "zeroize",
 ]
 
 [[package]]
@@ -1551,6 +1571,13 @@ dependencies = [
  "hmac",
  "sha2 0.10.9",
  "subtle",
+]
+
+[[package]]
+name = "cmux-local-url"
+version = "0.1.0"
+dependencies = [
+ "regex",
 ]
 
 [[package]]
@@ -1592,11 +1619,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmux-mux2"
+name = "cmux-palette-eval"
 version = "0.1.0"
 dependencies = [
- "ghostty-vt",
- "libc",
+ "cmux-palette-ranker",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1677,7 +1705,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "cc",
  "cmux-encode",
@@ -1934,6 +1962,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-terminal-prediction"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-terminal-sizing"
 version = "0.1.0"
 dependencies = [
@@ -1949,6 +1981,7 @@ version = "0.1.0"
 name = "cmux-transport"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "proptest",
 ]
 
@@ -1976,6 +2009,7 @@ dependencies = [
  "cmux-cloud-wire",
  "cmux-config",
  "cmux-conversation",
+ "cmux-focus-core",
  "cmux-git",
  "cmux-holder",
  "cmux-host",
@@ -1985,6 +2019,8 @@ dependencies = [
  "cmux-process",
  "cmux-pty",
  "cmux-rd-host",
+ "cmux-rd-link",
+ "cmux-rd-proto",
  "cmux-relay",
  "cmux-remote",
  "cmux-remote-protocol",
@@ -2082,12 +2118,14 @@ dependencies = [
  "cmux-app-manifest",
  "cmux-bookmarks-core",
  "cmux-bookmarks-ops",
+ "cmux-classic-import",
  "cmux-cloud-api",
  "cmux-conductor-import",
  "cmux-config",
  "cmux-conversation",
  "cmux-feed-core",
  "cmux-flow-trace",
+ "cmux-focus-core",
  "cmux-git",
  "cmux-history",
  "cmux-holder",
@@ -2096,6 +2134,7 @@ dependencies = [
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-local-url",
  "cmux-palette-ranker",
  "cmux-process",
  "cmux-pty",
@@ -2142,6 +2181,7 @@ dependencies = [
  "wait-timeout",
  "windows-sys 0.61.2",
  "zeroize",
+ "zstd",
 ]
 
 [[package]]
@@ -2353,6 +2393,10 @@ dependencies = [
  "base64",
  "boringtun",
  "bytes",
+ "cmux-rd-core",
+ "cmux-rd-engine",
+ "cmux-rd-link",
+ "cmux-rd-proto",
  "cmux-transport",
  "getrandom 0.3.4",
  "ip_network",
@@ -2896,7 +2940,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 2.0.119",
+ "syn 3.0.6",
 ]
 
 [[package]]
@@ -9634,3 +9678,31 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[package]]
+name = "zstd"
+version = "0.13.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cdb02c3132d251ab1606e9fc913a7da6c6ed08cc263df15edf082e1dc497d157"
+dependencies = [
+ "zstd-safe",
+]
+
+[[package]]
+name = "zstd-safe"
+version = "7.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c8ea04668f5de8d8d51051714ba560c9536519cadcdb8829bba4fe2ad159b03"
+dependencies = [
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-sys"
+version = "2.1.2+zstd.1.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "481ada9c543b2323cbb7bbdbb5249177fbf0188ed959ed2c15e4b22421c84ed3"
+dependencies = [
+ "cc",
+ "pkg-config",
+]

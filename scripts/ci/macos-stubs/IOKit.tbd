@@ -6,7 +6,7 @@ current-version: 275.0.0
 compatibility-version: 1.0.0
 exports:
   - targets:         [ x86_64-macos, arm64-macos ]
-    symbols:         [
-                       '_IOPMAssertionCreateWithName',
-                       '_IOPMAssertionRelease' ]
+    symbols:         [ '_IOObjectRelease', '_IOPMAssertionCreateWithName', '_IOPMAssertionRelease',
+                       '_IORegistryEntryCreateCFProperty', '_IOServiceGetMatchingService', '_IOServiceMatching',
+                       '_kIOMainPortDefault', '_kIOMasterPortDefault' ]
 ...

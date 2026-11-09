@@ -20,9 +20,12 @@
   --lg-sheet: 520px;
 }
 
+/* The list's track: --lg-list until its edge is dragged (SplitEdge sets --home-channels-list-width
+   here); it reads invalid while that is unset, and the conversation keeps 360px. */
 .lg-page {
+  --lg-list-track: clamp(200px, var(--home-channels-list-width), 100% - 360px);
   display: grid;
-  grid-template-columns: var(--lg-list) minmax(0, 1fr);
+  grid-template-columns: var(--lg-list-track, var(--lg-list)) minmax(0, 1fr);
   height: 100%;
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
@@ -46,6 +49,7 @@
 /* ---------- List ---------- */
 /* Transparent: the window's material shows through, as the native sidebar. */
 .lg-list {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1864,7 +1868,8 @@
 }
 
 /* ---------- Sheets (routes.ts): one dialog, one decision ---------- */
-/* The palette's surface and the shared popup rule (a dimmed page, the solid popup surface). */
+/* A dimmed page and the sheet role's glass (ui/popupSurface.css .ui-dialog.ui-glass): its veil, radius
+   and depth, never the solid popup surface. */
 .lg-form.ui-dialog,
 .lg-form {
   position: fixed;
@@ -1877,9 +1882,6 @@
   max-height: 80vh;
   padding: 0;
   border: 0;
-  border-radius: 12px;
-  background: var(--surface-popup);
-  box-shadow: var(--ui-popup-shadow);
   overflow: hidden;
   z-index: var(--layer-overlay);
 }
@@ -2124,6 +2126,10 @@
   }
   .lg-page > .lg-list {
     border-inline-end: 0;
+  }
+  /* One pane at a time: nothing to split. */
+  .lg-list > .ui-split-edge {
+    display: none;
   }
   .lg-back {
     display: inline-flex;

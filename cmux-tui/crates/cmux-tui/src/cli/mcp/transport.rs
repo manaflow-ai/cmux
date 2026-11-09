@@ -195,6 +195,18 @@ pub(super) fn resource(
                     idempotency_key: key.clone(),
                 });
             }
+            // An older daemon refuses an operation it does not know as a
+            // bare envelope error: name it and the upgrade, as the CLI does.
+            let error = match &plan.operation {
+                WireOperation::Typed(operation) => super::super::older_daemon::replace(
+                    &mut reader,
+                    &error,
+                    operation.wire_name(),
+                    Some(socket.as_path()),
+                )
+                .unwrap_or(error),
+                _ => error,
+            };
             Err(CallFailure { kind: Rejected, error, idempotency_key: key.clone() })
         }
         Err(resolve::Failure::Refused) => Err(fail(sent, "session.busy", "session is busy".into())),
@@ -226,6 +238,7 @@ pub(super) fn session_events(
         stream: true,
         resolve: Vec::new(),
         view: ResponseView::Full,
+        filter: Default::default(),
     };
     if let Some(cursor) = cursor {
         plan.params.set("cursor", cursor.clone());

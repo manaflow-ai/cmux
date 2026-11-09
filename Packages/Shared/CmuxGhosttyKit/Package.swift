@@ -145,6 +145,42 @@ import PackageDescription
 // app's surfaces turn it on in termio Manual). A size bounce the shell reads
 // as one SIGWINCH no longer leaves a new pane empty (close-then-type P0).
 //
+// Since 1740c4452..538a3e2ef (fork PR #86): while cmux presents host sizes
+// and a frame of a new host size waits for that present, every renderer
+// update draws at once (Thread drawsNow, Metal.hostFrameWaits), not at the
+// next display-link tick: the program's redraw for the grid just sent is in
+// the frame cmux presents (RESIZE P0 10, T render hop). A frame the renderer
+// shows itself at the host size ends the wait, so at rest output stays paced.
+//
+// Since 538a3e2ef..2db2ea423 (fork PR #87, stacked on #86): host frames say
+// whether the program drew at their grid. ghostty_surface_host_frame(false)
+// returns READY_PROGRAM (7) for a frame drawn after program output parsed since
+// the last grid change, READY for a frame of the size only, and a
+// program-fresh frame turns the main run loop when it completes, so cmux's
+// presenter can hold a resize's frame for the program's redraw (RESIZE P0 12).
+//
+// Since 2db2ea423..8e881185b (fork PR #88, stacked on #87): READY_PROGRAM
+// means the program redrew the whole new grid, not only that it wrote output.
+// A picture begins at a synchronized update, a cursor home, a full clear or a
+// line feed; it counts when it reaches the last row and column without going
+// past the grid (RESIZE P0 13). An old-grid frame (a program that repaints
+// for the size it read before the change) no longer ends cmux's hold.
+//
+// Since 8e881185b..7a372c740 (release/cmux-538a3e2e-resize-p0-16): a full
+// clear that begins a picture no longer reaches the last row by itself; the
+// picture reaches it once the program printed on the grid's last two rows.
+// ncurses (htop) writes its repaint after the clear in several reads, so the
+// first read's end showed a nearly empty frame (RESIZE P0 16).
+//
+// Since 538a3e2ef..8379ecc8a (fork PR #90, release branch
+// release/cmux-538a3e2e-upstream-picks): upstream #15111 (one-scan style runs
+// in RowBuilder.scan) and #15121 (RefCountedSet reuses dead IDs instead of
+// a whole-page clone), picked onto the #86 pin. ghostty-bench: 1.24-1.62x on
+// styled and hyperlink streams and render-state updates.
+//
+// b3a5ebfdf (release/cmux-538a3e2e-resize-p0-22) merges 8379ecc8a into
+// 7a372c740: both changes above in one pin (RESIZE P0 22).
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -168,8 +204,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-1740c44523895c3c0ec8f89203741abf3ca7efa3-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "ba1abb11322710dca12ebf6d07753f66e87f7475141298417421a4cd4b4ec426"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-b3a5ebfdfe700635696ea8f71e9dfc72e496ab82-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "007a462b6e99a96a21cbfe4d37756164494b5337f9482d3c25fe14da7cec9b8a"
         ),
     ]
 )

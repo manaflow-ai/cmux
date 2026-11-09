@@ -288,7 +288,7 @@ test("a data: URI written as text stays as written: in code, a source map, a CSS
 });
 
 test("re-dropping the same local link replaces the chip instead of duplicating it", async () => {
-  const { appendAttachments } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const { appendAttachments } = await import("../src/agent-session/acpmux/composer/attachmentIntakeModel");
   const link = (name: string, path: string): ComposerAttachment => ({
     id: `link:${path}`,
     kind: "link",
@@ -304,7 +304,7 @@ test("re-dropping the same local link replaces the chip instead of duplicating i
 });
 
 test("re-attaching design selection chips replaces both stable ids", async () => {
-  const { appendAttachments } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const { appendAttachments } = await import("../src/agent-session/acpmux/composer/attachmentIntakeModel");
   const { designSelectionChips } = await import("../src/agent-session/acpmux/designSelection");
   const selection = {
     id: "card-1",
@@ -318,7 +318,7 @@ test("re-attaching design selection chips replaces both stable ids", async () =>
 
 test("attachment intake wires local link deduplication through its hook state", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntakeModel");
   let held: ComposerAttachment[] = [];
   function Field() {
     const result = useAttachmentIntake({
@@ -453,7 +453,7 @@ test("a slow source answer never holds a ready chip; the source is added when it
 // read's chip alone: only the read that owns the id settles it.
 test("an undone cancel's chip is settled by its new read, never by the cancelled one", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntakeModel");
   const answers: ((result: { paths: string[] } | { error: string }) => void)[] = [];
   let intake!: ReturnType<typeof useAttachmentIntake>;
   function Field() {
@@ -498,7 +498,7 @@ test("an undone cancel's chip is settled by its new read, never by the cancelled
 // are, rather than leaving the text with nothing.
 test("an undone cancel of a file still being made reads it once its bytes are made", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntakeModel");
   let intake!: ReturnType<typeof useAttachmentIntake>;
   function Field() {
     intake = useAttachmentIntake({
@@ -531,7 +531,7 @@ test("an undone cancel of a file still being made reads it once its bytes are ma
 
 test("an image copied as HTML into a plain text field comes in as a chip and the text still goes in", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntakeModel");
   let held: ComposerAttachment[] = [];
   function Field() {
     const { attachments } = useAttachmentIntake({
@@ -573,7 +573,7 @@ test("a prompt copied from a bubble with `![…](data:…)` text pastes as an at
 
 test("the same text pasted into a plain text field leaves its text there without the image", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntakeModel");
   let held: ComposerAttachment[] = [];
   function Field() {
     const { attachments } = useAttachmentIntake({
@@ -1061,4 +1061,18 @@ test("a file still uploading whose node the person deletes is cancelled", async 
   expect(upload.composer.current!.wakeState().attachments ?? []).toEqual([]);
   expect(field().querySelector("[data-inline-attachment]")).toBeNull();
   expect(host.querySelector('[aria-busy="true"]')).toBeNull();
+});
+
+test("an unplaced chip's text or file goes in after a selection, never over it", async () => {
+  // Keep as .txt (and a click on a chip) takes the chip's place in the prompt first
+  // (composer/pastedChips.ts). An oversized paste inside a code fence leaves its chip in the strip
+  // with no place: what comes next goes in after the selected draft, never replacing it (Codex
+  // review of #37516).
+  const composer = await openComposer([]);
+  await act(async () => composer.current!.restore("keep this draft", []));
+  await act(async () => markdownField().selectAll());
+  await act(async () => markdownField().removeInline("unplaced-chip", true));
+  await act(async () => markdownField().pasteText(" and this"));
+  await settleTurns();
+  expect(markdownField().value()).toBe("keep this draft and this");
 });

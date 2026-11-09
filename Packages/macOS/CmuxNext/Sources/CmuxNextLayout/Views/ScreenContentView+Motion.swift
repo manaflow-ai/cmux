@@ -18,6 +18,7 @@ extension ScreenContentView {
             scrollRidesFrames = false
             // At rest (a user pan holds the camera, so hasMotion leaves it out): what a close retired goes now.
             releaseClosing()
+            releasePaneFrameNoticesIfSettled()
             return false
         }
         let frameSpring = policy.spring(motionState.frameSpring)
@@ -42,6 +43,9 @@ extension ScreenContentView {
                 reportLeadingColumn()
             }
         }
+        // Right after its frame's `layout.travel` (no sample in between): the strip camera's points left after this
+        // frame's step, as `travelLeft` is for the panes (New Column moves only the camera).
+        if MotionTrace.isEnabled { MotionTrace.sample("layout.camera", Double(abs(scroll.target - scroll.value))) }
         if !moving { scrollRidesFrames = false }
         applyPresentation()
         if moving, let window { drawAhead(MotionClock.forWindow(window).nextFrameInterval, policy: policy) }
@@ -50,12 +54,15 @@ extension ScreenContentView {
         if !moving { holdsContentForKeyResize = false }
         // The motion landed: the hosts a close retired are torn down in this frame, not in its first.
         if !moving { releaseClosing() }
+        // The motion landed with no drag and no zoom left: the pane views post again.
+        if !moving { releasePaneFrameNoticesIfSettled() }
         return moving
     }
     /// The key's turn (T-KEYS 3, `LayoutRootView.keyboardResizeDidChange`): the press's first refresh is drawn ahead as
     /// each later refresh is, from the springs the press's targets just set, so the frame that shows the press shows each
     /// terminal at its pane's size in it (keys bench 8554d26b: that frame was the only one a terminal showed off its pane).
-    /// Render only: no presentation, no layout, no bounds and no grid in the key's turn (S1B).
+    /// No presentation, no layout and no bounds in the key's turn (S1B); the size drawn ahead takes its grid to the
+    /// program then, so it redraws before the frame shows (RESIZE P0 11).
     func drawAheadOfKeyPress() {
         guard let window, hasMotion else { return }
         drawAhead(MotionClock.forWindow(window).nextFrameInterval, policy: Motion.panes.policy)
@@ -83,7 +90,7 @@ extension ScreenContentView {
             let now = frame.rect.offsetBy(dx: offset.dx, dy: offset.dy).pixelEdges(scale)
             let then = nextRect.offsetBy(dx: offset.dx, dy: offset.dy).pixelEdges(scale)
             let change = CGSize(width: then.width - now.width, height: then.height - now.height)
-            if change != .zero { host.drawAhead(sizeChange: change) }
+            if change != .zero { host.drawAhead(sizeChange: change, keyPress: true) }
         }
     }
 
@@ -118,10 +125,13 @@ extension ScreenContentView {
         return moving
     }
 
-    /// A close's first frame of the pane, divider and (riding them) camera springs, the strip's and
-    /// each row column's, in the change that starts them, once `syncScroll` placed the camera: the
-    /// frame that drops the closed pane already shows its neighbours covering some of its space,
-    /// and the shift the close needs (the last column or row closed) already under way.
+    /// A close's first step of the pane, divider and (riding them) camera springs, the strip's and
+    /// each row column's, in the change that starts them, once `syncScroll` placed the camera. A pane
+    /// close's key turn (`LayoutRootView.syncWithModelForNextFrame`) holds the presentation: the
+    /// step is shown by the first frame tick, which steps again and presents once, so the first
+    /// frame that shows the close already shows its neighbours covering some of the closed pane's
+    /// space and the shift the close needs (the last column or row closed) under way. A change
+    /// that does not hold presentations shows the step in its own turn.
     func leadIfPending(_ dt: Double = 1.0 / 120, policy: MotionPolicy = Motion.panes.policy) {
         guard leadsFrame else { return }
         leadsFrame = false
@@ -286,6 +296,8 @@ extension ScreenContentView {
         if zoomMotion.pane != zooming {
             ensureStacking()
             changed = true
+            // Each pane view the zoom moved posts its one frame notice now (`FrameNoticeHold`).
+            releasePaneFrameNoticesIfSettled()
         }
         // Once every frame is placed: a pane is clipped by the panes in front of it, the panes a
         // zoom covers too (they stay where they were, opaque, `zoomMotion.covered`). A host whose

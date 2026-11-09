@@ -48,9 +48,9 @@ struct SidebarRowPageBesideChatTests {
     func theRowShowsTheChatWhereverFocusIs(chatFocusedAt: UInt64) throws {
         let (workspace, chat) = try Self.workspace(chat: true, chatFocusedAt: chatFocusedAt)
         let chatTab = try #require(chat)
-        let front = SidebarMapping.shared.frontTab(workspace, selectedTab: { _ in nil })
-        #expect(front?.kind == (chatFocusedAt > 2 ? .conversation : .browser))
-        #expect(SidebarMapping.shared.faceTab(workspace, selectedTab: { _ in nil })?.id == chatTab.id)
+        let picks = SidebarMapping.shared.faceTabs(workspace, selectedTab: { _ in nil })
+        #expect(picks.front?.kind == (chatFocusedAt > 2 ? .conversation : .browser))
+        #expect(picks.face?.id == chatTab.id)
         let row = SidebarMapping.shared.row(workspace, machine: .local, pageFace: Self.pageFace)
         #expect(row.title == "GUI push · coordinator")
         #expect(row.icon == nil, "the page's favicon is not the chat's icon")

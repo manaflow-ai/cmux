@@ -28,6 +28,7 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
     static let pageIDs: Set<String> = [
         "cmux.apps",
         "cmux.artifacts",
+        "cmux.bookmarks",
         "cmux.changelog",
         "cmux.chief-inspector",
         "cmux.chief-usage",
@@ -35,6 +36,7 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         "cmux.cloud",
         "cmux.cloud-progress",
         "cmux.coderouter",
+        "cmux.cookie-import",
         "cmux.debug-settings",
         "cmux.diff",
         "cmux.editor",
@@ -43,6 +45,7 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         "cmux.group-editor",
         "cmux.history",
         "cmux.home-channels",
+        "cmux.home-chat-colors",
         "cmux.home-messages",
         "cmux.icon-picker",
         "cmux.import-history",
@@ -50,13 +53,19 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         "cmux.machines",
         "cmux.markdown",
         "cmux.mobile-pairing",
+        "cmux.onboarding",
         // What shows over a window's content (dialogs).
         "cmux.overlay",
         "cmux.page-info",
         "cmux.passwords",
+        "cmux.server-cards",
         "cmux.settings",
+        "cmux.stash",
         "cmux.stats",
         "cmux.tasks",
+        "cmux.site-settings",
+        "cmux.site-data",
+        "cmux.certificate",
     ]
 
     /// The agent chat's page host (`cmux.agent`), which the server serves at `/agent-pane/` (the

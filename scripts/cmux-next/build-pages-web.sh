@@ -28,6 +28,7 @@ done
 PAGES="
 apps
 artifacts
+bookmarks
 changelog
 chief-inspector
 chief-usage
@@ -41,20 +42,26 @@ github
 group-editor
 history
 home-channels
+home-chat-colors
 home-messages
 icon-picker
 import-history
 keybindings
 machines
 mobile-pairing
+onboarding
 overlay
 passwords
+server-cards
 settings
+stash
 stats
 tasks
 "
 # The browser chrome's pages (CmuxNextPages BrowserChromeWebHost).
-PAGES="$PAGES page-info"
+PAGES="$PAGES page-info site-settings site-data certificate"
+# The Import Cookies card (BrowserCookieImportCard, through BrowserChromeWebHost).
+PAGES="$PAGES cookie-import"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the
 # app: only English and the active locale are parsed at open (R82 first-open speed).
 SPLIT_STRINGS="settings"

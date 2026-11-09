@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextBookmarks
 import CmuxNextBrowser
 import CmuxNextCloudUI
 import CmuxNextPages
@@ -58,6 +59,7 @@ enum FirstPartyPageSchemes {
         .agentActivity,
         .apps,
         .artifacts,
+        .bookmarks,
         .changelog,
         .chiefInspector,
         .chiefUsage,
@@ -72,6 +74,7 @@ enum FirstPartyPageSchemes {
         .groupEditor,
         .history,
         .homeChannels,
+        .homeChatColors,
         .homeMessages,
         .iconPicker,
         .importHistory,
@@ -79,7 +82,9 @@ enum FirstPartyPageSchemes {
         .machines,
         .markdown,
         .mobilePairing,
+        .onboarding,
         .passwords,
+        .serverCards,
         .settings,
         .stats,
         .tasks,
