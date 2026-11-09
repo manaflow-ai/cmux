@@ -3830,25 +3830,25 @@
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Normal"
+            "value": "Normale rækker"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Normal"
+            "value": "Normale Zeilen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Normal"
+            "value": "Filas normales"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Normal"
+            "value": "Lignes normales"
           }
         },
         "it": {
@@ -3878,7 +3878,7 @@
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Normal"
+            "value": "Normale rader"
           }
         },
         "pl": {
@@ -3890,7 +3890,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Normal"
+            "value": "Linhas normais"
           }
         },
         "ru": {
@@ -3908,7 +3908,7 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Normal"
+            "value": "Normal satırlar"
           }
         },
         "uk": {
