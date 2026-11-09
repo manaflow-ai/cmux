@@ -55,6 +55,9 @@ export type InboxThread = {
   count: number;
   /// The newest one's first line.
   preview: string;
+  /// The newest one whole, when the notice held no messages but acpmux sent it under its bound
+  /// (hub/inbox.rs `newest`): the line draws it at once, with no read that grows it.
+  newest?: string;
   /// It holds a block or a question.
   blocker: boolean;
   /// The new messages' prompt ids: an opened thread shows these.
@@ -162,6 +165,7 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
       blocker: p.blocker === true || previewLineBlocks(notice, threadId),
       promptIds,
       ...(messages?.length && { messages }),
+      ...(!messages?.length && typeof p.newest === "string" && { newest: withoutRelayEnvelope(p.newest) }),
     });
   }
   return threads.length ? { threads } : undefined;
@@ -201,10 +205,12 @@ const firstLine = (value: string): string =>
     .find((l) => l.trim())
     ?.trim() ?? "";
 
-/// Every message the notice's threads hold, for Find, else their previews.
+/// Every message the notice's threads hold, for Find, else their newest messages or previews.
 export function inboxText(notice: InboxNotice): string {
   return notice.threads
-    .map((thread) => (thread.messages ? thread.messages.map((m) => m.text).join("\n\n") : thread.preview))
+    .map((thread) =>
+      thread.messages ? thread.messages.map((m) => m.text).join("\n\n") : (thread.newest ?? thread.preview),
+    )
     .join("\n\n");
 }
 

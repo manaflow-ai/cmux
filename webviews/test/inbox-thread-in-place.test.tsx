@@ -25,6 +25,7 @@ import {
   THREAD_PAGE,
 } from "../src/agent-session/acpmux/conversation/inboxThreadRead";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { clockTime } from "../src/agent-session/acpmux/clock";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -87,6 +88,8 @@ async function click(element: Element | null | undefined): Promise<void> {
 }
 
 const MINUTE = 60_000;
+/// The shared clock's minute (clock.ts), so each age reads whole minutes from the clock the heads read.
+const BASE = clockTime();
 
 /// A thread of `messages`, the notice's own copy (under acpmux's 4 KB).
 const threadOf = (threadId: string, messages: InboxMessage[]): InboxNotice => ({
@@ -108,19 +111,19 @@ const RAIL: InboxMessage[] = [
   {
     promptId: "r1",
     from: "picker-lane",
-    at: Date.now() - 9 * MINUTE,
+    at: BASE - 9 * MINUTE,
     text: "The rail's band now reaches the last tick.",
   },
   {
     promptId: "r2",
     from: "review-box",
-    at: Date.now() - 5 * MINUTE,
+    at: BASE - 5 * MINUTE,
     text: "Checked it in the gallery at both widths.",
   },
   {
     promptId: "r3",
     from: "picker-lane",
-    at: Date.now() - 2 * MINUTE,
+    at: BASE - 2 * MINUTE,
     text: "**Merged as #2231.**\n\n- the band ends on the tick\n- no pop-in after the fold",
   },
 ];
@@ -301,4 +304,85 @@ test("the row estimator cuts a shut line's long newest message to eight lines, w
   } finally {
     setMessageOpened(undefined, newestWholeKey(key), false);
   }
+});
+
+test("a message another agent sent directly shows its words under its line, shut, no first line on it", async () => {
+  const { IncomingMessageLine } = await import("../src/agent-session/acpmux/conversation/IncomingMessageCard");
+  const text = "**Landed #2231.**\n\n- the band ends on the tick\n- no pop-in after the fold";
+  const container = await render(
+    <IncomingMessageLine
+      id="direct-shut"
+      message={{ name: "picker-lane", text, raw: text }}
+      onOpen={() => undefined}
+    />,
+  );
+  const card = container.querySelector(".cv-agentmsg__card .cv-received__text");
+  expect(card?.querySelector("strong")?.textContent).toBe("Landed #2231.");
+  expect(card?.querySelectorAll("li").length).toBe(2);
+  expect(container.querySelector(".cv-agentmsg__preview")?.textContent).toBe("");
+  expect(container.querySelector(".cv-agentmsg[data-open]")).toBeNull();
+});
+
+test("the row estimator gives a shut direct message its words, cut to eight lines", async () => {
+  const { layoutConversation } = await import("../src/agent-session/acpmux/model");
+  const row = (id: string, text: string): AcpmuxRow => ({
+    id,
+    version: 1,
+    at: 1,
+    kind: "user",
+    text,
+    untyped: true,
+    incoming: { kind: "message", message: { name: "lane-a", text, raw: text } },
+  });
+  const height = (r: AcpmuxRow) => layoutConversation([r], 720, new Map()).heights[0]!;
+  const one = height(row("direct-one", "Line 1."));
+  const ten = height(row("direct-ten", Array.from({ length: 10 }, (_, i) => `Line ${i + 1}.`).join("\n")));
+  const forty = row("direct-forty", Array.from({ length: 40 }, (_, i) => `Line ${i + 1}.`).join("\n"));
+  // Shut, more lines draw taller up to the cut, and forty lines no taller than ten: both are cut.
+  expect(ten).toBeGreaterThan(one + 6 * 18);
+  expect(height(forty)).toBe(ten);
+  setMessageOpened(undefined, forty.id, true);
+  try {
+    expect(height(forty)).toBeGreaterThan(ten + 20 * 18);
+  } finally {
+    setMessageOpened(undefined, forty.id, false);
+  }
+});
+
+test("a notice that held the newest message whole draws it at once and reads the thread only when opened", async () => {
+  const { inboxNotice } = await import("../src/agent-session/acpmux/conversation/inboxNotice");
+  const whole = "Broker refusal on #28564.\n\nCan you land it from a host with a token?";
+  // acpmux past 4 KB (hub/inbox.rs `render`): previews, and the newest message whole under its bound.
+  const notice = inboxNotice("[inbox] New messages from other agents in 1 thread.", {
+    threads: [
+      {
+        threadId: "pr:28564",
+        label: "#28564",
+        from: ["ao-log-bloat"],
+        new: 2,
+        preview: "Broker refusal on #28564.",
+        promptIds: ["n1", "n2"],
+        newest: whole,
+      },
+    ],
+  })!;
+  expect(notice.threads[0]!.newest).toBe(whole);
+  const reads: string[] = [];
+  const readThread = async (threadId: string) => {
+    reads.push(threadId);
+    return [
+      { promptId: "n1", from: "ao-log-bloat", text: "First, the rerun." },
+      { promptId: "n2", from: "ao-log-bloat", text: whole },
+    ];
+  };
+  const container = await render(
+    <InboxNoticeCard rowId="row-newest" notice={notice} onOpen={() => undefined} readThread={readThread} />,
+  );
+  await act(async () => undefined);
+  expect(container.querySelector(".cv-inbox__newest")?.textContent).toContain("Can you land it from a host");
+  expect(reads).toEqual([]);
+  await click(container.querySelector("button.cv-inbox__more"));
+  await act(async () => undefined);
+  expect(reads).toEqual(["pr:28564"]);
+  expect(container.querySelectorAll(".cv-inbox__message").length).toBe(2);
 });

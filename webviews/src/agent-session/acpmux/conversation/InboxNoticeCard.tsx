@@ -214,8 +214,9 @@ function InboxThreadLine({
   // A line the notice gave only a preview (its messages past acpmux's 4 KB, an older acpmux) reads
   // its messages as it draws, so its newest message shows whole without the person asking (Leo,
   // 2026-11-09, reading a thread through `acpmux session inbox` in a shell). The transcript draws
-  // only the rows in view, so only those read.
-  const wanted = !own;
+  // only the rows in view, so only those read. One whose notice held the newest message whole
+  // (`newest`, hub/inbox.rs) draws it at once and reads the rest only when it opens.
+  const wanted = !own && (open || thread.newest === undefined);
   const hasRead = fetched !== undefined;
   useEffect(() => {
     if (!wanted || hasRead || !readThread) return;
@@ -266,7 +267,7 @@ function InboxThreadLine({
     }),
     [name, lookup, senderSession, thread.fromHarness, thread.unverified, newest?.harness, newest?.unverified],
   );
-  const all = messages?.map((m) => m.text).join("\n\n") ?? thread.preview;
+  const all = messages?.map((m) => m.text).join("\n\n") ?? thread.newest ?? thread.preview;
   const repository = githubRepository ?? mentionedRepository(all);
   // Find opens the line that holds the match (the row's text is every thread's messages).
   const reveal = useContext(FindReveal);
@@ -281,7 +282,7 @@ function InboxThreadLine({
   // Several messages each say who sent them and when; one alone is under its sender's line already.
   const heads = (messages?.length ?? 0) > 1;
   // The newest message: read whole, else the notice's preview until it is.
-  const newestText = newest?.text ?? thread.preview;
+  const newestText = newest?.text ?? thread.newest ?? thread.preview;
   const label = thread.label && thread.label !== name ? thread.label : undefined;
   const earlier = messages ? Math.max(0, messages.length - shown) : 0;
   // Where the newest message says it came from (`sender_claim`), under it as under an opened one.
@@ -381,10 +382,10 @@ function InboxThreadLine({
                       messageAt={messageAt}
                     />
                   ))
-              ) : thread.preview ? (
+              ) : newestText ? (
                 <>
                   <Markdown githubRepository={repository} commits="quiet" messageAt={messageAt}>
-                    {thread.preview}
+                    {newestText}
                   </Markdown>
                   {thread.promptIds.length === 1 && thread.sentFrom?.[thread.promptIds[0]!] && (
                     <SentFromLine from={thread.sentFrom[thread.promptIds[0]!]!} />
