@@ -761,8 +761,9 @@ trailing cluster, left of the badge column, with `sidebar.presenceDots` off: a c
 agent's presence color with the drive's glyph (`display` or `globe`) and the agent's short name
 (`Claude 2`). The glyph breathes on agent work's `MotionLoop.breath`; Reduce Motion shows it still and
 fades nothing in. It never gives way to the hover controls (it sits left of them, as the usage warning
-does). A click opens Go to (the agent's tab, `.selectTab`) and Stop (`.stopAgentDrive`: its Computer Use
-session, or its chat's turn; a terminal agent's browser use has no Stop). Debug Settings
+does). A click opens Go to (the agent's tab, Show Tab `tab.focus`) and Stop (Stop Computer Use `computerUseStop` on
+its terminals, or Stop Agent Turn `agentPane.stopTurn` on its chat; a terminal agent's browser use has no Stop),
+each row a registered action (`SidebarDriveMenuItems`). Debug Settings
 `sidebar.driveIndicator` switches to the glyph alone, a solid badge, or the old dot. The tab chip and pane
 tag lead with the same glyph. Quieter presence (editing, reading) stays behind `sidebar.presenceDots`.
 Tests: `AgentDriveIndicatorTests`. Coordinated with a590 (sidebar owner) by note; a590 was not running.

@@ -1,10 +1,12 @@
 import AppKit
 @testable import CmuxNextActions
+@testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextComputerUse
 @testable import CmuxNextDesign
 @testable import CmuxNextDaemon
+import CmuxNextPages
 @testable import CmuxNextSidebar
 import CmuxNextTabs
 import Foundation
@@ -80,6 +82,47 @@ struct AgentDriveIndicatorTests {
         #expect(runs.first?.target == ActionTargetRef(kind: .tab, id: tab.rawValue), "Go to shows the agent's tab")
         #expect(runs.last?.arguments["terminals"] != nil, "Stop names the agent's terminals")
         #expect(menu.items.allSatisfy { $0.target is ActionMenuTarget }, "no row runs a handler of its own")
+    }
+
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
+    /// The row's Stop on an agent chat that drives a browser stops that chat's turn though no window shows its
+    /// workspace: the indicator sits on sidebar rows, mostly of workspaces in the background (review of #39609).
+    @Test func stopOnABrowsingChatStopsItsTurnInAWorkspaceNoWindowShows() async throws {
+        let services = ForkConversationTests.services()
+        AppActions.bind(services)
+        let store = services.machines.local.store
+        let pane = PaneSnapshot(id: 1, activeTab: 0, tabs: [TabSnapshot(surface: 1, terminalResourceID: "term_1")])
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "away",
+                                                                        screens: [ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])])]))
+        let paneModel = try #require(store.workspaces.first?.screens.first?.panes.first)
+        let tab = try #require(paneModel.tabs.first?.id)
+        try #require(services.paneController(for: paneModel) == nil, "a window shows the workspace")
+        let directory = FileManager.default.temporaryDirectory.appending(path: "drive-stop-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "index.html")
+        try Data("<html><body></body></html>".utf8).write(to: file)
+        let chat = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "s-drive"), source: .bundled(file),
+                                              pageHost: true, chromium: nil))
+        defer { chat.close() }
+        services.agentTabs.views[tab] = chat
+        defer { services.agentTabs.views[tab] = nil }
+        final class Sent { var kinds: [String] = [] }
+        let sent = Sent()
+        let provider = try #require(chat.pageEvents)
+        let subscription = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null,
+                                                         context: PageCallContext(page: PageDescriptor.agent.id)) { event in
+            if case .string(let kind)? = event["kind"] { sent.kinds.append(kind) }
+        }
+        defer { subscription.cancel() }
+        let item = try #require(SidebarBridge.driveMenuItem(services)(WorkspaceID("away"), .stop(tab: TabID(tab), drive: .browser),
+                                                                      Strings.driveStop(.browser)))
+        let refusal = services.registry.capturingRefusal { _ = item.target?.perform(item.action, with: item) }
+        #expect(refusal == nil)
+        #expect(sent.kinds.contains("stopTurn"), "the chat's turn did not stop")
     }
 
     @Test(arguments: SidebarDriveIndicatorVariant.allCases)
