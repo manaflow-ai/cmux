@@ -9569,6 +9569,7 @@ export class AcpmuxDirectClient {
       const reply = await this.request("_acpmux/turn_shots", { sessionId, turnId });
       if (objectValue(reply)?.pending !== true) return readTurnShots(reply);
     }
+    // l10n-allow: an internal retry signal for TurnShotCache; never shown.
     throw new Error("turn pictures still being taken");
   }
   async continueIn(harness: string): Promise<string | undefined> {
