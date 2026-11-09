@@ -22,8 +22,11 @@ use super::super::{UsageError, app};
 use super::{AgentFailure, fresh_state, snapshot_plan};
 
 pub(in crate::cli) const DEFAULT_TIMEOUT_SECONDS: u64 = 30;
-/// Below the tool-call timeout of MCP clients.
+/// The `agents_wait` MCP tool's cap: below the tool-call timeout of MCP clients.
 pub(in crate::cli) const MAX_TIMEOUT_SECONDS: u64 = 120;
+/// `cmux agents wait`'s cap: a shell has no tool-call timeout, so the CLI waits as long as
+/// `cmux chat --wait` may (agents/turn.rs).
+pub(in crate::cli) const MAX_CLI_TIMEOUT_SECONDS: u64 = 4 * 60 * 60;
 /// How often a wait checks what no event announces.
 const RECHECK: Duration = Duration::from_secs(1);
 /// A burst of events checks once.
@@ -76,8 +79,9 @@ impl WaitRequest {
     }
 }
 
-/// Parses the words after `cmux agents wait`.
-pub(super) fn parse(args: &[&str]) -> Result<WaitRequest, UsageError> {
+/// Parses the words after `cmux agents wait`; `--timeout` is at most `max_seconds`
+/// ([`MAX_TIMEOUT_SECONDS`] for the MCP tool, [`MAX_CLI_TIMEOUT_SECONDS`] for the CLI).
+pub(super) fn parse(args: &[&str], max_seconds: u64) -> Result<WaitRequest, UsageError> {
     let usage = |message: String| UsageError::new(format!("agents wait: {message}"));
     let (mut until, mut target, mut text, mut regex, mut timeout) = (None, None, None, false, None);
     let mut index = 0;
@@ -152,14 +156,12 @@ pub(super) fn parse(args: &[&str]) -> Result<WaitRequest, UsageError> {
     let timeout = match timeout {
         None => Duration::from_secs(DEFAULT_TIMEOUT_SECONDS),
         Some(value) => match value.parse::<f64>() {
-            Ok(seconds)
-                if seconds.is_finite() && (0.0..=MAX_TIMEOUT_SECONDS as f64).contains(&seconds) =>
-            {
+            Ok(seconds) if seconds.is_finite() && (0.0..=max_seconds as f64).contains(&seconds) => {
                 Duration::from_secs_f64(seconds)
             }
             _ => {
                 return Err(usage(format!(
-                    "--timeout is a number of seconds from 0 to {MAX_TIMEOUT_SECONDS}"
+                    "--timeout is a number of seconds from 0 to {max_seconds}"
                 )));
             }
         },
