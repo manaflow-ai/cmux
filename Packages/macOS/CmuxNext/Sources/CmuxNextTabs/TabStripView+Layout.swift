@@ -359,6 +359,7 @@ extension TabStripView {
             let liftedSlotEnd = drag?.id == id ? result.slot(id).map(\.maxX) : nil
             trailing = max(trailing, liftedSlotEnd ?? place.maxX)
         }
+        updateCornerFlush(tabY: tabY, tabHeight: tabHeight)
         updateOcclusion()
         layoutPinnedDivider(mapping: mapping, tabY: tabY, tabHeight: tabHeight, pixel: pixel, move: move, scroll: scrollPart(isPinned: true))
         for group in groups.chips.keys {
