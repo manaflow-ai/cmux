@@ -159,7 +159,9 @@ fn own(
             }
             Ok(Op::End(ok, reply)) => {
                 let result = if ok {
-                    barrier.complete().map_err(|error| failed(format!("cannot finish the sync: {error}")))
+                    barrier
+                        .complete()
+                        .map_err(|error| failed(format!("cannot finish the sync: {error}")))
                 } else {
                     // Dropping the barrier unfinished leaves it failed, released before the job
                     // reads failed.

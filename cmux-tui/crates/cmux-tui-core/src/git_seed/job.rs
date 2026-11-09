@@ -478,7 +478,10 @@ impl GitSeedService {
         self.holds.lock().unwrap_or_else(PoisonError::into_inner).get(job).cloned()
     }
 
-    fn running_hold(&self, params: &Value) -> Result<(String, mpsc::Sender<hold::Op>), SeedRefusal> {
+    fn running_hold(
+        &self,
+        params: &Value,
+    ) -> Result<(String, mpsc::Sender<hold::Op>), SeedRefusal> {
         let params: hold::JobParams = serde_json::from_value(params.clone())
             .map_err(|error| SeedRefusal::bad_request(format!("invalid params: {error}")))?;
         let owner = self.holder(&params.job).ok_or_else(hold_ended)?;
