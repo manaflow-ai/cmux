@@ -5,6 +5,8 @@
 #   hyperdrive.sh ensure  <name>   creates <name> from CMUX_VM_DATABASE_URL, or
 #                                  updates its origin; prints name and id only
 #   hyperdrive.sh show    <name>   prints the id, origin port and origin_connection_limit
+#   hyperdrive.sh restart <name>   drains the config's connection pool (its origin connections, all the
+#                                  Worker role's) and starts a new one; the config itself is unchanged
 #
 # HYPERDRIVE_ORIGIN_CONNECTION_LIMIT (optional, for ensure): the most connections Hyperdrive opens to the
 # database (Cloudflare's paid default is 60). Staging sets it below the branch's max_connections, so the
@@ -109,8 +111,15 @@ case "$command" in
     [ "$code" = 200 ] || fail "reading Hyperdrive config $config_name" "$code"
     jq -r --arg name "$config_name" '"Hyperdrive config \($name): id \(.result.id), origin port \(.result.origin.port // "?"), origin_connection_limit \(.result.origin_connection_limit // "default (60 on paid plans)"), caching \(if .result.caching.disabled then "off" else "on" end)"' "$work/body"
     ;;
+  restart)
+    id="$(find_id)"
+    [ -n "$id" ] || { echo "::error::Hyperdrive config $config_name does not exist" >&2; exit 1; }
+    code="$(call POST "$api/$id/restart")"
+    [ "$code" = 200 ] || fail "restarting Hyperdrive config $config_name" "$code"
+    echo "Hyperdrive config $config_name: pool restarted ($(jq -r '.result.restarted_on // "?"' "$work/body"))"
+    ;;
   *)
-    echo "usage: hyperdrive.sh resolve|ensure|show <cmux-vm-preview|cmux-vm-staging|cmux-vm-production>" >&2
+    echo "usage: hyperdrive.sh resolve|ensure|show|restart <cmux-vm-preview|cmux-vm-staging|cmux-vm-production>" >&2
     exit 2
     ;;
 esac
