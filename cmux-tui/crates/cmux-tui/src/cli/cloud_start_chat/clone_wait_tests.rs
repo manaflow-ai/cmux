@@ -203,6 +203,9 @@ fn a_clone_longer_than_the_timeout_answers_pending() {
     assert!(fake.ran.len() <= 8, "bounded by --timeout: {}", fake.ran.len());
 }
 
+/// A change to the test's files after the exec of this number.
+type After = (usize, Box<dyn FnMut(&std::path::Path)>);
+
 /// A fake app whose `cloud exec` runs the command in `sh` with `HOME` set to a folder of the test's
 /// own, so the folder check's real script reads real bootstrap files. Its `sleep 1` takes no time.
 /// Every exec's exit status and stderr are kept (`shell`), and each step moves the clock by `step`.
@@ -216,7 +219,7 @@ struct ShellFake {
     clock: Instant,
     step: Duration,
     execs: usize,
-    after: Option<(usize, Box<dyn FnMut(&std::path::Path)>)>,
+    after: Option<After>,
 }
 
 impl ShellFake {
