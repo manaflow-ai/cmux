@@ -136,21 +136,97 @@ impl CloudConversations {
             other => other,
         })?;
         let mut body = reply.body;
-        // Never forward secret values, even if an upstream reply accidentally includes one.
-        fn redact(environment: &mut Value) {
-            if let Some(secrets) = environment.get_mut("secrets").and_then(Value::as_array_mut) {
-                for secret in secrets {
-                    if let Some(fields) = secret.as_object_mut() {
-                        fields.retain(|key, _| key == "name" || key == "updated_at");
-                    }
-                }
-            }
-        }
         if let Some(environments) = body.as_array_mut() {
             environments.iter_mut().for_each(redact);
         } else {
             redact(&mut body);
         }
         Ok(body)
+    }
+}
+
+/// Never forward secret values, even if an upstream reply accidentally includes one. A secret
+/// keeps only its name, `updated_at` and its delivery targets: `hosts` (strings) and `header`'s
+/// `name` and `format` (strings). Any other field, nested ones included, and any secret that is not
+/// an object, is dropped.
+fn redact(environment: &mut Value) {
+    let Some(secrets) = environment.get_mut("secrets").and_then(Value::as_array_mut) else {
+        return;
+    };
+    secrets.retain(Value::is_object);
+    for fields in secrets.iter_mut().filter_map(Value::as_object_mut) {
+        fields.retain(|key, _| matches!(key.as_str(), "name" | "updated_at" | "hosts" | "header"));
+        if let Some(hosts) = fields.get_mut("hosts") {
+            match hosts.as_array_mut() {
+                Some(list) => list.retain(Value::is_string),
+                None => *hosts = Value::Null,
+            }
+        }
+        // A header is forwarded only whole: its `name` and `format`, both strings, and nothing else.
+        if let Some(header) = fields.get_mut("header") {
+            *header = match (
+                header.get("name").and_then(Value::as_str),
+                header.get("format").and_then(Value::as_str),
+            ) {
+                (Some(name), Some(format)) => json!({ "name": name, "format": format }),
+                _ => Value::Null,
+            };
+        }
+        fields.retain(|_, value| !value.is_null());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redact_keeps_only_a_secrets_name_dates_hosts_and_header_name_and_format() {
+        let mut environment = json!({
+            "id": "env_a",
+            "secrets": [{
+                "name": "TOKEN",
+                "updated_at": 3,
+                "value": "hunter2",
+                "sealed": "v2.abc",
+                "hosts": ["api.example.com", {"value": "hunter2"}],
+                "header": {
+                    "name": "authorization",
+                    "format": "Bearer {value}",
+                    "value": "hunter2",
+                    "nested": {"value": "hunter2"},
+                },
+            }, "hunter2"],
+        });
+        redact(&mut environment);
+        assert_eq!(
+            environment,
+            json!({
+                "id": "env_a",
+                "secrets": [{
+                    "name": "TOKEN",
+                    "updated_at": 3,
+                    "hosts": ["api.example.com"],
+                    "header": {"name": "authorization", "format": "Bearer {value}"},
+                }],
+            })
+        );
+        assert!(!environment.to_string().contains("hunter2"));
+    }
+
+    #[test]
+    fn redact_drops_a_partial_header_or_hosts_that_is_not_the_expected_shape() {
+        let mut environment = json!({
+            "secrets": [
+                {"name": "TOKEN", "header": "Bearer hunter2", "hosts": "hunter2"},
+                {"name": "PARTIAL", "header": {"name": "authorization"}},
+                {"name": "NOT_TEXT", "header": {"name": "authorization", "format": 7}},
+            ],
+        });
+        redact(&mut environment);
+        assert_eq!(
+            environment,
+            json!({"secrets": [{"name": "TOKEN"}, {"name": "PARTIAL"}, {"name": "NOT_TEXT"}]})
+        );
     }
 }

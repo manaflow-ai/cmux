@@ -411,6 +411,14 @@ impl<B, C> Core<B, C> {
         }
     }
 
+    /// Whether a resume picked in `generation` may still act. The fetch
+    /// thread acts on a picked job after the lock is released, so a bind or
+    /// another resume can come in between: then the resume is dropped (the
+    /// bind's client and request replace it, or the newer resume acts).
+    pub(super) fn resume_holds(&self, generation: u64) -> bool {
+        generation == self.generation
+    }
+
     /// A resume of `generation` found no client: it waits for the next one
     /// that comes back, unless a bind or another resume comes first.
     pub(super) fn defer_resume(&mut self, generation: u64) {

@@ -564,6 +564,129 @@ pub(super) fn upload(
     Ok(())
 }
 
+/// Copies the folder at `local` once to `target` on the machine (a
+/// person's upload of a folder, [`super::access_cli`]): the regular files
+/// `keep` takes (by path relative to the folder, and whether it is a git
+/// working copy), never a symlink, small files several at once and big ones
+/// after them; `progress` hears each write and each part of a big file. No
+/// record is kept, since an upload is never synced again. A symlink the
+/// machine has on the way to a file leaves that file out. Answers the files
+/// written and the ones left out.
+pub(super) fn copy_folder_with_progress(
+    socket: &Path,
+    local: &Path,
+    identity: (u64, u64),
+    target: &str,
+    keep: &dyn Fn(&str, bool) -> bool,
+    progress: &mut dyn FnMut(),
+) -> anyhow::Result<(u64, u64)> {
+    // `local` is the canonical folder the caller authorized, `identity` its
+    // device and inode then: another folder or a symlink swapped in since is
+    // refused, never followed.
+    let unmoved = || {
+        use std::os::unix::fs::MetadataExt as _;
+        std::fs::canonicalize(local).is_ok_and(|now| now == local)
+            && std::fs::symlink_metadata(local)
+                .is_ok_and(|meta| meta.is_dir() && (meta.dev(), meta.ino()) == identity)
+    };
+    if !unmoved() {
+        anyhow::bail!("{} changed after it was checked; nothing of it was sent", local.display());
+    }
+    let mut set = local::collect_files(local)?;
+    if !unmoved() {
+        anyhow::bail!("{} changed while it was listed; nothing of it was sent", local.display());
+    }
+    let git = set.git;
+    let before = set.files.len();
+    set.files.retain(|relative, _| keep(relative, git));
+    let count = |n: usize| u64::try_from(n).unwrap_or(u64::MAX);
+    let mut skipped = set
+        .skipped
+        .saturating_add(count(before.saturating_sub(set.files.len())))
+        .saturating_add(count(set.links.len()));
+    let mut remote = Remote::connect_negotiated(socket)?;
+    remote.mkdir_all(target)?;
+    let (mut made, mut seen) = (BTreeSet::new(), BTreeMap::new());
+    let (mut small, mut alone) = (Vec::new(), Vec::new());
+    for (relative, file) in set.files {
+        // Each file's checks are round trips too: the app's idle deadline hears them.
+        progress();
+        // The folder is checked again before each file, so a folder swapped
+        // in while copying stops the copy.
+        if !unmoved() {
+            anyhow::bail!("{} changed while it was sent; the rest was not sent", local.display());
+        }
+        // Reached one name at a time with no symlink followed, and held to
+        // the file it is now: a folder on its way swapped for a symlink, now
+        // or before it is read, reads nothing outside ([`open`]).
+        let checked =
+            if local::below(&relative) { place::open_beneath(local, &relative).ok() } else { None };
+        let Some((_, found, root)) = checked else {
+            skipped = skipped.saturating_add(1);
+            continue;
+        };
+        if root != identity {
+            anyhow::bail!("{} changed while it was sent; the rest was not sent", local.display());
+        }
+        let file = LocalFile {
+            source: Source::Checked(local::Checked {
+                root: local.to_path_buf(),
+                relative: relative.clone(),
+                root_identity: identity,
+                identity: found,
+            }),
+            permissions: file.permissions,
+        };
+        let at = format!("{target}/{relative}");
+        let (parent, _) = remote::split(&at)?;
+        if through_link(&mut remote, target, parent, &mut seen)? {
+            skipped = skipped.saturating_add(1);
+            continue;
+        }
+        if made.insert(parent.to_string()) {
+            remote.mkdir_all(parent)?;
+        }
+        let bytes = size(&file)?;
+        let job = Job { relative, target: at, file, sha256: String::new(), bytes, found: None };
+        if bytes > ALONE_BYTES { alone.push(job) } else { small.push(job) }
+    }
+    let mut written = 0u64;
+    let mut landed = |result: anyhow::Result<String>| -> anyhow::Result<()> {
+        match result {
+            Ok(_) => written = written.saturating_add(1),
+            Err(error) if error.is::<LinkInTheWay>() => skipped = skipped.saturating_add(1),
+            Err(error) => return Err(error),
+        }
+        Ok(())
+    };
+    let changed = || anyhow::anyhow!("{} changed while it was sent", local.display());
+    if !unmoved() {
+        return Err(changed());
+    }
+    write_parallel(socket, target, small, connections(), &mut |_, result| {
+        let landed = landed(result);
+        progress();
+        // Each write landing checks the folder again, stopping the rest.
+        if landed.is_ok() && !unmoved() {
+            return Err(changed());
+        }
+        landed
+    })?;
+    for job in alone {
+        if !unmoved() {
+            anyhow::bail!("{} changed while it was sent; the rest was not sent", local.display());
+        }
+        let (parent, _) = remote::split(&job.target)?;
+        let result = if through_link(&mut remote, target, parent, &mut seen)? {
+            Err(LinkInTheWay.into())
+        } else {
+            write_with_progress(&mut remote, &job.target, &job.file, progress)
+        };
+        landed(result)?;
+    }
+    Ok((written, skipped))
+}
+
 /// Deletes the folder at `path` on the machine whose daemon `socket`
 /// reaches; one already gone is fine.
 pub(super) fn delete_remote(socket: &Path, path: &str) -> anyhow::Result<()> {
@@ -1426,14 +1549,15 @@ impl Listings {
 /// in since it was listed; anything but a regular file is refused.
 fn open(file: &LocalFile) -> anyhow::Result<Box<dyn std::io::Read>> {
     Ok(match &file.source {
-        Source::File(path) => {
-            let opened = std::fs::OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-                .open(path)
-                .with_context(|| format!("cannot read {}", path.display()))?;
-            if !opened.metadata()?.is_file() {
-                anyhow::bail!("{} is no longer a regular file", path.display());
+        Source::File(path) => Box::new(open_regular(path)?.0),
+        Source::Checked(checked) => {
+            let (opened, identity, root) = place::open_beneath(&checked.root, &checked.relative)?;
+            if identity != checked.identity || root != checked.root_identity {
+                anyhow::bail!(
+                    "{} in {} changed after it was checked",
+                    checked.relative,
+                    checked.root.display()
+                );
             }
             Box::new(opened)
         }
@@ -1441,9 +1565,29 @@ fn open(file: &LocalFile) -> anyhow::Result<Box<dyn std::io::Read>> {
     })
 }
 
+/// `path` opened without following a symlink at its end or blocking on a
+/// FIFO, with the device and inode it opened; anything but a regular file
+/// is refused.
+fn open_regular(path: &Path) -> anyhow::Result<(std::fs::File, (u64, u64))> {
+    use std::os::unix::fs::MetadataExt as _;
+    let opened = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .with_context(|| format!("cannot read {}", path.display()))?;
+    let meta = opened.metadata()?;
+    if !meta.is_file() {
+        anyhow::bail!("{} is no longer a regular file", path.display());
+    }
+    Ok((opened, (meta.dev(), meta.ino())))
+}
+
 fn size(file: &LocalFile) -> anyhow::Result<u64> {
     Ok(match &file.source {
         Source::File(path) => std::fs::metadata(path)?.len(),
+        Source::Checked(checked) => {
+            place::open_beneath(&checked.root, &checked.relative)?.0.metadata()?.len()
+        }
         Source::Bytes(bytes) => bytes.len() as u64,
     })
 }
@@ -1460,4 +1604,41 @@ fn hash(file: &LocalFile) -> anyhow::Result<String> {
         hasher.update(&buffer[..read]);
     }
     Ok(hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+#[cfg(test)]
+mod checked_source_tests {
+    use std::os::unix::fs::MetadataExt as _;
+
+    use super::{LocalFile, Source, local, open};
+
+    /// A checked file whose folder was swapped for a symlink to another
+    /// folder holding a file of the same name is never read.
+    #[test]
+    fn a_checked_file_reached_through_a_swapped_folder_is_not_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let (inside, outside) = (dir.path().join("pick/docs"), dir.path().join("outside"));
+        std::fs::create_dir_all(&inside).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(inside.join("app.toml"), "mine\n").unwrap();
+        std::fs::write(outside.join("app.toml"), "secret\n").unwrap();
+        let root = dir.path().join("pick");
+        let (meta, top) = (
+            std::fs::metadata(inside.join("app.toml")).unwrap(),
+            std::fs::metadata(&root).unwrap(),
+        );
+        let file = LocalFile {
+            source: Source::Checked(local::Checked {
+                root,
+                relative: "docs/app.toml".into(),
+                root_identity: (top.dev(), top.ino()),
+                identity: (meta.dev(), meta.ino()),
+            }),
+            permissions: 0o644,
+        };
+        assert!(open(&file).is_ok());
+        std::fs::rename(&inside, dir.path().join("moved")).unwrap();
+        std::os::unix::fs::symlink(&outside, &inside).unwrap();
+        assert!(open(&file).is_err(), "the swapped folder's file was read");
+    }
 }

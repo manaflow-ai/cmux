@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 616,
+  "count": 617,
   "sections": [
     {
       "id": "general",
@@ -1180,6 +1180,14 @@
           "key": "remote.endSharingOnQuit",
           "title": "End Sharing When cmux Quits",
           "help": "Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit.",
+          "kind": "toggle",
+          "default": false,
+          "group": "cmux Remote"
+        },
+        {
+          "key": "remote.ultraMode",
+          "title": "Ultra Connection Mode",
+          "help": "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection.",
           "kind": "toggle",
           "default": false,
           "group": "cmux Remote"

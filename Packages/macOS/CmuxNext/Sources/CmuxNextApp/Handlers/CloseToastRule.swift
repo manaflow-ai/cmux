@@ -24,7 +24,7 @@ struct CloseToastRule {
     init(services: AppServices) {
         titles = TabTitleResolver(services: services)
         let agentTabs = services.madeAgentTabs
-        hasUnsentDraft = { tab in agentTabs.map { $0.unsentDrafts.hasDraft($0.resolve(tab.id)) } ?? false }
+        hasUnsentDraft = { tab in agentTabs.map { $0.unsentDrafts.hasDraft($0.resolve(tab.id), machine: $0.daemonListing(tab)?.machineID) } ?? false }
     }
 
     /// The facts the rule reads of `tab`.
