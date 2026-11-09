@@ -570,11 +570,15 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
     };
     // `status` is the word `terminal list --agents` says for this turn: a
     // finished turn nobody viewed yet (an unread notification, read after
-    // the wait) is `done`; `state` keeps the wait's own word.
+    // the wait) is `done`; `state` keeps the wait's own word. The snapshot
+    // from before the send cannot tell (its unread notification is an older
+    // turn's), so a failed read is tried once more, and then `status` is the
+    // wait's own word.
     let status = match waited.verdict {
         Verdict::Done(state) => {
-            let after = self::snapshot(backend, session).ok();
-            let unseen = roster::unseen(after.as_ref().unwrap_or(&snapshot), &id);
+            let after =
+                self::snapshot(backend, session).or_else(|_| self::snapshot(backend, session));
+            let unseen = after.as_ref().is_ok_and(|after| roster::unseen(after, &id));
             roster::status_of(state.as_str(), unseen)
                 .map_or(state.as_str(), |status| status.as_str())
         }

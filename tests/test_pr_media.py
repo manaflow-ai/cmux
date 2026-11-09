@@ -976,6 +976,24 @@ class ApiFallbackUploadTests(unittest.TestCase):
         self.assertIn("another upload got there first", err.getvalue())
         self.assertEqual(origin.files()["7/shot.png"], b"theirs")
 
+    def test_a_lost_create_only_race_through_the_api_fallback_stays_a_conflict(self):
+        # whats-new-gallery.py publish keeps the other copy on a MediaConflict and stops on any other error.
+        def by_git(store):
+            raise MODULE.GitTransportError("git could not reach the remote")
+
+        def by_api(api, error):
+            raise error
+
+        for error, kind in ((MODULE.MediaConflict("9/shot.png changed"), MODULE.MediaConflict),
+                            (MODULE.MediaError("no pr-media branch"), MODULE.MediaError)):
+            with self.subTest(error=str(error)):
+                MODULE._GIT_FAILED.pop(("o/r", "pr-media"), None)
+                with self.assertRaises(MODULE.MediaError) as raised:
+                    MODULE.with_fallback("o/r", "pr-media", object(), by_git, lambda api: by_api(api, error))
+                self.assertIs(type(raised.exception), kind)
+                self.assertIn("the GitHub API fallback failed too", str(raised.exception))
+        MODULE._GIT_FAILED.pop(("o/r", "pr-media"), None)
+
     def test_a_lost_race_is_built_again_on_the_new_tip(self):
         origin = self.unreachable()
         api = MODULE.ApiBranch("o/r", "pr-media")

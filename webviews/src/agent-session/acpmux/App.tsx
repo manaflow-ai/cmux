@@ -632,6 +632,7 @@ import { PlanScopeDriftNotice } from "./PlanScopeDriftNotice";
 import { dismissPlanScopeDrift, keepPlanScopeArea } from "./planScopeDriftStore";
 import { setPaneNotices } from "./paneNoticeStore";
 import { chiefOf, isTakenOver, managedBy, managerDrivingUntil, takeOverManaged } from "./managedBy";
+import { bridgeGone } from "./watchBannerModel";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
@@ -646,7 +647,9 @@ import {
   resolveHarnessTarget,
   type CmuxCommand,
   type CmuxCommandResult,
+  PLACED_ACTIONS,
 } from "./cmuxCommands";
+import { commandPlace } from "./commandPlace";
 import { canContinueIn, reviewingHandoff } from "./handoff/continueIn";
 import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
@@ -2016,7 +2019,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [updateOffer, setUpdateOffer] = useState<UpdateOffer>();
   // A fresh chat has no summary yet, but its composer already names a harness. Read that
   // same harness's health so its existing Log In action is available before the first send.
-  const healthHarness = composerHealthHarness(snapshot, pickerCatalog);
+  // Before acpmux lists its harnesses the chip draws the catalog's first one; its health is read too.
+  const harnessesListed = useHarnessesListed();
+  const healthHarness = composerHealthHarness(snapshot, pickerCatalog, harnessesListed);
   const healthLocal =
     !snapshot.summary?.peer &&
     snapshot.summary?.hostKind !== "cloud" &&
@@ -8732,12 +8737,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     targets: fresh ? [] : handoffTargets,
     cwd: snapshot.summary?.cwd,
     newTab: fresh,
+    inCloud: snapshot.summary?.hostKind === "cloud",
   });
   /// Shared by the chat composer and New Tab: cmux-owned slash commands never fall through to a
   /// literal harness prompt. A string is an inline refusal; Composer/NewTab keep the draft intact.
-  const handleCmuxCommand = (command: CmuxCommand, args?: string, fresh = false): CmuxCommandResult => {
-    const refusal = cmuxCommandRefusal(command, args, commandState(fresh));
+  const handleCmuxCommand = (command: CmuxCommand, typedArgs?: string, fresh = false): CmuxCommandResult => {
+    const state = commandState(fresh);
+    const refusal = cmuxCommandRefusal(command, typedArgs, state);
     if (refusal) return t(refusal);
+    // `--on here|cloud` before a chat-starting command's arguments (commandPlace.ts); the refusal
+    // above allowed only what runs. `/cd --on cloud` in a chat with no turn yet takes the folder and
+    // picks Cloud in this composer, so its first Send is the composer's own Cloud start
+    // (cloud.startChat, the Environment chip's pick, Auto by default). Never by default.
+    const placed = commandPlace(typedArgs);
+    const args = PLACED_ACTIONS.has(command.action) && "rest" in placed ? placed.rest : typedArgs;
+    const inCloudHere = command.action === "cd" && "place" in placed && placed.place === "cloud" && !state.inCloud;
     if (command.action === "status") {
       setStatusCardOpen(true);
       return true;
@@ -8772,9 +8786,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // `/cd` is the folder chip's pick, typed: a chat with no turn yet starts in the folder, a
     // started one opens a new chat there (chooseProject). Bare, it opens the folder browser.
     if (command.action === "cd") {
+      // `--on cloud` (a chat with no turn yet, cmuxCommandRefusal): the folder, then Cloud.
+      const thenCloud = () => {
+        if (inCloudHere) composerModePick.current("cloud");
+      };
       if (!argument)
         return callNative<{ cwd?: string }>("project.browse").then((result) => {
-          if (result?.cwd) return chooseProject(result.cwd);
+          if (result?.cwd) return chooseProject(result.cwd).then(thenCloud);
         });
       const folder = cdFolder(argument, snapshot.summary?.cwd);
       if (!folder) return t("composer.cmuxCdPath");
@@ -8785,6 +8803,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         refused = true;
       }).then(() => {
         if (refused) throw new CmuxCommandRefused(t("composer.cmuxCdNotFolder", { folder }));
+        thenCloud();
       });
     }
     // The composer sends the prompt as typed through onSend, attachments and steer included, the
@@ -11118,7 +11137,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               const send = async () => {
                 // Replying to a View Only chat takes it over first (`takeOver`); while the app that
                 // runs it still does, the pane asks how, and the composer keeps the message.
-                if (snapshot.summary?.watching && !(await directClient.current?.takeOver())) {
+                // A Claude desktop session acpmux delivers into takes the reply where it runs (`bridgedWatch`).
+                if (
+                  snapshot.summary?.watching &&
+                  !snapshot.summary.bridged &&
+                  !(await directClient.current?.takeOver())
+                ) {
                   throw new Error("watch.notTakenOver");
                 }
                 if (projectDraft && !snapshot.sessionId)
@@ -11146,18 +11170,33 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     },
                   );
                 // A View Only chat, taken over above, answers its waiting question in the chat too.
-                return withdrawForTypedReply(
-                  snapshot.sessionId ? individualPermission : undefined,
-                  directClient.current,
-                  () =>
-                    callNative("chat.send", {
-                      text,
-                      attachments,
-                      accepted: () => accept(true),
-                      steer,
-                      ...(gesture ? { gesture } : {}),
-                    }),
-                );
+                const deliver = () =>
+                  withdrawForTypedReply(
+                    snapshot.sessionId ? individualPermission : undefined,
+                    directClient.current,
+                    () =>
+                      callNative("chat.send", {
+                        text,
+                        attachments,
+                        accepted: () => accept(true),
+                        steer,
+                        ...(gesture ? { gesture } : {}),
+                      }),
+                  );
+                if (!snapshot.summary?.bridged) return deliver();
+                // The app that ran the bridged session is gone: the chat is taken over and the message
+                // stays in the composer. It is not sent again here, since its send gesture is spent;
+                // the next Return sends it to the taken-over chat.
+                // Taken over only while the chat it was sent to is still the one shown.
+                const sender = directClient.current;
+                const sentTo = snapshot.sessionId;
+                const stillShown = () => directClient.current === sender && sessionIdRef.current === sentTo;
+                return deliver().catch(async (error: unknown) => {
+                  if (bridgeGone(error) && stillShown() && (await sender?.takeOver())) {
+                    throw new Error("watch.notTakenOver");
+                  }
+                  throw error;
+                });
               };
               // The composer that holds the prompt: a refusal that comes once it is gone (the pane
               // swaps it when the chat's session starts) puts the prompt in the one shown now.
@@ -12209,6 +12248,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 {underHeader.watching && snapshot.summary?.watching && !snapshot.liveTakeOver && (
                   <WatchBanner
                     family={snapshot.summary.watching}
+                    bridged={snapshot.summary.bridged === true}
                     onTakeOver={() => void directClient.current?.takeOver().catch(() => undefined)}
                     onContinue={() => void directClient.current?.continueWatched().catch(() => undefined)}
                   />
