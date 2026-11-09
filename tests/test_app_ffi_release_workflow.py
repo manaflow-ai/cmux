@@ -348,7 +348,7 @@ elif args[0] == "api":
             print("gh: Not Found (HTTP 404)", file=sys.stderr); sys.exit(1)
         emit({"object": {"sha": state["refs"][ref]}})
     elif "/pulls?" in endpoint: emit([{"number": 1}])  # stale even after auto-close
-    elif ("/check-runs" in endpoint or endpoint.endswith("/status")) and os.environ.get("GH_TOKEN") != "read-token":
+    elif "/commits/" in endpoint and os.environ.get("GH_TOKEN") != "read-token":
         print("gh: Resource not accessible by integration (HTTP 403)", file=sys.stderr); sys.exit(1)
     elif endpoint.endswith("/status") and state.get("status_read") == "fail":
         print("gh: Server Error (HTTP 502)", file=sys.stderr); sys.exit(1)

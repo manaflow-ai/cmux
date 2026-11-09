@@ -50,8 +50,9 @@ previous="$(remote_head "$branch")"
 # app-ffi-repin.yml then re-pins the newest release at once. A failed check, an
 # older head or any failed read moves the head as before.
 hold_min="${REPIN_HOLD_MIN:-90}"
-# Check runs and statuses are read with the job's GITHUB_TOKEN (checks: read,
-# statuses: read): the release App's tokens have no such permission.
+# The head's commit, check runs and statuses are read with the job's
+# GITHUB_TOKEN (contents, checks and statuses: read): the pull-request token
+# has none of these, and a failed read would quietly turn the hold off.
 read_api() { GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" gh api "$@"; }
 held_pr() {
   local number state head age failed status
@@ -59,7 +60,7 @@ held_pr() {
   [[ "$number" =~ ^[0-9]+$ ]] || return 1
   read -r state head < <(gh api "repos/$GITHUB_REPOSITORY/pulls/$number" --jq '"\(.state) \(.head.sha)"') || return 1
   [[ "$state" == open && "$head" == "$previous" ]] || return 1
-  age="$(gh api "repos/$GITHUB_REPOSITORY/commits/$previous" --jq '(now - (.commit.committer.date | fromdateiso8601)) / 60 | floor')" || return 1
+  age="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous" --jq '(now - (.commit.committer.date | fromdateiso8601)) / 60 | floor')" || return 1
   [[ "$age" =~ ^[0-9]+$ ]] || return 1
   if (( age >= hold_min )); then
     echo "#$number's head ${previous:0:12} is $age min old (hold $hold_min min): moving it" >&2
