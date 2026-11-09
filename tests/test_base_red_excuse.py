@@ -4852,7 +4852,7 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         # either.
         self.compiled()
         for path in ("scripts/cmux-next/check-app-ffi-pin.sh", ".github/workflows/cmux-next.yml",
-                     "scripts/ci/base_red_excuse.py", "scripts/ci/api_call_log/env.sh"):
+                     "scripts/ci/base_red_excuse.py", "scripts/ci/api_call_log/env.sh", "scripts/ci/app_ffi_pin.py"):
             self.pr_files(*self.RUST, path)
             with self.assertRaisesRegex(excuse.Refused, "changes the app FFI pin check's code", msg=path):
                 self.judge()

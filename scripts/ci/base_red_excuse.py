@@ -1183,7 +1183,7 @@ def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
 # job, is excused when the PR changes FFI inputs, leaves Package.swift (the pin) alone and changes no Swift, so no app
 # code calls a symbol or op the pinned library lacks. Any other red in the job is judged as before.
 #
-# Neither rule excuses a PR that changes the pin check's own code (FFI_PIN_CHECK_CODE; 2026-11-09, review of
+# Neither rule excuses a PR that changes a file that decides the pin verdict (FFI_PIN_CHECK_CODE; 2026-11-09, review of
 # cmux#39194): it could make the pin error print for any change, and the published base pin rule excuses nearly every
 # PR, since a head inherits the base's published pin.
 #
@@ -1206,12 +1206,13 @@ FFI_PIN_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
 FFI_PIN_FILE = "Packages/macOS/CmuxNext/app-ffi-pin.json"
 FFI_PIN_PATHS = (FFI_PIN_FILE, FFI_PIN_MANIFEST)  # a PR changing either moves the pin
 FFI_INPUTS = ("cmux-tui/crates/", "cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh")
-# The code that decides the pin check and its rollup (check-app-ffi-pin.sh, the pin reader app_ffi_pin.py, the
-# workflow, BASH_ENV's api_call_log, this classifier): a PR changing it could make the pin error print for any change,
-# so neither rule below excuses it (review of cmux#39194, the main copy of the step-A rule). The FFI build script is
-# an FFI input the check only compares, not check code.
-FFI_PIN_CHECK_CODE = (".github/", "scripts/ci/", "scripts/cmux-next/")
-FFI_BUILD_INPUT = "scripts/cmux-next/build-app-ffi.sh"
+# The files that decide the pin check's verdict: the check, the pin reader it runs, every step's BASH_ENV, this
+# classifier and the workflow holding the pin step and its rollup (the checks job uses no .github/actions/). A PR
+# changing one could make the pin error print for any change, so neither rule below excuses it (review of cmux#39194,
+# the main copy of the step-A rule). Only these: a new FFI crate also changes app-ffi-release.yml, the router and the
+# licence list (cmux#37869), which do not decide the verdict (review of cmux#39471).
+FFI_PIN_CHECK_CODE = ("scripts/cmux-next/check-app-ffi-pin.sh", "scripts/ci/app_ffi_pin.py", "scripts/ci/api_call_log/",
+                      "scripts/ci/base_red_excuse.py", ".github/workflows/cmux-next.yml")
 FFI_RELEASE_SECONDS = 30
 FFI_ASSET = "CCmuxAppFFI.xcframework.zip"
 
@@ -1322,8 +1323,7 @@ def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: set[str], e
     if name != FFI_PIN_JOB or not any(error.startswith(pin) for error in errors):
         return None, None
     number, paths = pr_paths(repo, base, sha, github)
-    if check_code := [path for path in paths if path != FFI_BUILD_INPUT
-                      and any(touches(path, code) for code in FFI_PIN_CHECK_CODE)]:
+    if check_code := [path for path in paths if any(touches(path, code) for code in FFI_PIN_CHECK_CODE)]:
         raise Refused(f"'{name}': its app FFI pin is red, and #{number} changes the app FFI pin check's code "
                       f"({'; '.join(check_code[:5])}): a PR never excuses its own red by changing the check; land "
                       "the check change on its own, with the pin check green")
