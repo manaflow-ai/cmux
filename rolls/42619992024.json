@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42619992024",
+  "recorded_at": "2026-11-09T12:56:22Z",
+  "reason": "cmux-tui de139d660bae changes the image's cmux-tui (pinned f001d5c8089d)",
+  "dry_run": false,
+  "cmux_tui": "de139d660bae07c615636d5451bd3429f4c59560",
+  "fixes": [
+    {
+      "sha": "de139d660bae07c615636d5451bd3429f4c59560",
+      "mergedAt": "2026-11-09T04:22:07-08:00",
+      "subject": "acpmux TUI: Enter steers a running turn when the agent steers; Ctrl-s queues (#39568)"
+    },
+    {
+      "sha": "074222eb35e4b1a54232494c7351cf91048dbd1e",
+      "mergedAt": "2026-11-09T04:18:59-08:00",
+      "subject": "Cloud chat: a failed or empty peer attach retries and resyncs instead of going silent (#39549)"
+    },
+    {
+      "sha": "5566d5e8a8e5b513d15eb3a771690fe713454878",
+      "mergedAt": "2026-11-09T04:17:44-08:00",
+      "subject": "cmux-tui: terminal hosts no live session owns end after a grace; restore never waits on them (#39419)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T12:56:22Z",
+    "snapshot_id": "sh-ce80ed0b8b794af4a644f31c239c5edc",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42619992024): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a8a8e78c74bb7e2f5734c416e6cd8348cf2c3e7b",
+    "image": "cloud-native-auto-de139d66-42619992024-1",
+    "revision": "ci-42619992024-1",
+    "at": "2026-11-09T12:56:22Z"
+  },
+  "rolled_back": false
+}
