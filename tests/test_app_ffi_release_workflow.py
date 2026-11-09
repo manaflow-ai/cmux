@@ -342,6 +342,8 @@ elif args[0] == "api":
         if state["ref_read"] == "fail":
             print("gh: Server Error (HTTP 502)", file=sys.stderr); sys.exit(1)
         if ref not in state["refs"]:
+            # Real gh prints the error body on stdout, --jq or not (run 42536967661).
+            print(json.dumps({"message": "Not Found", "status": "404"}))
             print("gh: Not Found (HTTP 404)", file=sys.stderr); sys.exit(1)
         emit({"object": {"sha": state["refs"][ref]}})
     elif "/pulls?" in endpoint: emit([{"number": 1}])  # stale even after auto-close
@@ -438,6 +440,8 @@ class RePinPublication(unittest.TestCase):
         # the push recreated it on GitHub, but `git ls-remote origin` went through
         # the runner's git cache, still saw the old head, and failed "the re-pin
         # head moved". The cache may also lag an existing head (wrong lease).
+        # Run 42536967661: gh printed the 404 body on stdout, and that JSON became
+        # the push lease ("cannot parse expected object name").
         cases = {
             "deleted, cache shows nothing": ({}, {}),
             "deleted, cache shows the merged head": ({}, {"app-ffi-repin": "c" * 40}),

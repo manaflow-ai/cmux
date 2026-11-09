@@ -519,6 +519,12 @@
       "title" : "Prompt Cache",
       "type" : "string"
     },
+    "agents.promptSuggestions" : {
+      "default" : true,
+      "description" : "After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change.",
+      "title" : "Suggest Next Prompt",
+      "type" : "boolean"
+    },
     "agents.subsessions.answerQuestions" : {
       "default" : false,
       "description" : "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer.",
@@ -4061,6 +4067,12 @@
       "default" : false,
       "description" : "Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit.",
       "title" : "End Sharing When cmux Quits",
+      "type" : "boolean"
+    },
+    "remote.ultraMode" : {
+      "default" : false,
+      "description" : "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection.",
+      "title" : "Ultra Connection Mode",
       "type" : "boolean"
     },
     "RestrictToManagedTeam" : {

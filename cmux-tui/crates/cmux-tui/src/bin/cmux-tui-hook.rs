@@ -113,6 +113,10 @@ fn run_reading(
     payload: impl FnOnce() -> anyhow::Result<Value>,
 ) -> anyhow::Result<()> {
     let native = payload()?;
+    if plugin_copy::stands_down(&args.source, &args.native_event, |name| env::var_os(name)) {
+        inbox::print_nothing(inbox::Delivery::for_event(&args.source, &args.native_event));
+        return Ok(());
+    }
     #[cfg(unix)]
     if let Err(error) = cmux_git::native_hook::wait(
         &args.source,
@@ -244,6 +248,10 @@ use journal_append::{
 /// Agent messages handed over as the hook's output.
 #[path = "cmux-tui-hook/inbox.rs"]
 mod inbox;
+
+/// The Claude Code plugin's copy of the hooks, beside an installed copy.
+#[path = "cmux-tui-hook/plugin_copy.rs"]
+mod plugin_copy;
 
 /// cmux's line under Claude Code's startup banner: how the session compacts.
 #[path = "cmux-tui-hook/session_banner.rs"]
