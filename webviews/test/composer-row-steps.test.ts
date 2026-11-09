@@ -14,7 +14,7 @@
 //     row takes no composer-width step (composerRowFit.ts paneWidth): it holds the mode, the model
 //     button and the ring, so it keeps "Opus 5.5  Medium" and "Auto" while they fit (live-qa
 //     2026-10-21 read "Opus Med" with about 250 px of the row free), and shortens the effort only
-//     when they do not (below a 280 px pane: test/composer-model-quiet.test.ts measures it).
+//     when they do not (below a 300 px pane: test/composer-model-quiet.test.ts measures it).
 //   - The stepped row (Debug Settings' plain footer off): the same row element, without
 //     `data-footer-look="plain"`, where the composer's width steps still apply as they did when
 //     every control shared one row. First the button's effort shows the level's short name ("Med"),
@@ -111,12 +111,14 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
   type Expected = { model: string; effort: string; access: string; mic: boolean };
   /** The quiet row under the box (the default look): no width takes a step; the row's measured room
    *  does. Since #24938 took the harness label out of it, the row holds only the mode, the model
-   *  button and the context ring, so it keeps every whole label down to a 280 px pane (a 244 px
-   *  composer). Below that it does run out, which test/composer-model-quiet.test.ts measures
-   *  (204 and 164 px composers shorten whole units); every width here checks that nothing is cut,
-   *  ellipsized or overlapping while the row still has room. */
+   *  button (its provider's logo before the name, cmux#38053) and the context ring, so it keeps
+   *  every whole label down to a 300 px pane (a 264 px composer); at 280 px the logo's width makes
+   *  the effort take its short name, the fonts deciding it. Below that the row runs out, which
+   *  test/composer-model-quiet.test.ts measures (204 and 164 px composers shorten whole units);
+   *  every width here checks that nothing is cut, ellipsized or overlapping while the row still has
+   *  room. */
   const QUIET: Record<number, Expected> = Object.fromEntries(
-    [760, 520, 500, 460, 440, 400, 300, 280].map((width) => [
+    [760, 520, 500, 460, 440, 400, 300].map((width) => [
       width,
       { model: "Opus 5.5", effort: "Medium", access: "Auto", mic: true },
     ]),

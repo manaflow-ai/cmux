@@ -74,7 +74,7 @@ export default agentPaneEntry({
   },
   variants: {
     rest: {
-      note: "At rest: the person's prompts, a run of three messages from one chat, a single message, and a run of two from two chats. The default folds each run into one tick and draws other chats' ticks a step dimmer, in the same column.",
+      note: "At rest: the person's prompts, a run of three messages from one chat, a single message, and a run of two from two chats. The default folds each run into one tick and draws it at the person's weight, in the same column, so the ticks read evenly spaced; the compare view shows the dimming arms beside it.",
       snapshot: chat(rows, { title: "Runs of messages from other chats" }),
       play: ready,
     },

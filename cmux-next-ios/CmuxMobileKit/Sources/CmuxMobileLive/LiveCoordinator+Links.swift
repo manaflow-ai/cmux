@@ -99,7 +99,8 @@ extension LiveCoordinator {
         session.acpmux.onWatchEvent = { [weak session] event in
             guard let session else { return }
             session.feed.handle(event, sessions: session.acpmux.sessions)
-            session.workspaces.setPending(session.acpmux.sessions.mapValues { $0.pendingPermissions > 0 }, waitingFor: session.feed.waitingFor)
+            session.workspaces.setPending(session.acpmux.sessions.mapValues { $0.pendingPermissions > 0 }, waitingFor: session.feed.waitingFor,
+                                          chatTitles: session.acpmux.sessions.compactMapValues(\.title))
         }
         session.creation.capabilities = { [weak self] mac in self?.store.macCapabilities[mac] }
         observe(session)
@@ -477,8 +478,8 @@ extension LiveCoordinator {
                 session.pairingRetries = 0
                 // Allowed already: a code for this Mac has nothing left to approve.
                 pairing.invites.drop(mac: macID)
-                session.acpmux.approver = AcpmuxHub.Approver(phoneID: pairing.phoneID, macDevice: macDevice) { reason in
-                    try await keys.authorizeApproval(reason: reason)
+                session.acpmux.approver = AcpmuxHub.Approver(phoneID: pairing.phoneID, macDevice: macDevice) { _ in
+                    try keys.approvalSigner()
                 }
                 return true
             case .legacy:
@@ -796,7 +797,7 @@ extension LiveCoordinator {
                 return
             }
             session.status = nil
-            // Answers to Chief's questions sign with this phone's key after Face ID.
+            // Answers to Chief's questions sign with this phone's approval key.
             session.answerSigner = { [weak self] in self?.chiefAnswerSigner() }
             session.use(ChiefDaemonBackend(client: client))
             chiefLive = true

@@ -174,6 +174,40 @@ async fn context_inventory_fresh_fork_of_a_legacy_chat_captures_local_guidance()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn context_inventory_a_fork_into_another_folder_sends_that_folders_instructions() {
+    let hub = hub();
+    let parent_dir = tempfile::tempdir().unwrap();
+    std::fs::write(parent_dir.path().join("AGENTS.md"), "PARENT-FOLDER-WORDS").unwrap();
+    let child_dir = tempfile::tempdir().unwrap();
+    std::fs::write(child_dir.path().join("GEMINI.md"), "CHILD-FOLDER-WORDS").unwrap();
+    let parent = hub
+        .new_session(NewRequest { cwd: Some(parent_dir.path().into()), ..Default::default() })
+        .await
+        .unwrap();
+    hub.prompt(&parent, vec![json!({"type":"text", "text":"first"})], "test", false).await.unwrap();
+    {
+        let mut meta = parent.meta.lock().unwrap();
+        assert!(meta.cmux_context_delivered);
+        meta.status = SessionStatus::Running;
+        meta.agent_capabilities = Some(json!({}));
+    }
+    let fork = hub
+        .fork(&parent, None, Some(child_dir.path().into()), Default::default(), None, None, true)
+        .await
+        .unwrap();
+    // The parent had sent its first-turn context; the fork into another folder sends its own.
+    assert!(!fork.meta().cmux_context_delivered);
+    hub.prompt(&fork, vec![json!({"type":"text", "text":"next"})], "test", false).await.unwrap();
+    let records = hub.events(&fork.id, 0, 1_000).unwrap();
+    let replies: String = records
+        .iter()
+        .filter(|e| e.kind == "agent_message_chunk")
+        .filter_map(|e| e.msg.pointer("/params/update/content/text").and_then(Value::as_str))
+        .collect();
+    assert!(replies.contains("CHILD-FOLDER-WORDS"), "{replies}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn context_inventory_requeues_an_unstarted_request_once_from_its_log() {
     let hub = hub();
     hub.config.write().await.context_overrides.user = Some("saved guidance".into());

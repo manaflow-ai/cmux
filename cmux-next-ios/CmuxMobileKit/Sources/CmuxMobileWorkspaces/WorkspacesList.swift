@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -211,7 +212,7 @@ public struct WorkspacesList: View {
                     .textInputAutocapitalization(.never)
                 Button("Cancel", role: .cancel) {}
                 Button("Create") {
-                    withAnimation(theme.motion.smooth.animation) { creator.moveToNewGroup(ws, name: groupNameText) }
+                    withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.moveToNewGroup(ws, name: groupNameText) }
                 }
                     .keyboardShortcut(.defaultAction)
             }
@@ -240,7 +241,7 @@ public struct WorkspacesList: View {
             .confirmationDialog(deleteGroupTitle, isPresented: isPresented($deletingGroup), titleVisibility: .visible,
                                 presenting: deletingGroup) { (target: GroupTarget) in
                 Button("Delete Group", role: .destructive) {
-                    withAnimation(theme.motion.smooth.animation) { creator.deleteGroup(target.group, on: target.macID) }
+                    withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.deleteGroup(target.group, on: target.macID) }
                 }
             } message: { (target: GroupTarget) in
                 Text(deleteGroupMessage(target))
@@ -288,7 +289,7 @@ public struct WorkspacesList: View {
     func select(_ value: MacScope) {
         guard let team = store.activeTeam, value != scope else { return }
         theme.haptics.selection()
-        withAnimation(theme.motion.smooth.animation) { filter.select(value, in: team.id) }
+        withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { filter.select(value, in: team.id) }
         // Live: the phone links one Mac at a time; showing another links it
         // (the scope's onChange). A failed Mac is dialed again on a choice.
         if let id = value.macID, mac(id)?.isOnline == true, case .failed = listState(id) {
@@ -373,7 +374,7 @@ public struct WorkspacesList: View {
             }
             .cmuxMobilePullDownSearch(text: $query)
             // A filter change is the person's: the list animates it.
-            .animation(theme.motion.smooth.animation, value: inbox.scope)
+            .animation(theme.motion.smooth.animation.unlessReduceMotion, value: inbox.scope)
             // verify/fast-connect.md: a Mac's rows turn live (one check for the list, not one per row).
             .onChange(of: liveRowMacs(inbox)) { old, new in
                 if !new.subtracting(old).isEmpty { ConnectTimeline.shared.mark("workspace_row_live") }
@@ -560,7 +561,7 @@ public struct WorkspacesList: View {
         return Button {
             guard canEdit, header.count > 0 else { return }
             theme.haptics.selection()
-            withAnimation(theme.motion.smooth.animation) { creator.setGroupCollapsed(group, on: header.macID, !group.isCollapsed) }
+            withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.setGroupCollapsed(group, on: header.macID, !group.isCollapsed) }
         } label: {
             GroupHeaderLabel(group: group, count: header.count)
                 // The row's spacing is part of the target (it was the text's
@@ -643,7 +644,7 @@ public struct WorkspacesList: View {
                                 titleVisibility: .visible, presenting: bulkClosing) { bulk in
                 Button(bulk.targets.count == 1 ? "Close Workspace" : "Close Workspaces", role: .destructive) {
                     theme.haptics.impactLight()
-                    withAnimation(theme.motion.smooth.animation) {
+                    withAnimation(theme.motion.smooth.animation.unlessReduceMotion) {
                         if bulk.groups.isEmpty {
                             creator.close(bulk.targets)
                         } else {
@@ -658,7 +659,7 @@ public struct WorkspacesList: View {
                                 titleVisibility: .visible, presenting: closing) { ws in
                 Button("Close Workspace", role: .destructive) {
                     theme.haptics.impactLight()
-                    withAnimation(theme.motion.smooth.animation) { creator.close(ws) }
+                    withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.close(ws) }
                 }
             } message: { ws in
                 Text("Its tabs close on \(mac(ws.macID).map(displayName) ?? "the Mac").")
@@ -677,7 +678,7 @@ public struct WorkspacesList: View {
     /// Group by None / Group by Folder.
     func setGrouping(_ value: WorkspaceListGrouping) {
         theme.haptics.selection()
-        withAnimation(theme.motion.smooth.animation) { groupingRaw = value.rawValue }
+        withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { groupingRaw = value.rawValue }
     }
 
     /// Move Workspace to New Group: asks for the name.
@@ -719,7 +720,7 @@ public struct WorkspacesList: View {
             case .offline:
                 theme.haptics.selection()
                 let opening = !unfolded.contains(fold.mac.id)
-                withAnimation(theme.motion.smooth.animation) {
+                withAnimation(theme.motion.smooth.animation.unlessReduceMotion) {
                     if opening { unfolded.insert(fold.mac.id) } else { unfolded.remove(fold.mac.id) }
                 }
                 // Rows opening below the visible area: bring the first into view.
@@ -773,7 +774,7 @@ public struct WorkspacesList: View {
                     Image(systemName: "chevron.right")
                         .font(.caption.weight(.semibold))
                         .rotationEffect(.degrees(isOpen ? 90 : 0))
-                        .animation(theme.motion.snap.animation, value: isOpen)
+                        .animation(theme.motion.snap.animation.unlessReduceMotion, value: isOpen)
                         .padding(.leading, 6)
                         .accessibilityHidden(true)
                 }
@@ -874,7 +875,7 @@ public struct WorkspacesList: View {
             .accessibilityIdentifier("workspaces.empty.others-mac")
         case .connecting:
             VStack(spacing: 12) {
-                ProgressView()
+                CmuxSpinner()
                 Text("Connecting to \(displayName(mac))…")
                     .font(theme.type.rowSubtitle)
                     .foregroundStyle(theme.colors.label2)
@@ -968,7 +969,7 @@ struct WorkspaceListRow: View, Equatable {
         .buttonStyle(RowPressStyle())
         // Last-known rows (live mode), dimmed until the Mac answers on this link.
         .opacity(model.isStale ? 0.55 : 1)
-        .animation(theme.motion.smooth.animation, value: model.isStale)
+        .animation(theme.motion.smooth.animation.unlessReduceMotion, value: model.isStale)
         .onAppear {
             // verify/fast-connect.md: when a row is first on screen, cached or live.
             if model.tracksMacData {
@@ -1374,12 +1375,23 @@ struct WorkspaceRow: View {
     /// About one row: unfolding scrolls when the first new row would not fit.
     static let minHeight: CGFloat = 60
 
+    /// Line 2 shows unless the list is compact or it would be blank (an idle
+    /// row with no branch, folder or Mac to name): then the row is the name
+    /// line alone, as short as a compact row, with no empty line under it.
+    static func showsStatusLine(_ workspace: Workspace, status: WorkspaceStatus, macName: String?, compact: Bool) -> Bool {
+        !compact && !StatusLine.isBlank(workspace, status: status, macName: macName)
+    }
+
+    private var showsStatusLine: Bool {
+        Self.showsStatusLine(workspace, status: status, macName: macName, compact: compact)
+    }
+
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 0) {
             mark
                 .frame(width: gutter)
                 .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + needsYouDisc / 2 }
-                .animation(theme.motion.snap.animation, value: status)
+                .animation(theme.motion.snap.animation.unlessReduceMotion, value: status)
             VStack(alignment: .leading, spacing: 3) {
                 // The time stays trailing on line 1, beside a name that wraps
                 // to two lines at accessibility sizes (no line of its own).
@@ -1388,14 +1400,14 @@ struct WorkspaceRow: View {
                     Spacer(minLength: 8)
                     time
                 }
-                if !compact {
+                if showsStatusLine {
                     StatusLine(workspace: workspace, status: status, macName: macName)
                         .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
                         .opacity(status == .offline ? 0.6 : 1)
                 }
             }
         }
-        .frame(minHeight: compact ? 32 : 40, alignment: .center)
+        .frame(minHeight: showsStatusLine ? 40 : 32, alignment: .center)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(.rect)
         .accessibilityElement(children: .ignore)
@@ -1439,7 +1451,7 @@ struct WorkspaceRow: View {
             Circle().fill(theme.colors.warning.color).frame(width: needsYouDisc, height: needsYouDisc)
                 .accessibilityIdentifier("workspace.needs-you")
         case .working, .creating:
-            ProgressView().controlSize(.mini)
+            CmuxSpinner().controlSize(.mini)
                 .accessibilityIdentifier(status == .working ? "workspace.working" : "workspace.creating")
         case .done:
             Circle().fill(theme.colors.label.color).frame(width: doneDisc, height: doneDisc)
@@ -1518,6 +1530,15 @@ struct StatusLine: View {
         return [place, macName].compactMap(\.self).joined(separator: " · ")
     }
 
+    /// Whether the line has no words: only an idle or offline row can, when
+    /// it has no branch, no folder and no Mac to name.
+    static func isBlank(_ workspace: Workspace, status: WorkspaceStatus, macName: String?) -> Bool {
+        switch status {
+        case .idle, .offline: place(workspace, macName: macName).isEmpty
+        case .needsYou, .working, .done, .creating: false
+        }
+    }
+
     /// The same line for VoiceOver.
     static func words(_ workspace: Workspace, status: WorkspaceStatus, macName: String?) -> [String] {
         let tab = workspace.agentTab(for: status)
@@ -1526,8 +1547,8 @@ struct StatusLine: View {
         case .working: return [tab.map { "\($0.agentName) is working" } ?? "Working", tab?.task].compactMap(\.self)
         case .done: return ["Done", tab.map { "\($0.agentName)" }, tab?.task].compactMap(\.self)
         case .creating: return ["Creating"]
-        case .idle: return ["idle", place(workspace, macName: macName)]
-        case .offline: return ["offline", place(workspace, macName: nil)]
+        case .idle: return ["idle", place(workspace, macName: macName)].filter { !$0.isEmpty }
+        case .offline: return ["offline", place(workspace, macName: nil)].filter { !$0.isEmpty }
         }
     }
 }

@@ -33,6 +33,8 @@ pub struct Command {
     pub(crate) stderr: Option<Stdio>,
     pub(crate) process_group: Option<i32>,
     pub(crate) new_session: bool,
+    /// macOS: the child is its own responsible process ([`Command::disclaim_responsibility`]).
+    pub(crate) disclaim_responsibility: bool,
     /// (descriptor, the number the child gets it at).
     #[cfg(unix)]
     pub(crate) inherit: Vec<(OwnedFd, RawFd)>,
@@ -55,6 +57,7 @@ impl Command {
             stderr: None,
             process_group: None,
             new_session: false,
+            disclaim_responsibility: false,
             #[cfg(unix)]
             inherit: Vec::new(),
         }
@@ -133,9 +136,9 @@ impl Command {
     /// [`Command::stderr`] set them). With [`Command::new_session`] and a
     /// terminal path (a PTY slave), that terminal becomes the child's
     /// controlling terminal: a session leader with none acquires the first
-    /// terminal it opens (macOS and Linux). The shell spawn of a PTY uses it,
-    /// as `cmux-mux2`'s `spawn_pty` does (`posix_spawn_file_actions_addopen`
-    /// on 0, then `adddup2` 0 to 1 and 2 on macOS). A failed open is the
+    /// terminal it opens (macOS and Linux). The shell spawn of a PTY uses it
+    /// (`posix_spawn_file_actions_addopen` on 0, then `adddup2` 0 to 1 and 2
+    /// on macOS). A failed open is the
     /// spawn's error. Replaces an earlier [`Command::stdin`].
     pub fn open_stdin_path(&mut self, path: impl AsRef<Path>) -> &mut Self {
         self.stdin_path = Some(path.as_ref().to_owned());
@@ -166,6 +169,17 @@ impl Command {
     /// controlling terminal.
     pub fn new_session(&mut self) -> &mut Self {
         self.new_session = true;
+        self
+    }
+
+    /// macOS: the child becomes its own responsible process, so privacy
+    /// permissions (Accessibility, Screen Recording) are checked against the
+    /// child's code signature, never this process's or its launcher's
+    /// (`responsibility_spawnattrs_setdisclaim`). The spawn fails when the
+    /// system has no such call, rather than starting the child under this
+    /// process's grants. Elsewhere it changes nothing.
+    pub fn disclaim_responsibility(&mut self) -> &mut Self {
+        self.disclaim_responsibility = true;
         self
     }
 

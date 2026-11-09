@@ -4,6 +4,53 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes cloud.machine.resize declares.
+    CloudMachineResizeError {
+        ApprovalDenied = "approval.denied",
+        ApprovalExpired = "approval.expired",
+        ApprovalPending = "approval.pending",
+        ApprovalTooManyPending = "approval.too_many_pending",
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudMachineBusy = "cloud.machine.busy",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudMachineNotRunning = "cloud.machine.not_running",
+        CloudPlanRequired = "cloud.plan.required",
+        CloudProviderUnavailable = "cloud.provider.unavailable",
+        CloudRateLimited = "cloud.rate_limited",
+        CloudSizeGrowOnly = "cloud.size.grow_only",
+        CloudSizeLocked = "cloud.size.locked",
+        IdempotencyConflict = "idempotency.conflict",
+        MutationIndeterminate = "mutation.indeterminate",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Start (resume) a paused machine (a machine that never bound answers cloud.machine.not_bound: delete it): answers status starting; cloud.machine.upsert brings running (or paused again with the error after a final provider failure). It takes an active slot (cloud.quota.exceeded {limit, used, resource, plan}); cloud.machine.not_paused {machine, state} for any other status. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.
+    CloudMachineStartOp {
+        name: "cloud.machine.start",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: CloudMachineStartParams,
+        result: CloudMachineStartResult,
+        error: CloudMachineStartError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineStartParams {
+    pub machine: MachineId,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudMachineStartResult {
     pub machine: CloudMachine,
@@ -546,7 +593,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 30 seconds and never outlives an included grant. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine).
+    /// Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 120 seconds and never outlives an included grant; admit_until, when present, lets the receiver keep this policy through a failed renewal for at most one hour after checked_at. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine).
     CloudVmNetworkPolicyOp {
         name: "cloud.vm.network_policy",
         class: Read,
@@ -846,54 +893,4 @@ wire_errors! {
         UnknownConversation = "unknown_conversation",
         ValidationInvalid = "validation.invalid",
     }
-}
-
-wire_op! {
-    /// Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. {id, fill: true, source, messages} instead fills the owner's own empty chief conversation (a Mac Chief's history into the hosted Chief's main conversation); continuations and the commit are the same.
-    ConversationImportOp {
-        name: "conversation.import",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: ConversationImportParams,
-        result: HomeConversationCommit,
-        error: ConversationImportError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConversationImportParamsSource {
-    pub kind: LitMac,
-    pub host: String,
-    pub local_id: String,
-}
-
-wire_enum! {
-    ConversationImportParamsKind {
-        Group = "group",
-        Chief = "chief",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConversationImportParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<ConversationId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source: Option<ConversationImportParamsSource>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kind: Option<ConversationImportParamsKind>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub participants: Option<Vec<HomeParticipantInput>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub after_seq: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fill: Option<bool>,
-    pub messages: Vec<Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub read_cursors: Option<Value>,
 }

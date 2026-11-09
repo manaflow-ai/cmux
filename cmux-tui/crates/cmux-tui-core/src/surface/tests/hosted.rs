@@ -91,14 +91,25 @@ fn hosted_receipted_input_requests_pipeline_through_surface_reader() {
 /// A hosted surface on a fake host connection (the host end is the second value), with the mux's stage S1 switch
 /// `lane`.
 #[cfg(unix)]
-fn hosted_typing_surface(
+pub(super) fn hosted_typing_surface(
     name: &str,
     lane: bool,
+) -> (Arc<Mux>, Arc<Surface>, std::os::unix::net::UnixStream) {
+    hosted_surface_with(name, lane, |_| {})
+}
+
+/// [`hosted_typing_surface`] with the fake host's attachment changed by `configure` before the surface takes it.
+#[cfg(unix)]
+fn hosted_surface_with(
+    name: &str,
+    lane: bool,
+    configure: impl FnOnce(&mut crate::terminal_host_runtime::HostAttachment),
 ) -> (Arc<Mux>, Arc<Surface>, std::os::unix::net::UnixStream) {
     let mux = Mux::new_for_test(name, SurfaceOptions::default());
     mux.set_input_lane_for_test(lane);
     let workspace = mux.create_empty_workspace(None, None, None).unwrap();
     let (mut attachment, host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+    configure(&mut attachment);
     let terminal_id = attachment.record.terminal_id.clone();
     attachment.record.workspace_key = workspace.key.clone();
     mux.seed_launching_terminal_for_test(&terminal_id, &workspace.key).unwrap();
@@ -235,6 +246,8 @@ fn a_key_to_a_failed_link_is_refused_until_a_live_route_is_published() {
 fn a_frame_sent_after_a_key_the_port_holds_reaches_the_host_after_it() {
     let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-order-barrier", true);
     let pty = surface.as_pty().expect("a terminal");
+    // The key must be a frame the port's writer holds: no inline write.
+    pty.input_port.queue_every_write_for_test();
     let resume = pty.input_port.pause_writes_for_test();
     surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
     std::thread::scope(|scope| {
@@ -319,8 +332,9 @@ fn an_automation_write_gets_the_error_of_its_frame() {
     });
 }
 
-/// Keys to a hosted terminal on the input port reach the host once each, in the order they were typed (the port's
-/// one writer thread), and a key the port took returns before the host read anything (#34544 review).
+/// Keys to a hosted terminal on the input port reach the host once each, in the order they were typed, and a key the
+/// port took returns before the host read anything (#34544 review). An idle port writes each key on its own turn
+/// (`input_port_inline.rs`); the order holds the same way when the port's writer writes them.
 #[cfg(unix)]
 #[test]
 fn keys_on_the_input_port_reach_the_host_once_each_in_order() {
@@ -886,7 +900,7 @@ fn dead_host_route() -> input_port::InputRoute {
 
 /// Waits (at most 5 s) until `ready` holds, or fails the test with `what`.
 #[cfg(unix)]
-fn wait_until(what: &str, ready: impl Fn() -> bool) {
+pub(super) fn wait_until(what: &str, ready: impl Fn() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(5);
     while !ready() {
         assert!(Instant::now() < deadline, "timed out waiting until {what}");
@@ -916,6 +930,20 @@ fn input_payloads(frames: &[Frame]) -> Vec<Vec<u8>> {
         .filter(|frame| frame.kind == MessageKind::Input)
         .map(|f| f.payload.clone())
         .collect()
+}
+
+/// Starts the port's writer on a key `k` and lets it write it, then holds it paused on its next frame: the next
+/// frame is taken at once by a running writer (no thread start), so a test of a frame "taken, not yet written"
+/// does not depend on how fast a new thread starts (#35082 review 2, should-do 4). Returns the pause's sender.
+#[cfg(unix)]
+fn running_paused_writer(surface: &Surface, pty: &PtySurface) -> std::sync::mpsc::Sender<()> {
+    // The key must be a frame the port's writer holds: no inline write.
+    pty.input_port.queue_every_write_for_test();
+    let resume = pty.input_port.pause_writes_for_test();
+    surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
+    wait_until("the writer took the key", || pty.input_port.queued_frames_for_test() == 0);
+    resume.send(()).expect("the port's writer waits");
+    resume
 }
 
 /// Installs a live replacement connection as the reader does (`PtyTerminalRuntime::replace_runtime` under the
@@ -1058,6 +1086,8 @@ fn receipted_input_sent_after_a_key_the_port_holds_reaches_the_host_after_it() {
     let (_mux, surface, mut host) =
         hosted_typing_surface("hosted-input-port-receipted-order", true);
     let pty = surface.as_pty().expect("a terminal");
+    // The key must be a frame the port's writer holds: no inline write.
+    pty.input_port.queue_every_write_for_test();
     let resume = pty.input_port.pause_writes_for_test();
     surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
     std::thread::scope(|scope| {
@@ -1089,6 +1119,8 @@ fn receipted_input_sent_after_a_key_the_port_holds_reaches_the_host_after_it() {
 fn a_write_whose_wait_ends_before_the_port_takes_it_is_never_written() {
     let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-reply-timeout", true);
     let pty = surface.as_pty().expect("a terminal");
+    // The key must be a frame the port's writer holds: no inline write.
+    pty.input_port.queue_every_write_for_test();
     pty.input_port.set_reply_wait_for_test(Duration::from_millis(300));
     let resume = pty.input_port.pause_writes_for_test();
     // The writer holds a key at its pause; the write queues behind it.
@@ -1115,8 +1147,9 @@ fn a_write_whose_wait_ends_during_its_write_may_be_written() {
     let (_mux, surface, mut host) =
         hosted_typing_surface("hosted-input-port-reply-in-flight", true);
     let pty = surface.as_pty().expect("a terminal");
-    pty.input_port.set_reply_wait_for_test(Duration::from_millis(300));
-    let resume = pty.input_port.pause_writes_for_test();
+    let resume = running_paused_writer(&surface, pty);
+    // The running writer takes "y" at once and holds it at its pause; the wait ends long after that.
+    pty.input_port.set_reply_wait_for_test(Duration::from_secs(2));
     let error = surface.write_bytes(b"y").expect_err("a write still being written answered ok");
     assert!(
         input_may_be_written(&error),
@@ -1124,7 +1157,11 @@ fn a_write_whose_wait_ends_during_its_write_may_be_written() {
     );
     drop(resume);
     let written = input_payloads(&frames_until_quiet(&mut host, Duration::from_millis(500)));
-    assert_eq!(written, vec![b"y".to_vec()], "the frame the port was writing reached the host");
+    assert_eq!(
+        written,
+        vec![b"k".to_vec(), b"y".to_vec()],
+        "the frame the port was writing reached the host"
+    );
 }
 
 /// R-DAEMON-STATE S1.6b review 1 (item 6): the creating-input flush gives back the bytes it could not write, but not
@@ -1148,9 +1185,10 @@ fn the_creating_input_flush_keeps_input_that_may_have_been_written() {
             .expect("queued while creating");
     }
     mux.insert_surface_runtime_for_test(surface.clone());
-    pty.input_port.set_reply_wait_for_test(Duration::from_millis(300));
-    let resume = pty.input_port.pause_writes_for_test();
-    // The flush writes "a"; the port's writer holds it at its pause until the flush's wait ends.
+    let resume = running_paused_writer(&surface, pty);
+    pty.input_port.set_reply_wait_for_test(Duration::from_secs(2));
+    // The flush writes "a"; the running writer takes it at once and holds it at its pause until the flush's wait
+    // ends.
     mux.finish_creating_input(&terminal_id, generation, None);
     assert_eq!(
         given_back.lock().unwrap().as_slice(),
@@ -1159,7 +1197,11 @@ fn the_creating_input_flush_keeps_input_that_may_have_been_written() {
     );
     drop(resume);
     let written = input_payloads(&frames_until_quiet(&mut host, Duration::from_millis(500)));
-    assert_eq!(written, vec![b"a".to_vec()], "the input the flush kept reached the host once");
+    assert_eq!(
+        written,
+        vec![b"k".to_vec(), b"a".to_vec()],
+        "the input the flush kept reached the host once"
+    );
 }
 
 /// R-DAEMON-STATE S1.6c (#35082 review 2, should-do 1): a write that waits out a lost host connection fails as soon
@@ -1190,4 +1232,241 @@ fn a_write_waiting_for_a_reconnect_fails_when_the_reader_gives_up() {
             "a write to a host the reader gave up on waited {took:?}, its reconnect deadline, not the give-up"
         );
     });
+}
+
+/// R-DAEMON-STATE S1.6c (#35082 review 1, item 4): a viewer size sent while the input port holds the person's key
+/// (a key that moved the grid sends it under the sizing lock, on the key's own turn) does not wait for the port: it
+/// goes on the port behind the key. Before, it waited in the order barrier for up to 2 s, then went first.
+#[cfg(unix)]
+#[test]
+fn a_viewer_size_behind_a_key_the_port_holds_goes_after_it_without_waiting() {
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-viewer-size", true);
+    let pty = surface.as_pty().expect("a terminal");
+    // The key must be a frame the port's writer holds: no inline write.
+    pty.input_port.queue_every_write_for_test();
+    let resume = pty.input_port.pause_writes_for_test();
+    surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
+    wait_until("the writer took the key", || pty.input_port.queued_frames_for_test() == 0);
+    let started = Instant::now();
+    surface.resize(97, 31).expect("the viewer size was sent");
+    let took = started.elapsed();
+    drop(resume);
+    let kinds: Vec<_> = frames_until_quiet(&mut host, Duration::from_millis(500))
+        .into_iter()
+        .map(|frame| frame.kind)
+        .collect();
+    assert!(
+        took < Duration::from_millis(500),
+        "a viewer size waited {took:?} for the key the port held (it runs under the sizing lock on a key's turn)"
+    );
+    let key_at = kinds.iter().position(|kind| *kind == MessageKind::Input);
+    let size_at = kinds.iter().position(|kind| *kind == MessageKind::ViewerSize);
+    assert!(
+        matches!((key_at, size_at), (Some(key), Some(size)) if key < size),
+        "the viewer size did not reach the host after the key the port held: {kinds:?}"
+    );
+}
+
+/// R-DAEMON-STATE S1.6c (#35082 review 2, should-do 2): an attach that settles the host's viewer size gives up at its
+/// own deadline, not the order barrier's 2 s, when the input port holds a frame.
+#[cfg(unix)]
+#[test]
+fn a_viewer_size_settle_ends_by_its_own_deadline_behind_a_held_frame() {
+    let (_mux, surface, _host) =
+        hosted_surface_with("hosted-input-port-settle-deadline", true, |attachment| {
+            attachment.viewer_size_acks = true;
+        });
+    let pty = surface.as_pty().expect("a terminal");
+    // The key must be a frame the port's writer holds: no inline write.
+    pty.input_port.queue_every_write_for_test();
+    surface.resize(97, 31).expect("the first viewer size was sent");
+    let resume = pty.input_port.pause_writes_for_test();
+    surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
+    wait_until("the writer took the key", || pty.input_port.queued_frames_for_test() == 0);
+    let started = Instant::now();
+    let settled = surface.settle_hosted_viewer_size(Instant::now() + Duration::from_millis(200));
+    let took = started.elapsed();
+    drop(resume);
+    assert!(!settled, "the fake host acknowledges nothing, so the size cannot settle");
+    assert!(
+        took < Duration::from_millis(900),
+        "an attach with a 200 ms deadline waited {took:?} for the input port's held frame"
+    );
+}
+
+/// R-DAEMON-STATE S1.6d (#35413 review; DESIGN 2.6.1): the input port's writer carries the person's keys from the
+/// daemon to the host, so once it takes one it runs at user-interactive QoS, as the connection threads that carried
+/// the key do (server/input_qos.rs, TYPING FIX 2 F7). Under full CPU a default-QoS thread waits for a CPU. A port
+/// that only automation writes to (a `Written` write: a script's `cmux send`) keeps the default QoS.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_input_ports_writer_runs_at_user_interactive_qos_once_it_carries_a_persons_key() {
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-writer-qos", true);
+    let pty = surface.as_pty().expect("a terminal");
+    // The key must be a frame the port's writer holds: no inline write.
+    pty.input_port.queue_every_write_for_test();
+    let interactive = libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE as u32;
+    surface.write_bytes(b"a").expect("automation's write was written");
+    let automation = pty.input_port.writer_qos_for_test();
+    assert!(automation.is_some(), "the writer recorded no QoS for automation's write");
+    assert_ne!(
+        automation,
+        Some(interactive),
+        "automation's write ran the writer at user-interactive QoS"
+    );
+    surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
+    wait_until("the writer took the key", || pty.input_port.queued_frames_for_test() == 0);
+    surface.write_bytes(b"b").expect("the next write was written");
+    assert_eq!(
+        pty.input_port.writer_qos_for_test(),
+        Some(interactive),
+        "the writer that carried the person's key does not run at user-interactive QoS"
+    );
+}
+
+/// A viewer size of 97x31 queued on the input port behind a key its writer took, and then that writer waiting for a
+/// reconnect (the route it writes on is dead).
+#[cfg(unix)]
+fn a_size_queued_then_a_reconnect_wait(surface: &Surface, pty: &PtySurface) {
+    // The key must be a frame the port's writer holds: no inline write.
+    pty.input_port.queue_every_write_for_test();
+    let resume = pty.input_port.pause_writes_for_test();
+    surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
+    wait_until("the writer took the key", || pty.input_port.queued_frames_for_test() == 0);
+    surface.resize(97, 31).expect("the first viewer size was sent");
+    assert_eq!(
+        pty.input_port.queued_frames_for_test(),
+        1,
+        "the first viewer size waits on the port behind the key"
+    );
+    pty.input_route.store(Some(Arc::new(dead_host_route())));
+    drop(resume);
+    wait_until("the port's writer waits for a reconnect", || {
+        pty.input_port.reconnecting_for_test()
+    });
+}
+
+/// The size frames `host` reads until it reads nothing for 500 ms: a `ViewerSize` as its columns and rows, a
+/// `ReleaseViewer` as `None`.
+#[cfg(unix)]
+fn size_frames_until_quiet(host: &mut std::os::unix::net::UnixStream) -> Vec<Option<(u16, u16)>> {
+    frames_until_quiet(host, Duration::from_millis(500))
+        .into_iter()
+        .filter_map(|frame| match frame.kind {
+            MessageKind::ViewerSize => {
+                let [cols_low, cols_high, rows_low, rows_high]: [u8; 4] =
+                    frame.payload.as_slice().try_into().expect("a viewer size is 4 bytes");
+                Some(Some((
+                    u16::from_le_bytes([cols_low, cols_high]),
+                    u16::from_le_bytes([rows_low, rows_high]),
+                )))
+            }
+            MessageKind::ReleaseViewer => Some(None),
+            _ => None,
+        })
+        .collect()
+}
+
+/// R-DAEMON-STATE S1.6c (#35375 review): a viewer size sent while the input port waits for a reconnect goes on the
+/// port too, in place of the size it queued before the loss, so the new connection's last size is the newest. Written
+/// directly, it went to the lost connection, and the stale queued size reached the new host after the install: the
+/// host kept 97x31 while the daemon's lease said 100x30, and a later send of 100x30 wrote nothing.
+#[cfg(unix)]
+#[test]
+fn a_viewer_size_sent_during_a_reconnect_wait_is_the_new_hosts_last_size() {
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-size-reconnect", true);
+    let pty = surface.as_pty().expect("a terminal");
+    a_size_queued_then_a_reconnect_wait(&surface, pty);
+    surface.resize(100, 30).expect("the newer viewer size was sent");
+    let mut replacement_host = install_replacement(pty);
+    let sizes = size_frames_until_quiet(&mut replacement_host);
+    assert_eq!(
+        sizes.last(),
+        Some(&Some((100, 30))),
+        "the new host's last viewer size is not the newest lease: {sizes:?}"
+    );
+}
+
+/// The release form of the case above: a release during the reconnect wait must be the new host's last size frame,
+/// or the host keeps a lease the daemon released (and a later release writes nothing).
+#[cfg(unix)]
+#[test]
+fn a_viewer_size_release_during_a_reconnect_wait_is_the_new_hosts_last_size_frame() {
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-release-reconnect", true);
+    let pty = surface.as_pty().expect("a terminal");
+    a_size_queued_then_a_reconnect_wait(&surface, pty);
+    surface.release_viewer_size().expect("the release was sent");
+    let mut replacement_host = install_replacement(pty);
+    let sizes = size_frames_until_quiet(&mut replacement_host);
+    assert_eq!(
+        sizes.last(),
+        Some(&None),
+        "the new host's last size frame is not the release: {sizes:?}"
+    );
+}
+
+/// R-DAEMON-STATE S1.6c (#35082 review 2, should-do 3): a write whose frame the port's writer took and then lost (the
+/// writer panicked during its write) may have reached the host, so its error says so, as a timeout during the write
+/// does; the creating-input flush must not give those bytes back.
+#[cfg(unix)]
+#[test]
+fn a_write_the_writer_lost_after_taking_it_may_be_written() {
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-writer-lost", true);
+    let pty = surface.as_pty().expect("a terminal");
+    pty.input_port.panic_after_take_for_test();
+    let error = surface.write_bytes(b"w").expect_err("a write its writer lost answered ok");
+    assert!(
+        input_may_be_written(&error),
+        "a frame the writer took and lost was reported as not written: {error}"
+    );
+}
+
+/// A write waiting for a reconnect on the input port, from a thread; the test thread then ends the reconnect with
+/// `end` and gets the write's result and how long it took.
+#[cfg(unix)]
+fn write_waiting_for_a_reconnect_then(
+    name: &str,
+    end: impl FnOnce(&Surface, &PtySurface),
+) -> (std::io::Result<()>, Duration) {
+    let (_mux, surface, _host) = hosted_typing_surface(name, true);
+    let pty = surface.as_pty().expect("a terminal");
+    pty.input_port.set_reconnect_wait_for_test(Duration::from_secs(5));
+    pty.input_route.store(Some(Arc::new(dead_host_route())));
+    std::thread::scope(|scope| {
+        let writing = scope.spawn(|| {
+            let started = Instant::now();
+            (surface.write_bytes(b"g"), started.elapsed())
+        });
+        wait_until("the write waits for a reconnect", || pty.input_port.reconnecting_for_test());
+        end(&surface, pty);
+        writing.join().unwrap()
+    })
+}
+
+/// #35280 review (should-do 1): the reader's real give-up (its backoff past the budget, `wait_or_fail`) ends the
+/// port's reconnect wait, not only a hand call of `reader_gave_up`.
+#[cfg(unix)]
+#[test]
+fn a_write_waiting_for_a_reconnect_fails_when_the_readers_backoff_gives_up() {
+    let (written, took) =
+        write_waiting_for_a_reconnect_then("hosted-input-port-backoff-gives-up", |_, pty| {
+            let mut backoff = TerminalHostReconnectBackoff::default();
+            while backoff.next_delay().is_some() {}
+            assert!(!backoff.wait_or_fail(pty), "the exhausted backoff did not give the host up");
+        });
+    written.expect_err("a write to a host the reader gave up on answered ok");
+    assert!(took < Duration::from_secs(2), "the write waited {took:?} after the reader gave up");
+}
+
+/// #35280 review (should-do 1): a daemon shutdown's detach (`disconnect_for_daemon_shutdown`) ends the port's
+/// reconnect wait: the write fails now, not at its own deadline.
+#[cfg(unix)]
+#[test]
+fn a_write_waiting_for_a_reconnect_fails_when_the_daemon_shuts_down() {
+    let (written, took) =
+        write_waiting_for_a_reconnect_then("hosted-input-port-shutdown-detach", |surface, _| {
+            surface.disconnect_for_daemon_shutdown();
+        });
+    written.expect_err("a write to a terminal the daemon detached answered ok");
+    assert!(took < Duration::from_secs(2), "the write waited {took:?} after the daemon's detach");
 }

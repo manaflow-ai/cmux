@@ -178,6 +178,7 @@ pub(crate) use spawn_options::{
     CLIENT_PANE_ID_FIELD, CLIENT_SPLIT_ID_FIELD, CLIENT_TAB_ID_FIELD, terminal_identity,
 };
 pub use spawn_options::{PaneSurfaceCreation, TerminalSpawnOptions};
+pub(crate) use topology_ops::split_direction_field;
 mod agent_chat_columns;
 #[cfg(unix)]
 mod agent_chat_notices;
@@ -224,6 +225,7 @@ use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
 mod agent_prompts;
 pub use agent_presence::{AgentActivity, AgentPresence};
+pub(crate) use agent_prompts::{with_agent_session, with_last_reply};
 mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
 use agent_types::{
@@ -322,6 +324,7 @@ mod terminal_host_link;
 mod terminal_move;
 mod terminal_move_topology;
 mod terminal_progress;
+mod terminal_publisher;
 mod terminal_reap;
 #[cfg(unix)]
 mod terminal_rehost;
@@ -347,7 +350,7 @@ use agent_hook_errors::{
 pub use agent_chat_columns::AGENT_CHAT_COLUMN_CODE;
 pub(crate) use agent_chat_columns::{
     agent_chat_columns, ensure_agent_chat_columns_unsplit, ensure_pane_column_not_agent_chat,
-    is_agent_chat_top, release_agent_chat_role,
+    is_agent_chat_top, pane_is_agent_chat_top, release_agent_chat_role,
 };
 pub use column_move::{ColumnMoveDirection, ColumnMoveError};
 pub use dock_columns::PINNED_COLUMN_CODE;
@@ -373,7 +376,8 @@ use resource_content::ensure_screen_split_public_ids;
 pub(crate) use resource_topology::AgentCLIJobBusy;
 pub(crate) use resource_topology::{
     BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD,
-    PANE_SPLIT_FOCUS_FIELD, RoomClose, TabSplit, WORKSPACE_CREATE_FOCUS_FIELD,
+    PANE_SPLIT_FOCUS_FIELD, RoomClose, SCREEN_CREATE_FOCUS_FIELD, TabSplit,
+    WORKSPACE_CREATE_FOCUS_FIELD,
 };
 pub use rows::{RowHeightsOutcome, RowsError};
 pub(crate) use screen_groups::workspace_screen_groups;
@@ -596,6 +600,10 @@ pub struct Mux {
     reserved_in_process_terminals: Mutex<HashMap<SurfaceId, TerminalHostIdentity>>,
     #[cfg(test)]
     viewport_split_after_spawn: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs in an effectful topology operation after its intent is marked
+    /// executing and before the effect runs (tests).
+    #[cfg(test)]
+    topology_effect_before_execute: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_mutation_metrics: Mutex<Option<ResourceMutationMetrics>>,
     #[cfg(test)]
@@ -654,7 +662,7 @@ pub struct Mux {
     /// Child agents each terminal agent runs past its turn, memory only (`agent_hook_children.rs`).
     agent_hook_children: Mutex<HashMap<TerminalPublicId, agent_hook_children::HookChildren>>,
     agent_roster: Mutex<AgentRosterHost>,
-    agent_roster_fold: Mutex<agent_roster_fold::AgentRosterFold>,
+    agent_roster_worker: agent_roster_fold::AgentRosterWorker,
     agent_message_pump: agent_message_pump::AgentMessagePump,
     #[cfg(unix)]
     agent_chat_notices: agent_chat_notices::AgentChatNoticesWake,
@@ -667,8 +675,13 @@ pub struct Mux {
     /// never persisted, so a restarted daemon records nothing until asked
     /// again. The rows live in the workspace registry (`terminal_commands`).
     terminal_command_history: AtomicBool,
+    /// Keeps each terminal's newest finished command in memory for a parked
+    /// tab's record: follows `workspaces.freeing.enabled` (`mux/settings.rs`).
+    terminal_last_command: AtomicBool,
     /// The command history worker's bounded queue (`mux/command_history.rs`).
     command_history_worker: Mutex<Option<SyncSender<command_history::CommandHistoryMessage>>>,
+    /// Makes the durable commits terminal output asks for, off the output readers.
+    terminal_publisher: terminal_publisher::TerminalPublisher,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     /// Per-client read marks. The shared unread marker above answers "does this terminal need
     /// attention on the shared console"; this map answers "has this client install seen this

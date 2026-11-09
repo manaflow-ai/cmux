@@ -44,14 +44,22 @@ impl RunState {
 pub struct Run {
     pub id: String,
     pub automation: String,
-    /// `schedule` or `manual`.
+    /// `schedule`, `manual` or `watch`.
     pub trigger: String,
+    /// What the trigger saw (a watch's lines, `run --event`), cut at 16 KiB.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event: Option<String>,
+    /// Watch events the guardrails dropped before this run started.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub dropped: u64,
     /// The scheduled time it stands for (schedule runs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scheduled_at: Option<i64>,
     pub state: RunState,
     /// Why it was skipped or failed: `superseded`, `stale`, `machine_asleep`,
-    /// `previous_run_running`, `exit_N`, `timeout`, `runner_died`, `start_failed`.
+    /// `previous_run_running`, `cooldown`, `cap_reached`, `condition_false`,
+    /// `condition_exit_N`, `condition_timeout`, `exit_N`, `timeout`,
+    /// `runner_died`, `start_failed`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
     pub created_at: i64,
@@ -74,6 +82,10 @@ pub struct Run {
     pub version: u64,
 }
 
+fn is_zero(n: &u64) -> bool {
+    *n == 0
+}
+
 fn digest_id(parts: &[&[u8]]) -> String {
     let mut hasher = Sha256::new();
     for (i, part) in parts.iter().enumerate() {
@@ -89,6 +101,12 @@ fn digest_id(parts: &[&[u8]]) -> String {
 /// every retry that sees this due time computes the same id, so it is one run.
 pub fn run_id(automation: &str, scheduled_at: i64) -> String {
     digest_id(&[automation.as_bytes(), b"schedule", scheduled_at.to_string().as_bytes()])
+}
+
+/// The run id of a watch event; `key` is unique per event (its time and a
+/// counter).
+pub fn event_run_id(automation: &str, key: &str) -> String {
+    digest_id(&[automation.as_bytes(), b"watch", key.as_bytes()])
 }
 
 /// The run id of a manual run; the same idempotency key gives the same run.

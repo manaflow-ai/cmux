@@ -48,6 +48,9 @@ START OPTIONS
   --relay-ticket-file <path>  Refresh the relay ticket from a file.
   --relay-ticket-command <program> [--relay-ticket-command-arg <arg>]
                     Refresh the relay ticket from an argv-based command.
+  --carrier-grant-config <path>
+                    Admit carrier grants checked against this machine's grant
+                    config (issuer, machine, team, keyset). Off without it.
   --iroh            Publish an Iroh route for NAT traversal and mobile use.
   --advertise <url> Add a non-secret route hint to enrollment invitations.
   --term <value>     TERM for child shells (default: keep the outer terminal's

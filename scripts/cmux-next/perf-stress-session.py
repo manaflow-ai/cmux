@@ -23,11 +23,13 @@ agent chats and no New Tab page in their place, Chromium running with no WebKit 
 before it returns: another shape raises StressShapeError instead of being measured as STRESS.
 
 The window (`place_window`) goes on the main screen at WINDOW_SIZE: centered across the screen's visible
-frame, its top at the visible frame's top (under the menu bar). The 1920 x 1080 main display of the fleet
-(split-spring.sh --vdisplay=120) has a visible height under 1000 pt when the Dock shows at the bottom, so
-a bottom Dock may cover the window's lower edge: the Dock draws over it, every pane stays on the screen
-and is laid out and drawn as before. The summary records that overlap (`dock_overlap_pt`) as a bench
-condition. A window past the screen's edges or under the menu bar is not STRESS. An app built before
+frame, its top at the visible frame's top (under the menu bar). AppKit keeps the window inside the visible
+frame's height, so a bottom Dock does not cover it: it makes the window shorter. A 1920 x 1080 display with a 90 pt
+bottom Dock gives 1600 x 960 (cmux-austin-mini-1, step 5b671a0b, 2026-11-08) and an AWS Nitro 1024 x 768
+display gives 1600 x 680: that window is not STRESS (`window_problem`). The fleet's virtual display
+(split-spring.sh --vdisplay=HZ, 1920 x 1200 by default) holds the full window above the Dock. The summary
+still records `dock_overlap_pt` as a bench condition (0 when AppKit clamped the window). A window past the
+screen's edges or under the menu bar is not STRESS. An app built before
 the `visible_frame` / `screen_frame` fields (bb4ac3c2b03) gets the size check and the grid check from
 debug.layers pane frames only, and the summary says `window_on_screen: "unknown"`.
 
@@ -429,15 +431,15 @@ class Stress:
             if isinstance(reply, dict) and reply.get("error"):
                 self.refusals.append(f"settings.set {key}: {str(reply['error'])[:160]}")
         # A display smaller than the window (a 1024 x 768 fleet screen, a window the screen clamped to
-        # 675 pt) cannot hold 4 x 3 panes, and the app then places splits elsewhere; a window past the
+        # 680 or 960 pt) cannot hold 4 x 3 panes, and the app then places splits elsewhere; a window past the
         # screen's edges puts panes and Chromium pages off screen. setFrame does not keep a window on its
         # screen at once (that happens later), so the end of the build checks again (`check`, `window`).
         # Fail before building anything; on the fleet run under split-spring.sh --vdisplay=120 (a
-        # 1920 x 1080 virtual main display), or launch here with --vdisplay.
+        # 1920 x 1200 virtual main display), or launch here with --vdisplay.
         reply, problem = place_window(self.rpc)
         self.window_reply = reply if isinstance(reply, dict) else {}
         if problem:
-            raise StressShapeError(f"{problem}: run with a 1920 x 1080 display (split-spring.sh --vdisplay=120, "
+            raise StressShapeError(f"{problem}: run with a 1920 x 1200 display (split-spring.sh --vdisplay=120, "
                                    "or --vdisplay here)")
         return reply
 
@@ -652,8 +654,8 @@ def typed_refusal(reply):
 
 def window_target(reply):
     """WINDOW_SIZE on the screen of a `debug.window_frame` reply: centered across its visible frame, its top at
-    the visible frame's top (under the menu bar), so only a bottom Dock may cover it. None without the screen
-    fields (an app before bb4ac3c2b03)."""
+    the visible frame's top (under the menu bar); AppKit clamps a window taller than the visible frame. None
+    without the screen fields (an app before bb4ac3c2b03)."""
     visible = reply.get("visible_frame") if isinstance(reply, dict) else None
     if not visible:
         return None
@@ -680,8 +682,9 @@ def window_problem(reply):
     """Why the window cannot hold STRESS, or None: from a `debug.window_frame` reply (or a `debug.layers`
     window as {frame, visible_frame, screen_frame}), the window is not WINDOW_SIZE (1 pt of rounding
     allowed), or it does not lie on its screen: past the visible frame's left, right or top (a side Dock,
-    the menu bar) or past the screen's bottom edge. A bottom Dock over its lower edge is allowed
-    (`dock_overlap`). Without the screen fields (an app before bb4ac3c2b03) only the size is checked."""
+    the menu bar) or past the screen's bottom edge. A lower edge under a bottom Dock is allowed
+    (`dock_overlap`), though AppKit clamps a window to the visible frame's height, so it is rare. Without the
+    screen fields (an app before bb4ac3c2b03) only the size is checked."""
     frame = reply.get("frame") if isinstance(reply, dict) else None
     visible = reply.get("visible_frame") if isinstance(reply, dict) else None
     screen = reply.get("screen", "?") if isinstance(reply, dict) else "?"
@@ -850,7 +853,7 @@ def main():
     parser.add_argument("--busy-where", choices=["measured", "elsewhere"], default="measured")
     parser.add_argument("--keep", action="store_true", help="leave the launched app running")
     parser.add_argument("--vdisplay", type=float, default=0,
-                        help="with --app: first make a 1920 x 1080 virtual main display at this refresh (Hz), as "
+                        help="with --app: first make a 1920 x 1200 virtual main display at this refresh (Hz), as "
                              "split-spring.sh --vdisplay does (scripts/ci/frame-pacing/vdisplay.m)")
     parser.add_argument("--vdisplay-hold", type=float, default=1200,
                         help="the virtual display helper's own lifetime in seconds (default 1200, as split-spring.sh): "

@@ -10,14 +10,14 @@ import Testing
 /// overlap), and a divider a person drags moves with the pointer, as much as the pointer travels.
 ///
 /// Each pane frame and each divider frame is its own spring (`AnimatedFrame`). They agree only while they all step
-/// together from consistent values. A drag snaps every frame it retargets to its target (`ScreenContentView.place`,
-/// M3) while a frame it does not retarget keeps its spring: when a drag starts during a key resize's spring, the
-/// dragged column's panes jump to their rest place and the springing column beside them is still on its way. A drag
-/// The drag measures the pointer against the rest layout (`DividerDrag.start`): a press changes no size, and the
-/// pointer's travel changes the dragged pane's size 1:1. A divider pressed while its column still slides on a spring
-/// cannot also stay under the pointer: the column moves under it, so the pane would change by the column's travel
-/// (a press alone would resize it). The dragged edge rides its column's spring and moves with the pointer in the
-/// column's frame: the test reads it from column B's left edge (b1's), which only the key spring moves.
+/// together from consistent values. Before S2B a drag snapped every frame it retargets to its target
+/// (`ScreenContentView.place`, M3) while a frame it does not retarget kept its spring: when a drag started during a key
+/// resize's spring, the dragged column's panes jumped to their rest place and the springing column beside them was
+/// still on its way.
+/// Rule D (the refactor owner, 2026-11-04, from films of a drag during a key spring): a grab holds the dragged edge
+/// where the screen draws it, in view space. The pointer alone moves it from there, 1:1, and it holds still with a
+/// still pointer. Its anchor (the edge across the pane or span the drag resizes) and the edges before it keep their
+/// springs, so that pane's size changes while the anchor lands. The test reads the dragged edge as the screen draws it.
 ///
 /// Three cases on one layout, A | B (split x: b1 | b2) | C, a strip that fits its viewport:
 /// - a key press grows column A (its edge springs) and, while it springs, a drag starts on B's column edge;
@@ -37,9 +37,20 @@ import Testing
 ///   carries c: the new pane stays in c's column, at c's place and speed across the axis (the release's fling does not
 ///   take it over);
 /// - a click on the divider during a release spring changes nothing (the press's catch is put back);
+/// - the same rule along the other axis and on a dock (#35036 review follow-ups): a top-and-bottom split whose divider
+///   is grabbed while an equalize moves it, and a right dock whose inner edge is grabbed while the dock grows (the
+///   strip's viewport narrows under it, so every strip column springs too);
+/// - a whole column slides on a spring (A grows: B and C move as one) while B's edge or its split is dragged: the
+///   dragged edge does not slide with its column, it stays where the pointer puts it;
+/// - a pane whose anchor moves toward the dragged edge (A's edge springs into B while b1's split is held): the edge
+///   stops at the anchor's place plus b1's minimum, never closer; a pointer that moves toward that place faster than
+///   the edge springs there, or past it, holds the edge: it never shows behind the pointer (the split, and B's column
+///   edge with B near its minimum width); and the pane between the anchor and the edge never shows under its minimum
+///   while the anchor still moves (the anchor pushes the edge once the pane reaches its minimum);
 /// - in every case the motion stops: within 2 s every pane and divider frame is at rest on its target.
-/// The test is the display clock (`driver.isManual`, 120 Hz) and checks every frame tick: the shared pane edges, the
-/// split divider against b1's edge, and that no pane or divider shows a negative size.
+/// The test is the display clock (`driver.isManual`, 120 Hz) and checks every frame tick: the shared pane edges (side
+/// by side, and one above the other), the split divider against b1's edge, and that no pane or divider shows a
+/// negative size.
 @MainActor
 @Suite(.closesItsWindows)
 struct SharedEdgeDuringSpringTests {
@@ -64,17 +75,46 @@ struct SharedEdgeDuringSpringTests {
         /// of its own spring): this press takes the drag from before S2B, which shows none. Green on feat too: a guard
         /// for the rule.
         case shrinkColumnDuringInnerSpring
+        /// B split top and bottom (b1 over b2): an equalize springs its divider down; while it moves, the divider is
+        /// grabbed and dragged up, then held still.
+        case regrabVerticalSplitDuringEqualize
+        /// A right dock D grows on a spring (a width change): its inner edge moves left and the strip's viewport
+        /// narrows, so every strip column springs too. While D grows, its inner edge is grabbed and dragged on.
+        case dockEdgeDragDuringItsGrowth
+        /// A grows by width (a key would trade with B), so B and C slide right as one; B's edge is grabbed while they
+        /// slide, then held still.
+        case columnSlideThenColumnEdgeDrag
+        /// The same slide; the split in B is grabbed while B slides, then held still.
+        case columnSlideThenSplitDrag
+        /// A grows by width so A's edge springs right into B while b1's split, near b1's minimum, is held: the split
+        /// stops at A's edge plus b1's minimum, and comes to rest there while still held.
+        case anchorPushesSplitToMinimum
+        /// The same clamp; before the split reaches the clamp, the pointer moves past it: from that frame on the split is
+        /// where the pointer puts it (the clamp's spring is dropped, not carried along).
+        case pointerPassesTheClampBeforeItLands
+        /// The same clamp; the pointer moves toward it a quarter of the way each frame, faster than the split springs
+        /// there: the split never shows behind the pointer (the pointer takes over the part of the spring it passes).
+        case pointerChasesTheClamp
+        /// The same on B's column edge: A's edge springs into B by more than B has above its minimum width.
+        case pointerChasesTheColumnEdgeClamp
     }
 
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
     }
 
-    /// Two panes whose rest frames share a vertical edge, and the gap between them at rest.
+    /// Two panes whose rest frames share an edge, and the gap between them at rest: a vertical edge (`left` | `right`,
+    /// side by side) or, `stacked`, a horizontal one (`left` over `right`, in the screen's flipped space).
     struct SharedEdge {
         var left: PaneID
         var right: PaneID
         var rest: CGFloat
+        var stacked = false
+
+        var name: String { stacked ? "\(left)/\(right)" : "\(left)|\(right)" }
+
+        /// The gap between the two frames across this edge.
+        func gap(_ l: CGRect, _ r: CGRect) -> CGFloat { stacked ? r.minY - l.maxY : r.minX - l.maxX }
     }
 
     @MainActor
@@ -86,16 +126,47 @@ struct SharedEdgeDuringSpringTests {
         /// Every frame tick (and the release) where a shared edge or the dragged divider was off.
         var misses: [String] = []
         var ticks = 0
-        /// The split divider frame's left edge less b1's frame's right edge at rest (their springs, not rounded).
+        /// The split divider frame's near edge less b1's frame's far edge at rest (their springs, not rounded).
         var dividerRest: CGFloat?
+        /// A span the checks keep at its minimum or more, as the screen shows it: from `from`'s left edge to `to`'s right
+        /// edge (a clamp: the pane or column between the anchor and the held line).
+        var minimumWatch: (from: PaneID, to: PaneID, minimum: CGFloat)?
+        /// The split in column B whose divider the checks follow, b1 on its first side, and its axis.
+        let split: SplitID
+        let splitAxis: SplitAxis
 
-        init(widths: (a: Double, b: Double, c: Double) = (0.3, 0.4, 0.2), ratio: Double = 0.3) {
-            _ = NSApplication.shared
-            let columns = [
+        /// A | B (split x: b1 | b2) | C, a strip that fits its viewport.
+        convenience init(widths: (a: Double, b: Double, c: Double) = (0.3, 0.4, 0.2), ratio: Double = 0.3) {
+            self.init(columns: [
                 LayoutColumn(id: "A", width: widths.a, root: .leaf("a")),
                 LayoutColumn(id: "B", width: widths.b, root: .split("x", axis: .horizontal, ratio: ratio, a: .leaf("b1"), b: .leaf("b2"))),
                 LayoutColumn(id: "C", width: widths.c, root: .leaf("c")),
-            ]
+            ])
+        }
+
+        /// A | B (split y: b1 over b2) | C.
+        static func verticalSplit() -> Rig {
+            Rig(columns: [
+                LayoutColumn(id: "A", width: 0.3, root: .leaf("a")),
+                LayoutColumn(id: "B", width: 0.4, root: .split("y", axis: .vertical, ratio: 0.3, a: .leaf("b1"), b: .leaf("b2"))),
+                LayoutColumn(id: "C", width: 0.2, root: .leaf("c")),
+            ], split: "y", splitAxis: .vertical)
+        }
+
+        /// A | B (split x: b1 | b2) | C in the strip, and D docked on the right (the strip's viewport leaves it room).
+        static func rightDock() -> Rig {
+            Rig(columns: [
+                LayoutColumn(id: "A", width: 0.3, root: .leaf("a")),
+                LayoutColumn(id: "B", width: 0.4, root: .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("b1"), b: .leaf("b2"))),
+                LayoutColumn(id: "C", width: 0.2, root: .leaf("c")),
+                LayoutColumn(id: "D", width: 0.25, root: .leaf("d"), dock: DockColumn(edge: .right, mode: .docked)),
+            ])
+        }
+
+        init(columns: [LayoutColumn], split: SplitID = "x", splitAxis: SplitAxis = .horizontal) {
+            _ = NSApplication.shared
+            self.split = split
+            self.splitAxis = splitAxis
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))], activeScreenID: "s",
                                 focusedPane: "a")
             model.followsDesignMetrics = false
@@ -127,15 +198,17 @@ struct SharedEdgeDuringSpringTests {
                                context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
         }
 
-        /// The pairs of panes that share a vertical edge at rest, with their rest gaps, from the host frames shown.
+        /// The pairs of panes that share an edge at rest (side by side, or one above the other), with their rest gaps,
+        /// from the host frames shown.
         func sharedEdges() throws -> [SharedEdge] {
             let shown = try screen.layout.panes.compactMap { pane in root.context.hosts[pane].map { (pane, $0.frame) } }
             var edges: [SharedEdge] = []
             for (left, l) in shown {
                 for (right, r) in shown where right != left {
-                    let gap = r.minX - l.maxX
-                    if gap >= 0, gap <= 24, min(l.maxY, r.maxY) - max(l.minY, r.minY) > 1 {
-                        edges.append(SharedEdge(left: left, right: right, rest: gap))
+                    for stacked in [false, true] {
+                        let edge = SharedEdge(left: left, right: right, rest: 0, stacked: stacked), gap = edge.gap(l, r)
+                        let overlap = stacked ? min(l.maxX, r.maxX) - max(l.minX, r.minX) : min(l.maxY, r.maxY) - max(l.minY, r.minY)
+                        if gap >= 0, gap <= 24, overlap > 1 { edges.append(SharedEdge(left: left, right: right, rest: gap, stacked: stacked)) }
                     }
                 }
             }
@@ -145,12 +218,13 @@ struct SharedEdgeDuringSpringTests {
         /// Half a device pixel and float slack: the farthest a divider that follows the pointer may show from it.
         var halfPixel: CGFloat { get throws { 0.5 / max(try screen.scale, 1) + 0.01 } }
 
-        /// The split divider frame's left edge less b1's frame's right edge, as their springs show them now.
+        /// The split divider frame's near edge less b1's frame's far edge along the split's axis, as their springs show
+        /// them now.
         func dividerOffset() -> CGFloat? {
-            guard let screen = root.screenViews["s"], let divider = screen.dividerFrames[.split("x")], let b1 = screen.paneFrames["b1"] else {
+            guard let screen = root.screenViews["s"], let divider = screen.dividerFrames[.split(split)], let b1 = screen.paneFrames["b1"] else {
                 return nil
             }
-            return divider.rect.minX - b1.rect.maxX
+            return splitAxis == .horizontal ? divider.rect.minX - b1.rect.maxX : divider.rect.minY - b1.rect.maxY
         }
 
         /// Records each shared edge whose gap is not its rest gap, as the screen shows it now; the split divider's
@@ -158,13 +232,17 @@ struct SharedEdgeDuringSpringTests {
         func check(_ edges: [SharedEdge], _ label: String) {
             for edge in edges {
                 guard let l = root.context.hosts[edge.left]?.frame, let r = root.context.hosts[edge.right]?.frame else { continue }
-                let gap = r.minX - l.maxX
+                let gap = edge.gap(l, r)
                 if abs(gap - edge.rest) > Self.edgeSlack {
-                    misses.append("\(label): \(edge.left)|\(edge.right) gap \(Self.pt(gap)) pt, at rest \(Self.pt(edge.rest)) pt")
+                    misses.append("\(label): \(edge.name) gap \(Self.pt(gap)) pt, at rest \(Self.pt(edge.rest)) pt")
                 }
             }
             if let rest = dividerRest, let offset = dividerOffset(), abs(offset - rest) > Self.edgeSlack {
                 misses.append("\(label): the split divider shows \(Self.pt(offset)) pt from b1's edge, at rest \(Self.pt(rest)) pt")
+            }
+            if let watch = minimumWatch, let from = root.context.hosts[watch.from]?.frame, let to = root.context.hosts[watch.to]?.frame,
+               to.maxX - from.minX < watch.minimum - Self.edgeSlack {
+                misses.append("\(label): \(watch.from)...\(watch.to) shows \(Self.pt(to.maxX - from.minX)) pt wide, under its minimum \(Self.pt(watch.minimum)) pt")
             }
             guard let screen = root.screenViews["s"] else { return }
             // The springs' own values: `CGRect.width` is never negative (it reads the standardized rect).
@@ -184,104 +262,22 @@ struct SharedEdgeDuringSpringTests {
             check(edges, label)
         }
 
-        /// The right edge of `pane` as the screen shows it (its host's frame).
-        func rightEdge(_ pane: PaneID) throws -> CGFloat {
-            try #require(root.context.hosts[pane], "no host for \(pane)").frame.maxX
+        /// The edge `side` of `pane` as the screen shows it (its host's frame, in the screen's space).
+        func edge(_ pane: PaneID, _ side: KeyPath<CGRect, CGFloat>) throws -> CGFloat {
+            try #require(root.context.hosts[pane], "no host for \(pane)").frame[keyPath: side]
         }
 
-        /// How far the right edge of `pane` shows from the left edge of `anchor` (the first pane of its column): the
-        /// dragged edge in its column's frame, which the column's own slide does not change.
-        func span(_ pane: PaneID, from anchor: PaneID) throws -> CGFloat {
-            try rightEdge(pane) - (try #require(root.context.hosts[anchor], "no host for \(anchor)").frame.minX)
+        /// The edge `side` of `pane` where the screen will draw it at rest (its spring's target, placed and on the pixel
+        /// grid as `ScreenContentView.applyPresentation` places hosts).
+        func restEdge(_ pane: PaneID, _ side: KeyPath<CGRect, CGFloat>) throws -> CGFloat {
+            let screen = try screen, frame = try #require(screen.paneFrames[pane], "no frame for \(pane)")
+            return screen.displayedRect(frame.targetRect, pane: pane).pixelEdges(screen.scale)[keyPath: side]
         }
 
-        /// A drag of `kind`, pressed where its handle shows, `moves` steps of `step` points (whole points: the edge
-        /// stays on the pixel grid), one display frame per move, then `still` frames with no event. In every frame it
-        /// checks the shared edges, and that the dragged edge (the right edge of `dragged`) shows from the left edge of
-        /// `anchor` (its column's first pane) as far as at the press plus the pointer's travel, never under `floor`
-        /// (the dragged pane's minimum): the grab takes over where the edge shows, the pane changes 1:1 with the
-        /// pointer and holds still with it. The press itself (a frame before the first move) moves nothing. Then the
-        /// release (`releaseSpeed`: the pointer's speed at it, pt/s, set as the drag samples it), unless `beforeRelease`
-        /// takes it over (it gets the pointer and does the release itself).
-        func drag(_ kind: DividerHandleView.Kind, dragged: PaneID, anchor: PaneID = "b1", moves: Int, step: CGFloat,
-                  flags: NSEvent.ModifierFlags = [], still: Int = 3, floor: CGFloat = 0, releaseSpeed: CGFloat? = nil,
-                  edges: [SharedEdge], release: ((DividerHandleView, CGPoint) throws -> Void)? = nil) throws {
-            let view = try handle(kind)
-            let press = try center(kind)
-            let tolerance = try halfPixel
-            let start = try span(dragged, from: anchor)
-            func expect(_ want: CGFloat, _ label: String) throws {
-                let shown = try span(dragged, from: anchor), want = max(want, floor)
-                if abs(shown - want) > tolerance {
-                    misses.append("\(label): the dragged edge shows \(Self.pt(shown)) pt from \(anchor)'s left edge, the pointer put it at \(Self.pt(want)) pt")
-                }
-            }
-            let shownBefore = try shownFrames()
-            view.mouseDown(with: event(.leftMouseDown, press, flags))
-            try expectUnmoved(shownBefore, "the press")
-            frame(edges, "press frame")
-            try expect(start, "press frame")
-            var pointer = press
-            for move in 1...moves {
-                pointer.x += step
-                view.mouseDragged(with: event(.leftMouseDragged, pointer, flags))
-                frame(edges, "drag frame \(move)")
-                try expect(start + CGFloat(move) * step, "drag frame \(move)")
-            }
-            for tick in 0..<still {
-                frame(edges, "still frame \(tick + 1)")
-                try expect(start + CGFloat(moves) * step, "still frame \(tick + 1)")
-            }
-            if let releaseSpeed {
-                // The speed is set, not timed: no test sleeps (as DividerDragFollowsPointerTests does).
-                try screen.activeDrag?.velocity = releaseSpeed
-                try screen.activeDrag?.pointer?.time = CACurrentMediaTime()
-            }
-            if let release { return try release(view, pointer) }
-            view.mouseUp(with: event(.leftMouseUp, pointer, flags))
-            root.syncWithModel()
-            check(edges, "release")
-        }
-
-        /// Every pane and divider frame as it shows now (their springs' values).
-        func shownFrames() throws -> [String: CGRect] {
-            let screen = try screen
-            var shown: [String: CGRect] = [:]
-            for (pane, frame) in screen.paneFrames { shown["pane \(pane)"] = frame.rect }
-            for (kind, frame) in screen.dividerFrames { shown["divider \(kind)"] = frame.rect }
-            return shown
-        }
-
-        /// Records every frame that shows elsewhere than in `before` (a press, a click: nothing may move on screen).
-        func expectUnmoved(_ before: [String: CGRect], _ label: String) throws {
-            for (key, now) in try shownFrames() {
-                guard let was = before[key] else { continue }
-                if abs(now.minX - was.minX) > 0.001 || abs(now.maxX - was.maxX) > 0.001 || abs(now.minY - was.minY) > 0.001
-                    || abs(now.maxY - was.maxY) > 0.001 {
-                    misses.append("\(label) moved \(key): \(was) -> \(now)")
-                }
-            }
-        }
-
-        /// Display frames until nothing moves (at most 2 s of them), each checked; then the motion must have stopped:
-        /// every pane and divider frame at rest on its target.
-        func land(_ edges: [SharedEdge], _ label: String) {
-            var frames = 0, moving = true
-            while frames < 240, moving {
-                frames += 1
-                moving = root.advanceFrame(1.0 / 120)
-                root.layoutSubtreeIfNeeded()
-                ticks += 1
-                check(edges, "\(label) frame \(frames)")
-            }
-            guard let screen = root.screenViews["s"] else { return misses.append("\(label): no screen") }
-            if moving || screen.hasMotion { misses.append("\(label): still moving after \(frames) frames") }
-            for (pane, frame) in screen.paneFrames where frame.rect != frame.targetRect || Self.moves(frame) {
-                misses.append("\(label): \(pane) is not at rest on its target (\(frame.rect) -> \(frame.targetRect))")
-            }
-            for (kind, frame) in screen.dividerFrames where frame.rect != frame.targetRect || Self.moves(frame) {
-                misses.append("\(label): divider \(kind) is not at rest on its target (\(frame.rect) -> \(frame.targetRect))")
-            }
+        /// The pointer `window` (window coordinates) along `axis` in the screen's space (flipped: y grows down).
+        func along(_ axis: SplitAxis, _ window: CGPoint) throws -> CGFloat {
+            let point = try screen.convert(window, from: nil)
+            return axis == .horizontal ? point.x : point.y
         }
 
         /// Starts column A's key spring (a press grows it) and checks its frames.
@@ -305,15 +301,27 @@ struct SharedEdgeDuringSpringTests {
 
     @Test(arguments: Overlap.allCases)
     func panesThatShareAnEdgeShowItAtOnePlaceInEveryFrame(_ overlap: Overlap) throws {
-        // The rule under test is on by default (`motion.frameOwner.sharedEdges`); a run with it turned off tests nothing
-        // here. Read by its key: the red run of this file is on a base without the switch.
-        try #require(TunableStore.shared.override("motion.frameOwner.sharedEdges") != .bool(false), "motion.frameOwner.sharedEdges is off")
-        let rig = overlap == .shrinkColumnDuringInnerSpring ? Rig(widths: (0.15, 0.7, 0.15), ratio: 0.15) : Rig()
+        let rig = switch overlap {
+        case .shrinkColumnDuringInnerSpring: Rig(widths: (0.15, 0.7, 0.15), ratio: 0.15)
+        case .regrabVerticalSplitDuringEqualize: Rig.verticalSplit()
+        case .dockEdgeDragDuringItsGrowth: Rig.rightDock()
+        // b1 with room on both sides where its split is dragged while B moves (the default rig's b1 is 13 pt above its
+        // minimum: the anchor's motion would clamp it, which anchorPushesSplitToMinimum tests on purpose).
+        case .columnSlideThenSplitDrag, .keySpringThenSplitDrag, .keySpringThenPushDrag, .keySpringThenFlingRelease, .newPaneAtRelease:
+            Rig(ratio: 0.5)
+        // B about 40 pt above its minimum width (b1 and b2 about 20 pt above theirs): A's growth clamps B's edge.
+        case .pointerChasesTheColumnEdgeClamp: Rig(widths: (0.3, 0.25, 0.2), ratio: 0.5)
+        default: Rig()
+        }
         defer { rig.window.closeAfterTest() }
         let edges = try rig.sharedEdges()
-        // a|b1 and b2|c (column gaps) and b1|b2 (the split's divider gap).
-        try #require(edges.count == 3, "shared edges at rest: \(edges.map { "\($0.left)|\($0.right)" })")
-        rig.dividerRest = try #require(rig.dividerOffset(), "no split divider")
+        // a|b1 and b2|c (column gaps) and b1|b2 (the split's divider gap); top and bottom, a and c beside both of B's
+        // panes and b1/b2 one above the other. The strip does not reach the dock (it fills 90 % of its viewport).
+        let expected: Set<String> = overlap == .regrabVerticalSplitDuringEqualize
+            ? ["a|b1", "a|b2", "b1|c", "b2|c", "b1/b2"] : ["a|b1", "b1|b2", "b2|c"]
+        try #require(Set(edges.map(\.name)) == expected, "shared edges at rest: \(edges.map(\.name).sorted())")
+        let dividerRest: CGFloat = try #require(rig.dividerOffset(), "no split divider")
+        rig.dividerRest = dividerRest
 
         switch overlap {
         case .keySpringThenColumnEdgeDrag, .keySpringThenSplitDrag:
@@ -378,6 +386,92 @@ struct SharedEdgeDuringSpringTests {
             try rig.drag(.columnEdge("B"), dragged: "b2", moves: 1, step: -900, floor: column.minimumSize(style: rig.root.context.style).width,
                          edges: edges)
             rig.land(edges, "landing")
+        case .regrabVerticalSplitDuringEqualize:
+            // b1 holds 0.3 of B's height; an equalize (it springs) takes it toward half. While the divider moves down,
+            // it is grabbed where it shows and dragged up (b1 shrinks 1:1), then held still.
+            rig.model.equalizeSplit("y")
+            rig.root.syncWithModel()
+            for tick in 1...2 { rig.frame(edges, "equalize frame \(tick)") }
+            let divider = try #require(try rig.screen.dividerFrames[.split("y")])
+            try #require(abs(divider.y.value - divider.y.target) > 8, "the equalize spring is nearly done: \(divider.y.value) -> \(divider.y.target)")
+            try rig.drag(.split("y"), dragged: "b1", anchor: "b1", axis: .vertical, edge: \.maxY, anchorEdge: \.minY, moves: 6, step: 3,
+                         still: 6, edges: edges)
+            rig.land(edges, "landing")
+        case .dockEdgeDragDuringItsGrowth:
+            // D from a quarter of the view to 35 % (a width change springs): its inner edge moves left, and the strip's
+            // viewport, so every strip column, narrows with it. While D grows, its inner edge is grabbed where it shows
+            // and dragged on to the left (D grows 1:1), then held still. Its outer edge (the view's) is the anchor.
+            rig.model.setColumnWidth("D", width: 0.35, transaction: .make(), phase: .ended)
+            rig.root.syncWithModel()
+            for tick in 1...2 { rig.frame(edges, "growth frame \(tick)") }
+            let d = try #require(try rig.screen.paneFrames["d"])
+            try #require(abs(d.rect.minX - d.targetRect.minX) > 8, "D is nearly grown: \(d.rect.minX) -> \(d.targetRect.minX)")
+            try #require(try rig.screen.paneFrames["c"].map { abs($0.rect.maxX - $0.targetRect.maxX) > 4 } == true,
+                         "D's growth does not move the strip")
+            try rig.drag(.columnEdge("D"), dragged: "d", anchor: "d", edge: \.minX, anchorEdge: \.maxX, moves: 6, step: -3, still: 6,
+                         edges: edges)
+            rig.land(edges, "landing")
+        case .columnSlideThenColumnEdgeDrag, .columnSlideThenSplitDrag:
+            // A from 0.3 to 0.35 of the strip (a width change springs): B and C slide right as one. While they slide, B's
+            // edge (or the split in B) is grabbed where it shows, dragged left, then held still: it does not slide on.
+            rig.model.setColumnWidth("A", width: 0.35, transaction: .make(), phase: .ended)
+            rig.root.syncWithModel()
+            for tick in 1...2 { rig.frame(edges, "slide frame \(tick)") }
+            let b1 = try #require(try rig.screen.paneFrames["b1"])
+            try #require(b1.targetRect.minX - b1.rect.minX > 40, "B nearly slid: \(b1.rect.minX) -> \(b1.targetRect.minX)")
+            let (kind, dragged): (DividerHandleView.Kind, PaneID) = overlap == .columnSlideThenColumnEdgeDrag
+                ? (.columnEdge("B"), "b2") : (.split("x"), "b1")
+            try rig.drag(kind, dragged: dragged, moves: 6, step: -3, still: 12, edges: edges)
+            rig.land(edges, "landing")
+        case .anchorPushesSplitToMinimum:
+            // A grows by 0.07 of the strip on a spring, so A's edge (b1's anchor) moves into B by more than b1 has above
+            // its minimum. The split, grabbed during that spring and held still, stops at A's edge plus b1's minimum.
+            let minimum = rig.root.context.style.minimumPaneSize.width
+            let b1 = try #require(try rig.screen.paneFrames["b1"]).targetRect.width
+            try #require(b1 > minimum + 10 && b1 < minimum + 60, "b1 is \(b1) pt, its minimum \(minimum) pt")
+            let a = try #require(rig.model.screens.first?.layout.columns.first { $0.id == "A" }).width
+            rig.model.setColumnWidth("A", width: a + 0.07, transaction: .make(), phase: .ended)
+            rig.root.syncWithModel()
+            rig.frame(edges, "growth frame 1")
+            rig.minimumWatch = ("b1", "b1", minimum)
+            // Held still until the clamp's spring is done: the split rests at A's rest edge plus b1's minimum.
+            try rig.drag(.split("x"), dragged: "b1", moves: 1, step: 1, still: 120, floor: minimum, edges: edges) { view, pointer in
+                let shown = try rig.edge("b1", \.maxX), clamp = try rig.restEdge("b1", \.minX) + minimum, tolerance = try rig.halfPixel
+                #expect(abs(shown - clamp) <= tolerance, "held still, the split rests at \(Rig.pt(shown)) pt, the clamp is \(Rig.pt(clamp)) pt")
+                view.mouseUp(with: rig.event(.leftMouseUp, pointer))
+                rig.root.syncWithModel()
+                rig.check(edges, "release")
+            }
+            rig.land(edges, "landing")
+        case .pointerPassesTheClampBeforeItLands:
+            // The clamp as above; one frame after the press, the pointer moves 30 pt past the clamp in one step, while
+            // the split still springs toward it. From then on the split shows where the pointer puts it.
+            let minimum = rig.root.context.style.minimumPaneSize.width
+            let a = try #require(rig.model.screens.first?.layout.columns.first { $0.id == "A" }).width
+            rig.model.setColumnWidth("A", width: a + 0.07, transaction: .make(), phase: .ended)
+            rig.root.syncWithModel()
+            rig.frame(edges, "growth frame 1")
+            let drawn = try rig.edge("b1", \.maxX), clamp = try rig.restEdge("b1", \.minX) + minimum
+            try #require(clamp - drawn > 40, "the split is \(Rig.pt(clamp - drawn)) pt from the clamp: no clamp to pass")
+            rig.minimumWatch = ("b1", "b1", minimum)
+            try rig.drag(.split("x"), dragged: "b1", moves: 1, step: (clamp - drawn + 30).rounded(), still: 12, floor: minimum, edges: edges)
+            rig.land(edges, "landing")
+        case .pointerChasesTheClamp, .pointerChasesTheColumnEdgeClamp:
+            // The clamp as above (on B's edge: B's minimum width from B's rest place); the pointer moves toward it a
+            // quarter of the way each frame for three frames, then holds still while the line goes on to the clamp.
+            let style = rig.root.context.style, onEdge = overlap == .pointerChasesTheColumnEdgeClamp
+            let column = try #require(rig.model.screens.first?.layout.columns.first { $0.id == "B" })
+            let floor = onEdge ? column.minimumSize(style: style).width : style.minimumPaneSize.width
+            let (kind, dragged): (DividerHandleView.Kind, PaneID) = onEdge ? (.columnEdge("B"), "b2") : (.split("x"), "b1")
+            let a = try #require(rig.model.screens.first?.layout.columns.first { $0.id == "A" }).width
+            rig.model.setColumnWidth("A", width: a + 0.07, transaction: .make(), phase: .ended)
+            rig.root.syncWithModel()
+            rig.frame(edges, "growth frame 1")
+            let drawn = try rig.edge(dragged, \.maxX), clamp = try rig.restEdge("b1", \.minX) + floor
+            try #require(clamp - drawn > 40, "the line is \(Rig.pt(clamp - drawn)) pt from the clamp: no clamp to chase")
+            rig.minimumWatch = ("b1", dragged, floor)
+            try rig.drag(kind, dragged: dragged, moves: 3, step: ((clamp - drawn) / 4).rounded(), still: 12, floor: floor, edges: edges)
+            rig.land(edges, "landing")
         case .clickDuringReleaseSpring:
             let room = try #require(try rig.screen.geometry.dividers.first { $0.id == "x" }).container.width
             try rig.drag(.split("x"), dragged: "b1", moves: 4, step: (room * 0.035).rounded(), flags: .shift, edges: edges)
@@ -399,7 +493,7 @@ struct SharedEdgeDuringSpringTests {
             // Column A grows (a width change, not a key press: a key press trades width with B and C stays): B and C
             // slide on its spring. A Shift drag of the split, and in its release's turn a split of c (c2 under c):
             // one layout pass makes the release and the new pane.
-            rig.model.setColumnWidth("A", width: 0.4, transaction: .make(), phase: .ended)
+            rig.model.setColumnWidth("A", width: 0.37, transaction: .make(), phase: .ended)
             rig.root.syncWithModel()
             for tick in 1...3 { rig.frame(edges, "growth frame \(tick)") }
             let room = try #require(try rig.screen.geometry.dividers.first { $0.id == "x" }).container.width

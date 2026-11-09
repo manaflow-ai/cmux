@@ -35,6 +35,9 @@
          location = "group:CmuxChiefVoiceCore">
       </FileRef>
       <FileRef
+         location = "group:CmuxDeviceHub">
+      </FileRef>
+      <FileRef
          location = "group:CmuxFeedPushCore">
       </FileRef>
       <FileRef
@@ -69,9 +72,6 @@
       </FileRef>
       <FileRef
          location = "group:CmuxSyncStore">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxTerminalClient">
       </FileRef>
       <FileRef
          location = "group:CmuxTerminalSizing">

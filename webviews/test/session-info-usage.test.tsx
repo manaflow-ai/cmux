@@ -17,7 +17,7 @@ import {
   resetSessionInfoState,
   setSessionInfoMore,
 } from "../src/agent-session/acpmux/session-info/sessionInfoState";
-import { DEFAULT_ORDER, GROUP_SECTIONS } from "../src/agent-session/acpmux/session-info/sectionOrder";
+import { DEFAULT_ORDER } from "../src/agent-session/acpmux/session-info/sectionOrder";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
 import {
   byUsage,
@@ -188,9 +188,8 @@ test("byUsage ranks by 24h cost or by context, highest first, and leaves out ses
   expect(usageCost(12.4, "en")).toBe("$12.40");
 });
 
-test("Usage is a folded row in the top block, after Context, valued at this chat's 24h cost", async () => {
-  expect(GROUP_SECTIONS.about).toEqual(["environment", "context", "usage", "connectors"]);
-  expect(DEFAULT_ORDER.indexOf("usage")).toBe(DEFAULT_ORDER.indexOf("context") + 1);
+test("Usage is a folded row under the Show more line, valued at this chat's 24h cost", async () => {
+  expect(DEFAULT_ORDER.indexOf("usage")).toBeGreaterThan(DEFAULT_ORDER.indexOf("more"));
   expect(DEFAULT_SECTIONS.usage).toBe(false);
   await render(
     <SessionInfo
@@ -235,11 +234,8 @@ test("open, Usage lists this chat's numbers, then every host's sessions by 24h c
     row.dataset.usage,
     row.querySelector(".acpmux-session-info-row__end")?.textContent,
   ]);
-  expect(
-    [...usage.querySelectorAll<HTMLElement>("li[data-usage]")].every((row) =>
-      row.querySelector(".acpmux-session-info-usage__lead-slot"),
-    ),
-  ).toBe(true);
+  // Flush on the icon column, where the section's title starts: no empty leading slot.
+  expect(usage.querySelector("li[data-usage] .acpmux-session-info-usage__lead-slot")).toBeNull();
   expect(own).toEqual([
     ["cost", "$12.40"],
     // The prompt cache's share of the prompt tokens and one call's cost (the 1h cache's win).
@@ -375,13 +371,16 @@ test("sorted by 24h cost, a session whose cost is unknown shows an em dash, neve
   ]);
 });
 
-test("a chat with no usage of its own still shows Usage while another session reports some; none at all shows none", async () => {
+test("a chat with no usage of its own still shows Usage while another session reports some; none at all reads None", async () => {
   await render(<SessionInfo summary={{ sessionId: "fresh", cwd: "/repo" }} allSessions={SESSIONS} />);
   const usage = host.querySelector<HTMLElement>('section[data-section="usage"]');
   expect(usage).not.toBeNull();
   expect(usage?.querySelector(".acpmux-session-info-section__meta")).toBeNull();
+  // Nothing read yet (acpmux reads a new chat's records a few minutes in): one plain line, no fold.
   await render(<SessionInfo summary={{ sessionId: "fresh", cwd: "/repo" }} allSessions={[SESSIONS[3]!]} />);
-  expect(host.querySelector('section[data-section="usage"]')).toBeNull();
+  const none = host.querySelector<HTMLElement>('section[data-section="usage"]')!;
+  expect(none.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe("None");
+  expect(none.querySelector(".ui-disclosure-trigger")).toBeNull();
 });
 
 test("more than five sessions fold behind View all", async () => {

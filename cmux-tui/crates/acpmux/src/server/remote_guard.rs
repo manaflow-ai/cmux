@@ -101,6 +101,20 @@ pub(super) fn forwards(origin: super::Origin, m: &str) -> bool {
     origin == Local || (origin == LocalApp && m == method::MUX_SUBAGENT_STOP)
 }
 
+/// Who a connection is from its own proof alone: `control_of` with no request marker
+/// (`_meta.acpmux.via`), which a client sets itself. `hub/created_by.rs` reads this.
+pub(super) fn proven_control(origin: super::Origin, auth: super::ConnAuth) -> crate::hub::Control {
+    use crate::hub::Control;
+    if !auth.authenticated() {
+        return Control::Web;
+    }
+    match origin {
+        super::Origin::Local | super::Origin::LocalApp => Control::Local,
+        super::Origin::Web => Control::Web,
+        super::Origin::Peer => Control::Peer,
+    }
+}
+
 /// The rules a control request from `origin` runs under. A proven peer
 /// forwarding for its own Web client marks it `_meta.acpmux.via = "web"`.
 /// `auth` is the proof the connection presented: an unauthenticated one is
@@ -173,17 +187,38 @@ pub(super) fn refuse_cloud_mobile_forward() -> RpcError {
     .with_data(serde_json::json!({"reason": "remote.cloud_mobile_peer"}))
 }
 
+/// `_meta.acpmux.personVerified` on a prompt a peer forwards: the forwarding daemon's connection
+/// proved the person (`hub/person.rs`). Read only from a Peer link (`person_admitted`), as that
+/// peer's word: the receiver records it as come over `peer`. One key with the inbox's proof
+/// (`prompt_provenance::PERSON_VERIFIED`), so either daemon reads the other's.
+pub(super) const PERSON_PROVEN: &str = crate::prompt_provenance::PERSON_VERIFIED;
+
 pub(super) fn mark_forwarded(
     origin: super::Origin,
     auth: super::ConnAuth,
     params: &Value,
     forwarded: &mut Value,
 ) {
+    mark_forwarded_with_person(origin, auth, params, forwarded, false);
+}
+
+pub(super) fn mark_forwarded_with_person(
+    origin: super::Origin,
+    auth: super::ConnAuth,
+    params: &Value,
+    forwarded: &mut Value,
+    person_verified: bool,
+) {
     // A peer takes a prompt's provenance from its own unix socket only (prompt_provenance.rs):
     // the prompt goes there without it. Its `author` goes on as it came (`author.rs`): the peer
-    // takes it from this link and stamps the provenance itself.
+    // takes it from this link and stamps the provenance itself. A client's own `personVerified`
+    // is never passed on: only this daemon says it, of a connection that proved the person.
     if let Some(mux) = forwarded.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         mux.remove("provenance");
+        mux.remove(PERSON_PROVEN);
+    }
+    if person_verified {
+        crate::hub::merge_mux_meta(forwarded, serde_json::json!({PERSON_PROVEN: true}));
     }
     let control = control_of(origin, auth, params);
     if control == crate::hub::Control::Web {
@@ -195,6 +230,14 @@ pub(super) fn mark_forwarded(
         // owner's at the peer's VM boundary (`hub/vm_boundary.rs`).
         let via = crate::hub::vm_boundary::VIA_DEVICE;
         crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": via}));
+    }
+}
+
+/// Says on a request forwarded to a peer ([`mark_forwarded`] first) that this daemon's connection
+/// proved the person (`hub/person.rs`), so the peer admits its prompt as theirs.
+pub(super) fn attest_person(forwarded: &mut Value, person: bool) {
+    if person {
+        crate::hub::merge_mux_meta(forwarded, serde_json::json!({PERSON_PROVEN: true}));
     }
 }
 
@@ -225,9 +268,10 @@ async fn check_inner(
     if m == method::MUX_GITHUB_ACTION || m == method::MUX_GITHUB_APP_LEASE {
         return Err(refused(m));
     }
-    // A person's name (`author.rs`) comes over the unix socket, or from a peer forwarding one it
-    // took there; never from Web, the app's pane or a peer forwarding for its own Web client.
+    // A person's name (`author.rs`) comes over the unix socket, from a peer forwarding one it took
+    // there, or from the Cloud carrier's header (`carrier::gate`); never from Web or the app.
     if crate::author::present(params)
+        && auth != super::ConnAuth::CarrierTeam
         && !(origin == super::Origin::Peer
             && control_of(origin, auth, params) == crate::hub::Control::Peer)
     {
@@ -374,9 +418,12 @@ async fn check_inner(
     // may not have. A new chat can name the peer before it has a session. Forwarding strips
     // that selector, so the peer's own guard checks the folder on its disk. An unknown peer
     // is refused by the forwarder, never handled as a local folder.
+    // So do the folders the app gives a peer's chat (`_acpmux/set_directories`); a Web
+    // caller's are still checked here, against this machine's roots, whatever chat they name.
     let named_peer = super::peer_forward::trust_peer(m, params)?.is_some();
-    let peers_folder =
-        m == method::ACP_TRUST_SET && (named_peer || names_a_peers_session(hub, params));
+    let peers_folder = (m == method::ACP_TRUST_SET
+        && (named_peer || names_a_peers_session(hub, params)))
+        || (m == method::MUX_SET_DIRECTORIES && !web && names_a_peers_session(hub, params));
     if peers_folder
         && let Some(cwd) = params.get("cwd").filter(|v| !v.is_null())
         && !cwd.as_str().is_some_and(|c| Path::new(c).is_absolute())
@@ -391,6 +438,7 @@ async fn check_inner(
                 | method::SESSION_LOAD
                 | method::SESSION_RESUME
                 | method::ACP_TRUST_SET
+                | method::MUX_SET_DIRECTORIES
         );
     if folders {
         // A Web folder must also sit inside a root (`web_roots`); LocalApp
@@ -487,6 +535,7 @@ async fn check_inner(
             | method::MUX_FILE_PUT_FINISH
             | method::MUX_FILE_PUT_CANCEL
             | method::MUX_FILE_PUT_STATUS
+            | method::MUX_UPLOADS_KEEP
     ) && control_of(origin, auth, params) == crate::hub::Control::Web
         && !crate::hub::file_uploads::web::request_shape(m, params)
     {
@@ -706,8 +755,7 @@ pub(super) fn settles_as_peer(
     auth: super::ConnAuth,
     params: &Value,
 ) -> bool {
-    auth == super::ConnAuth::PeerToken
-        && control_of(origin, auth, params) == crate::hub::Control::Peer
+    auth.peer_daemon() && control_of(origin, auth, params) == crate::hub::Control::Peer
 }
 
 fn no_reviewed_asking_mode() -> RpcError {

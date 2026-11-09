@@ -1,7 +1,11 @@
 // A subagent's transcript inside the Background tasks panel (BackgroundTasksPanel.tsx): its replies,
-// its thoughts folded under "Thought process" and its tool calls one line each, which open to what
-// they ran and said, with the shared spinner under the last row while it runs. Claude Desktop's
-// drill-in, in our type.
+// and between them its work: a stretch of two or more tool calls folds under one quiet line, "Ran 11
+// commands, read a file, 2 failed", which opens to its steps, each thought under "Thought process" and
+// each call on a line that opens to what it ran and said; a lone call keeps its own line. The shared
+// spinner sits under the last row while it runs. Claude Code's drill-in, in our type (Leo, 2026-11-09:
+// "this claude background tasks thing and being able to click into subagents'/helpers' stuff is really
+// good"); before, every call and every thought drew a line of its own (transcriptRuns.experiment.ts
+// keeps that as its `lines` arm).
 //
 // It draws on the click with no blank frame and no jump (Leo, 2026-10-29: "i also like the way it
 // just loads in the subagent stuff instantly :("):
@@ -18,28 +22,31 @@
 // a task) are the only observers here: each disconnects when it fires, once every row on its side is
 // mounted, and on unmount.
 import { Button } from "../../../ui/Button";
-import { createContext, memo, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { experimentArm } from "../../../experiments/experiment";
+import { entranceAllowed } from "../../shared/pageReveal";
+import { useFold } from "../conversation/fold";
 import { Markdown } from "../conversation/Markdown";
 import { Spinner } from "../conversation/icons";
+import { toolRunSummary } from "../conversation/toolRunSummary";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { SUBAGENTS } from "../subagents/subagentFold";
-
-/// Rows mounted at first, and how many more each scroll to the top adds.
-export const WINDOW = 60;
+import {
+  WINDOW,
+  MOUNTED,
+  windowRange,
+  NestedAgents,
+  runFold,
+  transcriptBlocks,
+  type TranscriptBlock,
+} from "./subagentTranscriptModel";
+import { transcriptRunsLook } from "./transcriptRuns.experiment";
 /// A tool call's output shown when opened, at most (the full output stays in the transcript).
 const OUTPUT_CHARS = 4000;
 /// How close to the bottom counts as at the bottom, in px.
 const BOTTOM_SLACK = 24;
-
-/// The rows mounted at first, bounded at both ends: `end` undefined follows the newest row (the
-/// newest window, which grows as rows arrive); a window around an anchor row ends WINDOW rows on, so
-/// opening a task early in a long transcript mounts no more than one window either way.
-export type Range = { start: number; end?: number };
-
-/// The most rows mounted at once while the reader pages up or down: one window gained, one kept.
-export const MOUNTED = 2 * WINDOW;
 
 type Hold = { id?: string; edge: number; fromBottom: number; settled: boolean };
 
@@ -64,15 +71,6 @@ function restore(view: HTMLElement, hold: Hold) {
   view.scrollTop += row.getBoundingClientRect().bottom - view.getBoundingClientRect().top - hold.edge;
 }
 
-export function windowRange(rows: readonly AcpmuxRow[], anchor?: string): Range {
-  const newest = Math.max(0, rows.length - WINDOW);
-  const at = anchor === undefined ? -1 : rows.findIndex((row) => row.id === anchor);
-  if (at < 0) return { start: newest };
-  const start = Math.min(newest, Math.max(0, at - Math.floor(WINDOW / 4)));
-  const end = start + WINDOW;
-  return end >= rows.length ? { start } : { start, end };
-}
-
 export function SubagentTranscript({
   rows,
   running,
@@ -92,25 +90,41 @@ export function SubagentTranscript({
   const scroller = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
-  const [range, setRange] = useState(() => windowRange(rows, anchor));
+  // Read once per transcript: the arm is the gallery's override or a dogfood key, never a per-row read.
+  const [look] = useState(() => experimentArm(transcriptRunsLook));
+  // Which runs the reader opened or shut, by their rows' ids: a run is the same run however the
+  // mounted window cuts it, and the task opened from the list opens the run that holds it.
+  const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set(anchor ? [anchor] : []));
+  const [shut, setShut] = useState<ReadonlySet<string>>(() => new Set());
+  // The window counts what the transcript draws (transcriptBlocks): a reply, a lone call, or a whole
+  // run of work folded under one line, so a long run never leaves the window too short to scroll
+  // (two sentinels in view, paging back and forth by themselves). The task opened from the list
+  // anchors the window on the block that holds it.
+  const units = useMemo(() => transcriptBlocks(rows, runFold(look)), [rows, look]);
+  const anchorUnit =
+    anchor === undefined
+      ? undefined
+      : units.find((unit) => (unit.type === "row" ? unit.id === anchor : unit.rows.some((row) => row.id === anchor)))
+          ?.id;
+  const [range, setRange] = useState(() => windowRange(units, anchorUnit));
   // Opened before acpmux streamed any of its rows: the window is taken from the first rows that
   // arrive, so a long transcript still mounts one window, not every row.
-  const [seeded, setSeeded] = useState(rows.length > 0);
-  if (!seeded && rows.length > 0) {
+  const [seeded, setSeeded] = useState(units.length > 0);
+  if (!seeded && units.length > 0) {
     setSeeded(true);
-    setRange(windowRange(rows, anchor));
+    setRange(windowRange(units, anchorUnit));
   }
   // Rows replaced by fewer (a workflow agent's transcript read again from a fresh page after its file
   // was cut or replaced): the window is taken again from the new rows, never left past their end.
   // Rows read in above the first one (a workflow agent's older history): the window moves down by as
   // many, so the rows the reader was on stay the ones mounted.
-  const [seen, setSeen] = useState({ count: rows.length, head: rows[0]?.id });
-  if (rows.length !== seen.count || rows[0]?.id !== seen.head) {
-    setSeen({ count: rows.length, head: rows[0]?.id });
-    if (rows.length < seen.count) setRange(windowRange(rows));
-    else if (seen.head !== undefined && rows[0]?.id !== seen.head) {
-      const moved = rows.findIndex((row) => row.id === seen.head);
-      if (moved < 0) setRange(windowRange(rows));
+  const [seen, setSeen] = useState({ count: units.length, head: units[0]?.id });
+  if (units.length !== seen.count || units[0]?.id !== seen.head) {
+    setSeen({ count: units.length, head: units[0]?.id });
+    if (units.length < seen.count) setRange(windowRange(units));
+    else if (seen.head !== undefined && units[0]?.id !== seen.head) {
+      const moved = units.findIndex((unit) => unit.id === seen.head);
+      if (moved < 0) setRange(windowRange(units));
       else
         setRange((current) => ({
           start: current.start + moved,
@@ -126,9 +140,11 @@ export function SubagentTranscript({
   // next render applies it and lets go.
   const held = useRef<Hold | undefined>(undefined);
   const placed = useRef(false);
-  const first = Math.min(range.start, Math.max(0, rows.length - 1));
-  const last = range.end === undefined || range.end >= rows.length ? undefined : range.end;
-  const shown = rows.slice(first, last);
+  const first = Math.min(range.start, Math.max(0, units.length - 1));
+  const last = range.end === undefined || range.end >= units.length ? undefined : range.end;
+  const blocks = units.slice(first, last);
+  const tail = blocks.at(-1);
+  const lastRun = tail?.type === "run" ? tail.id : undefined;
   const loadOlder = onLoadOlder;
 
   // Before the first paint: at the bottom, or the opened task's row in view.
@@ -136,7 +152,7 @@ export function SubagentTranscript({
     const view = scroller.current;
     if (!view) return;
     if (!placed.current) {
-      if (rows.length === 0) return;
+      if (units.length === 0) return;
       placed.current = true;
       const target = anchor ? view.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(anchor)}"]`) : null;
       if (target) view.scrollTop = Math.max(0, target.offsetTop - view.clientHeight / 3);
@@ -152,14 +168,14 @@ export function SubagentTranscript({
     if (atBottom.current && last === undefined) view.scrollTop = view.scrollHeight;
   });
 
-  // Rows streaming in keep the mounted rows bounded. Following the newest row, once a window's worth
-  // has streamed in under the reader, the rows above the newest window unmount (the top sentinel
-  // brings them back). Scrolled up, the window stops following at MOUNTED rows, so nothing above
+  // Rows streaming in keep the mounted units bounded. Following the newest row, once a window's worth
+  // has streamed in under the reader, the units above the newest window unmount (the top sentinel
+  // brings them back). Scrolled up, the window stops following at MOUNTED units, so nothing above
   // the reader moves; the bottom sentinel mounts the rest as they scroll down.
   useLayoutEffect(() => {
-    if (range.end !== undefined || rows.length - range.start <= MOUNTED) return;
-    setRange(atBottom.current ? { start: rows.length - WINDOW } : { start: range.start, end: range.start + MOUNTED });
-  }, [rows.length, range]);
+    if (range.end !== undefined || units.length - range.start <= MOUNTED) return;
+    setRange(atBottom.current ? { start: units.length - WINDOW } : { start: range.start, end: range.start + MOUNTED });
+  }, [units.length, range]);
 
   // Scrolling up to the top sentinel mounts the window before it, holding the scroll; scrolling
   // down to the bottom one (a window around an anchor) mounts the window after it, and the one
@@ -181,19 +197,19 @@ export function SubagentTranscript({
       observer.observe(sentinel);
       observers.push(observer);
     };
-    // Each move keeps at most MOUNTED rows: a window gained at one end unmounts as many at the other.
+    // Each move keeps at most MOUNTED units: a window gained at one end unmounts as many at the other.
     if (first > 0)
       watch(top.current, "200px 0px 0px 0px", () => {
         held.current = capture(view, true);
         const start = Math.max(0, first - WINDOW);
-        const end = last ?? rows.length;
+        const end = last ?? units.length;
         setRange(end - start > MOUNTED ? { start, end: start + MOUNTED } : { start, end: last });
       });
-    else if (loadOlder && rows.length > 0)
+    else if (loadOlder && units.length > 0)
       watch(top.current, "200px 0px 0px 0px", () => {
         const hold = capture(view, false);
         held.current = hold;
-        // The older page's rows are set before the read settles, so the render that draws them comes
+        // The older page's units are set before the read settles, so the render that draws them comes
         // after this: it holds the scroll once more, then lets go.
         void loadOlder()
           .catch(() => undefined)
@@ -207,13 +223,13 @@ export function SubagentTranscript({
         const end = last + WINDOW;
         // The window that reaches the newest row follows it from then on.
         setRange(
-          end >= rows.length
-            ? { start: Math.max(first, rows.length - MOUNTED) }
+          end >= units.length
+            ? { start: Math.max(first, units.length - MOUNTED) }
             : { start: Math.max(first, end - MOUNTED), end },
         );
       });
     return () => observers.forEach((observer) => observer.disconnect());
-  }, [first, last, rows.length, loadOlder]);
+  }, [first, last, units.length, loadOlder]);
 
   return (
     <div
@@ -226,9 +242,26 @@ export function SubagentTranscript({
     >
       {notice && <p className="acpmux-bg__notice">{notice}</p>}
       {(first > 0 || loadOlder) && <div ref={top} className="acpmux-bg__sentinel" aria-hidden="true" />}
-      {shown.map((row) => (
-        <TranscriptRow key={row.id} row={row} version={row.version} />
-      ))}
+      {blocks.map((block) => {
+        if (block.type === "row")
+          return <TranscriptRow key={block.row.id} row={block.row} version={block.row.version} />;
+        const ids = block.rows.map((row) => row.id);
+        const isOpen =
+          !ids.some((id) => shut.has(id)) &&
+          (ids.some((id) => opened.has(id)) || (look === "live" && block.running && block.id === lastRun));
+        return (
+          <RunLine
+            key={block.id}
+            run={block}
+            open={isOpen}
+            onToggle={() => {
+              const without = (set: ReadonlySet<string>) => new Set([...set].filter((id) => !ids.includes(id)));
+              setOpened((now) => (isOpen ? without(now) : new Set([...now, ...ids])));
+              setShut((now) => (isOpen ? new Set([...now, ...ids]) : without(now)));
+            }}
+          />
+        );
+      })}
       {last !== undefined && <div ref={bottom} className="acpmux-bg__sentinel" aria-hidden="true" />}
       {running && last === undefined && (
         <div className="acpmux-bg__working">
@@ -287,13 +320,55 @@ const TranscriptRow = memo(
   (a, b) => a.row.id === b.row.id && a.version === b.version && a.row.streaming === b.row.streaming,
 );
 
-/// What a nested agent's line in a transcript does (BackgroundTasksPanel.tsx provides it): it opens
-/// that agent's own transcript, and while it runs it carries the agent's stop button, so an agent at
-/// any depth opens and stops from the panel.
-export const NestedAgents = createContext<{
-  open?(agentId: string): void;
-  stop?(agentId: string, name: string): ReactNode;
-}>({});
+/// A run of work between two replies: one quiet line naming what it did, "Ran 11 commands, read a file,
+/// 2 failed" (the failures in the danger colour), that opens in place to its steps on the shared fold.
+/// Folded, it carries its first row's id, so the panel's scroll hold and the opened task find it.
+function RunLine({
+  run,
+  open,
+  onToggle,
+}: {
+  run: Extract<TranscriptBlock, { type: "run" }>;
+  open: boolean;
+  onToggle(): void;
+}) {
+  const t = useT();
+  const fold = useFold(open, entranceAllowed);
+  return (
+    <div className="acpmux-bg__run" data-run-id={run.id} data-row-id={open ? undefined : run.id}>
+      <Button
+        variant="ghost"
+        size="sm"
+        type="button"
+        className="acpmux-bg__line acpmux-bg__line--fold"
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        {run.running ? <Spinner size={12} loading /> : null}
+        {/* The failures sit outside the summary that ellipsizes: a long summary never cuts them. */}
+        <span className="acpmux-bg__run-name">
+          <span className="acpmux-bg__label">{toolRunSummary(t, run.items)}</span>
+          {run.failed > 0 && (
+            <>
+              <span className="acpmux-bg__run-sep">{t("toolRun.separator")}</span>
+              <span className="acpmux-bg__failed acpmux-bg__run-sep">
+                {t("backgroundTasks.failed", { n: run.failed })}
+              </span>
+            </>
+          )}
+        </span>
+        <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} row />
+      </Button>
+      {fold.present && (
+        <div ref={fold.ref} className="acpmux-bg__run-steps" inert={!open || undefined}>
+          {run.rows.map((row) => (
+            <TranscriptRow key={row.id} row={row} version={row.version} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function NestedAgent({ id, name, running, opens }: { id: string; name: string; running: boolean; opens: boolean }) {
   const { open: openAgent, stop } = useContext(NestedAgents);

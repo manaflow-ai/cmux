@@ -50,6 +50,7 @@ mod base;
 mod git_back;
 mod history;
 mod links;
+mod listed;
 mod local;
 mod merge;
 mod names;
@@ -63,7 +64,10 @@ mod seed_pull;
 pub(super) use seed_pull::{
     SeedBase, SeedPulled, failure_code as seed_pull_failure_code, is_sha, seed_pull,
 };
-mod skips;
+pub(crate) mod skips;
+mod store;
+
+pub(crate) use store::{Config as StoreConfig, configure as configure_store};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read as _;
@@ -78,7 +82,7 @@ use sha2::{Digest as _, Sha256};
 use local::{LocalFile, Source};
 use remote::{Remote, RemoteEntry};
 
-const USAGE: &str = "usage: cmux link sync push|pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER\n       cmux link sync history|undo LOCAL_FOLDER REMOTE_FOLDER\n       cmux link sync restore LOCAL_FOLDER REMOTE_FOLDER SNAPSHOT";
+const USAGE: &str = "usage: cmux link sync push|pull --socket PATH [--store PLATFORM|default] LOCAL_FOLDER REMOTE_FOLDER\n       (--store: through the content-addressed store, the cmux credential on stdin)\n       cmux link sync history|undo LOCAL_FOLDER REMOTE_FOLDER\n       cmux link sync restore LOCAL_FOLDER REMOTE_FOLDER SNAPSHOT";
 
 /// What the machine holds of earlier pushes; this Mac keeps a copy
 /// ([`base`]), which is what a pull trusts.
@@ -124,11 +128,13 @@ pub(super) struct Summary {
     pub(super) skipped_files: serde_json::Value,
     /// How many were skipped of each kind (`other`: counted, not named).
     pub(super) skipped_counts: serde_json::Value,
+    /// The content-addressed store's part ([`store`]), when one was asked for.
+    pub(super) store: Option<serde_json::Value>,
 }
 
 impl Summary {
     pub(super) fn json(&self) -> serde_json::Value {
-        json!({
+        let mut line = json!({
             "written": self.written,
             "unchanged": self.unchanged,
             "deleted": self.deleted,
@@ -136,7 +142,11 @@ impl Summary {
             "bytes": self.bytes,
             "skipped_files": if self.skipped_files.is_null() { json!([]) } else { self.skipped_files.clone() },
             "skipped_counts": if self.skipped_counts.is_null() { json!({}) } else { self.skipped_counts.clone() },
-        })
+        });
+        if let Some(store) = &self.store {
+            line.set("store", store.clone());
+        }
+        line
     }
 }
 
@@ -266,6 +276,24 @@ fn write_parallel(
     connections: usize,
     landed: &mut dyn FnMut(Job, anyhow::Result<String>) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
+    write_parallel_heard(socket, remote_root, jobs, connections, landed, None)
+}
+
+/// How long a folder upload's small writes may go without a word to the
+/// app: well under its 90 s idle deadline, so one slow file below
+/// [`ALONE_BYTES`] (which sends no part by part progress) does not hit it.
+const QUIET_AT_MOST: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// [`write_parallel`], and with `idle` `(every, heard)`, `heard` is called
+/// whenever `every` goes by with no write landing.
+fn write_parallel_heard(
+    socket: &Path,
+    remote_root: &str,
+    jobs: Vec<Job>,
+    connections: usize,
+    landed: &mut dyn FnMut(Job, anyhow::Result<String>) -> anyhow::Result<()>,
+    idle: Option<(std::time::Duration, &mut dyn FnMut())>,
+) -> anyhow::Result<()> {
     use std::sync::atomic::{AtomicBool, Ordering};
     let workers = connections.min(jobs.len());
     if workers == 0 {
@@ -294,14 +322,38 @@ fn write_parallel(
         }
         drop(sent);
         let mut failed = None;
-        for (job, written) in results {
+        drain_heard(&results, idle, &mut |(job, written)| {
             if let Err(error) = landed(job, written) {
                 stop.store(true, Ordering::Relaxed);
                 failed.get_or_insert(error);
             }
-        }
+        });
         failed.map_or(Ok(()), Err)
     })
+}
+
+/// Hands each item of `results` to `each` until every sender is gone; with
+/// `idle` `(every, heard)`, `heard` is called each time `every` goes by with
+/// no item.
+fn drain_heard<T>(
+    results: &std::sync::mpsc::Receiver<T>,
+    idle: Option<(std::time::Duration, &mut dyn FnMut())>,
+    each: &mut dyn FnMut(T),
+) {
+    use std::sync::mpsc::RecvTimeoutError;
+    let Some((every, heard)) = idle else {
+        for item in results {
+            each(item);
+        }
+        return;
+    };
+    loop {
+        match results.recv_timeout(every) {
+            Ok(item) => each(item),
+            Err(RecvTimeoutError::Timeout) => heard(),
+            Err(RecvTimeoutError::Disconnected) => return,
+        }
+    }
 }
 
 /// Writes `job` on `remote`, connecting it first when it is not yet.
@@ -377,10 +429,16 @@ pub(super) fn run(args: &[String]) -> i32 {
     if let Some(code) = run_history(args) {
         return code;
     }
-    let Some((action, socket, local, remote)) = parse(args) else {
+    let Some((action, socket, local, remote, store)) = parse(args) else {
         eprintln!("{USAGE}");
         return 64;
     };
+    if let Some(store) = store
+        && let Err(error) = store_from_stdin(&store, &mut std::io::stdin().lock())
+    {
+        println!("{}", json!({ "ok": false, "error": error, "error_code": "unauthorized" }));
+        return 1;
+    }
     // A machine too old for `fs-v1` says so before anything is copied.
     if let Some(outdated) =
         super::machine_gate::outdated(&socket, &[cmux_tui_core::fs_ops::FS_CAPABILITY])
@@ -481,6 +539,11 @@ pub(super) fn remote_kind(socket: &Path, path: &str) -> anyhow::Result<Option<St
     Remote::connect(socket)?.kind(path)
 }
 
+/// The file at `path` on the machine, read whole; None when it is not there.
+pub(super) fn remote_read(socket: &Path, path: &str) -> anyhow::Result<Option<Vec<u8>>> {
+    Remote::connect(socket)?.read(path)
+}
+
 /// Copies the one regular file at `local` (never through a symlink) to
 /// `target` on the machine, making its folder.
 pub(super) fn copy_file(socket: &Path, local: &Path, target: &str) -> anyhow::Result<()> {
@@ -496,16 +559,12 @@ pub(super) fn copy_file_with_progress(
     target: &str,
     progress: &mut dyn FnMut(),
 ) -> anyhow::Result<()> {
-    use std::os::unix::fs::PermissionsExt as _;
     let meta = std::fs::symlink_metadata(local)
         .with_context(|| format!("cannot read {}", local.display()))?;
     if !meta.file_type().is_file() {
         anyhow::bail!("{} is not a regular file", local.display());
     }
-    let file = LocalFile {
-        source: Source::File(local.to_path_buf()),
-        permissions: local::permissions_of(meta.permissions().mode()),
-    };
+    let file = LocalFile::listed(local, &meta);
     let mut remote = Remote::connect_negotiated(socket)?;
     let (parent, _) = remote::split(target)?;
     remote.mkdir_all(parent)?;
@@ -547,6 +606,150 @@ pub(super) fn upload(
     remote.mkdir_all(parent)?;
     remote.write_with_progress(target, &mut reader, 0o600, &mut || progress(read.get()))?;
     Ok(())
+}
+
+/// Copies the folder at `local` once to `target` on the machine (a
+/// person's upload of a folder, [`super::access_cli`]): the regular files
+/// `keep` takes (by path relative to the folder, and whether it is a git
+/// working copy), never a symlink, small files several at once and big ones
+/// after them; `progress` hears each write and each part of a big file. No
+/// record is kept, since an upload is never synced again. A symlink the
+/// machine has on the way to a file leaves that file out. A folder `enter`
+/// refuses (by its path relative to the folder) is never listed: none of
+/// its files could go, and it may be one this Mac's user cannot read. Answers
+/// the files written and the ones left out.
+pub(super) fn copy_folder_with_progress(
+    socket: &Path,
+    local: &Path,
+    identity: (u64, u64),
+    target: &str,
+    enter: &dyn Fn(&str) -> bool,
+    keep: &dyn Fn(&str, bool) -> bool,
+    progress: &mut dyn FnMut(),
+) -> anyhow::Result<(u64, u64)> {
+    // `local` is the canonical folder the caller authorized, `identity` its
+    // device and inode then: another folder or a symlink swapped in since is
+    // refused, never followed.
+    let unmoved = || {
+        use std::os::unix::fs::MetadataExt as _;
+        std::fs::canonicalize(local).is_ok_and(|now| now == local)
+            && std::fs::symlink_metadata(local)
+                .is_ok_and(|meta| meta.is_dir() && (meta.dev(), meta.ino()) == identity)
+    };
+    if !unmoved() {
+        anyhow::bail!("{} changed after it was checked; nothing of it was sent", local.display());
+    }
+    let mut set = local::collect_files(local, enter)?;
+    if !unmoved() {
+        anyhow::bail!("{} changed while it was listed; nothing of it was sent", local.display());
+    }
+    let git = set.git;
+    let before = set.files.len();
+    set.files.retain(|relative, _| keep(relative, git));
+    let count = |n: usize| u64::try_from(n).unwrap_or(u64::MAX);
+    // Every path left out counts: the ones listing named (a symlink that
+    // leads out, a socket, FIFO or device, a name the machine cannot hold),
+    // the ones counted without a name, the ones `keep` refused, and the
+    // symlinks a sync would have kept.
+    let mut skipped = set
+        .skips
+        .total()
+        .saturating_add(set.skipped)
+        .saturating_add(count(before.saturating_sub(set.files.len())))
+        .saturating_add(count(set.links.len()));
+    let mut remote = Remote::connect_negotiated(socket)?;
+    remote.mkdir_all(target)?;
+    let (mut made, mut seen) = (BTreeSet::new(), BTreeMap::new());
+    let (mut small, mut alone) = (Vec::new(), Vec::new());
+    for (relative, file) in set.files {
+        // Each file's checks are round trips too: the app's idle deadline hears them.
+        progress();
+        // The folder is checked again before each file, so a folder swapped
+        // in while copying stops the copy.
+        if !unmoved() {
+            anyhow::bail!("{} changed while it was sent; the rest was not sent", local.display());
+        }
+        // Reached one name at a time with no symlink followed, and held to
+        // the file it is now: a folder on its way swapped for a symlink, now
+        // or before it is read, reads nothing outside ([`open`]).
+        let checked =
+            if local::below(&relative) { place::open_beneath(local, &relative).ok() } else { None };
+        let Some((_, found, root)) = checked else {
+            skipped = skipped.saturating_add(1);
+            continue;
+        };
+        if root != identity {
+            anyhow::bail!("{} changed while it was sent; the rest was not sent", local.display());
+        }
+        let file = LocalFile {
+            source: Source::Checked(local::Checked {
+                root: local.to_path_buf(),
+                relative: relative.clone(),
+                root_identity: identity,
+                identity: found,
+            }),
+            permissions: file.permissions,
+            id: None,
+        };
+        let at = format!("{target}/{relative}");
+        let (parent, _) = remote::split(&at)?;
+        if through_link(&mut remote, target, parent, &mut seen)? {
+            skipped = skipped.saturating_add(1);
+            continue;
+        }
+        if made.insert(parent.to_string()) {
+            remote.mkdir_all(parent)?;
+        }
+        let bytes = size(&file)?;
+        let job = Job { relative, target: at, file, sha256: String::new(), bytes, found: None };
+        if bytes > ALONE_BYTES { alone.push(job) } else { small.push(job) }
+    }
+    let mut written = 0u64;
+    let mut landed = |result: anyhow::Result<String>| -> anyhow::Result<()> {
+        match result {
+            Ok(_) => written = written.saturating_add(1),
+            Err(error) if error.is::<LinkInTheWay>() => skipped = skipped.saturating_add(1),
+            Err(error) => return Err(error),
+        }
+        Ok(())
+    };
+    let changed = || anyhow::anyhow!("{} changed while it was sent", local.display());
+    if !unmoved() {
+        return Err(changed());
+    }
+    // The landing writes and the quiet stretches between them both keep the
+    // app's idle deadline alive.
+    let beat = std::cell::RefCell::new(&mut *progress);
+    let mut quiet = || (*beat.borrow_mut())();
+    write_parallel_heard(
+        socket,
+        target,
+        small,
+        connections(),
+        &mut |_, result| {
+            let landed = landed(result);
+            (*beat.borrow_mut())();
+            // Each write landing checks the folder again, stopping the rest.
+            if landed.is_ok() && !unmoved() {
+                return Err(changed());
+            }
+            landed
+        },
+        Some((QUIET_AT_MOST, &mut quiet)),
+    )?;
+    for job in alone {
+        if !unmoved() {
+            anyhow::bail!("{} changed while it was sent; the rest was not sent", local.display());
+        }
+        let (parent, _) = remote::split(&job.target)?;
+        let result = if through_link(&mut remote, target, parent, &mut seen)? {
+            Err(LinkInTheWay.into())
+        } else {
+            write_with_progress(&mut remote, &job.target, &job.file, progress)
+        };
+        landed(result)?;
+    }
+    Ok((written, skipped))
 }
 
 /// Deletes the folder at `path` on the machine whose daemon `socket`
@@ -634,7 +837,28 @@ enum Action {
     Pull,
 }
 
-fn parse(args: &[String]) -> Option<(Action, PathBuf, PathBuf, String)> {
+/// Turns the store on for this process ([`store::configure`]): `platform`
+/// is the cmux platform's origin, or `default` for the usual one
+/// ([`crate::cli::platform_origin`]); the cmux credential is the first line
+/// of `stdin`.
+pub(crate) fn store_from_stdin(
+    platform: &str,
+    stdin: &mut dyn std::io::BufRead,
+) -> Result<(), String> {
+    let mut credential = String::new();
+    if stdin.read_line(&mut credential).is_err() || credential.trim().is_empty() {
+        return Err("--store needs the cmux credential on stdin".into());
+    }
+    let env = |name: &str| std::env::var(name).ok();
+    let flag = (platform != "default").then_some(platform);
+    let origin = crate::cli::platform_origin(flag, &env)?;
+    configure_store(StoreConfig { origin, credential: credential.trim().to_string() });
+    Ok(())
+}
+
+type Parsed = (Action, PathBuf, PathBuf, String, Option<String>);
+
+fn parse(args: &[String]) -> Option<Parsed> {
     let [action, rest @ ..] = args else { return None };
     let action = match action.as_str() {
         "push" => Action::Push,
@@ -642,11 +866,13 @@ fn parse(args: &[String]) -> Option<(Action, PathBuf, PathBuf, String)> {
         _ => return None,
     };
     let mut socket = None;
+    let mut store = None;
     let mut positional = Vec::new();
     let mut rest = rest.iter();
     while let Some(arg) = rest.next() {
         match arg.as_str() {
             "--socket" => socket = Some(PathBuf::from(rest.next()?)),
+            "--store" if action == Action::Push => store = Some(rest.next()?.clone()),
             flag if flag.starts_with('-') => return None,
             value => positional.push(value),
         }
@@ -655,7 +881,7 @@ fn parse(args: &[String]) -> Option<(Action, PathBuf, PathBuf, String)> {
     if !remote.starts_with('/') {
         return None;
     }
-    Some((action, socket?, PathBuf::from(local), remote.trim_end_matches('/').to_string()))
+    Some((action, socket?, PathBuf::from(local), remote.trim_end_matches('/').to_string(), store))
 }
 
 /// A chat's copy (`cmux link sync push`, `cmux link start-chat copy`), its
@@ -770,6 +996,15 @@ fn push_inner(
     let git = if git_record { Some(git_back::base_of(&local)?) } else { None };
     let mut remote = Remote::connect_negotiated(socket)?;
     remote.mkdir_all(remote_root)?;
+    // A store fetch of an earlier push may still be running there: it stops
+    // before this push deletes or writes anything.
+    let served = store::fetch_served(socket);
+    let left = match served {
+        Some(true) => store::fence(&mut remote, remote_root)?,
+        Some(false) => store::Left::default(),
+        None => store::fence_unknown(&mut remote, remote_root)?,
+    };
+    let fetch_served = served == Some(true);
     let manifest_path = format!("{remote_root}/{manifest_name}");
     let mut previous: Manifest = remote
         .read(&manifest_path)?
@@ -780,6 +1015,31 @@ fn push_inner(
     previous.files.retain(|relative, _| plain_relative(relative));
     previous.links.retain(|relative, _| plain_relative(relative));
     let mut listings = Listings::default();
+    // A file an earlier store fetch wrote may be in no manifest (its push
+    // failed after the fetch wrote). One the machine still has as that fetch
+    // left it counts as this push's, so one gone from the tree is deleted
+    // below and one still in it is rewritten. One the manifest has at a
+    // revision a fetch left is already recorded; one changed since (a later
+    // link write, or the machine's own edit) is not taken over.
+    let prefix = format!("{remote_root}/");
+    for (path, revisions) in &left.written {
+        let Some(relative) = path.strip_prefix(&prefix) else { continue };
+        if !plain_relative(relative)
+            || previous
+                .files
+                .get(relative)
+                .is_some_and(|pushed| revisions.contains(&pushed.revision))
+        {
+            continue;
+        }
+        let Some(current) = listings.revision(&mut remote, path)? else { continue };
+        if revisions.contains(&current) {
+            previous.files.insert(
+                relative.to_owned(),
+                Pushed { sha256: String::new(), permissions: 0, revision: current },
+            );
+        }
+    }
     let mut links = LinkSync::default();
 
     // Deletes first, so a file that became a folder (or the reverse) is out
@@ -824,8 +1084,10 @@ fn push_inner(
         progress,
     };
     // What is unchanged is settled here; what is not becomes a write, its
-    // folder made first (once each).
-    let (mut small, mut alone) = (Vec::new(), Vec::new());
+    // folder made first (once each). Through the store, the writes are
+    // gathered and the machine fetches them after the loop.
+    let via_store = store::usable(fetch_served);
+    let (mut small, mut alone, mut deferred) = (Vec::new(), Vec::new(), Vec::new());
     for (relative, file) in &set.files {
         let target = format!("{remote_root}/{relative}");
         let (parent, _) = remote::split(&target)?;
@@ -857,8 +1119,27 @@ fn push_inner(
         }
         let job =
             Job { relative: relative.clone(), target, file: file.clone(), sha256, bytes, found };
-        if bytes > ALONE_BYTES { alone.push(job) } else { small.push(job) }
+        if via_store {
+            deferred.push(job);
+        } else if bytes > ALONE_BYTES {
+            alone.push(job);
+        } else {
+            small.push(job);
+        }
     }
+    // Through the store, the machine fetches first; what it did not write
+    // goes over the link below, like every other write.
+    let fetched = if via_store {
+        Some(send_through_store(
+            &mut remote,
+            remote_root,
+            &deferred,
+            tally.done,
+            &mut tally.progress,
+        )?)
+    } else {
+        None
+    };
     let saving = Saving { manifest_path: &manifest_path, previous: &previous, listed: &set.files };
     let named = &mut set.skips;
     // What became of one write: recorded, or (a symlink of the machine's at
@@ -883,8 +1164,19 @@ fn push_inner(
         let written = write_checked(&mut remote, &mut seen, remote_root, &job);
         landed(job, written, &mut remote)?;
     }
+    let store_part = match fetched {
+        Some((part, written)) => Some(finish_deferred(
+            &mut remote,
+            remote_root,
+            deferred,
+            written.as_ref(),
+            part,
+            &mut landed,
+        )?),
+        None => None,
+    };
     let Tally { mut summary, mut next, .. } = tally;
-
+    summary.store = store_part;
     // A link whose target is a link not made yet waits for the next pass;
     // passes go on while one makes something.
     let mut waiting: Vec<(&String, &Linked)> = set.links.iter().collect();
@@ -936,6 +1228,7 @@ fn push_inner(
     remote
         .write(&manifest_path, &mut manifest.as_slice(), 0o600)
         .context("cannot save the sync manifest")?;
+    store::forget(&mut remote, &left.jobs);
     // A pull's base is this copy, never the machine's.
     base::save(&local, remote_root, &next).context("cannot keep the sync record on this Mac")?;
     // What this push left, for `cmux link sync undo`: every file's blob this
@@ -943,6 +1236,92 @@ fn push_inner(
     // the push.
     snapshot_push(&local, remote_root, &next, &set.files, git_record);
     Ok(summary)
+}
+
+/// Has the machine fetch the `deferred` files through the store
+/// ([`store::send`]). Answers the summary's `store` part and what the machine
+/// wrote (`None` when it wrote nothing: the store failed before it did, or
+/// the files are too few bytes to be worth it); [`finish_deferred`] sends the
+/// rest over the link.
+fn send_through_store(
+    remote: &mut Remote,
+    remote_root: &str,
+    deferred: &[Job],
+    base: Progress,
+    progress: &mut Option<&mut dyn FnMut(Progress)>,
+) -> anyhow::Result<(serde_json::Value, Option<BTreeMap<String, String>>)> {
+    let total: u64 = deferred.iter().map(|job| job.bytes).sum();
+    if total < STORE_MIN_BYTES {
+        // A store round trip costs more than these bytes over the link.
+        return Ok((json!({"used": false, "reason": "small"}), None));
+    }
+    let pending: Vec<store::Pending<'_>> = deferred
+        .iter()
+        .map(|job| store::Pending {
+            target: job.target.clone(),
+            file: &job.file,
+            sha256: job.sha256.clone(),
+            size: job.bytes,
+        })
+        .collect();
+    let sent = if pending.is_empty() {
+        Ok(store::Sent::default())
+    } else {
+        store::send(remote, remote_root, &pending, &mut |bytes| {
+            if let Some(report) = progress.as_mut() {
+                report(Progress { bytes_done: base.bytes_done + bytes, ..base });
+            }
+        })
+    };
+    // The machine may still be writing: nothing goes over the link now.
+    let sent = match sent {
+        Err(error) if error.is::<store::Unsettled>() || error.is::<store::Superseded>() => {
+            return Err(error);
+        }
+        other => other,
+    };
+    Ok(match sent {
+        Ok(sent) => (
+            json!({"used": true, "uploaded_bytes": sent.uploaded, "reused_bytes": sent.reused,
+                   "fetched_files": sent.written.len()}),
+            Some(sent.written),
+        ),
+        Err(error) => (json!({"used": false, "error": format!("{error:#}")}), None),
+    })
+}
+
+/// Below this many bytes to write, a push goes over the link: the store's
+/// plan, grant and fetch round trips cost more than the bytes themselves.
+const STORE_MIN_BYTES: u64 = 1024 * 1024;
+
+/// What becomes of one write: recorded, or skipped for a symlink in its way.
+type Landed<'a> = dyn FnMut(Job, anyhow::Result<String>, &mut Remote) -> anyhow::Result<()> + 'a;
+
+/// Records each deferred file: its revision on the machine when the store
+/// wrote it (`written`, the revision its write left), or a write over the
+/// link when it did not (`written` is `None` when the store wrote nothing).
+fn finish_deferred(
+    remote: &mut Remote,
+    remote_root: &str,
+    deferred: Vec<Job>,
+    written: Option<&BTreeMap<String, String>>,
+    mut part: serde_json::Value,
+    landed: &mut Landed<'_>,
+) -> anyhow::Result<serde_json::Value> {
+    let mut direct = 0u64;
+    let mut seen = BTreeMap::new();
+    for job in deferred {
+        let result = match written.and_then(|written| written.get(&job.target)).cloned() {
+            Some(revision) => Ok(revision),
+            None => {
+                direct += 1;
+                write_checked(remote, &mut seen, remote_root, &job)
+            }
+        };
+        landed(job, result, remote)?;
+    }
+    part.set("direct_files", json!(direct));
+    Ok(part)
 }
 
 /// Keeps the blobs and the snapshot of a push that left `next`.
@@ -1235,14 +1614,15 @@ impl Listings {
 /// in since it was listed; anything but a regular file is refused.
 fn open(file: &LocalFile) -> anyhow::Result<Box<dyn std::io::Read>> {
     Ok(match &file.source {
-        Source::File(path) => {
-            let opened = std::fs::OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-                .open(path)
-                .with_context(|| format!("cannot read {}", path.display()))?;
-            if !opened.metadata()?.is_file() {
-                anyhow::bail!("{} is no longer a regular file", path.display());
+        Source::File(path) => Box::new(local::open_listed(path, file.id)?),
+        Source::Checked(checked) => {
+            let (opened, identity, root) = place::open_beneath(&checked.root, &checked.relative)?;
+            if identity != checked.identity || root != checked.root_identity {
+                anyhow::bail!(
+                    "{} in {} changed after it was checked",
+                    checked.relative,
+                    checked.root.display()
+                );
             }
             Box::new(opened)
         }
@@ -1252,7 +1632,10 @@ fn open(file: &LocalFile) -> anyhow::Result<Box<dyn std::io::Read>> {
 
 fn size(file: &LocalFile) -> anyhow::Result<u64> {
     Ok(match &file.source {
-        Source::File(path) => std::fs::metadata(path)?.len(),
+        Source::File(path) => local::open_listed(path, file.id)?.metadata()?.len(),
+        Source::Checked(checked) => {
+            place::open_beneath(&checked.root, &checked.relative)?.0.metadata()?.len()
+        }
         Source::Bytes(bytes) => bytes.len() as u64,
     })
 }
@@ -1269,4 +1652,81 @@ fn hash(file: &LocalFile) -> anyhow::Result<String> {
         hasher.update(&buffer[..read]);
     }
     Ok(hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+#[cfg(test)]
+mod checked_source_tests {
+    use std::os::unix::fs::MetadataExt as _;
+
+    use super::{LocalFile, Source, local, open};
+
+    /// A checked file whose folder was swapped for a symlink to another
+    /// folder holding a file of the same name is never read.
+    #[test]
+    fn a_checked_file_reached_through_a_swapped_folder_is_not_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let (inside, outside) = (dir.path().join("pick/docs"), dir.path().join("outside"));
+        std::fs::create_dir_all(&inside).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(inside.join("app.toml"), "mine\n").unwrap();
+        std::fs::write(outside.join("app.toml"), "secret\n").unwrap();
+        let root = dir.path().join("pick");
+        let (meta, top) = (
+            std::fs::metadata(inside.join("app.toml")).unwrap(),
+            std::fs::metadata(&root).unwrap(),
+        );
+        let file = LocalFile {
+            source: Source::Checked(local::Checked {
+                root,
+                relative: "docs/app.toml".into(),
+                root_identity: (top.dev(), top.ino()),
+                identity: (meta.dev(), meta.ino()),
+            }),
+            permissions: 0o644,
+            id: None,
+        };
+        assert!(open(&file).is_ok());
+        std::fs::rename(&inside, dir.path().join("moved")).unwrap();
+        std::os::unix::fs::symlink(&outside, &inside).unwrap();
+        assert!(open(&file).is_err(), "the swapped folder's file was read");
+    }
+}
+
+#[cfg(test)]
+mod drain_tests {
+    use std::time::Duration;
+
+    use super::drain_heard;
+
+    /// A slow write with nothing else landing still lets the app hear from
+    /// the upload: the quiet stretch is reported while the result waits.
+    #[test]
+    fn a_quiet_stretch_with_no_result_is_heard() {
+        let (send, results) = std::sync::mpsc::channel::<u32>();
+        let slow = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(400));
+            send.send(7).unwrap();
+        });
+        let (mut heard, mut got) = (0, Vec::new());
+        let mut idle = || heard += 1;
+        drain_heard(&results, Some((Duration::from_millis(50), &mut idle)), &mut |item| {
+            got.push(item);
+        });
+        slow.join().unwrap();
+        assert_eq!(got, vec![7]);
+        assert!(heard >= 2, "the quiet stretch was heard {heard} times");
+    }
+
+    /// Without an idle beat every result is still handed on, then it ends.
+    #[test]
+    fn every_result_is_handed_on_without_a_beat() {
+        let (send, results) = std::sync::mpsc::channel::<u32>();
+        for item in 0..3 {
+            send.send(item).unwrap();
+        }
+        drop(send);
+        let mut got = Vec::new();
+        drain_heard(&results, None, &mut |item| got.push(item));
+        assert_eq!(got, vec![0, 1, 2]);
+    }
 }

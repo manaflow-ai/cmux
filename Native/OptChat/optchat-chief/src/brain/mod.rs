@@ -51,6 +51,8 @@ pub use outcome_ledger::{UNTOLD_TAG, UNTOLD_WAIT};
 pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
 mod send;
 mod side;
+mod spawn_text;
+pub use spawn_text::{NO_TEXT_TAG, no_text_note};
 mod spawns;
 mod steer;
 mod transcript;
@@ -144,6 +146,12 @@ pub enum Input {
     /// The compactor's start-up probe: Err with the text the user must
     /// hear (the compactor cannot build a node), Ok when it built one.
     CompactorStatus(Result<(), String>),
+    /// The turn loop's view of stuck lines (`stuck_notice`): Some with the
+    /// notice for a line that cannot be built as things stand; None when no
+    /// such line is left, which retracts only a notice this posted, never
+    /// the probe's (https://github.com/manaflow-ai/cmux/issues/36026: a
+    /// line stuck only on timeouts kept another line's notice up).
+    CompactorStuck(Option<String>),
     /// Section 9: a `spawn` asks for its spawn id and subagent ids.
     SpawnRegister {
         tasks: Vec<String>,
@@ -190,7 +198,7 @@ pub enum Input {
         ws: Option<String>,
     },
     /// Where a subagent's workspace opens (`control show`), sent at its
-    /// start whether or not it opens then (`subagents.showWorkspaces`).
+    /// start whether or not it opens then (sidebar_choice.rs).
     SubagentWorkspaceSlot {
         id: String,
         name: String,
@@ -480,6 +488,13 @@ pub enum Input {
         name: String,
         reply: Sender<serde_json::Value>,
     },
+    /// chief.stop {start: name} (Start now on a queued agent in Home):
+    /// that queued subagent starts at once, past the live cap; answers
+    /// `{"started": bool, ...}`.
+    StartSubagent {
+        name: String,
+        reply: Sender<serde_json::Value>,
+    },
     /// chief.stop {all: true} ("Stop all agents"): the running turn and
     /// every subagent at work or queued; answers `{"stopped": bool,
     /// "subagents": [ids]}`.
@@ -530,6 +545,10 @@ pub struct ReactionFields {
     pub classifier_prompt: Option<String>,
     /// `true`, `false` or `default`.
     pub reactions_can_wake: Option<String>,
+    /// The Chief turns' permission mode (`engine::parse_mode_flag`: a mode,
+    /// or `unset` to clear), cmux#37392. Not a reaction field: it rides in
+    /// this box so `EngineRequest` stays small (clippy large_enum_variant).
+    pub permission_mode: Option<String>,
 }
 
 impl From<DaemonEvent> for Input {
@@ -643,6 +662,11 @@ pub struct Settings {
 /// (chief 2026-10-10: 10 s; hq-6d 2026-10-14, Lawrence "the chief responds
 /// too slow": 1 s, the turn starts and the compactor catches up after);
 /// then it reads them unsummarized and the next turn gets their summaries.
+/// The key prefix of the probe's compactor notice.
+const COMPACTOR_NOTICE: &str = "notice:optchat:compactor:";
+/// The key prefix of a stuck line's compactor notice (`compactor_stuck`).
+const STUCK_NOTICE: &str = "notice:optchat:compactor:stuck:";
+
 pub const SETTLE_BOUND: Duration = Duration::from_secs(1);
 /// How often a turn waiting for the compactor updates `settle.json`.
 const PROGRESS_TICK: Duration = Duration::from_secs(2);
@@ -823,6 +847,12 @@ pub struct Brain {
     owner_stopped: bool,
     /// This turn's send was refused for length once; its next send posts.
     length_refused: bool,
+    /// The subagents the running turn started (spawn_text.rs).
+    turn_spawned: Vec<String>,
+    /// The running turn posted words by `send` or `reply` (spawn_text.rs).
+    turn_said: bool,
+    /// The running turn was queued by a silent spawn turn's note: it is not nudged again.
+    spawn_text_nudged: bool,
     /// The running turn's interrupt (a new one per turn).
     interrupt: Arc<crate::turn::Interrupt>,
     /// The steer on its way into the running turn (`steer.rs`), and the
@@ -931,6 +961,12 @@ pub struct Brain {
     settle_status: Option<Arc<crate::settle_status::SettleStatus>>,
     /// A Chief that is not the default: a compactor fault is also its message.
     compactor_messages: bool,
+    /// The compactor fault shown now came from a stuck line
+    /// (`compactor_stuck`).
+    stuck_fault: bool,
+    /// The compactor fault shown now came from the start-up probe: a stuck
+    /// line's clear leaves it.
+    probe_fault: bool,
     turn_clock: Option<Instant>,
     /// When each queued human message was posted (its `created_at`), by
     /// message id, until a turn takes it: the trace's posted-to-first-words
@@ -969,6 +1005,10 @@ pub struct Brain {
     repeat_denials: u32,
     /// The rights table and the audit (rights_gate.rs); None: off.
     rights: Option<RightsCtx>,
+    /// The owner's change book for this Chief's memory (inspect/edit.rs): a
+    /// message the person deletes in the chat is written over with its
+    /// tombstone there, journaled and undoable like an inspector delete.
+    memory_editor: Option<Arc<crate::inspect::edit::Editor>>,
     /// Writes the log's description of each turn image (None: references only).
     describer: Option<Arc<dyn images::Describe>>,
     /// A user's reaction that may wake the Chief (reaction_wake.rs).
@@ -1020,6 +1060,10 @@ pub struct Brain {
     /// Turns cut in a row by a lost acpmux link (`Brain::turn_cut`): past
     /// `turns::MAX_CUTS` the next one fails as before, never a loop.
     cuts: u32,
+    /// One of the cut tries in a row reached a harness (`TurnOutcome::unstarted`
+    /// false): its work may have run, so the try that ends the row is never
+    /// treated as one that did not start.
+    cut_ran: bool,
     /// While set, an adopted turn session still runs and no turn starts; at
     /// this time it is folded and ended anyway (`children::adopt_orphans`).
     orphan_wait: Option<Instant>,
@@ -1092,6 +1136,9 @@ impl Brain {
             fatal: None,
             stop_wanted: false,
             length_refused: false,
+            turn_spawned: Vec::new(),
+            turn_said: false,
+            spawn_text_nudged: false,
             owner_stopped: false,
             interrupt: Arc::new(crate::turn::Interrupt::new()),
             steering: Vec::new(),
@@ -1153,6 +1200,8 @@ impl Brain {
             settle_clock: None,
             settle_status: None,
             compactor_messages: false,
+            stuck_fault: false,
+            probe_fault: false,
             turn_clock: None,
             posted: HashMap::new(),
             first_words: turns::FirstWords::default(),
@@ -1177,6 +1226,7 @@ impl Brain {
             approval_told: HashSet::new(),
             previewer: None,
             cuts: 0,
+            cut_ran: false,
             resume_at: None,
             orphan_wait: None,
             upstream_backoff: turns::UPSTREAM_RESUME_BACKOFF.to_vec(),
@@ -1187,6 +1237,7 @@ impl Brain {
             steer_due: None,
             reply_waits: reply_ledger::REPLY_RETRY_WAITS.to_vec(),
             rights: None,
+            memory_editor: None,
         };
         // A host can exit after sub_done persists Done but before deliver
         // queues the report. Recover that durable outbox before accepting new
@@ -1219,6 +1270,22 @@ impl Brain {
     pub fn on_turn_end(mut self, hook: TurnHook) -> Brain {
         self.after_turn = Some(hook);
         self
+    }
+
+    /// The memory's change book (`inspect/edit.rs`): a deleted chat message
+    /// becomes its tombstone in the memory, so the Memory Inspector and the
+    /// next re-rendered view no longer hold its text.
+    pub fn with_memory_editor(
+        mut self,
+        editor: Option<Arc<crate::inspect::edit::Editor>>,
+    ) -> Brain {
+        self.set_memory_editor(editor);
+        self
+    }
+
+    /// `with_memory_editor` on a built brain.
+    pub fn set_memory_editor(&mut self, editor: Option<Arc<crate::inspect::edit::Editor>>) {
+        self.memory_editor = editor;
     }
 
     /// Writes the monitoring trace (`trace.rs`).
@@ -1512,6 +1579,7 @@ impl Brain {
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, *outcome),
             Input::Notice { key, text } => self.notice(key, text),
             Input::CompactorStatus(status) => self.compactor_status(status),
+            Input::CompactorStuck(notice) => self.compactor_stuck(notice),
             Input::SpawnRegister {
                 tasks,
                 peer,
@@ -1550,6 +1618,9 @@ impl Brain {
                         }
                         plan
                     });
+                if let Ok(plan) = &plan {
+                    self.spawned_in_turn(&plan.ids);
+                }
                 let _ = reply.send(plan);
             }
             Input::SubagentQueued { id, launch } => self.sub_queued(&id, launch),
@@ -1622,7 +1693,11 @@ impl Brain {
                 let _ = reply.send(self.react(id, &reaction));
             }
             Input::Reply { id, text, reply } => {
-                let _ = reply.send(self.reply_now(id, &text));
+                let result = self.reply_now(id, &text);
+                if result.is_ok() {
+                    self.said_in_turn();
+                }
+                let _ = reply.send(result);
             }
             Input::Transcript { n, before, reply } => {
                 let _ = reply.send(self.transcript(n, before));
@@ -1633,7 +1708,16 @@ impl Brain {
                 message,
             } => self.tell_unsteered(&id, &session, &message),
             Input::Send { call, reply } => {
-                let _ = reply.send(self.send(call));
+                let words = call.text.as_deref().is_some_and(|t| !t.trim().is_empty());
+                let result = self.send(call);
+                if words
+                    && result
+                        .as_deref()
+                        .is_ok_and(|r| r.starts_with("outcome: done"))
+                {
+                    self.said_in_turn();
+                }
+                let _ = reply.send(result);
             }
             Input::StopTurn { reply } => {
                 let _ = reply.send(self.stop_turn());
@@ -1756,6 +1840,9 @@ impl Brain {
             Input::StopSubagent { name, reply } => {
                 let _ = reply.send(self.stop_subagent(&name));
             }
+            Input::StartSubagent { name, reply } => {
+                let _ = reply.send(self.start_subagent_now(&name));
+            }
             Input::StopAll { reply } => {
                 let _ = reply.send(self.stop_all());
             }
@@ -1787,44 +1874,84 @@ impl Brain {
     /// `state/compactor.json`), never a Chief message; a good probe removes
     /// it, and retracts a notice an older build posted as a message (cx-1hpt).
     fn compactor_status(&mut self, status: Result<(), String>) {
+        self.stuck_fault = false;
+        self.probe_fault = status.is_err();
         if let Some(settle) = &self.settle_status {
             settle.compactor_fault(status.as_ref().err().map(String::as_str));
         }
         match status {
-            Err(text) if self.compactor_messages && self.state.compactor_notice.is_none() => {
-                let key = format!("notice:optchat:compactor:{}", now_ms());
-                self.state.compactor_notice = Some(crate::state::PostedNotice {
-                    key: key.clone(),
-                    message_id: None,
-                });
-                self.save();
-                self.notice(key, text);
-            }
-            Err(text) => (self.log)(&text),
-            Ok(()) => {
-                let Some(posted) = self.state.compactor_notice.take() else {
-                    return;
-                };
-                // Not sent yet: it never shows.
-                self.notices.retain(|(k, _)| *k != posted.key);
-                self.state
-                    .outbox
-                    .retain(|e| e.idempotency_key != posted.key || e.attempted);
-                match (posted.message_id, self.state.conversation.clone()) {
-                    (Some(id), Some(conversation)) => {
-                        (self.log)("the memory compactor works again; its notice is retracted");
-                        self.state.outbox.push(op_entry(
-                            conversation,
-                            &format!("{}:retract", posted.key),
-                            Op::MessageRetract { message_id: id },
-                        ));
+            Err(text) => self.post_compactor_notice(COMPACTOR_NOTICE, text),
+            Ok(()) => self.retract_compactor_notice(),
+        }
+    }
+
+    /// A stuck line's notice (`Input::CompactorStuck`): posted like the
+    /// probe's, but cleared only while the fault shown is its own.
+    fn compactor_stuck(&mut self, notice: Option<String>) {
+        match notice {
+            Some(text) => {
+                if !self.probe_fault && !self.stuck_fault {
+                    self.stuck_fault = true;
+                    if let Some(settle) = &self.settle_status {
+                        settle.compactor_fault(Some(&text));
                     }
-                    _ => (self.log)("the memory compactor works again"),
                 }
-                self.save();
-                self.flush_outbox();
+                self.post_compactor_notice(STUCK_NOTICE, text);
+            }
+            None => {
+                let ours = self
+                    .state
+                    .compactor_notice
+                    .as_ref()
+                    .is_some_and(|p| p.key.starts_with(STUCK_NOTICE));
+                if self.stuck_fault {
+                    self.stuck_fault = false;
+                    if let Some(settle) = &self.settle_status {
+                        settle.compactor_fault(None);
+                    }
+                }
+                if ours {
+                    self.retract_compactor_notice();
+                }
             }
         }
+    }
+
+    fn post_compactor_notice(&mut self, prefix: &str, text: String) {
+        if !self.compactor_messages || self.state.compactor_notice.is_some() {
+            return (self.log)(&text);
+        }
+        let key = format!("{prefix}{}", now_ms());
+        self.state.compactor_notice = Some(crate::state::PostedNotice {
+            key: key.clone(),
+            message_id: None,
+        });
+        self.save();
+        self.notice(key, text);
+    }
+
+    fn retract_compactor_notice(&mut self) {
+        let Some(posted) = self.state.compactor_notice.take() else {
+            return;
+        };
+        // Not sent yet: it never shows.
+        self.notices.retain(|(k, _)| *k != posted.key);
+        self.state
+            .outbox
+            .retain(|e| e.idempotency_key != posted.key || e.attempted);
+        match (posted.message_id, self.state.conversation.clone()) {
+            (Some(id), Some(conversation)) => {
+                (self.log)("the memory compactor works again; its notice is retracted");
+                self.state.outbox.push(op_entry(
+                    conversation,
+                    &format!("{}:retract", posted.key),
+                    Op::MessageRetract { message_id: id },
+                ));
+            }
+            _ => (self.log)("the memory compactor works again"),
+        }
+        self.save();
+        self.flush_outbox();
     }
 
     /// The owner confirmed the message sent under `key`.

@@ -130,22 +130,12 @@ export const TRANSCRIPT_SPACING_KINDS: readonly SpacingRow[] = [
     tolerance: 1,
     source: "as footer-to-next: 16 + 24 + 11; Claude 24 from the button row to the next block",
   },
-  // A turn a received message started folds under its "Worked for" line, a Claude turn's too (Leo,
-  // 2026-11-04: "i think it should be the top level collapsible thing IF POSSIBLE"): that line is a
-  // one-line row between the received line and the work.
   {
-    id: "received-to-worked",
-    between: 'a received message line and its turn\'s "Worked for" line under it, centre to centre',
+    id: "received-to-status",
+    between: 'a received message line and the "Scheduled check" line under it, centre to centre',
     value: 22,
     tolerance: 0.5,
-    source: "one-line rows sit flush (rule 3)",
-  },
-  {
-    id: "worked-to-status",
-    between: '"Worked for", opened, and the "Scheduled check" line under it, centre to centre',
-    value: 22,
-    tolerance: 0.5,
-    source: "one-line rows sit flush (rule 3)",
+    source: "one-line rows sit flush (rule 3); no reference shows a received line over a scheduled check",
   },
   {
     id: "status-to-run",
@@ -211,7 +201,7 @@ export const TRANSCRIPT_SPACING_KINDS: readonly SpacingRow[] = [
 /** The status rows at the bottom of a running turn (design/transcript-spacing.md, "Row kinds", the
  * status rows; Leo, 2026-11-03 04:44Z, on two captures of a running Claude chat where they stood
  * 55 to 70 apart, then cramped: "this is pretty bad spacing and formatting" / "i thought we made this
- * stuff smaller"). Each is a one-line row: a folded run, "Subagent finished", the live "Thinking"
+ * stuff smaller"). Each is a one-line row: a run's last call, "Subagent finished", the live "Thinking"
  * line, the waiting group's "1 message from 1 session", another agent's received line and "Sent to".
  * Activity rows sit flush on the 22 pitch; the live line takes the run gap below activity. Measured over gallery
  * variants `working-bottom`, `reply-received`, `notes-live` and `status-prompt` by test/transcript-spacing-kinds.test.ts. */
@@ -221,7 +211,8 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
   {
     id: "work-to-subagent",
     variant: "working-bottom",
-    between: '"Sent a message, ran 3 commands, used 3 tools" and "Subagent finished" under it, centre to centre',
+    between:
+      'the running turn\'s last call ("Read src/turns.ts", its run in sight) and "Subagent finished" under it, centre to centre',
     value: 22,
     tolerance: 0.5,
     source: "one-line rows sit flush (rule 3)",

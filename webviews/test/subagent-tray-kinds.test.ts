@@ -58,6 +58,9 @@ await requireBrowserLane("subagent-tray-kinds.test.ts", async () => {
           for (const animation of document.getAnimations())
             if (Number.isFinite(animation.effect?.getComputedTiming().endTime as number)) animation.finish();
         });
+        // Opening hands the header's words over (trayMotion.tsx Tick `slide`): the leaving words go
+        // once their animation's end lands, a turn after it finishes.
+        await page.waitForFunction(() => !document.querySelector(".acpmux-running-tray__title .acpmux-tick__out"));
         const geometry = await page.evaluate(() => {
           const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
           const list = tray.querySelector<HTMLElement>(".acpmux-running-tray__list")!;
@@ -77,9 +80,9 @@ await requireBrowserLane("subagent-tray-kinds.test.ts", async () => {
           };
         });
         expect(geometry.title).toBe("1 build · 2 waits · 1 command · 1 subagent done");
-        // Five one-row lines fit the list: no scrollbar to take their right edge in. Narrow, each line
-        // takes two rows and the list scrolls; the header's chevron follows the scrollbar (below).
-        if (width > 400) expect(geometry.overflow).toBeLessThanOrEqual(0);
+        // Five one-row lines fit the list: no scrollbar to take their right edge in. Narrow too: a line
+        // stays one row there (Leo, 2026-11-04: "how Claude code just has one lines too").
+        expect(geometry.overflow).toBeLessThanOrEqual(0);
         const [first] = geometry.lines;
         for (const line of geometry.lines) {
           expect(Math.abs(line.time.right - first!.time.right)).toBeLessThanOrEqual(0.5);

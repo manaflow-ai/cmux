@@ -537,7 +537,7 @@ final class ShellModel {
         }
         theme.haptics.selection()
         sidebar.crossfadeContent()
-        withAnimation(theme.motion.snap.animation) {
+        withAnimation(theme.motion.snap.animation.unlessReduceMotion) {
             store.selectTeam(id)
         }
         closeTeamScreens()
@@ -604,10 +604,10 @@ final class ShellModel {
         }
     }
 
-    /// Call Chief from anywhere: the live call, or Settings → Chief Calls
-    /// when this account has no OpenAI API key yet.
-    func callChief() {
-        guard !ChiefLiveCall.shared.start() else { return }
+    /// Call Chief from anywhere: the live call to `chief` (nil: the default
+    /// Chief), or Settings → Chief Calls when this account has no OpenAI API key yet.
+    func callChief(_ chief: ChiefSession? = nil) {
+        guard !ChiefLiveCall.shared.start(chief: chief) else { return }
         openChiefCallSettings()
     }
 

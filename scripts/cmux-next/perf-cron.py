@@ -13,7 +13,8 @@ runs on a cron instead, only on idle fleet capacity, behind every nightly and de
                     nightly or dev build waits for a Mac on GitHub.
   measure (gateway) runs only on its own runner label (vars.CI_PERF_CRON_GATEWAY), skips unless the part's host
                     (the measurement's, else cmux20-bench) is idle and no dev build waits in the controller queue,
-                    then runs ONE part (its run_seconds: 15 minutes, the build 20, STRESS and sidebar 25) as a
+                    then runs ONE part (its run_seconds: 15 minutes, the build 20, STRESS and sidebar 25, workspace
+                    scaling 60 because it seeds and measures a 1000-row topology) as a
                     background (lowest priority) measurement step on that host, and cancels it when a foreground
                     job queues that the host could run (its labels, its name, or a target worker).
   request (controller) with no gateway label and vars.CMUX_NEXT_PERF_CRON_CONTROLLER=1: a job named for the part;
@@ -157,6 +158,10 @@ PARTS = [
     # 400 workspaces, 6 scenarios: not timed against 900 s yet (perf-budgets' own per-bench cap is 900 s).
     {"name": "sidebar", "args": [*MEASURE, "--suite=budgets", "--only=sidebar"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "run_seconds": 1500},
+    # 1/100/1000 workspace topology: warning-only constant-scaling trend budget. This is the one 60-minute
+    # part: seeding and measuring all three topologies is intentionally longer than the normal 15-minute tick.
+    {"name": "workspace-scaling", "args": [*MEASURE, "--vdisplay-hold=3600", "--suite=workspace-scaling"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "workspace-scaling", "run_seconds": 3600},
     {"name": "home-idle", "args": [*MEASURE, "--suite=budgets", "--only=home,idle"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     {"name": "chat-anim", "args": [*MEASURE, "--suite=budgets", "--only=acp,anim"],
@@ -171,6 +176,7 @@ PART_BY_NAME = {p["name"]: p for p in PARTS}
 ROW_PARTS = [
     (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
+    (r"^workspace_scaling\.", "workspace-scaling"),
     (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.", "launch"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.", "web-ui"),
 ]
@@ -504,10 +510,22 @@ def rows_of_part(part, report, budgets_mod, budgets):
         if isinstance(stream.get("p95Ms"), (int, float)):
             values["diff.stream.p95"] = (stream["p95Ms"], "ms", 10.0)
         versions = report.get("bench_versions") if isinstance(report.get("bench_versions"), dict) else {}
+        load = report.get("load") if isinstance(report.get("load"), dict) else {}
         for name, (v, unit, floor) in values.items():
-            out[name] = {"p50": v, "p95": v, "unit": unit, "budget": DIFF_BUDGETS[name], "floor": floor}
-            version = versions.get(name.split(".")[1])  # sidecar or stream
-            out[name]["measure_version"] = version if isinstance(version, int) else DIFF_LEGACY_VERSION
+            # On a busy runner a row of a LOAD_SCALED_BENCHES bench is divided by its bench's contention; any other
+            # row only records it.
+            bench = name.split(".")[1]
+            factor = load.get(bench)
+            factor = factor if isinstance(factor, (int, float)) and factor > 1 else None
+            scaled = round(v / factor, 4) if factor and bench in LOAD_SCALED_BENCHES else v
+            out[name] = {"p50": scaled, "p95": scaled, "unit": unit, "budget": DIFF_BUDGETS[name], "floor": floor}
+            if factor:
+                out[name]["load"] = factor
+                if scaled != v:
+                    out[name]["raw_p95"] = v
+            version = versions.get(bench)
+            out[name]["measure_version"] = (version if isinstance(version, int) else DIFF_LEGACY_VERSION) \
+                + 100 * DIFF_LOAD_VERSION
     elif part["kind"] == "webui":
         # web-ui-suite.ts's rows (webviews/bench/perfRow.ts): its target is the row's budget, its floor the noise on
         # a shared runner (10 % of p95 when the bench names none: a change must pass both that and the 10 % rule).
@@ -603,6 +621,10 @@ def target_of(name, row, refresh_ms):
     refresh_ms = row_refresh(row, refresh_ms)
     unit = row.get("unit") or "ms"
     name = base_row(name)
+    if name.startswith("workspace_scaling."):
+        # Scaling rows are judged only by their 1000-vs-baseline ratio. Their absolute
+        # latency is intentionally advisory and must not inherit the generic 10 ms target.
+        return None
     if name.startswith(("diff.", "launch.", "webui.")):
         return row.get("budget")
     if unit in ("frames", "checks") or name.endswith(".dropped"):
@@ -646,6 +668,47 @@ def version_changed(rows, base_rows):
                 and r["part_config"] != base["part_config"]:
             out.append(n)
     return sorted(out)
+
+
+# A busy runner can't make a Linux row regress by accident (Leo, 2026-11-09: "we should be able to normalize based off
+# load. and for a lot of situations, load shouldn't even necessarily affect it by that much"). host_contention spins
+# this process for SPIN_S of wall time and reads the CPU time it got: 1 on a host with a free core, and wall / CPU
+# when every core is taken, which is how much longer any CPU-bound step takes than on that host idle. The part probes
+# before and after each bench (none of the bench's processes run then) and divides that bench's time rows by the
+# median (rows_of_part); the web-ui part's suite does the same per bench itself (webviews/bench/hostLoad.ts).
+# Only a row whose samples are long enough to share the spin's slowdown is scaled (LOAD_SCALED_BENCHES): the sidecar
+# reports the median of short 16 MiB reads, which mostly picks reads the scheduler left whole, so dividing it by the
+# spin's factor turned a busy run's 89 ms/GiB into 22 and made the next idle 74 a regression (#39309 F1). Its rows
+# keep the factor as load, unscaled.
+CONTENTION_SPIN_S, CONTENTION_SPINS, CONTENTION_MAX = 0.02, 9, 8.0
+LOAD_SCALED_BENCHES = {"stream"}
+# How a diff row is normalized, as part of its measure_version (bench version + 100 x this): a change of it rebases the
+# bench's rows instead of comparing a scaled value with a raw one (#39353 F1: an old 22.3 scaled sidecar value made the
+# next raw 74 a regression). 1: #39309 scaled every diff row; 2: only LOAD_SCALED_BENCHES' rows.
+DIFF_LOAD_VERSION = 2
+
+
+def spin_ratio(spin_s=CONTENTION_SPIN_S):
+    """One spin's wall time / the CPU time this process got during it."""
+    cpu, start, sink = time.process_time(), time.perf_counter(), 0.0
+    while time.perf_counter() - start < spin_s:
+        sink += (sink + 1) ** 0.5
+    wall, used = time.perf_counter() - start, time.process_time() - cpu
+    return wall / used if used > 0 else CONTENTION_MAX
+
+
+def contention_factor(ratios):
+    """The factor to divide a time row by (pure): the median ratio, clamped to 1..CONTENTION_MAX, to 2 decimals."""
+    finite = sorted(r for r in ratios if isinstance(r, (int, float)) and r == r)
+    if not finite:
+        return 1.0
+    mid = len(finite) // 2
+    median = finite[mid] if len(finite) % 2 else (finite[mid - 1] + finite[mid]) / 2
+    return round(min(CONTENTION_MAX, max(1.0, median)), 2)
+
+
+def host_contention(spins=CONTENTION_SPINS):
+    return [spin_ratio() for _ in range(spins)]
 
 
 def linux_bench_runs(root, part="diff-viewer"):
@@ -1455,6 +1518,12 @@ def supported_parts_at(sha):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = f"--suite={need}" in text
+        elif need == "workspace-scaling":
+            text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
+                                  capture_output=True, text=True).stdout
+            ok = "--suite=workspace-scaling" in text and subprocess.run(
+                ["git", "-C", ROOT, "cat-file", "-e", f"{sha}:scripts/cmux-next/workspace-scaling-bench.py"],
+                capture_output=True).returncode == 0
         else:
             ok = True
         if ok:
@@ -2693,13 +2762,17 @@ def cmd_run_linux_part(o):
     part = getattr(o, "part", "diff-viewer")
     runs = linux_bench_runs(ROOT, part)
     report, tail, ok = {}, [], True
+    load = {}
     for name, (argv, cwd, extra) in runs.items():
+        before = host_contention() if part != "web-ui" else []
         try:
             proc = subprocess.run(argv, cwd=cwd, env={**env, **extra}, capture_output=True, text=True, timeout=1800)
             value, code, stderr = last_json_object(proc.stdout), proc.returncode, proc.stderr or ""
         except subprocess.TimeoutExpired:
             value, code, stderr = None, "timeout (1800 s)", ""
         tail += [f"{name}: exit {code}"] + stderr.splitlines()[-10:]
+        if before:
+            load[name] = contention_factor(before + host_contention())
         if part == "web-ui":
             if isinstance(value, dict):
                 report = value
@@ -2717,6 +2790,7 @@ def cmd_run_linux_part(o):
             print(f"perf-cron web-ui: {line}")
     else:
         report["bench_versions"] = diff_bench_versions(ROOT)
+        report["load"] = load
     json.dump(report, open(os.path.join(o.out, "report.json"), "w"), indent=1)
     result = {"state": "done" if ok else "failed", "seconds": round(time.monotonic() - started), "tail": tail[-40:],
               "worker": o.runner_class}

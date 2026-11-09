@@ -384,7 +384,14 @@ pub(super) async fn task_new(
     // The giver's message, as `acpmux send` from it would be (`requests.rs` session/prompt).
     let provenance = match caller {
         Some(caller) if caller != target.id => {
-            Some(crate::prompt_provenance::session_message(caller, &from, &target.id))
+            let bound = hub.resolve(caller).ok().map(|session| {
+                crate::prompt_provenance::BoundSender::of_session(&session.id, &session.meta())
+            });
+            let provenance = crate::prompt_provenance::stamp_declared(
+                crate::prompt_provenance::session_message(caller, &from, &target.id),
+                declared.as_deref(),
+            );
+            Some(crate::prompt_provenance::stamp_sender(provenance, bound.as_ref()))
         }
         Some(_) => None,
         None => declared.map(|name| crate::prompt_provenance::named_sender(&name, &target.id)),

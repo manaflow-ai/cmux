@@ -36,7 +36,8 @@ afterAll(() => {
 
 test("the header strip has no separators and every icon button draws the same glyph size", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { ChatHeaderTools, HEADER_GLYPH } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
+  const { ChatHeaderTools } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
+  const { HEADER_GLYPH } = await import("../src/agent-session/acpmux/header/chatHeaderToolsModel");
   const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
   const { NeedsYouButton } = await import("../src/agent-session/acpmux/needsYou/NeedsYou");
   const { SummaryButton } = await import("../src/agent-session/acpmux/summary/SummaryButton");
@@ -127,8 +128,9 @@ test("the compact chat tools use host SF Symbols, with overflow last and no dupl
     );
   });
   // The panel toggle's two-row list (view.list.short) has no SF Symbol: it draws from the cmux pack, so it asks
-  // the host for nothing (Leo 2026-11-04: "make our session info button 2 rows too").
-  expect(requested.sort()).toEqual(["ellipsis", "globe", "plusminus", "terminal"]);
+  // the host for nothing (Leo 2026-11-04: "make our session info button 2 rows too"). Terminal and Browser draw the
+  // pack's bare prompt and outlined globe too (Leo 2026-11-09: "just draw that basketball").
+  expect(requested.sort()).toEqual(["ellipsis", "plusminus"]);
   const buttons = [...host.querySelectorAll(".acpmux-header-tool")];
   expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
     "Session Info",
@@ -138,7 +140,15 @@ test("the compact chat tools use host SF Symbols, with overflow last and no dupl
     "Chat actions",
   ]);
   const lit = "var(--agent-lit-glyph, var(--agent-accent))";
-  const [toggle, ...symbolTools] = buttons;
+  const [toggle, changes, terminal, browser, more] = buttons;
+  const symbolTools = [changes!, more!];
+  for (const [button, name] of [
+    [terminal!, "terminal"],
+    [browser!, "browser"],
+  ] as const) {
+    expect(button.querySelector("[data-symbol]")).toBeNull();
+    expect(button.querySelector("svg[data-icon]")!.getAttribute("data-icon")).toBe(name);
+  }
   const pack = toggle!.querySelector<SVGElement>("svg[data-icon]")!;
   expect(pack.getAttribute("data-icon")).toBe("view.list.short");
   expect(pack.getAttribute("width")).toBe("16");

@@ -230,6 +230,57 @@ import UIKit
 
     /// Native lines (a finished thought, group and tool row) tapped open and closed with their
     /// SwiftUI row's button: each opens and closes over several frames, with no row drawn over it.
+    /// The tapped line's pixels (its first 22 pt, left of the trailing duration and chevron) as
+    /// drawn now, in grays.
+    @MainActor func headerStrip(_ chat: Chat, _ id: String) -> [UInt8]? {
+        guard let cell = chat.list.cell(for: id), cell.bounds.width > 100 else { return nil }
+        let size = CGSize(width: cell.bounds.width - 90, height: 22)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        // The layer tree as SwiftUI laid it out this frame (a snapshot of the screen is blank in
+        // the test host).
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            cell.layer.render(in: context.cgContext)
+        }
+        guard let cg = image.cgImage else { return nil }
+        let width = cg.width, height = cg.height
+        var pixels = [UInt8](repeating: 0, count: width * height)
+        guard let context = CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
+                                      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return nil }
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return pixels
+    }
+
+    /// 2026-11-04 (the user): "the row itself shouldn't move and it should only reveal whatever is
+    /// under it". A disclosure's line stays where it is drawn while its body opens or closes: the
+    /// hosting view centered a row's SwiftUI content in its cell while the content's animated height
+    /// differed from the cell's, so the line slid down and back on open and up out of the clipped
+    /// cell on close.
+    @Test(arguments: ["thought", "group", "tool"])
+    func aDisclosureLineStaysPutWhileItsBodyReveals(_ kind: String) async throws {
+        let chat = try await chat()
+        defer { chat.window.isHidden = true }
+        let id = try lowest(chat, kind)
+        let key = try #require(chat.key(id))
+        let disclosures = chat.surface.disclosures
+        let hold = chat.list.context.foldHold
+        for open in [true, false] {
+            toggleDisclosure(hold, key: key, in: disclosures) { disclosures.set(key, open) }
+            await chat.frame()
+            let first = try #require(headerStrip(chat, id), "\(kind)'s line is drawn")
+            #expect(Set(first).count > 8, "the strip has the line's text in it")
+            var worst = 0.0, at = 0
+            for frame in 0 ..< 240 where frame < 40 || chat.controller.isHoldingFold {
+                await chat.frame()
+                guard let strip = headerStrip(chat, id), strip.count == first.count else { continue }
+                let diff = zip(strip, first).reduce(0.0) { $0 + abs(Double($1.0) - Double($1.1)) } / Double(strip.count)
+                if diff > worst { worst = diff; at = frame }
+            }
+            #expect(worst < 2, "\(kind)'s line moved while it \(open ? "opened" : "closed"): mean change \(worst) on frame \(at)")
+            await chat.frames(10)
+        }
+    }
+
     @Test(arguments: ["thought", "group", "tool"])
     func aNativeDisclosureOpensAndClosesOnTheSpring(_ kind: String) async throws {
         let chat = try await chat()

@@ -3,6 +3,7 @@
 
 mod attach_protocol;
 mod clipboard_read;
+mod closed_host_termination;
 mod host_fixture;
 mod input_records;
 mod kitty_file_media;
@@ -315,6 +316,7 @@ pub(crate) fn input_ack_surface_fixture() -> (HostAttachment, UnixStream) {
         launch_activation_pending: false,
         pty_custody: None,
         input_order: None,
+        input_room: Default::default(),
     };
     (attachment, host)
 }

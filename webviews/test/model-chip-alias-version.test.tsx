@@ -215,7 +215,7 @@ test("a chat on a release keeps its name", async () => {
 });
 
 test("aliasNamedAsRelease swaps only a bare family", async () => {
-  const { aliasNamedAsRelease } = await import("../src/agent-session/acpmux/ComposerPickers");
+  const { aliasNamedAsRelease } = await import("../src/agent-session/acpmux/composerPickerModel");
   expect(aliasNamedAsRelease("Opus", "Opus 5.5")).toBe("Opus 5.5");
   expect(aliasNamedAsRelease("Opus", "Claude Opus 5.5")).toBe("Claude Opus 5.5");
   expect(aliasNamedAsRelease("Opus · 1M context", "Opus 5.5 · 1M context")).toBe("Opus 5.5 · 1M context");

@@ -81,7 +81,7 @@ const FILES_HOST: ChipHostFixture = {
 };
 /// Each received message's own line (its DisclosureRow toggle); inside an opened "Received N
 /// messages" row, each message keeps its own line.
-const RECEIVED_LINE = ".cv-received .cv-disclosure__toggle";
+const RECEIVED_LINE = ".cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)";
 /// Received lines next to each other gather in one "Received N messages" row (#32720), closed, whose
 /// lines show once it opens: opens it when the stage draws one, then waits for a line.
 const RECEIVED_ROW = ".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle";
@@ -141,7 +141,7 @@ const minimalChat = chat([
   assistant("Merged cmux/grid-fix into this branch.", 4.5),
   summary(4.5, { status: "completed" }),
 ]);
-const PREVIEW = ".cv-received__preview, .cv-received > .cv-disclosure__below";
+const PREVIEW = ".cv-received__preview, .cv-received > :is(.cv-agentmsg__below, .cv-disclosure__below)";
 const linesDrawn: Play = async (ctx) => {
   await openReceivedRow(ctx);
   // A line's first line: on the line (`single`) or under it (stacked, messageLineLook.ts).
@@ -168,7 +168,7 @@ const alternate =
 /// B: the line fades out at its end instead of an ellipsis, and says how many lines follow.
 const fadeCount = alternate(
   `.cv-received__preview { text-overflow: clip; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
-.cv-received .cv-disclosure__toggle > .cv-rotor { display: none; }
+.cv-received .cv-disclosure__toggle > .cv-rotor, .cv-received .cv-agentmsg__chevron { display: none; }
 .cv-received__more-count { flex: none; color: var(--cv-text-dim); font-size: var(--text-control); opacity: 0.8; }`,
   (preview, text) => {
     const more = text.split("\n").filter((part) => part.trim()).length - 1;
@@ -181,7 +181,7 @@ const fadeCount = alternate(
 );
 /// C: no mark and no separate name; the sender's name in bold starts the preview.
 const inlineName = alternate(
-  `.cv-received .cv-received__from, .cv-received .cv-disclosure__icon { display: none; }
+  `.cv-received .cv-received__from, .cv-received :is(.cv-agentmsg__icon, .cv-disclosure__icon) { display: none; }
 .cv-received__preview > b { color: var(--cv-text); font-weight: 600; margin-right: 6px; }`,
   (preview, _text, name) => {
     const bold = preview.ownerDocument.createElement("b");
@@ -425,6 +425,42 @@ export default agentPaneEntry({
           untyped: true,
         }),
       ]),
+    },
+    "sender-identity-remote": {
+      note: "Public fixture: the actual incoming remote-sender row, with the session headline, a secondary machine, and an explicit parent relationship.",
+      snapshot: chat(
+        [
+          user("Ask the review session for its result", 9),
+          assistant("The review session will report back here.", 8.5),
+          summary(8.5, { status: "completed" }),
+          user("The review is ready. The regression passes.", 4, {
+            incoming: {
+              kind: "message",
+              message: {
+                name: "review-box/pr-row",
+                sessionId: "fixture-remote-review",
+                relation: "parent",
+                text: "[review-box/pr-row] The review is ready. The regression passes.",
+                raw: "[review-box/pr-row] The review is ready. The regression passes.",
+              },
+            },
+            untyped: true,
+          }),
+        ],
+        {
+          sessions: [
+            session({ sessionId: SESSION_ID, title: "Review the sender identity" }),
+            session({
+              sessionId: "fixture-remote-review",
+              name: "review-box/pr-row",
+              peer: "review-box",
+              host: "review-box",
+              hostKind: undefined,
+              harness: "codex",
+            }),
+          ],
+        },
+      ),
     },
     "sender-hover": {
       note: "A lane on another machine (studio-mac) messages this chat. Hovering its name lights the name alone; a click opens that chat beside this one, or focuses its tab when one shows it.",

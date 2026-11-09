@@ -274,4 +274,75 @@ impl Surface {
         }
         Ok(surface)
     }
+
+    /// A hosted terminal surface on `attachment` (a fake host connection), whose launch waits
+    /// for its Activate frame as a created terminal's does (`defer_launch_activation`), with
+    /// the tab and terminal identity `identity`.
+    #[cfg(all(test, unix))]
+    pub(crate) fn spawn_hosted_awaiting_activation_for_test(
+        id: SurfaceId,
+        mux: Weak<Mux>,
+        mut attachment: crate::terminal_host_runtime::HostAttachment,
+        identity: TabResourceIdentity,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let terminal_public_id = terminal_public_id_from_resource_identity(
+            &identity,
+            "a hosted terminal cannot use a browser resource identity",
+        )?;
+        attachment.launch_activation_pending = true;
+        Self::spawn_hosted(
+            id,
+            SurfaceOptions::default(),
+            mux,
+            HostedSurfaceLaunch {
+                adopted: false,
+                attachment,
+                kitty_reservation: None,
+                terminate_on_error: false,
+                defer_launch_activation: true,
+                lifetime: PtyLifetime::SessionOwned,
+                terminal_public_id: Some(terminal_public_id),
+                resource_identity: Some(identity),
+            },
+        )
+    }
+
+    /// Finish `command` with `exit_code` on this terminal's tracker, as the
+    /// shell's OSC 133 marks do.
+    #[cfg(test)]
+    pub(crate) fn finish_command_for_test(&self, command: &str, exit_code: i32) {
+        struct Line<'a>(&'a str);
+        impl crate::shell_history::CommandScreen for Line<'_> {
+            fn input_text(&mut self) -> Option<String> {
+                Some(self.0.to_owned())
+            }
+            fn cwd(&mut self) -> Option<String> {
+                None
+            }
+        }
+        let pty = self.as_pty().expect("a PTY surface");
+        let mut tracker = pty.command_tracker.lock().unwrap();
+        let start = crate::shell_history::ShellMark::CommandStart;
+        tracker.apply(start, 1_000, &mut Line(command));
+        let end = crate::shell_history::ShellMark::CommandEnd { exit_code: Some(exit_code) };
+        tracker.apply(end, 3_000, &mut Line(""));
+    }
+
+    /// Start `command` on this terminal's tracker (OSC 133 C) without
+    /// finishing it, as a dev server that still runs.
+    #[cfg(test)]
+    pub(crate) fn start_command_for_test(&self, command: &str) {
+        struct Line<'a>(&'a str);
+        impl crate::shell_history::CommandScreen for Line<'_> {
+            fn input_text(&mut self) -> Option<String> {
+                Some(self.0.to_owned())
+            }
+            fn cwd(&mut self) -> Option<String> {
+                None
+            }
+        }
+        let pty = self.as_pty().expect("a PTY surface");
+        let start = crate::shell_history::ShellMark::CommandStart;
+        pty.command_tracker.lock().unwrap().apply(start, 5_000, &mut Line(command));
+    }
 }

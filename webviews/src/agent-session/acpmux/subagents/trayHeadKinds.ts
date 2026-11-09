@@ -13,10 +13,10 @@
 //
 // It is computed when the tray's lists change (an event), never per clock tick.
 import type { Translate } from "../i18n";
-import { subagentStatus } from "../summary/SubagentStatusList";
+import { subagentStatus } from "../summary/subagentStatusListModel";
 import { sessionRetry } from "./retryState";
 import { harnessFamily } from "./agentRuns";
-import type { TrayItem } from "./runningTray";
+import { commandStatus, type TrayItem } from "./runningTray";
 import { COMMAND_KINDS, COMMAND_KIND_COUNT, type CommandKind, commandKind } from "./trayCommandKinds";
 
 export type TrayHeadKindsArm = "kinds" | "plain" | "sub" | "running";
@@ -91,7 +91,9 @@ export function trayHead(
   // What ended and stays in the list: done (a session whose turn ended is done), failed, and stopped
   // (cancelled or disconnected: the person or the link ended it), each counted apart.
   let done = 0;
-  let doneSessions = 0;
+  // Done lines that are not subagents (a chat the agent started, a finished command): with any, the
+  // count says "2 done", never "2 subagents done".
+  let doneOthers = 0;
   let failed = 0;
   let stopped = 0;
   for (const item of finished) {
@@ -104,20 +106,18 @@ export function trayHead(
             : item.session.state === "idle"
               ? "done"
               : undefined
-          : undefined;
+          : // A finished command that stays a while (trayLinger.ts).
+            commandStatus(item.command);
     if (status === "failed") failed += 1;
     else if (status === "stopped") stopped += 1;
     else if (status === "done") {
       done += 1;
-      if (item.kind === "session") doneSessions += 1;
+      if (item.kind === "command" || (item.kind === "session" && sessionsApart)) doneOthers += 1;
     }
   }
   // All of what ended were subagents (or count as them): "1 subagent done"; a mix says "2 done".
   parts.push(
-    done > 0 &&
-      (doneSessions === 0 || !sessionsApart
-        ? t("subagents.allDone", { n: done })
-        : t("summary.subagents.done", { n: done })),
+    done > 0 && (doneOthers === 0 ? t("subagents.allDone", { n: done }) : t("summary.subagents.done", { n: done })),
     // What the person or the link stopped, so a list of only those never heads as a bare "Subagents".
     stopped > 0 && t("summary.subagents.stopped", { n: stopped }),
   );

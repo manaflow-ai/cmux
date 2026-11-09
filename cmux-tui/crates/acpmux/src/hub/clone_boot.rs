@@ -149,6 +149,8 @@ mod tests {
             "position": 1, "promptId": "p2", "turnId": "t2", "control": "local",
             "prompt": [{"type": "text", "text": "next"}]}),
         );
+        // The capturing daemon's shutdown seal: the journal's lock passes to the next open.
+        hub.seal();
         cfg
     }
 
@@ -236,6 +238,8 @@ mod tests {
         let hub = Hub::new(cfg.clone(), store);
         let session = hub.resolve("c1").unwrap();
         write(&hub, &session);
+        // The capturing daemon's shutdown seal: the journal's lock passes to the next open.
+        hub.seal();
         cfg
     }
 
@@ -389,7 +393,9 @@ mod tests {
         assert!(!home.join(MARKER).exists());
         assert!(home.join(DONE).exists());
 
-        // A marker that cannot be read still says this start is a copy's.
+        // A marker that cannot be read still says this start is a copy's. The first daemon's
+        // shutdown seal passes the journal's lock to the next open.
+        hub.seal();
         let other = Hub::new(
             Config::default(),
             crate::store::open(&Config::default().store, &home).unwrap(),

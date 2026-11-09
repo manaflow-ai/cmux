@@ -31,8 +31,8 @@ public nonisolated enum DropOverlayTunables {
     public static let floatingInset = DerivedTunable<CGFloat>.number(
         "drop.overlay.floatingInset", .dropOverlay, "Floating inset", help: "Inset of the overlay inside a pane without pane chrome, and in column gaps. Default: Space 2.",
         range: 0...24, step: 0.5, unit: .points, code: "DropOverlayTunables.floatingInset") { Metrics.space2 }
-    public static let cornerRadius = number("cornerRadius", "Corner radius", help: "8 is classic cmux; -1 follows the pane (or panel) corner radius.",
-                                            8, range: -1...40, step: 0.5, unit: .points, property: "cornerRadius")
+    public static let cornerRadius = number("cornerRadius", "Corner radius", help: "-1 (default): a pane zone is concentric with its pane (the corner radius less the zone's 4 pt inset); gaps follow the panel radius. 8 is classic cmux.",
+                                            -1, range: -1...40, step: 0.5, unit: .points, property: "cornerRadius")
     public static let showLabel = toggle("showLabel", "Label", help: "Show the drop label (Split Right, Move Here).", true, property: "showLabel")
     public static let labelMinWidth = number("labelMinWidth", "Label minimum width", help: "Targets narrower than this hide the label.",
                                              90, range: 0...400, step: 1, unit: .points, property: "labelMinWidth")
@@ -149,12 +149,13 @@ public nonisolated enum LayoutTunables {
         default: .pinned, code: "LayoutTunables.prototypeDockMode")
 
     /// Docked workspaces (plans/cmux-next/docked-workspace-DESIGN.md): a window frames whole workspaces at its edges
-    /// around the stage the sidebar switches. Off (the default): the actions refuse with this reason and no window
-    /// record gets docks.
+    /// around the stage the sidebar switches. On by default since the Chief window dock (user 2026-11-05: Chief stays
+    /// on the left while a link from it shows a workspace on the right). Off: the actions refuse with this reason and
+    /// no window record gets docks.
     public static let dockedWorkspaces = Tunable<Bool>.toggle(
-        "window.dockedWorkspaces", .sidebar, "Docked workspaces (window frame prototype)",
-        help: "Dock a whole workspace to a window edge: it stays while the sidebar switches the workspace in the middle. Palette: Dock Workspace Left, Toggle Bottom Dock, Float Docked Workspace.",
-        default: false, code: "LayoutTunables.dockedWorkspaces")
+        "window.dockedWorkspaces", .sidebar, "Window docks (docked workspaces)",
+        help: "Dock a whole workspace to a window edge: it stays while the sidebar switches the workspace in the middle. Home never docks: Dock Workspace on Home docks the Chief panel. Palette: Show/Hide Chief, Move Pane to Dock, Dock Workspace Left, Toggle Bottom Dock, Float Docked Workspace.",
+        default: true, code: "LayoutTunables.dockedWorkspaces")
 
     public static var all: [TunableDescriptor] {
         [dockedWorkspaces.descriptor, prototypeModel.descriptor, prototypeDockEdge.descriptor, prototypeOrientation.descriptor, prototypeDockMode.descriptor,

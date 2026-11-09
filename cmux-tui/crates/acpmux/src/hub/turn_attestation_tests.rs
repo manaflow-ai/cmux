@@ -22,6 +22,7 @@ impl Transport for Enrollment {
             team: "team_00000000000000000001".into(),
             user: "user_00000000000000000001".into(),
             install: "inst_00000000000000000001".into(),
+            machine_join: None,
         }))
     }
 }
@@ -54,7 +55,6 @@ fn fixture_with_status(status: SessionStatus) -> (Arc<Hub>, Arc<Session>) {
         doing: Default::default(),
         notice: false,
         persons: false,
-        from_agents: false,
     });
     (hub, session)
 }
@@ -139,7 +139,6 @@ fn turn_attestation_signs_enrolled_identity_and_existing_journal_sequence_only()
         doing: Default::default(),
         notice: false,
         persons: false,
-        from_agents: false,
     });
     // Journal end wins even while the in-memory turn has not been cleared yet.
     hub.append(&session, "mux", "turn_result", json!({"turnId":"turn-test","turnSeq":seq}));

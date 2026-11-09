@@ -171,4 +171,79 @@ struct HomeAgentThreadTests {
         try await store.sendAgentNote(" \n ", to: "a1", in: conversation)
         #expect(store.transcript(for: conversation).filter { $0.author == me && $0.plainText.hasPrefix("[to ") }.count == 1)
     }
+
+    // MARK: Slice 3 step 2: follow an agent by its session id (a963's spawn place and epoch, a964's moveEpoch)
+
+    @Test func anAgentIsFollowedByItsSessionAndReattachesOnlyOnAHigherEpoch() throws {
+        var ref = HomeAgentSessionRef(peer: "a1", session: "s-81")
+        #expect(!ref.hasMoved)
+        // A Chief move hands it to a mini (a963: place and a raised epoch in one spawn record write).
+        let moved1 = ref.follow(HomeAgentSessionRef(peer: "a1", session: "s-81", place: "cmux-mini", spawnEpoch: 1))
+        #expect(moved1)
+        #expect(ref.place == "cmux-mini" && ref.spawnEpoch == 1 && ref.hasMoved)
+        // An older or equal read never moves it back.
+        let moved2 = ref.follow(HomeAgentSessionRef(peer: "a1", session: "s-81", place: nil, spawnEpoch: 1))
+        #expect(!moved2)
+        let moved3 = ref.follow(HomeAgentSessionRef(peer: "a1", session: "s-81", place: nil))
+        #expect(!moved3)
+        #expect(ref.place == "cmux-mini")
+        // acpmux moves the session on (a964: transferred.to with a higher moveEpoch).
+        let moved4 = ref.follow(HomeAgentSessionRef(peer: "a1", session: "s-81", place: "cloud", spawnEpoch: 1, moveEpoch: 1))
+        #expect(moved4)
+        #expect(ref.place == "cloud" && ref.moveEpoch == 1 && ref.spawnEpoch == 1)
+        // Another session is another agent's chat: not followed.
+        let moved5 = ref.follow(HomeAgentSessionRef(peer: "a1", session: "s-99", place: "elsewhere", moveEpoch: 9))
+        #expect(!moved5)
+        #expect(ref.place == "cloud")
+        #expect(ref.sessionLink == URL(string: "cmux://session/s-81"))
+    }
+
+    @Test func theThreadNamesTheSessionOfTheChiefsLink() throws {
+        var book = HomeAgentMessages()
+        _ = book.apply(run([step("tell", 1, "a1", out: true, "task", at: 0)]))
+        let linked = [item("reply", author: chief, "Started [a1](cmux://chief/0123abcd/session/s-81).")]
+        #expect(try #require(book.thread(peer: "a1", in: linked)).session == "s-81")
+        #expect(try #require(book.thread(peer: "a1", in: [])).session == nil)
+    }
+
+    @MainActor @Test func theStoreFollowsEachAgentsSessionAndAnOlderReadNeverMovesItBack() async throws {
+        let source = MockHomeSource(options: .immediate)
+        let store = HomeStore(source: source)
+        store.start()
+        defer { store.stop() }
+        await waitUntil { store.isOnline && !store.rows.isEmpty }
+        let conversation = ConversationID("conv_aziz")
+        await store.open(conversation)
+        #expect(store.agentSession("a1", in: conversation) == nil)
+        await source.setAgentSessions([HomeAgentSessionRef(peer: "a1", session: "s-81"), HomeAgentSessionRef(peer: "a2", session: "s-82")])
+        #expect(await store.followAgentSessions(["a1", "a2"], in: conversation) == true)
+        #expect(store.agentSession("a1", in: conversation)?.session == "s-81")
+        #expect(store.agentSession("a1", in: conversation)?.hasMoved == false)
+        let before = store.transcriptVersion[conversation, default: 0]
+        await source.setAgentSessions([HomeAgentSessionRef(peer: "a1", session: "s-81", place: "cmux-mini", moveEpoch: 2)])
+        #expect(await store.followAgentSessions(["a1", "a2"], in: conversation) == true)
+        #expect(store.agentSession("a1", in: conversation)?.place == "cmux-mini")
+        // The open agent tab redraws (it reads the transcript).
+        #expect(store.transcriptVersion[conversation, default: 0] > before)
+        // A read from before the move (a stale owner) leaves it where it went.
+        await source.setAgentSessions([HomeAgentSessionRef(peer: "a1", session: "s-81", place: nil, moveEpoch: 1)])
+        #expect(await store.followAgentSessions(["a1", "a2"], in: conversation) == false)
+        #expect(store.agentSession("a1", in: conversation)?.place == "cmux-mini")
+        // An agent the read no longer names keeps its last place.
+        #expect(store.agentSession("a2", in: conversation)?.session == "s-82")
+    }
+    /// While it runs, the store reads the owner's agent starts (a queued agent that starts with no word in
+    /// the chat, a1019 2026-11-06): the set when it starts, then each change; an agent stays started.
+    @MainActor @Test func theStoreReadsTheOwnersAgentStartsWhileItRuns() async {
+        let source = MockHomeSource(options: .immediate)
+        let store = HomeStore(source: source)
+        await source.setStartedAgents(["a1"])
+        store.start()
+        defer { store.stop() }
+        await waitUntil { store.startedAgents.contains("a1") }
+        #expect(store.startedAgents == ["a1"])
+        await source.setStartedAgents(["a2"])
+        await waitUntil { store.startedAgents.contains("a2") }
+        #expect(store.startedAgents == ["a1", "a2"])
+    }
 }

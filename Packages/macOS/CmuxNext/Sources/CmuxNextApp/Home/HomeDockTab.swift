@@ -3,6 +3,7 @@ import CmuxNextHomeEngine
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextHome
+import CmuxNextHomeModel
 
 extension InternalPageID {
     /// The docked Home's tab (`HomeDock.page`): the Messages or Channels view.

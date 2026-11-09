@@ -47,7 +47,7 @@ pub(super) async fn resume_held(client: &Client, id: &str, info: &Value) -> Resu
 /// What `session resume` prints when it moved the chat first.
 fn moved_line(host: &str) -> String {
     format!(
-        "moved to {host} (as `session move --host auto` does): this machine is one a person works at, so a stopped chat resumes on a fleet host"
+        "moved to {host} (as `session move --machine auto` does): this machine is one a person works at, so a stopped chat resumes on a fleet host"
     )
 }
 
@@ -398,6 +398,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             all_idle,
             interrupt,
             leave_dirty,
+            carry_changes,
             cwd,
             dry_run,
             from,
@@ -408,6 +409,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 all_idle,
                 interrupt,
                 leave_dirty,
+                carry_changes,
                 cwd,
                 dry_run,
                 resume_there: false,
@@ -541,6 +543,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         v.get("sessions").and_then(Value::as_u64).unwrap_or(0),
                         v.get("liveAgents").and_then(Value::as_u64).unwrap_or(0)
                     );
+                    if let Some(line) = crate::hub::views::other_build_hosts_line(&v) {
+                        println!("{line}");
+                    }
                     println!(
                         "policy:   {}",
                         v.get("permissionPolicy").and_then(Value::as_str).unwrap_or("")
@@ -691,6 +696,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Host(PeerCmd::Approvals { cmd }) => {
             crate::cli::host_approvals::run(cmd, json_out).await
         }
+        // This machine's own key file or ssh agent; no daemon.
+        Command::Host(PeerCmd::Key { create }) => crate::cli::host_ssh_key::run(create, json_out),
         Command::Host(PeerCmd::Join {
             ticket,
             name,
@@ -764,6 +771,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 .into())
             }
         }
+        Command::Host(PeerCmd::Leave { local_only }) => {
+            crate::cli::cloud_join::leave(local_only, json_out).await
+        }
         Command::Host(PeerCmd::Vault { cmd }) => match cmd {
             crate::cli::command_host::VaultCmd::Pull => {
                 crate::cli::host_vault::pull_cmd(json_out).await
@@ -810,6 +820,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             print_json(&serde_json::to_value(&load)?);
             Ok(())
         }
+        // Pure: judges the readings on stdin, no daemon (`cli/host_budget.rs`).
+        Command::Host(PeerCmd::Verdict) => crate::cli::host_budget::verdict_stdin(),
         // Only a running daemon's chats: no daemon, no chats to tell.
         Command::Host(PeerCmd::Notice { text }) => {
             let client = crate::client::Client::connect(&crate::config::socket_path()).await?;
@@ -868,7 +880,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         let (message, warning) = if url.starts_with("ssh://") && has_token {
                             (
                                 format!(
-                                    "peer {name} was saved and is probing in the background; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host ls` and retry after it shows connected (the saved WebSocket token is retained)"
+                                    "peer {name} was saved and is probing in the background; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux machine ls` and retry after it shows connected (the saved WebSocket token is retained)"
                                 ),
                                 json!({
                                     "reason": "peer_probing",
@@ -879,7 +891,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         } else if url.starts_with("ssh://") {
                             (
                                 format!(
-                                    "peer {name} was saved and is probing in the background; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host doctor {name} --json`"
+                                    "peer {name} was saved and is probing in the background; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux machine doctor {name} --json`"
                                 ),
                                 json!({
                                     "reason": "peer_probing",
@@ -890,11 +902,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         } else {
                             (
                                 format!(
-                                    "peer {name} was saved and is probing in the background; run `acpmux host ls` and retry after it shows connected"
+                                    "peer {name} was saved and is probing in the background; run `acpmux machine ls` and retry after it shows connected"
                                 ),
                                 json!({
                                     "reason": "peer_probing",
-                                    "try": "acpmux host ls",
+                                    "try": "acpmux machine ls",
                                     "detail": "the peer was saved and is probing in the background"
                                 }),
                             )
@@ -950,8 +962,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     }
                     return Ok(());
                 }
-                PeerCmd::Load | PeerCmd::Notice { .. } => {
-                    return Err(anyhow!("machine load and notice are handled before connecting"));
+                PeerCmd::Load | PeerCmd::Verdict | PeerCmd::Notice { .. } => {
+                    return Err(anyhow!(
+                        "machine load, verdict and notice are handled before connecting"
+                    ));
                 }
                 PeerCmd::Rm { name } => {
                     client.request("_acpmux/peer_remove", json!({"name": name})).await?
@@ -1030,15 +1044,24 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Candidates { probe } => {
                     return crate::cli::host_candidates::run(&client, probe, json_out).await;
                 }
+                PeerCmd::Agents { target, install, login } => {
+                    let peers = client.request("_acpmux/peers", json!({})).await?;
+                    let list =
+                        peers.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
+                    let (name, host, _) = crate::cli::host_enroll::pick_target(&list, &target);
+                    return crate::cli::host_agents::run(&name, &host, install, login, json_out);
+                }
                 PeerCmd::Ticket(cmd) => {
                     return crate::cli::pairing::ticket(client, cmd, json_out).await;
                 }
                 PeerCmd::Join { .. }
+                | PeerCmd::Leave { .. }
                 | PeerCmd::Consent { .. }
                 | PeerCmd::Vault { .. }
-                | PeerCmd::Deps { .. } => {
+                | PeerCmd::Deps { .. }
+                | PeerCmd::Key { .. } => {
                     return Err(anyhow!(
-                        "host join, consent, vault and deps are handled before daemon connection"
+                        "host join, leave, consent, vault and deps are handled before daemon connection"
                     ));
                 }
             };
@@ -1048,7 +1071,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             let peers = v.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
             if peers.is_empty() {
-                println!("no peers (add one: acpmux host add HOST)");
+                println!("no peers (add one: acpmux machine add HOST)");
             }
             for p in peers {
                 let state = crate::peer_link::state_label(&p, crate::store::now_ms());

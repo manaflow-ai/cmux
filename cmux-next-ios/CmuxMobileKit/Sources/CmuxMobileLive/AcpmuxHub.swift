@@ -29,7 +29,7 @@ public final class AcpmuxHub {
     @ObservationIgnored private var sources: [String: [WeakSource]] = [:]
     /// Watch-level events for the Feed: `(sessionId, notification)`.
     @ObservationIgnored public var onWatchEvent: (@MainActor (AcpmuxHub.WatchEvent) -> Void)?
-    /// Signs an Allow or an answer with the phone's approval key after Face ID
+    /// Signs an Allow or an answer with the phone's approval key
     /// (verify/phone-approvals.md); nil while this phone is not paired.
     @ObservationIgnored public var approver: Approver?
     /// The daemon run that approvals bind (`initialize` `_meta.acpmux.personInstance`).
@@ -40,6 +40,9 @@ public final class AcpmuxHub {
     /// switch. acpmux sends no notice when the setting changes: a refusal turns it off here,
     /// and the next connection reads it again.
     public private(set) var fullAccess = false
+    /// The protocol surfaces the Mac's acpmux serves (`initialize` `_meta.acpmux.capabilities`,
+    /// acpmux `capabilities.rs`); empty until this connection initializes.
+    @ObservationIgnored private(set) var capabilities: Set<String> = []
 
     /// The phone's approval signer for the linked Mac.
     public struct Approver: Sendable {
@@ -47,9 +50,9 @@ public final class AcpmuxHub {
         public var phoneID: String
         /// The Mac's mobile device id.
         public var macDevice: String
-        /// Asks for Face ID (`reason` is what the system sheet says) and returns
-        /// the signer it unlocked. The payload, and so its expiry, is made only
-        /// after Face ID returns, so a slow answer never expires on the way.
+        /// Returns the approval signer (`reason` says what is approved). The
+        /// payload, and so its expiry, is made only after it returns, so a slow
+        /// signer never lets an answer expire on the way.
         public var authorize: @Sendable (_ reason: String) async throws -> Signer
         public var now: @Sendable () -> Date
 
@@ -71,8 +74,9 @@ public final class AcpmuxHub {
         public init() {}
     }
 
-    /// The user closed Face ID and the passcode: nothing was sent.
-    public struct ApprovalCancelled: Error, Equatable {
+    /// An answer a peer never counts from this phone (acpmux `mac_approvers::may_allow`): anything but a
+    /// one-time allow. Thrown before the approval key is asked, so the person is not asked to sign it.
+    public struct PeerAllowOnceOnly: Error, Equatable {
         public init() {}
     }
 
@@ -127,6 +131,7 @@ public final class AcpmuxHub {
             ]), timeout: requestTimeout)
             personInstance = initialized["_meta"]?["acpmux"]?["personInstance"]?.stringValue
             fullAccess = initialized["_meta"]?["acpmux"]?["fullAccess"] == .bool(true)
+            capabilities = Set((initialized["_meta"]?["acpmux"]?["capabilities"]?.arrayValue ?? []).compactMap(\.stringValue))
             let watched = try await connection.wholeList("_acpmux/watch", ["enabled": .bool(true)], timeout: requestTimeout)
             guard !(await connection.isClosed), self.connection === connection else { return }
             var next: [String: AcpmuxSession] = [:]
@@ -258,6 +263,29 @@ public final class AcpmuxHub {
         _ = try await request("_acpmux/permission_respond", .object(params))
     }
 
+    /// The sudo card's answer (acpmux hub/elevation.rs): `_acpmux/secret_submit` with the
+    /// password and this phone's signature over the card's id, `card_provide` and the card's
+    /// nonce (acpmux `Hub::card_answer_signed`); a Deny sends no value and needs no signature.
+    /// The password goes in the request only, never in a log line or an error.
+    public func answerElevation(sessionID: String, ask: AgentElevationAsk, password: AgentSecretText?) async throws {
+        var params: [String: JSONValue] = ["sessionId": .string(sessionID), "secretId": .string(ask.id)]
+        if let password {
+            guard let approver else { throw ApproverUnsupported() }
+            let sign = try await approver.authorize("Run \(ask.commandLine) as root")
+            let expiresAt = Int(approver.now().timeIntervalSince1970 + ApprovalPayload.lifetime)
+            let payload = ApprovalPayload(
+                instance: ask.instance, macDevice: approver.macDevice, approver: approver.phoneID,
+                session: sessionID, permission: ask.id, option: Self.elevationOption, nonce: ask.nonce,
+                expiresAt: expiresAt)
+            params["_meta"] = payload.meta(signature: try sign(payload.message))
+            params["value"] = .string(password.value)
+        }
+        _ = try await request("_acpmux/secret_submit", .object(params))
+    }
+
+    /// The option a phone signs for a sudo card's Approve (acpmux `secrets::CARD_PROVIDE`).
+    static let elevationOption = "card_provide"
+
     /// Answers a question with the harness-shaped reply, signed like an Allow.
     public func answer(_ question: AgentQuestion, with answer: AgentQuestionAnswer) async throws {
         let reply = try question.reply(answer)
@@ -272,8 +300,7 @@ public final class AcpmuxHub {
         _ = try await request("_acpmux/permission_respond", params)
     }
 
-    /// `_meta` for an Allow or an answer signed with the approval key after
-    /// Face ID; nil for a reject option (never signed), an unpaired phone or a
+    /// `_meta` for an Allow or an answer signed with the approval key; nil for a reject option (never signed), an unpaired phone or a
     /// prompt that is no longer pending (acpmux then refuses or not-founds it).
     func signedMeta(sessionID: String, permissionID: String, optionID: String, answers: JSONValue?,
                     reason answerReason: String? = nil) async throws -> JSONValue? {
@@ -289,24 +316,47 @@ public final class AcpmuxHub {
         // Allow would only be refused with advice that does not apply to a paired phone.
         guard let nonce = pending["decisionNonce"]?.stringValue,
               let instance = pending["personInstance"]?.stringValue ?? personInstance else { throw ApproverUnsupported() }
+        // A prompt of another daemon run than this Mac's is a peer's (a chat opened with `--host`), as the
+        // Mac app decides. The peer counts only a one-time allow from this phone, as the Mac's own signer
+        // checks first (`signPeerAllow`): anything else is refused here, before the key is asked.
+        let peer = personInstance.map { instance != $0 } ?? false
+        if peer, !Self.peerMayAllow(pending["request"], optionID: optionID) { throw PeerAllowOnceOnly() }
         let title = pending["request"]?["toolCall"]?["title"]?.stringValue ?? ""
-        // The Face ID sheet names what is sent: the chosen answers, or the Mac's own title (review M1, L3).
+        // What is approved: the chosen answers, or the Mac's own title (review M1, L3).
         let reason = answers != nil ? (answerReason ?? "Send your answer to the agent") : Self.allowReason(title: title)
-        let sign: Approver.Signer
-        do {
-            sign = try await approver.authorize(reason)
-        } catch PhoneKeys.Failure.cancelled {
-            throw ApprovalCancelled()
+        let sign = try await approver.authorize(reason)
+        // The expiry starts once the signer returned.
+        let expiresAt = Int(approver.now().timeIntervalSince1970 + ApprovalPayload.lifetime)
+        // The peer checks it as one of this Mac's enrolled phones, against its own run.
+        if peer {
+            let payload = PeerApprovalPayload(
+                instance: instance, approver: PeerApprovalPayload.peerID(macDevice: approver.macDevice, phone: approver.phoneID),
+                session: info["sessionId"]?.stringValue ?? sessionID, permission: permissionID,
+                toolCall: pending["request"]?["toolCall"]?["toolCallId"]?.stringValue ?? "", option: optionID, nonce: nonce,
+                expiresAt: expiresAt, answers: answers)
+            return payload.meta(signature: try sign(payload.message))
         }
-        // The expiry starts once Face ID returned.
         let payload = ApprovalPayload(
             instance: instance, macDevice: approver.macDevice, approver: approver.phoneID,
             session: info["sessionId"]?.stringValue ?? sessionID, permission: permissionID, option: optionID, nonce: nonce,
-            expiresAt: Int(approver.now().timeIntervalSince1970 + ApprovalPayload.lifetime), answers: answers)
+            expiresAt: expiresAt, answers: answers)
         return payload.meta(signature: try sign(payload.message))
     }
 
-    /// The Face ID reason of an answer: the labels (and free text) chosen, so
+    /// Whether a peer could count this phone's signature for `optionID` (acpmux `mac_approvers::may_allow`): the
+    /// option offered once, as a one-time allow, of a prompt that is not a plan or a mode switch (each widens
+    /// what runs). The peer still checks the rest; this only keeps the phone from asking for a signature that
+    /// can never count.
+    nonisolated static func peerMayAllow(_ request: JSONValue?, optionID: String) -> Bool {
+        let offered = (request?["options"]?.arrayValue ?? []).filter { $0["optionId"]?.stringValue == optionID }
+        guard offered.count == 1, offered.first?["kind"]?.stringValue == "allow_once" else { return false }
+        let tool = request?["toolCall"]
+        let widens = tool?["kind"]?.stringValue == "switch_mode"
+            || tool?["_meta"]?["claude"]?["tool"]?.stringValue == "ExitPlanMode"
+        return !widens
+    }
+
+    /// The approval reason of an answer: the labels (and free text) chosen, so
     /// the person approves what is sent, not what a notification said.
     nonisolated static func answerReason(_ question: AgentQuestion, _ answer: AgentQuestionAnswer) -> String {
         var parts: [String] = []
@@ -319,7 +369,7 @@ public final class AcpmuxHub {
         return "Answer “\(cut(parts.joined(separator: ", "), 80))”"
     }
 
-    /// The Face ID reason of an Allow: the Mac's own title, marked when cut.
+    /// The approval reason of an Allow: the Mac's own title, marked when cut.
     nonisolated static func allowReason(title: String) -> String {
         title.isEmpty ? "Allow the agent's request" : "Allow “\(cut(title, 80))”"
     }
@@ -366,13 +416,21 @@ public final class AcpmuxHub {
             guard let sessionID, let permissionID = params["permissionId"]?.stringValue, let request = params["request"] else { return }
             onWatchEvent?(.permissionPending(sessionID: sessionID, permissionID: permissionID, request: request))
         case "_acpmux/lagged":
+            // A list reply that went out after a `session_changed` (acpmux `send_serialized`,
+            // `list_changed`) dropped nothing: that notice came before it and is applied above,
+            // so nothing is read again, neither the list nor an open chat's history. Asking
+            // again sent another whole list, which a busy acpmux followed with the same lag: a
+            // 25 MB list about every minute without end, which held up the Mac's own chats
+            // (2026-11-06; the Mac pane stops the same way, direct.ts `resyncAfterLag`).
+            if params["reason"]?.stringValue == "list_changed", (params["dropped"]?.numberValue ?? 0) <= 0 { return }
             // Missed notifications: attached chats fill their gap, and watch runs again. The
             // chats first, before the next notification: a record after the dropped ones must
             // be held for the refill, not applied ahead of it.
             for source in liveSources { source.refill() }
+            // The watch runs again; its reply is not read, so one row is asked for, not the list.
             Task { [weak self] in
                 guard let self, let connection = self.connection else { return }
-                _ = try? await connection.request("_acpmux/watch", .object(["enabled": .bool(true)]))
+                _ = try? await connection.request("_acpmux/watch", .object(["enabled": .bool(true), "limit": .number(1)]))
             }
         default:
             break
@@ -389,7 +447,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private weak var hub: AcpmuxHub?
     private let records: AcpmuxRecords
     private var continuations: [UUID: AsyncStream<AgentSessionEvent>.Continuation] = [:]
-    fileprivate var replay = AcpmuxReplay<AgentSessionEvent>(limit: AcpmuxSessionSource.maxHistory)
+    fileprivate var replay = AcpmuxReplay<AgentSessionEvent>(limit: AcpmuxSessionSource.replayEventLimit)
     private var lastSeq = 0
     private var attached = false
     private var attaching = false
@@ -398,6 +456,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private var questions: [String: AgentQuestion] = [:]
     /// The raw records applied to this chat, newest 500 (the Event Inspector).
     let journal = AgentEventJournal()
+    /// Replay is a cache, independent of how the Mac pages history.
+    static let replayEventLimit = 2_000
     /// The most records one history read returns.
     static let pageSize = 400
     /// The open's byte cap, as the Mac's agent pane opens: a long chat draws its newest records
@@ -414,7 +474,18 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// retries (a harness record, never `transcript`), so a retrying turn says so; and its
     /// `bookmarks` record, so a bookmark or pin made on the Mac shows here.
     static let chatKinds: JSONValue = .array(
-        ["transcript", "queue_updated", "queue_order", "queue_paused", "queue_resumed", "claude.system.api_retry", "bookmarks"].map { .string($0) })
+        ["transcript", "queue_updated", "queue_order", "queue_paused", "queue_resumed", "claude.system.api_retry", "bookmarks"]
+            .map { .string($0) })
+    /// The sudo card's records (acpmux `hub/elevation.rs`), asked for only from a Mac whose acpmux
+    /// serves `elevation-cards-v1`: an older one refuses an attach with more than 8 kinds.
+    static let elevationCapability = "elevation-cards-v1"
+    static let chatKindsWithElevation: JSONValue = .array(
+        (chatKinds.arrayValue ?? []) + [.string("elevation_request"), .string("elevation_decision")])
+
+    /// The kinds this chat's reads ask the Mac for.
+    static func kinds(_ hub: AcpmuxHub) -> JSONValue {
+        hub.capabilities.contains(elevationCapability) ? chatKindsWithElevation : chatKinds
+    }
 
     init(hub: AcpmuxHub, sessionID: String, summary: AgentSessionSummary) {
         self.hub = hub
@@ -426,6 +497,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     public func events() -> AsyncStream<AgentSessionEvent> {
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
+        // Flushing can exhaust the cache: decide whether to resync afterwards.
+        flushOpenChunk()
         if replay.requiresResync {
             guard let hub else {
                 continuation.yield(.clientError("Reconnect to load this chat."))
@@ -445,7 +518,6 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             return stream
         }
         // What this source already has is history to a new reader: one change, drawn in place.
-        flushOpenChunk()
         if !replay.events.isEmpty { continuation.yield(.batch(replay.events)) }
         let id = UUID()
         continuations[id] = continuation
@@ -490,6 +562,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     try await hub.notify("session/cancel", .object(["sessionId": session]))
                 case .respondPermission(let permissionID, let optionID):
                     try await hub.respond(sessionID: sessionID, permissionID: permissionID, optionID: optionID)
+                case .answerElevation(let ask, let password):
+                    try await hub.answerElevation(sessionID: sessionID, ask: ask, password: password)
                 case .answerQuestion(let questionID, let answer):
                     guard let question = questions[questionID] else {
                         self.emit(.clientError("This question is no longer open on \(self.summary.macName)."))
@@ -1000,7 +1074,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     /// Display copy for a refused call.
     static func message(_ error: any Error) -> String {
-        if error is AcpmuxHub.ApprovalCancelled { return "Not approved: Face ID was cancelled." }
+        if error is AcpmuxHub.PeerAllowOnceOnly {
+            return "From an iPhone you can allow this other machine's request once, or deny it. Choose Allow once."
+        }
         if error is AcpmuxHub.ApproverUnsupported {
             return "Not approved: update cmux on the Mac to approve from this iPhone, or approve on the Mac."
         }
@@ -1152,7 +1228,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             var params: [String: JSONValue] = [
                 "sessionId": .string(read.sessionID),
                 "limit": .number(Double(pageSize)),
-                "kinds": chatKinds,
+                "kinds": kinds(hub),
                 "eventStream": .bool(true),
             ]
             if read.firstAttach {
@@ -1172,7 +1248,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 while more, let newest = out.page.last?["seq"]?.numberValue {
                     let next = try await request("_acpmux/events", [
                         "sessionId": .string(read.sessionID), "afterSeq": .number(newest),
-                        "limit": .number(Double(pageSize)), "kinds": chatKinds,
+                        "limit": .number(Double(pageSize)), "kinds": kinds(hub),
                     ])
                     let events = next["events"]?.arrayValue ?? []
                     out.page += events
@@ -1400,7 +1476,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             for _ in 0..<maxEarlierReads {
                 let page = try await hub.request("_acpmux/events", .object([
                     "sessionId": .string(sessionID), "beforeSeq": .number(Double(cursor)),
-                    "limit": .number(Double(pageSize)), "maxBytes": .number(Double(olderBytes)), "kinds": chatKinds,
+                    "limit": .number(Double(pageSize)), "maxBytes": .number(Double(olderBytes)), "kinds": kinds(hub),
                 ]), timeout: pageTimeout)
                 let events = page["events"]?.arrayValue ?? []
                 let hasMore = page["hasMore"] == .bool(true)
@@ -1457,14 +1533,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         log.info("earlier \(self.sessionID, privacy: .public) before \(before, privacy: .public): \(page.count, privacy: .public) records, failed \(read.failed, privacy: .public), more \(hasEarlier, privacy: .public)")
         // A new reader of this source gets the older turns first, then the rest, in order.
         flushOpenChunk()
-        if !events.isEmpty { replay.insert(contentsOf: events, at: 0) }
+        if !events.isEmpty { replay.prepend(events) }
         yieldEarlier(events, hasEarlier: hasEarlier)
     }
 
     private func yieldEarlier(_ events: [AgentSessionEvent], hasEarlier: Bool) {
         flushOpenChunk()
-        replay.append(.earlierHistory(hasEarlier))
-        for continuation in continuations { continuation.yield(.earlierPage(events, hasEarlier: hasEarlier)) }
+        replay.append([.earlierHistory(hasEarlier)])
+        for continuation in continuations.values { continuation.yield(.earlierPage(events, hasEarlier: hasEarlier)) }
     }
 
     func receive(record: JSONValue) {
@@ -1548,20 +1624,44 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// Keeps `event` for a later reader while bounding the replay. Consecutive
     /// streamed chunks are joined so the cache grows with messages, not tokens.
     private func record(replay event: AgentSessionEvent) {
+        guard !replay.requiresResync else { return }
+        let textBytes: Int
+        switch event {
+        case .update(.agentMessageChunk(let text, _)), .update(.agentThoughtChunk(let text)):
+            textBytes = text.utf8.count
+        default:
+            textBytes = 0
+        }
+        // Coalescing must not hide an indefinitely growing reply from the event
+        // budget. Bound each joined chunk to the same byte budget as an open.
+        guard textBytes <= Self.openBytes else {
+            replay.invalidate()
+            openChunk = nil
+            openChunkText = ""
+            openChunkBytes = 0
+            return
+        }
+        if textBytes > Self.openBytes - openChunkBytes { flushOpenChunk() }
+        guard !replay.requiresResync else { return }
         switch (openChunk, event) {
         case (.message(let id)?, .update(.agentMessageChunk(let text, let nextID))) where id == nextID:
             openChunkText += text
+            openChunkBytes += textBytes
         case (.thought?, .update(.agentThoughtChunk(let text))):
             openChunkText += text
+            openChunkBytes += textBytes
         default:
             flushOpenChunk()
+            guard !replay.requiresResync else { return }
             switch event {
             case .update(.agentMessageChunk(let text, let id)):
                 openChunk = .message(id)
                 openChunkText = text
+                openChunkBytes = textBytes
             case .update(.agentThoughtChunk(let text)):
                 openChunk = .thought
                 openChunkText = text
+                openChunkBytes = textBytes
             default:
                 replay.append([event])
             }
@@ -1571,6 +1671,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private enum OpenChunk { case message(String?), thought }
     private var openChunk: OpenChunk?
     private var openChunkText = ""
+    private var openChunkBytes = 0
 
     private func flushOpenChunk() {
         guard let chunk = openChunk else { return }
@@ -1580,6 +1681,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         }
         openChunk = nil
         openChunkText = ""
+        openChunkBytes = 0
     }
 
     /// How many events the source keeps for a later reader (tests).

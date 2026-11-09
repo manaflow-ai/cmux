@@ -1,12 +1,21 @@
 // l10n-allow-file: test fixtures.
 // One finished turn per harness family, folded as its table row says (turnFoldStyle.ts). Leo,
 // 2026-11-04: "do it for chatgpt, do the proper folds for however the other harnessses/model
-// families fold (muse, gemini)", then, on Claude: "i think it should be the top level collapsible
-// thing IF POSSIBLE".
-import { expect, test } from "bun:test";
+// families fold (muse, gemini)", then, on Claude: "you can't do it for Claude ... it's just too lossy
+// if you do it for Claude". Lucas, 2026-11-06 (Codex parity): Claude, Gemini and Muse fold a finished
+// turn under "Worked for" as Codex does; Claude's in-place runs are the experiment's `runs` arm.
+import { afterEach, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { WORKED, turnView } from "./turns";
-import { TURN_FOLD_STYLES, turnFoldStyle } from "./turnFoldStyle";
+import { CLAUDE_IN_PLACE, TURN_FOLD_STYLES, turnFoldStyle } from "./turnFoldStyle";
+
+// Claude's older in-place arm, as the experiment's host override sets it (claudeTurnFold.experiment.ts).
+const inPlace = () => {
+  globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
+};
+afterEach(() => {
+  globalThis.cmuxExperiments = undefined;
+});
 
 const call = (id: string) => ({
   kind: "tool",
@@ -34,18 +43,20 @@ const end: AcpmuxRow = {
 const NOTE =
   "Found the cause in the parser: it reads the trailing comma as the start of another item, so every list " +
   "that ends a line gets an empty entry, and the retry loop then treats that entry as a failed request.";
-// Two runs of calls with chatter between them, then the conclusion.
+// Two runs of calls with a short note between them, then the conclusion.
 const finished = [
   prompt,
   work("w1", 1_000, 2),
-  // Longer than a short note, so it stands between the runs instead of joining one (mergeShortNotes).
-  say("n1", 10_000, NOTE),
+  say("n1", 10_000, "Checking the parser next."),
   work("w2", 20_000, 3),
   say("a", 50_000, "Done: the parser keeps the trailing comma now."),
   end,
 ];
-const drawn = (agentFamily: string, open: ReadonlySet<string> = new Set()) =>
-  turnView(finished, open, { now: 70_000, agentFamily }).filter((row) => row.kind !== "user");
+// The same turn with a reply to the person between the runs: a takeaway, longer than a short note, so it
+// stands between the runs instead of joining one (mergeShortNotes), and no fold hides it.
+const replied = finished.map((row) => (row.id === "n1" ? say("n1", 10_000, NOTE) : row));
+const drawn = (agentFamily: string, open: ReadonlySet<string> = new Set(), rows = finished) =>
+  turnView(rows, open, { now: 70_000, agentFamily }).filter((row) => row.kind !== "user");
 const ids = (rows: readonly AcpmuxRow[]) => rows.map((row) => row.id);
 
 test("the table is the one place a family's fold is named", () => {
@@ -55,6 +66,11 @@ test("the table is the one place a family's fold is named", () => {
   expect(turnFoldStyle("muse-code")).toBe(TURN_FOLD_STYLES.muse!);
   expect(turnFoldStyle("opencode")).toBe(TURN_FOLD_STYLES.codex!);
   expect(turnFoldStyle(undefined)).toBe(TURN_FOLD_STYLES.codex!);
+  // Claude folds a whole turn unless the in-place arm is on; no other family has that arm.
+  expect(TURN_FOLD_STYLES.claude!.conclusion).toBe(true);
+  expect(turnFoldStyle("claude", () => true)).toBe(CLAUDE_IN_PLACE);
+  expect(turnFoldStyle("codex", () => true)).toBe(TURN_FOLD_STYLES.codex!);
+  expect(turnFoldStyle("gemini", () => true)).toBe(TURN_FOLD_STYLES.gemini!);
 });
 
 test("codex: one closed header over the conclusion, counting the messages it folds", () => {
@@ -63,6 +79,15 @@ test("codex: one closed header over the conclusion, counting the messages it fol
   expect(worked.foldOpen).toBe(false);
   expect(worked.previous).toBe(6);
   expect(ids(rows.filter((row) => row.kind !== "turnSummary"))).toEqual([worked.id, "a"]);
+});
+
+test("claude, in place (older arm): no turn fold; each run on its own line in place, the prose between them", () => {
+  inPlace();
+  const rows = drawn("claude", new Set(), replied);
+  expect(rows.some((row) => row.kind === WORKED)).toBe(false);
+  expect(ids(rows.filter((row) => row.kind !== "turnSummary"))).toEqual(["w1", "n1", "w2", "a"]);
+  expect(rows.filter((row) => row.kind === "activity").every((row) => row.foldRun === true)).toBe(true);
+  expect(rows.find((row) => row.kind === "turnSummary")?.folded).toBe(false);
 });
 
 test("claude: Worked for over the conclusion, the chatter and runs folded under it", () => {
@@ -76,9 +101,21 @@ test("claude: Worked for over the conclusion, the chatter and runs folded under 
   expect(rows.find((row) => row.kind === "turnSummary")?.folded).toBe(true);
 });
 
-test("claude: opened, its runs fold per run with the chatter between them, as Claude desktop's", () => {
-  const closed = drawn("claude").find((row) => row.kind === WORKED)!;
-  const rows = drawn("claude", new Set([closed.id]));
+// Leo, 2026-11-06: "your intermediate message got lost. that can never happen" (turn-fold-keeps-replies.test.ts).
+for (const family of ["claude", "codex", "gemini", "muse"])
+  test(`${family}: a closed fold keeps a reply between two runs in sight, each run on its own line`, () => {
+    const rows = drawn(family, new Set(), replied);
+    const worked = rows.find((row) => row.kind === WORKED)!;
+    expect(worked.foldOpen).toBe(false);
+    // The fold hides only calls, so no header counts messages.
+    expect(worked.previous).toBeUndefined();
+    expect(ids(rows.filter((row) => row.kind !== "turnSummary"))).toEqual([worked.id, "w1", "n1", "w2", "a"]);
+    expect(rows.filter((row) => row.kind === "activity").every((row) => row.foldRun === true)).toBe(true);
+  });
+
+test("claude, opened: its runs fold per run with the chatter between them", () => {
+  const closed = drawn("claude", new Set(), replied).find((row) => row.kind === WORKED)!;
+  const rows = drawn("claude", new Set([closed.id]), replied);
   const runs = rows.filter((row) => row.kind === "activity");
   expect(runs.length).toBe(2);
   expect(runs.every((row) => row.foldRun === true)).toBe(true);
@@ -117,12 +154,18 @@ test("claude: a running turn draws its work as it happens, no Worked for yet", (
   expect(ids(rows)).toContain("n1");
 });
 
+test("the in-place arm leaves Codex, Gemini and Muse as their rows say", () => {
+  inPlace();
+  expect(drawn("codex").find((row) => row.kind === WORKED)?.previous).toBe(6);
+  for (const family of ["gemini", "muse"]) expect(drawn(family).some((row) => row.kind === WORKED)).toBe(true);
+});
+
 for (const family of ["gemini", "muse"])
-  test(`${family}: no turn fold; each run folds into its own line in place, the chatter between them`, () => {
+  test(`${family}: Worked for over the conclusion, no message count, the chatter and runs folded under it`, () => {
     const rows = drawn(family);
-    expect(rows.some((row) => row.kind === WORKED)).toBe(false);
-    const order = ids(rows.filter((row) => row.kind !== "turnSummary"));
-    expect(order).toEqual(["w1", "n1", "w2", "a"]);
-    expect(rows.filter((row) => row.kind === "activity").every((row) => row.foldRun === true)).toBe(true);
-    expect(rows.find((row) => row.kind === "turnSummary")?.folded).toBe(false);
+    const worked = rows.find((row) => row.kind === WORKED)!;
+    expect(worked.foldOpen).toBe(false);
+    expect(worked.previous).toBeUndefined();
+    expect(ids(rows.filter((row) => row.kind !== "turnSummary"))).toEqual([worked.id, "a"]);
+    expect(rows.find((row) => row.kind === "turnSummary")?.folded).toBe(true);
   });

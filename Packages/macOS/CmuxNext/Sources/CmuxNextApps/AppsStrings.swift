@@ -9,6 +9,35 @@ nonisolated enum AppsStrings {
     static var windowTitle: String { t("store.window.title", "App Store") }
     /// An app mount failed and the supervisor gave no reason.
     static var mountFailed: String { t("apps.mount.failed", "The app could not start") }
+    /// A failed app view's error card: runs the app's script again from its saved files.
+    static var reload: String { t("apps.mount.reload", "Reload") }
+    static var reloadHelp: String { t("apps.mount.reload.help", "Run the script again from its saved files") }
+    /// A failed mount's row (AppFailureCopy): its script threw or did not parse.
+    static var failureScript: String { t("apps.failure.script", "This section's script has an error") }
+    /// Where a script error is (`file` nil for an older host's unnamed `eval_script`), and the
+    /// engine's message.
+    static func failureScriptAt(file: String?, line: String, column: String, message: String) -> String {
+        switch (file, message.isEmpty) {
+        case (nil, true): String(format: t("apps.failure.scriptAtOnly", "Line %1$@, column %2$@"), line, column)
+        case (nil, false): String(format: t("apps.failure.scriptAt", "Line %1$@, column %2$@: %3$@"), line, column, message)
+        case (let file?, true):
+            String(format: t("apps.failure.scriptInAtOnly", "%1$@ · Line %2$@, column %3$@"), file, line, column)
+        case (let file?, false):
+            String(format: t("apps.failure.scriptInAt", "%1$@ · Line %2$@, column %3$@: %4$@"), file, line, column, message)
+        }
+    }
+    /// The scene went past the node or depth budget.
+    static var failureTooLarge: String { t("apps.failure.tooLarge", "This section is too large to show") }
+    /// Any other failed mount; the reason is under Details.
+    static var failureGeneric: String { t("apps.failure.generic", "This section couldn't load") }
+    static var failureCopy: String { t("apps.failure.copy", "Copy Error") }
+    static var failureCopied: String { t("apps.failure.copied", "Copied") }
+    static var failureDetails: String { t("apps.failure.details", "Details") }
+    static var failureHideDetails: String { t("apps.failure.hideDetails", "Hide Details") }
+    /// The marker under a kept app view whose last save did not load; the file and line follow it.
+    static var reloadFailed: String { t("apps.mount.reloadFailed", "Not reloaded") }
+    /// The second line of an app's toast detail (`cmux.toast`): the app that showed it.
+    static func toastSource(_ app: String) -> String { String(format: t("apps.toast.source", "From %@"), app) }
     static var discover: String { t("store.tab.discover", "Discover") }
     static var installed: String { t("store.tab.installed", "Installed") }
     static var features: String { t("store.tab.features", "Features") }
@@ -46,12 +75,12 @@ nonisolated enum AppsStrings {
     static func unknownApp(_ id: String) -> String { String(format: t("apps.client.unknownApp", "No app %@"), id) }
     static var unavailableHelp: String { t("apps.store.disconnected.help", "Nothing can change until then.") }
 
-    private static var notConnected: String { t("apps.store.disconnected.notConnected", "cmux-tui is not connected") }
+    private static var notConnected: String { t("apps.store.disconnected.notConnected", "This machine isn't connected") }
 
     /// Why the app supervisor cannot be reached (store banner, app sections).
     static func unavailable(_ reason: AppsUnavailableReason) -> String {
         switch reason {
-        case .needsNewerDaemon: t("apps.store.disconnected.needsNewer", "Needs a newer cmux-tui")
+        case .needsNewerDaemon: t("apps.store.disconnected.needsNewer", "Needs a newer cmux")
         case .notConnected: notConnected
         case .notReady(let cause): "\(notConnected): \(cause)"
         case .turnedOff(let reason): reason

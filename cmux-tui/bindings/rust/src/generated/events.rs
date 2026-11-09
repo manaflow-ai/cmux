@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 6f37208dc82e6a7dc146e40a18c300a49a824470d73b8e6e650d9e9e6cf175ea.
+// cmux-tui mux protocol 12, IR 62625fc976e69a44b62563b404477f91207f431e3b472e3b79007ead92baffb6.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -375,6 +375,8 @@ pub struct ConversationTypingEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct DaemonShutdownEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub restart: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -739,6 +741,12 @@ pub struct SizeStateEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StashChangedEvent {
+    pub revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StatusEvent {
     pub message: String,
 }
@@ -889,6 +897,8 @@ pub struct VtStateEvent {
     pub colors: Option<T::TerminalColors>,
     pub cols: u16,
     pub data: T::Base64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub history_rows_omitted: Option<u64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub kitty_graphics_state: Option<T::KittyGraphicsState>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -1062,6 +1072,7 @@ pub enum Event {
     SelectionChanged(SelectionChangedEvent),
     SettingsChanged(SettingsChangedEvent),
     SizeState(SizeStateEvent),
+    StashChanged(StashChangedEvent),
     Status(StatusEvent),
     SurfaceExited(SurfaceExitedEvent),
     SurfaceOutput(SurfaceOutputEvent),
@@ -1159,6 +1170,7 @@ impl Event {
             Self::SelectionChanged(_) => Some("selection-changed"),
             Self::SettingsChanged(_) => Some("settings-changed"),
             Self::SizeState(_) => Some("size-state"),
+            Self::StashChanged(_) => Some("stash-changed"),
             Self::Status(_) => Some("status"),
             Self::SurfaceExited(_) => Some("surface-exited"),
             Self::SurfaceOutput(_) => Some("surface-output"),
@@ -1255,6 +1267,7 @@ impl Event {
             Self::SelectionChanged(_) => Some(&SELECTION_CHANGED_EVENT_METADATA),
             Self::SettingsChanged(_) => Some(&SETTINGS_CHANGED_EVENT_METADATA),
             Self::SizeState(_) => Some(&SIZE_STATE_EVENT_METADATA),
+            Self::StashChanged(_) => Some(&STASH_CHANGED_EVENT_METADATA),
             Self::Status(_) => Some(&STATUS_EVENT_METADATA),
             Self::SurfaceExited(_) => Some(&SURFACE_EXITED_EVENT_METADATA),
             Self::SurfaceOutput(_) => Some(&SURFACE_OUTPUT_EVENT_METADATA),
@@ -1803,6 +1816,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("size-state") => match serde_json::from_value::<SizeStateEvent>(raw.clone()) {
             Ok(event) => Event::SizeState(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("stash-changed") => match serde_json::from_value::<StashChangedEvent>(raw.clone()) {
+            Ok(event) => Event::StashChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

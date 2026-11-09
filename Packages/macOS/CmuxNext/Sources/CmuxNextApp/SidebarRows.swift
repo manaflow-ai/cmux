@@ -102,13 +102,13 @@ final class SidebarRows {
         if let elsewhere { self.elsewhere = elsewhere }
         let reprojected = live != nil && shownAt != liveShownAt && !(creating ?? self.creating).rows.isEmpty
         if live != nil { liveShownAt = shownAt }
-        if unlessShown, !reprojected, model.arrangedSortsAreCurrent, let live, let creating, live == self.live, creating == self.creating, sameElsewhere, sameVisibility { return }
+        if unlessShown, !reprojected, model.arrangementIsCurrent, let live, let creating, live == self.live, creating == self.creating, sameElsewhere, sameVisibility { return }
         if let live { self.live = live }
         if let creating { self.creating = creating }
         #if DEBUG
         if let fixture { return model.setSections(fixture) }
         #endif
-        var sections = PendingWorkspaceRows.adding(self.creating.rows, to: edits.applying(to: self.live), home: self.creating.home,
+        var sections = PendingWorkspaceRow.adding(self.creating.rows, to: edits.applying(to: self.live), home: self.creating.home,
                                                    catchingUp: layoutCatchingUp)
         edits.applyFolds(to: &sections)
         // Manual order only (Leo 2026-10-20): a row state shows as a badge; attention order is the Priority view's.

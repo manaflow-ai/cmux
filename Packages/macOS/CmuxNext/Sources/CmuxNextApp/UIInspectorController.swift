@@ -4,7 +4,6 @@ import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSettings
 import ImageIO
-import Observation
 import UniformTypeIdentifiers
 
 /// Inspect Element for cmux NEXT's own web content: the HTML/React pages the
@@ -18,6 +17,7 @@ final class UIInspectorController {
     /// The picker's monitor, installed only between `start()` and `stop()`.
     private var monitor: Any?
     private var inspectNotification: NSObjectProtocol?
+    private var watchesToggle = false // armed by the first start(), when the tunables are active
     private weak var activePage: AgentPaneView?
     private var selectionGeneration = 0
     private var pendingAction: SelectionAction = .send
@@ -31,7 +31,6 @@ final class UIInspectorController {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in self?.inspectFromContextMenu() }
         }
-        observeToggle()
     }
 
     // AppKit monitor removal is main-thread-only. The controller can be
@@ -53,10 +52,10 @@ final class UIInspectorController {
         start()
     }
 
-    /// Starts the picker and highlights the element under the most recent
-    /// right-click in an app-owned web page (the page whose menu opened last).
-    /// The page records that point itself, so no app-wide right-click monitor
-    /// runs. The web equivalent of DevTools' Inspect Element.
+    /// Starts the picker on the element under the latest right-click in an app-owned
+    /// page (the page whose menu opened last), never the one under the chosen menu row:
+    /// the page records it on `contextmenu` and holds it through a short grace (picker.ts).
+    /// No app-wide right-click monitor runs. The web equivalent of DevTools' Inspect Element.
     func inspectFromContextMenu() {
         guard AgentPaneTunables.pointerInspector.value else { return }
         start()
@@ -66,21 +65,15 @@ final class UIInspectorController {
               latest.page.window?.isVisible == true else { return }
         let menuPage = latest.page, point = latest.menu.point
         activate(menuPage)
-        menuPage.evaluateUiPointer(pointerScript("highlight", point: point, page: menuPage))
-    }
-
-    private func observeToggle() {
-        withObservationTracking { _ = AgentPaneTunables.pointerInspector.value } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if !AgentPaneTunables.pointerInspector.value { self.stop() }
-                self.observeToggle()
-            }
-        }
+        menuPage.evaluateUiPointer(pointerScript("inspectMenuTarget", point: point, page: menuPage))
     }
 
     private func start() {
         guard monitor == nil else { return }
+        if !watchesToggle {
+            watchesToggle = true
+            AgentPaneTunables.whenPointerInspectorTurnsOff { [weak self] in self?.stop() }
+        }
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
             guard let self else { return event }
             guard Thread.isMainThread else { return event } // main-proof: AppKit local monitors are delivered on the main thread

@@ -17,7 +17,7 @@ struct AttachmentRealLimitsTests {
     static let huge = 4 * 1024 * 1024 * 1024 + 7
 
     @Test func aBeginOverFourGiBIsTakenAndItsFirstChunkLands() async throws {
-        try await Self.withLocalChat { stage, _ in
+        try await Self.withLocalChat { stage in
             let begin = try #require(Self.decoded(["name": "huge.bin", "size": Self.huge]))
             let reply = await stage(begin)
             let value = try #require(Self.value(reply), "refused: \(reply)")
@@ -31,7 +31,7 @@ struct AttachmentRealLimitsTests {
     }
 
     @Test func sixtyFiveFilesInOneBatchEachLandOnThisMac() async throws {
-        try await Self.withLocalChat { stage, session in
+        try await Self.withLocalChat { stage in
             let files = (0..<65).map { (name: "file-\($0).txt", data: Data("file \($0)\n".utf8)) }
             let manifest: [[String: Any]] = files.map { ["name": $0.name, "size": $0.data.count] }
             var batchToken: String?
@@ -55,12 +55,13 @@ struct AttachmentRealLimitsTests {
             for (path, file) in zip(paths, files) {
                 #expect(try Data(contentsOf: URL(fileURLWithPath: path)) == file.data)
             }
-            if let root = AgentChatUploads.root { AgentChatUploads.remove(session: session, in: root) }
+            // Each is `<root>/<upload>/0/<name>`: its upload folder goes.
+            for path in paths { try? FileManager.default.removeItem(at: URL(fileURLWithPath: path).deletingLastPathComponent().deletingLastPathComponent()) }
         }
     }
 
     @Test func aBatchNamingFilesOverFourGiBIsTaken() async throws {
-        try await Self.withLocalChat { stage, _ in
+        try await Self.withLocalChat { stage in
             let manifest: [[String: Any]] = (0..<65).map { ["name": "part-\($0).bin", "size": Self.huge] }
             let begin = try #require(Self.decoded(["name": "part-0.bin", "size": Self.huge, "batch": manifest]))
             let value = try #require(Self.value(await stage(begin)))
@@ -94,16 +95,14 @@ struct AttachmentRealLimitsTests {
         return made
     }
 
-    /// The app's stager for a chat whose folder is on this Mac (a tab and session of its own),
-    /// and that chat's session.
-    static func withLocalChat(_ body: (_ stage: @MainActor (AgentPaneUploadStageRequest) async -> [String: Any], _ session: String) async throws -> Void)
+    /// The app's own stager for a new chat on this Mac, with no session yet: the one the app still
+    /// writes files for (a chat with a session sends them to acpmux, ``AgentPeerUploads``).
+    static func withLocalChat(_ body: (_ stage: @MainActor (AgentPaneUploadStageRequest) async -> [String: Any]) async throws -> Void)
         async throws {
         let services = app()
-        let tab = "tab-\(UUID().uuidString)", session = "real-limits-\(UUID().uuidString.lowercased())"
+        let tab = "tab-\(UUID().uuidString)"
         services.agentTabs.gitLink = { _ in services.agentGit.local }
-        services.agentTabs.sessions[tab] = session
-        defer { services.agentTabs.sessions[tab] = nil }
         let stager = try #require(services.agentTabs.uploadStager?(tab), "no stager for a chat on this Mac")
-        try await body({ await stager($0, session) }, session)
+        try await body { await stager($0, nil) }
     }
 }

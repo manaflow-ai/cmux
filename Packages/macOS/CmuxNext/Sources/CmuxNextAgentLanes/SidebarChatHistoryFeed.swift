@@ -46,7 +46,7 @@ public final class SidebarChatHistoryFeed {
                 let inputs = Inputs(live: Self.liveChats(liveTabs(), lanes: lanes, localHost: localHost),
                                     pinned: history.pinned, limit: history.limit, folded: history.earlierFolded)
                 return Shown(inputs: inputs, state: Self.state(earlier: earlier.rows, more: earlier.hasMore, pinned: pinned.rows,
-                                                               inputs: inputs))
+                                                               inputs: inputs, loading: !earlier.hasAnswered))
             }) {
                 if let shown {
                     windows.open(shown.inputs.earlierSpec)
@@ -87,12 +87,15 @@ public final class SidebarChatHistoryFeed {
     }
 
     /// The history of the two windows' rows; `more`: acpmux's Earlier window has chats past its page.
-    /// The local skip (`live`, `pinned`) holds only until acpmux answers a new spec, so a chat just
-    /// pinned never lists twice.
-    static func state(earlier: [AcpmuxChat], more: Bool, pinned: [AcpmuxChat], inputs: Inputs) -> SidebarChatHistoryState {
+    /// `loading`: acpmux never sent Earlier's rows yet (connecting, or its index still starting), so an
+    /// empty page is not an empty history. The local skip (`live`, `pinned`) holds only until acpmux
+    /// answers a new spec, so a chat just pinned never lists twice.
+    static func state(earlier: [AcpmuxChat], more: Bool, pinned: [AcpmuxChat], inputs: Inputs,
+                      loading: Bool = false) -> SidebarChatHistoryState {
         let pinnedByID = Dictionary(pinned.map { ($0.id, historyChat($0)) }, uniquingKeysWith: { first, _ in first })
         return SidebarChatHistoryState.make(newest: earlier.lazy.map(historyChat), chat: { pinnedByID[$0] }, live: inputs.live,
-                                            pinned: inputs.pinned, limit: inputs.limit, folded: inputs.folded, more: more)
+                                            pinned: inputs.pinned, limit: inputs.limit, folded: inputs.folded, more: more,
+                                            loading: loading)
     }
 
     /// The live-tab projection used by the app. It observes each session's chat binding only;

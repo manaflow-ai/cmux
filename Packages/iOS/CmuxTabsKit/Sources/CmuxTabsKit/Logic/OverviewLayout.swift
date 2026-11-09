@@ -104,7 +104,8 @@ struct OverviewLayout: Equatable, Sendable {
     /// top controls and the bottom bar.
     func isFullyVisible(_ index: Int, offset: CGFloat) -> Bool {
         let r = screenFrame(index, offset: offset)
-        return r.minY >= safeTop + 40 && r.maxY + Self.titleRow <= barRect.minY
+        // Below the top controls: 4 pt under the safe area, one bar control tall.
+        return r.minY >= safeTop + 4 + Self.control && r.maxY + Self.titleRow <= barRect.minY
     }
 
     /// Scroll offset before zooming a page into card `index` (page -> grid,

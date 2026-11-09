@@ -3,78 +3,33 @@
 // and a chevron; opened, a bordered list with a row per subagent (SUBAGENT_ROW rows below it).
 // Every line has a fixed height (model.ts), so a running clock or a changing status never moves
 // the transcript.
-import { createContext, useContext, useState } from "react";
-import { usePageNow } from "../../../ui/pageClock";
+import { useContext, useState } from "react";
 import { Icon } from "../icons/Icon";
 import { usePaneLanguage, useT, type PaneLanguage, type Translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { formatDuration } from "../conversation/turns";
-import { awaitsOwnWork, type Subagent } from "./subagentFold";
+import { type Subagent } from "./subagentFold";
 import { agentTone, AgentTonesContext } from "./agentTones";
-import { AgentIdentity, foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "./AgentIdentity";
+import { AgentIdentity } from "./AgentIdentity";
+import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "./agentIdentityModel";
+import { useSenderIconLook } from "./senderIconLook";
 import { subagentProgress } from "./subagentProgress";
 import { subagentDisplayName } from "./subsessions";
 import { waveProps } from "../../../ui/wave";
-
-/// The chat's harness (claude, codex, ...): its subagents run on it, so their avatars carry its mark.
-export const SubagentHarnessContext = createContext<string | undefined>(undefined);
-
-/// Opens a subagent's own view in the pane, or the session's own with undefined (App.tsx).
-export const SubagentNavContext = createContext<((id: string | undefined) => void) | undefined>(undefined);
-
-/// Shows a subagent in a pane of its own right of the chat while the summary card's switch is on,
-/// else in this pane (App.tsx, subagentPanes.ts). A group's subagent line uses it; the child view's pill goes back
-/// in place.
-export const SubagentPaneContext = createContext<((id: string) => void) | undefined>(undefined);
-
-/// Stops a running subagent (App.tsx, direct.ts `stopSubagent`), settling with Claude's answer;
-/// absent where the harness cannot.
-export const SubagentStopContext = createContext<((id: string) => Promise<unknown>) | undefined>(undefined);
-
-/// Avatars drawn before "+N".
-const STACK = 3;
-
-export const running = (agent: Subagent) => agent.state === "running";
-
-/// Each subagent state's label in an open group.
-export const STATE_LABEL = {
-  running: "subagents.state.running",
-  completed: "subagents.state.completed",
-  failed: "subagents.state.failed",
-  cancelled: "subagents.state.cancelled",
-  disconnected: "subagents.state.disconnected",
-} as const;
-
-/// Milliseconds a subagent has run: until it ended, or until `now`.
-/// One waiting on background work of its own has not ended: its time keeps going.
-export const elapsed = (agent: Subagent, now: number) =>
-  Math.max(0, (awaitsOwnWork(agent) ? now : (agent.endedAt ?? now)) - agent.startedAt);
-
-/// Whether a subagent's clock still runs: running, or waiting on background work of its own.
-export const ticking = (agent: Subagent) => running(agent) || awaitsOwnWork(agent);
-
-/// The group's time: from its first start to its last end, or to `now` while one runs.
-export function groupElapsed(agents: readonly Subagent[], now: number): number {
-  if (agents.length === 0) return 0;
-  const start = Math.min(...agents.map((agent) => agent.startedAt));
-  // One waiting on background work of its own still counts: its time keeps going (`elapsed`).
-  const end = agents.some(ticking) ? now : Math.max(...agents.map((agent) => agent.endedAt ?? agent.startedAt));
-  return Math.max(0, end - start);
-}
-
-/// The session's clock against this computer's (the snapshot's `clockOffsetMs`: this computer's
-/// clock minus the session's; a peer runs on its own). A subagent's times are the session's.
-export const SubagentClockContext = createContext(0);
-
-/// The current time on the session's clock (SubagentClockContext), ticking each second only
-/// while `live`, so it counts against the subagents' own start and end times. A hidden pane's
-/// clock rests (the tray above the composer, a group card and the summary rows tick with it) and
-/// catches up the moment the pane shows again.
-export function useNow(live: boolean): number {
-  const offset = useContext(SubagentClockContext);
-  const now = usePageNow(live);
-  return now - offset;
-}
+import {
+  SubagentHarnessContext,
+  SubagentNavContext,
+  SubagentPaneContext,
+  SubagentStopContext,
+  running,
+  STATE_LABEL,
+  elapsed,
+  ticking,
+  groupElapsed,
+  useNow,
+  STACK,
+} from "./subagentGroupModel";
+import { Clock } from "../../../ui/Typography";
 
 /// A subagent's avatar: the subagent mark in the agent's tone (another family's harness mark,
 /// AgentIdentity.tsx `foreignHarness`), and its place in the running wave
@@ -84,7 +39,7 @@ export function Avatar({ agent, wave }: { agent: Subagent; wave?: number }) {
   // An agent a shell call started (`codex exec`) runs on its own harness, not the chat's: its mark
   // shows; one of the chat's own family keeps the toned subagent mark.
   const chat = useContext(SubagentHarnessContext);
-  const harness = foreignHarness(agent.harness, chat);
+  const harness = foreignHarness(agent.harness, chat, useSenderIconLook().badge);
   const { className, style } = waveProps(wave);
   return (
     <span
@@ -146,7 +101,7 @@ export function SubagentGroupHeader({
       <span className="cv-subagents__text">
         <span className="cv-subagents__title">{groupLabel(t, language, agents)}</span>
       </span>
-      <span className="cv-subagents__time">{formatDuration(groupElapsed(agents, now))}</span>
+      <Clock className="cv-subagents__time" text={formatDuration(groupElapsed(agents, now))} />
       <Icon name={expanded ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
     </button>
   );
@@ -180,7 +135,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
         <span className="cv-subagent__name">{subagentDisplayName(t, agent)}</span>
         <span className="cv-subagent__state">{state}</span>
       </span>
-      <span className="cv-subagent__time">{formatDuration(elapsed(agent, now))}</span>
+      <Clock className="cv-subagent__time" text={formatDuration(elapsed(agent, now))} />
     </>
   );
   const kind = agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined;

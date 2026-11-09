@@ -9,10 +9,23 @@ struct AcpmuxReplay<Event> {
     mutating func append(_ batch: [Event]) {
         guard !requiresResync else { return }
         guard batch.count <= limit - events.count else {
-            events = []
-            requiresResync = true
+            invalidate()
             return
         }
         events.append(contentsOf: batch)
+    }
+
+    mutating func prepend(_ batch: [Event]) {
+        guard !requiresResync else { return }
+        guard batch.count <= limit - events.count else {
+            invalidate()
+            return
+        }
+        events.insert(contentsOf: batch, at: 0)
+    }
+
+    mutating func invalidate() {
+        events = []
+        requiresResync = true
     }
 }

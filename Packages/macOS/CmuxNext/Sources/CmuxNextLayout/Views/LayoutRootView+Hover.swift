@@ -78,14 +78,14 @@ extension LayoutRootView {
 
     /// DEBUG (`debug.mouse`): the synthesized pointer of `window` (window
     /// coordinates; nil: outside the window), shared with every chrome hover
-    /// (`PointerHover`, which recomputes them), then every layout in the
-    /// window recomputes its divider hover from it.
-    public static func setDebugPointer(_ point: NSPoint?, in window: NSWindow) {
+    /// (`PointerHover`, which recomputes them), then each of `layouts` that is live
+    /// in the window (the app passes its on-screen workspaces') recomputes its
+    /// divider hover from it. Named by the caller, not found by a walk of the
+    /// window's views: a STRESS window has thousands, and the walk cost about 1 ms
+    /// per move, in every frame of a drag bench (RESIZE MAIN BUDGET).
+    public static func setDebugPointer(_ point: NSPoint?, in window: NSWindow, layouts: [LayoutRootView]) {
         PointerHover.setDebugPointer(point, in: window)
-        var stack: [NSView] = window.contentView.map { [$0] } ?? []
-        while let view = stack.popLast() {
-            if let root = view as? LayoutRootView { root.refreshDividerHover() } else { stack.append(contentsOf: view.subviews) }
-        }
+        for root in layouts where root.isLive && root.window === window { root.refreshDividerHover() }
     }
     #endif
 }

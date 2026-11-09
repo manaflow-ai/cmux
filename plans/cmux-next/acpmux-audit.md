@@ -165,3 +165,141 @@ a839, test (linux) green on run 40985398560. Product fixes in acpmux:
 Test-only: fake agent sends `totalTokens` (#27132), session_pool expects a crashed daemon's
 pooled host to end itself (c7e99bd), remote_guard_modes expects the VM-boundary ambiguity
 refusal (#26276), agent_tools and tailnet_embedded_logout use the hermetic helper.
+
+## Notice to PL-acpmux: chat guidance and the person's skills (2026-11-05)
+
+Design: [agent-guidance-DESIGN.md](agent-guidance-DESIGN.md). What changed in acpmux:
+- `agent_guidance.rs` (new): cmux's built-in chat guidance (plan list, side sessions, session
+  links, closing recap, editing cmux live) and the person's skills from `~/.config/cmux/skills`.
+- First-turn context: a new part `cmux-guidance` (`context_inventory::snapshot_for`, sent as
+  `<cmux-guidance-context>`), beside the default/user/project rule, never replacing it. Claude
+  Code gets a short pointer to the skill; Codex and other harnesses get the compact guidance and
+  an index of the person's skills. Fresh forks get it too (`hub/fork.rs`).
+- Skills: `cmux:cmux-chat` joins `SKILL_FILES`; the person's skills are a second session plugin,
+  `cmux-user`, written per content hash under `agent-tools/user-<hash>` (regular files only) and
+  passed as a second `--plugin-dir` (`AgentTools::user_plugin_dir`).
+- Settings `agents.guidance.{claude,codex,otherAgents,userSkills}` (default on, user-only), read
+  when a chat is created. The test fakes treat `<cmux-guidance-context>` as hidden guidance.
+
+## Notice to PL-acpmux: Claude chats start in Auto, and a set_mode answer keeps the mode option (2026-11-06)
+
+Landed on feat-cmux-next as `fc0f7c63..4de1fcdf` (a1022; red test first, `787bd5f5`). The user
+asked for it: workers stuck in Manual were "a huge blocker". What changed in acpmux:
+- `claude_stdio::OWN_MODE` (new, `"auto"`): the mode a Claude chat starts in when acpmux sets
+  no other. Before, the fallback was `default` (Manual), and every tool call then waited on the
+  person. That fallback was used at the `standard` start level ("Harness Default"), for pooled
+  chats (`hub/pool/start.rs`), for chats with no recorded mode (`hub/lifecycle.rs`), and in
+  `spawn_plan` when Claude Code cannot take bypassPermissions (as root without a sandbox). Not
+  changed: a Web start is Manual until the remote guard settles it, and a resumed full-access
+  chat with `sessions.allowFullAccess` off goes back to Manual (`resumable_mode(.., "default",
+  ..)`). Chief's turn preset and a person's preset now start in Auto, not Manual
+  (`tests/start_mode.rs`).
+- `Hub::may_move_without_person` (`hub/start_mode.rs`, called from `hub/person.rs` where
+  `is_start_full_access` was): a running chat may move to Auto without the person when it is a
+  Claude chat (family `claude`, or a profile that offers all of Claude Code's modes), its start
+  level is `fullAccess` or `standard`, it has no policy narrower than approve-all, and it is not
+  a Web start. Under `ask` Auto still needs the person, and every other mode that does not ask
+  (`acceptEdits`, `dontAsk`) does too. `agents.defaultPermissionMode` stays user-only.
+- `hub/turns.rs`, `session/set_mode` answer: the hub now keeps the `configOptions` Claude Code
+  returns as well as `currentModeId`. Before, the chat's `mode` option kept showing its start
+  mode after a switch. Starting in Manual hid this
+  (`tests/hub_integration/fork_before.rs`).
+- Tests: `tests/person_auto_start.rs` (two new), `tests/start_mode.rs` (now expects Auto, and an
+  agent's switch to Auto is allowed while `acceptEdits` is refused). Full Linux suite: the 10
+  failures it shows also fail on the base tip by itself (cross_host_send_cli,
+  hermetic_daemon_guard, request_stack, send_async x2, tool_inventory, plus cmux-tui
+  cli/snapshot/terminal_host_recovery), so they are not from this change.
+- Open for the owner: whether the Settings choice "Harness Default" should be renamed for Claude
+  (it now means Auto), and whether Codex needs a similar "own mode" fallback.
+
+## Notice to PL-acpmux: a Claude Code subagent's MCP calls and task ends route to it; agents drop cmux-tui plugin folders (2026-11-08)
+
+1. W5-M, #38952 (merged `8c39afa3`), and its follow-up PR `acpmux-subagent-bg-end` (this
+   notice's PR). A Claude Code subagent that reaches acpmux through MCP tools now gets the
+   replies and task ends it asked for, not its lead's chat. What changed in acpmux:
+   - `subagent_call.rs` (new): `<home>/run/subagent-calls/<session>/<tool_use_id>.json` =
+     `{id, type}`. Claude Code puts one tool use id in the hook input and in the MCP request
+     (`_meta["claudecode/toolUseId"]`); acpmux's PreToolUse hook writes the record
+     (`bg_hook.rs` `MCP_CALLS`), PostToolUse / PostToolUseFailure / SubagentStop and a session
+     close remove it. cmux's MCP proxy passes that one `_meta` key upstream, for direct calls and
+     inside `cmux_exec`.
+   - `agent_tools.rs` `bg_hooks()`: new MCP PreToolUse and PostToolUseFailure entries.
+     PostToolUse, PostToolUseFailure, SubagentStop and the MCP PreToolUse run through a shell
+     filter (`subagent_hook_command`): the binary starts only when the input names `agent_id`.
+     The Bash PreToolUse entry is unchanged.
+   - `acpmux_mcp.rs`, `acpmux_mcp_send.rs`: MCP `send` names the subagent (`PromptId.subagent`).
+     `bg_start` and `run_wait` pass `callerSubagent`; `Hub::bg_start` takes it, sets
+     `ACPMUX_CALLER_SUBAGENT` in the task env and keeps it in `bg_run::Spec` / `Record`
+     (`subagent`).
+   - `hub/bg_notify.rs`: such a task's end is left for the subagent with the lane-report rule
+     (`Hub::subagent_notice_leave`, shared with `lane_report_to_subagent`), handed over after its
+     next Bash or acpmux MCP call, marked sent once left. One it never took goes to the chat at
+     the sweep, with `forSubagent` and "This task end is for your TYPE subagent ID".
+   - `cli/sender.rs`: the subagent `sending as` line, English and Japanese by locale env.
+   - Not covered: cmux workflow scripts (no tool use id) and sends handed to the send relay.
+     Known limits: delivery waits for the subagent's next Bash or acpmux MCP call; a subagent
+     that ends with no SubagentStop keeps its notices until no subagent of the lead runs.
+2. W5-N, #38967 (open when written; the acpmux part is in its fix commit). `agent/command.rs`
+   and new `agent_tools/claude_plugin_dirs.rs`: a local agent no longer inherits cmux-tui plugin
+   folders (by place or manifest) in `CLAUDE_CODE_PLUGIN_DIRS` from a daemon started in a
+   cmux-tui pane. Other folders and a profile's own value stay; a remote harness base is not
+   touched. Before, such an agent loaded the pane's plugin and reported into that pane.
+
+## Notice to PL-acpmux: an old or unproven acpmux CLI is never the person (2026-11-08)
+
+Security item from bench round 4 (tui-parity A5 defect 1, owner W5-S). An agent's Bash ran the
+user's old `~/.local/bin/acpmux` 0.1.0, which sends no caller token, and `owner_terminal`
+(`server/requests.rs`) recorded its send as `origin: {actor: "person", verified: true}`. What
+changed, with no process scanning (`plans/cmux-next/pty-holder.md` section 4):
+- `src/cli_caller.rs` (new): from caller protocol 1 the CLI declares at `initialize`
+  (`_meta.acpmux.callerProtocol`, `callerKind`) whether it runs in an acpmux session's
+  environment (`agent`: `ACPMUX_SESSION_ID` or `ACPMUX_SESSION_TOKEN` set) or not (`terminal`).
+  `Conn::bind_person` keeps the declaration of a first unix `initialize`.
+- `owner_terminal` now needs `Conn::may_be_owner_terminal`: a `terminal` declaration, or a
+  client that is no acpmux CLI and declares nothing (scripts, other tools: the rule before). An
+  `acpmux-cli` with no caller protocol (every older CLI) and an `agent` declaration whose token
+  proved nothing are `unverified`; an old CLI is named in `claimed.client` ("acpmux-cli 0.1.0").
+- `Conn::agent_side` replaces `caller || unproven_caller` at the person-only checks (inbox
+  read/reply of another chat, turn cap, `waitStart`, person presence). An old CLI refused the
+  turn cap gets `caller.old_client` with the daemon's version and which CLI to run.
+- The outbox keeps it (`Delivery::not_terminal`): a kept send replays with an agent
+  declaration, so it is no owner's terminal send either (as `unproven_caller`, #38260 F1).
+- Each session's harness gets `ACPMUX_BIN` (`agent/command.rs`), one absolute path that runs the
+  daemon's own acpmux CLI (`cli_caller::own_bin`, `bin_choice`); a profile cannot set it.
+  Standalone it is the executable, without Linux's ` (deleted)` (N4). Under cmux (`<cmux> acp
+  daemon run`, review 2 B1: the executable alone named cmux, whose `send` is cmux's own verb) it is
+  the `acpmux` alias beside cmux when that is the same file (cmux-tui runs acpmux when argv0 is
+  `acpmux`; the alias's own path), else `<acpmux home>/bin/acpmux`, a wrapper script the daemon
+  writes (0700, atomic, again only when its text changes): `exec '<cmux>' 'acp' "$@"`. The guide
+  and the old-client refusal say to run `"$ACPMUX_BIN" send ...`.
+- Limits: a declaration is a claim of the same user's process. It closes the accident (an agent
+  that runs an old or foreign CLI), not a forgery, as the trust boundary in `owner_terminal`
+  says. A person who runs an old CLI at their terminal is now unverified until they update.
+- Tests: `tests/caller_declared_cli.rs` (real binary and a raw old client; red first).
+- After review (claude-17-review-w5s, BLOCK at 2131886f): the same rule now holds for team
+  messaging (`server/team.rs`: send, inbox and `may_read`), the person's standalone workflow runs
+  (`server/workflow_runs.rs`: list, check, pause, start) and another chat's inbox, through
+  `Conn::unproven_agent` (no proven session, and maybe an agent behind it). An old CLI that proved
+  no session gets the one `caller.old_client` refusal everywhere (`Conn::refusal`); a proven agent
+  on an old CLI is refused as any agent. `acpmux stdio` adds the caller declaration and, in a
+  session, the caller token to the editor's `initialize` (`cli/stdio.rs` `declare_caller`).
+- The owner control of the test sends with the CLI's terminal hello: on the macOS runner, which
+  runs below a harness, the CLI names that harness (`sender_harness.rs`) and its send is no
+  person's. The daemon rule is the same on both systems.
+- N5 (an owner started from an agent's shell keeps `ACPMUX_SESSION_TOKEN`, so the person's CLI in
+  its terminals declares `agent`): fixed by W5-R #39027 (`startup_env.rs` drops every
+  `ACPMUX_SESSION_*`), not duplicated here.
+- Decision for PL-acpmux (review N6): an `owner_terminal` send is still stamped
+  `origin {actor: person, verified: true}` (`prompt_provenance.rs` `marked`), though nothing proves
+  it: same-uid socket trust and the client's own declaration only. An agent that types into the
+  person's terminal, or a raw client that declares `terminal`, makes the same record. Proposal:
+  stamp `verified: false, basis: "same_uid_socket"` for it, and keep `verified: true` for the
+  proven person (`hub/person.rs`). PL-acpmux decides; W5-S did not change it.
+- Follow-ups, not in this change: `acpmux-move` and `acpmux-transfer` raw clients declare
+  nothing (N8; they send no prompt as the person today). N4 (the ` (deleted)` path) is fixed by
+  `bin_choice` above.
+- Notice (review 2 of #39020, not changed here): mesh controls (`server/mesh_control_send.rs:76`
+  and the mesh lifecycle enqueue) still send with this daemon's identity for any local connection
+  with no caller, an unproven agent included. It is older code and never was a person-only check
+  (proven agents use it under their own name), but it is the same class as review 1's B1. Proposed
+  follow-up: `conn.unproven_agent()` -> `conn.refusal("mesh controls", ...)`.

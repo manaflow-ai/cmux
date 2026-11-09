@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -18,7 +19,7 @@ struct HostSizePolicyEditor: View {
         case .loading:
             Section {
                 HStack(spacing: 10) {
-                    ProgressView()
+                    CmuxSpinner()
                     Text("Asking the Mac…").foregroundStyle(theme.colors.label2)
                 }
             }

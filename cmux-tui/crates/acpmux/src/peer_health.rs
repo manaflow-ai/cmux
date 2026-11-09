@@ -16,7 +16,9 @@ use std::time::Duration;
 
 /// Ask on every this many ping ticks.
 pub(super) const HEALTH_EVERY: u64 = 3;
-/// How long one ask may take.
+/// How long one ask may take. `refresh_health` is detached from the link loop, and a timeout
+/// keeps the previous reading; it never blocks a wake or launch.
+// timeout: stale health is preferable to making peer/link work fail on a busy machine.
 const HEALTH_BUDGET: Duration = Duration::from_secs(5);
 
 impl Peer {
@@ -61,7 +63,18 @@ impl Peer {
 /// already has or nobody reads.
 fn trim(v: Value) -> Value {
     let mut out = serde_json::Map::new();
-    for key in ["os", "arch", "cpus", "load", "ram", "swap", "disk", "liveSessions", "pressure"] {
+    for key in [
+        "os",
+        "arch",
+        "cpus",
+        "load",
+        "ram",
+        "swap",
+        "disk",
+        "liveSessions",
+        "pressure",
+        "pressureAgeMs",
+    ] {
         if let Some(x) = v.get(key).filter(|x| !x.is_null()) {
             out.insert(key.to_owned(), x.clone());
         }

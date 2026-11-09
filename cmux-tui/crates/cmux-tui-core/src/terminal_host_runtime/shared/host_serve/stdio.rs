@@ -61,6 +61,18 @@ pub fn serve_terminal_host_stdio(
 
     let stopping = shared.clone();
     host_signals::on_service_manager_stop(Box::new(move || stopping.request_termination()));
+    // Under a test, the terminal ends when the test process exits, also when
+    // its daemon is already gone (cx-leo45): no orphan grace for a test's PTY.
+    #[cfg(any(target_vendor = "apple", target_os = "linux"))]
+    {
+        let ending = shared.clone();
+        crate::test_owner::follow(move || {
+            eprintln!(
+                "terminal-host: the test process that started it exited; ending the terminal"
+            );
+            ending.request_termination();
+        });
+    }
     // In a build with an orphan grace (tagged DEV, staging, debug), a plain
     // SIGTERM ends an orphaned host (no client stream for a while: its
     // daemon is gone); a host its daemon still serves, or one in a short
@@ -69,7 +81,7 @@ pub fn serve_terminal_host_stdio(
     // close or a service-manager stop (PID 1) ends it (cx-t2sqm.17).
     let watched = shared.clone();
     host_signals::on_orphan_check(Box::new(move || {
-        host_orphan_grace().is_some()
+        sigterm_ends_orphan()
             && watched.active_client_streams.load(Ordering::Acquire) == 0
             && orphaned_for(HOST_SIGTERM_ORPHAN_MIN)
     }));
@@ -131,6 +143,18 @@ pub fn serve_terminal_host_stdio(
     // leave behind an undiscoverable terminal process.
     write_record_deferring_dir_sync(Path::new(&launch.record_path), &record)?;
     guard.published = true;
+    // Its record directory removed (a deleted throwaway HOME, a wiped state
+    // directory), this host can never be adopted again: it then ends its
+    // terminal once no client has served it for a short gap, in every build
+    // (#36625). A host its daemon still serves keeps running.
+    let removal_waker = shared.clone();
+    if let Err(error) = sys::follow_record_root_removal(record_root, move || {
+        eprintln!("terminal-host: its record directory was removed; it can no longer be adopted");
+        mark_record_root_removed();
+        removal_waker.accept_waker.wake();
+    }) {
+        eprintln!("terminal-host: cannot watch its record directory: {error}");
+    }
     host_signals::set_breadcrumb_path(
         Path::new(&launch.record_path).with_extension("signals"),
         record.terminal_id.clone(),
@@ -180,18 +204,18 @@ pub fn serve_terminal_host_stdio(
 
     let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
     let mut backoff = host_accept::AcceptBackoff::new();
-    // No client stream since this instant: the owner daemon is gone. In a
-    // build with an orphan grace (tagged DEV, staging, debug; none in normal
-    // installs, cx-t2sqm D1), after that grace with still no client the host
-    // ends its terminal the way an owner's Terminate does (exit record
-    // included), so a deleted throwaway build does not hold a PTY until
-    // reboot. Any accepted connection restarts the clock, so a restarted
-    // daemon's adoption always wins.
-    let orphan_grace = host_orphan_grace();
+    // No client stream since this instant: the owner daemon is gone. After
+    // the orphan grace (tagged DEV, staging, debug builds: 10 minutes; every
+    // other build: ABANDONED_HOST_GRACE, a week) with still no client the
+    // host ends its terminal the way an owner's Terminate does (exit record
+    // included), so a deleted build or a renamed tag does not hold a PTY
+    // until reboot. Any accepted connection restarts the clock, so a
+    // restarted daemon's adoption always wins.
     let mut orphan_since: Option<Instant> = None;
     let mut orphan_ended = false;
     loop {
         let now = Instant::now();
+        let orphan_grace = effective_orphan_grace();
         if !shared.launch_owner_claimed.load(Ordering::Acquire)
             && now >= launch_owner_deadline
             && shared
@@ -231,15 +255,16 @@ pub fn serve_terminal_host_stdio(
                 // The queue is drained: a waiting daemon connection was
                 // accepted above and reset the clock, so adoption wins a
                 // tie with the deadline.
-                if let (Some(since), Some(orphan_grace)) = (orphan_since, orphan_grace)
+                if let Some(since) = orphan_since
                     && !orphan_ended
                     && now.saturating_duration_since(since) >= orphan_grace
                 {
                     orphan_ended = true;
                     eprintln!(
-                        "terminal-host: no client for {} s (owner daemon gone); ending the \
+                        "terminal-host: no client for {} s (owner daemon gone{}); ending the \
                          terminal",
-                        orphan_grace.as_secs()
+                        orphan_grace.as_secs(),
+                        if record_root_removed() { ", record directory removed" } else { "" }
                     );
                     mark_owner_gone();
                     shared.request_termination();
@@ -258,8 +283,7 @@ pub fn serve_terminal_host_stdio(
                 };
                 let orphan_timeout = orphan_since
                     .filter(|_| !orphan_ended)
-                    .zip(orphan_grace)
-                    .map(|(since, grace)| (since + grace).saturating_duration_since(now));
+                    .map(|since| (since + orphan_grace).saturating_duration_since(now));
                 let timeout = match (launch_timeout, orphan_timeout) {
                     (Some(a), Some(b)) => Some(a.min(b)),
                     (a, b) => a.or(b),

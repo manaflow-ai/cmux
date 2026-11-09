@@ -203,11 +203,14 @@ public final class WorkspaceSync {
     }
 
     /// Marks acpmux sessions with open permissions (workspace "Needs you"), and
-    /// what each open ask is when the phone has seen it (`waitingFor`).
-    public func setPending(_ pending: [String: Bool], waitingFor: [String: WorkspaceTab.WaitingFor] = [:]) {
-        guard agents.pending != pending || agents.waitingFor != waitingFor else { return }
+    /// what each open ask is when the phone has seen it (`waitingFor`), and each chat's
+    /// title (`chatTitles`: an unnamed chat tab and its workspace read as it).
+    public func setPending(_ pending: [String: Bool], waitingFor: [String: WorkspaceTab.WaitingFor] = [:],
+                           chatTitles: [String: String] = [:]) {
+        guard agents.pending != pending || agents.waitingFor != waitingFor || agents.chatTitles != chatTitles else { return }
         agents.pending = pending
         agents.waitingFor = waitingFor
+        agents.chatTitles = chatTitles
         pendingChanged = true
         drain()
     }

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6f37208dc82e6a7dc146e40a18c300a49a824470d73b8e6e650d9e9e6cf175ea. */
+/* cmux-tui mux protocol 12, IR 62625fc976e69a44b62563b404477f91207f431e3b472e3b79007ead92baffb6. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -31,6 +31,8 @@ export type AgentRecord = {
   "since_ms"?: bigint;
   "source": AgentSource;
   "state": AgentState;
+  /** What the person sees: `working`, `blocked`, `done` (the agent finished a turn and no client has shown its tab since; `state` is `idle` then), `idle` or `unknown`; null for an ended session (`state` `done`). Reading never clears `done`; a frontend's tab acknowledgement does. Absent from older daemons: use `state`. */
+  "status"?: (AgentState) | null;
   "surface": Id;
   "updated_at_ms": bigint;
 };
@@ -858,6 +860,12 @@ export type ReattachViewResult = {
   "state": SizeState;
 };
 
+export type RemoteHostAppResult = {
+  "host_pid": number;
+  "secret": string;
+  "socket": string;
+};
+
 export type RenderCursor = {
   "blink": boolean;
   "color": (ColorHex) | null;
@@ -1187,6 +1195,8 @@ export type ServerStatsWritePath = {
   "effect_intent_batches": bigint;
   "effect_intent_failures": bigint;
   "effect_intents": bigint;
+  "registry_wal_file_bytes"?: bigint;
+  "registry_wal_file_high_water_bytes"?: bigint;
   "registry_wal_frame_bytes"?: bigint;
   "request_effect_commits": bigint;
   "wal_commits"?: bigint;
@@ -1518,6 +1528,18 @@ export type TerminalKeyInput = {
   "shifted_codepoint"?: (string) | null;
   "unshifted_codepoint"?: (string) | null;
   "utf8": string;
+};
+
+export type TerminalLastCommand = {
+  "command": string;
+  "ended_at_ms": string;
+  "exit_code": (number) | null;
+  "started_at_ms": string;
+};
+
+export type TerminalLastCommandResult = {
+  "last_command": (TerminalLastCommand) | null;
+  "terminal_id": string;
 };
 
 export type TerminalLifecycle = "launching" | "adopting" | "running" | "exited" | "tombstoned";

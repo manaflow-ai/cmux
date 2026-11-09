@@ -22,7 +22,7 @@
           { "name": "MUX_DO", "class_name": "MuxDO" },
           { "name": "ADDRESS_DO", "class_name": "AddressDO" },
           { "name": "DOMAIN_DO", "class_name": "DomainDO" },
-          { "name": "PAIRING_DO", "class_name": "PairingDO" }, { "name": "HOST_DO", "class_name": "HostDO" }, { "name": "HAND_DO", "class_name": "HandDO" }, { "name": "USAGE_METER_DO", "class_name": "UsageMeterDO" }, { "name": "SPEND_GUARD_DO", "class_name": "SpendGuardDO" }, { "name": "FREE_DEVICE_DO", "class_name": "FreeDeviceDO" }, { "name": "TEAM_VM_DO", "class_name": "TeamVmDO" }, { "name": "CLOUD_DO", "class_name": "CloudDO" }, { "name": "TRAJECTORY_DO", "class_name": "TrajectoryDO" }, { "name": "WIRE_TICKET_DO", "class_name": "WireTicketDO" }, { "name": "CHIEF_BRAIN_DO", "class_name": "ChiefBrainDO" }, { "name": "CHIEF_DURABLE_DO", "class_name": "ChiefDurableDO" }, { "name": "OPENCODE_BRAIN_DO", "class_name": "OpencodeBrainDO" }, { "name": "HANDOFF_DO", "class_name": "HandoffDO" }, { "name": "HANDOFF_INDEX_DO", "class_name": "HandoffIndexDO" }
+          { "name": "PAIRING_DO", "class_name": "PairingDO" }, { "name": "HOST_DO", "class_name": "HostDO" }, { "name": "HAND_DO", "class_name": "HandDO" }, { "name": "USAGE_METER_DO", "class_name": "UsageMeterDO" }, { "name": "SPEND_GUARD_DO", "class_name": "SpendGuardDO" }, { "name": "FREE_DEVICE_DO", "class_name": "FreeDeviceDO" }, { "name": "TEAM_VM_DO", "class_name": "TeamVmDO" }, { "name": "TRAJECTORY_DO", "class_name": "TrajectoryDO" }, { "name": "WIRE_TICKET_DO", "class_name": "WireTicketDO" }, { "name": "CHIEF_BRAIN_DO", "class_name": "ChiefBrainDO" }, { "name": "CHIEF_DURABLE_DO", "class_name": "ChiefDurableDO" }, { "name": "OPENCODE_BRAIN_DO", "class_name": "OpencodeBrainDO" }, { "name": "HANDOFF_DO", "class_name": "HandoffDO" }, { "name": "HANDOFF_INDEX_DO", "class_name": "HandoffIndexDO" }
     ]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }, { "tag": "v3", "new_sqlite_classes": ["ConnectionDO", "AccountIndexDO"] }, { "tag": "v4", "new_sqlite_classes": ["FeedDO"] }, { "tag": "v5", "new_sqlite_classes": ["DomainDO"] }, { "tag": "v6", "new_sqlite_classes": ["ConversationDO", "MuxDO", "AddressDO"] }, { "tag": "v7", "new_sqlite_classes": ["PairingDO"] }, { "tag": "v8", "new_sqlite_classes": ["HostDO"] }, { "tag": "v9", "new_sqlite_classes": ["UsageMeterDO"] }, { "tag": "v10", "new_sqlite_classes": ["TeamVmDO"] }, { "tag": "v11", "new_sqlite_classes": ["CloudDO"] }, { "tag": "v12", "new_sqlite_classes": ["SpendGuardDO"] }, { "tag": "v13", "new_sqlite_classes": ["FreeDeviceDO"] }, { "tag": "v14", "new_sqlite_classes": ["WireTicketDO"] }, { "tag": "v15", "new_sqlite_classes": ["ChiefBrainDO"] }, { "tag": "v16", "new_sqlite_classes": ["HandDO"] }, { "tag": "v17", "new_sqlite_classes": ["OpencodeBrainDO"] }, { "tag": "v18", "new_sqlite_classes": ["HandoffDO", "HandoffIndexDO"] }, { "tag": "v19", "new_sqlite_classes": ["ChiefDurableDO"] }, { "tag": "v20", "new_sqlite_classes": ["TrajectoryDO"] }],
@@ -37,7 +37,6 @@
       // */15: the Postgres/MySQL projection compare during the dual write (projection-compare-cron.ts);
       // */5: the Cloud Home health probe and its Sentry Cron check-in (home-health.ts, secret SENTRY_DSN).
       "triggers": { "crons": ["*/15 * * * *", "*/5 * * * *"] },
-      // PLATFORM_MACHINES: the platform Worker's environment setups reach Cloud machines (platform-machines.ts).
       // CLOUD_ALLOWED_TEAMS "*": every team gets the stub plan (cloud-plan.ts STUB_PLAN_ENVIRONMENTS; never production).
       "vars": { "ENVIRONMENT": "development", "PLATFORM_SURFACES": "cloud", "CLOUD_TRAJECTORIES_ENABLED": "1", "CHIEF_DURABLE_ENABLED": "1", "HANDS_ENABLED": "1", "CHIEF_FAULT_HOOKS": "1", "CHIEF_CREDITS_DOGFOOD": "team_f77575bdfd932388f2e3,team_6774f37212cb1152d2a9,team_34bccc85e7a38258be69", "CHIEF_CREDITS_DOGFOOD_USD": "500", "CHIEF_BRAIN_ENABLED": "1", "CHIEF_BRAIN_MODEL": "@cf/moonshotai/kimi-k2.7-code", "BILLING_USAGE_PRICE_SET": "e2e", "USAGE_HARD_STOP_UNBILLED": "1", "INFERENCE_ENABLED": "1", "INFERENCE_ALLOWED_TEAMS": "team_f77575bdfd932388f2e3,team_6774f37212cb1152d2a9,team_34bccc85e7a38258be69,team_6b6623866a52063af515", "INFERENCE_DAILY_CAP_USD": "5", "INFERENCE_FREE_DAILY_CAP_USD": "2", "INFERENCE_FREE_ENABLED": "1", "INFERENCE_FREE_APP_IDS": "7WLXT3NR37.com.cmuxterm.app.nightly.cmux-next,7WLXT3NR37.com.cmuxterm.app.debug.next,7WLXT3NR37.com.cmuxterm.app.debug.hq39fa1,7WLXT3NR37.com.cmuxterm.attestprobe", "INFERENCE_DEVICECHECK_DEVELOPMENT": "true", "APPLE_TEAM_ID": "7WLXT3NR37", "CLOUD_FREESTYLE_SNAPSHOT": "cmuxnp-dev-vmimg-ci-41198930272-1", "CLOUD_API_ORIGIN": "https://cmux-api-development.debussy.workers.dev", "CLOUD_ALLOWED_TEAMS": "*", "CLOUD_PLAN_ENTITLEMENTS": "on", "PLATFORM_MACHINES": "on", "PLATFORM_AGENT_GATEWAY": "on", "CLOUD_NAME_PREFIX": "cmuxnp-dev-cld-", "CLOUD_VM_API_ORIGIN": "https://vm-staging.cmux.dev", "CLOUD_CODEROUTER_EDGE_HOST": "cmux-staging.vercel.app", "WORKER_NAME": "cmux-api-development", "PROJECTION_PRIMARY": "mysql", "PROJECTION_SHADOW": "postgres", "PROJECTION_READS": "mysql", "TEAM_VM_SLUG_PREFIX": "cmuxnp-dev-tvm-", "TEAM_VM_BIND_ENABLED": "1", "TEAM_VM_SNAPSHOT": "cmuxnp-dev-vmimg-ci-team-39709951013-1", "AUTOMATION_CAP_CEILING_USD": "25", "DASHBOARD_ORIGIN": "http://localhost:3010", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.dev.cmux.ios", "IOS_APP_ATTEST_DEVELOPMENT": "true", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
 
@@ -67,10 +66,9 @@
       // PS_MYSQL/PS_MYSQL_RO: PlanetScale MySQL cmux-next-vitess development (readwriter / reader), the dual-write shadow (state-placement.md 4.5).
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "395af91311c0494a91da6876b0df6d49" }, { "binding": "HYPERDRIVE_RO", "id": "cb712d90da9d42fb84ac975275e0b6c8" }, { "binding": "PS_MYSQL", "id": "60893ba4eaef437a91a77da71730ea9b" }, { "binding": "PS_MYSQL_RO", "id": "fe1e9fd2a3844fbfabcb12110832c394" }],
       // The platform cutover (src/platform-forward.ts; cmux-platform docs/port-cloud-worker.md 3.1, 3.3): PLATFORM_SURFACES
-      // above names the surfaces cmux-platform-development serves over this binding. cmux-platform-development owns
-      // CloudDO here, so CLOUD_DO above is its class (script_name): this Worker's own callers (PlatformMachines, owner
-      // outboxes, the socket route, crons) reach the same objects the forwarded requests do. The class export and its
-      // migration stay in this Worker (no deleted_classes yet). Rollback: drop the var and CLOUD_DO's script_name.
+      // above names the surfaces cmux-platform-development serves over this binding, and CLOUD_DO above is that Worker's
+      // CloudDO (script_name): this Worker's own callers (owner outboxes, the socket route, Chief, automations) reach it
+      // through src/platform-cloud.ts. The class left this Worker; src/cloud-do-retired.ts keeps its old namespace (no deleted_classes).
       "services": [{ "binding": "PLATFORM", "service": "cmux-platform-development" }]
     },
     "staging": {
@@ -128,10 +126,9 @@
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "9761093781aa4d6f8a1ad00848663266" }, { "binding": "HYPERDRIVE_RO", "id": "10bbf30d021f40db9a52eae8d0deb523" }, { "binding": "PS_MYSQL", "id": "7262c6189a304aa691bb10a88732f65c" }, { "binding": "PS_MYSQL_RO", "id": "5127d85285c7461f8e6a8f799646fbd5" }],
       "routes": [{ "pattern": "cloud-api-staging.cmux.dev", "custom_domain": true }],
       // The platform cutover (src/platform-forward.ts; cmux-platform docs/port-cloud-worker.md 3.1, 3.3): PLATFORM_SURFACES
-      // above names the surfaces cmux-platform-staging serves over this binding. cmux-platform-staging owns
-      // CloudDO here (fresh data, no transfer), so CLOUD_DO above is its class (script_name): this Worker's own callers
-      // (PlatformMachines, owner outboxes, the socket route, crons) reach the same objects the forwarded requests do. The
-      // class export and its migration stay in this Worker (no deleted_classes yet). Rollback: drop the var and CLOUD_DO's script_name.
+      // above names the surfaces cmux-platform-staging serves over this binding, and CLOUD_DO above is that Worker's
+      // CloudDO (script_name): this Worker's own callers (owner outboxes, the socket route, Chief, automations) reach it
+      // through src/platform-cloud.ts. The class left this Worker; src/cloud-do-retired.ts keeps its old namespace (no deleted_classes).
       "services": [{ "binding": "PLATFORM", "service": "cmux-platform-staging" }]
     },
     "production": {
@@ -189,10 +186,9 @@
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "ef387ca3b20b4ea7878e02746d9545ef" }, { "binding": "HYPERDRIVE_RO", "id": "6badee5cbb964e9f9c09c6f175a14c85" }, { "binding": "PS_MYSQL", "id": "0533eedddc1e4195adf0d42a4c325fce" }, { "binding": "PS_MYSQL_RO", "id": "d3bc1fb86f494cd09810b4872238ceb1" }],
       "routes": [{ "pattern": "cloud-api.cmux.dev", "custom_domain": true }],
       // The platform cutover (src/platform-forward.ts; cmux-platform docs/port-cloud-worker.md 3.1, 3.3): PLATFORM_SURFACES
-      // above names the surfaces cmux-platform-production serves over this binding. cmux-platform-production owns
-      // CloudDO here (fresh data, no transfer), so CLOUD_DO above is its class (script_name): this Worker's own callers
-      // (PlatformMachines, owner outboxes, the socket route, crons) reach the same objects the forwarded requests do. The
-      // class export and its migration stay in this Worker (no deleted_classes yet). Rollback: drop the var and CLOUD_DO's script_name.
+      // above names the surfaces cmux-platform-production serves over this binding, and CLOUD_DO above is that Worker's
+      // CloudDO (script_name): this Worker's own callers (owner outboxes, the socket route, Chief, automations) reach it
+      // through src/platform-cloud.ts. The class left this Worker; src/cloud-do-retired.ts keeps its old namespace (no deleted_classes).
       "services": [{ "binding": "PLATFORM", "service": "cmux-platform-production" }]
     }
   }

@@ -73,6 +73,8 @@ public final class ComputerUseLiveCapture {
     public nonisolated static let longSide = 360
     /// The most refused windows kept.
     static let maximumRefused = 32
+    /// How long the person's pointer stays still before the card dims it.
+    public nonisolated static let personIdle: TimeInterval = 2
 
     private let frames: any ComputerUseSurfaceCapturing
     private let cursors: any ComputerUseAgentCursorReading
@@ -83,8 +85,14 @@ public final class ComputerUseLiveCapture {
     /// Where each new frame goes (``ComputerUseLivePreview``).
     var onFrame: @MainActor (Target, ComputerUsePreviewBoard.Frame) -> Void = { _, _ in }
     /// Where the agent cursor goes when it moves in the streamed window, or leaves it (nil): the
-    /// session and the cursor as a fraction of the window.
-    var onCursor: @MainActor (String, ComputerUseAgentCursor?) -> Void = { _, _ in }
+    /// session, the cursor as a fraction of the window, and when it moved.
+    var onCursor: @MainActor (String, ComputerUseAgentCursor?, Date) -> Void = { _, _, _ in }
+    /// Where the person's pointer goes, read on the same tick as the agent's: when it moves,
+    /// enters or leaves the streamed window, or turns idle; nil when the stream ends.
+    var onPerson: @MainActor (String, ComputerUsePreviewTelepointer?) -> Void = { _, _ in }
+    /// Runs once the updates of one read (or of the stream's end) were sent: the frame and both
+    /// pointers of a tick reach the page as one card.
+    var onBatch: @MainActor () -> Void = {}
     /// Whether the person still sees the target's chat, checked on each frame: a window covered or
     /// minimized stops the stream (``ComputerUsePreviewSight``).
     var sees: @MainActor (Target) -> Bool = { _ in true }
@@ -104,6 +112,8 @@ public final class ComputerUseLiveCapture {
     private var lastSequence: UInt64 = 0
     /// The cursor last sent, and its session.
     private var lastCursor: (session: String, cursor: ComputerUseAgentCursor)?
+    /// The person's pointer last sent, and its session.
+    private var lastPerson: (session: String, pointer: ComputerUsePreviewTelepointer)?
     /// Windows whose stream the helper refused or that failed: they get the per-action frames. Kept
     /// for one helper launch: a restarted helper (say, after a Screen Recording grant) is asked again.
     private(set) var refused: Set<ComputerUsePreviewWindow> = []
@@ -214,15 +224,17 @@ public final class ComputerUseLiveCapture {
             var frame: ComputerUseLiveFrame?
             var failed = false
             do { frame = try await frames.newestFrame(of: stream.id, after: after) } catch { failed = true }
-            var cursor: ComputerUseAgentCursor?
-            if let helper { cursor = await cursors.cursor(in: stream.window, helper: helper) }
+            // One window list read for both pointers, off the main thread.
+            let pointers = await cursors.pointers(in: stream.window, helper: helper)
             guard let self else { return }
             inFlight = nil
             defer { settled?() }
+            defer { onBatch() }
             guard generation == self.generation, let target, self.stream?.id == stream.id else { return kick() }
             if failed { return refuse(stream.window) }
-            // The cursor moves over a still window too (no new frame then).
-            sendCursor(cursor, session: target.session)
+            // The cursors move over a still window too (no new frame then).
+            sendCursor(pointers.agent, session: target.session)
+            sendPerson(pointers.person, session: target.session)
             guard let frame, frame.sequence > lastSequence else { return }
             lastSequence = frame.sequence
             onFrame(target, .init(id: "live-\(stream.id)-\(frame.sequence)", at: now(), url: frame.url))
@@ -233,13 +245,38 @@ public final class ComputerUseLiveCapture {
     private func sendCursor(_ cursor: ComputerUseAgentCursor?, session: String) {
         if let cursor {
             guard lastCursor?.session != session || lastCursor?.cursor != cursor else { return }
-            if let last = lastCursor, last.session != session { onCursor(last.session, nil) }
+            if let last = lastCursor, last.session != session { onCursor(last.session, nil, now()) }
             lastCursor = (session, cursor)
-            onCursor(session, cursor)
+            onCursor(session, cursor, now())
         } else if let last = lastCursor {
             lastCursor = nil
-            onCursor(last.session, nil)
+            onCursor(last.session, nil, now())
         }
+    }
+
+    /// Sends the person's pointer when it moved, entered or left the window, or once when it has
+    /// stayed still for ``personIdle`` (the tick that finds it idle; no timer of its own).
+    private func sendPerson(_ person: ComputerUsePersonPointer?, session: String) {
+        guard let person else {
+            if let last = lastPerson {
+                lastPerson = nil
+                onPerson(last.session, nil)
+            }
+            return
+        }
+        let now = now()
+        if let last = lastPerson, last.session == session, last.pointer.visible == person.visible,
+           last.pointer.x == Double(person.point.x), last.pointer.y == Double(person.point.y) {
+            guard !last.pointer.idle, let moved = last.pointer.movedAt, now.timeIntervalSince(moved) >= Self.personIdle else { return }
+            var idle = last.pointer
+            idle.idle = true
+            lastPerson = (session, idle)
+            return onPerson(session, idle)
+        }
+        if let last = lastPerson, last.session != session { onPerson(last.session, nil) }
+        let pointer = ComputerUsePreviewTelepointer(x: person.point.x, y: person.point.y, visible: person.visible, movedAt: now)
+        lastPerson = (session, pointer)
+        onPerson(session, pointer)
     }
 
     /// The helper refused `window`'s stream or it failed: the card keeps the per-action frames.
@@ -260,8 +297,13 @@ public final class ComputerUseLiveCapture {
         // No stream, no live cursor: the card falls back to the last pixel click, if any.
         if let last = lastCursor {
             lastCursor = nil
-            onCursor(last.session, nil)
+            onCursor(last.session, nil, now())
         }
+        if let last = lastPerson {
+            lastPerson = nil
+            onPerson(last.session, nil)
+        }
+        onBatch()
     }
 
     private func dropStream(stopping: Bool) {

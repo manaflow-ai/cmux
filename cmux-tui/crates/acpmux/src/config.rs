@@ -288,7 +288,7 @@ pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
 }
 
 #[cfg(unix)]
-fn validate_private_state_file(file: &std::fs::File, path: &Path) -> Result<()> {
+pub(crate) fn validate_private_state_file(file: &std::fs::File, path: &Path) -> Result<()> {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
     let metadata = file.metadata()?;
@@ -327,6 +327,25 @@ pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)
         .with_context(|| format!("open private state file {}", path.display()))?;
+    validate_private_state_file(&file, path)?;
+    Ok(file)
+}
+
+/// Create an owner-only state file without following a pre-positioned final
+/// symlink. Callers can distinguish an existing incident archive through the
+/// `AlreadyExists` error, so this deliberately does not open existing files.
+#[cfg(unix)]
+pub(crate) fn private_state_create_new(path: &Path) -> Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    refuse_lost_home(path)?;
+
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .with_context(|| format!("create private state file {}", path.display()))?;
     validate_private_state_file(&file, path)?;
     Ok(file)
 }
@@ -453,6 +472,11 @@ pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
 #[cfg(windows)]
 pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
     Ok(crate::owner_only::open_rw(path)?)
+}
+
+#[cfg(windows)]
+pub(crate) fn private_state_create_new(path: &Path) -> Result<std::fs::File> {
+    Ok(crate::owner_only::create_new(path)?)
 }
 
 #[cfg(windows)]
@@ -832,54 +856,6 @@ pub fn turn_cut(name: &str, profile: &HarnessProfile) -> Option<TurnCut> {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-#[derive(Default)]
-pub enum StoreMode {
-    Memory,
-    #[default]
-    Local,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct StoreConfig {
-    #[serde(default)]
-    pub mode: StoreMode,
-    /// Segment roll size in bytes for the event log.
-    #[serde(default = "default_segment_bytes")]
-    pub segment_bytes: u64,
-    /// Days a closed chat's event log is kept whole (`hub/retention.rs`): after them, the
-    /// harness's raw lines and long tool output are removed from it, the chat's messages kept.
-    /// Default 14; 0 keeps every log whole.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub closed_log_days: Option<u32>,
-}
-
-impl StoreConfig {
-    /// How long a closed chat's log is kept whole; None: always.
-    pub fn closed_log_retention(&self) -> Option<std::time::Duration> {
-        match self.closed_log_days.unwrap_or(14) {
-            0 => None,
-            days => Some(std::time::Duration::from_secs(u64::from(days) * 86_400)),
-        }
-    }
-}
-
-fn default_segment_bytes() -> u64 {
-    8 * 1024 * 1024
-}
-
-impl Default for StoreConfig {
-    fn default() -> Self {
-        Self {
-            mode: StoreMode::Local,
-            segment_bytes: default_segment_bytes(),
-            closed_log_days: None,
-        }
-    }
-}
-
 /// Permission policy applied when no attached client answers.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
@@ -893,6 +869,11 @@ pub enum PermissionPolicy {
     /// Claude Code's "accept edits" without needing Claude's own mode.
     ApproveEdits,
     DenyAll,
+    /// A reviewer's read-only shell: what approve-reads approves runs unasked (reads, searches
+    /// and read-only shell commands such as `git log`, `git diff`, `grep`, `rg`, `ls`, `cat`,
+    /// `sed -n`, `hub/shell_readonly.rs`), and every other tool call is denied at once, so a
+    /// session with no person to ask never waits.
+    Review,
 }
 
 impl std::str::FromStr for PermissionPolicy {
@@ -904,6 +885,7 @@ impl std::str::FromStr for PermissionPolicy {
             "approve-reads" => Ok(Self::ApproveReads),
             "approve-edits" | "accept-edits" => Ok(Self::ApproveEdits),
             "deny-all" => Ok(Self::DenyAll),
+            "review" => Ok(Self::Review),
             other => Err(format!("unknown permission policy: {other}")),
         }
     }
@@ -917,6 +899,7 @@ impl std::fmt::Display for PermissionPolicy {
             Self::ApproveReads => "approve-reads",
             Self::ApproveEdits => "approve-edits",
             Self::DenyAll => "deny-all",
+            Self::Review => "review",
         };
         f.write_str(s)
     }
@@ -2073,6 +2056,8 @@ pub use discover::{
 };
 mod peer;
 pub use peer::PeerConfig;
+mod store_config;
+pub use store_config::{StoreConfig, StoreMode};
 mod pool;
 pub use pool::PoolConfig;
 mod btw;

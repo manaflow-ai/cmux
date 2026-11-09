@@ -1,6 +1,7 @@
 // History (plans/cmux-next/history.md): the location trail (Go Back / Go
 // Forward), the history page and palette pages, clearing, and layout undo.
-// Page history stays `browserBack` / `browserForward` (Cmd-[ / Cmd-]).
+// Page history stays `browserBack` / `browserForward` (Cmd-[ / Cmd-]); Go Back /
+// Go Forward have their own Opt-Cmd-, / Opt-Cmd-. that work in every pane.
 // Titles live in HistoryActions.xcstrings.
 
 nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
@@ -11,14 +12,14 @@ nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "focusHistoryBack", title: t("action.history.back", "Go Back"),
                 keywords: ["history", "previous", "location", "jump", "back", "where"],
-                defaultShortcut: Shortcut("-", modifiers: [.control]),
+                defaultShortcut: Shortcut(",", modifiers: [.option, .command]),
                 category: .window, symbol: "chevron.backward", surfaces: [.palette, .keyboard, .menu],
                 cliName: "history back", mainMenu: .window
             ),
             ActionDescriptor(
                 id: "focusHistoryForward", title: t("action.history.forward", "Go Forward"),
                 keywords: ["history", "next", "location", "jump", "forward"],
-                defaultShortcut: Shortcut("-", modifiers: [.control, .shift]),
+                defaultShortcut: Shortcut(".", modifiers: [.option, .command]),
                 category: .window, symbol: "chevron.forward", surfaces: [.palette, .keyboard, .menu],
                 cliName: "history forward", mainMenu: .window
             ),
@@ -100,7 +101,7 @@ nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
                 symbol: "clock.arrow.circlepath", surfaces: [.palette, .keyboard],
                 arguments: [
                     ActionArgument(name: "id", title: t("argument.history.entry", "History Entry ID"), kind: .string, isRequired: true),
-                    ActionArgument(name: "new_tab", title: t("argument.history.newTab", "In New Tab"), kind: .bool, isRequired: false),
+                    ActionArgument(name: "newTab", title: t("argument.history.newTab", "In New Tab"), kind: .bool, isRequired: false),
                 ],
                 cliName: "history open"
             ),

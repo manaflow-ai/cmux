@@ -134,7 +134,8 @@ test("a composer that grows over the view, or a tray that opens in the stack, ne
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     expect(scroller.style.getPropertyValue("--acpmux-dock-space")).toBe("120px");
     const rest = railBox();
-    expect(Number.parseFloat(rest.height)).toBe(240);
+    // Forty prompts at the 10 px pitch.
+    expect(Number.parseFloat(rest.height)).toBe(400);
     const restBottom = Number.parseFloat(rest.top) + Number.parseFloat(rest.height);
     // Leo, 2026-11-04: "the height of the left scroll rail should never be affected by anything", and
     // 2026-11-03: "i just don't like it when the thing shifts". Three more composer lines, then a stack
@@ -152,10 +153,10 @@ test("a composer that grows over the view, or a tray that opens in the stack, ne
 });
 
 test("the rail's inset is the same at every pane width that leaves its gutter room (the sidebar toggle)", () => {
-  const insets = [900, 1000, 1040, 1200, 1600, 2400].map((width) => railPlacement(width).left);
+  const insets = [980, 1000, 1040, 1200, 1600, 2400].map((width) => railPlacement(width).left);
   expect(new Set(insets)).toEqual(new Set([16]));
   // Only a gutter too short for the widest step shrinks it.
-  expect(railPlacement(800).left).toBe(8);
+  expect(railPlacement(880).left).toBe(8);
   // Session Info pushing the chat's column (a smaller text inset) never moves it: it reads the pane.
   expect(railPlacement(1084, 32).left).toBe(railPlacement(1084).left);
 });

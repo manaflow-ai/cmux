@@ -108,6 +108,7 @@ fn previous_of(planned: &Planned) -> PreviousSeed {
         head: planned.params.head.clone(),
         index: planned.params.index.clone(),
         work: planned.params.work.clone(),
+        stash: planned.params.stash.clone(),
     }
 }
 
@@ -252,7 +253,13 @@ fn a_secret_with_a_non_utf8_name_is_left_out() {
     use std::os::unix::ffi::OsStrExt as _;
     let f = Fixture::new();
     let secret = std::ffi::OsStr::from_bytes(b".env-\xff");
-    std::fs::write(f.work.join(secret), "SECRET=1\n").unwrap();
+    // APFS (macOS) refuses a name that is not UTF-8 (EILSEQ), so no folder there can hold
+    // such a secret; ext4 and the other Linux filesystems take raw bytes, and the Linux runs
+    // of the cmux-tui tests cover this case (as git_seed/secrets.rs since #32091).
+    match std::fs::write(f.work.join(secret), "SECRET=1\n") {
+        Err(e) if cfg!(target_os = "macos") && e.raw_os_error() == Some(libc::EILSEQ) => return,
+        written => written.unwrap(),
+    }
     let hashed =
         Command::new("git").arg("-C").arg(&f.work).arg("hash-object").arg(secret).output().unwrap();
     assert!(hashed.status.success());
@@ -284,6 +291,10 @@ fn a_seed_plan_never_writes_skipped_secret_blobs_into_local_git_objects() {
         ("config/colon:name.key", "FAKE_KEY_UNTRACKED\n"),
         ("secrets/id_rsa", "FAKE_SSH_KEY_UNTRACKED\n"),
         (".npmrc", "//registry.example.invalid/:_authToken=FAKE_ONLY\n"),
+        // A plain copy's credential folders and files, by the same rule.
+        (".aws/credentials", "[default]\naws_secret_access_key=FAKE_ONLY\n"),
+        (".config/gh/hosts.yml", "github.com:\n  oauth_token: FAKE_ONLY\n"),
+        (".cargo/credentials.toml", "[registry]\ntoken = \"FAKE_ONLY\"\n"),
     ];
     for &(path, contents) in &excluded {
         write(&work.join(path), contents);
@@ -592,10 +603,12 @@ fn a_delta_seed_needs_the_previous_commits() {
     let f = Fixture::new();
     let head = git(&f.work, &["rev-parse", "HEAD"]);
     let missing = "0123456789abcdef0123456789abcdef01234567".to_string();
-    let previous = PreviousSeed { head: head.clone(), index: missing.clone(), work: missing };
+    let previous =
+        PreviousSeed { head: head.clone(), index: missing.clone(), work: missing, stash: None };
     let fallback = plan_since(&f.work, &f.path("seed.bundle"), &previous).unwrap_err();
     assert_eq!(fallback.code, FallbackCode::NoPrevious, "{}", fallback.why);
-    let short = PreviousSeed { head: head[..7].to_string(), index: head.clone(), work: head };
+    let short =
+        PreviousSeed { head: head[..7].to_string(), index: head.clone(), work: head, stash: None };
     let fallback = plan_since(&f.work, &f.path("seed.bundle"), &short).unwrap_err();
     assert_eq!(fallback.code, FallbackCode::NoPrevious);
 }

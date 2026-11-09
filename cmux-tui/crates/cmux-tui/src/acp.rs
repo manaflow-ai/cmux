@@ -19,6 +19,7 @@ pub(crate) fn run_scope(head: &str, args: Vec<OsString>) -> i32 {
 
 /// `<display_name> <args>`: `cmux acp …`, or `cmux` for the `cmux chats …` and
 /// `cmux harness …` aliases, so usage and errors name the command the user typed.
+#[allow(clippy::indexing_slicing, reason = "the branch above guarantees the first argument exists")]
 pub(crate) fn run_as(args: Vec<OsString>, display_name: &str) -> i32 {
     if let [chats, open, rest @ ..] = args.as_slice()
         && chats == "chats"
@@ -227,7 +228,7 @@ const TERMINAL_IDENTITY_ENV: [&str; 5] =
 /// The acpmux home `cmux acp` uses: `ACPMUX_HOME`, else its build's home
 /// ([`build_home`]), else `~/.acpmux`.
 #[cfg(unix)]
-fn daemon_acpmux_home() -> Option<PathBuf> {
+pub(crate) fn daemon_acpmux_home() -> Option<PathBuf> {
     // Another app's terminal names that app's acpmux (per-build isolation S4).
     if let Some(home) = env_value("ACPMUX_HOME")
         && !crate::app_identity::this_process_in_other_apps_terminal()
@@ -236,6 +237,25 @@ fn daemon_acpmux_home() -> Option<PathBuf> {
     }
     let home = PathBuf::from(env_value("HOME")?);
     Some(build_home(&home).unwrap_or_else(|| home.join(".acpmux")))
+}
+
+/// The acpmux home of this process's app, by [`daemon_acpmux_home`]'s rule
+/// but with no side effect (no adoption of a pre-isolation home): where this
+/// machine's WireGuard key lock lives (`cmux_link::key_holder`). `None`
+/// outside any cmux app and without `ACPMUX_HOME` (a test binary, a hand-run
+/// `cmux-tui`), which names no build's acpmux.
+#[cfg(unix)]
+pub(crate) fn key_lock_home() -> Option<PathBuf> {
+    if let Some(home) = env_value("ACPMUX_HOME")
+        && !crate::app_identity::this_process_in_other_apps_terminal()
+    {
+        return Some(PathBuf::from(home));
+    }
+    let identity = crate::app_identity::AppIdentity::detect(
+        |name| std::env::var(name).ok(),
+        std::env::current_exe().ok().as_deref(),
+    )?;
+    Some(identity.build().acpmux_home(Path::new(&env_value("HOME")?)))
 }
 
 #[cfg(unix)]

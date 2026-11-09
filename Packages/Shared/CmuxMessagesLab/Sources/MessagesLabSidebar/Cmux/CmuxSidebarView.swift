@@ -50,30 +50,11 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
     /// A short tag after the name (the engine a Home Chief runs on, "UniiChat"); nil shows none.
     /// The vendored row draws only the name, so the tag is part of the name it is given.
     public var badge: String?
-    /// What the conversation's own `avatar` shows its Chief doing: nil shows nothing (``SidebarAvatarMotion``).
-    public var avatarMotion: AvatarMotion?
-
-    /// A Chief's state, each drawn its own way on its avatar (the Codex pet's states).
-    public enum AvatarMotion: Hashable, Sendable {
-        case idle
-        /// Its turn runs in the model (thinking, writing the reply).
-        case thinking
-        /// Its turn runs a tool.
-        case tool
-        /// It asked the person something (a question or an approval) and waits on them.
-        case waiting
-        /// Its turn ended and the reply is unread.
-        case done
-        /// A message to it failed to send.
-        case failed
-    }
 
     public init(id: String, title: String, people: [Person], preview: String, previewSender: String?, lastAt: Date,
                 unreadCount: Int, pinned: Bool, muted: Bool = false, typing: Bool = false,
-                knownSender: Bool = true, spam: Bool = false, deletedAt: Date? = nil, avatar: Avatar? = nil, badge: String? = nil,
-                avatarMotion: AvatarMotion? = nil) {
+                knownSender: Bool = true, spam: Bool = false, deletedAt: Date? = nil, avatar: Avatar? = nil, badge: String? = nil) {
         self.avatar = avatar
-        self.avatarMotion = avatarMotion
         self.badge = badge
         self.knownSender = knownSender
         self.spam = spam
@@ -114,16 +95,6 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
         s.knownSender = knownSender
         s.spam = spam
         s.deletedAt = deletedAt
-        s.avatarMotion = own == nil ? nil : avatarMotion.map {
-            switch $0 {
-            case .idle: .idle
-            case .thinking: .thinking
-            case .tool: .tool
-            case .waiting: .waiting
-            case .done: .done
-            case .failed: .failed
-            }
-        }
         return s
     }
 }

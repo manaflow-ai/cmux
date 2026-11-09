@@ -59,6 +59,10 @@ pub struct LiveModel {
     /// The CLI's default model.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_default: bool,
+    /// The model the CLI's own catalog moves this one to (Codex's `upgrade`): set, the model is
+    /// a legacy one, listed but not among the harness's current models (`topModels`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upgrade: Option<String>,
 }
 
 /// Which CLI a harness's live list comes from.
@@ -90,6 +94,21 @@ pub async fn probe(
     listed.map_err(|_| anyhow!("the model list did not arrive within {} s", timeout.as_secs()))?
 }
 
+/// Codex's plan usage limits at rest (`account/rateLimits/read`) from one
+/// short-lived `codex app-server` started with `argv` and `env`, killed once it
+/// answers or `timeout` passes (`_acpmux/account/usage`).
+pub async fn codex_rate_limits(
+    argv: &[String],
+    env: &BTreeMap<String, String>,
+    cwd: &Path,
+    timeout: Duration,
+) -> Result<Value> {
+    let mut child = Probe::spawn(Cli::Codex, argv, env, cwd)?;
+    let read = tokio::time::timeout(timeout, codex::rate_limits(&mut child)).await;
+    child.kill().await;
+    read.map_err(|_| anyhow!("the usage limits did not arrive within {} s", timeout.as_secs()))?
+}
+
 /// A probe child: line-oriented JSON on stdin and stdout, stderr dropped.
 pub(crate) struct Probe {
     child: Child,
@@ -116,6 +135,11 @@ impl Probe {
         }
         crate::login_env::apply_tokio_for(&mut cmd, Some(family), Some(env));
         crate::config::scrub_nested_claude_env_tokio_for(&mut cmd, Some(family));
+        // Never another harness's login (`agent/foreign_login.rs`).
+        let runs = crate::agent::foreign_login::Runs::Agent(family.to_owned());
+        crate::agent::foreign_login::remove_foreign(&runs, |key| {
+            cmd.env_remove(key);
+        });
         cmd.args(rest)
             .args(match cli {
                 Cli::Claude => claude::args(),

@@ -64,7 +64,7 @@ import tempfile
 import unittest
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable, Iterator
 
 import yaml
 
@@ -80,12 +80,21 @@ import test_ci_signing_keychain_is_deleted_before_bundle_code as keychain_guard 
 # SIGNING_JOBS). A signing job routed to owned Macs must be one of them, so a new one is added there too.
 SIGNING_JOBS = {
     ("nightly.yml", "build-sign-notarize-nightly"), ("nightly.yml", "recover-nightly-next-notarization"),
-    ("nightly.yml", "sign-nightly-identity-legacy"), ("nightly.yml", "generate-nightly-deltas"),
-    ("nightly.yml", "publish-nightly"), ("nightly.yml", "publish-nightly-next-github"),
-    ("nightly.yml", "publish-nightly-next-github-names"),
+    ("nightly.yml", "generate-nightly-deltas"),
+    ("nightly.yml", "publish-nightly"),
+    # Short secret jobs that ran on GitHub-hosted Ubuntu until glaeda's SIGNING_JOBS admitted them.
+    ("nightly.yml", "keep-published-dsyms"), ("nightly.yml", "republish-nightly-deltas"),
     ("release.yml", "build-sign-notarize"), ("repair-v0-64-25-helper-rpaths.yml", "repair"),
     ("cmux-next-dev-daily.yml", "sign"),
 }
+# glaeda's exclusive class, word for word (glaeda scripts/glaeda-cmux-runner-hook SIGNING_JOBS): the jobs above
+# and nightly.yml's promote-nightly-next, which holds the release App key, makes no keychain and so is not a
+# signing job here (signing_job()), yet takes a whole owned Mac under its promotion lease
+# (glaeda scripts/glaeda-promotion-admit, PROMOTION_LEASE) and starts with the same claim gate.
+# GlaedaExclusiveClassTests holds the gate, the claim script and the secret order for the extra entry, and the
+# keychain guard's rule 7a reads this list: a job glaeda holds the whole mini for may fall back to an owned route.
+# promote-nightly-next-acked (retired, if: false) takes promote-nightly-next's route and claim the same way.
+GLAEDA_EXCLUSIVE_JOBS = SIGNING_JOBS | {("nightly.yml", "promote-nightly-next"), ("nightly.yml", "promote-nightly-next-acked")}
 OWNED_PICKER = "scripts/ci/signing_runner.py"
 BLACKSMITH_PICKER = "scripts/ci/nightly_sign_runner.py"
 CLAIM = "scripts/ci/signing-runner-claim.sh"
@@ -122,6 +131,13 @@ if [ -n "$owned" ]; then
   echo "claim=owned" >> "$GITHUB_OUTPUT"
 fi
 """
+# A nightly signing job has no Blacksmith twin (NIGHTLY_WORKFLOW, test_ci_nightly_off_blacksmith): its gate says a
+# refusal fails the job instead. Only the two refusal messages differ from CLAIM_GATE.
+NIGHTLY_CLAIM_GATE = (CLAIM_GATE
+                      .replace("whole mini; this run's Blacksmith job signs instead.",
+                               "whole mini, so this job fails; nightly signing runs only on a trusted signing runner, never on Blacksmith.")
+                      .replace("lists; this run's Blacksmith job signs instead.",
+                               "lists, so this job fails; nightly signing runs only on a trusted signing runner, never on Blacksmith."))
 TWIN_SUFFIX = "-blacksmith"
 # A picker output that is its own attempt number, which a signing job compares with github.run_attempt.
 ATTEMPT_OUTPUT = "${{ github.run_attempt }}"
@@ -135,6 +151,11 @@ ATTEMPT_OUTPUT = "${{ github.run_attempt }}"
 FALLBACK_ON_FAILURE: dict[tuple[str, str], str] = {}
 # Nightly workflows have no Blacksmith twin at all (twin_failures).
 NIGHTLY_WORKFLOW = re.compile(r"nightly|notarization")
+
+
+def claim_gate_for(workflow: str) -> str:
+    """The claim gate a signing job of `workflow` starts with, word for word."""
+    return NIGHTLY_CLAIM_GATE if NIGHTLY_WORKFLOW.search(workflow) else CLAIM_GATE
 # The hook from before the leftover-process check (glaeda before #1738): the gate refuses it.
 OLD_HOOK = "fb0442d31e23f01326118b7d6be2effd0ba91bff9a0b59c62016c39bc23116da"
 NEEDS_OUTPUT = re.compile(r"needs\.([\w-]+)\.outputs\.([\w-]+)")
@@ -151,7 +172,7 @@ DYNAMIC_INDEX = re.compile(r"\b(?:secrets|needs|outputs)\s*\[")
 # if), or only after such a step failed (steps.<that step>.outcome == 'failure').
 REF_CONDITION = re.compile(r"\bgithub\.ref(?:_name)?\b")
 AFTER_STEP = re.compile(r"^\s*steps\.([\w-]+)\.outcome\s*==\s*'failure'\s*$")
-RUNS_AFTER_FAILURE = re.compile(r"\b(?:always|failure|cancelled)\s*\(")
+RUNS_AFTER_FAILURE = keychain_guard.runs_after_failure
 # A Sparkle EdDSA private key (SPARKLE_PRIVATE_KEY, NIGHTLY_SPARKLE_PRIVATE_KEY, SPARKLE_NEXT_PRIVATE_KEY, ...).
 SPARKLE_KEY = re.compile(r"secrets\.\w*SPARKLE\w*PRIVATE_KEY", re.IGNORECASE)
 # A fork's own runner (`github.repository_owner != 'manaflow-ai' && 'macos-26' ||`): never this repository's.
@@ -378,7 +399,7 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
             gate_index = next((index for index, step in enumerate(steps)
                                if str(step.get("id", "")) == CLAIM_GATE_ID), None)
             gate = steps[gate_index] if gate_index is not None else {}
-            gate_ok = (str(gate.get("run", "")).strip() == CLAIM_GATE.strip()
+            gate_ok = (str(gate.get("run", "")).strip() == claim_gate_for(workflow).strip()
                        and not (set(gate) - {"name", "run", "shell", "id"})
                        and str(gate.get("shell", "bash")) == "bash"
                        and gate.get("id") == CLAIM_GATE_ID)
@@ -388,19 +409,22 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
             elif gate_index != 0:
                 failures.append(f"{label}: the first step must be the claim gate ({CLAIM_GATE_NAME}) before the checkout's token")
             failures.extend(f"{label}: {why}" for why in twin_failures(jobs, name, owned_reads, workflow))
-            claim = next((index for index, step in enumerate(steps) if CLAIM in str(step.get("run", ""))), None)
+            # The script has to be run, not only named: keychain_guard.CLAIM_COMMANDS, the same verbatim
+            # command set rule 7a uses, so no comment, echo, conditional or chained form stands in for it.
+            claim = next((index for index, step in enumerate(steps)
+                          if keychain_guard.runs_the_claim_script(step, job)), None)
             first_secret = next((index for index, step in enumerate(steps) if "secrets." in json.dumps(step)), None)
             if claim is None:
                 failures.append(f"{label}: routed to owned Macs without a step that runs {CLAIM}")
-            elif first_secret is not None and first_secret < claim:
-                failures.append(f"{label}: step {first_secret} names a secret before the claim step ({claim})")
+            elif first_secret is not None and first_secret <= claim:  # the claim step's own env is set before it runs
+                failures.append(f"{label}: step {first_secret} names a secret before the claim step ({claim}) or in it")
             else:
                 # Its `if` may skip it with the job's own work (cmux-next-dev-daily's sign skips everything without a
                 # source artifact); the unconditional first-step gate is what fails the job without the claim.
                 if str(steps[claim].get("continue-on-error", "false")) != "false":
                     failures.append(f"{label}: the claim step must fail the job (no continue-on-error)")
                 for index, step in enumerate(steps, 0):
-                    if "secrets." in json.dumps(step) and RUNS_AFTER_FAILURE.search(str(step.get("if", ""))):
+                    if "secrets." in json.dumps(step) and RUNS_AFTER_FAILURE(step.get("if")):
                         failures.append(f"{label}: step {index} names a secret and runs after a failed claim "
                                         f"(if: {step.get('if')})")
             if "secrets." in json.dumps(job.get("env") or {}):
@@ -439,64 +463,6 @@ MODEL = {"job_seconds": {"shell-regressions": {"p50": 300, "p90": 800}}}
 def started(job: str, seconds_ago: float) -> dict:
     """A pool snapshot `running` entry: the job a runner runs and since when."""
     return {"job": job, "started_at": (NOW - dt.timedelta(seconds=seconds_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")}
-
-
-class LegacySignReRunTakesAnOwnedMacFirst(unittest.TestCase):
-    """A re-run of nightly.yml whose pickers run again routes the legacy sign to an owned Mac first.
-
-    Runs 41077184190 and 41094107023 (2026-10-30): after the owned sign was refused on attempt 1, every later attempt
-    (the rescue's re-runs, up to attempt 4) sent sign-nightly-identity-legacy to Blacksmith macOS, which was stalled,
-    because its owned route and its twin read the pick on attempt 1 only and the picker was skipped on a re-run that
-    built nothing. The old feed got no build from either run."""
-
-    SIGN, PICK = "sign-nightly-identity-legacy", "pick-nightly-sign-runner"
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        from test_ci_fork_runner_routing import parse_expression
-        from test_nightly_trusted_routing import evaluate
-        cls.parse, cls.evaluate = staticmethod(parse_expression), staticmethod(evaluate)
-        cls.jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]
-
-    def value(self, job: str, field: str, context: dict) -> Any:
-        source = str(self.jobs[job][field]).strip().removeprefix("${{").removesuffix("}}").strip()
-        source = source.replace("!cancelled() && ", "", 1)
-        base = {"github.repository_owner": "manaflow-ai", "github.ref": "refs/heads/nightly-next",
-                "needs.legacy-identity-target.outputs.sign_alternate": "blacksmith-12vcpu-macos-26",
-                "needs.legacy-identity-target.outputs.sign_runner": "blacksmith-6vcpu-macos-26",
-                "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "glaeda-nightly-std-xcode-26.6"}
-        return self.evaluate(self.parse(source), {**base, **context})
-
-    def test_a_re_run_that_picked_again_takes_the_owned_mac(self) -> None:
-        for attempt in (1, 2, 3):
-            picked = {"github.run_attempt": attempt, "needs.pick-nightly-sign-runner.outputs.attempt": str(attempt),
-                      "needs.pick-nightly-sign-runner.outputs.sign_owned": '["glaeda-runner-m"]'}
-            with self.subTest(attempt=attempt):
-                self.assertEqual(self.value(self.SIGN, "runs-on", picked), ["glaeda-runner-m"])
-
-    def test_a_re_run_of_failed_jobs_keeps_the_old_pick_off_the_fleet(self) -> None:
-        stale = {"github.run_attempt": 2, "needs.pick-nightly-sign-runner.outputs.attempt": "1",
-                 "needs.pick-nightly-sign-runner.outputs.sign_owned": '["glaeda-runner-m"]'}
-        # Nightlies never use Blacksmith (Lawrence, 2026-10-30): a stale pick falls to the owned nightly slot.
-        self.assertEqual(self.value(self.SIGN, "runs-on", stale), "glaeda-nightly-std-xcode-26.6")
-        self.assertNotIn(self.SIGN + "-blacksmith", self.jobs, "nightlies never use Blacksmith: no twin")
-
-    def test_the_picker_runs_when_only_the_legacy_sign_does(self) -> None:
-        # A full re-run of a published build: no app build, so prepare-nightly-variant is skipped.
-        legacy_only = {"needs.prepare-nightly-variant.result": "skipped", "needs.decide.result": "success"}
-        self.assertTrue(self.value(self.PICK, "if", legacy_only))
-        self.assertFalse(self.value(self.PICK, "if", {**legacy_only, "vars.NIGHTLY_NEXT_LEGACY_IDENTITY": "off"}))
-        self.assertFalse(self.value(self.PICK, "if", {**legacy_only, "github.ref": "refs/heads/main"}))
-        self.assertTrue(self.value(self.PICK, "if", {"needs.prepare-nightly-variant.result": "success"}))
-        outputs = self.jobs[self.PICK]["outputs"]
-        self.assertEqual(str(outputs["attempt"]).strip(), "${{ github.run_attempt }}")
-        # The secret-free verify pick may opt into the all-nightly reservation,
-        # while credentialed legacy signing keeps the separate claim-capable
-        # `sign_owned` output. Both outputs still stand on their marker rules.
-        self.assertIn("steps.sign-owned.outputs.owned", str(outputs["sign_owned"]))
-        self.assertNotIn("CI_NIGHTLY_ONLY_RUNNER", str(outputs["sign_owned"]))
-        self.assertIn("CI_NIGHTLY_ONLY_RUNNER", str(outputs["owned"]))
-        self.assertIn("steps.sign-owned.outputs.owned_pool", str(outputs["sign_owned_pool"]))
 
 
 class SigningOwnedMacTests(unittest.TestCase):
@@ -632,9 +598,9 @@ class SigningOwnedMacTests(unittest.TestCase):
         failures, _ = check({"other-nightly.yml": {"jobs": {"deltas": in_job_env}}})
         self.assertTrue(any("job-level env names a secret" in failure for failure in failures), failures)
         # Held whole: the claim gate first, the claim before the key, and no keychain to delete (rule 4 is the keychain's).
-        held = {"runs-on": owned, "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "run": CLAIM_GATE},
+        held = {"runs-on": owned, "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "run": NIGHTLY_CLAIM_GATE},
                                             {"uses": "actions/checkout@v6"}, {"run": CLAIM}, key]}
-        self.assertEqual(check({"nightly.yml": {"jobs": {"sign-nightly-identity-legacy": held}}}), ([], 1))
+        self.assertEqual(check({"nightly.yml": {"jobs": {"build-sign-notarize-nightly": held}}}), ([], 1))
         # A Sparkle job with an ephemeral route is rule 7's (test_ci_signing_keychain_is_deleted_before_bundle_code).
         for runs_on in ("${{ vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}", "blacksmith-6vcpu-macos-26",
                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.MACOS_RUNNER_26 }}"):
@@ -800,6 +766,59 @@ class SigningOwnedMacTests(unittest.TestCase):
         step = next(s for s in jobs["pick-nightly-sign-runner"]["steps"] if s.get("id") == "sign-owned")
         self.assertEqual(step["env"].get("DRAIN_ANYWAY"), "1", "the legacy sign drains a mini before Blacksmith")
 
+    def test_signing_jobs_reach_only_the_signers_label(self) -> None:
+        """On 2026-11-04 eleven sign-nightly-identity-legacy jobs queued on the std nightly label reached an M5 Ultra
+        Studio's nightly slot, a mini never enrolled for signing, and GitHub delivered their secrets there. The
+        signing jobs and their pickers now ask only for the signer's label, which only a trusted-only mini that runs
+        no pull request job carries; the pick never names a runner without it, however idle, and an idle shared
+        nightly slot is never offered in its place."""
+        signing = signing_runner.SIGNER_LABEL
+        self.assertEqual(signing, "glaeda-trusted-next-signing")
+        runners = [runner("ultra-glaeda", [SIDE]),
+                   runner("ultra-glaeda-4", ["glaeda-nightly-std-xcode-26.6", "glaeda-runner-ultra-glaeda-4"]),
+                   runner("cmux12-glaeda", [SIDE], busy=True),
+                   runner("cmux12-glaeda-nightly", ["glaeda-nightly-std-xcode-26.6",
+                                                    "glaeda-runner-cmux12-glaeda-nightly"]),
+                   runner("cmux15-glaeda-1", [signing, "glaeda-runner-cmux15-glaeda-1"], busy=True),
+                   runner("cmux15-glaeda-2", [signing, "glaeda-runner-cmux15-glaeda-2"])]
+        labels, why = signing_runner.drained_runner(runners, [signing], running=None, model=MODEL, now=NOW,
+                                                    drain_anyway=True, signer_only=True)
+        self.assertEqual(json.loads(labels), [signing, "glaeda-runner-cmux15-glaeda-2"], why)
+        self.assertEqual(signing_runner.owned_pool_label(labels), signing)
+        # With the signer missing, nothing is offered: the job queues on the signer's label, never a shared slot.
+        labels, why = signing_runner.drained_runner(runners[:4], [signing], running=None, model=MODEL, now=NOW,
+                                                    drain_anyway=True, signer_only=True)
+        self.assertEqual(labels, "", why)
+        # A drifted OWNED_LABELS (a shared nightly slot, a side lane) yields no pick at all in nightly.yml's pick.
+        shared = ["glaeda-nightly-std-xcode-26.6", SIDE]
+        labels, why = signing_runner.drained_runner(runners, shared, running=None, model=MODEL, now=NOW,
+                                                    drain_anyway=True, signer_only=True)
+        self.assertEqual(labels, "", why)
+        env = {"ENABLED": "1", "GITHUB_RUN_ATTEMPT": "1", "ROUTE_TOKEN": "t", "SNAPSHOT_TOKEN": "t",
+               "GITHUB_REPOSITORY": "o/r", "OWNED_LABELS": " ".join(shared), "DRAIN_ANYWAY": "1"}
+        labels, why = signing_runner.owned_pick(env, lambda token, repo: runners, lambda url: {"jobs": []},
+                                                lambda token, repo: {}, now=NOW, sleep=lambda seconds: None,
+                                                signer_only=True)
+        self.assertEqual(labels, "", why)
+        self.assertTrue(signing_runner.signing_route_label(signing))
+        for label in ("glaeda-trusted-next-signing-2", "glaeda-nightly-std-xcode-26.6", SIDE, "glaeda-std-xcode-26.6"):
+            self.assertFalse(signing_runner.signing_route_label(label), label)
+        jobs = workflows()["nightly.yml"]["jobs"]
+        route = "glaeda-trusted-next-signing"  # a literal: no variable chooses the label
+        for job, step_id in (("pick-nightly-sign-runner", "sign-owned"), ("find-nightly-next-recovery", "sign-owned")):
+            with self.subTest(job=job):
+                step = next(s for s in jobs[job]["steps"] if s.get("id") == step_id)
+                self.assertEqual(step["env"]["OWNED_LABELS"], route)
+        for name in signing_runner.SIGNING_JOBS["nightly.yml"]:
+            with self.subTest(job=name):
+                runs_on = str(jobs[name]["runs-on"])
+                self.assertTrue(runs_on.rstrip(" }").endswith("'glaeda-trusted-next-signing'"),
+                                runs_on)
+                for shared in ("CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER", "CI_NIGHTLY_SIGNING_POOL",
+                               "CI_NIGHTLY_SIGN_RUNNER", "glaeda-nightly-std",
+                               "glaeda-std-xcode", "glaeda-side-"):
+                    self.assertNotIn(shared, runs_on)
+
     def test_owned_pick_drains_only_from_a_fresh_pool_snapshot(self) -> None:
         """owned_pick reads `running` from the queue janitor's pool snapshot (no new GitHub polling) and passes it on
         only when it is at most DRAIN_SNAPSHOT_MAX_MINUTES old; an older or unreadable one leaves every busy runner
@@ -869,7 +888,7 @@ class SigningOwnedMacTests(unittest.TestCase):
 
         self.assertEqual(signing_runner.owned_pick(env, read, unreadable)[0], "", "an uncounted cap fails closed")
         # At most one mini is held for signing: a signing job already pinned to an owned runner leaves none.
-        held.append({"name": "sign-nightly-identity-legacy", "status": "in_progress",
+        held.append({"name": "build-sign-notarize-nightly", "status": "in_progress",
                      "labels": [SIDE, "glaeda-runner-cmux13-glaeda-3"]})
         owned, why = signing_runner.owned_pick(env, read, jobs)
         self.assertEqual(owned, "", why)
@@ -916,7 +935,7 @@ class SigningOwnedMacTests(unittest.TestCase):
             return {"total_count": 3, "jobs": []}
 
         self.assertTrue(signing_runner.owned_pick(env, read, lagging)[0], "total_count is never trusted")
-        pinned = {"name": "sign-nightly-identity-legacy", "status": "in_progress",
+        pinned = {"name": "build-sign-notarize-nightly", "status": "in_progress",
                   "labels": [SIDE, "glaeda-runner-cmux13-glaeda-3"]}
 
         def short_then_runs(path: str) -> dict:  # a short first page of runs, the held one on page 2
@@ -962,7 +981,8 @@ class SigningOwnedMacTests(unittest.TestCase):
             output = Path(tmp) / "out"
             self.assertEqual(signing_runner.main({**env, "GITHUB_OUTPUT": os.fspath(output)}, ["owned"], read,
                                                  jobs), 0)
-            self.assertEqual(output.read_text(), f'owned=["{SIDE}","glaeda-runner-cmux12-glaeda"]\nowned_pool=\n')
+            # nightly's `owned` pick offers only the signer's label, and none of these runners carries it
+            self.assertEqual(output.read_text(), 'owned=\nowned_pool=\n')
             output.unlink()
             self.assertEqual(signing_runner.main({**env, "GITHUB_OUTPUT": os.fspath(output), "ENABLED": "0"}, [],
                                                  read, jobs, lambda t, r: None), 0)
@@ -1012,6 +1032,448 @@ class SigningOwnedMacTests(unittest.TestCase):
             named.add((workflow, str(job.get("name") or job_id)))
         self.assertEqual(named, {(workflow, name) for workflow, names in signing_runner.SIGNING_JOBS.items()
                                  for name in names})
+
+
+class GlaedaExclusiveClassTests(unittest.TestCase):
+    """GLAEDA_EXCLUSIVE_JOBS is glaeda's own hook list, and rule 7a's owned route is proven for every entry.
+
+    check() above covers the entries that make a keychain or hold a Sparkle key.  promote-nightly-next makes
+    neither, so signing_job() skips it there; these cases hold its claim gate, its claim script before the
+    release App key and its empty job env, which is what the keychain guard's rule 7a relies on."""
+
+    EXTRA = {("nightly.yml", "promote-nightly-next"), ("nightly.yml", "promote-nightly-next-acked")}
+
+    def test_the_list_is_the_picker_jobs_plus_the_promote_job(self) -> None:
+        self.assertEqual(SIGNING_JOBS - GLAEDA_EXCLUSIVE_JOBS, set())
+        self.assertEqual(GLAEDA_EXCLUSIVE_JOBS - SIGNING_JOBS, self.EXTRA)
+
+    def test_every_entry_claims_the_whole_mac_before_its_credential(self) -> None:
+        documents = workflows()
+        for workflow, job_id in sorted(GLAEDA_EXCLUSIVE_JOBS):
+            label = f"{workflow} {job_id}"
+            document = dotted(documents[workflow])
+            job = (document.get("jobs") or {})[job_id]
+            with self.subTest(job=label):
+                steps = [step for step in keychain_guard.inline_step_scripts(job).get("steps") or []
+                         if isinstance(step, dict)]
+                gate = steps[0] if steps else {}
+                self.assertEqual(gate.get("id"), CLAIM_GATE_ID, "the first step must be the claim gate")
+                self.assertEqual(str(gate.get("run", "")).strip(), claim_gate_for(workflow).strip())
+                self.assertEqual(set(gate) - {"name", "run", "shell", "id"}, set())
+                self.assertNotIn("secrets.", json.dumps(document.get("env") or {}))
+                self.assertTrue(keychain_guard.claim_gated(label, job), "rule 7a must hold for this job")
+                claim = [index for index, step in enumerate(steps)
+                         if keychain_guard.runs_the_claim_script(step)]
+                self.assertTrue(claim, f"{label}: no step's run: is a CLAIM_COMMANDS line")
+                # owned_route_failures() also refuses a conditional claim, which rule 7a's jobs must not have.
+                # cmux-next-dev-daily's sign is in the class but takes no owned route through
+                # OWNED_ROUTE_VARIABLES, and its claim carries the `if` that skips its whole body with no
+                # source artifact (the unconditional first-step gate is what fails it); so it is held only to
+                # the rules above, as check() above already holds it.
+                runs_on = keychain_guard.strip_literal_selectors(str(job.get("runs-on", "")))
+                owned = any((m.group(1) or m.group(2)).upper() in keychain_guard.OWNED_ROUTE_VARIABLES
+                            for m in keychain_guard.RUNNER_VARIABLE.finditer(runs_on))
+                if owned:
+                    self.assertEqual(keychain_guard.owned_route_failures(label, job), [])
+                    self.assertFalse(str(steps[claim[0]].get("if", "")).strip(),
+                                     f"{label}: takes an owned route, so its claim runs unconditionally")
+
+
+class ClaimInvocationTests(unittest.TestCase):
+    """The claim is proven only by a verbatim CLAIM_COMMANDS line, never by text that resembles one.
+
+    A regex over shell text cannot tell that the script runs, runs unconditionally, runs the real script, and
+    fails the job when it fails. Two review rounds found bypasses of exactly that kind, so detection is now
+    whole-text equality against a small reviewed set, as CLAIM_GATE already is. FAKE is the adversarial list:
+    every way a line can look like it runs the script without unconditionally running that script."""
+
+    # Each real call site in the tree, and the only forms accepted.
+    REAL = (
+        CLAIM,
+        f"./{CLAIM}",
+        f"bash {CLAIM}",
+        f"bash .nightly-signing-control/{CLAIM}",
+        f"bash .publish-tooling/{CLAIM}",
+        f"  bash {CLAIM}  ",            # surrounding whitespace only
+        f"bash {CLAIM}\n",              # YAML block scalar's trailing newline
+    )
+    FAKE = {
+        # Round 2: the path present as text, never as a command.
+        "a comment": f"# bash {CLAIM}",
+        "an indented comment": f"  #   {CLAIM}",
+        "an echo argument": f"echo {CLAIM}",
+        "a printf argument": f"printf '%s\\n' {CLAIM}",
+        "inside a quoted string": f"echo 'the first step checks that claim ({CLAIM})'",
+        "a quoted assignment": f'CLAIM_SCRIPT="{CLAIM}"',
+        "a step-summary line": f'echo "ran {CLAIM}" >> "$GITHUB_STEP_SUMMARY"',
+        "read, not run": f"grep -q claim {CLAIM} || exit 1",
+        # Round 3, F1: control flow, so the claim may not run or its failure is swallowed.
+        "an if that is never taken": f"if false; then bash {CLAIM}; fi",
+        "a conditional claim": f'if [ -n "${{OWNED:-}}" ]; then bash {CLAIM}; fi',
+        "a swallowed failure": f"bash {CLAIM} || true",
+        "a swallowed failure, exiting 0": f"bash {CLAIM} || exit 0",
+        "a swallowed failure, echoing": f'bash {CLAIM} || echo "no claim"',
+        "errexit turned off first": f"set +e\nbash {CLAIM}",
+        "backgrounded, never waited on": f"bash {CLAIM} &",
+        "negated": f"! bash {CLAIM}",
+        "in a subshell whose failure is dropped": f"( bash {CLAIM} ) || true",
+        "sequenced after a true": f"bash {CLAIM}; true",
+        "right-hand side of &&": f'[ -d /Users/Shared/cmux-build-fleet ] && bash {CLAIM}',
+        "in a loop that may not run": f"for _ in $NOTHING; do bash {CLAIM}; done",
+        "in a while that may not run": f"while [ -n \"$FLAG\" ]; do bash {CLAIM}; done",
+        "in a case arm": f"case \"$RUNNER_NAME\" in *-glaeda) bash {CLAIM} ;; esac",
+        "deferred to a trap": f"trap 'bash {CLAIM}' EXIT\necho held",
+        "defined but never called": f"claim() {{ bash {CLAIM}; }}\necho held",
+        "written to a file by a heredoc": f"cat <<'EOF' > /tmp/c\nbash {CLAIM}\nEOF",
+        "piped into another shell's stdin": f"echo 'held' | bash {CLAIM}",
+        # Round 3, F2: a different script that merely ends with the same name.
+        "a fake directory prefix": f"bash evil/{CLAIM}",
+        "a nested fake prefix": f"bash tools/vendor/{CLAIM}",
+        "an absolute path": f"bash /tmp/{CLAIM}",
+        "a parent-directory escape": f"bash ../../../{CLAIM}",
+        "a dot-slash fake prefix": f"./evil/{CLAIM}",
+        # Round 2: a longer file name that starts with the real one.
+        "a backup copy": f"bash {CLAIM}.bak",
+        "no separator before a suffix": f"bash {CLAIM}im",
+        # The bare form is accepted, so every trick above is re-checked without an interpreter in front.
+        "a bare fake prefix": f"evil/{CLAIM}",
+        "a bare nested fake prefix": f"tools/vendor/{CLAIM}",
+        "a bare absolute path": f"/tmp/{CLAIM}",
+        "a bare parent-directory escape": f"../../../{CLAIM}",
+        "a bare sibling of the same name": f"a/{CLAIM}",
+        "a bare call with an argument": f"{CLAIM} --skip",
+        "a bare swallowed failure": f"{CLAIM} || true",
+        "a bare backgrounded call": f"{CLAIM} &",
+        "a bare call inside an if": f"if false; then {CLAIM}; fi",
+        "a bare chained call": f"true && {CLAIM}",
+        "a bare sequenced call": f"{CLAIM}; true",
+        "a bare backup copy": f"{CLAIM}.bak",
+        # Other interpreters: the text would not run as shell at all.
+        "run by a non-bash shell": None,
+    }
+
+    def test_every_real_invocation_counts(self) -> None:
+        for run in self.REAL:
+            with self.subTest(run=run):
+                self.assertTrue(keychain_guard.runs_the_claim_script({"run": run}))
+
+    def test_no_lookalike_counts(self) -> None:
+        for why, run in self.FAKE.items():
+            if run is None:
+                continue
+            with self.subTest(faked_as=why):
+                self.assertFalse(keychain_guard.runs_the_claim_script({"run": run}),
+                                 f"{why} satisfied the claim requirement")
+
+    def test_a_non_bash_shell_does_not_count(self) -> None:
+        self.assertFalse(keychain_guard.runs_the_claim_script({"run": f"bash {CLAIM}", "shell": "python"}))
+        self.assertTrue(keychain_guard.runs_the_claim_script({"run": f"bash {CLAIM}", "shell": "bash"}))
+
+    def test_every_workflow_call_site_is_accepted(self) -> None:
+        """Every `run:` in the tree that names the script is one of the accepted commands.
+
+        So the exact-text contract breaks no call site, and a new one is a reviewed addition to
+        CLAIM_COMMANDS rather than something a looser pattern would wave through."""
+        sites = 0
+        for workflow, document in workflows().items():
+            for name, job in ((document.get("jobs") or {})).items():
+                if not isinstance(job, dict):
+                    continue
+                for step in keychain_guard.inline_step_scripts(job).get("steps") or []:
+                    if not isinstance(step, dict) or CLAIM not in str(step.get("run", "")):
+                        continue
+                    sites += 1
+                    with self.subTest(job=f"{workflow} {name}"):
+                        self.assertTrue(keychain_guard.runs_the_claim_script(step),
+                                        f"{workflow} {name} names {CLAIM} in a form CLAIM_COMMANDS rejects: "
+                                        f"{str(step.get('run', '')).strip()!r}")
+        self.assertGreaterEqual(sites, 11, "no workflow runs the claim script: is this the right tree?")
+
+    def test_the_command_set_stays_small_and_trusted(self) -> None:
+        """Every accepted command runs the real path, bare or from `./` or a sparse-checkout copy, nothing else.
+
+        No absolute path, no `..`, no other directory, and no trailing arguments or operators: the set cannot
+        grow a form that runs something else without this failing."""
+        for command in keychain_guard.CLAIM_COMMANDS:
+            with self.subTest(command=command):
+                self.assertRegex(command, r"^(?:\./|bash (?:\.nightly-signing-control/|\.publish-tooling/)?)?"
+                                 + re.escape(CLAIM) + r"$")
+        self.assertLessEqual(len(keychain_guard.CLAIM_COMMANDS), 5)
+
+    def test_rule_7a_refuses_a_claim_that_may_not_run_or_may_fail_quietly(self) -> None:
+        gate = {"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash",
+                "run": claim_gate_for("nightly.yml")}
+        real = {"run": f"bash {CLAIM}"}
+        label = "nightly.yml generate-nightly-deltas"
+        cases = {
+            "without a step whose whole run: is one of": [gate, {"run": f"# bash {CLAIM}"},
+                                                          OwnedRouteVariableTests.SPARKLE],
+            "is conditional": [gate, {**real, "if": "runner.os == 'macOS'"}, OwnedRouteVariableTests.SPARKLE],
+            "has continue-on-error": [gate, {**real, "continue-on-error": True},
+                                      OwnedRouteVariableTests.SPARKLE],
+        }
+        for needle, steps in cases.items():
+            with self.subTest(needle=needle):
+                found: list[str] = []
+                keychain_guard.check_job(label, {"runs-on": OwnedRouteVariableTests.RUNS_ON, "steps": steps},
+                                         found)
+                self.assertTrue(any(needle in why for why in found), found)
+
+
+class PresenceConditionTests(unittest.TestCase):
+    """A variable tested only for being set is a mode switch, not a route, and laundering one is not possible.
+
+    nightly.yml's one-mini mode reads `vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER`: the mini
+    variable gates the choice and the signing runner supplies the label, so CI_NIGHTLY_MINI's own value can
+    never become the runs-on label. Only that comparison is dropped; whatever gives the label is still checked,
+    so a presence test cannot be used to smuggle an unchecked variable past rule 7."""
+
+    END = "|| 'blacksmith-6vcpu-macos-26' }}"
+
+    def label_variables(self, runs_on: str) -> list[str]:
+        stripped = keychain_guard.strip_literal_selectors(runs_on)
+        return [(m.group(1) or m.group(2)).upper()
+                for m in keychain_guard.RUNNER_VARIABLE.finditer(stripped)]
+
+    def test_a_presence_test_is_not_a_route(self) -> None:
+        runs_on = f"${{{{ vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER {self.END}"
+        self.assertEqual(self.label_variables(runs_on), ["CI_NIGHTLY_SIGN_RUNNER"])
+
+    def test_the_label_a_presence_test_selects_is_still_checked(self) -> None:
+        """Dropping the condition must not drop the variable that actually gives the label."""
+        runs_on = f"${{{{ vars.CI_NIGHTLY_MINI != '' && vars.SOME_SHARED_RUNNER {self.END}"
+        self.assertEqual(self.label_variables(runs_on), ["SOME_SHARED_RUNNER"])
+        job = {"runs-on": runs_on,
+               "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash",
+                          "run": claim_gate_for("nightly.yml")},
+                         {"run": f"bash {CLAIM}"}, OwnedRouteVariableTests.SPARKLE]}
+        found: list[str] = []
+        keychain_guard.check_job("nightly.yml generate-nightly-deltas", job, found)
+        self.assertTrue(any("picks its runner from vars.SOME_SHARED_RUNNER" in why for why in found), found)
+
+    def test_a_variable_both_tested_and_read_is_still_checked(self) -> None:
+        """Whether or not the condition is dropped, a variable that can give the label still faces checks.
+
+        An unknown name is not a mode, so nothing is dropped and both reads stay. A mode variable's
+        condition is dropped, and the read that remains is then checked like any other route."""
+        self.assertEqual(self.label_variables(f"${{{{ vars.X != '' && vars.X {self.END}"), ["X", "X"])
+        self.assertEqual(
+            self.label_variables(f"${{{{ vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI {self.END}"),
+            ["CI_NIGHTLY_MINI"])
+
+    def test_an_unknown_variable_is_never_treated_as_a_mode(self) -> None:
+        """router-review F1 at a2414e56ffc: `vars.BAD != '' && 'macos-26'` must not reduce to literals.
+
+        Dropping any `vars.X != '' &&` left an all-literal expression with no variable to check, so a job
+        whose set branch sends secrets to a hosted Mac passed, where the unknown variable had failed it
+        before. Only MODE_VARIABLES names are dropped now."""
+        runs_on = f"${{{{ vars.BAD != '' && 'macos-26' {self.END}"
+        self.assertEqual(self.label_variables(runs_on), ["BAD"])
+        job = {"runs-on": runs_on,
+               "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash",
+                          "run": claim_gate_for("nightly.yml")},
+                         {"run": f"bash {CLAIM}"}, OwnedRouteVariableTests.SPARKLE]}
+        found: list[str] = []
+        keychain_guard.check_job("nightly.yml generate-nightly-deltas", job, found)
+        self.assertTrue(any("picks its runner from vars.BAD" in why for why in found), found)
+        self.assertNotIn("BAD", keychain_guard.MODE_VARIABLES)
+
+    def test_a_mode_variable_selecting_a_literal_is_not_dropped(self) -> None:
+        """Nothing here validates literal labels (the fork route puts a hosted `macos-26` in every nightly
+        runs-on), so a mode clause that selects a literal keeps the mode variable in view and fails."""
+        runs_on = f"${{{{ vars.CI_NIGHTLY_MINI != '' && 'macos-26' {self.END}"
+        self.assertEqual(self.label_variables(runs_on), ["CI_NIGHTLY_MINI"])
+        job = {"runs-on": runs_on,
+               "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash",
+                          "run": claim_gate_for("nightly.yml")},
+                         {"run": f"bash {CLAIM}"}, OwnedRouteVariableTests.SPARKLE]}
+        found: list[str] = []
+        keychain_guard.check_job("nightly.yml generate-nightly-deltas", job, found)
+        self.assertTrue(any("picks its runner from vars.CI_NIGHTLY_MINI" in why for why in found), found)
+
+    def test_a_mode_variable_selecting_the_signer_label_is_dropped(self) -> None:
+        """The one literal a mode clause may select is the signer's own label, the value runner_label_policy
+        holds the signing route variables to; a look-alike that only starts with it is not that label."""
+        runs_on = f"${{{{ vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' {self.END}"
+        self.assertEqual(self.label_variables(runs_on), [])
+        for label in ("glaeda-trusted-next-signing-x", "glaeda-trusted-next-signing,macos-26"):
+            with self.subTest(label=label):
+                runs_on = f"${{{{ vars.CI_NIGHTLY_MINI != '' && '{label}' {self.END}"
+                self.assertEqual(self.label_variables(runs_on), ["CI_NIGHTLY_MINI"])
+
+    def test_the_mode_list_stays_small(self) -> None:
+        self.assertEqual(set(keychain_guard.MODE_VARIABLES), {"CI_NIGHTLY_MINI"})
+
+    def test_only_an_empty_string_comparison_is_a_presence_test(self) -> None:
+        for runs_on in (f"${{{{ vars.X != 'foo' && vars.X {self.END}",
+                        f"${{{{ vars.X && vars.X {self.END}"):
+            with self.subTest(runs_on=runs_on):
+                self.assertEqual(self.label_variables(runs_on), ["X", "X"])
+
+    def test_the_nightly_signing_jobs_read_the_mini_only_as_a_condition(self) -> None:
+        """In the tree: every rule 7a job's one-mini read is a presence test, and the label is the signer."""
+        jobs = workflows()["nightly.yml"]["jobs"]
+        seen = 0
+        for workflow, job_id in sorted(GLAEDA_EXCLUSIVE_JOBS):
+            if workflow != "nightly.yml":
+                continue
+            runs_on = str(jobs[job_id].get("runs-on", ""))
+            if "CI_NIGHTLY_MINI" not in runs_on:
+                continue
+            seen += 1
+            with self.subTest(job=job_id):
+                self.assertRegex(runs_on, r"vars\.CI_NIGHTLY_MINI\s*!=\s*''\s*&&\s*"
+                                          r"(?:vars\.CI_NIGHTLY_SIGN_RUNNER|'glaeda-trusted-next-signing')")
+                self.assertNotIn("CI_NIGHTLY_MINI", self.label_variables(runs_on))
+        self.assertGreaterEqual(seen, 6, "one-mini mode is gone from the signing jobs; re-check this test")
+
+
+class OwnedRouteVariableTests(unittest.TestCase):
+    """The keychain guard's rule 7a waives a repository variable only for a job that proves the claim."""
+
+    SPARKLE = {"name": "Sign the feed", "run": "echo sign", "env": {"KEY": "${{ secrets.NIGHTLY_SPARKLE_KEY }}"}}
+    RUNS_ON = "${{ vars.CI_NIGHTLY_SIGN_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}"
+
+    def failures(self, label: str, job: dict) -> list[str]:
+        found: list[str] = []
+        keychain_guard.check_job(label, job, found)
+        return found
+
+    def gate(self, workflow: str) -> dict:
+        return {"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash", "run": claim_gate_for(workflow)}
+
+    def test_a_job_outside_the_exclusive_class_may_not_read_the_variable(self) -> None:
+        job = {"runs-on": self.RUNS_ON, "steps": [self.gate("other.yml"), self.SPARKLE]}
+        found = self.failures("other.yml sign", job)
+        self.assertTrue(any("picks its runner from vars.CI_NIGHTLY_SIGN_RUNNER" in why for why in found), found)
+
+    def test_a_job_in_the_class_without_the_verbatim_gate_may_not_read_it(self) -> None:
+        gate = self.gate("nightly.yml")
+        gate["run"] = gate["run"].replace("exit 1", "exit 0")
+        job = {"runs-on": self.RUNS_ON, "steps": [gate, {"run": f"bash {CLAIM}"}, self.SPARKLE]}
+        found = self.failures("nightly.yml generate-nightly-deltas", job)
+        self.assertTrue(any("picks its runner from vars.CI_NIGHTLY_SIGN_RUNNER" in why for why in found), found)
+
+    def test_a_gated_job_still_needs_the_claim_script_before_its_secret(self) -> None:
+        gate = self.gate("nightly.yml")
+        job = {"runs-on": self.RUNS_ON, "steps": [gate, self.SPARKLE, {"run": f"bash {CLAIM}"}]}
+        found = self.failures("nightly.yml generate-nightly-deltas", job)
+        self.assertTrue(any("names a signing secret before or in the claim step" in why for why in found), found)
+        job = {"runs-on": self.RUNS_ON, "steps": [gate, self.SPARKLE]}
+        found = self.failures("nightly.yml generate-nightly-deltas", job)
+        self.assertTrue(any("without a step whose whole run: is one of" in why for why in found), found)
+
+    def test_a_secret_step_may_not_survive_a_failed_claim(self) -> None:
+        """router-review F1 at a4f1eccc7e7: coming after the claim is not enough.
+
+        A secret-bearing step whose condition overrides failure (`always()`, `failure()`, `cancelled()`) runs
+        even on an owned Mac whose claim the gate just refused, so the credential is in reach regardless of
+        step order. test_ci_signing_owned_mac's check() has always held this for the jobs it covers; rule 7a
+        now holds it for the rest of the exclusive class, promote-nightly-next included."""
+        gate = {"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash",
+                "run": claim_gate_for("nightly.yml")}
+        for condition in ("always()", "failure()", "cancelled()", "${{ always() }}",
+                          "success() || always()", "!success()", "${{ !success() }}",
+                          "success() || github.event_name == 'push'",
+                          "${{ success() || github.event_name == 'push' }}",
+                          "success() && github.ref == 'refs/heads/main' || true",
+                          "github.ref == 'refs/heads/main' && success()", "SUCCESS() || true",
+                          "success() && !cancelled()"):
+            with self.subTest(condition=condition):
+                job = {"runs-on": self.RUNS_ON,
+                       "steps": [gate, {"run": f"bash {CLAIM}"},
+                                 {**self.SPARKLE, "if": condition}]}
+                found: list[str] = []
+                keychain_guard.check_job("nightly.yml generate-nightly-deltas", job, found)
+                self.assertTrue(any("runs after a failed claim" in why for why in found), found)
+
+    def test_a_secret_step_with_an_ordinary_condition_is_fine(self) -> None:
+        """Only a failure-surviving condition is refused; a normal `if` on a secret step is allowed, as the
+        tree has (promote-nightly-next's token step runs only when the decision says to promote)."""
+        job = {"runs-on": self.RUNS_ON,
+               "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash",
+                          "run": claim_gate_for("nightly.yml")},
+                         {"run": f"bash {CLAIM}"},
+                         {**self.SPARKLE, "if": "steps.decide.outputs.action == 'promote'"}]}
+        self.assertEqual(self.failures("nightly.yml generate-nightly-deltas", job), [])
+
+    def test_an_explicit_leading_success_keeps_the_implicit_guard(self) -> None:
+        """`success() && x` is what GitHub prefixes on its own, so it is no more than an ordinary `if`."""
+        for condition in ("", None, "success()", "${{ success() }}", "  success()  ",
+                          "success() && github.ref == 'refs/heads/nightly-next'",
+                          "${{ success() && steps.decide.outputs.action == 'promote' }}",
+                          "steps.decide.outputs.action == 'promote' || github.ref == 'refs/heads/main'"):
+            with self.subTest(condition=condition):
+                self.assertFalse(keychain_guard.runs_after_failure(condition))
+
+    def test_no_exclusive_class_job_lets_a_secret_survive_a_failed_claim(self) -> None:
+        """In the tree: no job of the class has a secret-bearing step that overrides failure."""
+        documents = workflows()
+        for workflow, job_id in sorted(GLAEDA_EXCLUSIVE_JOBS):
+            job = (dotted(documents[workflow]).get("jobs") or {})[job_id]
+            for index, step in enumerate(keychain_guard.inline_step_scripts(job).get("steps") or []):
+                if not isinstance(step, dict):
+                    continue
+                if not keychain_guard.SIGNING_SECRET_REFERENCE.search(json.dumps(step)):
+                    continue
+                with self.subTest(job=f"{workflow} {job_id}", step=index):
+                    self.assertFalse(keychain_guard.runs_after_failure(step.get("if")), step.get("if"))
+
+    def test_a_gated_job_may_not_hold_the_secret_in_its_job_env(self) -> None:
+        job = {"runs-on": self.RUNS_ON, "env": {"KEY": "${{ secrets.NIGHTLY_SPARKLE_KEY }}"},
+               "steps": [self.gate("nightly.yml"), {"run": f"bash {CLAIM}"}, {"run": "echo sign"}]}
+        found = self.failures("nightly.yml generate-nightly-deltas", job)
+        self.assertTrue(any("job-level env names a signing secret" in why for why in found), found)
+
+    def test_a_gated_job_takes_the_owned_route(self) -> None:
+        job = {"runs-on": self.RUNS_ON,
+               "steps": [self.gate("nightly.yml"), {"run": f"bash {CLAIM}"}, self.SPARKLE]}
+        self.assertEqual(self.failures("nightly.yml generate-nightly-deltas", job), [])
+
+    def test_the_claim_runs_from_the_workspace_root(self) -> None:
+        """router-review F1 at 9aacf011fd8: CLAIM_COMMANDS are checkout-relative, so a working directory
+        (the step's, or the job's run default) would run some other tree's copy of the script."""
+        self.assertFalse(keychain_guard.runs_the_claim_script({"run": f"bash {CLAIM}", "working-directory": "evil"}))
+        self.assertFalse(keychain_guard.runs_the_claim_script(
+            {"run": f"bash {CLAIM}"}, {"defaults": {"run": {"working-directory": "evil"}}}))
+        self.assertTrue(keychain_guard.runs_the_claim_script({"run": f"bash {CLAIM}"}, {"defaults": {"run": {}}}))
+        for job in ({"steps": [self.gate("nightly.yml"), {"run": f"bash {CLAIM}", "working-directory": "evil"},
+                               self.SPARKLE]},
+                    {"defaults": {"run": {"working-directory": "evil"}},
+                     "steps": [self.gate("nightly.yml"), {"run": f"bash {CLAIM}"}, self.SPARKLE]}):
+            with self.subTest(job=job):
+                found = self.failures("nightly.yml generate-nightly-deltas", dict(job, **{"runs-on": self.RUNS_ON}))
+                self.assertTrue(any("without a step whose whole run: is one of" in why for why in found), found)
+
+    def test_a_secret_in_the_claim_steps_own_env_is_before_the_claim(self) -> None:
+        """router-review F2 at 9aacf011fd8: a step's env is set before its script runs."""
+        claim = {"run": f"bash {CLAIM}", "env": {"KEY": "${{ secrets.NIGHTLY_SPARKLE_KEY }}"}}
+        job = {"runs-on": self.RUNS_ON, "steps": [self.gate("nightly.yml"), claim, self.SPARKLE]}
+        found = self.failures("nightly.yml generate-nightly-deltas", job)
+        self.assertTrue(any("before or in the claim step" in why for why in found), found)
+
+    def test_an_owned_variable_only_tested_in_a_condition_is_not_the_route(self) -> None:
+        """router-review F1 at 1e9095d099b: the waiver is for the variable that gives the label. Tested in a
+        condition, it lets whatever it selects be the label, and the claim gate does nothing on a hosted Mac."""
+        for runs_on in ("${{ vars.CI_NIGHTLY_SIGN_RUNNER != '' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}",
+                        "${{ vars.CI_NIGHTLY_SIGN_RUNNER && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}",
+                        "${{ vars.CI_NIGHTLY_SIGNING_POOL == 'x' && vars.SOME_SHARED_RUNNER || "
+                        "'blacksmith-6vcpu-macos-26' }}",
+                        "${{ vars.CI_SIDE_LANE_RUNNER != '' && 'macos-26' }}"):
+            with self.subTest(runs_on=runs_on):
+                job = {"runs-on": runs_on,
+                       "steps": [self.gate("nightly.yml"), {"run": f"bash {CLAIM}"}, self.SPARKLE]}
+                found = self.failures("nightly.yml generate-nightly-deltas", job)
+                self.assertTrue(any("picks its runner from vars." in why or "other than as" in why
+                                    for why in found), found)
+        # the tree's shape: the variable gives the label, after a mode test or among alternatives
+        for runs_on in ("${{ vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || "
+                        "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}",
+                        "${{ github.event_name == 'push' && vars.CI_NIGHTLY_SIGN_RUNNER }}"):
+            with self.subTest(runs_on=runs_on):
+                job = {"runs-on": runs_on,
+                       "steps": [self.gate("nightly.yml"), {"run": f"bash {CLAIM}"}, self.SPARKLE]}
+                self.assertEqual(self.failures("nightly.yml generate-nightly-deltas", job), [])
 
 
 class ClaimScriptTests(unittest.TestCase):
@@ -1240,6 +1702,66 @@ class ClaimGateTests(unittest.TestCase):
                                   GITHUB_SHA="c" * 40).returncode, 1, "another commit's list is never read")
 
 
+# How long glaeda's newest pin may go unlisted before the guard fails. HQ's glaeda-signing-hooks sync opens the PR that
+# lists it within 15 min of the pin, and next-review and next-autoland land it with its review, so a glaeda release no
+# longer reddens the base (it did three times on 2026-11-04, each until a person landed the sync PR). Meanwhile the claim
+# gate refuses the unlisted hook and minis on it sign on Blacksmith, as before. Past the window the sync is stuck, and
+# the guard fails as it always did.
+NEWEST_HOOK_GRACE = dt.timedelta(hours=2)
+GLAEDA_GIT_URL = "https://github.com/teamleaderleo/glaeda.git"
+# glaeda-disk commits read, newest first, to find when a pin first appeared: a pin older than all of them is past any
+# window.
+PIN_WALK = 20
+
+
+def parse_pins(text: str) -> list[str]:
+    """glaeda-disk's CMUX_NEXT_DRAIN_HOOK_SHA256, in its order (oldest first); [] when it declares none."""
+    block = re.search(r"CMUX_NEXT_DRAIN_HOOK_SHA256 = frozenset\(\{(.*?)\}\)", text, re.S)
+    return re.findall(r'"([0-9a-f]{64})"', block.group(1)) if block else []
+
+
+def glaeda_disk_history() -> Iterator[tuple[dt.datetime, list[str]]]:
+    """(committer date, pins) of each of glaeda main's last PIN_WALK glaeda-disk commits, newest first, read over git
+    (a blobless clone, each blob fetched as it is reached), so it spends no GitHub API quota."""
+    with tempfile.TemporaryDirectory() as tmp:
+        def git(*args: str) -> str:
+            return subprocess.run(["git", "-C", tmp, *args], capture_output=True, text=True, check=True,
+                                  timeout=60).stdout
+        subprocess.run(["git", "clone", "-q", "--bare", "--filter=blob:none", "--single-branch", "--branch", "main",
+                        GLAEDA_GIT_URL, tmp], capture_output=True, text=True, check=True, timeout=120)
+        for line in git("log", f"-n{PIN_WALK}", "--format=%H %cI", "--", "scripts/glaeda-disk").splitlines():
+            commit, when = line.split()
+            yield dt.datetime.fromisoformat(when), parse_pins(git("show", f"{commit}:scripts/glaeda-disk"))
+
+
+def pinned_since(sha: str, history: Iterable[tuple[dt.datetime, list[str]]]) -> dt.datetime | None:
+    """When glaeda-disk first pinned `sha`: the date of the oldest commit in the newest unbroken run of commits that pin
+    it (`history` newest first). None when the newest commit lacks it, or the run reaches the end of `history` (pinned
+    before the walk's oldest commit, so older than any window)."""
+    since = None
+    for when, pinned in history:
+        if sha not in pinned:
+            return since
+        since = when
+    return None
+
+
+def unlisted_newest_hook_waits(sha: str, history: Iterable[tuple[dt.datetime, list[str]]], now: dt.datetime) -> str:
+    """Why glaeda's newest pin `sha`, which the list lacks, does not fail the guard yet, or "" when it does: glaeda pinned
+    it less than NEWEST_HOOK_GRACE ago. A history that can't be read, a pin older than the walk, or a pin date more
+    than a few minutes in the future fails it."""
+    try:
+        since = pinned_since(sha, history)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return ""
+    if since is None or not -dt.timedelta(minutes=5) <= now - since < NEWEST_HOOK_GRACE:
+        return ""
+    left = int((NEWEST_HOOK_GRACE - (now - since)).total_seconds() // 60)
+    return (f"glaeda pinned its newest hook {sha} at {since.isoformat()}, and {SIGNING_HOOKS_FILE.name} does not list "
+            f"it yet; minis on it sign on Blacksmith until the glaeda-signing-hooks sync PR lands. This guard fails if "
+            f"it is still unlisted in {left} min")
+
+
 class SigningHooksInStepWithGlaedaTests(unittest.TestCase):
     """scripts/ci/glaeda-signing-hooks.txt names only hooks glaeda released with the leftover-process check: each sha
     is one glaeda-disk pins in CMUX_NEXT_DRAIN_HOOK_SHA256, at or after FIRST_SIGNING_HOOK in its order."""
@@ -1255,9 +1777,9 @@ class SigningHooksInStepWithGlaedaTests(unittest.TestCase):
                 last = error
         else:
             self.fail(f"could not read glaeda's pins from {GLAEDA_DISK_URL}: {last}")
-        block = re.search(r"CMUX_NEXT_DRAIN_HOOK_SHA256 = frozenset\(\{(.*?)\}\)", text, re.S)
-        self.assertIsNotNone(block, "glaeda-disk no longer declares CMUX_NEXT_DRAIN_HOOK_SHA256")
-        return re.findall(r'"([0-9a-f]{64})"', block.group(1))
+        self.assertIn("CMUX_NEXT_DRAIN_HOOK_SHA256 = frozenset", text,
+                      "glaeda-disk no longer declares CMUX_NEXT_DRAIN_HOOK_SHA256")
+        return parse_pins(text)
 
     def test_every_listed_hook_is_one_glaeda_released_with_the_check(self) -> None:
         self.assertEqual(len(SIGNING_HOOKS), len(set(SIGNING_HOOKS)), "a sha is listed twice")
@@ -1270,10 +1792,64 @@ class SigningHooksInStepWithGlaedaTests(unittest.TestCase):
             self.assertIn(sha, released, f"{sha} is not a hook glaeda pinned at or after {FIRST_SIGNING_HOOK[:8]}")
         # glaeda #1740's hook was released and never listed, so every owned signing attempt was refused for hours: the
         # hook glaeda pins now (its newest, which minis are moving to) must be listed. HQ's glaeda-signing-hooks-sync
-        # workflow opens the PR that adds it.
+        # workflow opens the PR that adds it, which has NEWEST_HOOK_GRACE to land.
+        if pins[-1] not in SIGNING_HOOKS:
+            waits = unlisted_newest_hook_waits(pins[-1], glaeda_disk_history(), dt.datetime.now(dt.timezone.utc))
+            if waits:
+                print(f"::warning title=glaeda signing hooks::{waits}")
+                return
         self.assertIn(pins[-1], SIGNING_HOOKS,
                       f"glaeda's newest hook {pins[-1]} is not in {SIGNING_HOOKS_FILE.name}; minis on it sign on "
                       "Blacksmith until it is added (add its line, or land the glaeda-signing-hooks sync PR)")
+
+
+class NewestHookGraceTests(unittest.TestCase):
+    """An unlisted newest glaeda pin fails the guard only once it is NEWEST_HOOK_GRACE old (cmuxterm-hq, 2026-11-04)."""
+
+    NOW = dt.datetime(2026, 11, 4, 19, 0, tzinfo=dt.timezone.utc)
+    NEW, OLD = "a" * 64, "b" * 64
+
+    def history(self, *minutes_ago_and_pins: tuple[int, list[str]]) -> list[tuple[dt.datetime, list[str]]]:
+        return [(self.NOW - dt.timedelta(minutes=m), pins) for m, pins in minutes_ago_and_pins]
+
+    def test_a_fresh_pin_waits_and_an_old_one_fails(self) -> None:
+        both = [self.OLD, self.NEW]
+        fresh = self.history((10, both), (30, both), (200, [self.OLD]))
+        self.assertEqual(pinned_since(self.NEW, fresh), self.NOW - dt.timedelta(minutes=30), "its first commit counts")
+        self.assertIn("fails if it is still unlisted in 90 min", unlisted_newest_hook_waits(self.NEW, fresh, self.NOW))
+        stale = self.history((10, both), (125, both), (200, [self.OLD]))
+        self.assertEqual(unlisted_newest_hook_waits(self.NEW, stale, self.NOW), "",
+                         "a later glaeda-disk commit never restarts the window")
+
+    def test_whatever_cant_be_dated_fails(self) -> None:
+        both = [self.OLD, self.NEW]
+        cases = {
+            "pinned before the walk's oldest commit": self.history((10, both), (20, both)),
+            "the newest commit lacks it": self.history((10, [self.OLD]), (20, both), (30, [self.OLD])),
+            "no history": [],
+            "a date in the future": self.history((-30, both), (200, [self.OLD])),
+        }
+        for why, history in cases.items():
+            with self.subTest(why):
+                self.assertEqual(unlisted_newest_hook_waits(self.NEW, history, self.NOW), "")
+
+        def unreadable() -> Iterator[tuple[dt.datetime, list[str]]]:
+            raise subprocess.CalledProcessError(128, ["git", "clone"])
+            yield  # a generator, as glaeda_disk_history is
+        self.assertEqual(unlisted_newest_hook_waits(self.NEW, unreadable(), self.NOW), "")
+
+    def test_the_guard_reads_the_window_only_for_an_unlisted_newest_pin(self) -> None:
+        source = Path(__file__).read_text()
+        guard = source[source.index("    def test_every_listed_hook_is_one_glaeda_released_with_the_check"):]
+        guard = guard[:guard.index("\n\n\n")]
+        self.assertLess(guard.index("if pins[-1] not in SIGNING_HOOKS:"), guard.index("glaeda_disk_history()"))
+        self.assertLess(guard.index("for sha in SIGNING_HOOKS:\n            self.assertIn(sha, released"),
+                        guard.index("glaeda_disk_history()"), "every listed hook is still checked first, strictly")
+
+    def test_the_glaeda_history_reader_parses_pins(self) -> None:
+        text = 'X = 1\nCMUX_NEXT_DRAIN_HOOK_SHA256 = frozenset({\n    "%s",  # old\n    "%s",\n})\n' % (self.OLD, self.NEW)
+        self.assertEqual(parse_pins(text), [self.OLD, self.NEW])
+        self.assertEqual(parse_pins("nothing here"), [])
 
 
 # A 64-hex sha256 in a workflow: a hook named outside the one list.

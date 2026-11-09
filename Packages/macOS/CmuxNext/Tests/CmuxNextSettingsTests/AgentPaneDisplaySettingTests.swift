@@ -25,8 +25,28 @@ struct AgentPaneDisplaySettingTests {
         Row(key: "agentPane.display.vscodeMinimap", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // The running turn's task list pinned in the chat: off, the composer's hat shows it.
         Row(key: "agentPane.display.pinnedPlan", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
+        // The hat over the composer tucked away to its pull tab: off, it shows.
+        Row(key: "agentPane.display.trayTucked", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
+        // Where the hat's tuck handle sits along the composer's top edge: the middle unless set.
+        Row(key: "agentPane.display.trayHandle", fallback: .string("middle"), accepted: [.string("left"), .string("right")],
+            refused: [.string("top"), .bool(true)]),
+        // A sender's icon: the family's mark big, a diamond badge at its bottom right, unless set.
+        Row(key: "agentPane.display.senderIcon.lead", fallback: .string("family"), accepted: [.string("session")],
+            refused: [.string("big"), .bool(true)]),
+        Row(key: "agentPane.display.senderIcon.badge", fallback: .string("diamond"),
+            accepted: [.string("robot"), .string("none")], refused: [.string("cloud"), .bool(true)]),
+        Row(key: "agentPane.display.senderIcon.corner", fallback: .string("bottom-right"),
+            accepted: [.string("bottom-left"), .string("top-right"), .string("top-left")],
+            refused: [.string("right"), .bool(true)]),
         Row(key: "agentPane.display.font.preset", fallback: .string("markdown"),
             accepted: [.string("system"), .string("serif"), .string("mono")], refused: [.string("comic")]),
+        // The whole chat's face: the macOS system font unless one of the candidates is picked
+        // (ab5bc5a1, Font-order: "default fonts on cmux for everything should be macos default, not inter").
+        Row(key: "agentPane.display.font.ui", fallback: .string("system-ui"),
+            accepted: [.string("verdana"), .string("roboto"), .string("plex"), .string("source-sans"), .string("geist"),
+                       .string("inter"), .string("inter-tuned"), .string("system-ui-tight"),
+                       .string("cmux-sans"), .string("hanken"), .string("atkinson")],
+            refused: [.string("comic"), .string("system"), .bool(true)]),
         Row(key: "agentPane.display.font.size", fallback: .number(14), accepted: [.number(10), .number(28)],
             refused: [.number(4), .number(40)]),
         Row(key: "agentPane.display.font.lineHeight", fallback: .number(1.625), accepted: [.number(1.2), .number(2.4)],
@@ -45,6 +65,10 @@ struct AgentPaneDisplaySettingTests {
             accepted: [.string("thinking"), .string("verbose")], refused: [.string("loud"), .bool(true)]),
         Row(key: "agentPane.display.presentation", fallback: .string("transcript"),
             accepted: [.string("messages")], refused: [.string("bubbles"), .bool(true)]),
+        Row(key: "agentPane.display.statusVerbs.mode", fallback: .string("thinking"),
+            accepted: [.string("thinking"), .string("custom")], refused: [.string("random"), .bool(true)]),
+        Row(key: "agentPane.display.statusVerbs.custom", fallback: nil,
+            accepted: [.string("Reading, Planning")], refused: [.number(3)]),
         Row(key: "agentPane.display.rail.side", fallback: .string("left"), accepted: [.string("right")],
             refused: [.string("top"), .bool(true)]),
         Row(key: "markdown.code.family", fallback: nil, accepted: [.string("Menlo")], refused: [.bool(true)]),
@@ -156,10 +180,20 @@ struct AgentPaneDisplaySettingTests {
         #expect(AgentPaneDisplaySetting(fileRoot: bad) == .fallback)
     }
 
+    @Test func statusVerbsReachThePageThroughDisplaySettings() {
+        let root: JSONValue = ["agentPane": ["display": ["statusVerbs": [
+            "mode": "custom", "custom": "Reading, Planning",
+        ]]]]
+        let values = AgentPaneDisplaySetting(fileRoot: root).values
+        #expect(values["agentPane.display.statusVerbs.mode"] == .string("custom"))
+        #expect(values["agentPane.display.statusVerbs.custom"] == .string("Reading, Planning"))
+    }
+
     @Test(arguments: [
         "agentPane.display.width", "agentPane.display.code.family", "agentPane.display.font.size",
         "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement",
         "agentPane.display.minimap", "agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.rail.side",
+        "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
     ])
     func thePageMayWriteTheChatKeys(_ key: String) {
         #expect(AgentPaneDisplaySetting.writablePath(key) == key.split(separator: ".").map(String.init))

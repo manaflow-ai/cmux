@@ -30,14 +30,28 @@ public final class ChildPageFocus {
     private let keys: any KeyWindowSwitching
     /// Gives (true) or takes (false) a page's focus; giving a Chromium page focus makes its window key.
     private let setFocus: (AnyObject, Bool) -> Void
+    /// Whether a page's window can hold the keys now (shown, in a window, not empty).
+    private let canTakeKeys: (AnyObject) -> Bool
+    /// The page keeps its ask, granted once it can take the keys again.
+    private let keepAsk: (AnyObject) -> Void
+    /// A page that is no longer the focused one drops a kept ask (``replace(with:)``).
+    private let dropAsk: (AnyObject) -> Void
 
     /// A tracker with no focused page.
     ///
     /// - Parameters:
     ///   - keys: The key window: ``AppKitKeyWindows`` in the app, a recorder in tests.
+    ///   - canTakeKeys: Whether a page's window can hold the keys now (default: always).
+    ///   - keepAsk: The page keeps its focus ask, to be granted when it can take the keys again (default: nothing).
+    ///   - dropAsk: The page drops a kept ask: it is no longer the focused page (default: nothing).
     ///   - setFocus: Gives (`true`) or takes (`false`) a page's focus.
-    public init(keys: any KeyWindowSwitching, setFocus: @escaping (AnyObject, Bool) -> Void) {
+    public init(keys: any KeyWindowSwitching, canTakeKeys: @escaping (AnyObject) -> Bool = { _ in true },
+                keepAsk: @escaping (AnyObject) -> Void = { _ in }, dropAsk: @escaping (AnyObject) -> Void = { _ in },
+                setFocus: @escaping (AnyObject, Bool) -> Void) {
         self.keys = keys
+        self.canTakeKeys = canTakeKeys
+        self.keepAsk = keepAsk
+        self.dropAsk = dropAsk
         self.setFocus = setFocus
     }
 
@@ -65,7 +79,8 @@ public final class ChildPageFocus {
     ///
     /// Nothing happens inside a grant (AppKit's key changes there are the grant's own), when
     /// `window` is not key (an inactive app has no key window), or during a click (the click
-    /// decides where the keys go).
+    /// decides where the keys go). A page that cannot take the keys now (``canTakeKeys``) keeps
+    /// focus and its ask (``keepAsk``), with no blur and no grant.
     ///
     /// - Parameters:
     ///   - window: The cmux window.
@@ -73,9 +88,23 @@ public final class ChildPageFocus {
     /// - Returns: Whether a page lost focus; the caller then re-applies its target.
     public func keysReturned(to window: NSWindow, during event: NSEvent? = NSApplication.shared.currentEvent) -> Bool {
         let clicks: [NSEvent.EventType] = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
-        guard !granting, page != nil, keys.isKey(window), !clicks.contains(where: { $0 == event?.type }) else { return false }
+        guard !granting, let page, keys.isKey(window), !clicks.contains(where: { $0 == event?.type }) else { return false }
+        // The page's window was ordered out (its host hidden or empty): a grant now would order it in and take the keys
+        // again, and the next layout pass would order it out again (31 key changes per Cmd-N, INSTANT OWNER #36474).
+        // It keeps focus and its ask; it is granted once it can take the keys.
+        guard canTakeKeys(page) else {
+            keepAsk(page)
+            return false
+        }
         blurPage()
         return true
+    }
+
+    /// The page this window gave focus to becomes `next` with no blur and no key change (the keyboard moved to DevTools, a
+    /// click chose a page). The old page drops a kept ask, so it cannot take the keys later.
+    public func replace(with next: AnyObject?) {
+        if let old = page, old !== next { dropAsk(old) }
+        page = next
     }
 
     /// The focused page loses focus. The key window does not change.

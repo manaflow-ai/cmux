@@ -18,7 +18,7 @@ final class AppBrowserHost {
     let provider: BrowserHostProvider
     let driver: WebKitDriver
     private let credentials: AppProviderCredentials
-    private let tabs: AppBrowserHostTabs
+    let tabs: AppBrowserHostTabs
     private let relay: AppDevToolsRelay
     private weak var services: AppServices?
     /// Lease frames to every content's agent cursor (agent-cursor.md section 3).

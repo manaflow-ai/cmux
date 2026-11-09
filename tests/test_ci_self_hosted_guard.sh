@@ -1151,6 +1151,10 @@ SIGNER_BUILD_ROUTE
     "nightly.yml:$publish_route"
     "nightly.yml:$signer_build_route"
     "cmux-next-dev-daily.yml:$signer_pick_route"
+    # republish-nightly-deltas: nightly-next takes the trusted signing runner (the whole Mac); the other tracks
+    # keep the signer route's hosted Ubuntu, as their release uploads may wait out the rate limit for up to 6 h,
+    # which must not hold the signing Mac.
+    "nightly.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref != 'refs/heads/nightly-next' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}"
     # The visual gate's runner pick holds secrets and has no claim gate: the reserved nightly-only mini on a
     # nightly-next first attempt (the guarded bootstrap selector), else hosted Ubuntu, never Blacksmith.
     "nightly.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || 'ubuntu-24.04' }}"
@@ -1366,7 +1370,9 @@ check_no_self_hosted_fleet_runners() {
   # slot-N, tart-*, ...), macos-26 outside the fork branch, and an owned label
   # named directly with no picker or variable route.
   local owned='glaeda-(aws-)?(xl|std|light)-xcode-[0-9]+([.][0-9]+)*'
-  local owned_pool="'glaeda-((side|gui|session|nightly|dev|fast)-)?(aws-)?(xl|std|light)-xcode-[0-9]+([.][0-9]+)*'"
+  # glaeda-trusted-next-signing: the signer's label (glaeda runner.trustedNextSigning, a trusted-only mini whose hook
+  # admits no pull request job), the one route nightly.yml's signing jobs fall back to after their picker.
+  local owned_pool="'(glaeda-((side|gui|session|nightly|dev|fast)-)?(aws-)?(xl|std|light)-xcode-[0-9]+([.][0-9]+)*|glaeda-trusted-next-signing)'"
   # startsWith(vars.X, 'glaeda-side-') checks a variable's shape; it names no runner.
   local owned_prefix_check="startsWith\\((vars|needs)\\.[A-Za-z0-9_.-]+, 'glaeda-[a-z-]+-'\\)"
   local fork_pr_branch="github\\.event_name == 'pull_request' && github\\.event\\.pull_request\\.head\\.repo\\.full_name != github\\.repository && '(blacksmith-(6|12)vcpu-macos-(15|26|latest))'"
@@ -1484,7 +1490,8 @@ PYTHON
 
   # Owned pools through the picker/vars pattern pass; direct names do not.
   for probe in "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick.outputs.runner || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}" \
-               "runs-on: \${{ vars.CI_PR_POOL_OWNED == '1' && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6') || 'blacksmith-6vcpu-macos-26' }}"; do
+               "runs-on: \${{ vars.CI_PR_POOL_OWNED == '1' && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6') || 'blacksmith-6vcpu-macos-26' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick.outputs.sign_owned || vars.CI_NIGHTLY_SIGNING_POOL || 'glaeda-trusted-next-signing' }}"; do
     content_without_allowed="$(strip_owned_pool_selection "$probe" 0 | sed -E "s/$fork_branch//g; s/($allowed)//g")"
     if printf '%s\n' "$content_without_allowed" | grep -Eiq "($fleet)"; then
       echo "FAIL: fleet-runner guard self-test refused an owned pool reached through the picker/vars pattern: $probe"

@@ -3,8 +3,8 @@ import Foundation
 import Testing
 @testable import CmuxMobileLive
 
-/// Same harness for base and head: restore only DaemonTerminalSession.swift
-/// from the base revision, then run this exact test file again. A synthetic
+/// Same harness for base and head: copy this test file into the base test
+/// target without replacing any production code. A synthetic
 /// daemon acknowledges sends after 500 ms; both runs type 100 keys at 50/s.
 @MainActor @Suite struct TerminalInputThroughputTests {
     @Test func keystrokeThroughputAt500msRTT() async throws {
@@ -13,6 +13,7 @@ import Testing
             let session = DaemonTerminalSession(surface: 7) { DaemonClient(channel: channel) }
             session.tailProbeDelay = .seconds(60)
             session.start { _ in }
+            defer { session.stop() }
             let clock = ContinuousClock()
             let attachDeadline = clock.now.advanced(by: .seconds(3))
             while !session.isAttached, clock.now < attachDeadline {

@@ -63,6 +63,57 @@ uint8_t cmux_drop_reveal_decide(
     uint8_t app_active,
     uint8_t no_activate,
     uint8_t landing_on_active_space);
+
+/* Tab/pane edge mapping values mirror the public Swift enums.  The four
+ * edges are stable codes 0...3; NONE (255) is returned for an optional
+ * center edge or an invalid input.  PaneDropZone center is 4, and the split
+ * axes are horizontal 0 and vertical 1. */
+enum {
+    CMUX_TAB_DROP_EDGE_LEFT = 0,
+    CMUX_TAB_DROP_EDGE_RIGHT = 1,
+    CMUX_TAB_DROP_EDGE_TOP = 2,
+    CMUX_TAB_DROP_EDGE_BOTTOM = 3,
+    CMUX_TAB_DROP_EDGE_NONE = 255,
+    CMUX_PANE_DROP_ZONE_LEFT = 0,
+    CMUX_PANE_DROP_ZONE_RIGHT = 1,
+    CMUX_PANE_DROP_ZONE_TOP = 2,
+    CMUX_PANE_DROP_ZONE_BOTTOM = 3,
+    CMUX_PANE_DROP_ZONE_CENTER = 4,
+    CMUX_PANE_DROP_ZONE_NONE = 255,
+    CMUX_SPLIT_AXIS_HORIZONTAL = 0,
+    CMUX_SPLIT_AXIS_VERTICAL = 1,
+    CMUX_SPLIT_AXIS_NONE = 255,
+};
+uint8_t cmux_pane_drop_zone_edge(uint8_t zone);
+uint8_t cmux_tab_drop_edge_pane_edge(uint8_t edge);
+uint8_t cmux_pane_edge_opposite(uint8_t edge);
+uint8_t cmux_pane_edge_drop_zone(uint8_t edge);
+uint8_t cmux_pane_edge_split_axis(uint8_t edge);
+/* The store's optimistic overlay rules, operation "optimistic" of
+ * cmux_layout_reducer_json (cmux-layout-reducer optimistic.rs). One request
+ * tagged by "op"; the answer is the view the pending intent shows, or null
+ * when it shows nothing:
+ *   split              {screen, target, dir, ratio, leaf, split_id, column?, row?} -> {layout, columns, pane_at}
+ *   dock               {screen, leaf, column, dock} -> {layout, columns}
+ *   remove_pane        {screen, pane} -> {layout, columns}
+ *   move_tab           {same_pane, from, index, target_count} -> {final}
+ *   place_workspace    {groups, from, kind, group?, index?} -> {index}
+ *   row_heights        {rows, heights} -> {heights}
+ *   daemon_move_index  {visible, moving, index, held} -> {final, current}
+ * Layout nodes and columns use the daemon's wire shapes. Called per intent
+ * apply and overlay restore, never per frame. */
+/* The sidebar's launch order hold, operation "sidebar_launch_order" of
+ * cmux_layout_reducer_json (cmux-layout-reducer sidebar_launch_order.rs): until
+ * the home owner serves, rows keep the order drawn at launch.
+ *   {hold, lists:[{key, reference?, next}]} -> {lists:[{key, order, reference, moved}]}
+ * Called once per structural sidebar pass while the hold is on, once at its end. */
+/* New > Kind > Placement, operation "new_placement" of cmux_layout_reducer_json
+ * (cmux-layout-reducer new_placement.rs): open a terminal, browser, agent chat
+ * or New Tab Page at one of the fork's ten places.
+ *   {kind, placement, tabSplit?} -> {op, edge?, left?, make}
+ * op is split (edge right|left|top|bottom), column (left), row, tab,
+ * workspace or window; make is in_place or made_then_moved. Called once per
+ * New action run. */
 /* Focus operations of cmux_layout_reducer_json (cmux-focus-core wire.rs):
  *   focus_input_world   InputObservation -> {violations:[{invariant,window?,detail}], unsettled:[window]}
  *   focus_input_step    {old, event, new, window?} (FocusState read views, a FocusEvent) -> {violations}
@@ -86,7 +137,61 @@ uint8_t cmux_drop_reveal_decide(
  *   view(request)        {live, window, filter?, collapsed?} -> [row]
  *                        row = {key, kind, section, parent?, depth, item?, dimmed, ref?, collapsed?}
  *   drag_begin(items)    {items:[id]} -> {row_key:{before,into,after,refusal?}}
+ *   project(request)     view's request -> {sections, machines, items, machine_sections, machine_order,
+ *                        unplaced, band_groups, host_groups, archived, group_sorts, pinned_in_group}
+ *                        (the rows regrouped as the list draws them; its rows are the last view's)
+ *   plan(request)        {plan:"subgroup", parent, id, name, color?} | {plan:"host_group", session, on?, title?}
+ *                        -> {"ok":true,"ops":[op]} | {"refusal":"unknown_group"|"too_deep"}
  */
+/*
+ * The sidebar's drop rules as a handle per drag (drag_handle.rs). The rows and
+ * sections cross once, as JSON, when a drag's base layout is made; each drag
+ * move crosses with numbers only. A move's reply is JSON, written only when it
+ * differs from the handle's last reply to the same question: otherwise the
+ * call answers CMUX_SIDEBAR_DRAG_SAME and leaves the output untouched. A reply
+ * larger than the buffer answers ERR_BUFFER with its length, as
+ * cmux_layout_reducer_json does. A handle is used on one thread.
+ *
+ *   cmux_sidebar_drag_new(request)      a sidebar_drop Request ({payload, rows, sections, ...}) -> handle | null
+ *   cmux_sidebar_drag_resolve(...)      the card's points -> null | {target, probe}
+ *   cmux_sidebar_tab_drag_new(request)  a TabRequest ({rows, sections, source_machine, ...}, y unused) -> handle | null
+ *   cmux_sidebar_tab_drag_drop(y, w)    -> null | tab drop (w non-zero: a workspace row takes the tab over its whole height)
+ *   cmux_sidebar_tab_drag_refusal(y)    -> null | {row, reason}
+ *   cmux_sidebar_base_y(...)            1 and *base_y set, or 0 inside the open gap
+ */
+#define CMUX_SIDEBAR_DRAG_SAME 1
+typedef struct CmuxSidebarDrag CmuxSidebarDrag;
+typedef struct CmuxSidebarTabDrag CmuxSidebarTabDrag;
+
+CmuxSidebarDrag *cmux_sidebar_drag_new(const uint8_t *request, size_t request_len);
+void cmux_sidebar_drag_free(CmuxSidebarDrag *drag);
+int32_t cmux_sidebar_drag_resolve(
+    CmuxSidebarDrag *drag,
+    double centre_y,
+    double leading_y,
+    uint8_t has_gap,
+    double gap_y,
+    double gap_height,
+    uint8_t *output,
+    size_t output_capacity,
+    size_t *output_len);
+CmuxSidebarTabDrag *cmux_sidebar_tab_drag_new(const uint8_t *request, size_t request_len);
+void cmux_sidebar_tab_drag_free(CmuxSidebarTabDrag *drag);
+int32_t cmux_sidebar_tab_drag_drop(
+    CmuxSidebarTabDrag *drag,
+    double y,
+    uint8_t whole_rows,
+    uint8_t *output,
+    size_t output_capacity,
+    size_t *output_len);
+int32_t cmux_sidebar_tab_drag_refusal(
+    CmuxSidebarTabDrag *drag,
+    double y,
+    uint8_t *output,
+    size_t output_capacity,
+    size_t *output_len);
+uint8_t cmux_sidebar_base_y(double display_y, uint8_t has_gap, double gap_y, double gap_height, double *base_y);
+
 typedef struct CmuxSidebarMirror CmuxSidebarMirror;
 
 CmuxSidebarMirror *cmux_sidebar_mirror_new(void);
@@ -97,6 +202,8 @@ char *cmux_sidebar_mirror_apply_batch(CmuxSidebarMirror *mirror, const uint8_t *
 char *cmux_sidebar_mirror_apply_intent(CmuxSidebarMirror *mirror, const uint8_t *json, size_t json_len);
 char *cmux_sidebar_mirror_view(CmuxSidebarMirror *mirror, const uint8_t *json, size_t json_len);
 char *cmux_sidebar_mirror_drag_begin(CmuxSidebarMirror *mirror, const uint8_t *json, size_t json_len);
+char *cmux_sidebar_mirror_project(CmuxSidebarMirror *mirror, const uint8_t *json, size_t json_len);
+char *cmux_sidebar_mirror_plan(CmuxSidebarMirror *mirror, const uint8_t *json, size_t json_len);
 
 /*
  * Typed replies (bead cx-x5jpp): the same calls, read with no JSON decode.
@@ -276,6 +383,7 @@ typedef struct CmuxFocusTopology {
     uint32_t column_pane_count;
     uint32_t screen_count;
     uint32_t reserved;
+    const CmuxFocusStr *column_siblings; /* NULL, or column_pane_count ids parallel to column_panes: each pane's close sibling (issue 38194); empty is none */
 } CmuxFocusTopology;
 
 typedef struct CmuxFocusResolved {
@@ -370,12 +478,42 @@ void cmux_focus_pane_emptied(CmuxFocus *focus, const uint8_t *pane, size_t pane_
 uint8_t cmux_focus_aims_at_emptied_pane(CmuxFocus *focus, double time, uint8_t is_key, uint8_t is_repeat);
 
 /*
+ * The app's one input handle (R-INPUT stage S2): the input router of
+ * cmux-focus-core, which owns every window's focus. Each cmux_input_focus_*
+ * call is the cmux_focus_* call of the same name for the window `window`
+ * (UTF-8 id bytes), with the same requests and the same reply bytes. A reply
+ * is valid until the next cmux_input_* call for that window; never free it.
+ * A call for a window that is not open returns null (0 for a number; CMUX_LAYOUT_REDUCER_ERR_INVALID
+ * from cmux_input_focus_import_json, ERR_NULL for a null handle or bad id bytes).
+ * memory: the machine's physical memory in bytes (it bounds the key lanes).
+ */
+typedef struct CmuxInput CmuxInput;
+CmuxInput *cmux_input_new(uint64_t memory);
+void cmux_input_free(CmuxInput *input);
+/* opens a window (a second open changes nothing); its first reply, as cmux_focus_current's */
+const CmuxFocusReply *cmux_input_window_open(CmuxInput *input, const uint8_t *window, size_t window_len);
+void cmux_input_window_close(CmuxInput *input, const uint8_t *window, size_t window_len);
+const CmuxFocusReply *cmux_input_focus_send(CmuxInput *input, const uint8_t *window, size_t window_len, const CmuxFocusEvent *event, const uint8_t *strings, size_t strings_len);
+const CmuxFocusReply *cmux_input_focus_set_topology(CmuxInput *input, const uint8_t *window, size_t window_len, const CmuxFocusTopology *topology, const uint8_t *strings, size_t strings_len);
+const CmuxFocusReply *cmux_input_focus_current(CmuxInput *input, const uint8_t *window, size_t window_len);
+void cmux_input_focus_set_close_focus(CmuxInput *input, const uint8_t *window, size_t window_len, uint8_t policy); /* 0 previous neighbor, 1 most recent */
+const CmuxFocusStrings *cmux_input_focus_recent_panes(CmuxInput *input, const uint8_t *window, size_t window_len, const uint8_t *workspace, size_t workspace_len, uint8_t has_workspace);
+const CmuxFocusStrings *cmux_input_focus_remembered(CmuxInput *input, const uint8_t *window, size_t window_len);
+/* Journal checkpoints and replay only, never per event; free the string with cmux_focus_string_free. */
+char *cmux_input_focus_export_json(CmuxInput *input, const uint8_t *window, size_t window_len);
+int32_t cmux_input_focus_import_json(CmuxInput *input, const uint8_t *window, size_t window_len, const uint8_t *json, size_t json_len);
+uint64_t cmux_input_focus_pane_moved(CmuxInput *input, const uint8_t *window, size_t window_len, const uint8_t *from, size_t from_len, uint8_t has_from);
+void cmux_input_focus_frame_presented(CmuxInput *input, const uint8_t *window, size_t window_len, uint64_t serial, double time);
+void cmux_input_focus_pane_emptied(CmuxInput *input, const uint8_t *window, size_t window_len, const uint8_t *pane, size_t pane_len, double time, uint8_t is_key, uint8_t is_repeat);
+uint8_t cmux_input_focus_aims_at_emptied_pane(CmuxInput *input, const uint8_t *window, size_t window_len, double time, uint8_t is_key, uint8_t is_repeat);
+
+/*
  * The close successor rules (cmux-focus-core close_focus), one call per
  * close, no handle. Ids are the caller's own uint32_t numbering of its tab
  * or workspace ids; CMUX_FOCUS_NONE is none. A null array with a nonzero
  * count gives CMUX_FOCUS_NONE (live_openers: -1).
  */
-/* the tab a pane selects after `selected` closed; opener_children[i] was opened by opener_parents[i] */
+/* the tab a pane selects after `selected` closed: the shown tab before it, else after it; the opener arrays no longer pick (null-checked only) */
 uint32_t cmux_close_focus_tab(uint32_t selected, const uint32_t *old, size_t old_count,
                               const uint32_t *surviving, size_t surviving_count,
                               const uint32_t *shown, size_t shown_count,
@@ -602,6 +740,122 @@ CmuxScrollStatus cmux_scroll_status(const CmuxScroll *scroll);
 uint8_t cmux_scroll_gesture_active(const CmuxScroll *scroll); /* per frame: no focus lookup */
 
 /*
+ * The springing-close rules (cmux-layout-reducer closing_panes; FRAME OWNER
+ * S3c/S3d): which panes border a closing pane and the gaps it keeps, the panes
+ * nothing moves over, where every closing pane shows this frame (per display
+ * frame during a close), the strip's carries and a row column's stop, and a
+ * taken-back close. One handle per screen; panes, scroll areas and row columns
+ * are numbers the caller hands out (0: none). No JSON; a call allocates
+ * nothing once the handle's buffers have grown.
+ *
+ * Return codes: begin and remove return 1 when they answer and 0 when they do
+ * not, with nothing written. 1 and 0 are answers, not
+ * CMUX_LAYOUT_REDUCER_OK (also 0): check for 1. settle and rects return
+ * CMUX_LAYOUT_REDUCER_OK and write a list that borrows the handle's buffer,
+ * valid until the next call on the same handle. Any call returns ERR_NULL,
+ * ERR_INVALID (an unknown handle kind) or ERR_PANIC with nothing written.
+ * Each input array holds `count` elements; an `out` pointer must not overlap
+ * an input array or the handle. One thread at a time per handle.
+ */
+typedef struct CmuxClosingPanes CmuxClosingPanes;
+
+#define CMUX_CLOSING_HANDLE_SPLIT 0
+#define CMUX_CLOSING_HANDLE_COLUMN_EDGE 1
+#define CMUX_CLOSING_HANDLE_ROW_EDGE 2
+
+typedef struct CmuxClosingEdges {
+    double min_x;
+    double max_x;
+    double min_y;
+    double max_y;
+} CmuxClosingEdges;
+
+typedef struct CmuxClosingRect {
+    double x;
+    double y;
+    double width;
+    double height;
+} CmuxClosingRect;
+
+typedef struct CmuxClosingPane {
+    uint64_t id;
+    uint64_t area;
+    uint64_t row_column;
+    CmuxClosingEdges edges;
+    uint8_t scrolls;
+    uint8_t reserved[7];
+} CmuxClosingPane;
+
+typedef struct CmuxClosingHandle {
+    CmuxClosingEdges hit;
+    double mid_x;
+    double mid_y;
+    uint64_t area;   /* a split's scroll area (0: none) */
+    uint64_t column; /* a row edge's column */
+    uint8_t kind;    /* CMUX_CLOSING_HANDLE_* */
+    uint8_t horizontal;
+    uint8_t kept;
+    uint8_t fixed_split;
+    uint8_t docked;
+    uint8_t reserved[3];
+} CmuxClosingHandle;
+
+typedef struct CmuxClosingFrame {
+    uint64_t id;
+    CmuxClosingEdges now;
+    CmuxClosingEdges target;
+    double vx;
+    double vy;
+    double vw;
+    double vh;
+    uint8_t moving;
+    uint8_t fixed; /* 1: it does not scroll with the strip (x in view coordinates) */
+    uint8_t reserved[6];
+} CmuxClosingFrame;
+
+typedef struct CmuxClosingRow {
+    uint64_t column;
+    double now;
+    double target;
+} CmuxClosingRow;
+
+typedef struct CmuxClosingPlaced {
+    uint64_t pane;
+    CmuxClosingRect rect;
+} CmuxClosingPlaced;
+
+typedef struct CmuxClosingTaken {
+    CmuxClosingRect rect;
+    double vx;
+    double vw;
+    double vy;
+    double vh;
+} CmuxClosingTaken;
+
+typedef struct CmuxClosingIds {
+    const uint64_t *ids;
+    size_t count;
+} CmuxClosingIds;
+
+typedef struct CmuxClosingPlacedList {
+    const CmuxClosingPlaced *placed;
+    size_t count;
+} CmuxClosingPlacedList;
+
+CmuxClosingPanes *cmux_closing_panes_new(void);
+void cmux_closing_panes_free(CmuxClosingPanes *closing);
+int32_t cmux_closing_panes_begin(CmuxClosingPanes *closing, uint64_t pane, const CmuxClosingEdges *shown, const CmuxClosingPane *panes, size_t pane_count, const CmuxClosingHandle *handles, size_t handle_count, double max_gap, uint8_t has_view_shift, double view_shift, double strip_shift);
+int32_t cmux_closing_panes_settle(CmuxClosingPanes *closing, const CmuxClosingFrame *frames, size_t frame_count, const CmuxClosingRow *rows, size_t row_count, CmuxClosingIds *out);
+int32_t cmux_closing_panes_rects(CmuxClosingPanes *closing, const CmuxClosingFrame *frames, size_t frame_count, const CmuxClosingRow *rows, size_t row_count, double strip, double rest_strip, CmuxClosingPlacedList *out);
+int32_t cmux_closing_panes_carry(CmuxClosingPanes *closing, double drift, uint8_t has_view_shift, double view_shift);
+int32_t cmux_closing_panes_settle_carried(CmuxClosingPanes *closing, double strip_shift);
+int32_t cmux_closing_panes_shift_y(CmuxClosingPanes *closing, uint64_t column, double delta);
+int32_t cmux_closing_panes_remove(CmuxClosingPanes *closing, uint64_t pane, const CmuxClosingFrame *frames, size_t frame_count, double strip, CmuxClosingTaken *out);
+int32_t cmux_closing_panes_drop(CmuxClosingPanes *closing, uint64_t pane);
+uint8_t cmux_closing_panes_has_awaiting(const CmuxClosingPanes *closing);
+uint64_t cmux_closing_panes_state_hash(const CmuxClosingPanes *closing); /* tests: the whole state, hashed */
+
+/*
  * The sidebar row face (cmux-layout-reducer sidebar_face): which tab a
  * workspace's row stands for and is named for, its folder line and Group by
  * Folder bucket, its kinds, program, status line, unread mark, notice and
@@ -741,6 +995,8 @@ typedef struct CmuxSidebarFaceRow {
     CmuxSidebarFaceRange status_line;
     uint64_t last_activity_ms;
     double progress_value;
+    uint32_t front_chat;       /* the chat Copy Agent Identifier copies: the front tab's, else the first chat */
+    uint32_t reserved2;
 } CmuxSidebarFaceRow;
 
 typedef struct CmuxSidebarFaceListedTab {
@@ -779,5 +1035,85 @@ const CmuxSidebarFaceReply *cmux_sidebar_face_rows(CmuxSidebarFace *faces, const
 /* The daemon's next default workspace name: names[0 ..< existing_count] are the
  * machine's listed names (its home left out), the rest the reserved ones. */
 const CmuxSidebarFaceText *cmux_sidebar_face_default_name(CmuxSidebarFace *faces, const CmuxSidebarFaceRange *names, uint32_t count, uint32_t existing_count, const uint8_t *strings, size_t strings_len);
+
+/*
+ * The keyboard resize rules (cmux-layout-reducer shown_resize): which split
+ * ratios, column widths and dock widths show as different layouts, the width
+ * trade of a key press between two strip columns, and the row heights of a key
+ * press on a row edge. One call per key press, no handle, no JSON, no
+ * allocation. Each returns 1 and writes its answer, 0 when there is none (the
+ * press moves nothing), or CMUX_LAYOUT_REDUCER_ERR_NULL / ERR_PANIC with
+ * nothing written. Flags are 0 or 1.
+ */
+typedef struct CmuxShownResizeBounds {
+    double lower;
+    double upper;
+} CmuxShownResizeBounds;
+
+typedef struct CmuxShownResizeDock {
+    double width;
+    uint8_t is_target;
+    uint8_t is_band;
+    uint8_t is_docked;
+    uint8_t reserved[5];
+} CmuxShownResizeDock;
+
+typedef struct CmuxShownResizeTrade {
+    double strip_width;
+    double gap;
+    double scale;
+    double delta;
+    double left_min_x;
+    double left_max_x;
+    double left_width;
+    double right_min_x;
+    double right_max_x;
+    double right_width;
+    double left_minimum_width;
+    double right_minimum_width;
+    double left_fraction;
+    double right_fraction;
+    double strip_offset;
+    double uncovered_min_x;
+    double uncovered_max_x;
+    double strip_min_x;
+    uint8_t is_columns;
+    uint8_t has_strip_offset;
+    uint8_t reserved[6];
+} CmuxShownResizeTrade;
+
+typedef struct CmuxShownResizeTradeAnswer {
+    double move_points;
+    double first_left;
+    double first_right;
+    double second_left;
+    double second_right;
+} CmuxShownResizeTradeAnswer;
+
+typedef struct CmuxShownResizeRows {
+    const int64_t *heights;
+    const double *minimum_heights;
+    size_t count;
+    size_t pane_row;
+    double column_height;
+    double gap;
+    double scale;
+    double delta;
+    uint8_t rows_enabled;
+    uint8_t reserved[7];
+} CmuxShownResizeRows;
+
+/* container and divider: the split's and the divider's extents along its axis */
+int32_t cmux_shown_resize_ratio(double container, double divider, double minimum_a, double minimum_b,
+                                CmuxShownResizeBounds *out);
+int32_t cmux_shown_resize_column_width(uint8_t is_columns, uint8_t is_docked, double strip_width,
+                                       double minimum_width, double gap, CmuxShownResizeBounds *out);
+/* docks: every placed dock in the screen's order, one marked is_target */
+int32_t cmux_shown_resize_dock_width(const CmuxShownResizeDock *docks, size_t count, double viewport_width,
+                                     double gap, double minimum_width, CmuxShownResizeBounds *out);
+/* the move and the two width pairs to try, first to second; the caller keeps the first that places right */
+int32_t cmux_shown_resize_trade(const CmuxShownResizeTrade *input, CmuxShownResizeTradeAnswer *out);
+/* writes every row's height (out_count == input->count) */
+int32_t cmux_shown_resize_row_heights(const CmuxShownResizeRows *input, int64_t *out, size_t out_count);
 
 #endif

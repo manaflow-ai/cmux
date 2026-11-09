@@ -5,13 +5,22 @@ name: cmux-next guards
 # tests there: tests/test_nightly_cmux_tui_resolve.py stayed red on the branch
 # unseen. nightly-next ships from feat-cmux-next, so run the release-notary
 # group (nightly, notarization, nightly-next guard and publication tests) for
-# its pull requests and pushes. It takes under a minute; there is no path
-# filter so a base red shows on the push that caused it.
+# its pull requests and pushes. There is no workflow path filter, so a base red
+# shows on the push that caused it.
 #
-# vt-link-graph also runs the nightly's libghostty-vt notices precondition: a
-# ghostty-next gitlink move without a regenerated vt-link-graph.json failed every
-# nightly-next build for 9 hours (10-11), and nothing else checked it before the
-# nightly.
+# A push runs the group in nightly-guards, judged at its tip, so a base red
+# still fails the push that caused it. A pull request runs it inside the CI
+# guard group's head-and-base comparison instead (ci-guard-group, below), which
+# fails only on a step red on the change and not on its base, and only when the
+# change reaches what the group reads: release, notary and signing paths, the
+# workflows and CI scripts it pins, and the release notes and updater sources it
+# reads (detect_linux_guard_changes.RELEASE_NOTARY_INPUTS). On every pull request
+# it cost about 200,000 runner-minutes in 14 days, and none of its 18 PR failures
+# was the change's own (cmuxterm-hq plans/ci/baggage-2026-11-05.md). Run on its own,
+# every pull request was red while the branch was: workflow-text pins in this
+# group (nightly.yml, warm-sources.json, the step-coverage map) go red on any
+# push that edits those files without the tests, and 833 of 1656 pull request
+# runs in the 24 h to 2026-11-05 08:24Z were red with the base's reds alone.
 on:
   pull_request:
     branches: [feat-cmux-next]
@@ -27,6 +36,8 @@ permissions:
 # freshness, the guard self-tests and the menu check still fail.
 env:
   CMUX_NEXT_STYLE_GUARDS: warn
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 concurrency:
   group: cmux-next-guards-${{ github.event.pull_request.number || github.sha }}
@@ -93,7 +104,9 @@ jobs:
     with:
       # Fleet Linux or a free mini when portable-placement found one; empty keeps ci-guards.yml's own runner.
       guard_tests_runner: ${{ needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' release-notary ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' release-notary ') && needs.portable-placement.outputs.mini_runner || '' }}
-      linux_guard_tests: ${{ 'true' }}
+      # Pushes only: a pull request runs release-notary in ci-guard-group's head-and-base comparison (header),
+      # and keeps this call for the submodule forward-only guard and Guard status.
+      linux_guard_tests: ${{ github.event_name != 'pull_request' && 'true' || 'false' }}
       linux_guard_test_groups: '["release-notary"]'
       linux_guard_history: ${{ 'false' }}
       linux_guard_cli: ${{ 'false' }}
@@ -124,7 +137,7 @@ jobs:
           done
           [ "$bad" = 0 ] || exit 1
 
-  # The CI guard group's, the tooling tests' and the release-notary guards' runner.
+  # The tooling tests' and the release-notary guards' runner (the CI guard group runs on Linux only, below).
   # Jobs that need neither Linux nor Blacksmith take fleet Linux (vars.LINUX_RUNNER when it names our
   # own Linux runner), else a mini idle now with no nightly job waiting on its pool, else their
   # Blacksmith label (scripts/ci/portable_job_placement.py; Leo, 2026-10-31: "i mean the linux things
@@ -193,7 +206,7 @@ jobs:
         timeout-minutes: 2
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-          JOBS: ci-guard-group tooling-tests release-notary
+          JOBS: tooling-tests release-notary
           # Fork branch first: a fork never reads the runner variables (and its job is skipped); ubuntu-24.04 places nothing.
           FLEET_LINUX: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER }}
           SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
@@ -215,18 +228,19 @@ jobs:
   # ci.yml also routes ci-guards.yml's other groups by path, again only into main, so about 70 guard tests
   # never ran for feat-cmux-next (tests/pr-lane-exemptions.json). This job runs them too: --feat-routes picks
   # the groups a pull request's paths route to (detect_linux_guard_changes.classify_feat, workflow_guard_groups.py's
-  # ownership), and every routed group on a push. The main-only release-ios group never runs here; release-notary runs in nightly-guards.
+  # ownership), and every routed group on a push. The main-only release-ios group never runs here; release-notary runs here
+  # on a pull request that reaches its inputs (compared with its base) and in nightly-guards on a push (judged at the tip).
   ci-guard-group:
     name: cmux-next CI guard group
     # 32 vCPU, a guard worker per core: the head and the base each run every routed group, on every pull request
     # and push (175-359 s on 4 vCPU with 8 workers). vars.LINUX_RUNNER names the 4 vCPU size, so it is read only
     # when it names a non-Blacksmith runner; in a Blacksmith outage CI_CLOUD_OVERFLOW_SAVED moves it to 16 vCPU
     # (tests/test_feat_ci_guard_group.py, tests/test_ci_blacksmith_linux_failover.py).
-    # Fleet Linux, then a free mini (portable-placement: the guards are Python, bash and bun, and the head and
-    # base run on the same machine, so a red of the machine's own is a base red), then Blacksmith.
-    needs: [portable-placement]
+    # Linux only: fleet Linux (vars.LINUX_RUNNER when it names our own runner), then Blacksmith. Not a portable
+    # job: on a mini 24 of its steps red (no python3.9 or node, temp-cwd scripts),
+    # so portable-placement does not place it.
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' ci-guard-group ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' ci-guard-group ') && needs.portable-placement.outputs.mini_runner || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 25
     permissions:
       contents: read
@@ -303,8 +317,8 @@ jobs:
         with:
           bun-version: "1.4.4"
 
-      # setup-python has no macOS arm64 build of 3.9, so a mini (portable-placement) takes the one uv installs
-      # instead. The head and the base run on the same machine, so either way they compare like for like.
+      # setup-python installs 3.9 on Linux; a runner without it takes the one uv installs, if any.
+      # The head and the base run on the same machine, so either way they compare like for like.
       - name: Set up Python 3.9 for nightly prune compatibility
         id: python39
         if: runner.os == 'Linux'
@@ -339,18 +353,38 @@ jobs:
           path: .guard-base
           persist-credentials: false
 
+      # A pull request routes release-notary by its paths like the other groups (classify_feat,
+      # RELEASE_NOTARY_INPUTS); a push leaves it out here, since nightly-guards runs it at the tip (header).
       - name: Run the ci guard group and the routed groups
         env:
           CMUX_GUARDS_BASE_SHA: ${{ steps.changes.outputs.base }}
           GUARDS_AT_TIP: ${{ steps.changes.outputs.tip }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           # The base checkout is untracked in this workspace; the workload profile refuses a dirty checkout.
           echo "/.guard-base/" >> .git/info/exclude
-          scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || true
-          if [ -d .guard-base ]; then
-            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --root .guard-base \
+          # The groups are literal flags so scripts/ci/pr_test_lanes.py sees what a pull request runs.
+          groups=()
+          if [ "$EVENT_NAME" = pull_request ]; then
+            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || true
+          else
+            groups=(--skip-group release-notary)
+            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --skip-group release-notary --results "$RUNNER_TEMP/guards-head.json" || true
+          fi
+          # The base re-runs only the steps red on the head (guards_new_reds.py --red-steps): a step green on the
+          # head is never the change's, and the full base pass doubled the job once release-notary joined it.
+          steps=()
+          while IFS= read -r step; do
+            [ -n "$step" ] && steps+=(--step "$step")
+          done < <(python3 scripts/ci/guards_new_reds.py --red-steps "$RUNNER_TEMP/guards-head.json")
+          if [ -d .guard-base ] && [ "${#steps[@]}" -gt 0 ]; then
+            echo "re-running the head's $(( ${#steps[@]} / 2 )) red steps on the base"
+            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" "${groups[@]}" --feat-routes "$RUNNER_TEMP/changed-files.txt" "${steps[@]}" --root .guard-base \
               --results "$RUNNER_TEMP/guards-base.json" > "$RUNNER_TEMP/guards-base.log" 2>&1 || true
             tail -1 "$RUNNER_TEMP/guards-base.log"
+          elif [ -d .guard-base ]; then
+            echo "no red step on the head; the base is not re-run"
+            echo '{}' > "$RUNNER_TEMP/guards-base.json"
           fi
           if [ "$GUARDS_AT_TIP" = true ]; then
             python3 scripts/ci/guards_new_reds.py --tip "$RUNNER_TEMP/guards-head.json"
@@ -358,22 +392,59 @@ jobs:
             python3 scripts/ci/guards_new_reds.py "$RUNNER_TEMP/guards-head.json" "$RUNNER_TEMP/guards-base.json"
           fi
 
-  vt-link-graph:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
-    timeout-minutes: 5
+  # The static checks that may be red on the base, in one runner session and one checkout. Each was a job of its own
+  # (vt-link-graph, nightly-static-capabilities, defaults-snapshot, page-strings), seconds of work behind a runner start
+  # and a fresh checkout. Every step runs whatever an earlier one did (`!cancelled()`), so one red never hides another
+  # check's result, and the job is red when any step is. Each step's name says which check it is: next_autoland judges
+  # this job against the base step by step, so a step red on the change alone stays the change's own though another is
+  # red on the base (2026-11-01, #31201: a check hidden in a group red on the base landed red).
+  #
+  # vt-link-graph also runs the nightly's libghostty-vt notices precondition: a ghostty-next gitlink move without a
+  # regenerated vt-link-graph.json failed every nightly-next build for 9 hours (10-11), and nothing else checked it
+  # before the nightly.
+  #
+  # build-nightly-app's static capability check (check-daemon-capabilities.sh --static-only) skips the capabilities
+  # identify_capabilities adds at runtime, from a hand list. A runtime capability the app lists and the list misses
+  # fails every nightly-next build: agent-session-login-v1 (#30214) kept the feed at one build for 90 minutes on
+  # 2026-11-01. It runs here, not in the release-notary group, so a red there never hides it.
+  #
+  # The defaults snapshot's tests and the settings export stamp, in seconds (the defaults snapshot is bot-only).
+  #
+  # Every web bundle build runs gen-strings.mjs strict, but only pull requests that touch webviews/ run its tests.
+  # 2c661dec960b renamed a setting in Swift and the catalogs, the committed settings schema kept the old keys, and the
+  # first red was the bundle build on every later push and webviews/ pull request (10-20, "settings: 63 strings
+  # missing"). The page strings step runs the same strict generation on every pull request and push, with no path
+  # filter, so a catalog edit or a renamed setting is red where it lands. It runs last: it writes the generated
+  # strings into the checkout.
+  static-checks:
+    name: cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page strings)
+    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # Each former job's 5-minute cap is split among its steps (vt-link-graph 2+1+2, nightly static capabilities 5,
+    # defaults snapshot 2+1+2, page strings 2+3), so with the checkout's 5 the steps' caps sum to the job's
+    # 25 and no step's stall can use up another's time. A step that times out fails and the next step still runs.
+    timeout-minutes: 25
     steps:
       - name: Checkout
+        timeout-minutes: 5
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # HEAD^1: the base tip of a pull request's merge commit, or the
+          # previous commit of a push (the defaults snapshot reads it).
+          fetch-depth: 2
 
       - name: vt-link-graph.json is for the libghostty-vt gitlink
+        if: ${{ !cancelled() }}
+        timeout-minutes: 2
         run: python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --check-link-graph scripts/cmux-next/notices/vt-link-graph.json
 
       # The release-path package step's own data check: package-notices.json's
       # libghostty-vt texts are for the graph's commit (#19508 moved the notices,
       # the graph followed seven hours later) and the pinned texts match.
       - name: package-notices.json covers vt-link-graph.json
+        if: ${{ !cancelled() }}
+        timeout-minutes: 1
         run: python3 cmux-tui/dist/scripts/package_notices.py check-data
 
       # Pull-request dry runs of the nightly's Ghostty notice steps
@@ -382,29 +453,51 @@ jobs:
       # dependency licenses", and check_ghostty_vt_notices.py's --license-manifest
       # mode behind "libghostty-vt Zig packages are covered by the notices".
       - name: The nightly's Ghostty license checks pass on fixtures
+        if: ${{ !cancelled() }}
+        timeout-minutes: 2
         run: |
           python3 cmux-tui/build-support/notices/ghostty/test_ghostty_licenses.py
           python3 scripts/cmux-next/notices/test_check_bundle_notices.py
           python3 scripts/cmux-next/notices/test_check_ghostty_vt_notices.py
 
-  # build-nightly-app's static capability check (check-daemon-capabilities.sh
-  # --static-only) skips the capabilities identify_capabilities adds at runtime,
-  # from a hand list. A runtime capability the app lists and the list misses
-  # fails every nightly-next build: agent-session-login-v1 (#30214) kept the feed
-  # at one build for 90 minutes on 2026-11-01. In its own job so a red elsewhere
-  # in the release-notary group never hides it.
-  nightly-static-capabilities:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
-    timeout-minutes: 5
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
       - name: Every runtime-added app capability is skipped by the static check
+        if: ${{ !cancelled() }}
+        timeout-minutes: 5
         run: python3 tests/test_cmux_next_static_capability_runtime_only.py
 
+      - name: The defaults snapshot tests
+        if: ${{ !cancelled() }}
+        timeout-minutes: 2
+        run: python3 tests/test_defaults_guard.py
+
+      # PR #19754 moved the workspace and tab menus' group rows into More and
+      # nothing failed (Lawrence 2026-10-14: "my groups UI is lost").
+      - name: The group rows stay at the top of the right-click menus
+        if: ${{ !cancelled() }}
+        timeout-minutes: 1
+        run: python3 scripts/cmux-next/check-group-menus.py
+      # Lawrence 2026-10-19: right-click New Tab Group failed while the palette
+      # path worked. A menu row with its own selector is a second path beside
+      # the registered action; new ones fail here.
+      - name: Menu rows run registered actions, not inline selectors
+        if: ${{ !cancelled() }}
+        timeout-minutes: 2
+        run: python3 scripts/cmux-next/check-menu-actions.py
+
+      - name: Setup Node
+        if: ${{ !cancelled() }}
+        timeout-minutes: 2
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      # No install: the generator reads only the catalogs and the settings schema.
+      - name: Every page's strings generate with no missing translation
+        if: ${{ !cancelled() }}
+        timeout-minutes: 3
+        env:
+          CMUX_STRINGS_BEST_EFFORT: ""
+        run: node webviews/scripts/pages/gen-strings.mjs
   # The nightly-next build generates the Rust third-party notices from the
   # tree (scripts/cmux-next/generate-third-party-notices.sh --tui-source tree).
   # A new path crate it cannot map failed the nightly publish (run 38359624385,
@@ -444,23 +537,48 @@ jobs:
           ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
             --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
 
-  # The CmuxNextApp size cap (code-quality.md SW14) for pull requests into
-  # feat-cmux-next and pushes to it. cmux-next.yml's checks job skips pushes to
-  # feat-cmux-next and runs on pull requests only for its path filter, so GitHub
-  # merges grew the App past the cap. This workflow has no path filter, so the
-  # check can be a required one.
-  # Only the size cap runs here: the god-file checks stay warn-only, and the
-  # size cap warns too while CMUX_NEXT_STYLE_GUARDS is `warn`. A pull
-  # request fails on real source growth against its merge commit's first parent
-  # (the base); comment/blank-line-only merge noise is ignored. A push compares
-  # against event.before, so a push that went around safe-push still turns red.
-  app-size:
-    name: cmux-next CmuxNextApp size cap
+  # The checks that judge a change against its base, in one runner session and one checkout: red only for the
+  # change's own regression, so a base red never excuses them (next_autoland's NEVER_BASE matches "size cap" and
+  # "crash ratchet" in this job's name; base-red-watch's base pass ignores it for the same words). Each was a job of its
+  # own, seconds of work behind a runner start and a fresh checkout. Every step runs whatever an earlier one did
+  # (`!cancelled()`), so one red never hides another check's result; each step's name says which check it is. The
+  # checkout holds a pull request's merge commit and its first parent (the base); a push compares against
+  # event.before, fetched by each step that needs it.
+  #
+  # The CmuxNextApp size cap (code-quality.md SW14). cmux-next.yml's checks job skips pushes to feat-cmux-next and runs
+  # on pull requests only for its path filter, so GitHub merges grew the App past the cap. This workflow has no path
+  # filter, so the check can be a required one. Only the size cap runs here: the god-file checks stay warn-only, and
+  # the size cap warns too while CMUX_NEXT_STYLE_GUARDS is `warn`. A pull request fails on real source growth against
+  # its merge commit's first parent (the base); comment/blank-line-only merge noise is ignored. A push compares against
+  # event.before, so a push that went around safe-push still turns red.
+  #
+  # The crash ratchet (plans/cmux-next/crash-elimination.md). safe-push runs it before a direct push, but a GitHub
+  # merge skips safe-push, so #20223 added 3 unwraps unchecked (2026-10-13). The change's own ratchet script and
+  # baseline run on its tree and on the base tree (a pull request's merge-commit first parent; a push's previous tip);
+  # the step is red when the change turns the ratchet red, or makes an already red base worse. The change's baseline is
+  # also judged against the base's copy, so it may only go down: a raised counted row is red (a hit that moved to
+  # another module carries its row), and a recorded waiver (a raised waived row) is a warning annotation.
+  #
+  # cmux NEXT's catalogs hold translation debt from before the parity check covered them (42,072 errors in 118 catalogs
+  # on 2026-10-21). scripts/localization-debt-baseline.json records each catalog's counts; the localization step fails
+  # when a change adds debt anywhere or raises the baseline above the base's copy, so the debt only goes down
+  # (scripts/localization_catalog.py).
+  #
+  # No new committed generated files (Leo, 2026-10-21: "don't commit generatable stuff"): committed outputs conflict on
+  # every base move. scripts/ci/generated_files_guard.py reads its rules (scripts/ci/generated-files.json and its
+  # baseline) from the base, so a change cannot loosen them for itself; a generated file the base already tracks
+  # uncovered is a note, not this change's red.
+  own-change-checks:
+    name: cmux-next size cap, crash ratchet, localization debt ratchet, no new generated files
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 5
+    # Each former job's cap goes to its steps (size cap 5, crash ratchet 10, localization 5, generated files 2+3), so
+    # with the checkout's 5 the steps' caps sum to the job's 30 and no step's stall can use up another's time. A step
+    # that times out fails and the next step still runs.
+    timeout-minutes: 30
     steps:
       - name: Checkout
+        timeout-minutes: 5
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -468,6 +586,8 @@ jobs:
           fetch-depth: 2
 
       - name: CmuxNextApp size cap
+        if: ${{ !cancelled() }}
+        timeout-minutes: 5
         env:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
@@ -491,51 +611,17 @@ jobs:
           fi
           exit "$rc"
 
-  # The crash ratchet (plans/cmux-next/crash-elimination.md) for pull requests into feat-cmux-next and
-  # pushes to it. safe-push runs it before a direct push, but a GitHub merge skips safe-push, so
-  # #20223 added 3 unwraps unchecked (2026-10-13). The change's own ratchet script and baseline run
-  # on its tree and on the base tree (a pull request's merge-commit first parent; a push's previous
-  # tip); the job is red when the change turns the ratchet red, or makes an already red base worse.
-  # The change's baseline is also judged against the base's copy, so it may only go down: a raised
-  # counted row is red (a hit that moved to another module carries its row), and a recorded waiver
-  # (a raised waived row) is a warning annotation.
-  crash-ratchet:
-    name: cmux-next crash ratchet
-    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          # A pull request's merge commit and its first parent (the base).
-          fetch-depth: 2
-
-      - name: Crash ratchet against the base
+      - name: cmux-next crash ratchet
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
         env:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
         run: scripts/ci/crash-ratchet-against-base.sh
 
-  # cmux NEXT's catalogs hold translation debt from before the parity check covered them
-  # (42,072 errors in 118 catalogs on 2026-10-21). scripts/localization-debt-baseline.json
-  # records each catalog's counts; this fails when a change adds debt anywhere or raises the
-  # baseline above the base's copy, so the debt only goes down (scripts/localization_catalog.py).
-  localization-ratchet:
-    name: cmux-next localization debt ratchet
-    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
-    timeout-minutes: 5
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          # A pull request's merge commit and its first parent (the base).
-          fetch-depth: 2
-
-      - name: No new localization debt, and a baseline that only goes down
+      - name: cmux-next localization debt ratchet
+        if: ${{ !cancelled() }}
+        timeout-minutes: 5
         env:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
@@ -565,27 +651,14 @@ jobs:
           fi
           python3 scripts/localization_catalog.py check "${args[@]}"
 
-  # No new committed generated files (Leo, 2026-10-21: "don't commit generatable stuff"): committed
-  # outputs conflict on every base move. scripts/ci/generated_files_guard.py reads its rules
-  # (scripts/ci/generated-files.json and its baseline) from the base, so a change cannot loosen them for
-  # itself; a generated file the base already tracks uncovered is a note, not this change's red.
-  generated-files:
-    name: cmux-next no new generated files
-    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
-    timeout-minutes: 5
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          # A pull request's merge commit and its first parent (the base).
-          fetch-depth: 2
-
-      - name: The guard's own tests
+      - name: The generated files guard's own tests
+        if: ${{ !cancelled() }}
+        timeout-minutes: 2
         run: python3 tests/test_generated_files_guard.py
 
-      - name: No new committed generated file against the base
+      - name: cmux-next no new generated files
+        if: ${{ !cancelled() }}
+        timeout-minutes: 3
         env:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
@@ -603,11 +676,11 @@ jobs:
           fi
           python3 scripts/ci/generated_files_guard.py check --repo . --base "$base_ref" --head HEAD
 
-  # A red size cap, crash ratchet or page strings on a pull request into feat-cmux-next gets the same "red: <check>" comment as a
-  # red web check (chief 2026-10-12): ci.yml calls this workflow after `web`; both callers update
-  # one comment, recomputed from all check runs of the head commit.
+  # A red own-change check (the size cap, the crash ratchet) or static check (page strings among them) on a pull
+  # request into feat-cmux-next gets the same "red: <check>" comment as a red web check (chief 2026-10-12): ci.yml calls
+  # this workflow after `web`; both callers update one comment, recomputed from all check runs of the head commit.
   pr-red-checks:
-    needs: [app-size, crash-ratchet, page-strings]
+    needs: [own-change-checks, static-checks]
     if: ${{ always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' }}
     permissions:
       actions: read
@@ -617,34 +690,6 @@ jobs:
     uses: ./.github/workflows/pr-red-checks-comment.yml
     with:
       own_checks_green: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
-
-  # The defaults snapshot's tests and the settings export stamp, in seconds (the
-  # defaults snapshot is bot-only).
-  defaults-snapshot:
-    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
-    timeout-minutes: 5
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          # HEAD^1: the base tip of a pull request's merge commit, or the
-          # previous commit of a push.
-          fetch-depth: 2
-
-      - name: The defaults snapshot tests
-        run: python3 tests/test_defaults_guard.py
-
-      # PR #19754 moved the workspace and tab menus' group rows into More and
-      # nothing failed (Lawrence 2026-10-14: "my groups UI is lost").
-      - name: The group rows stay at the top of the right-click menus
-        run: python3 scripts/cmux-next/check-group-menus.py
-      # Lawrence 2026-10-19: right-click New Tab Group failed while the palette
-      # path worked. A menu row with its own selector is a second path beside
-      # the registered action; new ones fail here.
-      - name: Menu rows run registered actions, not inline selectors
-        run: python3 scripts/cmux-next/check-menu-actions.py
 
   # The tests of feat-cmux-next's own CI tooling (nightly-next's App ID, the
   # cmux-tui republish path, the crash ratchet, the red-checks comment, the
@@ -688,6 +733,9 @@ jobs:
 
       - name: A rebuilt cmux-tui commit reuses its earlier publication
         run: python3 tests/test_cmux_tui_republish_same_commit.py
+
+      - name: verify-cmux-tui-hosted.sh leaves its hosted run alone when the wait ends
+        run: python3 tests/test_verify_cmux_tui_hosted.py
 
       - name: The crash ratchet is judged against the base
         run: python3 tests/test_crash_ratchet_compare.py
@@ -749,8 +797,10 @@ jobs:
       # runs needs a job that runs it (routed by the paths it tests) or an entry in
       # tests/pr-lane-exemptions.json with the reason. ci-guards.yml's copy of this check is in
       # the preflight group, which feat-cmux-next pull requests do not run. HEAD^1 is the base.
+      # A finding the base already has warns, and on a push every finding warns: only the pull
+      # request that adds an unregistered test fails (Leo, 2026-11-05).
       - name: The Python test registry, and the tests no pull request runs
-        run: python3 scripts/ci/validate_test_execution_registry.py --pr-lanes feat-cmux-next --base-sha "$(git rev-parse HEAD^1)"
+        run: python3 scripts/ci/validate_test_execution_registry.py --pr-lanes feat-cmux-next --base-sha "$(git rev-parse HEAD^1)" ${{ github.event_name == 'push' && '--warn-only' || '' }}
 
       # The web lint pre-push hook (scripts/web-lint.sh, scripts/web_lint_prepush.py) on throwaway
       # repositories with stand-in packages; cmux-next-web.yml ran it only on pushes. A stand-in
@@ -831,6 +881,17 @@ jobs:
           python3 tests/test_ci_macos_stubs.py
           python3 tests/test_ci_macho_parity.py
 
+      - name: Set up Rust for the tailnet build-script fixture
+        if: ${{ !cancelled() }}
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: The tailnet target selection and job-local Go installer
+        if: ${{ !cancelled() }}
+        run: |
+          python3 tests/test_tailnet_build_delivery.py
+          python3 tests/test_tailnet_go.py
+          bash scripts/cmux-next/tests/rust-daemon-miss-builds.test.sh
+
       - name: The cmux-browser-host release package
         if: ${{ !cancelled() }}
         run: python3 tests/test_browser_host_release_package.py
@@ -852,32 +913,3 @@ jobs:
       - name: The per-push tip test compile (tip-test-compile.sh)
         if: ${{ !cancelled() }}
         run: python3 tests/test_ci_tip_test_compile.py
-
-  # Every web bundle build runs gen-strings.mjs strict, but only pull requests
-  # that touch webviews/ run its tests. 2c661dec960b renamed a setting in Swift
-  # and the catalogs, the committed settings schema kept the old keys, and the
-  # first red was the bundle build on every later push and webviews/ pull request
-  # (10-20, "settings: 63 strings missing"). This runs the same strict generation
-  # on every pull request and push, with no path filter, so a catalog edit or a
-  # renamed setting is red where it lands.
-  page-strings:
-    name: cmux-next page strings generate
-    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 5
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Setup Node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "24.22.1"
-
-      # No install: the generator reads only the catalogs and the settings schema.
-      - name: Every page's strings generate with no missing translation
-        env:
-          CMUX_STRINGS_BEST_EFFORT: ""
-        run: node webviews/scripts/pages/gen-strings.mjs

@@ -7,7 +7,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { manySessions, noChat } from "../src/gallery/fixtures/acpmux";
-import { newTabHost } from "../src/agent-session/acpmux/NewTabPage";
+import { newTabHost } from "../src/agent-session/acpmux/newTabModel";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

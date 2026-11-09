@@ -12,7 +12,7 @@ import {
   useAttachmentIntake,
   useSendWhenAttached,
   type AttachmentIntakeOptions,
-} from "../src/agent-session/acpmux/composer/attachmentIntake";
+} from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
 import {
   retryUploadLater,
   UPLOAD_AUTO_RETRIES,

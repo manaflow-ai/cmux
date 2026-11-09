@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 import Foundation
 import Testing
 
@@ -57,14 +58,6 @@ import Testing
         panel.layoutSubtreeIfNeeded()
         #expect(!panel.hero.isHiddenOrHasHiddenAncestor && !panel.switchCard.isHiddenOrHasHiddenAncestor)
         #expect(panel.actionRows.allSatisfy { !$0.isHiddenOrHasHiddenAncestor })
-    }
-
-    @Test func theDebugSwitchKeepsTheRowsOnlyPanel() {
-        let panel = HomeFirstRunView(frame: NSRect(x: 0, y: 0, width: 600, height: 700))
-        panel.showsHero = false
-        panel.layoutSubtreeIfNeeded()
-        #expect(panel.hero.isHidden)
-        #expect(HomeTunables.all.contains { $0.key == "home.firstRun.hero" })
     }
 
     @Test func thePetRowReadsAsTheChangeAndRunsTheToggle() {

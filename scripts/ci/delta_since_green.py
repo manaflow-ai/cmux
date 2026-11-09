@@ -60,6 +60,8 @@ CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 CI_POLICY_PREFIXES = (".github/", "scripts/ci/")
 CI_POLICY_TEST_PREFIXES = ("tests/test_ci_",)
 CI_POLICY_FILES = frozenset({"tests/test-execution.toml"})
+# The test registry's area fragments (scripts/ci/test_execution_registry.py).
+CI_POLICY_FILE_RE = re.compile(r"tests/test-execution\.d/[^/]+\.toml")
 # The GitHub Actions app, which owns every workflow check suite.
 ACTIONS_APP_ID = 15368
 CONCLUSIVE = frozenset({"success", "failure", "timed_out", "action_required", "startup_failure"})
@@ -214,7 +216,7 @@ def ci_policy_paths(paths: Iterable[str]) -> list[str]:
     return sorted(
         path for path in paths
         if path.startswith(CI_POLICY_PREFIXES) or path.startswith(CI_POLICY_TEST_PREFIXES)
-        or path in CI_POLICY_FILES
+        or path in CI_POLICY_FILES or CI_POLICY_FILE_RE.fullmatch(path) is not None
     )
 
 

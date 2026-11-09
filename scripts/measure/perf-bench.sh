@@ -4,7 +4,7 @@
 # scrolling, video, switching tabs; cold launch; new tab first paint; idle
 # wakeups and CPU at 20 tabs; memory at 1/10/20 tabs). Method and rows:
 # scripts/perf-bench/README.md. Run alone on an idle mini (it launches apps):
-#   cmux-ci run --class exclusive --measurement --label measure \
+#   cmux-ci run --class exclusive --measurement --pool perf-lead --label measure \
 #     --script scripts/measure/perf-bench.sh --ref SHA --artifact artifacts/perf-bench/results.json \
 #     [--arg=rounds=3] [--arg=launches=2] [--arg=idle=60] [--arg=active=30] [--arg=cmux=build|nightly]
 #     [--arg=browsers=cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari] [--arg=gate=1]
