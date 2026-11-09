@@ -547,6 +547,9 @@ pub mod method {
     /// Every ask waiting on the person and the pull requests without a review verdict, here and
     /// on each peer (`hub/review_queue.rs`); the local socket and the app, a peer its own only.
     pub const MUX_REVIEW_QUEUE: &str = "_acpmux/review_queue";
+    /// A chat's review brief: what it set out to do, what it dropped, where it was unsure
+    /// (`review_brief.rs`), kept beside its log; the local socket and the app only.
+    pub const MUX_REVIEW_BRIEF: &str = "_acpmux/review_brief";
     /// A review verdict on a session's pull request, written to the audit trail
     /// (`hub/audit_entries.rs`); the person's local socket or app only.
     pub const MUX_REVIEW_VERDICT: &str = "_acpmux/review_verdict";

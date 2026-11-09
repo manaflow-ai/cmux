@@ -135,6 +135,32 @@ where
     Fut: Future<Output = Value> + Send + 'static,
 {
     let session = std::env::var(session_env).map_err(|_| anyhow!("{session_env} is not set"))?;
+    // Each call connects anew, so a restarted daemon serves the next one.
+    serve_as(name, session, tools, instructions, move |session, params| {
+        let call = call.clone();
+        async move {
+            match crate::daemon::connect(false).await {
+                Ok(daemon) => call(daemon, session, params).await,
+                Err(e) => error_result(format!("{e:#}")),
+            }
+        }
+    })
+    .await
+}
+
+/// [`serve`] for a session (or bridge address, `acpmux_mcp_bridge.rs`) given, not read from the
+/// env. `call(session, params)` connects to the daemon itself, only if it needs it.
+pub(crate) async fn serve_as<F, Fut>(
+    name: &'static str,
+    session: String,
+    tools: Value,
+    instructions: Option<String>,
+    call: F,
+) -> Result<()>
+where
+    F: Fn(String, Value) -> Fut + Clone + Send + 'static,
+    Fut: Future<Output = Value> + Send + 'static,
+{
     // Stdin may stay open after the agent died (`parent_watch.rs`).
     crate::parent_watch::exit_with_parent();
     let (tx, mut rx) = mpsc::channel::<Value>(64);
@@ -169,15 +195,11 @@ where
             "ping" => json!({}),
             "tools/list" => json!({"tools": tools}),
             "tools/call" => {
-                // A card waits on the person: the next request is read meanwhile. Each call
-                // connects anew, so a restarted daemon serves the next one.
+                // A card waits on the person: the next request is read meanwhile.
                 let (tx, session, params, call) =
                     (tx.clone(), session.clone(), message["params"].clone(), call.clone());
                 tokio::spawn(async move {
-                    let result = match crate::daemon::connect(false).await {
-                        Ok(daemon) => call(daemon, session, params).await,
-                        Err(e) => error_result(format!("{e:#}")),
-                    };
+                    let result = call(session, params).await;
                     let _ = tx.send(response(&id, result)).await;
                 });
                 continue;
