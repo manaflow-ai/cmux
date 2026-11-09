@@ -893,7 +893,10 @@ fn an_unanswered_read_of_the_turn_is_asked_again() {
     assert_eq!(fake.ran.len(), 5, "{:?}", fake.ran);
     // The read asked again is the same read, and the prompt was sent once.
     assert_eq!(fake.ran[3], fake.ran[4]);
-    assert_eq!(fake.ran.iter().filter(|ran| ran[5].contains("acp send")).count(), 1);
+    assert_eq!(
+        fake.ran.iter().filter(|ran| ran.get(5).is_some_and(|s| s.contains("acp send"))).count(),
+        1
+    );
     assert_eq!(fake.paused, NOT_STARTED_PAUSE);
 }
 
@@ -939,9 +942,10 @@ fn a_read_refused_for_the_machine_fails_at_once() {
 #[test]
 fn an_unanswered_read_past_the_deadline_fails() {
     let mut fake = Fake::new(vec![signed_in(), started(), exec_out(SENT), unanswered()]);
-    // The list, the start, the send and the read take 20 s of the 20.
+    // The read takes the rest of the 60 s.
+    fake.slow.push((3, Duration::from_secs(60)));
     let asked =
-        request(&["--prompt", "x", "--target", "machine:vm-1", "--wait", "--timeout", "20"]);
+        request(&["--prompt", "x", "--target", "machine:vm-1", "--wait", "--timeout", "60"]);
     let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
     assert_eq!(error["code"], "chat.unreachable", "{error}");
     assert_eq!(fake.ran.len(), 4, "{:?}", fake.ran);
