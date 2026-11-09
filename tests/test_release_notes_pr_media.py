@@ -482,6 +482,11 @@ class GalleryRenderPlanTests(unittest.TestCase):
                       '    note: "Selected: opened.",\n  },\n}\n'}
         row = {"id": "h", "role": "after", "sources": ["src/a.gallery.tsx"], "commit": "c"}
         self.assertEqual(self.tool.infer(row, cases, lambda rev, path: files.get(rev), lambda c, p: set()), "a.b/cards")
+        # Its note after its snapshot and play still counts, and a nested object's note is not its own (review of #39651).
+        files = {"c": 'variants: {\n  closed: {\n    snapshot: s,\n    props: {\n      note: "Selected: no.",\n    },\n'
+                      '    note: "Closed.",\n  },\n  cards: {\n    snapshot: s,\n    play: openAll,\n'
+                      '    note: "Selected: opened.",\n  },\n}\n'}
+        self.assertEqual(self.tool.infer(row, cases, lambda rev, path: files.get(rev), lambda c, p: set()), "a.b/cards")
 
     def test_infer_takes_the_variant_whose_lines_the_commit_changed_most(self):
         cases = [self.case("a.b", v) for v in ("first", "picked", "picked-solid")]
