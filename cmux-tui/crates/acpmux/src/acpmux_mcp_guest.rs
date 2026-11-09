@@ -20,9 +20,14 @@
 //! user-scope config there too. That session has its own `cmux` server, which replaces this
 //! entry by name; and if one ever does not, the guest lists no tools inside an acpmux session.
 //!
+//! Every session a guest starts runs under the `ask` policy ([`POLICY`]), on every machine, so
+//! the hub holds Claude in `default` and Codex in `ask` and each question goes to the person in
+//! cmux NEXT or on the phone. Only Claude and Codex may be started: another harness cannot be
+//! held to asking, so it is refused rather than started.
+//!
 //! `machines` and `new` run this binary's own CLI (`acpmux --json machine ls`, `acpmux --json new
-//! --detach`), bounded under the shortest harness tool timeout, so they place, name and start a
-//! session exactly as the CLI does and can do nothing it cannot.
+//! --detach --policy ask --prompt-file -`), bounded under the shortest harness tool timeout, so
+//! they place, name and start a session exactly as the CLI does and can do nothing it cannot.
 
 use super::*;
 use std::process::Stdio;
@@ -78,7 +83,7 @@ fn new_tool() -> Value {
             "type": "object",
             "properties": {
                 "prompt": {"type": "string", "description": "The task, self-contained: the session has none of this chat's context."},
-                "harness": {"type": "string", "description": "claude or codex, optionally with a model (claude/opus, codex/gpt-5.5). Default: the person's default."},
+                "harness": {"type": "string", "description": "claude or codex, optionally with a model (claude/opus, codex/gpt-5.5). Default: claude."},
                 "machine": {"type": "string", "description": "A machine from machines, or auto for the one with the most room. Default: as acpmux new places it."},
                 "folder": {"type": "string", "description": "The folder to work in, on that machine. Default: a scratch folder there."},
                 "name": {"type": "string", "description": "A short readable name, 2 to 5 words (spaces become -). Default: made from the app's name."},
@@ -89,19 +94,53 @@ fn new_tool() -> Value {
     })
 }
 
-/// The argv (after the binary) of `new` for guest `app`, or the refusal.
-pub(super) fn new_argv(app: &str, args: &Value) -> Result<(String, Vec<String>), String> {
+/// The asking policy every session a guest starts runs under, on every machine: acpmux's
+/// policy answers each question, and the hub holds the harness in its mode that asks before
+/// each change (`hub/policy_mode.rs`: Claude `default`, the Codex bridge `ask`). A guest is not
+/// the person, so it never starts a session that acts without asking.
+pub(super) const POLICY: &str = "ask";
+/// The harness families a guest may start: the ones whose asking mode the hub holds. Another
+/// (opencode, pi) cannot keep an asking policy (`web_modes.rs`), so it is refused, not started.
+const HARNESSES: &[&str] = &["claude", "codex"];
+
+/// A session name as acpmux keeps it: lowercase, spaces and `/` as `-`.
+fn session_name(name: &str) -> String {
+    name.trim()
+        .to_lowercase()
+        .split(|c: char| c.is_whitespace() || c == '/')
+        .filter(|w| !w.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+/// What `new` runs for guest `app`: the session's name, the argv after the binary, and the
+/// prompt, which goes on stdin (`--prompt-file -`) so a detached `--json new` returns once the
+/// session exists instead of waiting for its reply (`cli/run/standard.rs` `one_shot`). Or the
+/// refusal.
+pub(super) fn new_argv(app: &str, args: &Value) -> Result<(String, Vec<String>, String), String> {
     let Some(prompt) = args.get("prompt").and_then(Value::as_str).filter(|p| !p.trim().is_empty())
     else {
         return Err("prompt is required".to_owned());
     };
-    let name = match arg(args, "name") {
-        Some(name) => name.to_owned(),
+    let name = match arg(args, "name").map(session_name).filter(|n| !n.is_empty()) {
+        Some(name) => name,
         None => format!("{app}-{}", &uuid::Uuid::now_v7().simple().to_string()[24..]),
     };
-    let mut argv: Vec<String> =
-        ["--json", "new", "--detach", "--name", &name].iter().map(|s| (*s).to_owned()).collect();
-    for (key, flag) in [("harness", "--model"), ("machine", "--machine"), ("folder", "--cwd")] {
+    if name.starts_with('-') {
+        return Err("name may not start with -".to_owned());
+    }
+    let harness = arg(args, "harness").unwrap_or("claude");
+    let family = harness.split('/').next().unwrap_or_default();
+    if !HARNESSES.iter().any(|h| family.starts_with(h)) {
+        return Err(format!(
+            "{harness} cannot be held to asking before each change; start claude or codex"
+        ));
+    }
+    let mut argv: Vec<String> = ["--json", "new", "--detach", "--name", &name, "--model", harness]
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+    for (key, flag) in [("machine", "--machine"), ("folder", "--cwd")] {
         if let Some(value) = arg(args, key) {
             if value.starts_with('-') {
                 return Err(format!("{key} may not start with -"));
@@ -109,13 +148,14 @@ pub(super) fn new_argv(app: &str, args: &Value) -> Result<(String, Vec<String>),
             argv.extend([flag.to_owned(), value.to_owned()]);
         }
     }
+    argv.extend(["--policy".to_owned(), POLICY.to_owned()]);
     argv.extend(["--tag".to_owned(), format!("origin={app}")]);
     if args.get("showInCmux").and_then(Value::as_bool) == Some(true) {
         let group = crate::desktop_link::App::parse(app).map_or(app, |a| a.label());
         argv.extend(["--group".to_owned(), group.to_owned()]);
     }
-    argv.extend(["--".to_owned(), prompt.to_owned()]);
-    Ok((name, argv))
+    argv.extend(["--prompt-file".to_owned(), "-".to_owned()]);
+    Ok((name, argv, prompt.to_owned()))
 }
 
 /// The harness a link names for a session's harness or profile name (`claude-opus` is Claude).
@@ -156,11 +196,11 @@ pub(super) fn new_result(name: &str, record: &Value) -> Value {
 }
 
 pub(super) async fn new(app: &str, args: &Value) -> Value {
-    let (name, argv) = match new_argv(app, args) {
+    let (name, argv, prompt) = match new_argv(app, args) {
         Ok(v) => v,
         Err(e) => return error_result(e),
     };
-    match run_cli(&argv, CLI_WAIT).await {
+    match run_cli(&argv, Some(&prompt), CLI_WAIT).await {
         Ok(out) => match serde_json::from_str::<Value>(out.trim()) {
             Ok(record) => new_result(&name, &record),
             Err(_) => ok(format!("Started {name}. {}", out.trim()), json!({"name": name})),
@@ -178,7 +218,7 @@ pub(super) async fn new(app: &str, args: &Value) -> Value {
 
 pub(super) async fn machines() -> Value {
     let argv = ["--json", "machine", "ls"].map(str::to_owned);
-    match run_cli(&argv, MACHINES_WAIT).await {
+    match run_cli(&argv, None, MACHINES_WAIT).await {
         Ok(out) => match serde_json::from_str::<Value>(out.trim()) {
             Ok(list) => {
                 let rows = machine_rows(&list);
@@ -238,8 +278,9 @@ pub(super) enum CliError {
     Failed(String),
 }
 
-/// Run this binary with `argv`, its stdout on success, else its last stderr line.
-async fn run_cli(argv: &[String], wait: Duration) -> Result<String, CliError> {
+/// Run this binary with `argv` (and `stdin` on its stdin), its stdout on success, else its last
+/// stderr line.
+async fn run_cli(argv: &[String], stdin: Option<&str>, wait: Duration) -> Result<String, CliError> {
     let me = crate::self_command::SelfCommand::current()
         .map_err(|e| CliError::Failed(format!("{e}")))?;
     let mut command = me.tokio_command(argv);
@@ -249,10 +290,15 @@ async fn run_cli(argv: &[String], wait: Duration) -> Result<String, CliError> {
         .env_remove(crate::desktop_link::GUEST_ENV)
         .env_remove(crate::hub::person::CALLER_TOKEN_ENV)
         .env_remove(crate::hub::person::CALLER_SOCKET_ENV)
-        .stdin(Stdio::null())
+        .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let child = command.spawn().map_err(|e| CliError::Failed(format!("{e}")))?;
+    let mut child = command.spawn().map_err(|e| CliError::Failed(format!("{e}")))?;
+    if let (Some(text), Some(mut pipe)) = (stdin, child.stdin.take()) {
+        use tokio::io::AsyncWriteExt as _;
+        // Dropping the pipe after the write is the end of the prompt.
+        pipe.write_all(text.as_bytes()).await.map_err(|e| CliError::Failed(format!("{e}")))?;
+    }
     match tokio::time::timeout(wait, child.wait_with_output()).await {
         Err(_) => Err(CliError::Late),
         Ok(Err(e)) => Err(CliError::Failed(format!("{e}"))),

@@ -35,12 +35,13 @@ fn every_guest_tool_has_a_schema_and_the_steer_names_new() {
 
 #[test]
 fn new_runs_acpmux_new_detached_with_the_apps_origin() {
-    let (name, argv) = new_argv(
+    let (name, argv, prompt) = new_argv(
         "claude-desktop",
-        &json!({"prompt": "fix the flaky test", "harness": "codex", "machine": "auto", "folder": "~/src/app", "name": "flaky test fix"}),
+        &json!({"prompt": "fix the flaky test", "harness": "codex", "machine": "auto", "folder": "~/src/app", "name": "Flaky test fix"}),
     )
     .unwrap();
-    assert_eq!(name, "flaky test fix");
+    assert_eq!(name, "flaky-test-fix");
+    assert_eq!(prompt, "fix the flaky test");
     assert_eq!(
         argv,
         [
@@ -48,26 +49,62 @@ fn new_runs_acpmux_new_detached_with_the_apps_origin() {
             "new",
             "--detach",
             "--name",
-            "flaky test fix",
+            "flaky-test-fix",
             "--model",
             "codex",
             "--machine",
             "auto",
             "--cwd",
             "~/src/app",
+            "--policy",
+            "ask",
             "--tag",
             "origin=claude-desktop",
-            "--",
-            "fix the flaky test"
+            "--prompt-file",
+            "-",
         ]
     );
-    let (name, argv) =
+    let (name, argv, prompt) =
         new_argv("codex", &json!({"prompt": "-rf look", "showInCmux": true})).unwrap();
     assert!(name.starts_with("codex-"), "{name}");
     let group = argv.iter().position(|a| a == "--group").unwrap();
     assert_eq!(argv[group + 1], "Codex desktop and CLI");
-    // The prompt comes after `--`, so a prompt that looks like a flag stays the prompt.
-    assert_eq!(argv[argv.len() - 2..], ["--", "-rf look"]);
+    // The prompt goes on stdin, never into argv, so one that looks like a flag stays the prompt.
+    assert_eq!(prompt, "-rf look");
+    assert!(!argv.iter().any(|a| a == "-rf look"), "{argv:?}");
+}
+
+/// Review F1 (#39320): a guest is not the person, so every session it starts asks before each
+/// change, Claude and Codex alike, on this machine, a paired machine or a Cloud machine.
+#[test]
+fn every_session_a_guest_starts_asks_before_it_acts() {
+    let policy = |argv: &[String]| {
+        let at = argv.iter().position(|a| a == "--policy").expect("a --policy");
+        argv[at + 1].clone()
+    };
+    let harnesses = [None, Some("claude"), Some("claude/opus"), Some("codex"), Some("codex/gpt-5.5")];
+    let machines = [None, Some("local"), Some("auto"), Some("mac-mini"), Some("cloud-1")];
+    for harness in harnesses {
+        for machine in machines {
+            let mut args = json!({"prompt": "run the tests"});
+            if let Some(h) = harness {
+                args["harness"] = json!(h);
+            }
+            if let Some(m) = machine {
+                args["machine"] = json!(m);
+            }
+            let (_, argv, _) = new_argv("claude-code", &args).unwrap();
+            assert_eq!(policy(&argv), "ask", "{harness:?} on {machine:?}: {argv:?}");
+            assert!(!argv.iter().any(|a| a == "--mode"), "{argv:?}");
+            let model = argv.iter().position(|a| a == "--model").unwrap();
+            assert_eq!(argv[model + 1], harness.unwrap_or("claude"));
+        }
+    }
+    // A harness the hub cannot hold to asking is refused, not started.
+    for harness in ["opencode", "pi", "gemini/2.5"] {
+        let e = new_argv("codex", &json!({"prompt": "x", "harness": harness})).unwrap_err();
+        assert!(e.contains("cannot be held to asking"), "{harness}: {e}");
+    }
 }
 
 #[test]
@@ -76,6 +113,8 @@ fn new_refuses_no_prompt_and_a_value_that_is_a_flag() {
     assert_eq!(new_argv("codex", &json!({"prompt": "  "})).unwrap_err(), "prompt is required");
     let e = new_argv("codex", &json!({"prompt": "x", "machine": "--force-admit"})).unwrap_err();
     assert!(e.contains("machine may not start with -"), "{e}");
+    let e = new_argv("codex", &json!({"prompt": "x", "name": "--reuse"})).unwrap_err();
+    assert!(e.contains("name may not start with -"), "{e}");
 }
 
 #[test]
