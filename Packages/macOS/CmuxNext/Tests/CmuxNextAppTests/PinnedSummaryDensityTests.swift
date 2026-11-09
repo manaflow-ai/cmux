@@ -36,10 +36,14 @@ import Testing
         return SidebarFavicon(context.makeImage()!)
     }()
 
+    /// A shell with no detail line (one row tall), a page, and a Codex chat whose model is its detail line (two rows
+    /// tall, as in `WorkspaceHoverCardUnifiedStyleTests`).
     static var pinned: SidebarWorkspace {
-        SidebarWorkspace(id: pinnedID, title: "Cloud Chief rebuild with a long name that wraps in the card",
-                         tabs: [SidebarTab(id: TabID("pin-shell"), title: "shell"),
-                                SidebarTab(id: TabID("pin-docs"), title: "docs", kind: .browser)])
+        var chat = SidebarTab(id: TabID("pin-chat"), title: "chat", kind: .agentChat, brand: "codex")
+        chat.model = "gpt-6-astra"
+        return SidebarWorkspace(id: pinnedID, title: "Cloud Chief rebuild with a long name that wraps in the card",
+                                tabs: [SidebarTab(id: TabID("pin-shell"), title: "shell"),
+                                       SidebarTab(id: TabID("pin-docs"), title: "docs", kind: .browser), chat])
     }
 
     /// Runs `body` with the sidebar at `setting`, on the compact app density.
@@ -67,6 +71,9 @@ import Testing
         var tabRowHeight: CGFloat
         /// Whether the measured tab row draws a detail line (a two-line row); the fixture's first tab has none.
         var tabHasDetail: Bool
+        /// The chat tab's row, which has a detail line (its model): its height and whether the line shows.
+        var detailTabRowHeight: CGFloat
+        var detailTabHasDetail: Bool
         var tabTitle: CGFloat
         var tabIcon: CGFloat
         var disclosureHeight: CGFloat
@@ -123,13 +130,18 @@ import Testing
             card.layoutSubtreeIfNeeded()
             let tab = try #require(card.tabList.rowViews.first, "\(setting): the card drew no tab row")
             tab.layout()
+            let chatIndex = try #require(pinned.tabs.firstIndex { $0.id == TabID("pin-chat") })
+            try #require(card.tabList.rowViews.count > chatIndex, "\(setting): the card drew no row for the chat tab")
+            let chatRow = card.tabList.rowViews[chatIndex]
+            chatRow.layout()
             let measured = Measured(
                 pinnedRowHeight: row.bounds.height, pinnedTitle: row.title.font?.pointSize ?? 0,
                 pinnedGlyph: row.glyphImage?.size.width ?? 0,
                 listRowHeight: listRow.bounds.height, listTitle: listRow.title.font.pointSize, listGlyph: listGlyph,
                 cardPadding: card.kindIconFrame.minX, cardIcon: card.kindIconFrame.width,
                 cardTitle: card.drawnTitleFont?.pointSize ?? 0, cardCaption: card.drawnCaptionFont?.pointSize ?? 0,
-                cardWidth: widest, cardMinWidth: narrowest, tabRowHeight: tab.frame.height, tabHasDetail: tab.hasDetail, tabTitle: tab.titleFont?.pointSize ?? 0,
+                cardWidth: widest, cardMinWidth: narrowest, tabRowHeight: tab.frame.height, tabHasDetail: tab.hasDetail,
+                detailTabRowHeight: chatRow.frame.height, detailTabHasDetail: chatRow.hasDetail, tabTitle: tab.titleFont?.pointSize ?? 0,
                 tabIcon: tab.iconFrame.width, disclosureHeight: card.detailsToggle.fittingSize.height)
             print("PINNEDSIZE|\(setting)|row \(measured.pinnedRowHeight) vs \(measured.listRowHeight)|title \(measured.pinnedTitle) vs \(measured.listTitle)"
                 + "|glyph \(measured.pinnedGlyph) vs \(measured.listGlyph)|card pad \(measured.cardPadding) icon \(measured.cardIcon)"
@@ -166,6 +178,10 @@ import Testing
         // fixture's shell tab has no command, place or state, so it takes the one-line token.
         #expect(!m.tabHasDetail, "\(setting): the shell tab drew a detail line")
         #expect(m.tabRowHeight == card.tabRowHeight, "\(setting): tab row \(m.tabRowHeight), token \(card.tabRowHeight)")
+        // A tab with a detail line is two rows tall at every density and text size.
+        #expect(m.detailTabHasDetail, "\(setting): the chat tab drew no detail line")
+        #expect(m.detailTabRowHeight == card.tabRowHeightTwoLines,
+                "\(setting): two-line tab row \(m.detailTabRowHeight), token \(card.tabRowHeightTwoLines)")
         #expect(m.tabTitle == card.titleSize, "\(setting): tab title \(m.tabTitle), token \(card.titleSize)")
         #expect(m.tabIcon == card.iconSide, "\(setting): tab icon \(m.tabIcon), token \(card.iconSide)")
         #expect(m.disclosureHeight == card.disclosureHeight, "\(setting): disclosure \(m.disclosureHeight), token \(card.disclosureHeight)")
