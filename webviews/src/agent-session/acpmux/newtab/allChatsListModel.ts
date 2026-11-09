@@ -282,7 +282,30 @@ export function useChatPages(load: LoadChatsPage) {
       }),
     [fetchPage, refreshFirstPage],
   );
-  return { state, fetchPage };
+  // The search field: the query shows at once and its page is read once the field stays still
+  // for SEARCH_SETTLE_MS, so a word typed is one read, not one per key. A key drops any reply still
+  // out for the query before it; clearing the field reads the list at once.
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const search = useCallback(
+    (query: string) => {
+      clearTimeout(settleTimer.current);
+      settleTimer.current = undefined;
+      if (!query) {
+        fetchPage("", undefined);
+        return;
+      }
+      generation.current++;
+      inFlight.current = undefined;
+      setState((s) => ({ ...s, query, nextCursor: undefined, loading: true, failedCursor: undefined }));
+      settleTimer.current = setTimeout(() => {
+        settleTimer.current = undefined;
+        fetchPage(query, undefined);
+      }, SEARCH_SETTLE_MS);
+    },
+    [fetchPage],
+  );
+  useEffect(() => () => clearTimeout(settleTimer.current), []);
+  return { state, fetchPage, search };
 }
 
 /** A chat-open request keeps its originating row through host acceptance or refusal.
