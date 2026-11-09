@@ -11,8 +11,8 @@
 //! A split takes the new pane's width only from the pane it splits: every
 //! other pane of the row (the chain of splits in the same direction around
 //! it) keeps its width, so a person's column keeps its width. The agent
-//! panes next to the new one in that row (each tab runs an agent start
-//! launch, arg0 `cmux-agent`; a tab's name does not count) then
+//! panes next to the new one in that row (each tab's terminal has the
+//! daemon's `extra.agent_start` mark; a tab's name does not count) then
 //! share their space equally, so the third agent of a row is not an eighth
 //! of it (W5-Q, bench round 4 orchestration friction 6). A screen of
 //! viewport columns keeps each column's width.
@@ -26,7 +26,6 @@ use serde_json::{Value, json};
 
 use super::super::agent_names::{self, Found};
 use super::super::terminal_talk::send::{self, Daemon};
-use super::launch::Launch;
 use super::{Failure, plan};
 
 /// A new tab in a pane, or a new pane next to it.
@@ -378,7 +377,7 @@ fn balance<D: Daemon + ?Sized>(daemon: &D, screen: Option<&str>, pane: &str) {
     let Ok(layout) = daemon.request(None, export) else { return };
     let root = layout.get("root").unwrap_or(&layout);
     let is_agent = |id: &str| {
-        id == pane || snapshot.as_ref().is_some_and(|snapshot| started_agents(daemon, snapshot, id))
+        id == pane || snapshot.as_ref().is_some_and(|snapshot| started_agents(snapshot, id))
     };
     for (split, ratio) in row_ratios(root, pane, &is_agent) {
         let ratio = format!("{ratio:.6}");
@@ -401,23 +400,18 @@ fn balance<D: Daemon + ?Sized>(daemon: &D, screen: Option<&str>, pane: &str) {
 }
 
 /// Whether agent start made `pane`: it has tabs, and each one's terminal
-/// runs an agent start launch ([`Launch::argv`], arg0 `cmux-agent`), as
-/// `terminal <t> process show` reports it. A person's tab never runs that
-/// launch, whatever its name. A terminal whose process the daemon cannot
-/// show (an exited agent) counts as the person's, so its width stays.
-fn started_agents<D: Daemon + ?Sized>(daemon: &D, snapshot: &Value, pane: &str) -> bool {
+/// carries the daemon's `extra.agent_start` mark (its stored spawn argv is
+/// the agent start launch, cmux_tui_core::agent_start_launch). A person's
+/// tab never has the mark, whatever its name; nothing reads a process.
+fn started_agents(snapshot: &Value, pane: &str) -> bool {
+    let marked: std::collections::HashSet<&str> = list(snapshot, "terminals")
+        .iter()
+        .filter(|terminal| terminal["extra"]["agent_start"] == true)
+        .filter_map(|terminal| terminal["id"].as_str())
+        .collect();
     let mut tabs = list(snapshot, "tabs").iter().filter(|tab| tab["pane_id"] == pane).peekable();
     tabs.peek().is_some()
-        && tabs.all(|tab| {
-            let Some(terminal) = tab["content_id"].as_str() else { return false };
-            let Ok(show) = plan(&["terminal", terminal, "process", "show"]) else { return false };
-            let Ok(process) = daemon.request(None, show) else { return false };
-            let argv: Vec<String> = process["argv"]
-                .as_array()
-                .map(|words| words.iter().filter_map(Value::as_str).map(str::to_owned).collect())
-                .unwrap_or_default();
-            Launch::from_argv(&argv).is_some()
-        })
+        && tabs.all(|tab| tab["content_id"].as_str().is_some_and(|id| marked.contains(id)))
 }
 
 /// The split ratios (`split_id`, share of `first`) after a split made

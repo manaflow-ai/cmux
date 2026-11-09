@@ -11,8 +11,8 @@
 pub const ARG0: &str = "cmux-agent";
 
 /// Whether `argv` is an agent start launch: `<shell> -lc <script> cmux-agent ...`.
-pub fn is_agent_start_argv(_argv: &[String]) -> bool {
-    false
+pub fn is_agent_start_argv(argv: &[String]) -> bool {
+    matches!(argv, [_, flag, _, arg0, ..] if flag == "-lc" && arg0 == ARG0)
 }
 
 #[cfg(test)]

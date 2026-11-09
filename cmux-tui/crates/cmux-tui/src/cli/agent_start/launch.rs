@@ -11,7 +11,7 @@
 use super::super::agent_vocabulary::harness_name;
 
 /// `$0` of the launcher script; marks an argv this module built.
-pub(super) const ARG0: &str = "cmux-agent";
+pub(super) const ARG0: &str = cmux_tui_core::agent_start_launch::ARG0;
 /// What follows the launcher in the script.
 const SCRIPT_TAIL: &str = " \"$@\"";
 /// The environment variable that names the default launcher.
