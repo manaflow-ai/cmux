@@ -170,7 +170,9 @@ test("the table's cache columns are the ones a narrow page drops; the five it al
   expect(css).toMatch(
     /@container cst \(max-width:639\.98px\)\{[^\n]*repeat\(6,64px\)[^\n]*\[data-col="cacheRead"\],\.cst \[data-col="cacheWrite"\]\{display:none\}/,
   );
-  expect(css).toMatch(/@container cst \(max-width:559\.98px\)\{[^\n]*repeat\(5,72px\)[^\n]*\[data-col="fromCache"\]\{display:none\}/);
+  expect(css).toMatch(
+    /@container cst \(max-width:559\.98px\)\{[^\n]*repeat\(5,72px\)[^\n]*\[data-col="fromCache"\]\{display:none\}/,
+  );
   // The warning tone is the pane's own token, which the agent pane defines.
   expect(css).not.toMatch(/var\(--warning/);
 });
