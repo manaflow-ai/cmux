@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42719356442",
+  "recorded_at": "2026-11-09T23:27:48Z",
+  "reason": "cmux-tui 082effe4a744 changes the image's cmux-tui (pinned 176e8ec3f74d)",
+  "dry_run": false,
+  "cmux_tui": "082effe4a744a7c8ca1c35816c35818c522f601d",
+  "fixes": [
+    {
+      "sha": "082effe4a744a7c8ca1c35816c35818c522f601d",
+      "mergedAt": "2026-11-09T15:02:40-08:00",
+      "subject": "smoltcp SACK: early retransmit only for a short tail (#39256)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T23:27:48Z",
+    "snapshot_id": "sh-0aed16f7b47c4c4b8bd82513fb270485",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42719356442): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c0d656bb7472aceb0a376558fadace499fb52d23",
+    "image": "cloud-native-auto-082effe4-42719356442-1",
+    "revision": "ci-42719356442-1",
+    "at": "2026-11-09T23:27:48Z"
+  },
+  "rolled_back": false
+}
