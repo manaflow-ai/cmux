@@ -215,10 +215,11 @@ class FastGate(unittest.TestCase):
         with self.assertRaisesRegex(gate.Refused, "cmux-next fast tier.*no verdict"):
             run(Reader(rest + [check("cmux-next fast tier", conclusion="CANCELLED", started=older),
                                check("cmux-next fast tier", conclusion="SKIPPED", started=newer)]))
-        # Only skipped runs: as before (a lint check skipped has no verdict to compare).
-        with self.assertRaisesRegex(gate.Refused, "no verdict to compare"):
-            run(Reader(GREEN + [check(lint, conclusion="SKIPPED", started=older),
-                                check(lint, conclusion="SKIPPED", started=newer)]))
+        # Only skipped runs: as before, a skipped lint check is not red (SKIPPED passes this gate).
+        _, seen, reds = run(Reader(GREEN + [check(lint, conclusion="SKIPPED", started=older),
+                                            check(lint, conclusion="SKIPPED", started=newer)]))
+        self.assertIn(lint, seen)
+        self.assertEqual(reds, [])
         # A newer run still going replaces an older verdict: the gate waits for it.
         _, _, reds = run(Reader(GREEN + [check(lint, conclusion="FAILURE", started=older),
                                          check(lint, "IN_PROGRESS", "", started=newer)],
