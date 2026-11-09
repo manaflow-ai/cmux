@@ -42,6 +42,7 @@ import { bareSender } from "./senderIdentity";
 import { SentFromLine } from "./SentFromLine";
 import { shownOfCut } from "./markdownCut";
 import "./InboxNoticeCard.css";
+import { signed } from "../../../ui/Typography";
 
 /// Reads a thread's messages, oldest first (App.tsx `readInboxThread`, `chat.inbox.thread`).
 export type ReadInboxThread = (threadId: string) => Promise<InboxMessage[]>;
@@ -182,7 +183,9 @@ function InboxThreadLine({
         <>
           {/* A thread keyed by its sender (`declared:NAME`) is labeled with that name: said once. */}
           {thread.label && thread.label !== name && <span className="cv-inbox__label">{thread.label}</span>}
-          {thread.count > 1 && <span className="cv-inbox__more">{t("tools.more", { n: thread.count - 1 })}</span>}
+          {thread.count > 1 && (
+            <span className="cv-inbox__more">{signed(t("tools.more", { n: thread.count - 1 }))}</span>
+          )}
         </>
       }
       preview={preview}

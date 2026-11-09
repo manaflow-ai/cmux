@@ -63,6 +63,9 @@ pub struct Totals {
     /// before it was kept, whose writes were priced at the 5-minute rate.
     #[serde(rename = "cacheWrite1hTokens")]
     pub cache_write_1h_tokens: u64,
+    /// What cache reads saved against the input price, at the bundled table
+    /// (`PriceTable::cache_savings`), whoever priced the turn; 0 for a model the table lacks.
+    pub cache_saved_usd: f64,
     pub turns: u64,
     pub tool_calls: u64,
     pub wall_ms: u64,
@@ -81,6 +84,7 @@ impl Totals {
         self.cache_read_tokens += o.cache_read_tokens;
         self.cache_write_tokens += o.cache_write_tokens;
         self.cache_write_1h_tokens += o.cache_write_1h_tokens;
+        self.cache_saved_usd += o.cache_saved_usd;
         self.turns += o.turns;
         self.tool_calls += o.tool_calls;
         self.wall_ms += o.wall_ms;
@@ -106,6 +110,7 @@ impl Totals {
             t.unpriced_turns = turns;
         }
         t.cost_usd = t.harness_cost_usd + t.table_cost_usd;
+        t.cache_saved_usd = crate::pricing::table().cache_savings(model, usage).unwrap_or(0.0);
         t
     }
 }
@@ -324,6 +329,11 @@ pub(crate) enum Line {
         pv: String,
         #[serde(flatten)]
         totals: Totals,
+        /// `totals.cache_saved_usd` as the line recorded it, read only: None for a line from
+        /// before acpmux counted cache savings, which the fold prices again; a recorded zero (a
+        /// model the table lacked then) stays zero. Written through `totals`, never twice.
+        #[serde(rename = "cacheSavedUsd", default, skip_serializing)]
+        saved: Option<f64>,
     },
     /// A session's descriptive fields (merged into what came before).
     #[serde(rename = "s")]
@@ -579,7 +589,7 @@ impl Ledger {
         }
         s.add_bucket(session, &model, &version, record.at, &totals);
         let line =
-            Line::Spend { sid: session.to_owned(), at: record.at, model, pv: version, totals };
+            Line::Spend { sid: session.to_owned(), at: record.at, model, pv: version, totals, saved: None };
         self.emit(&mut s, line);
         drop(s);
         if needs_repo && let Some(cwd) = cwd {

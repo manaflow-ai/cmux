@@ -55,6 +55,7 @@ const subagent: Subagent = {
 export const LONE_LINE: Record<string, string> = {
   "background-update": backgroundTurnRowId("lone-bg"),
   "background-update-running": backgroundTurnRowId("lone-bg-running"),
+  "scheduled-check-running": backgroundTurnRowId("lone-check-running"),
   "background-task": "lone-task",
   "background-tasks-run": backgroundRunRowId(backgroundTurnRowId("lone-run-a")),
   "subagent-finished": "subagentDone:lone-agent",
@@ -76,12 +77,22 @@ export default agentPaneEntry({
       snapshot: chat([...opening, ...quiet("lone-bg", 8), next]),
     },
     "background-update-running": {
-      note: "The same line while its turn runs, a spinner and no chevron, at the chat's end: 8 under the footer, so it does not move when it ends.",
+      note: "The same line while its turn runs, a spinner, its words shimmering as a running tool row's, and no chevron, at the chat's end: 8 under the footer, so it does not move when it ends.",
       snapshot: chat([
         ...opening,
         row(BACKGROUND_TURN, 8, {
           id: backgroundTurnRowId("lone-bg-running"),
           background: { id: "lone-bg-running", trigger: "system", running: true },
+        }),
+      ]),
+    },
+    "scheduled-check-running": {
+      note: 'Leo, 2026-11-09: "this scheduled check thing isn\'t highlighted all the way through like other tool calls are". A running "Scheduled check": the shimmer crosses the whole label, as on a running tool row (before: a spinner and still words).',
+      snapshot: chat([
+        ...opening,
+        row(BACKGROUND_TURN, 8, {
+          id: backgroundTurnRowId("lone-check-running"),
+          background: { id: "lone-check-running", trigger: "scheduled", running: true },
         }),
       ]),
     },
