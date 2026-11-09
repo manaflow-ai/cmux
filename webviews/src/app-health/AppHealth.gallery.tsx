@@ -98,9 +98,7 @@ const STATES: Record<string, { note: string; snapshot: HealthSnapshot }> = {
           attempt: 1,
         }),
       ],
-      receipts: [
-        receipt(4_000, "sessionDaemon", "holdReplace", "ok", "Stopped replacing Sessions while it restores."),
-      ],
+      receipts: [receipt(4_000, "sessionDaemon", "holdReplace", "ok", "Stopped replacing Sessions while it restores.")],
     },
   },
   "restoring-slow": {
@@ -190,12 +188,7 @@ export default componentEntry<Props>({
         <div className="ah-gallery" data-treatment={treatment}>
           <div className="ah-gallery-slot" data-slot={treatment}>
             {treatment === "titlebar" && <span className="ah-gallery-title">cmux</span>}
-            <views.AppHealthIndicator
-              snapshot={snapshot}
-              strings={strings}
-              actions={actions}
-              treatment={treatment}
-            />
+            <views.AppHealthIndicator snapshot={snapshot} strings={strings} actions={actions} treatment={treatment} />
           </div>
           <div className="ah-gallery-popover">
             <views.AppHealthPopover snapshot={snapshot} strings={strings} repair={actions.repair} />
