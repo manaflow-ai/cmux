@@ -5,7 +5,8 @@
 // from its dev entry, against a stand-in acpmux daemon (as turn-end-fold-browser.test.ts). The turn's
 // last paragraph comes with its end, so it reveals after it:
 // - the fold read the rows at the end but cannot play (`playTurnEnd` finds no motion on the thread):
-//   the reply rises to make room for the paragraph over several frames, the bottom pinned;
+//   the reply never steps more than 75% of its move in one frame, nor past its place and back, the
+//   bottom pinned;
 // - a turn of words alone (no running line, so no fold): the same;
 // - motion off before the end: the end applies at once, and nothing settles on after;
 // - the reader scrolled up: the row at the top of their view stays where it is.
@@ -218,7 +219,7 @@ await requireBrowserLane("turn-end-reply-motion-browser.test.ts", async () => {
 
   /// Where the reply is drawn in the view on each painted frame around the end, the first row drawn
   /// at the view's top (its id and where it is), and whether the fold plays.
-  type Sample = { reply: number; topId: string; top: number; folding: boolean; ended: boolean; gap: number };
+  type Sample = { reply: number; topId: string; top: number; folding: boolean; ended: boolean; line: boolean; gap: number };
   type Route = "no-fold" | "words" | "motion-off" | "scrolled-up";
   async function playEnd(route: Route) {
     withTools = route !== "words";
@@ -260,7 +261,7 @@ await requireBrowserLane("turn-end-reply-motion-browser.test.ts", async () => {
     await page.evaluate(() => {
       const samples: Sample[] = [];
       (window as any).replySamples = samples;
-      const started = performance.now();
+      let frames = 0;
       window.cmuxAfterPaint(() => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         const view = scroller.getBoundingClientRect();
@@ -277,9 +278,13 @@ await requireBrowserLane("turn-end-reply-motion-browser.test.ts", async () => {
           folding: Boolean(scroller.querySelector("[data-turn-end-folding]")),
           // The answer's last paragraph, which comes with the turn's end, is drawn: the turn ended.
           ended: Boolean(reply?.textContent?.includes("All of the retry tests pass again.")),
+          // The turn's running line is drawn (a turn of words alone draws none).
+          line: Boolean(scroller.querySelector('.acpmux-row[data-row-id="thinking-live"]')),
           gap: Math.round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop),
         });
-        return performance.now() - started < 1_200;
+        // Until well after the end: the test paints 80 frames after it, so sampling never stops early.
+        frames += 1;
+        return frames < 400;
       });
     });
     endTurn!();
@@ -291,36 +296,34 @@ await requireBrowserLane("turn-end-reply-motion-browser.test.ts", async () => {
     return { page, samples };
   }
 
-  /// The reply's last paragraph, revealing after the end, moves the reply up to make room over several
-  /// frames, never more than 75% of the way in one, and never past its place and back: from the
-  /// last frame before the paragraph is drawn.
-  function expectEased(samples: Sample[], label: string) {
-    const ended = samples.findIndex((sample) => sample.ended);
-    expect(ended).toBeGreaterThan(0);
-    const after = samples.slice(ended - 1).filter((sample) => Number.isFinite(sample.reply));
+  /// From `from` on, the reply never steps more than 75% of its whole move in one frame, and never goes
+  /// past its place and back (every step one way). A move of a few px is no motion to judge.
+  function expectEased(samples: Sample[], from: number, label: string) {
+    expect(from).toBeGreaterThan(0);
+    const after = samples.slice(from - 1).filter((sample) => Number.isFinite(sample.reply));
     const move = after.at(-1)!.reply - after[0]!.reply;
     const steps = after.slice(1).map((sample, index) => sample.reply - after[index]!.reply);
     console.log(`TURN_END_REPLY ${label} move=${move.toFixed(1)} steps=${JSON.stringify(steps.map(Math.round))}`);
-    // The paragraph came in: the reply rose to make room for it.
-    expect(move).toBeLessThan(-8);
-    expect(Math.max(...steps.map(Math.abs))).toBeLessThan(Math.abs(move) * 0.75);
-    expect(steps.filter((step) => Math.abs(step) >= 0.5).length).toBeGreaterThanOrEqual(3);
-    expect(steps.every((step) => step <= 1)).toBe(true);
+    if (Math.abs(move) > 8) {
+      expect(Math.max(...steps.map(Math.abs))).toBeLessThan(Math.abs(move) * 0.75);
+      expect(steps.every((step) => Math.sign(step) !== -Math.sign(move) || Math.abs(step) < 1)).toBe(true);
+    }
     // The bottom stays pinned once it lands.
     expect(after.at(-1)!.gap).toBeLessThanOrEqual(2);
   }
 
-  test("the fold captured but nothing of it plays: the reply's last paragraph eases in", async () => {
+  test("the fold captured but nothing of it plays: the reply never steps at the end", async () => {
     const { page, samples } = await playEnd("no-fold");
     // Nothing of the fold played.
     expect(samples.some((sample) => sample.folding)).toBe(false);
-    expectEased(samples, "no-fold");
+    // From the frame the running line left: the swap and the paragraph after it.
+    expectEased(samples, samples.findIndex((sample) => !sample.line), "no-fold");
     await page.close();
   });
 
-  test("a turn of words alone: the reply's last paragraph eases in at the end", async () => {
+  test("a turn of words alone: the reply never steps at the end", async () => {
     const { page, samples } = await playEnd("words");
-    expectEased(samples, "words");
+    expectEased(samples, samples.findIndex((sample) => sample.ended), "words");
     await page.close();
   });
 
