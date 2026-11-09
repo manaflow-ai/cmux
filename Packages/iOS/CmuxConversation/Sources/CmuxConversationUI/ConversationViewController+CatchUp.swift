@@ -137,7 +137,7 @@ extension ConversationViewController {
         let y = min(max(-top, frame.minY - top - 8), bottomOffset.y)
         store.dismissCatchUp()
         setCatchUpVisible(false)
-        collectionView.setContentOffset(CGPoint(x: 0, y: y), animated: true)
+        collectionView.setContentOffset(CGPoint(x: 0, y: y), animated: !UIView.reducesMotion)
     }
 
     /// Lab hook: the catch-up arrow's state, `visible` / `hidden`.
