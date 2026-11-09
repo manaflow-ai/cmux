@@ -45,7 +45,9 @@ interface HealthClient {
 
 export interface KeptState {
   scroll?: { path: string; top: number; left: number };
-  draft?: { path: string; text: string; start?: number; end?: number };
+  /** `base`: a textarea's text as the page loaded it (its default value), so a prefilled field the
+   * person edited still gets its edit back. */
+  draft?: { path: string; text: string; start?: number; end?: number; base?: string };
 }
 
 const installed = new WeakSet<Document>();
@@ -165,6 +167,7 @@ export function captureState(doc: Document): KeptState {
       if (isTextArea(field)) {
         state.draft.start = field.selectionStart;
         state.draft.end = field.selectionEnd;
+        if (field.defaultValue) state.draft.base = field.defaultValue;
       }
     }
   }
@@ -237,11 +240,12 @@ export function restoreState(doc: Document, state: KeptState | null, done: () =>
 }
 
 /** Writes a draft through the field's own input path, so a React-controlled field takes it too;
- * text the person already typed since the load is never replaced. */
+ * text the person already typed since the load is never replaced. A field that still shows what the
+ * page loaded into it (its kept `base`) takes the edit back. */
 function putDraft(field: HTMLElement, draft: NonNullable<KeptState["draft"]>): void {
   const view = field.ownerDocument.defaultView;
   if (isTextArea(field)) {
-    if (field.value || !view) return;
+    if (!view || (field.value && field.value !== draft.base) || field.value === draft.text) return;
     // The prototype's setter, not the property: React tracks the property and would drop the event.
     Object.getOwnPropertyDescriptor(view.HTMLTextAreaElement.prototype, "value")?.set?.call(field, draft.text);
     field.dispatchEvent(new view.Event("input", { bubbles: true }));
