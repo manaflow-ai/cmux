@@ -227,11 +227,10 @@ fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::R
     let claude = args.source == "claude";
     match inbox {
         Some(inbox::Delivery::SessionBanner) => {
-            if claude && agent.is_nested_at_start() {
+            if claude && agent.start_is_nested() {
                 inbox::print_nothing(inbox);
                 return Ok(());
             }
-            agent.record_agent();
             plugin_copy::claim_terminal(
                 &args.source,
                 &args.native_event,

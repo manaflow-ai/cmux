@@ -135,16 +135,21 @@ Claude Code 2.1 reads under any config directory and beside any
   first live session and drops the events and live fields of another. Its
   hooks hand over no messages, banner or session context when it is not the
   terminal's agent:
-  - Its `SessionStart` with source `clear` or `compact` is the terminal's
-    agent (only a running Claude starts a session that way).
   - A Claude whose `CLAUDE_PID` is the one that the terminal's agent
     recorded at its `SessionStart` (a file in the hook queue directory) is
-    that agent, also after an in-process `/resume`.
+    that agent, also after `/clear` or an in-process `/resume`.
+  - Without a `CLAUDE_PID`, a `SessionStart` with source `clear` is the
+    terminal's agent (only a running Claude starts a session that way).
   - Else the hook reads its terminal's agent row (one `agent.list`
     request). A live hook session other than its own means another agent's
     Claude: it hands over nothing and writes no claim. When the read fails
     or times out, the hook reports as before, so the terminal's own agent is
-    never silenced by a daemon that does not answer in time.
+    never silenced by a daemon that does not answer in time; that start
+    records no process, so later hooks read the row again.
+
+  This relies on each Claude Code process setting its own `CLAUDE_PID` for
+  its hooks (2.1.319 does). A nested Claude that passes on its parent's
+  `CLAUDE_PID` counts as the terminal's agent.
 
   The check runs after the event is handed to the daemon, so it never
   delays the event. At `SessionStart` the journal hook and the
@@ -156,8 +161,18 @@ Claude Code 2.1 reads under any config directory and beside any
   the screen detector replaces the row. Each such `startup` beside a row of
   another recorded process with no hook event for 30 s writes one line to
   the hook's stderr (Claude Code's debug log) and adds one to the
-  `claude-stale-agent-rows` count in the hook queue directory. Without a
+  `claude-stale-agent-rows` count in the hook queue directory (a count only:
+  an agent busy in one long tool call can look quiet too). Without a
   numeric `CLAUDE_PID` an in-process `/resume` has the same limit.
+- Limit: the first live session takes the row. A nested Claude whose start
+  reaches the daemon before its parent's (a `SessionStart` hook or MCP
+  server that starts one at once), or one that outlives its parent, holds
+  the row; the terminal's own Claude then counts as another agent's until
+  that session ends.
+- Limit: an in-process `/resume` that sends no `SessionEnd` keeps the old
+  session's row (the daemon drops the resumed session's events, and its
+  live prompt, reply and question). Its hooks still hand over the
+  terminal's messages, because its `CLAUDE_PID` is the recorded one.
 - A Claude started with `cmux agent start` from a tool command runs in its
   own terminal and reports there. The shim's fallback when no hook helper is
   found (`cmux-tui agent hook emit`) records events only, delivers no

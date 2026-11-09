@@ -6,22 +6,26 @@
 //! Claude hook hands over messages, the startup banner or the session
 //! context, it checks whether the terminal already has another agent:
 //!
-//! - A `SessionStart` with source `clear` or `compact` is the terminal's
-//!   agent: only a running Claude starts a session that way.
 //! - A Claude whose `CLAUDE_PID` is the one this terminal's agent recorded
 //!   at its `SessionStart` is that agent (after `/clear` or `/resume`).
+//! - Without a `CLAUDE_PID`, a `SessionStart` with source `clear` is the
+//!   terminal's agent: only a running Claude starts a session that way.
 //! - Else one `agent.list` read of the terminal: a live hook session other
 //!   than this one means this Claude is another agent's. A read that fails or
 //!   times out means it is the terminal's agent, so the agent is never
-//!   silenced by a daemon that does not answer in time.
+//!   silenced by a daemon that does not answer in time; such a start records
+//!   no process, so the next hook reads again.
 //!
-//! Limit: a Claude that ended without `SessionEnd` (a crash, `kill -9`)
-//! leaves a live row, and the next Claude started by hand in that terminal
-//! counts as another agent's until the screen detector replaces the row.
-//! Such starts are counted in the hook-spool directory
-//! ([`STALE_AGENT_ROWS`]).
+//! Limits (docs/agent-hooks.md): a Claude that ended without `SessionEnd`
+//! (a crash, `kill -9`) leaves a live row, and the next Claude started by
+//! hand in that terminal counts as another agent's until the screen detector
+//! replaces the row. Such starts are counted in the hook-spool directory
+//! ([`STALE_AGENT_ROWS`]). A nested Claude whose start reaches the daemon
+//! first takes the row the same way.
 
-use cmux_tui_core::diagnostics::{hook_spool_dir, open_spool_file, queue_prefix, spool_name_part};
+use cmux_tui_core::diagnostics::{
+    HOOK_SPOOL_DIR, hook_spool_dir, open_spool_file, queue_prefix, spool_name_part,
+};
 
 use super::*;
 
@@ -50,14 +54,18 @@ pub(super) struct Run<'a> {
 impl Run<'_> {
     /// Whether this Claude is not the terminal's agent but one it started.
     pub(super) fn is_nested(&self) -> bool {
-        self.verdict() != Nested::No
+        self.verdict().is_nested()
     }
 
-    /// [`Self::is_nested`] for the journal hook's `SessionStart`, which also
-    /// counts a start beside a row that a crash may have left (the
-    /// session-context hook runs beside it and does not count it again).
-    pub(super) fn is_nested_at_start(&self) -> bool {
+    /// [`Self::is_nested`] for the journal hook's `SessionStart`. A Claude
+    /// found to be the terminal's agent is recorded as it; a start beside a
+    /// row that a crash may have left is counted (the session-context hook
+    /// runs beside it and does neither).
+    pub(super) fn start_is_nested(&self) -> bool {
         let nested = self.verdict();
+        if nested == Nested::No {
+            self.record_agent();
+        }
         if nested == Nested::StaleRow {
             // Claude Code keeps a hook's stderr in its debug log.
             eprintln!(
@@ -66,7 +74,7 @@ impl Run<'_> {
             );
             let _ = count_stale_row(self.socket);
         }
-        nested != Nested::No
+        nested.is_nested()
     }
 
     fn verdict(&self) -> Nested {
@@ -79,9 +87,8 @@ impl Run<'_> {
         nested_in(self, recorded.as_deref(), read, now_ms())
     }
 
-    /// Records this Claude as the terminal's agent: after a `SessionStart`
-    /// that is not nested.
-    pub(super) fn record_agent(&self) {
+    /// Records this Claude as the terminal's agent.
+    fn record_agent(&self) {
         let (Some(terminal), Some(pid)) = (self.terminal, self.pid) else { return };
         let Ok(path) = pid_file(self.socket, terminal) else { return };
         let temporary = path.with_extension(format!("claude-pid.{}", std::process::id()));
@@ -96,12 +103,21 @@ impl Run<'_> {
 /// The verdict of [`nested_in`].
 #[derive(Debug, PartialEq, Eq)]
 enum Nested {
+    /// The terminal's agent.
     No,
+    /// Reported as the agent because the roster read failed; not recorded.
+    Unread,
     Yes,
     /// Nested, and the other session's row looks left over: a `startup`
     /// session of another process, with no hook event on that row for
     /// [`STALE_ROW_MS`].
     StaleRow,
+}
+
+impl Nested {
+    fn is_nested(&self) -> bool {
+        matches!(self, Self::Yes | Self::StaleRow)
+    }
 }
 
 /// [`Run::is_nested`] over `recorded` (the agent's recorded process id) and
@@ -113,13 +129,14 @@ fn nested_in(
     now: u64,
 ) -> Nested {
     let (Some(terminal), Some(session)) = (run.terminal, run.session) else { return Nested::No };
-    if matches!(run.start_source, Some("clear" | "compact")) {
-        return Nested::No;
-    }
     if run.pid.is_some() && run.pid == recorded {
         return Nested::No;
     }
-    let Ok(rows) = read() else { return Nested::No };
+    // A known process of another Claude may `/clear` too: it is checked.
+    if run.pid.is_none() && run.start_source == Some("clear") {
+        return Nested::No;
+    }
+    let Ok(rows) = read() else { return Nested::Unread };
     let text = |row: &Value, key: &str| row.get(key).and_then(Value::as_str).map(str::to_owned);
     let other = rows.as_array().into_iter().flatten().find(|row| {
         let live = row.get("extra").and_then(|extra| text(extra, "agent_session_id"));
@@ -147,13 +164,17 @@ fn pid_file(socket: &Path, terminal: &str) -> io::Result<PathBuf> {
     Ok(hook_spool_dir(socket)?.join(name))
 }
 
+/// The recorded process id of `terminal`'s agent. Makes no directory, and
+/// opens no link.
 fn recorded_pid(socket: &Path, terminal: &str) -> Option<String> {
+    let name = format!("{}.{}.claude-pid", queue_prefix(socket), spool_name_part(terminal));
+    let path = socket.parent()?.join(HOOK_SPOOL_DIR).join(name);
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::custom_flags(&mut options, libc::O_NOFOLLOW);
     let mut text = String::new();
-    std::fs::File::open(pid_file(socket, terminal).ok()?)
-        .ok()?
-        .take(MAX_PID_BYTES)
-        .read_to_string(&mut text)
-        .ok()?;
+    options.open(path).ok()?.take(MAX_PID_BYTES).read_to_string(&mut text).ok()?;
     let pid = text.trim();
     (!pid.is_empty() && pid.bytes().all(|byte| byte.is_ascii_digit())).then(|| pid.to_owned())
 }
@@ -226,7 +247,8 @@ mod tests {
         assert_eq!(nested_in(&nested, None, rows(screen), NOW), Nested::No);
         // A read that fails or times out keeps the hook reporting.
         let failed = || Err(anyhow::anyhow!("timed out"));
-        assert_eq!(nested_in(&nested, Some("42"), failed, NOW), Nested::No);
+        let unread = nested_in(&nested, Some("42"), failed, NOW);
+        assert!(unread == Nested::Unread && !unread.is_nested());
     }
 
     #[test]
@@ -237,6 +259,8 @@ mod tests {
         let unread = || -> anyhow::Result<Value> { panic!("no roster read") };
         let clear = run("outer-2", Some("clear"), Some("42"));
         assert_eq!(nested_in(&clear, Some("42"), unread, NOW), Nested::No);
+        let clear_without_pid = run("outer-2", Some("clear"), None);
+        assert_eq!(nested_in(&clear_without_pid, None, unread, NOW), Nested::No);
         // Another process that clears is checked like any other start.
         let nested_clear = run("nested-3", Some("clear"), Some("51"));
         assert_eq!(nested_in(&nested_clear, Some("42"), rows(outer(NOW)), NOW), Nested::Yes);
@@ -270,6 +294,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         let socket = dir.path().join("s.sock");
+        // The daemon does not answer: the start reports but records nothing.
         let agent = Run {
             socket: &socket,
             terminal: Some("term_a"),
@@ -277,9 +302,14 @@ mod tests {
             start_source: Some("startup"),
             pid: Some("42"),
         };
+        assert_eq!(recorded_pid(&socket, "term_a"), None);
+        assert!(!agent.start_is_nested());
+        assert_eq!(recorded_pid(&socket, "term_a"), None);
         agent.record_agent();
         assert_eq!(recorded_pid(&socket, "term_a").as_deref(), Some("42"));
         assert_eq!(recorded_pid(&socket, "term_b"), None);
+        // Now its own process needs no read.
+        assert!(!agent.start_is_nested());
         count_stale_row(&socket).unwrap();
         count_stale_row(&socket).unwrap();
         let counted =
