@@ -334,7 +334,8 @@ try {
     // Fifty lines fold under the prompt's one Show more.
     expect(body().classList.contains("is-clamped")).toBe(true);
     expect(toggle()?.textContent).toBe(MORE);
-    expect(host.querySelectorAll("[aria-expanded]")).toHaveLength(1);
+    // The one fold; Save as Prompt's popover button is not a fold.
+    expect(host.querySelectorAll("[aria-expanded]:not(.cv-save-prompt)")).toHaveLength(1);
     copied.length = 0;
     await act(async () => {
       host.querySelector(COPY)!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
