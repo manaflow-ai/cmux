@@ -38,8 +38,11 @@
 //! [`MAX_ROOTS_PER_PASS`] roots with records, [`MAX_REAPS_PER_PASS`] ends and
 //! [`MAX_REMOVALS_PER_PASS`] record removals per pass, roots in a stable
 //! order from where the last pass stopped (kept in [`STORE_FILE`]); a pass
-//! that reached a cap runs again after [`CATCH_UP_INTERVAL`]. Restore never
-//! reads these roots.
+//! that reached a cap runs again after [`CATCH_UP_INTERVAL`]. A host whose
+//! end failed waits [`PASS_INTERVAL`] before it is tried again, so failures
+//! never hold the budget from the hosts and roots after it, and the times of
+//! roots that are gone or empty leave the store before its cap applies.
+//! Restore never reads these roots.
 //!
 //! Debug builds only (test seams): `CMUX_TUI_TEST_UNOWNED_HOST_GRACE_MS`
 //! replaces both graces, `CMUX_TUI_TEST_UNOWNED_HOST_INTERVAL_MS` the first
@@ -77,6 +80,7 @@ struct Timing {
     first_delay: Duration,
     interval: Duration,
     catch_up: Duration,
+    retry_failed: Duration,
 }
 
 impl Timing {
@@ -86,6 +90,7 @@ impl Timing {
         first_delay: FIRST_PASS_DELAY,
         interval: PASS_INTERVAL,
         catch_up: CATCH_UP_INTERVAL,
+        retry_failed: PASS_INTERVAL,
     };
 
     fn for_owner() -> Self {
@@ -106,6 +111,7 @@ impl Timing {
                 timing.first_delay = interval;
                 timing.interval = interval;
                 timing.catch_up = interval;
+                timing.retry_failed = interval;
             }
             timing
         }
@@ -126,8 +132,10 @@ pub(crate) struct PassReport {
     pub(crate) reaped: usize,
     /// Stale records of roots whose hosts are all dead, removed.
     pub(crate) removed: usize,
-    /// Ends that failed (retried next pass).
+    /// Ends that failed (each retried after [`PASS_INTERVAL`]).
     pub(crate) failed: usize,
+    /// Due hosts whose end failed within [`PASS_INTERVAL`]: not tried yet.
+    pub(crate) deferred: usize,
     /// The pass stopped at a cap with more left.
     pub(crate) capped: bool,
 }
@@ -173,10 +181,11 @@ impl Mux {
                     if report.reaped > 0 || report.failed > 0 || report.removed > 0 {
                         eprintln!(
                             "cmux-tui: ended {} terminal hosts no live session owns ({} failed, \
-                             {} stale records removed, {} in their grace, {} of {} other \
-                             session roots owned)",
+                             {} failed earlier, {} stale records removed, {} in their grace, {} \
+                             of {} other session roots owned)",
                             report.reaped,
                             report.failed,
+                            report.deferred,
                             report.removed,
                             report.in_grace,
                             report.owned_roots,
@@ -294,6 +303,16 @@ fn other_session_roots(own_root: &Path) -> Vec<(PathBuf, PathBuf, Option<String>
 struct Seen {
     first_seen_ms: u64,
     owner_mark: String,
+    /// When ending it last failed: it waits [`PASS_INTERVAL`] before it is
+    /// tried again, so hosts that cannot be ended never take every pass's
+    /// budget from the hosts and roots after them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    failed_ms: Option<u64>,
+}
+
+/// The record root a store key names (`<record root>|<id>|<incarnation>`).
+fn key_root(key: &str) -> Option<&str> {
+    key.rsplitn(3, '|').nth(2)
 }
 
 /// What the reaper keeps across passes and restarts ([`STORE_FILE`]).
@@ -422,6 +441,11 @@ fn reap_pass_with(
     let previous = load_store(store_path);
     let mut store = previous.clone();
     let roots = other_session_roots(own_root);
+    // Times of roots that are gone leave before the store's cap can drop
+    // the times of hosts seen since.
+    let present =
+        roots.iter().map(|(_, root, _)| root.display().to_string()).collect::<HashSet<_>>();
+    store.hosts.retain(|key, _| key_root(key).is_some_and(|root| present.contains(root)));
     let mut removed = 0;
     let (cursor, capped) = walk_roots(
         &roots,
@@ -432,12 +456,12 @@ fn reap_pass_with(
             let Ok(records) = (hosts.load)(root) else {
                 return Visit::Done;
             };
+            let prefix = format!("{}|", root.display());
+            store.hosts.retain(|key, _| !key.starts_with(&prefix));
             if records.is_empty() {
                 return Visit::Empty;
             }
             report.roots += 1;
-            let prefix = format!("{}|", root.display());
-            store.hosts.retain(|key, _| !key.starts_with(&prefix));
             // Only while this root's own session guard is held here: no owner
             // of it runs, and none can start and adopt its hosts until the
             // lease drops at the end of this root. A root whose guard is held,
@@ -467,7 +491,14 @@ fn reap_pass_with(
                     .get(&key)
                     .filter(|seen| seen.owner_mark == owner_mark && seen.first_seen_ms <= now_ms)
                     .map_or(now_ms, |seen| seen.first_seen_ms);
-                let seen = Seen { first_seen_ms: first_seen, owner_mark: owner_mark.clone() };
+                let failed_ms = previous
+                    .hosts
+                    .get(&key)
+                    .filter(|seen| seen.first_seen_ms == first_seen)
+                    .and_then(|seen| seen.failed_ms)
+                    .filter(|failed| *failed <= now_ms);
+                let seen =
+                    Seen { first_seen_ms: first_seen, owner_mark: owner_mark.clone(), failed_ms };
                 let unowned_for = Duration::from_millis(now_ms - first_seen);
                 match (hosts.liveness)(&record_path, &record) {
                     TerminalHostLiveness::Dead => {
@@ -490,6 +521,13 @@ fn reap_pass_with(
                     store.hosts.insert(key, seen);
                     continue;
                 }
+                if failed_ms.is_some_and(|failed| {
+                    Duration::from_millis(now_ms - failed) < timing.retry_failed
+                }) {
+                    report.deferred += 1;
+                    store.hosts.insert(key, seen);
+                    continue;
+                }
                 if report.reaped + report.failed >= MAX_REAPS_PER_PASS || stopped() {
                     visit = Visit::Unfinished;
                     store.hosts.insert(key, seen);
@@ -506,7 +544,7 @@ fn reap_pass_with(
                     report.reaped += 1;
                 } else {
                     report.failed += 1;
-                    store.hosts.insert(key, seen);
+                    store.hosts.insert(key, Seen { failed_ms: Some(now_ms), ..seen });
                 }
             }
             // A root whose hosts are all dead holds only stale records: each
@@ -689,7 +727,7 @@ mod tests {
                 if index % 2 == 0 { dir.join("terminal-hosts-deleted") } else { empty.clone() };
             store.hosts.insert(
                 format!("{}|t{index}|i", root.display()),
-                Seen { first_seen_ms: index as u64, owner_mark: String::new() },
+                Seen { first_seen_ms: index as u64, owner_mark: String::new(), failed_ms: None },
             );
         }
         save_store(&store_path, &store);
@@ -776,7 +814,10 @@ mod tests {
         let path = dir.join(STORE_FILE);
         let hosts = (0..MAX_STORE_ENTRIES as u64 + 2)
             .map(|index| {
-                (format!("root/{index}"), Seen { first_seen_ms: index, owner_mark: "-".into() })
+                (
+                    format!("root/{index}"),
+                    Seen { first_seen_ms: index, owner_mark: "-".into(), failed_ms: None },
+                )
             })
             .collect::<BTreeMap<_, _>>();
         save_store(&path, &Store { cursor: None, hosts });
