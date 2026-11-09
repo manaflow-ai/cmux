@@ -52,7 +52,13 @@ pub(in crate::cli) fn run(global: &GlobalArgs, words: &[String]) -> Option<i32> 
             if verb == "close" && rest.iter().any(|word| word == "--remove-worktree") =>
         {
             Some(match parse_close(target, rest) {
-                Ok(close) => close_command(global, &close),
+                Ok(mut close) => {
+                    // Ids are unique across sessions, so a routed close
+                    // (--socket, --session) can only match its own caller.
+                    close.caller_terminal =
+                        std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty());
+                    close_command(global, &close)
+                }
                 Err(error) => usage(global, &error),
             })
         }
@@ -138,6 +144,10 @@ pub(in crate::cli) fn parse_create(words: &[String]) -> Result<CreateRequest, Us
 pub(in crate::cli) struct CloseRequest {
     pub target: String,
     pub discard: bool,
+    /// The caller's own terminal (`CMUX_TUI_TERMINAL_ID`). The close does
+    /// not end it: the command's reply and exit code go there. With no tab
+    /// left, the session's reaper ends it after its grace.
+    pub caller_terminal: Option<String>,
 }
 
 pub(in crate::cli) fn parse_close(
@@ -161,7 +171,7 @@ pub(in crate::cli) fn parse_close(
             }
         }
     }
-    Ok(CloseRequest { target: target.to_owned(), discard })
+    Ok(CloseRequest { target: target.to_owned(), discard, caller_terminal: None })
 }
 
 /// One step's daemon key, derived from the command's key.
@@ -340,11 +350,12 @@ pub(in crate::cli) fn close<B: Daemon + ?Sized>(
         .map_err(|failure| StepFailure::step(failure, "remove", command_key, Value::Null))?;
     let removed = removed.get("value").cloned().unwrap_or(removed);
     let made = json!({"worktree": removed});
-    // Read before the close: the terminals whose every tab is in this
+    // Read before the close: the running terminals with a tab in this
     // workspace. A snapshot that fails only leaves them to the reaper.
-    let only_here = backend
-        .request(None, plan(&words(&["session", "current", "snapshot"]), None)?)
-        .map(|snapshot| terminals_only_in(&snapshot, &id))
+    let snapshot = || plan(&words(&["session", "current", "snapshot"]), None);
+    let had_tab_here = backend
+        .request(None, snapshot()?)
+        .map(|before| running_terminals_with_a_tab_in(&before, &id))
         .unwrap_or_default();
     let mut result = backend
         .request(
@@ -352,14 +363,34 @@ pub(in crate::cli) fn close<B: Daemon + ?Sized>(
             plan(&words(&["workspace", &id, "close"]), Some(step_key(command_key, "close")))?,
         )
         .map_err(|failure| StepFailure::step(failure, "close", command_key, made))?;
-    // Each ends with its shell, which worked in the removed folder. A failed
-    // end leaves that terminal to the session's reaper; the close stands.
+    // Read after the close: of those, the ones left running with no tab
+    // (a terminal with a tab in another workspace stays). They worked in
+    // the removed folder.
+    let tabless = if had_tab_here.is_empty() {
+        Vec::new()
+    } else {
+        backend
+            .request(None, snapshot()?)
+            .map(|after| running_without_a_tab(&after, &had_tab_here))
+            .unwrap_or_default()
+    };
+    // Each ends with `if_unplaced`: the session refuses a terminal that is
+    // marked keep, is attached or got a tab since the read, and leaves it
+    // running. The caller's own terminal is not ended here. A refused or
+    // failed end leaves that terminal to the session's reaper; the close
+    // stands. Each end has its own key, so a retry replays its answer.
     let mut ended = Vec::new();
-    for terminal in only_here {
+    for terminal in tabless {
+        if request.caller_terminal.as_deref() == Some(terminal.as_str()) {
+            continue;
+        }
         let key = step_key(command_key, &format!("end-{terminal}"));
-        if let Ok(end) = plan(&words(&["terminal", &terminal, "close"]), Some(key))
-            && backend.request(None, end).is_ok()
-        {
+        let Ok(mut end) = plan(&words(&["terminal", &terminal, "close"]), Some(key)) else {
+            continue;
+        };
+        let Some(params) = end.params.as_object_mut() else { continue };
+        params.insert("if_unplaced".into(), Value::Bool(true));
+        if backend.request(None, end).is_ok() {
             ended.push(terminal);
         }
     }
@@ -370,15 +401,34 @@ pub(in crate::cli) fn close<B: Daemon + ?Sized>(
     Ok(result)
 }
 
-/// The terminals of `snapshot` (`session current snapshot`) that have a tab
-/// and whose every tab is in `workspace`.
-fn terminals_only_in(snapshot: &Value, workspace: &str) -> Vec<String> {
-    let list = |key: &str| snapshot.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
-    let text =
-        |record: &Value, key: &str| record.get(key).and_then(Value::as_str).map(str::to_owned);
+/// The records of list `key` in `snapshot` (`session current snapshot`).
+fn records<'a>(snapshot: &'a Value, key: &str) -> &'a [Value] {
+    snapshot.get(key).and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default()
+}
+
+fn text(record: &Value, key: &str) -> Option<String> {
+    record.get(key).and_then(Value::as_str).map(str::to_owned)
+}
+
+/// The running terminals of `snapshot`, each with its tab ids.
+fn running_terminals(snapshot: &Value) -> impl Iterator<Item = (String, Vec<String>)> + '_ {
+    records(snapshot, "terminals")
+        .iter()
+        .filter(|terminal| text(terminal, "lifecycle").as_deref() != Some("exited"))
+        .filter_map(|terminal| {
+            let tabs = match terminal.get("tab_ids").and_then(Value::as_array) {
+                Some(all) => all.iter().filter_map(Value::as_str).map(str::to_owned).collect(),
+                None => text(terminal, "tab_id").into_iter().collect(),
+            };
+            Some((text(terminal, "id")?, tabs))
+        })
+}
+
+/// The running terminals of `snapshot` with a tab in `workspace`.
+fn running_terminals_with_a_tab_in(snapshot: &Value, workspace: &str) -> Vec<String> {
     // The ids of `key`'s records whose `parent` field is one of `parents`.
     let children = |key: &str, parent: &str, parents: &[String]| -> Vec<String> {
-        list(key)
+        records(snapshot, key)
             .iter()
             .filter(|record| text(record, parent).is_some_and(|id| parents.contains(&id)))
             .filter_map(|record| text(record, "id"))
@@ -387,17 +437,17 @@ fn terminals_only_in(snapshot: &Value, workspace: &str) -> Vec<String> {
     let screens = children("screens", "workspace_id", &[workspace.to_owned()]);
     let panes = children("panes", "screen_id", &screens);
     let tabs = children("tabs", "pane_id", &panes);
-    list("terminals")
-        .iter()
-        .filter(|terminal| text(terminal, "lifecycle").as_deref() != Some("exited"))
-        .filter(|terminal| {
-            let tab_ids: Vec<String> = match terminal.get("tab_ids").and_then(Value::as_array) {
-                Some(all) => all.iter().filter_map(Value::as_str).map(str::to_owned).collect(),
-                None => text(terminal, "tab_id").into_iter().collect(),
-            };
-            !tab_ids.is_empty() && tab_ids.iter().all(|tab| tabs.contains(tab))
-        })
-        .filter_map(|terminal| text(terminal, "id"))
+    running_terminals(snapshot)
+        .filter(|(_, own)| own.iter().any(|tab| tabs.contains(tab)))
+        .map(|(id, _)| id)
+        .collect()
+}
+
+/// Of `terminals`, the ones `snapshot` lists as running with no tab.
+fn running_without_a_tab(snapshot: &Value, terminals: &[String]) -> Vec<String> {
+    running_terminals(snapshot)
+        .filter(|(id, tabs)| tabs.is_empty() && terminals.contains(id))
+        .map(|(id, _)| id)
         .collect()
 }
 

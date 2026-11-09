@@ -27,7 +27,10 @@ has its own tab ID and placement-local name; all views share one process,
 ordered input stream, output history, and canonical grid. Closing a tab, pane,
 screen, workspace, frontend projection, or client connection detaches views
 without closing the terminal. `terminal.project` adds another view, and only
-`terminal.close` terminates and tombstones the terminal. A browser remains
+`terminal.close` terminates and tombstones the terminal. With `if_unplaced:
+true` it does so only for a terminal with no view, no `keep` mark and no
+attach stream; any other fails with `operation.failed`
+(`extra.terminal_retained: true`) and changes nothing. A browser remains
 single-view tab content. Sidebar extensions are session-scoped auxiliary
 resources and cannot become tabs.
 

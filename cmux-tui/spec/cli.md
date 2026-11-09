@@ -945,10 +945,14 @@ command goes on). The result is the `workspace create` result plus
 --remove-worktree [--discard]` runs `git worktree remove` of the workspace's
 agent folder when it has one, else of the worktree its current terminal works
 in (`--workspace <ws>`; the main checkout is never removed), then closes the
-workspace, then ends each terminal whose every tab was in it (they worked in
-the removed folder); a refused remove closes nothing. The result is the close
-result plus `worktree`, the removal, and `ended_terminals`, the terminals it
-ended (one it could not end is left to the reaper). Each step has its own key derived from `--idempotency-key` (made
+workspace, then ends each running terminal that had a tab in it and has none
+after the close (they worked in the removed folder); a refused remove closes
+nothing. Each end is `terminal.close` with `if_unplaced`, so the session
+leaves a terminal running that is marked keep, is attached or got a tab since.
+The caller's own terminal (`CMUX_TUI_TERMINAL_ID`) is not ended: the reply and
+the exit code go there, and the reaper ends it after its grace. The result is
+the close result plus `worktree`, the removal, and `ended_terminals`, the
+terminals it ended (one it did not end is left to the reaper). Each step has its own key derived from `--idempotency-key` (made
 when absent), so retrying the whole command replays the steps that ran; a
 failed step's error names `step`, the command's `idempotency_key` and what
 the steps before it `made`.
@@ -1387,7 +1391,10 @@ arguments as separate argv words: `claude --resume <id>`, `codex resume <id>`,
 when no record does. The agent reopens in the exited tab's pane unless `--pane`
 or `--split` say otherwise, with the old tab's name and folder; the exited tab
 is closed. The output adds `resumed: {terminal_id, tab_id, agent_session_id,
-tab_closed}`.
+tab_closed}`. An exited terminal whose tab was closed has no placement, so an
+owner with a reaper (every owner a client starts: 30 s unless the client names
+another grace) ends it after the grace; resume it within that time, or keep it
+first (`terminal <t> keep on`).
 
 `terminal <sel> wait --until ready` is the same wait for any terminal (agent
 records of any age count). `ready` and `blocked` print `{terminal_id, until,
