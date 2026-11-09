@@ -74,6 +74,7 @@ async function render(items: Bookmark[], width: number | undefined, hasOther = f
         profile,
         otherTitle: "Other Bookmarks",
         revision: 1,
+        otherRevision: 1,
         items,
         hasOther,
         icons: {},
@@ -195,4 +196,31 @@ test("a middle press opens once on its release, with or without an auxclick afte
   for (const type of ["pointerdown", "pointerup", "mouseup", "auxclick"]) await fire(folder!, type);
   expect(events.filter((event) => event === "folder bm_1 number")).toHaveLength(1);
   act(() => root.unmount());
+});
+
+test("a bar link keeps its title and URL for the system's tooltip; the page draws none", async () => {
+  const { installTooltips } = await import("../src/ui/titleTooltips");
+  const doc = dom.window.document;
+  const uninstall = installTooltips(doc, { delay: 0 });
+  const { host, root } = await render([link(0)], 640);
+  const outside = doc.createElement("button");
+  outside.title = "Elsewhere";
+  doc.body.append(outside);
+  try {
+    const item = host.querySelector<HTMLElement>(".bb-item")!;
+    const hover = (element: Element) =>
+      act(async () => void element.dispatchEvent(new dom.window.MouseEvent("pointerover", { bubbles: true })));
+    // The layer takes a title over on the hover itself (it moves `title` to `data-tooltip`).
+    await hover(item);
+    expect(item.getAttribute("title")).toBe("Item 0\nhttps://item-0.example/");
+    expect(item.hasAttribute("data-tooltip")).toBe(false);
+    expect(doc.querySelector<HTMLElement>(".ui-title-tooltip")?.hidden).toBe(true);
+    // The layer is live in this document: an element outside the bar has its title taken over.
+    await hover(outside);
+    expect(outside.hasAttribute("title")).toBe(false);
+  } finally {
+    outside.remove();
+    act(() => root.unmount());
+    uninstall();
+  }
 });

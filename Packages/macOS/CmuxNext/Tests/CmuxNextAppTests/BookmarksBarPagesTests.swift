@@ -419,6 +419,33 @@ struct BookmarksBarPagesTests {
         #expect(!provider.acceptsMenu(menu("default", lend)), "lent to a tab of the same profile")
         #expect(provider.acceptsMenu(menu("default", pageHost.lendGeneration)))
     }
+
+    /// A pane parked with `isHidden` keeps its chrome in the window: its bar gives its page back all
+    /// the same, and takes one again when the pane shows. Parked panes hold no pages.
+    @Test func aBarUnderAHiddenAncestorGivesItsPageBack() throws {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let (pages, root) = try Self.pool(services: services)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let window = Self.window()
+        defer { window.close() }
+        let content = try #require(window.contentView)
+        let panes = (0..<3).map { _ in NSView(frame: content.bounds) }
+        let bars = (0..<3).map { BookmarksBarHostView(tabKey: "tab-\($0)", pages: pages, profile: { "default" }) }
+        for (pane, bar) in zip(panes, bars) {
+            pane.addSubview(bar)
+            content.addSubview(pane)
+        }
+        #expect(pages.lent == 3)
+        panes[0].isHidden = true
+        panes[1].isHidden = true
+        #expect(pages.lent == 1, "two parked panes: their bars gave their pages back")
+        #expect(bars[0].pageView == nil && bars[1].pageView == nil && bars[2].pageView != nil)
+        panes[0].isHidden = false
+        #expect(pages.lent == 2 && bars[0].pageView != nil)
+        #expect(pages.made == 3, "shown again: it took the spare, not a new page")
+        panes.forEach { $0.removeFromSuperview() }
+        #expect(pages.lent == 0)
+    }
 }
 
 /// A bar host that records what the bar asks of the app.

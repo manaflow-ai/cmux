@@ -66,7 +66,10 @@ export interface BarSnapshot {
   loaded: boolean;
   profile: string;
   otherTitle: string;
+  /** The tree revision the bar's row was read at. */
   revision: number;
+  /** The revision Other Bookmarks' count was read at: its own, since the two reads are separate. */
+  otherRevision: number;
   items: readonly Bookmark[];
   hasOther: boolean;
   icons: Readonly<Record<string, BarIcon | null>>;
@@ -92,6 +95,7 @@ const EMPTY: BarSnapshot = {
   profile: "default",
   otherTitle: "",
   revision: -1,
+  otherRevision: -1,
   items: [],
   hasOther: false,
   icons: {},
@@ -174,8 +178,10 @@ export class BookmarksBarStore {
     try {
       const stop = await client.subscribe<ChangedEvent>(BookmarkOps.changed, (event) => {
         if (event?.resync) return void this.read();
-        const { profile, revision } = this.snapshot;
-        if (event?.browser_profile_id === profile && (event.bookmarks_revision ?? 0) > revision) void this.read();
+        // Newer than either read: one of them may be stale, so both are read again.
+        const { profile, revision, otherRevision } = this.snapshot;
+        const changed = event?.bookmarks_revision ?? 0;
+        if (event?.browser_profile_id === profile && (changed > revision || changed > otherRevision)) void this.read();
       });
       if (session === this.session) this.following = stop;
       else stop();
@@ -232,7 +238,8 @@ export class BookmarksBarStore {
       if (generation !== this.generation || profile !== this.snapshot.profile) return;
       this.set({
         loaded: true,
-        revision: Math.max(bar.bookmarks_revision, other.bookmarks_revision),
+        revision: bar.bookmarks_revision,
+        otherRevision: other.bookmarks_revision,
         items: bar.bookmarks,
         hasOther: other.total > 0,
       });

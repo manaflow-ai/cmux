@@ -44,6 +44,7 @@ function BarFixture({ look = "parity", width = 640, items = barRow(), hasOther, 
     profile: "default",
     otherTitle: "Other Bookmarks",
     revision: 1,
+    otherRevision: 1,
     items,
     // Loading is the strip alone: nothing is known about Other Bookmarks yet.
     hasOther: hasOther ?? loaded,

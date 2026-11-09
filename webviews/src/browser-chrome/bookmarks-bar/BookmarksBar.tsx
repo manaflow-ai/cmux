@@ -190,6 +190,8 @@ export function BookmarksBar(props: BookmarksBarProps) {
       tabIndex={-1}
       aria-label={words.barTitle}
       data-look={look}
+      // The title and URL tooltip is taller than the 28 px bar: the system draws it, past the view.
+      data-native-title=""
       data-ready={snapshot.loaded ? "" : undefined}
       style={{ height: `var(--bb-height, ${barHeight(metrics)}px)` }}
       onContextMenu={onBarMenu}
@@ -303,6 +305,7 @@ function BarItem({ node, title, frame, metrics, icon, onOpen, onFolder, onContex
       type="button"
       className="bb-item"
       draggable
+      // tooltip-allow: the native bar's title and URL tooltip, drawn by the system (data-native-title)
       title={tip}
       aria-label={title}
       aria-haspopup={folder ? "menu" : undefined}

@@ -153,7 +153,24 @@ public final class BookmarksBarHostView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil { borrow() } else { giveBack() }
+        followVisibility()
+    }
+
+    // A parked pane hides its chrome (`isHidden`) without leaving the window: that bar gives its
+    // page back too, so pages follow the bars a person can see. AppKit calls these for a hidden or
+    // shown ancestor as well.
+    public override func viewDidHide() {
+        super.viewDidHide()
+        followVisibility()
+    }
+
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        followVisibility()
+    }
+
+    private func followVisibility() {
+        if window != nil, !isHiddenOrHasHiddenAncestor { borrow() } else { giveBack() }
     }
 
     /// The page this bar shows now, nil while its tab is hidden (diagnostics and tests).

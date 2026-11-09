@@ -30,6 +30,9 @@ function fakeClient(options: { refuse?: boolean; changesFailFirst?: boolean } = 
   const streams = new Map<string, (data: unknown) => void>();
   let profile = "default";
   let revision = 1;
+  /** A parent read at another revision than the rest (the two reads of a row are separate). */
+  const readAt = new Map<string, number>();
+  const revisionOf = (parent: string) => readAt.get(parent) ?? revision;
   const tree = [row("work", "bar", 0, "folder"), row("a", "work", 0), row("b", "bar", 1), row("o", "other", 0)];
   const client: PageClient = {
     call: async <R>(op: string, params: unknown) => {
@@ -53,7 +56,7 @@ function fakeClient(options: { refuse?: boolean; changesFailFirst?: boolean } = 
         const all = under(p.parent as string, 1);
         const limit = (p.limit as number | undefined) ?? 1000;
         return {
-          bookmarks_revision: revision,
+          bookmarks_revision: revisionOf(p.parent as string),
           bookmarks: all.slice(0, limit),
           total: tree.filter((node) => node.parent === p.parent).length,
           truncated: all.length > limit,
@@ -80,6 +83,7 @@ function fakeClient(options: { refuse?: boolean; changesFailFirst?: boolean } = 
     emit: (stream: string, data: unknown) => streams.get(stream)?.(data),
     setProfile: (next: string) => (profile = next),
     bump: () => (revision += 1),
+    readAt,
   };
 }
 
@@ -312,4 +316,21 @@ test("a menu read that lands after the page was lent to another tab of the same 
   // The next click reads and shows with the lend it was read on.
   await store.openFolder(work, anchor, "work");
   expect(fake.calls.find((entry) => entry.op === BarOps.menu)?.params).toMatchObject({ profile: "default", lend: 3 });
+});
+
+test("a row read at an older revision than Other Bookmarks' count is read again on the newer change", async () => {
+  const fake = fakeClient();
+  // The bar's row is read at revision 1, Other Bookmarks' count at revision 2.
+  fake.readAt.set("other", 2);
+  const store = new BookmarksBarStore(fake.client, words);
+  await store.start();
+  expect(store.getSnapshot()).toMatchObject({ revision: 1, otherRevision: 2 });
+  const reads = () => fake.calls.filter((call) => call.op === BarOps.children).length;
+  const before = reads();
+  fake.readAt.delete("other");
+  fake.bump();
+  fake.emit(BookmarkOps.changed, { browser_profile_id: "default", bookmarks_revision: 2 });
+  await tick();
+  expect(reads()).toBe(before + 2);
+  expect(store.getSnapshot()).toMatchObject({ revision: 2, otherRevision: 2 });
 });
