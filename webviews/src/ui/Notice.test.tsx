@@ -314,7 +314,8 @@ test("in the deck, a toast's time stops while hovered, and a persistent toast's 
   const doc = render(<NoticeStack queue={queue} dismissLabel="Dismiss" layout="stacked" now={() => clock} arm={arm} />);
   // Only the timed toast arms a timer; the persistent one never does.
   expect(live().map((timer) => timer.ms)).toEqual([4000]);
-  const stack = doc.querySelector(".ui-notice-stack")!;
+  // The pointer is on a toast, so in its deck.
+  const stack = doc.querySelector(".ui-notice-deck-card")!;
   act(() => {
     stack.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true, relatedTarget: doc.body }));
   });
@@ -367,4 +368,32 @@ test("a held toast never times out, and one dragged past the edge is closed", ()
   pointer("pointerup", 2000, 90);
   expect(reasons).toEqual(["closed"]);
   expect(queue.snapshot()).toHaveLength(0);
+});
+
+test("a hovered deck at a top anchor (drawn in another host) keeps its toast's time stopped through a queue update", () => {
+  const armed: { fire(): void; ms: number; live: boolean }[] = [];
+  const arm = (fire: () => void, ms: number) => {
+    const timer = { fire, ms, live: true };
+    armed.push(timer);
+    return () => {
+      timer.live = false;
+    };
+  };
+  const live = () => armed.filter((timer) => timer.live);
+  const queue = createNoticeQueue();
+  queue.show({ id: "top", message: "Copied.", duration: 4000, anchor: "top" });
+  const doc = render(<main id="surface" />);
+  const host = doc.createElement("div");
+  doc.body.append(host);
+  act(() =>
+    root!.render(<NoticeStack queue={queue} dismissLabel="Dismiss" layout="stacked" topHost={host} arm={arm} />),
+  );
+  const card = host.querySelector<HTMLElement>('.ui-notice-anchor[data-anchor="top"] .ui-notice-deck-card')!;
+  act(() => {
+    card.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true, relatedTarget: doc.body }));
+  });
+  expect(live()).toHaveLength(0);
+  // Another toast arrives at the bottom while the pointer stays on the top one.
+  act(() => void queue.show({ id: "bottom", message: "Archived.", duration: 0 }));
+  expect(live()).toHaveLength(0);
 });

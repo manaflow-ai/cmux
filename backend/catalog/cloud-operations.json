@@ -1658,6 +1658,29 @@
                   }
                 }
               },
+              "vm_hours_used_by_you": {
+                "required": false,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "union",
+                    "variants": [
+                      {
+                        "kind": "primitive",
+                        "name": "float64"
+                      },
+                      {
+                        "kind": "enum",
+                        "values": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
               "period_end": {
                 "required": true,
                 "type": {
@@ -31084,6 +31107,24 @@
                     "maximum": 9007199254740991
                   },
                   "vm_hours_used": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "vm_hours_used_by_you": {
                     "anyOf": [
                       {
                         "type": "number"
