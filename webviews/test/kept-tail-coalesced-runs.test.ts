@@ -76,7 +76,9 @@ test("a fork drawn from joined rows is kept when acpmux's raw page holds the sam
   // acpmux's newest page of the fork: 400 raw records of the same history.
   expect(sameForkHistory(raw.slice(-400), tail!.events, forkSeq)).toBe(true);
   // A page whose history differs is still refused.
-  const changed = raw.slice(-400).map((event) => (event.seq === forkSeq - 1 ? chunk(event.seq, "other ", "m-30") : event));
+  const changed = raw
+    .slice(-400)
+    .map((event) => (event.seq === forkSeq - 1 ? chunk(event.seq, "other ", "m-30") : event));
   expect(sameForkHistory(changed, tail!.events, forkSeq)).toBe(false);
 });
 
