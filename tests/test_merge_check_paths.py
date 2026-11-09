@@ -371,6 +371,26 @@ class CheckPathGate(unittest.TestCase):
             run(api)
         self.assertEqual(len(api.dispatched), 1)
 
+    # Review of #39764 at af898c35 (comment 6750889962): without return_run_details=true GitHub answers the dispatch
+    # 204 with no body, so no run id, and every gate that needs a run refused after spending one Linux run.
+    def test_the_dispatch_asks_github_for_the_run_id(self):
+        class GitHub(gate.Api):
+            """The real Api over a fake `gh api` that answers as GitHub does for API version 2022-11-28."""
+
+            def __init__(self):
+                super().__init__("manaflow-ai/cmux")
+                self.calls = []
+
+            def gh(self, *args):
+                self.calls.append(args)
+                if "return_run_details=true" not in args:
+                    return ""
+                return '{"workflow_run_id": 42687, "run_url": "https://api.github.com/x", "html_url": "https://github.com/x"}'
+
+        api = GitHub()
+        self.assertEqual(api.dispatch("42", gate.BRANCH), 42687)
+        self.assertIn("-F", api.calls[0])
+
     def test_check_only_dispatches_nothing(self):
         landed = {(OLD, TIP): {"status": "ahead", "ahead_by": 1, "files": FILES_23365}}
         api = FakeApi([status(OLD)], compares=landed)

@@ -485,10 +485,12 @@ class InstalledHelperRegression(unittest.TestCase):
             + tip_route + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/compare/'; then printf '%s\\n' "
             + shlex.quote(json.dumps(compare or {"status": "diverged", "ahead_by": 0, "files": []})) + "; exit 0; fi\n"
-            # The dispatch answers 200 with the run's id (dispatch_run_ids=False: an empty answer, no id); the run
+            # As GitHub (API 2022-11-28): the dispatch answers 200 with the run's id only when it sends
+            # return_run_details=true, else 204 with no body (dispatch_run_ids=False: no id even then). The run
             # reads in progress, so only its status decides.
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'cmux-next-fast-gates.yml/dispatches'; then "
             "printf '%s\\n' dispatch >> \"$EVENT_LOG\"; touch \"$MERGE_MARKER.dispatched\"; "
+            "printf '%s' \"$*\" | grep -q 'return_run_details=true' || exit 0; "
             # GH_DISPATCH_HOOK: a test's command that lands on the base while the run runs.
             "[ -z \"${GH_DISPATCH_HOOK:-}\" ] || sh -c \"$GH_DISPATCH_HOOK\" >/dev/null 2>&1; "
             + ("n=$(grep -c '^dispatch$' \"$EVENT_LOG\"); printf '{\"workflow_run_id\": %s, \"run_url\": \"https://api.github.com/repos/manaflow-ai/cmux/actions/runs/%s\", \"html_url\": \"https://github.com/manaflow-ai/cmux/actions/runs/%s\"}\\n' \"$n\" \"$n\" \"$n\"; "
