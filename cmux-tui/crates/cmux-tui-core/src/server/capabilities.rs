@@ -459,6 +459,8 @@ pub(super) fn advertised_capabilities(
     capabilities.extend(crate::blob_fetch::advertised());
     #[cfg(unix)]
     capabilities.push(BROWSER_RUNTIME_CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(crate::shell_runs::CAPABILITY);
     capabilities
 }
 

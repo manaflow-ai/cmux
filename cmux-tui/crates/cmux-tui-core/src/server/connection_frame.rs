@@ -187,6 +187,9 @@ pub(super) fn handle_request_with_cancellation(
     if let Command::ChiefInspect(params) = cmd {
         return chief_inspect::start(mux, client, id, params, writer);
     }
+    if let Command::ShellRead(params) = cmd {
+        return shell_wire::read(mux, client, id, params, writer);
+    }
     if cloud_conversations::is_network(&cmd) {
         return cloud_conversations::start(mux, client, id, cmd, writer);
     }

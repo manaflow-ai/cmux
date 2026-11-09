@@ -533,12 +533,12 @@ public final class AgentPaneModel {
         case .invalidRunAttach: return AgentPaneRunAttach.invalidReply
         case .typeAhead(let text): return AgentPaneOpenTab.typeAhead(text, in: self)
         case .touched: return AgentPaneReply.success()
-        // The shell box runs on this Mac: never for a chat on another machine (cx-k21v).
+        // A chat on another machine runs its commands there, never on this Mac (cx-k21v).
         case .shellRun, .shellRead, .shellStop:
-            if remoteChat { return Self.unsupported("shell") }
             return await respondToShell(request)
+        // Tab completes against this Mac's shell and files: never for a chat on another machine.
         case .shellComplete(let line, let cwd):
-            if remoteChat { return Self.unsupported("shell") }
+            if chatIsElsewhere { return Self.unsupported("shell") }
             return await respondToShellComplete(line: line, cwd: cwd)
         case .newTabContext:
             AgentPaneLaunchTimings.shared.mark("agent_pane.newtab_context")
