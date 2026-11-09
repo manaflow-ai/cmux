@@ -396,7 +396,15 @@ mod tests {
         // Claude Code: the rules a cut skill listing would hide, then the skill for the rest.
         let claude = first_turn_text(Family::Claude, &on, &[]).unwrap();
         assert!(claude.contains("cmux:cmux-chat") && claude.contains("first reads"), "{claude}");
-        for rule in ["TaskCreate", "TaskUpdate", "TodoWrite", "background", "HOST/NAME", "recap", "acpmux_wrap_up"] {
+        for rule in [
+            "TaskCreate",
+            "TaskUpdate",
+            "TodoWrite",
+            "background",
+            "HOST/NAME",
+            "recap",
+            "acpmux_wrap_up",
+        ] {
             assert!(claude.contains(rule), "{rule} missing: {claude}");
         }
         assert!(claude.len() < AGENT_GUIDANCE.len(), "stays under Codex's: {} bytes", claude.len());
