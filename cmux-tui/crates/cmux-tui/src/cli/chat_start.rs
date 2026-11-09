@@ -35,6 +35,7 @@ use std::time::Duration;
 use cmux::{CallKind, ChatTarget, ChatTargetRefusal};
 use serde_json::{Value, json};
 
+use super::agents::turn::{self, Begin};
 use super::cloud_start_chat::{self, Machine};
 use super::{GlobalArgs, OutputMode, UsageError};
 
@@ -115,22 +116,27 @@ Starts an agent chat, right here unless --on names another target:
   --cwd DIR          The chat's folder (absolute)
   --name NAME        The chat's name (a chat here)
   --prompt TEXT      A first prompt (`-` reads it from stdin); a Cloud chat needs one
-  --wait             Wait for a Cloud chat's turn to end and print the reply
-  --timeout SECONDS  How long --wait waits (default 900)
+  --wait             Wait for the chat's turn to end and print the reply
+  --timeout SECONDS  How long --wait waits (default 900, at most 14400)
 
 EXAMPLES
   cmux chat 'Summarize README.md'
+  cmux chat --prompt 'Summarize README.md' --wait --json
   cmux chat --on studio-mac 'Run the tests'
   cmux chat --on vm:new --prompt 'Summarize README.md' --wait --json
   cmux chat --on vm:dev --cwd /home/cmux/work --prompt 'Run the tests' --json
 
-Messages to a chat: cmux chat send|read|wait|list (`cmux chat send --help`).
+With --wait the answer has session_id, workspace_id, tab_id and reply, here
+and in Cloud. The chat goes on with cmux chat send SESSION TEXT --wait,
+cmux chat wait SESSION and cmux chat read SESSION (`cmux chat send --help`).
 Another folder or repository for a Cloud chat: cmux chat cd SESSION DIR|--repo REPO
 (`cmux chat cd --help`).
 A refused target exits 1 and says what to run next (chat_target.unknown_device,
 ambiguous_device, unknown_vm, which_vm, vm_starting, not_permitted, unavailable,
 signed_out, no_route).
-Exit codes: 0 ok, 1 refused, 2 bad arguments.
+Exit codes: 0 ok, 1 refused or the turn failed, 2 bad arguments or the agent
+waits on a permission (chat.permission_waiting), 3 --timeout passed
+(chat.wait_timeout; its details.answer has timed_out: true).
 ";
 
 /// A parsed `cmux chat …` start.
@@ -603,8 +609,16 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
         Err(error) => return super::wire::print_local_error(&error, global.output, 1),
     };
     match route {
-        Route::Here => match here_words(&global_words(global), &start) {
-            Ok(words) => super::agents::run_if_requested(&words).unwrap_or(2),
+        Route::Here => match here_wait(&start) {
+            // `--wait`: start, wait for the turn and print the reply (agents/turn.rs).
+            Ok(Some(timeout)) => match new_args(&start) {
+                Ok(args) => turn::run(global, &Begin::New(args), timeout),
+                Err(error) => usage_failure(&error, global.output),
+            },
+            Ok(None) => match here_words(&global_words(global), &start) {
+                Ok(words) => super::agents::run_if_requested(&words).unwrap_or(2),
+                Err(error) => usage_failure(&error, global.output),
+            },
             Err(error) => usage_failure(&error, global.output),
         },
         Route::Cloud(machine) => match cloud_words(&start, &machine) {
@@ -675,15 +689,35 @@ pub(super) fn global_words(global: &GlobalArgs) -> Vec<String> {
     words
 }
 
+/// How long a chat here waits for its turn: None without `--wait`. `--timeout` is seconds, as
+/// a Cloud chat takes it (default 900, at most 4 h), and goes only with `--wait`.
+pub(super) fn here_wait(start: &Start) -> Result<Option<Duration>, UsageError> {
+    if !start.wait {
+        return match start.timeout {
+            Some(_) => Err(UsageError::new("--timeout says how long --wait waits; add --wait")),
+            None => Ok(None),
+        };
+    }
+    let Some(text) = &start.timeout else { return Ok(Some(turn::DEFAULT_TIMEOUT)) };
+    let seconds = text
+        .parse::<u64>()
+        .ok()
+        .filter(|seconds| *seconds > 0)
+        .ok_or_else(|| UsageError::new(format!("--timeout {text}: give seconds")))?;
+    Ok(Some(Duration::from_secs(seconds).min(turn::MAX_TIMEOUT)))
+}
+
 /// `agents chat new …` with this start's settings, after the same globals.
 pub(super) fn here_words(prefix: &[String], start: &Start) -> Result<Vec<String>, UsageError> {
-    if start.wait || start.timeout.is_some() {
-        return Err(UsageError::new(
-            "--wait and --timeout wait for a Cloud chat; for a chat here, `cmux agents wait`",
-        ));
-    }
     let mut words = prefix.to_vec();
     words.extend(["agents", "chat", "new"].map(str::to_owned));
+    words.extend(new_args(start)?);
+    Ok(words)
+}
+
+/// The words after `agents chat new` for this start (`-` read from stdin now).
+pub(super) fn new_args(start: &Start) -> Result<Vec<String>, UsageError> {
+    let mut words = Vec::new();
     for (flag, value) in [
         ("--harness", &start.agent),
         ("--model", &start.model),

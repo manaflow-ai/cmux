@@ -404,6 +404,8 @@ describe("deploy ordering gate (reads the database)", () => {
     expect(w.logs.join("\n")).toContain("cannot read cmux_vm.schema_migrations")
     await s.query(`GRANT SELECT, INSERT, UPDATE ON cmux_vm.stack_webhook_events TO "${role}"`)
     await s.query(`GRANT SELECT, INSERT, UPDATE ON cmux_vm.mesh_overlay_server_codes, cmux_vm.mesh_overlay_servers, cmux_vm.vm_client_sessions TO "${role}"`)
+    await s.query(`GRANT SELECT, INSERT, UPDATE ON cmux_vm.mesh_device_intents, cmux_vm.mesh_device_intent_attempts TO "${role}"`)
+    await s.query(`GRANT SELECT, INSERT, DELETE ON cmux_vm.mesh_device_intent_nonces TO "${role}"`)
     expect(await w.run("gate", ...asWorker)).toBe(0)
     await s.query(`REVOKE ALL ON ALL TABLES IN SCHEMA cmux_vm FROM "${role}"; REVOKE ALL ON SCHEMA cmux_vm FROM "${role}"`)
     await s.end()
