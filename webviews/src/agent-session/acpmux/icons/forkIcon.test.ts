@@ -42,7 +42,7 @@ describe("the fork glyph", () => {
     );
     expect(SEND_ICONS.side).toBe(FORK_ICON);
     const rows = forkMenuRows(1, () => undefined, (key) => key);
-    expect(rows.map((row) => row.icon)).toEqual([FORK_ICON, FORK_ICON]);
+    expect(rows.map((row) => (row === "separator" ? row : row.icon))).toEqual([FORK_ICON, FORK_ICON]);
   });
 
   // The app names SF arrow.branch for every fork row and the catalog draws the pack's fork in its place
@@ -50,11 +50,16 @@ describe("the fork glyph", () => {
   test("the app's fork rows name the one symbol the catalog draws as the fork", () => {
     const symbol = "arrow.branch";
     const catalog = JSON.parse(read("Packages/macOS/CmuxNext/Sources/CmuxNextIcons/Resources/icon-catalog.json")) as {
-      icons: { name: string; overrides?: string[] }[];
+      icons: { name: string; sf?: string; overrides?: string[] }[];
     };
     expect(catalog.icons.filter((icon) => icon.overrides?.includes(symbol)).map((icon) => icon.name)).toEqual([
       FORK_ICON,
     ]);
+    expect(catalog.icons.find((icon) => icon.name === FORK_ICON)?.sf).toBe(symbol);
+    // Catalog-built right-click rows draw the override too (ActionRegistry.symbolOverride, which the App passes).
+    expect(read("Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppServices.swift")).toContain(
+      "warmingOn: mainWork, symbolOverride: NSImage.packOverride)",
+    );
     expect(read("Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneContextMenu.swift")).toContain(
       `AgentPaneMenuStrings.forkFromHere, symbol: "${symbol}"`,
     );

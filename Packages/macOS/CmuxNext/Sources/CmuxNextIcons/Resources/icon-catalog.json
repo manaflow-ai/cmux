@@ -243,7 +243,7 @@
   {
    "name": "agent.fork",
    "meaning": "Fork the agent conversation into a new chat (to the right/left/above/below).",
-   "sf": "arrow.triangle.branch",
+   "sf": "arrow.branch",
    "family": "agent",
    "overrides": [
     "arrow.branch"

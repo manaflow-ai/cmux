@@ -117,6 +117,7 @@
    "note": "The fork mark Codex draws: two tines join into one stem, three nodes (Leo 2026-11-09, of the peel-off arrow: \"and this fork symbol is so bad\"). Distinct from git.branch (two nodes, one curve) and the pull request mark (three nodes in two columns, an arrow). The app's fork actions and menu rows name SF arrow.branch, which nothing else uses, and this entry overrides it, so the palette and hand-built menus draw this drawing too.",
    "replaces": [
     "TurnFork (sprite strip)",
+    "arrow.branch",
     "arrow.triangle.branch"
    ],
    "overrides": [
