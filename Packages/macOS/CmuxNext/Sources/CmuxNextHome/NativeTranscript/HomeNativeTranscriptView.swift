@@ -568,14 +568,25 @@ public final class HomeNativeTranscriptView: NSView {
         super.viewWillMove(toWindow: newWindow)
         cursorHold?.remove(self)
         cursorHold = nil
-        // Leaving: a return into the same window before this turn ends is a move on screen (``movedOnScreen``).
-        if newWindow == nil, let window {
-            windowLeftThisTurn = window
-            leftWindowTurns += 1
-            let turn = leftWindowTurns
-            // task-owner: one main-actor turn; ends at once
-            Task { [weak self] in if self?.leftWindowTurns == turn { self?.windowLeftThisTurn = nil } }
-        }
+        if newWindow == nil { noteLeaving() }
+    }
+
+    /// Taken out of its parent: marked before AppKit tells it of anything else (leaving a hidden parent sends
+    /// `viewDidUnhide` before `viewWillMove(toWindow: nil)`; fleet step at 7866330de5).
+    public override func viewWillMove(toSuperview newSuperview: NSView?) {
+        super.viewWillMove(toSuperview: newSuperview)
+        if newSuperview == nil { noteLeaving() }
+    }
+
+    /// Leaving its window: a return into the same window before this turn ends is a move on screen
+    /// (``returnedToView``).
+    private func noteLeaving() {
+        guard let window else { return }
+        windowLeftThisTurn = window
+        leftWindowTurns += 1
+        let turn = leftWindowTurns
+        // task-owner: one main-actor turn; ends at once
+        Task { [weak self] in if self?.leftWindowTurns == turn { self?.windowLeftThisTurn = nil } }
     }
 
     /// The window this view left in the current main-actor turn, nil once that turn is over (a later leave
