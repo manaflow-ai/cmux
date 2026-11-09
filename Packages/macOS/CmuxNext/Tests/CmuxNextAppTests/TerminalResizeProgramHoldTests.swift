@@ -174,6 +174,91 @@ struct TerminalResizeProgramHoldTests {
         #expect(held.isEmpty, "\(held.count) held frames broke the held geometry: \(held.prefix(6))")
     }
 
+    /// RESIZE P0 20 (films px-keys-held-2-s1r-claude under Reduce Motion, cmux21 1x 120 Hz, strip band-233644-rm-br): a
+    /// Reduce Motion key press snaps, and its snap shows at the next frame tick (RESIZE P0 13, KEY SNAP GRID). When Claude
+    /// Code had not redrawn at the new grid by that tick, the tick showed the divider at its new place and the grown pane
+    /// filled, but the program's picture at its OLD width for a refresh (the presenter held the surface for the program's
+    /// redraw while the pane took its new size): its rules and status line ended short of the new edge. A key press's
+    /// grid goes with its size (RESIZE P0 11), so the snap waits for that redraw as the presenter does: the pane and its
+    /// terminal show the new size together, with the program's picture at the new grid (at most
+    /// ``TerminalFramePresenter/resizeHoldTicks`` refreshes, then the size shows anyway).
+    /// p1 | p2 full-screen programs; Reduce Motion on; p2's program is busy at the press and redraws a refresh late.
+    /// Ctrl-Shift-H grows p2.
+    @Test func aReduceMotionGrowShowsTheNewPaneSizeOnlyWithTheProgramsRedrawAtIt() async throws {
+        let program = RingProgram(redraws: false)
+        let screen = try await Self.ringScreen(program)
+        defer { screen.close() }
+        screen.root.context.reduceMotionOverride = true
+        let session = screen.sessions[1], view = session.surfaceView, host = session.view
+        let oldHost = host.bounds.size
+        let presents = Presents(screen)
+        defer { presents.stop() }
+
+        try #require(PaneResize.press("p2", .left, model: screen.model, view: screen.root), "Ctrl-Shift-H on p2 moved nothing")
+        await TerminalKeyResizeFrameTests.commit() // the key's turn, its presenter pass and its commit
+        // Ghostty draws p2's new size before the tick; the busy program has not redrawn at its grid.
+        let drawn = await TerminalKeyResizeFrameTests.commits(screen, seconds: 2) { _ in
+            view.frameOwnership.ahead != nil && view.hostFrame(present: false) == GHOSTTY_HOST_FRAME_READY
+        }
+        try #require(drawn, "SETUP: Ghostty drew no frame of p2's new size before the tick (state \(view.hostFrame(present: false).rawValue))")
+
+        var torn: [String] = []
+        func record(_ frame: Int) {
+            let area = host.surfaceSize(forHostSize: host.bounds.size), shown = view.bounds.size
+            let scale = view.layer?.contentsScale ?? 2
+            guard host.bounds.width > oldHost.width,
+                  abs(area.width - shown.width) * scale > 1 || abs(area.height - shown.height) * scale > 1 else { return }
+            torn.append("frame \(frame): pane \(TerminalKeyResizeFrameTests.text(host.bounds.size)), terminal \(TerminalKeyResizeFrameTests.text(shown))")
+        }
+        _ = await TerminalKeyResizeFrameTests.stepFrame(screen) // the tick that may show the snap
+        record(1)
+        // The program redraws at the grid its PTY got, a refresh late.
+        let grid = try #require(screen.ios[1].resizes.last, "SETUP: p2's PTY got no grid")
+        screen.ios[1].send(.output(Self.ring(cols: grid.columns, rows: grid.rows)))
+        let redrawn = await TerminalKeyResizeFrameTests.commits(screen, seconds: 2) { _ in
+            view.hostFrame(present: false) == GHOSTTY_HOST_FRAME_READY_PROGRAM || host.bounds.width > oldHost.width
+        }
+        try #require(redrawn, "SETUP: Ghostty drew no frame after the program's redraw")
+        for frame in 2...8 {
+            _ = await TerminalKeyResizeFrameTests.stepFrame(screen)
+            record(frame)
+        }
+        await TerminalKeyResizeFrameTests.settle(screen)
+        try #require(host.bounds.width > oldHost.width, "SETUP: Ctrl-Shift-H did not grow p2 (\(oldHost) -> \(host.bounds.size))")
+
+        #expect(torn.isEmpty, "\(torn.count) frames showed p2's pane at its new size with the program's picture at the old size: \(torn)")
+        #expect(presents.sizeOnly.isEmpty,
+                "\(presents.sizeOnly.count) frames showed a new size with the program's last picture, not its redraw at the new grid: \(presents.sizeOnly)")
+    }
+
+    /// The bound of that wait (RESIZE P0 20): a Reduce Motion press whose program never redraws still shows its new size
+    /// within ``TerminalFramePresenter/resizeHoldTicks`` refreshes, so a busy program never stops the resize.
+    @Test func aReduceMotionPressOfAProgramThatDoesNotRedrawShowsAtTheBound() async throws {
+        let screen = try await Self.ringScreen(RingProgram(redraws: false))
+        defer { screen.close() }
+        screen.root.context.reduceMotionOverride = true
+        let session = screen.sessions[1], view = session.surfaceView, host = session.view
+        let oldHost = host.bounds.size
+
+        try #require(PaneResize.press("p2", .left, model: screen.model, view: screen.root), "Ctrl-Shift-H on p2 moved nothing")
+        await TerminalKeyResizeFrameTests.commit() // the key's turn, its presenter pass and its commit
+        let drawn = await TerminalKeyResizeFrameTests.commits(screen, seconds: 2) { _ in
+            view.frameOwnership.ahead != nil && view.hostFrame(present: false) == GHOSTTY_HOST_FRAME_READY
+        }
+        try #require(drawn, "SETUP: Ghostty drew no frame of p2's new size before the tick")
+        var ticks = 0
+        while host.bounds.width <= oldHost.width, ticks < 12 {
+            _ = screen.root.advanceFrame(1.0 / 120)
+            screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, as the frame tick runs it
+            await TerminalKeyResizeFrameTests.refreshOfTime()
+            ticks += 1
+        }
+        #expect(host.bounds.width > oldHost.width && ticks <= Int(TerminalFramePresenter.resizeHoldTicks),
+                "p2's pane showed its new size after \(ticks) refreshes (width \(oldHost.width) -> \(host.bounds.width)), not within the bound \(TerminalFramePresenter.resizeHoldTicks)")
+        await TerminalKeyResizeFrameTests.settle(screen)
+        #expect(TerminalKeyResizeFrameTests.showsItsOwnFrame(session), "p2's terminal does not rest at its own frame")
+    }
+
     /// Whether `color` is the sRGB colour `rgb` (to 1/255), opaque.
     static func sameColor(_ color: CGColor?, _ rgb: (UInt8, UInt8, UInt8)?) -> Bool {
         guard let rgb, let color, let srgb = NSColor(cgColor: color)?.usingColorSpace(.sRGB), srgb.alphaComponent == 1 else { return false }
