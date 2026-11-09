@@ -41,6 +41,7 @@ public:
     void close() noexcept { core_.close(); }
     [[nodiscard]] bool closed() const noexcept { return core_.closed(); }
 
+    [[nodiscard]] Result<JsonValue> ack_tab_notifications(const AckTabNotificationsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ApplyLayoutResult> apply_layout(const ApplyLayoutRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EventStream> attach_surface(const AttachSurfaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_activate(const BrowserActivateRequest& request, RequestOptions options = {});

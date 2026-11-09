@@ -109,6 +109,18 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_no_shallow_dev_fetch.py
 
+      - name: Validate each shared-HOME runner gets its own CARGO_HOME
+        if: ${{ matrix.group == 'ci' }}
+        run: ./tests/test_setup_cmux_tui_rust_cargo_home.sh
+
+      - name: Validate verify-cmux-tui-hosted.sh leaves its hosted run alone when the wait ends
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_verify_cmux_tui_hosted.py
+
+      - name: Validate every self-hosted rust-cache step cleans only its runner's CARGO_HOME
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_rust_cache_runner_cargo_home.py
+
       # Fleet rules as a shrink-only ratchet: no fleet sudo keychain reads, no
       # new kill by process name or pattern, nothing depends on the personal
       # Linux workstation (tests/fleet-rule-allowlist.json).
@@ -120,6 +132,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py
 
+      - name: Validate the deleted-test guard
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_test_integrity.py
+
       - name: Validate machine-failure detection for focused reruns
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_machine_failure.py
@@ -127,6 +143,10 @@ jobs:
       - name: Validate the CI timing readout
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_timing_readout.py
+
+      - name: Validate risk tier skips base history only on zero deletions
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_risk_tier_history_admission.py
 
       # No polling loops in scripts or workflows: waits go through one
       # glaeda-gh wait (or a single gh run watch --interval 300). A loop that
@@ -205,6 +225,10 @@ jobs:
       - name: Validate the bug-fix proof-section warning
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_pr_proof_section.py
+
+      - name: Validate the classic API auto-deploy guard
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_classic_api_guard.py
 
       - name: Validate gh-merge-green --revert
         if: ${{ matrix.group == 'ci' }}
@@ -856,6 +880,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_rescue.py
 
+      - name: Validate hosted light-job rescue
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_hosted_light_rescue.py
+
       # Reads the other branch's workflows too (origin/feat-cmux-next here, origin/main on
       # feat-cmux-next); under Actions the test fetches it blob-less and fails if it cannot.
       - name: Validate that the persistent-pool rescue watches every owned-pool workflow
@@ -934,7 +962,9 @@ jobs:
 
       - name: Validate triage severity and area rules
         if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_triage_rules.py
+        run: |
+          python3 tests/test_triage_rules.py
+          python3 tests/test_ci_auto_triage_event.py
 
       - name: Validate cmux-tui focused filter routing
         if: ${{ matrix.group == 'ci' }}
@@ -1350,6 +1380,14 @@ jobs:
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_install_zig_ci_download_resume.sh
 
+      - name: Validate retried Ghostty Zig package fetches
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: ./tests/test_fetch_ghostty_zig_packages.sh
+
+      - name: Validate curl-seeded Ghostty Zig package archives
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: ./tests/test_seed_zig_package_archives.sh
+
       - name: Initialize Ghostty for Zig version guard
         if: ${{ matrix.group == 'release-tooling' }}
         shell: bash
@@ -1501,6 +1539,7 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: |
           python3 tests/test_defaults_guard_review_rerun.py
+          python3 tests/test_ci_intent_familiar_review_git.py
           python3 tests/test_nightly_promotion_admission.py
           python3 tests/test_nightly_next_promotion_queue.py
           python3 tests/test_nightly_next_feed_watch.py
@@ -1509,6 +1548,8 @@ jobs:
           python3 tests/test_ci_nightly_push_throttle.py
           python3 tests/test_ci_nightly_off_blacksmith.py
           python3 tests/test_classic_nightly_build_runner.py
+          python3 tests/test_classic_nightly_one_mini.py
+          python3 tests/test_classic_nightly_job_conditions.py
           python3 tests/test_ci_publisher_mac_jobs_move.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
 
@@ -1530,6 +1571,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_notarization_recovery_manifest.py
 
+      - name: Validate recovery app archives made on a Mac
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_recovery_app_archive.py
+
       - name: Validate asynchronous notarization status polling
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_poll_notary_submission.py
@@ -1541,6 +1586,10 @@ jobs:
       - name: Validate accepted nightly DMG artifact aliases
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_artifact_alias.py
+
+      - name: Validate auto-resume Linux jobs on bash 3.2
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_auto_resume_linux_jobs_bash32.py
 
       - name: Validate Sparkle delta finalization
         if: ${{ matrix.group == 'release-notary' }}
@@ -1561,6 +1610,10 @@ jobs:
       - name: Validate fork runner routing
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fork_runner_routing.py
+
+      - name: Validate the CEF publish checksum check
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_check_cef_sums.py
 
       - name: Validate runner capability resolution
         if: ${{ matrix.group == 'ci' }}
@@ -1676,6 +1729,10 @@ jobs:
         run: |
           python3 tests/test_ci_cli_contract_verb_guard.py
           python3 scripts/check-cli-contract-verbs.py
+
+      - name: Validate Cloud VM contract option coverage
+        if: ${{ matrix.group == 'quality-determinism' }}
+        run: python3 tests/test_cli_contract_vm_options.py -v
 
       - name: Validate socket capability parity
         if: ${{ matrix.group == 'quality-determinism' }}
