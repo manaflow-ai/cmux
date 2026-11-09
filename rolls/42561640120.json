@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42561640120",
+  "recorded_at": "2026-11-09T04:32:04Z",
+  "reason": "cmux-tui 01dfbeaf31f8 changes the image's cmux-tui (pinned c66abbaf367b)",
+  "dry_run": false,
+  "cmux_tui": "01dfbeaf31f83fe09bc2073a930acc3680485ddc",
+  "fixes": [
+    {
+      "sha": "01dfbeaf31f83fe09bc2073a930acc3680485ddc",
+      "mergedAt": "2026-11-08T20:10:17-08:00",
+      "subject": "cmux-tui-core: close_sibling uses checked slices (panic ratchet red on tip) (#39178)"
+    },
+    {
+      "sha": "d8948eeb6b7583fd29a190328a08897ab3db8959",
+      "mergedAt": "2026-11-08T20:08:00-08:00",
+      "subject": "cmux-wg: once the peer sent a version-2 hello, no version-1 hello acknowledges this side (#39162)"
+    },
+    {
+      "sha": "1fe4b27ac932aae42734e91a17c44ca7763478f5",
+      "mergedAt": "2026-11-08T20:07:12-08:00",
+      "subject": "acpmux: log only what changed in Claude's system/init and repeated state updates (~180 MB a day) (#39147)"
+    },
+    {
+      "sha": "9fb54a65b73c40c5ceb627d6e3972d213e4ea50a",
+      "mergedAt": "2026-11-08T20:06:19-08:00",
+      "subject": "apps: a customize save that does not load keeps the last good view"
+    },
+    {
+      "sha": "41f47382b35280f120a9b84a58ef17ccccae37e3",
+      "mergedAt": "2026-11-08T20:06:17-08:00",
+      "subject": "apps: red tests, a customize save that does not load blanks the last good view"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T04:32:04Z",
+    "snapshot_id": "sh-e6e7793b042e45ecaa5f7039e9bed993",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42561640120): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "29b58338e08bc733a6113aa5e8fbf601eed0e025",
+    "image": "cloud-native-auto-01dfbeaf-42561640120-1",
+    "revision": "ci-42561640120-1",
+    "at": "2026-11-09T04:32:04Z"
+  },
+  "rolled_back": false
+}
