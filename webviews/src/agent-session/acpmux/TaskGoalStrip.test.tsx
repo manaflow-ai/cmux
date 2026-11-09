@@ -264,6 +264,8 @@ test("a clock tick changes the goal's time and re-renders nothing else of the ro
   );
   const time = () => host.querySelector(".acpmux-goal-time")?.textContent;
   const first = time();
+  // The shared Clock holds the minute shape's widest text, so a tick never moves the chevron.
+  expect(host.querySelector(".acpmux-goal-time .ui-clock")?.getAttribute("data-clock-size")).toBe("00m 00s");
   const before = rowRenders;
   await act(async () => {
     // fixed-wait: the page clock's real one-second tick is what this measures; two pass.

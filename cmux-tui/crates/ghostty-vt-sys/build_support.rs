@@ -90,8 +90,7 @@ fn zig_target_for_rust_target(target: &str) -> Option<&'static str> {
         "x86_64-pc-windows-gnu" => Some("x86_64-windows-gnu"),
         "x86_64-pc-windows-msvc" => Some("x86_64-windows-msvc"),
         "aarch64-pc-windows-msvc" => Some("aarch64-windows-msvc"),
-        // The iOS app links cmux-terminal-client as a static library inside an
-        // xcframework (.github/workflows/cmux-terminal-client-xcframework.yml).
+        // iOS device and simulator targets.
         "aarch64-apple-ios" => Some("aarch64-ios"),
         "aarch64-apple-ios-sim" => Some("aarch64-ios-simulator"),
         "x86_64-apple-ios" => Some("x86_64-ios-simulator"),

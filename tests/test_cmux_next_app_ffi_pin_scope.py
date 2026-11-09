@@ -149,11 +149,8 @@ class PullRequestScope(unittest.TestCase):
         self.assertIn("checking against the pin only", result.stderr)
 
 
-class Workflow(unittest.TestCase):
-    def test_swift_test_scopes_the_check_to_the_pull_request(self):
-        text = (ROOT / ".github/workflows/cmux-next.yml").read_text()
-        self.assertIn("check-app-ffi-pin.sh --verify-release \"${base[@]}\"", text)
-        self.assertIn("base=(--base HEAD^1)", text)
+# The checks job's pin step and its pull request scope (the base's copy, --base the merge commit's first parent) are
+# run, not read: tests/test_cmux_next_checks_workflow.py AppFfiPinStepJudgesWithTheBaseCopy.
 
 
 if __name__ == "__main__":

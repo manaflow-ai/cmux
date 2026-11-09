@@ -63,6 +63,20 @@ nonisolated enum AgentHarnessActionCatalog: ActionCatalogGroup {
                 cliName: "agent check-harness",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            // `cmux harness icon ID VALUE` from the palette: pick one of the user's own profiles
+            // (only those have an icon line acpmux edits), then type an emoji, an SF Symbol name or
+            // an agent mark. The CLI keeps acpmux's own verb.
+            ActionDescriptor(
+                id: "agent.harness.setIcon", title: t("action.agent.harness.setIcon", "Set Agent Icon…"),
+                keywords: ["agent", "harness", "acp", "icon", "emoji", "symbol", "logo", "mark", "profile"],
+                category: .agents, symbol: "face.smiling",
+                arguments: [
+                    ActionArgument(name: "id", title: t("argument.agent.harness.id", "Agent"), kind: .string,
+                                   suggestions: ActionSuggestions(source: ActionSuggestions.agentHarnessProfiles, pinned: [])),
+                    ActionArgument(name: "icon", title: t("argument.agent.harness.icon", "Icon"), kind: .string),
+                ],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.ownerVerb), contextMenuExemption: .noObject)
+            ),
             // The native owner starts visible terminal jobs. Settings passes a profile id;
             // the palette updates each observed outdated family on its captured machine.
             ActionDescriptor(
@@ -82,6 +96,7 @@ nonisolated enum AgentHarnessActionCatalog: ActionCatalogGroup {
     }
 
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, bundle: .module)
+        // The titles live in ActionCatalog.xcstrings, not the default Localizable table.
+        String(localized: key, defaultValue: english, table: "ActionCatalog", bundle: .module)
     }
 }
