@@ -56,7 +56,7 @@ fn pi_durable_gets_every_tool_its_host_can_do_with_a_replay_flag() {
         assert!(n.contains(&want.to_owned()), "{want} missing: {n:?}");
     }
     // Host-only: the Mac's app, moving a Mac home and a command off the turn.
-    for host_only in ["version", "move", "watch"] {
+    for host_only in ["version", "move", "watch", "mcp"] {
         assert!(!n.contains(&host_only.to_owned()), "{host_only}: {n:?}");
     }
     for t in s.as_array().unwrap() {

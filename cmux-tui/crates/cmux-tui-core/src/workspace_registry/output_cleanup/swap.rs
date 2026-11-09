@@ -14,16 +14,17 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension as _, Transaction, param
 use super::super::journal_extensions::JOURNAL_SEGMENT_RECORD_LIMIT;
 use super::super::open_guard::sidecar_path;
 use super::super::session_journal::{
-    decode_record, journal_record_for_archive, query_journal_head, query_session_journal_after,
-    stored_record_row, unix_epoch_ms,
+    MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES, decode_record, journal_record_for_archive,
+    query_journal_head, query_session_journal_after, stored_record_row, unix_epoch_ms,
 };
 use super::super::{
     open_registry_database_read_only, open_registry_database_with_flags, required_meta,
     sqlite_filesystem_path,
 };
+use super::chunks::{CHUNK_RECORD_LIMIT, ChunkReader, StagedRecord, insert_chunk};
 use super::codec::{SegmentWriter, encode_hex};
 use super::stage::{
-    Staged, open_existing_staging, stage_segments, staged_records, state, state_u64,
+    Staged, open_existing_staging, sealed_records, stage_segments, staged_records, state, state_u64,
 };
 use super::{
     DONE_META_KEY, OUTPUT_KIND, PRUNED_RANGES_SCHEMA, REBUILT_TABLES, STAGED_WORK_CHANGED,
@@ -451,15 +452,20 @@ fn build_and_swap(db_path: &Path, verify_open: VerifyOpen<'_>) -> anyhow::Result
         return Ok(Swap::NotReady);
     }
     // Before anything is copied: the kept records are what the open copies.
+    // Segments sealed after Phase A are staged below, inside the open, with
+    // no bound of their own: they count at their kind map's most.
     let (staged_kept, staged_total) = staged_records(&staged)?;
-    let (live_kept, live_total) = {
+    let (tail, (live_kept, live_total)) = {
         let source = open_registry_database_read_only(db_path)?;
         source.busy_timeout(Duration::from_secs(5))?;
-        live_records(&source)?
+        (sealed_records(&source, state_u64(&staged, "staged_through")?)?, live_records(&source)?)
     };
-    if let Some(reason) = staged_bytes_refusal(db_path)
-        .or_else(|| kept_refusal(staged_kept + live_kept, staged_total + live_total))
-    {
+    if let Some(reason) = staged_bytes_refusal(&staged)?.or_else(|| {
+        kept_refusal(
+            staged_kept + tail.kept_at_most + live_kept,
+            staged_total + tail.total + live_total,
+        )
+    }) {
         return Ok(Swap::Abandoned(reason));
     }
     if let Err(reason) = free_space_refusal(db_path, copied)? {
@@ -716,7 +722,7 @@ fn build_in(tx: &Transaction<'_>, steps: &mut Steps) -> anyhow::Result<Built> {
 
     tx.execute_batch(
         "DROP TABLE main.output_cleanup_records; DROP TABLE main.output_cleanup_state;
-         DROP TABLE main.output_cleanup_segments;",
+         DROP TABLE main.output_cleanup_segments; DROP TABLE main.output_cleanup_chunks;",
     )?;
     Ok(Built {
         kept: u64::try_from(kept)?,
@@ -742,7 +748,7 @@ fn copy_index_rows(tx: &Transaction<'_>) -> anyhow::Result<()> {
                 json_extract(subject.value, '$.kind'),
                 json_extract(subject.value, '$.id')
          FROM main.output_cleanup_records AS kept,
-              json_each(CAST(kept.record_json AS TEXT), '$.subjects') AS subject
+              json_each(kept.index_json, '$.subjects') AS subject
          WHERE json_type(subject.value, '$.kind') = 'text'
            AND json_type(subject.value, '$.id') = 'text'",
         [],
@@ -820,7 +826,7 @@ fn copy_index_rows(tx: &Transaction<'_>) -> anyhow::Result<()> {
                     THEN CAST(substr(json_extract(json, '$.event_id'),
                                      length('event_resource_') + 1) AS INTEGER)
                   END AS legacy_revision
-           FROM (SELECT sequence, CAST(record_json AS TEXT) AS json
+           FROM (SELECT sequence, index_json AS json
                  FROM main.output_cleanup_records) AS kept
          ) AS record",
         [],
@@ -849,17 +855,29 @@ fn stage_live_rows(tx: &Transaction<'_>) -> anyhow::Result<()> {
     };
     let mut statement = tx.prepare(&format!("{} UNION ALL {}", select("<"), select(">")))?;
     let mut rows = statement.query([])?;
-    let mut insert = tx.prepare(
-        "INSERT INTO main.output_cleanup_records(sequence, kind, record_json, actor)
-         VALUES(?1, ?2, ?3, ?4)",
-    )?;
+    let mut chunk: Vec<StagedRecord> = Vec::with_capacity(CHUNK_RECORD_LIMIT);
+    let mut chunk_bytes = 0_usize;
     while let Some(row) = rows.next()? {
         let stored = stored_record_row(row)?;
         let actor = row.get::<_, Option<String>>(19)?;
         let record = decode_record(stored)?;
         let json = serde_json::to_vec(&journal_record_for_archive(&record))?;
-        insert.execute(params![i64::try_from(record.sequence)?, record.kind, json, actor])?;
+        // A chunk holds one kind (the rows come in (kind, sequence) order,
+        // and the pack reads them by sequence: `ChunkReader`) and stays
+        // under a segment's uncompressed limit, as Phase A's do.
+        if chunk.len() == CHUNK_RECORD_LIMIT
+            || chunk.last().is_some_and(|last| last.1 != record.kind)
+            || chunk_bytes.saturating_add(json.len()).saturating_add(chunk.len() + 2)
+                >= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES
+        {
+            insert_chunk(tx, &chunk)?;
+            chunk.clear();
+            chunk_bytes = 0;
+        }
+        chunk_bytes += json.len();
+        chunk.push((record.sequence, record.kind, json, actor));
     }
+    insert_chunk(tx, &chunk)?;
     Ok(())
 }
 
@@ -888,10 +906,11 @@ fn pack_segments(tx: &Transaction<'_>, lo: u64, head: u64) -> anyhow::Result<(u6
         table_columns(tx, "main", "journal_segments")?.iter().any(|name| name == "actors_json");
     let sealed_at_ms = i64::try_from(unix_epoch_ms()?)?;
     let mut statement = tx.prepare(
-        "SELECT sequence, kind, record_json, actor FROM main.output_cleanup_records
+        "SELECT sequence, kind, chunk, actor FROM main.output_cleanup_records
          ORDER BY sequence ASC",
     )?;
     let mut rows = statement.query([])?;
+    let mut chunks = ChunkReader::new();
     let mut segment = OpenSegment::new(lo);
     let mut previous = lo - 1;
     let mut segments = 0_u64;
@@ -899,7 +918,7 @@ fn pack_segments(tx: &Transaction<'_>, lo: u64, head: u64) -> anyhow::Result<(u6
     while let Some(row) = rows.next()? {
         let sequence = u64::try_from(row.get::<_, i64>(0)?)?;
         let kind = row.get::<_, String>(1)?;
-        let json = row.get::<_, Vec<u8>>(2)?;
+        let json = chunks.record(tx, row.get::<_, i64>(2)?, sequence)?;
         let actor = row.get::<_, Option<String>>(3)?;
         anyhow::ensure!(
             sequence > previous && sequence <= head,
@@ -911,7 +930,7 @@ fn pack_segments(tx: &Transaction<'_>, lo: u64, head: u64) -> anyhow::Result<(u6
         }
         previous = sequence;
         if segment.writer.records() == JOURNAL_SEGMENT_RECORD_LIMIT
-            || (segment.writer.records() > 0 && !segment.writer.fits(&json))
+            || (segment.writer.records() > 0 && !segment.writer.fits(json))
         {
             let next_start = segment.last + 1;
             let full = std::mem::replace(&mut segment, OpenSegment::new(next_start));
@@ -919,7 +938,7 @@ fn pack_segments(tx: &Transaction<'_>, lo: u64, head: u64) -> anyhow::Result<(u6
             full.insert(tx, end, sealed_at_ms, with_actors)?;
             segments += 1;
         }
-        segment.writer.push(&json);
+        segment.writer.push(json);
         segment.last = sequence;
         segment.kinds.insert(kind);
         if let Some(actor) = actor {
@@ -981,7 +1000,8 @@ impl OpenSegment {
                 "INSERT INTO main.journal_segments(
                    segment_id, start_sequence, end_sequence, record_count, codec, content,
                    uncompressed_bytes, sha256, sealed_at_ms{columns}
-                 ) VALUES(?1, ?2, ?3, ?4, 'gzip-json-v1', ?5, ?6, ?7, ?8{values})"
+                 ) VALUES(?1, ?2, ?3, ?4, '{codec}', ?5, ?6, ?7, ?8{values})",
+                codec = super::super::segment_codec::SEAL_CODEC
             ),
             rusqlite::params_from_iter(
                 [
