@@ -158,7 +158,7 @@ test("a call in flight still names the call, over any subagent wait", () => {
   expect(line.liveState).toBeUndefined();
 });
 
-test("a finished step gives the line back to Thinking, with the turn's clock beside it, never named \"turn\"", () => {
+test('a finished step gives the line back to Thinking, with the turn\'s clock beside it, never named "turn"', () => {
   const user = row("u", "user");
   const started = user.at + 4_950_000;
   const line = codex([

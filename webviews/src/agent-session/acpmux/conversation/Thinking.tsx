@@ -325,7 +325,8 @@ export function Thinking({
   // "Thinking" with no own time stands beside the turn's clock alone, unnamed: "Thinking 1m 24s", never
   // "Thinking · turn 1m 24s" (Leo, 2026-11-09: "when thinking dont add the turn ... jsut remove the turn").
   // The turn's clock after an own time: named when labelled, only in the step time's tooltip on hover.
-  const turnClock = own && turnTime && timesLook === "labelled" ? t("turn.live.turnTime", { time: turnTime }) : turnTime;
+  const turnClock =
+    own && turnTime && timesLook === "labelled" ? t("turn.live.turnTime", { time: turnTime }) : turnTime;
   const turnTitle = own && turnTime && timesLook === "hover" ? t("turn.live.turnTime", { time: turnTime }) : undefined;
   // The compaction's own clock alone (`own` arm), never the turn's: the turn did not think that long.
   const elapsed = compacting

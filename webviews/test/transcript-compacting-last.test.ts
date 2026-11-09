@@ -18,8 +18,7 @@ const row = (id: string, kind: string, second: number, extra: Partial<AcpmuxRow>
 const prompt = row("u-1", "user", 0, { text: "Find every retry loop" });
 const reply = row("a-1", "assistant", 2, { text: "Looking at the relay first." });
 const compaction = row("compaction-9", "compaction", 5, { compaction: { state: "running" } });
-const view = (rows: AcpmuxRow[]) =>
-  turnView(rows, new Set(), { working: true, agentFamily: "claude", now: at(60) });
+const view = (rows: AcpmuxRow[]) => turnView(rows, new Set(), { working: true, agentFamily: "claude", now: at(60) });
 const ids = (rows: readonly AcpmuxRow[]) => rows.map((each) => each.id);
 
 for (const steer of ["waiting", "landed"] as const) {
