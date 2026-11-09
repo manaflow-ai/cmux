@@ -5,6 +5,8 @@ import { expect, test } from "bun:test";
 import { currentChatMetrics } from "../chatDisplay";
 import {
   ARRIVAL_BURST_S,
+  ARRIVAL_FRAME_LINES,
+  arrivalStepMs,
   BURST_S,
   CHASE_HOLD_LINES,
   CHASE_LAND_LINES,
@@ -15,7 +17,7 @@ import {
 import type { FollowMotionArm } from "./followMotion.experiment";
 
 /// A thread with a stand-in window whose frames the test runs one at a time (8.33 ms apart).
-function fixture(motion: { off?: boolean; reduce?: boolean; token?: string; optOut?: boolean } = {}) {
+function fixture(motion: { off?: boolean; reduce?: boolean; token?: string; optOut?: boolean; look?: string } = {}) {
   let callbacks = new Map<number, FrameRequestCallback>();
   let id = 0;
   let now = 1000;
@@ -45,7 +47,12 @@ function fixture(motion: { off?: boolean; reduce?: boolean; token?: string; optO
   const node = {
     ownerDocument: doc,
     parentElement: { parentElement: { clientHeight: 600 } },
-    closest: (selector: string) => (motion.optOut && selector.includes("follow-glide") ? {} : null),
+    closest: (selector: string) =>
+      motion.optOut && selector.includes("follow-glide")
+        ? {}
+        : motion.look && selector.includes("data-tail-glide")
+          ? { getAttribute: () => motion.look }
+          : null,
     style: {
       ...style,
       setProperty() {},
@@ -342,10 +349,54 @@ test.each(["spring", "chunk", "linear", "blocks"] as FollowMotionArm[])(
   },
 );
 
-// Leo, 2026-11-07: "the jumps are jarring. We want to minimize the jumps" (test/turn-transition-jumps.test.ts).
-test("a row that arrived holds all of its move back, and is back within the bound in ARRIVAL_BURST_S", () => {
+// Leo, 2026-11-07: "the jumps are jarring. We want to minimize the jumps", and 2026-11-09: "the
+// animations end to end need to just resolve faster" (test/row-arrival-settle.test.ts).
+test("a row that arrived holds all of its move back, then comes home on the arrival step, ending on its last frame", () => {
+  const line = currentChatMetrics().lineHeight;
+  for (const px of [28, 115]) {
+    const chase = createFollowChase("blocks");
+    const { node, frame, drawn } = fixture();
+    chase.shift(node, -px, line * 10, false, true);
+    expect(drawn()).toBeCloseTo(px);
+    const steps = Math.ceil(arrivalStepMs(px) / (1000 / 120));
+    let previous = drawn();
+    let frames = 0;
+    while (drawn() !== 0 && frames < 60) {
+      frame();
+      frames += 1;
+      // No frame moves more than the step's bound, and none moves the rows away from home.
+      expect(previous - drawn()).toBeLessThanOrEqual(ARRIVAL_FRAME_LINES * line + 1e-6);
+      expect(drawn()).toBeLessThanOrEqual(previous);
+      previous = drawn();
+    }
+    // Home at the step's end exactly, with no tail: a call's row (28 px) on the quick step (80 ms),
+    // a steer and its call (115 px) over the frames its bound needs (110 ms).
+    expect({ px, frames }).toEqual({ px, frames: steps });
+    expect(px > 70 || steps <= 10).toBe(true);
+    expect(steps).toBeLessThanOrEqual(14);
+  }
+});
+
+test("a move that comes during an arrival's step keeps the step's end", () => {
+  const line = currentChatMetrics().lineHeight;
   const chase = createFollowChase("blocks");
   const { node, frame, drawn } = fixture();
+  chase.shift(node, -28, line * 10, false, true);
+  for (let index = 0; index < 4; index += 1) frame();
+  // The arrived row's measured height a pass later: 6 px more, four frames in.
+  chase.shift(node, -6, line * 10, false, true);
+  let frames = 4;
+  while (drawn() !== 0 && frames < 60) {
+    frame();
+    frames += 1;
+  }
+  expect(frames).toBe(Math.ceil(arrivalStepMs(28) / (1000 / 120)));
+});
+
+// The earlier looks (data-tail-glide quick, glide, jump: the gallery's comparisons) keep the spring.
+test("in the earlier looks a row that arrived holds all of its move back, and is back within the bound in ARRIVAL_BURST_S", () => {
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn } = fixture({ look: "quick" });
   const line = currentChatMetrics().lineHeight;
   // A steer and the call it came under: 115 px of rows above the live line. A reply's growth of the
   // same size moves CHASE_LAND_LINES of it at once; an arrival moves none of it in that frame.

@@ -5,21 +5,38 @@
 // Each play runs one of the scripted turns test/turn-transition-jumps.test.ts measures
 // (scriptedTurn.ts TRANSITION_TURNS). The looks compare how the rows under a change (the live line, a
 // steer under its new footer, the turn's footer) move to their new place (`data-tail-glide`,
-// tailGlide.ts): `quick`, shipped, on the entry step (180 ms, ease-out), the clock the arriving row
-// fades in on; `glide`, on the house settle (265 ms); `jump`, at once, as before. Measured on the
-// same page, `quick`'s worst frame per turn was 3.9-10.5 px, `glide`'s 5.6-14.5, `jump`'s 33-120.
+// tailGlide.ts): `arrive`, shipped, everything on the arrival step (the quick step, 80 ms, longer only
+// as a long move's frames need), the follow chase on it too, so the move is over by the time the row
+// has faded in; `quick`, on the entry step (120 ms) with the chase on its spring; `glide`, on the
+// house settle (265 ms) with the spring; `jump`, at once. The arrival turns (ARRIVAL_TURNS: a thought,
+// a tool call, a call joining a group, a subagent; Leo, 2026-11-09: "thinking, tool calls, etc...
+// cannot lag nor can they take long") compare `arrive` with the earlier looks;
+// test/row-arrival-settle.test.ts measures each one's event to rest (CMUX_ROW_ARRIVAL_LOOKS).
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { VirtualTranscript } from "../App";
 import type { AcpmuxRow } from "../model";
-import { CARD_DRAFT, playScriptedTurn, scriptedHistory, type ScriptedView, type TransitionTurn } from "./scriptedTurn";
+import {
+  CARD_DRAFT,
+  playScriptedTurn,
+  scriptedHistory,
+  type ArrivalTurn,
+  type ScriptedView,
+  type TransitionTurn,
+} from "./scriptedTurn";
 import type { TailGlideLook } from "./tailGlide";
 import { turnView } from "./turns";
 
 const expanded = new Set<string>();
 
-const LABEL: Record<TransitionTurn, string> = {
+type GalleryTurn = TransitionTurn | ArrivalTurn;
+
+const LABEL: Record<GalleryTurn, string> = {
+  "arrive-thinking": "Thinking, then a call",
+  "arrive-tool": "A tool call runs and finishes",
+  "arrive-group": "A second call joins a group",
+  "arrive-subagent": "A subagent runs and reports",
   "text-tool": "Text, then a tool call",
   "burst-thought": "A burst, then thinking",
   "tool-group": "Calls joining one row",
@@ -27,7 +44,7 @@ const LABEL: Record<TransitionTurn, string> = {
   "thought-text": "Thinking, then text",
 };
 
-function TurnTransitionsGallery({ turn, look }: { turn: TransitionTurn; look: TailGlideLook }) {
+function TurnTransitionsGallery({ turn, look }: { turn: GalleryTurn; look: TailGlideLook }) {
   const [view, setView] = useState<Required<ScriptedView>>(() => ({
     rows: scriptedHistory() as AcpmuxRow[],
     working: false,
@@ -88,14 +105,18 @@ const playTurn: Play = async (ctx) => {
 };
 
 const TURNS: TransitionTurn[] = ["text-tool", "burst-thought", "tool-group", "steer-tools", "thought-text"];
-const LOOKS: TailGlideLook[] = ["quick", "glide", "jump"];
+const ARRIVALS: ArrivalTurn[] = ["arrive-thinking", "arrive-tool", "arrive-group", "arrive-subagent"];
+const LOOKS: TailGlideLook[] = ["arrive", "quick", "glide", "jump"];
+const ARRIVAL_LOOKS: TailGlideLook[] = ["arrive", "quick", "glide"];
 const NOTE: Record<TailGlideLook, string> = {
-  quick: "Shipped: the rows under the change glide on the entry step, as the new row fades in.",
-  glide: "The rows under the change glide on the house settle (265 ms).",
-  jump: "Before: the rows under the change move at once.",
+  arrive:
+    "Shipped: everything that moves (the rows above, the rows under, the new row's fade) runs on one 80 ms step and rests together.",
+  quick: "Before: the rows under the change glide on the entry step (120 ms); the rows above come home on the spring.",
+  glide: "The rows under the change glide on the house settle (265 ms); the rows above on the spring.",
+  jump: "The rows under the change move at once.",
 };
 
-export default componentEntry<{ turn: TransitionTurn; look: TailGlideLook }>({
+export default componentEntry<{ turn: GalleryTurn; look: TailGlideLook }>({
   id: "agent-pane.turn-transitions",
   title: "Turn transitions",
   area: "Agent pane",
@@ -120,11 +141,12 @@ export default componentEntry<{ turn: TransitionTurn; look: TailGlideLook }>({
       import("../bottomStack.css"),
     ]),
   variants: Object.fromEntries(
-    TURNS.flatMap((turn) =>
-      LOOKS.map((look) => [
-        `${turn}-${look}`,
-        { props: { turn, look }, play: playTurn, note: `${LABEL[turn]}. ${NOTE[look]}` },
-      ]),
-    ),
+    [
+      ...TURNS.flatMap((turn) => LOOKS.map((look) => [turn, look] as const)),
+      ...ARRIVALS.flatMap((turn) => ARRIVAL_LOOKS.map((look) => [turn, look] as const)),
+    ].map(([turn, look]) => [
+      `${turn}-${look}`,
+      { props: { turn, look }, play: playTurn, note: `${LABEL[turn]}. ${NOTE[look]}` },
+    ]),
   ),
 });

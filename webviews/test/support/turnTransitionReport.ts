@@ -13,11 +13,15 @@
 // - `popIns`: rows that came into view at full ink in their first frame (no fade);
 // - `reflows`: frames in which a row moved or resized with nothing new drawn and no motion playing
 //   (after an animation ended).
-// A frame in which no row came, went or changed but a reply and the live line (the reply's text
-// growing, or the chase bringing it home) is the stream's own motion, which send-stream-motion.test.ts holds: it counts in `streamPx`
-// only, so a block the reply lands in a window is not taken for the transition; in those frames the
-// rows under the reply count by the smaller of their move on screen and against its text (one
-// that moves with the text, or holds still as the text moves, does not jump).
+// A frame in which no row came, went or changed but a reply and the live line, and whose latest change
+// was the reply's text growing (that frame, or the chase bringing it home after), is the stream's own
+// motion, which send-stream-motion.test.ts holds: it counts in `streamPx` only, so a block the reply
+// lands in a window is not taken for the transition; in those frames the rows under the reply count
+// by the smaller of their move on screen and against its text (one that moves with the text, or
+// holds still as the text moves, does not jump). A frame after the step's event or another row's
+// change with no text grown since (the chase settling an arrival, a thought's row growing) counts in
+// full: a whole-thread move there is the transition's (review of #39271: a 100 px jump as a call
+// settled read 0 px when every quiet frame counted as the stream's).
 import type { RowSample, Sample } from "../browser/send-stream-motion.harness";
 
 /// A move of more than this in one 120 Hz frame reads as a jump: a third of a line
@@ -80,6 +84,9 @@ export function transitionReport(samples: Sample[], steps: readonly string[]): W
     // Up to the next step, so each window holds only its own step's frames.
     let end = first;
     while (end < Math.min(samples.length, first + WINDOW_FRAMES) && samples[end]!.phase === step) end += 1;
+    /// What last changed in the window: the step's event (a row that came or changed) until the
+    /// reply's text grows.
+    let cause: "arrival" | "stream" = "arrival";
     for (let index = first; index < end; index += 1) {
       const before = samples[index - 1]!;
       const now = samples[index]!;
@@ -135,6 +142,8 @@ export function transitionReport(samples: Sample[], steps: readonly string[]): W
         }
 
       const composer = Math.abs((now.composer ?? 0) - (before.composer ?? 0));
+      if (other || composer >= 0.5) cause = "arrival";
+      else if (now.length !== before.length) cause = "stream";
       // Nothing new and nothing playing, yet something moved: a reflow after the motion ended.
       const still = (sample: Sample) =>
         Math.abs(sample.lag) < 0.01 && !(sample.rows ?? []).some((row) => row.animating);
@@ -142,7 +151,7 @@ export function transitionReport(samples: Sample[], steps: readonly string[]): W
         report.reflows += 1;
       // Only the reply's text grew, or the chase brings it home: the stream's own motion for the
       // reply and the rows above it. The rows under the reply still count: they move by its growth.
-      if (!other && composer < 0.5) {
+      if (cause === "stream") {
         report.streamFrames += 1;
         report.streamPx = Math.max(report.streamPx, r1(reading));
         reading = 0;

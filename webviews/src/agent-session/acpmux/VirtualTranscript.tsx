@@ -1346,7 +1346,7 @@ function TranscriptView({
     if (next && !followingRef.current) followTrace.armed(path);
     // Followed again: a chase the reader's input held goes on home, whether or not a layout pass
     // comes after (followChase `resume`).
-    if (next && !followingRef.current) followChase.current?.resume();
+    if (next && !followingRef.current) resumeFollowMotion();
     followingRef.current = next;
     onFollowingChange?.(next);
     setFollowing(next);
@@ -1397,7 +1397,7 @@ function TranscriptView({
     input: string | null = null,
   ) => {
     if (atLatest && !followingRef.current) followTrace.armed(path, input, top);
-    if (atLatest && !followingRef.current) followChase.current?.resume();
+    if (atLatest && !followingRef.current) resumeFollowMotion();
     // Keep the intent ref synchronous so a second scroll event before the next frame sees the
     // reader's latest state; React work itself is coalesced by scrollPacer.
     followingRef.current = atLatest;
@@ -1465,6 +1465,11 @@ function TranscriptView({
     return undefined;
   };
   /// Ends the follow motion in flight where the rows lay out, and forgets where they were.
+  /// Followed again after the reader's input held it: the chase and the rows' glides go on.
+  const resumeFollowMotion = useCallback(() => {
+    followChase.current?.resume();
+    tailGlide.current?.resume();
+  }, []);
   const stopFollowMotion = useCallback(() => {
     followGlide.current?.stop();
     followChase.current?.stop();
@@ -1493,7 +1498,7 @@ function TranscriptView({
     const before = chaseAnchor.current;
     const now = before ? rowTop(before.id) : undefined;
     // Followed again after the reader's input held it: it goes on home from where it is drawn.
-    chase.resume();
+    resumeFollowMotion();
     chase.fit(below);
     // A turn's end folding moves the rows itself (turnEndFold.ts): their motion is no move to chase.
     const turnEnding = thread.current?.hasAttribute(TURN_END_ATTR) === true;
@@ -4356,7 +4361,14 @@ function TranscriptView({
       followGlide.current?.stop();
       // Input that leaves the view followed (a wheel or key at the bottom scrolls nothing, and no
       // layout pass may come after) goes on home on the next frame instead of staying drawn away.
-      followChase.current?.hold(() => followingRef.current && jumpTarget.current === undefined);
+      // The rows under a change gliding to their place hold where they are drawn too (tailGlide.ts),
+      // and play on with the chase.
+      tailGlide.current?.hold();
+      followChase.current?.hold(() => {
+        const followed = followingRef.current && jumpTarget.current === undefined;
+        if (followed) tailGlide.current?.resume();
+        return followed;
+      });
       chaseAnchor.current = undefined;
       // Release the follow intent synchronously when a reader starts moving up. The browser can
       // deliver the input before its scroll event; a streamed snapshot in that gap must not pin

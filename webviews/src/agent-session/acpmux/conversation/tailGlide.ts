@@ -13,10 +13,13 @@
 // pass the chase follows reads every mounted row's top in the thread's layout (offsetTop, never a
 // drawn box, so neither the chase's translate nor this glide's own count) and, for each row that
 // moved against the anchor, plays the move as a FLIP on the row's `translate`, from where it was
-// drawn to its place, on the entry step (`--agent-motion-in`, 180 ms, ease-out): the clock the row
-// that came fades in on (`cv-enter-fade`), so the room opens and the row appears as one motion. On
-// the same page the entry step's worst frame was 3.9-10.5 px a turn, the house settle's 5.6-14.5 px
-// (turn-transition-jumps.test.ts, CMUX_TURN_TRANSITION_LOOKS). The glides add
+// drawn to its place, on the arrival step (followChase.ts `arrivalStepMs`: the quick step, 80 ms,
+// longer only as a long move's frames need; ARRIVAL_EASE): the step the follow chase brings the rows
+// above home on and the row that came fades in on (`--agent-motion-arrive`), so everything that moves
+// starts in the frame the row lands in and rests together (Leo, 2026-11-09: "the tool call shifting
+// the chat animation and stuff is just too slow ... thinking, tool calls, etc... cannot lag nor can
+// they take long"). On the entry step (120 ms) and the spring chase, a finished call's move rested
+// 228 ms after its event (row-arrival-settle.test.ts). The glides add
 // (`composite: "add"`), so a move that comes while one plays goes on from where the row is drawn.
 // A row that arrived is not moved: it fades in at its place (`cv-enter-fade`) as the rows under it
 // open its room.
@@ -24,16 +27,20 @@
 // Only `translate` plays, which never changes layout: the virtualizer's measured heights and the
 // scroll offset stay exact. Stop condition: each glide is one finite animation (the step's length)
 // and ends on its own; `stop` cancels what plays and forgets the tops (a chat switch, Jump to latest,
-// a resize, a fold or the turn's end moving the rows itself, unmount). Reduce Motion, motion off or
+// a resize, a fold or the turn's end moving the rows itself, unmount). The reader's input `hold`s what
+// plays where it is drawn, as it holds the follow chase, so nothing moves but their own scroll;
+// followed again, `resume` plays it on. Reduce Motion, motion off or
 // no Web Animations: the rows move at once, as before. O(mounted rows) per followed pass, the view's
 // window (never the whole chat): one offsetTop each, after the pass's own layout.
 import { cssTimeMs, foldMs } from "./fold";
+import { ARRIVAL_EASE, arrivalStepMs } from "./followChase";
 import { LIVE_THINKING } from "./turns";
 
-/// How the rows under a change move. `quick` (shipped): on the entry step (180 ms, ease-out), the
-/// clock the arriving row fades in on. `glide`: on the house settle (265 ms). `jump`: at once (before).
-export type TailGlideLook = "glide" | "quick" | "jump";
-export const TAIL_GLIDE_LOOKS: readonly TailGlideLook[] = ["quick", "glide", "jump"];
+/// How the rows under a change move. `arrive` (shipped): on the arrival step, with the follow chase on
+/// the same step. `quick`: on the entry step (120 ms, ease-out), the follow chase on its spring.
+/// `glide`: on the house settle (265 ms), the chase on its spring. `jump`: at once.
+export type TailGlideLook = "arrive" | "glide" | "quick" | "jump";
+export const TAIL_GLIDE_LOOKS: readonly TailGlideLook[] = ["arrive", "quick", "glide", "jump"];
 /// The look's attribute, on the transcript or any element over it (the gallery's variants set it).
 export const TAIL_GLIDE_LOOK_ATTR = "data-tail-glide";
 
@@ -48,12 +55,19 @@ const MIN_MOVE_PX = 0.5;
 /// The look set over `node`, or the shipped one.
 export function tailGlideLook(node: Element): TailGlideLook {
   const set = node.closest(`[${TAIL_GLIDE_LOOK_ATTR}]`)?.getAttribute(TAIL_GLIDE_LOOK_ATTR);
-  return TAIL_GLIDE_LOOKS.includes(set as TailGlideLook) ? (set as TailGlideLook) : "quick";
+  return TAIL_GLIDE_LOOKS.includes(set as TailGlideLook) ? (set as TailGlideLook) : "arrive";
 }
 
-function timing(thread: HTMLElement, look: TailGlideLook): { ms: number; easing: string } {
+/// The arrival step when the page has no token (a test DOM): the motion scale's quick step.
+const ARRIVE_FALLBACK_MS = 80; // motion-allow: the quick step's own length (schemas/motion-scale `quick`)
+
+function timing(thread: HTMLElement, look: TailGlideLook, moved: number): { ms: number; easing: string } {
   const style = thread.ownerDocument.defaultView?.getComputedStyle(thread);
   const token = (name: string) => style?.getPropertyValue(name).trim() ?? "";
+  if (look === "arrive") {
+    const floor = cssTimeMs(token("--agent-motion-arrive")) ?? ARRIVE_FALLBACK_MS;
+    return { ms: floor > 0 ? arrivalStepMs(moved, 1, floor) : 0, easing: ARRIVAL_EASE };
+  }
   if (look === "glide")
     return {
       ms: cssTimeMs(token("--cmux-motion-settle")) ?? SETTLE_FALLBACK_MS,
@@ -87,6 +101,10 @@ export type TailGlide = {
   place(thread: HTMLElement | null, glide: boolean, anchor: string | undefined): void;
   /// Ends what plays, the rows drawn at their places, and forgets where they were.
   stop(): void;
+  /// The reader took the view: what plays holds where it is drawn (as the follow chase does).
+  hold(): void;
+  /// Followed again: what the reader's input held plays on.
+  resume(): void;
 };
 
 export function createTailGlide(): TailGlide {
@@ -99,6 +117,12 @@ export function createTailGlide(): TailGlide {
   };
   return {
     stop,
+    hold() {
+      for (const animation of playing) animation.pause();
+    },
+    resume() {
+      for (const animation of playing) if (animation.playState === "paused") animation.play();
+    },
     place(thread, glide, anchor) {
       const before = last;
       const now = thread ? tops(thread) : undefined;
@@ -109,8 +133,6 @@ export function createTailGlide(): TailGlide {
       if (!from || !to) return;
       const look = tailGlideLook(thread);
       if (look === "jump") return;
-      const { ms, easing } = timing(thread, look);
-      if (!(ms > 0)) return;
       // Only the rows from the anchor on: what lies above the view's top never shows.
       let below = false;
       for (const [id, { row, top }] of now) {
@@ -120,6 +142,8 @@ export function createTailGlide(): TailGlide {
         if (!was || typeof row.animate !== "function") continue;
         const moved = top - was.top - (to.top - from.top);
         if (Math.abs(moved) < MIN_MOVE_PX) continue;
+        const { ms, easing } = timing(thread, look, moved);
+        if (!(ms > 0)) return;
         const animation = row.animate([{ translate: `0 ${-moved}px` }, { translate: "0 0" }], {
           duration: ms,
           easing,

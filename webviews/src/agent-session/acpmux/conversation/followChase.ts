@@ -62,15 +62,34 @@ export const CHASE_MAX_FRAME_LINES = 1;
 export const CHASE_HOLD_LINES = 1;
 /// A row that arrived above the live line (a finished call taking its row, a thought's row and the
 /// reply's first words, a steer) holds all of its move back: nothing of it moves at once in the frame
-/// it lands, and the chase brings it in over ARRIVAL_BURST_S. The live line under it glides to its new
-/// place (liveLineGlide.ts) instead of being pushed down by it at once. Moving CHASE_LAND_LINES of it
-/// at once moved the rows the reader sees 18-21 px in that one frame (turn-transition-jumps.test.ts).
+/// it lands. Moving CHASE_LAND_LINES of it at once moved the rows the reader sees 18-21 px in that
+/// one frame (turn-transition-jumps.test.ts). The chase then brings it home on the arrival step
+/// (`arrivalStep`): one timed curve that ends on its last frame, not the spring, whose tail crept the
+/// last pixels home and snapped them 228 ms after a call finished (Leo, 2026-11-09: "there's some
+/// sort of "settling" and like ok maybe but the animations end to end need to just resolve faster";
+/// row-arrival-settle.test.ts). The rows under it glide on the same step (tailGlide.ts), and the row
+/// that came fades in on it (`--agent-motion-arrive`), so everything that moves starts in the frame
+/// the row lands in and rests together.
 export const CHASE_ARRIVAL_HOLD_LINES = Number.POSITIVE_INFINITY;
-/// How soon (s) the trail is back within its bound after a row that arrived put it past: 18 120 Hz
-/// frames, so a steer and the call it came under (115 px) or a thought's row and the reply's first
-/// line (77 px) come in at under a third of a line a frame instead of a line and a half per frame
-/// over BURST_S (turn-transition-jumps.test.ts). A reply's own growth keeps BURST_S.
+/// In the earlier looks (the spring brings an arrival home), how soon (s) the trail is back within its
+/// bound after a row that arrived put it past: 18 120 Hz frames, so a steer and the call it came under
+/// (115 px) come in at under a third of a line a frame. A reply's own growth keeps BURST_S.
 export const ARRIVAL_BURST_S = 0.075;
+/// The most an arrival's step moves the rows in one 120 Hz frame, in lines: under the two thirds of a
+/// line turn-transition-jumps.test.ts holds every transition's frames to.
+export const ARRIVAL_FRAME_LINES = 0.6;
+/// The arrival step's curve: a sine ease-out, whose first frame moves π/2 times the step's mean (a
+/// quadratic ease-out moves twice it, so a long move would need a longer step for the same frame).
+export const ARRIVAL_EASE = "cubic-bezier(0.39, 0.575, 0.565, 1)";
+const arrivalEase = (progress: number) => Math.sin((progress * Math.PI) / 2);
+/// The arrival step for a move of `px` (ms): the motion scale's quick step (80 ms), longer only as a
+/// move past about 70 px needs to keep each frame under ARRIVAL_FRAME_LINES (115 px: 110 ms), at the
+/// host's speed `scale` (the speed factor of `--agent-motion-move`; 0 with motion off). `floor`: the
+/// shortest step (a move during a step keeps that step's end, so its floor is the time left).
+export function arrivalStepMs(px: number, scale = 1, floor = MOTION_MS.quick * scale): number {
+  const frames = ((Math.PI / 2) * Math.abs(px)) / (ARRIVAL_FRAME_LINES * currentChatMetrics().lineHeight);
+  return Math.max(floor, (frames * 1000) / 120);
+}
 /// The most a landing frame moves, that at once and the chase's step in it together, in lines:
 /// under the 0.85 of a line that 95 in 100 of the stream's frames keep to (send-stream-motion.test.ts).
 export const CHASE_LAND_LINES = 0.8;
@@ -127,6 +146,13 @@ function speedOf(node: HTMLElement): number {
   return token === undefined ? 1 : token / MOTION_MS.standard;
 }
 
+/// Whether an arrival comes home on the arrival step: the shipped look. The gallery's and the
+/// harness's earlier looks (`data-tail-glide` quick, glide, jump: tailGlide.ts) keep the spring.
+function arrivalLook(node: HTMLElement): boolean {
+  const look = node.closest("[data-tail-glide]")?.getAttribute("data-tail-glide");
+  return !look || look === "arrive";
+}
+
 /// The trail bound (px): CHASE_MAX_TRAIL_LINES of the chat's lines.
 export function chaseMaxTrail(): number {
   return CHASE_MAX_TRAIL_LINES * currentChatMetrics().lineHeight;
@@ -139,6 +165,10 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
   let v = 0;
   /// The fixed-duration arm: the segment in flight (from, elapsed s, duration s).
   let chunk = { from: 0, at: 0, duration: CHUNK_S };
+  /// A row that arrived: the arrival step in flight (from px, elapsed s, duration s), on ARRIVAL_EASE
+  /// to 0 at its end. Anything else that moves the rows (the reply's growth, `land`, `hold`) hands
+  /// it back to the spring from where it is drawn and how fast it goes.
+  let arrival: { from: number; at: number; duration: number } | undefined;
   let frame: number | undefined;
   /// A send's rows, or anything in the `blocks` arm: it may pass under the glass composer while it
   /// settles, so `below` holds nothing back (the trail bound still does). Set by each `shift`: a
@@ -193,6 +223,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     landing = false;
     spent = 0;
     stepped = 0;
+    arrival = undefined;
     draw();
   };
   const step = (now: number) => {
@@ -217,7 +248,23 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       fastest,
       Math.max(burst, (CHASE_MAX_SPEED + Math.max(0, Math.abs(x) - catchUp) / CATCH_UP_S) / Math.max(scale, 0.25)),
     );
-    if (arm === "spring" || arm === "blocks") {
+    if (arrival) {
+      // The arrival step: its curve to its last frame, which draws the rows home (and stops).
+      arrival.at += dt;
+      const progress = Math.min(1, arrival.at / arrival.duration);
+      const nextX = arrival.from * (1 - arrivalEase(progress));
+      v = (nextX - x) / Math.max(dt, 1e-3);
+      x = progress >= 1 ? 0 : nextX;
+      spent = 0;
+      if (x === 0) {
+        stop();
+        return;
+      }
+      stepped = Math.abs(x - from);
+      draw();
+      frame = thread?.ownerDocument.defaultView?.requestAnimationFrame(step);
+      return;
+    } else if (arm === "spring" || arm === "blocks") {
       // Critically damped toward 0, exact over the step: x(t) = (x0 + (v0 + w x0) t) e^(-w t).
       const w = (2 * Math.PI) / (RESPONSE_S * scale);
       const decay = Math.exp(-w * dt);
@@ -295,6 +342,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       burst = 0;
       due = undefined;
       stepped = 0;
+      arrival = undefined;
       if (x === 0) {
         stop();
         return;
@@ -321,6 +369,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       }
       landing = true;
       rising = true;
+      arrival = undefined;
       burst = Math.min((CHASE_MAX_FRAME_LINES * line) / (1 / 120), Math.abs(x) / BURST_S);
       resume();
     },
@@ -383,6 +432,15 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
         burst = Math.min(fastest, Math.max(burst, (Math.abs(x) - trail) / left));
       }
       chunk = { from: x, at: 0, duration: CHUNK_S };
+      // A row that arrived comes home on the arrival step, from where the thread is drawn now (a move
+      // that comes during one starts a new step from there); anything else hands it to the spring.
+      // A move during a step (the arrived row's measured height a pass later) keeps that step's end,
+      // longer only as its frames need, so a second pass never starts the motion over.
+      const left = arrival ? (arrival.duration - arrival.at) * 1000 : undefined;
+      arrival =
+        arrived && !held && (arm === "blocks" || arm === "spring") && x !== 0 && arrivalLook(node)
+          ? { from: x, at: 0, duration: arrivalStepMs(x, scale, left) / 1000 }
+          : undefined;
       draw();
       cancelRecheck();
       if (frame === undefined) {
