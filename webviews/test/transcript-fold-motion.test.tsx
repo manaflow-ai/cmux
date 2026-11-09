@@ -24,6 +24,7 @@ import { ToolGroupRow } from "../src/agent-session/acpmux/conversation/ToolGroup
 import { ToolRow } from "../src/agent-session/acpmux/conversation/ToolRow";
 import { ToolRun } from "../src/agent-session/acpmux/conversation/ToolRun";
 import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
+import { useAnchoredCollapse } from "../src/agent-session/acpmux/conversation/useAnchoredCollapse";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -225,6 +226,40 @@ test("a command row keeps the press across an output update: a 12 px drag across
   expect(container.querySelector(".cv-shell")).toBeNull();
   dragClick(2);
   expect(toggle().getAttribute("aria-expanded")).toBe("true");
+});
+
+/// A disclosure whose header is drawn only while `header` holds, with a second toggle below it that
+/// stays: a press on the header that went must not decide a later click on the one below.
+function TwoTargets({ header }: { header: boolean }) {
+  const fold = useAnchoredCollapse();
+  return (
+    <div>
+      {header && (
+        <button type="button" data-testid="head" ref={fold.headerRef} onClick={fold.toggle}>
+          head
+        </button>
+      )}
+      <button type="button" data-testid="below" aria-pressed={fold.open} onClick={fold.toggle}>
+        below
+      </button>
+    </div>
+  );
+}
+
+test("a press on a header that went does not turn a later click elsewhere into a drag", () => {
+  render(<TwoTargets header />);
+  const head = container.querySelector<HTMLButtonElement>("[data-testid=head]")!;
+  const view = head.ownerDocument.defaultView!;
+  const Pointer = (view as unknown as { PointerEvent?: typeof MouseEvent }).PointerEvent ?? view.MouseEvent;
+  act(() => {
+    head.dispatchEvent(new Pointer("pointerdown", { clientX: 10, clientY: 10, button: 0, bubbles: true }));
+  });
+  render(<TwoTargets header={false} />);
+  const below = container.querySelector<HTMLButtonElement>("[data-testid=below]")!;
+  act(() => {
+    below.dispatchEvent(new view.MouseEvent("click", { clientX: 200, clientY: 40, detail: 1, bubbles: true }));
+  });
+  expect(below.getAttribute("aria-pressed")).toBe("true");
 });
 
 for (const { name, node, body } of collapsibles) {
