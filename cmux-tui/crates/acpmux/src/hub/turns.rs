@@ -1181,7 +1181,9 @@ impl Hub {
                     let mut m =
                         session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                     m.cmux_context_delivered = true;
-                    m.cmux_rules_in_transcript |= rules_owed;
+                    if rules_owed {
+                        crate::context_inventory::record_rules_in_transcript(&mut m, turn_seq);
+                    }
                     drop(m);
                     self.save_meta(session);
                 }
@@ -1325,6 +1327,9 @@ impl Hub {
                                     &mut blocks,
                                 )
                         };
+                        // The rules this message carries: owed here, or kept from the first
+                        // attempt's blocks, whose write may have failed before it was confirmed.
+                        let rules_in_message = rules_owed || rules_owed_here;
                         if session.rehydrate.swap(false, Ordering::SeqCst)
                             && let Some(transcript) = self.transcript(session, 24_000, &prompt_id)
                         {
@@ -1372,15 +1377,17 @@ impl Hub {
                                         false,
                                         fence.as_ref(),
                                         // Owed rules are recorded only once the writer took them.
-                                        confirm_team_write || rules_owed_here,
+                                        confirm_team_write || rules_in_message,
                                         None,
                                         || {
-                                            if rules_owed_here {
-                                                session
-                                                    .meta
-                                                    .lock()
-                                                    .unwrap_or_else(|e| e.into_inner())
-                                                    .cmux_rules_in_transcript = true;
+                                            if rules_in_message {
+                                                crate::context_inventory::record_rules_in_transcript(
+                                                    &mut session
+                                                        .meta
+                                                        .lock()
+                                                        .unwrap_or_else(|e| e.into_inner()),
+                                                    turn_seq,
+                                                );
                                                 self.save_meta(session);
                                             }
                                             self.mark_team_messages(session, &team_messages);
