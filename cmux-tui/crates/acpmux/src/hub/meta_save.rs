@@ -349,6 +349,10 @@ impl Hub {
         }
         #[cfg(debug_assertions)]
         hold_seam(&session.id);
+        #[cfg(debug_assertions)]
+        if fail_seam(&session.id) {
+            anyhow::bail!("test seam: the save of {} failed", session.id);
+        }
         #[cfg(test)]
         if let Some((arrived, release)) =
             session.meta_writer.hold.lock().unwrap_or_else(|e| e.into_inner()).take()
@@ -379,6 +383,14 @@ fn off_worker<T>(wait: impl FnOnce() -> T) -> T {
         Ok(tokio::runtime::RuntimeFlavor::MultiThread) => tokio::task::block_in_place(wait),
         _ => wait(),
     }
+}
+
+/// Tests only: every write of the chat fails while `fail-<session id>` is in the seam's folder (a
+/// full disk, say), and works again once the test removes it.
+#[cfg(debug_assertions)]
+fn fail_seam(session_id: &str) -> bool {
+    let Some(dir) = std::env::var_os("ACPMUX_TEST_SAVE_META_HOLD_DIR") else { return false };
+    std::path::Path::new(&dir).join(format!("fail-{session_id}")).exists()
 }
 
 /// The seam in the module text, between the writer's copy and its write.

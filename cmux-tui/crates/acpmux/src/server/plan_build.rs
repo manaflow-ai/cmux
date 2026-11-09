@@ -345,21 +345,19 @@ async fn handle(
             } else {
                 Vec::new()
             };
-            // A retry with no run to name (a Keep with no worktrees to remove) leaves the chat's
-            // record as it was; one that names any writes them all again, the earlier removals with
-            // its own.
-            if !again || !removed.is_empty() {
-                hub.record_plan_build(
-                    &session,
-                    json!({
-                        "event": "kept",
-                        "buildId": build_id,
-                        "keptSessionId": kept.id,
-                        "archived": archived,
-                        "removed": removed,
-                    }),
-                );
-            }
+            // Every Keep that ends records it, a retry too: one that repaired the tags an earlier
+            // Keep failed to save is the first the card hears of the kept run. A record that names
+            // no run (a Keep that removes nothing) leaves the card's earlier removals as they were.
+            hub.record_plan_build(
+                &session,
+                json!({
+                    "event": "kept",
+                    "buildId": build_id,
+                    "keptSessionId": kept.id,
+                    "archived": archived,
+                    "removed": removed,
+                }),
+            );
             let mut reply = hub.plan_compare(&session, build_id).await?;
             if let Some(fields) = reply.as_object_mut() {
                 fields.insert("removed".into(), Value::Array(removed));

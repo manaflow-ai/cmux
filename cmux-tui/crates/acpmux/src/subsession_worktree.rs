@@ -42,7 +42,16 @@ pub struct Worktree {
     /// `root`, held open from before git filled it (unix): its inode is never another folder's
     /// while this lives, so `root_pin` names this folder only.
     pub root_held: Option<std::sync::Arc<std::fs::File>>,
+    /// The random stamp [`make_worktree`] wrote in the worktree's own registration folder
+    /// ([`MADE_STAMP`]) once git added it: a worktree made again at the same path, which a file
+    /// system with no creation times may give the same inode, has a registration without it.
+    pub stamp: Option<String>,
 }
+
+/// The file in a made worktree's registration folder (`.git/worktrees/<name>/`) that holds its
+/// [`Worktree::stamp`]: git never writes it, and the agent's checkout reaches it only through the
+/// `.git` file, never through its edits.
+pub(crate) const MADE_STAMP: &str = "cmux-made";
 
 /// No automatic maintenance or gc: run from the throwaway git directory,
 /// whose refs reach none of the repository's objects, it would prune them
@@ -451,9 +460,10 @@ fn global_excludes(by: Instant) -> Option<PathBuf> {
 /// `[include]`s followed as git follows them.
 fn excludes_file(cmd: Command, home: Option<PathBuf>, by: Instant) -> Option<PathBuf> {
     let args = ["config", "--global", "--includes", "--get", "core.excludesFile"];
-    let named =
-        run_by(cmd, &args, Some(by)).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
+    let named = run_by(cmd, &args, Some(by)).ok().map(|v| v.trim().to_owned());
     match named {
+        // Set but empty turns it off, as git reads it: no file by that name, and not the default.
+        Some(path) if path.is_empty() => None,
         Some(path) => match (path.strip_prefix("~/"), &home) {
             (Some(rest), Some(home)) => Some(home.join(rest)),
             _ => Some(PathBuf::from(path)),
@@ -608,6 +618,26 @@ fn held_gitdir(dir: &std::fs::File) -> Option<PathBuf> {
     let file = std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) });
     let text = String::from_utf8(read_opened(file, GIT_FILE_BYTES)?).ok()?;
     text.trim().strip_prefix("gitdir: ").map(PathBuf::from)
+}
+
+/// Writes a new random stamp in the registration folder the `.git` file in the held worktree
+/// folder `held` (at `root`) names, as [`MADE_STAMP`]; None when it could not, and the worktree
+/// is then told apart by its inode and creation time alone.
+#[cfg(unix)]
+fn stamp_made(held: &std::fs::File, root: &Path) -> Option<String> {
+    use std::io::Write as _;
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).ok()?;
+    let stamp: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    // A relative one is relative to the worktree's folder (`worktree.useRelativePaths`).
+    let admin = root.join(held_gitdir(held)?);
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(admin.join(MADE_STAMP))
+        .ok()?;
+    file.write_all(stamp.as_bytes()).ok()?;
+    Some(stamp)
 }
 
 /// A worktree's own registration folder, held open with the `worktrees/` folder it is in.
@@ -912,6 +942,10 @@ fn make_worktree_under(folder: Dir<'_>, title: &str, home: &Path) -> Result<Work
         }
         #[cfg(test)]
         after_add(&root);
+        #[cfg(unix)]
+        let stamp = root_held.as_deref().and_then(|held| stamp_made(held, &root));
+        #[cfg(not(unix))]
+        let stamp = None;
         let made = Worktree {
             root: root.clone(),
             branch,
@@ -920,6 +954,7 @@ fn make_worktree_under(folder: Dir<'_>, title: &str, home: &Path) -> Result<Work
             cwd: root,
             root_pin,
             root_held,
+            stamp,
         };
         return fill(folder, &layout, made, &commit, false);
     }
@@ -1196,6 +1231,7 @@ fn ensure_worktree_under(
                 cwd,
                 root_pin: None,
                 root_held: None,
+                stamp: None,
             };
             return Ok(Ensured { worktree, reused: Some("worktree") });
         }
@@ -1245,6 +1281,7 @@ fn ensure_worktree_under(
             cwd: root.clone(),
             root_pin: None,
             root_held: None,
+            stamp: None,
         };
         let worktree = fill(folder.into(), &layout, made, &commit, reused.is_some())?;
         return Ok(Ensured { worktree, reused });
@@ -1411,6 +1448,25 @@ mod tests {
         let at = Dir::held(&made.root, Some(&held));
         let refused = verify_made(repo.as_path().into(), &made, at).unwrap_err();
         assert!(refused.contains("not the worktree that was made"), "{refused}");
+    }
+
+    /// A made worktree's registration holds the stamp it records, which no other worktree's has.
+    #[cfg(unix)]
+    #[test]
+    fn a_made_worktree_is_stamped_in_its_registration() {
+        let (_scratch, repo, home) = repo();
+        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
+        let again = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
+        let read = |w: &Worktree| {
+            let held = std::fs::File::open(&w.root).unwrap();
+            let admin = w.root.join(held_gitdir(&held).unwrap());
+            std::fs::read_to_string(admin.join(MADE_STAMP)).unwrap()
+        };
+        let stamp = made.stamp.clone().unwrap();
+        assert_eq!(stamp.len(), 32, "{stamp}");
+        assert_eq!(read(&made), stamp);
+        assert_eq!(read(&again), again.stamp.clone().unwrap());
+        assert_ne!(made.stamp, again.stamp);
     }
 
     /// A folder that takes the new worktree's place while git adds it (here as soon as it is
@@ -1839,6 +1895,28 @@ mod tests {
         cmd.current_dir(&dir).env("GIT_CONFIG_NOSYSTEM", "1").env("GIT_CONFIG_GLOBAL", &global);
         let by = Instant::now() + std::time::Duration::from_secs(10);
         assert_eq!(excludes_file(cmd, None, by), Some(named));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A `core.excludesFile` set to nothing turns the global excludes off, as git reads it; one
+    /// not set at all is the default file.
+    #[test]
+    fn an_empty_global_excludes_file_is_off_and_an_unset_one_the_default() {
+        let dir = std::env::temp_dir().join(format!("acpmux-excludes-{}", uuid::Uuid::now_v7()));
+        let home = dir.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let read = |config: &str| {
+            let global = dir.join("gitconfig");
+            std::fs::write(&global, config).unwrap();
+            let mut cmd = Command::new("git");
+            cmd.current_dir(&dir).env("GIT_CONFIG_NOSYSTEM", "1").env("GIT_CONFIG_GLOBAL", &global);
+            let by = Instant::now() + std::time::Duration::from_secs(10);
+            excludes_file(cmd, Some(home.clone()), by)
+        };
+        assert_eq!(read("[core]\n\texcludesFile =\n"), None);
+        let config = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty());
+        let default = config.map(PathBuf::from).unwrap_or_else(|| home.join(".config"));
+        assert_eq!(read("[core]\n\tbare = false\n"), Some(default.join("git/ignore")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

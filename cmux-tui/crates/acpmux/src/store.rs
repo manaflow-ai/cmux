@@ -607,6 +607,11 @@ pub struct MadeWorktree {
     /// recorded here, where no request writes it, not in the `planBuildBase` tag an agent can.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base: Option<String>,
+    /// The random stamp written in its registration folder when it was made
+    /// (`subsession_worktree::MADE_STAMP`): a worktree made again at its path has none, even where
+    /// it got the same inode and the file system records no creation time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stamp: Option<String>,
 }
 
 impl MadeWorktree {
@@ -622,7 +627,7 @@ impl MadeWorktree {
         Ok(Option::<Saved>::deserialize(d)?.map(|saved| match saved {
             Saved::Made(made) => made,
             Saved::Path(root) => {
-                Self { root, pin: None, born: None, branch: String::new(), base: None }
+                Self { root, pin: None, born: None, branch: String::new(), base: None, stamp: None }
             }
         }))
     }
