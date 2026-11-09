@@ -180,7 +180,9 @@ async function mount() {
     /// Quote in Reply: the page hands the composer the selected text.
     async quote(text: string) {
       await act(async () => {
-        container.querySelector(".hc-composer")!.dispatchEvent(new dom.window.CustomEvent(QUOTE_EVENT, { detail: text }));
+        container
+          .querySelector(".hc-composer")!
+          .dispatchEvent(new dom.window.CustomEvent(QUOTE_EVENT, { detail: text }));
       });
       await settle();
     },

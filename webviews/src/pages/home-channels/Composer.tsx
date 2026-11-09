@@ -122,6 +122,12 @@ export function Composer({
   const fileHistory = useRef(new AttachmentUndo<PendingAttachment>());
   /// An undo or redo the editor runs on its text: its change is no new edit.
   const replaying = useRef(false);
+  /// Text the composer writes itself (a quote, the clear after a send): a new edit like typing, though
+  /// the editor reports no change for it.
+  const writeText = (update: (current: string) => string) => {
+    setValue(update);
+    fileHistory.current.textEdited();
+  };
   const upload = (id: string, file: File) => {
     if (!attachments) return;
     const controller = new AbortController();
@@ -309,7 +315,7 @@ export function Composer({
     const sending = ready;
     void onSend(markdown, sending.length ? sending : undefined).then((sent) => {
       if (!sent) return;
-      setValue((current) => (current === markdown ? "" : current));
+      writeText((current) => (current === markdown ? "" : current));
       if (sending.length) {
         setFiles((current) => current.filter((item) => !item.part || !sending.includes(item.part)));
         // Sent files are gone for good: no undo brings them back.
@@ -351,7 +357,7 @@ export function Composer({
     const take = (event: Event) => {
       const text = (event as CustomEvent<string>).detail;
       if (!text || disabledRef.current) return;
-      setValue((current) => quoteMarkdown(text) + current);
+      writeText((current) => quoteMarkdown(text) + current);
       editor.current?.focus();
     };
     node.addEventListener(QUOTE_EVENT, take);
