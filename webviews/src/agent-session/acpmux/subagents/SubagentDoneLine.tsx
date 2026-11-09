@@ -30,7 +30,7 @@ import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRo
 import { spanDuration } from "../conversation/turns";
 import { ChevronRight, Retry } from "../conversation/icons";
 import { TurnActionsContext } from "../conversation/turnActions";
-import { ReactionMark, ReactionReply } from "../conversation/ReactionMark";
+import { ReactionMark } from "../conversation/ReactionMark";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { AgentIdentity } from "./AgentIdentity";
@@ -242,7 +242,6 @@ function DoneLine({
             </div>
           }
         />
-        <ReactionReply reaction={agent.reaction} />
       </div>
     );
   const inline = action && affordance !== "menu" && (
@@ -363,9 +362,6 @@ function DoneLine({
         </div>
       )}
       {preview && shownReport && <ReportPreview report={shownReport} onOpenView={open && (() => open(agent.id))} />}
-      {/* The chat's quiet reply to its end (ReactionMark.tsx), under the line as text Find reads,
-          never only in a tooltip (cmux#33538). */}
-      <ReactionReply reaction={agent.reaction} />
     </div>
   );
 }

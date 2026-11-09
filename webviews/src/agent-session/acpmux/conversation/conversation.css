@@ -7398,24 +7398,6 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   background: var(--agent-accent);
   align-self: center;
 }
-/* The agent's reply to that result, under the opened call's output (ReactionReply). */
-.cv-reaction-reply {
-  margin: 4px 0 6px;
-  padding-left: var(--cv-tool-text-inset);
-  color: var(--cv-text-dim);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-/* Under a finished subagent's line (SubagentDoneLine.tsx) the reply is the line's own continuation
-   on the stack's grid: no margin of its own (the row's frame gives the run gap after it), the notes'
-   20px lines at the rows' text column, so model.ts `reactionReplyHeight` is its drawn height and the
-   next row keeps the one row pitch (design/chat-transcript.md "One-line row pitch"). cmux#33283 gave
-   it a 4px and 6px margin the estimate never counted. */
-.cv-tools > .cv-reaction-reply {
-  margin: 0;
-  line-height: 20px;
-}
-
 /* A failed call draws no failure mark (Lucas, 2026-11-06): no "Failed" / "Exit 1" word, no
    "(N failed)" count, no cause line and no tint. The words stay for screen readers (Find already
    skips them), and an opened Shell block still says the exit code. */

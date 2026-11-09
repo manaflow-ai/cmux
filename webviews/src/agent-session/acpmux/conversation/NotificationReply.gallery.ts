@@ -9,7 +9,7 @@
 // opened row keeps every field the shut one has: its mark, its new dot, its time, its chevron and its
 // name chip that opens the subagent (AgentMessageRow.tsx). The shipped variants replay acpmux's
 // events through the pane's own client (fixtures/recording.ts), so they show what the code makes.
-// The before look is NotificationReplyBefore.gallery.tsx. test/notification-reply-browser.test.ts
+// The before look is agent-pane.subagent-done#reply-before. test/notification-reply-browser.test.ts
 // measures these in Chromium. Synthetic data.
 import { agentPaneEntry } from "../../../gallery/format";
 import { minutesAgo } from "../../../gallery/clock";
