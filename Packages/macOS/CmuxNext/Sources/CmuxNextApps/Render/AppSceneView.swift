@@ -69,7 +69,7 @@ struct AppSceneFailureRow: View {
                     Button(AppsStrings.reload, action: onReload)
                         .buttonStyle(.link)
                         .font(Font(Typography.caption))
-                        .help(AppsStrings.reloadHelp)
+                        .themedHelp(AppsStrings.reloadHelp)
                 }
             }
         }
