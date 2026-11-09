@@ -202,8 +202,7 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   // Before capacity: a refused request's body can name the quota it was measured against.
   if (CONTEXT_FULL.test(message)) return "context-full";
   // Before capacity: OpenAI's out-of-credit answer is a 429 that names a quota.
-  if (NO_CREDIT.test(message) || (INSUFFICIENT_QUOTA.test(message) && !ROUTER_LIMIT.test(message)))
-    return "no-credit";
+  if (NO_CREDIT.test(message) || (INSUFFICIENT_QUOTA.test(message) && !ROUTER_LIMIT.test(message))) return "no-credit";
   if (cloudSignIn(message)) return "cloud-auth-expired";
   // Capacity and network first: their messages often mention authentication or keys in passing.
   if (RATE.test(message)) return "rate-limited";
