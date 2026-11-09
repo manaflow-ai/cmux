@@ -23,16 +23,15 @@ struct TabReadsTransportTests {
                                           configuration: .init(requiredCapabilities: [], terminalEnvironment: nil))
         do {
             try await connection.start()
-            var events = connection.events.makeAsyncIterator()
-            func nextStamp() async throws -> DaemonControlStamp {
-                while let event = try await events.next() {
-                    if let stamp = DaemonControlStamp(event) { return stamp }
-                }
-                throw DaemonError.notConnected
+            // The first connection's stamp, then a drop, then the reconnected one's.
+            var stamps: [DaemonControlStamp] = []
+            for try await event in connection.events {
+                guard let stamp = DaemonControlStamp(event) else { continue }
+                stamps.append(stamp)
+                if stamps.count == 2 { break }
+                _ = try await connection.request(Drop())
             }
-            let old = try await nextStamp()
-            _ = try await connection.request(Drop())
-            let new = try await nextStamp()
+            let (old, new) = (try #require(stamps.first), try #require(stamps.last))
             #expect(old != new)
             await #expect(throws: DaemonError.notConnected, "an ack named for the last daemon's tree went on the new transport") {
                 _ = try await connection.acknowledgeNotifications(of: 1, on: old)
