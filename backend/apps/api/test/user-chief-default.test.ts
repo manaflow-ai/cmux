@@ -275,6 +275,34 @@ describe("default Chief backfill for accounts older than signup provisioning", (
     expect(backfillDefaultChief(ON, signup, host(signup).submit)).toBe("not_due")
   })
 
+  it("an account older than signup (no hosted_default) is due only for its hosted, unplaced default Chief or no Chief ever", () => {
+    const legacy = oldAccount()
+    expect(legacy.hosted_default).toBeUndefined()
+    const id = Object.keys(legacy.chiefs ?? {})[0]!, hosted = legacy.chiefs![id]!
+    const PLACE = { host: "host_00000000000000000001", install: "inst_00000000000000000009" } as never
+    const placedChief = { ...hosted, id: "agent_00000000000000000009", display_name: "Chief (Mac mini)", brain_place: PLACE }
+    const at = new Date(1).toISOString()
+    const due = (state: UserState) => {
+      const h = host(state)
+      const outcome = backfillDefaultChief(ON, state, h.submit)
+      const direct = decided(userDomain.reduce(state, DEFAULT_CHIEF_BACKFILL, {}, context()))
+      expect(direct.changed !== false).toBe(outcome === "queued")
+      if (outcome !== "queued") expect(direct.state).toBe(state)
+      return outcome
+    }
+    // The Mac's ensureHosted Chief, and an account that never had a Chief, are due (as at signup).
+    expect(due(legacy)).toBe("queued")
+    expect(due(existing())).toBe("queued")
+    // The default Chief is placed on a server (the Mac mini), alone or beside a hosted non-default one.
+    expect(due({ ...legacy, chiefs: { [id]: { ...hosted, brain_place: PLACE } } })).toBe("not_due")
+    expect(due({ ...legacy, chiefs: { [id]: { ...hosted, is_default: false }, [placedChief.id]: placedChief } })).toBe("not_due")
+    // The person archived or deleted their Chiefs and none is left.
+    expect(due({ ...legacy, chiefs: { [id]: { ...hosted, is_default: false, archived_at: at } } })).toBe("not_due")
+    expect(due({ ...legacy, chiefs: {}, chief_tombstones: { [id]: { id, owner_user: USER, archived_at: at } } })).toBe("not_due")
+    // A live Chief that is not the default, with the hosted one archived: no plain default to adopt.
+    expect(due({ ...legacy, chiefs: { [id]: { ...hosted, is_default: false, archived_at: at }, other: { ...hosted, id: "other", is_default: false } } })).toBe("not_due")
+  })
+
   it("is off unless both CHIEF_BRAIN_ENABLED and HANDS_ENABLED are 1, as production is today", () => {
     for (const env of [{}, { CHIEF_BRAIN_ENABLED: "1" }, { HANDS_ENABLED: "1" }, { CHIEF_BRAIN_ENABLED: "1", HANDS_ENABLED: "0" }]) {
       const h = host(oldAccount())

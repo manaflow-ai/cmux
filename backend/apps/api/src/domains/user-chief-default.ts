@@ -24,15 +24,27 @@ export const signupChiefOutbox = (user: string): ReadonlyArray<OutboxItem> => [
 
 /**
  * Whether this account's default Chief still needs the signup provisioning outbox: it was never queued here
- * (an account older than #33131), and no hosted default Chief has a machine. A Chief the person archived,
- * deleted or placed on their own machine keeps that choice; DEFAULT_CHIEF_ENSURE adopts a hosted Chief a
- * client made, exactly as at signup.
+ * (an account older than #33131), and its default Chief is plainly the hosted one without a machine.
+ *
+ * Only chief.default.ensure writes hosted_default, so an older account has none. Its Chiefs are what clients
+ * made: the Mac's ensureHosted makes a hosted Chief (no brain_place) and makes it the default; a Chief placed
+ * on a paired server has a brain_place. Such an account is due only when its live default Chief is hosted and
+ * unplaced (DEFAULT_CHIEF_ENSURE then adopts exactly that one), or when it never had a Chief at all (as at
+ * signup). A placed default, a default the person moved to a placed Chief, or Chiefs they archived or deleted
+ * with none left all keep that choice.
  */
 export const defaultChiefBackfillDue = (state: UserState): boolean => {
   if (!state.user || state.migrations?.default_chief_machine) return false
-  if (!state.hosted_default) return true
-  const chief = state.chiefs?.[state.hosted_default]
-  return !!chief && chief.archived_at === null && !chief.brain_place && !chief.cloud_machine
+  const chiefs = Object.values(state.chiefs ?? {})
+  if (state.hosted_default) {
+    const chief = state.chiefs?.[state.hosted_default]
+    return !!chief && chief.archived_at === null && !chief.brain_place && !chief.cloud_machine
+  }
+  if (chiefs.length === 0) return Object.keys(state.chief_tombstones ?? {}).length === 0
+  const live = chiefs.filter((c) => c.archived_at === null)
+  const defaults = live.filter((c) => c.is_default)
+  const chief = defaults.length === 1 ? defaults[0]! : undefined
+  return !!chief && !chief.brain_place && !chief.cloud_machine
 }
 
 const reject = (code: string, message: string): ReduceResult<UserState> => ({ ok: false, code, message })
