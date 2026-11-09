@@ -315,7 +315,7 @@ fn until_words(request: &Request) -> Vec<&'static str> {
 
 /// The `terminal wait --any|--all` result of a wait that holds.
 pub(super) fn result(request: &Request, seen: &[Seen], terminal: usize, waited: Duration) -> Value {
-    let named = &seen[terminal];
+    let named = seen.get(terminal);
     let matched: Vec<&str> = seen
         .iter()
         .filter(|agent| request.until.iter().any(|until| until.matches(agent.status)))
@@ -324,9 +324,9 @@ pub(super) fn result(request: &Request, seen: &[Seen], terminal: usize, waited: 
     json!({
         "mode": request.mode.as_str(),
         "until": until_words(request),
-        "terminal": named.terminal,
-        "name": named.name,
-        "status": named.status,
+        "terminal": named.map(|agent| agent.terminal.as_str()),
+        "name": named.and_then(|agent| agent.name.as_deref()),
+        "status": named.map(|agent| agent.status),
         "matched": matched,
         "agents": seen.iter().map(Seen::to_json).collect::<Vec<_>>(),
         "waited_ms": waited.as_millis().to_string(),
@@ -398,7 +398,8 @@ fn hold(
 ) -> Result<(Vec<Seen>, usize), Failure> {
     // Subscribe before the first read: a change between that read and the
     // subscription still wakes the wait.
-    let opened = Instant::now() + answer_wait(deadline);
+    let now = Instant::now();
+    let opened = now.checked_add(answer_wait(deadline)).unwrap_or(now);
     let mut events =
         resolve::session_events(socket, &resolve::route(params), opened).ok_or_else(|| {
             if past(deadline) {
@@ -475,7 +476,11 @@ fn resolve_targets(snapshot: &Value, targets: &[String]) -> Result<Vec<String>, 
 }
 
 fn agents_ended(request: &Request, seen: &[Seen], ended: &[usize]) -> Failure {
-    let terminals: Vec<&str> = ended.iter().map(|&index| seen[index].terminal.as_str()).collect();
+    let terminals: Vec<&str> = ended
+        .iter()
+        .filter_map(|&index| seen.get(index))
+        .map(|agent| agent.terminal.as_str())
+        .collect();
     Failure::Local {
         error: json!({
             "code": "wait.agent_ended",

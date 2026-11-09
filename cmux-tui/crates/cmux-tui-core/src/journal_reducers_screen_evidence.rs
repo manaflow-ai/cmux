@@ -68,18 +68,17 @@ impl ScreenEvidence {
     /// The record as `state_reason.screen`: what the screen showed
     /// last, whether or not it won arbitration.
     pub(super) fn to_json(&self) -> Value {
-        let mut value = serde_json::json!({
-            "state": self.state,
-            "producer": self.producer,
-            "observed_at_ms": self.observed_at_ms.to_string(),
-        });
+        let mut value = serde_json::Map::new();
+        value.insert("state".into(), Value::String(self.state.clone()));
+        value.insert("producer".into(), Value::String(self.producer.clone()));
+        value.insert("observed_at_ms".into(), Value::String(self.observed_at_ms.to_string()));
         if let Some(sequence) = self.sequence {
-            value["sequence"] = Value::String(sequence.to_string());
+            value.insert("sequence".into(), Value::String(sequence.to_string()));
         }
         if let Some(rule) = &self.rule {
-            value["rule"] = Value::String(rule.clone());
+            value.insert("rule".into(), Value::String(rule.clone()));
         }
-        value
+        Value::Object(value)
     }
 
     /// A restored record names a valid plugin and a live state.

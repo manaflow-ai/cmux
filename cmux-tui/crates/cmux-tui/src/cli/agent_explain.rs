@@ -208,7 +208,8 @@ fn journal_records(
 ) -> HashMap<u64, Value> {
     let mut found = HashMap::new();
     let (Some(&first), Some(&last)) = (wanted.first(), wanted.last()) else { return found };
-    let deadline = Instant::now() + ANSWER_TIMEOUT;
+    let now = Instant::now();
+    let deadline = now.checked_add(ANSWER_TIMEOUT).unwrap_or(now);
     let _ = reader.get_mut().set_read_timeout(Some(ANSWER_TIMEOUT));
     let Ok(id) = wire::random_request_id() else { return found };
     let Ok(stream_id) = super::command::random_prefixed("stream") else { return found };
@@ -240,12 +241,12 @@ fn journal_records(
     if !matches!(resolve::read_response(reader, &id), Ok(Ok(_))) {
         return found;
     }
-    let mut scanned = 0;
+    let mut scanned: usize = 0;
     while scanned < MAX_SCANNED_RECORDS && Instant::now() < deadline {
         let Ok(Some(envelope)) = wire::read_envelope(reader, false) else { break };
         match envelope["type"].as_str() {
             Some("stream_item") if envelope["stream_id"] == stream_id.as_str() => {
-                scanned += 1;
+                scanned = scanned.saturating_add(1);
                 let item = &envelope["item"];
                 let Some(sequence) = number(&item["sequence"]) else { continue };
                 if wanted.binary_search(&sequence).is_ok() {
@@ -268,7 +269,7 @@ fn screen_text(record: &Value) -> Option<String> {
     let text = record.pointer("/payload/native/evidence")?.as_str()?;
     let lines: Vec<&str> = text.lines().collect();
     let start = lines.len().saturating_sub(MAX_TEXT_LINES);
-    Some(lines[start..].join("\n")).filter(|text| !text.trim().is_empty())
+    Some(lines.get(start..).unwrap_or_default().join("\n")).filter(|text| !text.trim().is_empty())
 }
 
 /// What a journal record adds to the reason that names it.

@@ -124,11 +124,14 @@ fn bounded(value: Option<&Value>) -> Option<String> {
     if text.is_empty() || text.chars().any(char::is_control) {
         return None;
     }
-    let mut end = text.len().min(MAX_FIELD_BYTES);
-    while !text.is_char_boundary(end) {
-        end -= 1;
+    let mut kept = String::new();
+    for character in text.chars() {
+        if kept.len().saturating_add(character.len_utf8()) > MAX_FIELD_BYTES {
+            break;
+        }
+        kept.push(character);
     }
-    Some(text[..end].to_owned())
+    Some(kept)
 }
 
 /// The screen rule a plugin report names (`native.matched_rule`), cut as
