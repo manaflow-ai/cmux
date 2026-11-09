@@ -80,7 +80,7 @@ import Testing
     /// Pinning a member where it already sits (the group's first member) moves no row: the daemon's live sections are
     /// the ones the rows show already. The pass that skips such a list must still show the document's new mark.
     @Test func aPinThatMovesNoRowStillReachesTheRows() {
-        let store = SidebarDocStore(remote: nil, mirror: nil)
+        let store = SidebarDocStore(remote: nil)
         let model = SidebarModel()
         model.docDrag = SidebarDocDrag(document: store, item: { key in
             if case let .workspace(id) = key { return "itm_" + id.rawValue.dropFirst(3) }
@@ -88,10 +88,10 @@ import Testing
         }, section: { id in id == .machine(.local) ? Fixture.machine : nil }, begin: { _ in [:] }, drop: { _, _ in })
         let rows = SidebarRows(model: model, document: { store })
         store.shown = Self.projection(pinned: false)
-        rows.show(Fixture.raw(), creating: ([], nil), unlessShown: true)
+        rows.show(Fixture.raw(), creating: ([], nil), unlessShown: true, elsewhere: [])
         #expect(Self.pinned(model.sections)["ws-2"] == false)
         store.shown = Self.projection(pinned: true) // the same order: only the mark changed
-        rows.show(Fixture.raw(), creating: ([], nil), unlessShown: true)
+        rows.show(Fixture.raw(), creating: ([], nil), unlessShown: true, elsewhere: [])
         #expect(Self.pinned(model.sections)["ws-2"] == true, "a pin in place never reached the rows")
     }
 }
