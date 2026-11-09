@@ -562,6 +562,47 @@ class SupersededSameTreeRuns(unittest.TestCase):
                 self.assertEqual(run(api), 1)
                 self.assertEqual(api.cancelled, [])
 
+    def test_a_fork_branch_named_like_the_base_sweeps_nothing(self):
+        """Review of #39634 (comment 6742425555): a fork pull request is dispatched on its base branch. When
+        the fork's branch is also named feat-cmux-next, the base branch's same-tree runs (every fork pull
+        request's and the push verdicts) must not be swept."""
+        tip_runs = [open_run(501, 1, branch="feat-cmux-next"), open_run(502, 2, branch="feat-cmux-next"),
+                    open_run(503, 3, branch="feat-cmux-next")]
+        marker = pr_marker(head_repo="someone/cmux", head_ref="feat-cmux-next")
+        api = FakeApi([marker], runs=tip_runs)
+        self.assertEqual(run(api), 1)
+        self.assertEqual([body["ref"] for body in api.dispatched], ["feat-cmux-next"])
+        self.assertEqual(api.cancelled, [])
+        stale = FakeApi([marker], runs=[dict(item) for item in tip_runs], pr={"state": "open", "head": {"sha": NEWER}})
+        self.assertEqual(run(stale), 0)
+        self.assertEqual(stale.cancelled, [])
+
+    def test_a_run_of_the_pull_requests_head_is_never_cancelled(self):
+        """Review of #39634: two markers of one head (a re-run, other routing) give two runs of that head,
+        perhaps with other tiers; the older may carry the only scheme compile of the head."""
+        older = [open_run(501, 1), open_run(502, 2, sha=HEAD), open_run(503, 3), open_run(504, 4)]
+        api = FakeApi([pr_marker()], runs=older)
+        self.assertEqual(run(api), 1)
+        self.assertEqual(sorted(api.cancelled), [503, 504])
+
+    def test_a_superseded_marker_sweeps_its_branch_too(self):
+        """A marker whose pull request head moved on dispatches nothing and is deleted; its branch's older
+        same-tree runs get the same rule (keep the newest run, the head's runs and the oldest candidate)."""
+        runs = [open_run(501, 1), open_run(502, 2), open_run(503, 3), open_run(504, 4, sha=NEWER)]
+        api = FakeApi([pr_marker()], runs=runs, pr={"state": "open", "head": {"sha": NEWER}})
+        self.assertEqual(run(api), 0)
+        self.assertEqual(api.dispatched, [])
+        self.assertEqual(api.deleted, [100])
+        self.assertEqual(sorted(api.cancelled), [502, 503])
+
+    def test_several_superseded_markers_of_one_branch_sweep_it_once(self):
+        runs = [open_run(501, 1), open_run(502, 2), open_run(503, 3), open_run(504, 4, sha=NEWER)]
+        markers = [pr_marker(), pr_marker(status_sha="e" * 40, run_id=13)]
+        api = FakeApi(markers, runs=runs, pr={"state": "open", "head": {"sha": NEWER}})
+        self.assertEqual(run(api), 0)
+        self.assertEqual(api.deleted, [100, 101])
+        self.assertEqual(sorted(api.cancelled), [502, 503])
+
     def test_an_unreadable_run_list_cancels_nothing_and_still_dispatches(self):
         class ListDown(FakeApi):
             def get(self, path):
