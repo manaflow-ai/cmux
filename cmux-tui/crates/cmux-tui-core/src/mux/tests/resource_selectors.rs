@@ -636,7 +636,10 @@ fn w5p_shared_names_and_shared_prefixes_keep_their_old_answers() {
         assert_eq!(candidates, Some(2), "{scope} twin: {error:?}");
     }
 
-    // 17 tabs: two of them share the first hex digit of their id.
+    // An id prefix needs 4 hex digits: a shorter one is refused, whatever
+    // it matches (two tabs or one), and says the minimum. The ambiguity of a
+    // longer shared prefix is in resource_selector/id_forms/tests.rs (ids
+    // are random, so 4 shared digits cannot be made here).
     for _ in 0..15 {
         mux.new_tab(Some(root_pane), None, None).unwrap();
     }
@@ -644,29 +647,23 @@ fn w5p_shared_names_and_shared_prefixes_keep_their_old_answers() {
         state.resource_indexes.tabs.keys().map(ToString::to_string).collect::<Vec<_>>()
     });
     assert!(tabs.len() >= 17, "{tabs:?}");
-    let shared = tabs
-        .iter()
-        .map(|id| id.get(..5).unwrap().to_owned())
-        .find(|prefix| tabs.iter().filter(|id| id.starts_with(prefix.as_str())).count() > 1)
-        .expect("two of 17 tabs share the first digit");
-    let error = w5p_resolve(&mux, "tab", &shared).unwrap_err();
-    assert_eq!(error.code, "selector.ambiguous", "{shared}: {error:?}");
-    let mut candidates = error.details["candidates"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|id| id.as_str().unwrap().to_owned())
-        .collect::<Vec<_>>();
-    candidates.sort();
-    let mut expected =
-        tabs.iter().filter(|id| id.starts_with(shared.as_str())).cloned().collect::<Vec<_>>();
-    expected.sort();
-    assert_eq!(candidates, expected);
+    let one = tabs.first().unwrap();
+    for short in [5, 6, 7] {
+        let shared = one.get(..short).unwrap().to_owned();
+        let error = w5p_resolve(&mux, "tab", &shared).unwrap_err();
+        assert_eq!(error.code, "validation.invalid", "{shared}: {error:?}");
+        assert!(error.message.contains("at least 4 hex digits"), "{}", error.message);
+    }
+    let four = one.get(..8).unwrap().to_owned();
+    if tabs.iter().filter(|id| id.starts_with(four.as_str())).count() == 1 {
+        let (_, tab, _) = w5p_resolve(&mux, "tab", &four).unwrap();
+        assert_eq!(tab.as_deref(), Some(one.as_str()), "{four}");
+    }
     // A prefix of no object is not found (32 prefixes, 20 tabs).
     let missing = (0..16u8)
-        .flat_map(|first| (0..2u8).map(move |second| format!("tab_{first:x}{second:x}0")))
+        .flat_map(|first| (0..2u8).map(move |second| format!("tab_{first:x}{second:x}00")))
         .find(|prefix| !tabs.iter().any(|id| id.starts_with(prefix.as_str())))
-        .expect("a three-digit prefix no tab has");
+        .expect("a four-digit prefix no tab has");
     let error = w5p_resolve(&mux, "tab", &missing).unwrap_err();
     assert_eq!(error.code, "selector.not_found", "{missing}: {error:?}");
     assert!(error.message.contains("32 hex digits"), "{}", error.message);
