@@ -807,7 +807,10 @@ mod agent_messaging {
             hint.contains("goes back to claude-17's general-purpose subagent a0a68e7a, waiting"),
             "{hint}"
         );
-        assert!(hint.contains("the send tool (to: \"claude-17\") reaches claude-17 itself"), "{hint}");
+        assert!(
+            hint.contains("the send tool (to: \"claude-17\") reaches claude-17 itself"),
+            "{hint}"
+        );
 
         // Another session that no longer waits: the commands that reach it.
         let mut lane = item("p2", "from:lane-b", "lane-b", PromptClass::Result, 2, "merged");
