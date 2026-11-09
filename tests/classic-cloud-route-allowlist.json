@@ -32,19 +32,19 @@
     {
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudAPIClient.swift",
       "pattern": "route:/api/vm",
-      "count": 10,
-      "reason": "debt: the NEXT Cloud REST client's machine calls still use classic /api/vm until cmux-platform's machine API replaces them"
+      "count": 5,
+      "reason": "debt: the NEXT Cloud REST client's tunnel enroll, firewall and remaining machine calls still use classic /api/vm until cmux-platform's machine API replaces them"
     },
     {
       "file": "cmux-tui/crates/cmux-cloud-api/src/classic.rs",
       "pattern": "route:/api/vm",
-      "count": 5,
+      "count": 1,
       "reason": "keep: a move from Swift to Rust: CloudAPIClient.swift's classic /api/vm machine calls, which the app moves onto through the daemon's cloud.vm.* operations (#37350); goes when cmux-platform's machine API replaces them"
     },
     {
       "file": "cmux-tui/crates/cmux-cloud-api/src/classic.rs",
       "pattern": "segments:/api/vm",
-      "count": 12,
+      "count": 7,
       "reason": "debt: newly counted, not a new call: the daemon cloud.vm.* ops' classic /api/vm paths, built as path-part arrays, the guard missed while it read only \"/api/vm\" strings; goes when they move to cmux-platform"
     },
     {

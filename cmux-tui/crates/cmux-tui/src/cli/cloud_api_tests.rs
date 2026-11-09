@@ -185,7 +185,7 @@ fn a_refusal_comes_back_as_the_same_failure_with_no_credential() {
                 .into(),
         )
     });
-    let failure = go(&request(&origin, Auth::Stack, "vm.domains", json!({})), &[]).unwrap_err();
+    let failure = go(&request(&origin, Auth::Stack, "vm.networks", json!({})), &[]).unwrap_err();
     assert_eq!(
         failure,
         Failure::PlanRequired {
@@ -199,7 +199,7 @@ fn a_refusal_comes_back_as_the_same_failure_with_no_credential() {
 #[test]
 fn a_daemon_that_is_not_running_is_a_transport_failure() {
     let missing = std::env::temp_dir().join(format!("cloud-api-none-{}.sock", std::process::id()));
-    let call = request("https://cmux.com", Auth::Stack, "vm.domains", json!({}));
+    let call = request("https://cmux.com", Auth::Stack, "vm.networks", json!({}));
     assert!(matches!(call_socket(&missing, false, None, &call, &[]), Err(Failure::Transport(_))));
 }
 
