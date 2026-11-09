@@ -387,17 +387,25 @@ pub struct WindowState {
     revision: u64,
     /// None until the window's first message: that one sends every row.
     sent: Option<WindowRows>,
+    /// When the first tag its last rows read expires (`ChatActivity::expires_at`): past it, any
+    /// activity change recomputes the window, as every one did before activity was skipped.
+    expires_at: Option<u64>,
 }
 
 impl WindowState {
     /// A new window, or a window whose spec changed: its next message sends every row. The
     /// revision goes on from `revision`, so a client never takes an older message for a newer.
     pub fn new(spec: WindowSpec, revision: u64) -> Self {
-        Self { spec, revision, sent: None }
+        Self { spec, revision, sent: None, expires_at: None }
     }
 
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// The expiry of the activity the window's rows were read with (`expires_at`).
+    pub fn read_with(&mut self, activity: &ChatActivity) {
+        self.expires_at = activity.expires_at();
     }
 
     /// Whether an activity record of `kind` on a session that continues chat `chat` (None: a
@@ -412,7 +420,9 @@ impl WindowState {
     /// of every connection: with ~3,000 chats, each read the whole index.
     pub fn shows_activity_of(&self, chat: Option<&str>, kind: &str) -> bool {
         let Some(sent) = &self.sent else { return true };
-        if matches!(kind, "tags" | "purged") {
+        if matches!(kind, "tags" | "purged")
+            || self.expires_at.is_some_and(|at| crate::store::now_ms() >= at)
+        {
             return true;
         }
         let Some(chat) = chat else { return false };

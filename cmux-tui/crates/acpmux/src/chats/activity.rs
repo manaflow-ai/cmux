@@ -123,9 +123,17 @@ type Newest = (u64, String, Value);
 pub struct ChatActivity {
     closed: Arc<HashMap<String, Newest>>,
     live: HashMap<String, Newest>,
+    /// When the first session tag that had not expired when this was read expires: past it, a
+    /// `parent` or fold read from this may be out of date with no record saying so.
+    expires_at: Option<u64>,
 }
 
 impl ChatActivity {
+    /// When the first tag read for this activity expires (`expires_at`).
+    pub fn expires_at(&self) -> Option<u64> {
+        self.expires_at
+    }
+
     /// The fields of the newest session continuing `key`, closed or live.
     fn fields(&self, key: &str) -> Option<&Value> {
         match (self.closed.get(key), self.live.get(key)) {
@@ -271,7 +279,11 @@ impl Hub {
     fn chat_activity_with_expiry(&self) -> (Arc<ChatActivity>, Option<u64>) {
         let built = self.closed_chat_activity();
         (
-            Arc::new(ChatActivity { closed: built.closed.clone(), live: self.newest(&built.live) }),
+            Arc::new(ChatActivity {
+                closed: built.closed.clone(),
+                live: self.newest(&built.live),
+                expires_at: built.expires_at,
+            }),
             built.expires_at,
         )
     }

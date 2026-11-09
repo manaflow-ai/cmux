@@ -116,10 +116,11 @@ async fn a_session_that_moves_to_another_chat_clears_the_chat_it_left() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_parents_archive_that_lapses_folds_its_child_on_the_parents_next_record() {
+async fn a_parents_archive_that_lapses_folds_its_child_on_the_next_record_of_any_chat() {
     let Setup { _home, hub, input, mut out } = setup().await;
     let parent = session(&hub, "s-parent", 1, false);
     let child = session(&hub, "s-child", 0, false);
+    let other = session(&hub, "s-other", 9, false);
     let soon = crate::store::now_ms() + 400;
     hub.edit_test_meta(&parent, |m| {
         let tag = crate::store::Tag { value: "true".into(), expires_at: Some(soon) };
@@ -136,11 +137,13 @@ async fn a_parents_archive_that_lapses_folds_its_child_on_the_parents_next_recor
     let full = next_window(&mut out).await;
     assert!(keys(&full).contains(&chat(0)), "an archived parent's child is listed: {full}");
 
-    // Both sessions were heard of once (a first record recomputes): then the archive lapses.
-    hub.append(&parent, "mux", "status", json!({"status": "idle"}));
-    hub.append(&child, "mux", "status", json!({"status": "idle"}));
+    // Every session was heard of once (a first record recomputes): then the archive lapses, and
+    // a record of a chat no window shows comes.
+    for s in [&parent, &child, &other] {
+        hub.append(s, "mux", "status", json!({"status": "idle"}));
+    }
     tokio::time::sleep(Duration::from_millis(600)).await;
-    hub.append(&parent, "mux", "status", json!({"status": "idle"}));
+    hub.append(&other, "mux", "status", json!({"status": "idle"}));
     let diff = next_window(&mut out).await;
     assert!(!keys(&diff).contains(&chat(0)), "the child folds under its parent again: {diff}");
     drop(input);

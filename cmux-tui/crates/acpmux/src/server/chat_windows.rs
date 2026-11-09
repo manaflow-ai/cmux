@@ -159,17 +159,17 @@ pub(super) fn close(conn: &Conn, params: &Value) -> Result<Value, RpcError> {
 
 /// A session record of `kind` changed a chat's activity (`chats::push_activity`): the
 /// connection's windows recompute when one of them may show the change
-/// (`WindowState::shows_activity_of`). `chat` reads the session's chat key and whether any of its
-/// tags expires, only when a window is open. A session whose chat changed since its last activity
-/// here, one with an expiring tag (its `archived` or `spawnedBy` can lapse with no `tags` record
-/// and fold or unfold another chat), and a `tags` or `purged` record recompute every window. A
-/// recompute under way may have read the activity before this record, so it is always followed
-/// by another; else the windows' last rows decide.
+/// (`WindowState::shows_activity_of`). `chat` reads the session's chat key, only when a window is
+/// open. A session whose chat changed since its last activity here, a `tags` or `purged` record,
+/// and any record once a tag the window's rows read has expired (an `archived` or `spawnedBy`
+/// lapses with no record and folds or unfolds another chat) recompute every window. A recompute
+/// under way may have read the activity before this record, so it is always followed by
+/// another; else the windows' last rows decide.
 pub(super) fn activity_changed(
     conn: &Conn,
     session: &str,
     kind: &str,
-    chat: impl FnOnce() -> (Option<String>, bool),
+    chat: impl FnOnce() -> Option<String>,
 ) {
     if lock(&conn.chat_windows.windows).by_name.is_empty() {
         // Nothing is shown: what each session continued is learned again once a window opens.
@@ -185,7 +185,7 @@ pub(super) fn activity_changed(
         return;
     }
     // Read with no windows lock held: it takes the hub's session and metadata locks.
-    let (chat, expiring) = chat();
+    let chat = chat();
     // A session first heard here, or one that moved to another chat: its earlier chat's row may
     // change too, and only a recompute reads which that was. Kept on every path, a recompute
     // under way included, so the next record compares with what the session continues now.
@@ -194,7 +194,6 @@ pub(super) fn activity_changed(
         .is_none_or(|before| before != chat);
     let running = conn.chat_windows.refreshing.try_lock().is_err();
     let shown = moved
-        || expiring
         || running
         || lock(&conn.chat_windows.windows)
             .by_name
@@ -270,6 +269,7 @@ async fn refresh(
         return Ok(());
     }
     let activity = hub.chat_activity();
+    let read_with = activity.clone();
     let service = service.clone();
     let rows = tokio::task::spawn_blocking(move || {
         specs
@@ -286,6 +286,7 @@ async fn refresh(
         else {
             continue;
         };
+        state.read_with(&read_with);
         if let Some(message) = state.next(rows) {
             conn.send(&Message::notification("_acpmux/chats_window_changed", message));
         }
