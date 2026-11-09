@@ -408,6 +408,7 @@ impl Mux {
                             replay.stop_after_next_page();
                         } else {
                             *gate = None;
+                            replay.run_on();
                         }
                     }
                 }

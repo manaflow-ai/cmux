@@ -271,6 +271,12 @@ impl AgentRosterReplay {
         self.limits.stop_after_pages = Some(self.pages + 1);
     }
 
+    /// Test seam: the fold runs on with no page limit.
+    #[cfg(test)]
+    pub(super) fn run_on(&mut self) {
+        self.limits.stop_after_pages = None;
+    }
+
     /// Folds the journal from the roster's cursor through the start's head,
     /// until `deadline`. Saves the roster and its cursor every
     /// `save_every_pages` pages, and once at the end when anything changed.
