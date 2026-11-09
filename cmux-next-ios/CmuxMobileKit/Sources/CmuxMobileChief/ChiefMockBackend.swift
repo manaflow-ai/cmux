@@ -351,6 +351,17 @@ struct ChiefMockScript {
         if lower.contains("test") {
             return "Running the tests in cmux on Aziz's Mac Studio now. I'll post the result here."
         }
+        if lower.contains("table") || lower.contains("agents") {
+            return """
+            Here are your agents:
+
+            | Agent | Task | State |
+            | --- | --- | :---: |
+            | a42 | Keyboard | building |
+            | a49 | Panes | done |
+            | a52 | Pin tab | open |
+            """
+        }
         if lower.contains("stop") || lower.contains("cancel") {
             return "Stopped. Nothing else is running."
         }
