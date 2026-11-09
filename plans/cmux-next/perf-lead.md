@@ -287,3 +287,17 @@ since 915bab1 a PostToolUse/PostToolUseFailure of a working agent changed no sta
 fold returned before posting the notification, so "Claude reported an error" never reached the
 feed (`command_activity::an_error_notification_carries_the_error_text_for_the_feed`). The
 notification is posted now with no new state; the 915bab1 state rule is unchanged.
+
+## Notice to PL-daemon: the agent roster records why it holds a state (2026-11-09)
+
+W5-T, branch `tui-agent-explain-wait` (`cmux agent explain`). `cmux-tui-core/src/journal_reducers.rs`:
+- `RosterEntry` gains `cause` and `previous` (boxed, serde default, skipped when empty). They are
+  set only when state, source or session changes; a report that keeps all three keeps them, so
+  the delta equality check still suppresses repeats. No new journal kind, no new store table.
+- `AGENT_ROSTER_REDUCER_VERSION` 9 -> 10: the first start re-folds the roster from the journal
+  once (the snapshot of version 9 is ignored).
+- The private v1 `list-agents` rows add `terminal_id` and `state_reason`; each call builds one
+  small map from the roster (`Mux::agent_state_reasons`). `agent.list` and `session.snapshot`
+  are unchanged.
+- The plugin payload `native` adds `basis`, `manifest` and `evidence` (at most 400 chars), so
+  plugin records in the journal are a little larger.
