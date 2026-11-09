@@ -70,7 +70,7 @@ extension PageWebView {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in done.hold(continuation) }
         deadline.cancel()
         // An edit that came while the page saved (a hung page that answers again) is not reloaded away.
-        guard !isClosed, !holdsUnsavedEdits() else { return false }
+        guard !isClosed, !holdsEdits else { return false }
         reloadPage()
         return true
     }

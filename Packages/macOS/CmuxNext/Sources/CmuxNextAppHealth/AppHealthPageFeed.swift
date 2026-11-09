@@ -143,13 +143,13 @@ final class AppHealthPageFeed: PageHealthFeed {
     static func repair(_ action: AppHealth.Action) async -> Bool {
         guard let page = page(forPart: action.id) else { return false }
         // Unsaved edits a reload would drop: refuse, and the status says the repair did not run.
-        guard !page.holdsUnsavedEdits() else { return false }
+        guard !page.holdsEdits else { return false }
         switch action.action {
         case .reloadPage:
             return await page.reloadKeepingState()
         case .restartRenderer:
             // A renderer can be shared (Chromium keeps one per site): ending it reloads every page in it.
-            guard !PageRegistry.pages().contains(where: { $0.holdsUnsavedEdits() }) else { return false }
+            guard !PageRegistry.pages().contains(where: \.holdsEdits) else { return false }
             page.restartRenderer()
             return true
         default:

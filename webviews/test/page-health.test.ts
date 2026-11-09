@@ -12,6 +12,7 @@ import {
   PAGE_HEARTBEAT_OP,
   PAGE_SAVE_STATE_OP,
   restoreState,
+  UNSAVED_EDITS_ATTRIBUTE,
 } from "../src/pages/shared/pageHealth";
 
 type Call = { op: string; params: unknown };
@@ -249,4 +250,25 @@ test("the hang injection exists only when the host allowed it", () => {
   expect(typeof injected).toBe("function");
   allowed.setVisible(false);
   allowed.dom.window.close();
+});
+
+// Codex's review of #39247 at 5e952b6 (F1): the Cloud page's file editor keeps unsaved text only in
+// the page, so the page says so with its beat, and at once when an input marks or clears it.
+test("reports unsaved edits with the beat, at once after the input that marks them, and clears them", async () => {
+  const { dom, calls, client } = page("<textarea></textarea>");
+  installPageHealth(client, dom.window.document);
+  expect(beats(calls)).toEqual([{ op: PAGE_HEARTBEAT_OP, params: { handled: 0 } }]);
+  const field = dom.window.document.querySelector("textarea")!;
+  field.setAttribute(UNSAVED_EDITS_ATTRIBUTE, "");
+  field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  await new Promise((resolve) => dom.window.setTimeout(resolve, 5));
+  expect(beats(calls).at(-1)).toEqual({ op: PAGE_HEARTBEAT_OP, params: { handled: 0, edits: true } });
+  // Another input with the mark unchanged sends no extra beat.
+  field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  await new Promise((resolve) => dom.window.setTimeout(resolve, 5));
+  expect(beats(calls)).toHaveLength(2);
+  field.removeAttribute(UNSAVED_EDITS_ATTRIBUTE);
+  field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  await new Promise((resolve) => dom.window.setTimeout(resolve, 5));
+  expect(beats(calls).at(-1)).toEqual({ op: PAGE_HEARTBEAT_OP, params: { handled: 0 } });
 });
