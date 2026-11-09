@@ -263,3 +263,48 @@ async fn a_github_action_asked_after_a_held_pipelined_watch_waits_for_it() {
     let message = answer.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
     assert!(message.contains("invalid GitHub action"), "{answer}");
 }
+
+/// A reconnect attaches a chat it has no replay cursor for (its first attach never answered, a
+/// replay page failed, an older peer gave no `pageThrough`) without history: what the peer sent
+/// between the links never streams. The link says so for that chat once it is attached again,
+/// so its clients read the hole themselves; a chat replayed from its cursor lost nothing and
+/// gets no such notice.
+#[tokio::test(start_paused = true)]
+async fn a_chat_attached_again_without_history_is_reported_as_lagged() {
+    let (tx, mut notices) = mpsc::channel(256);
+    let peer = Peer::new("vm", "ws://127.0.0.1:9", None, None, tx);
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    peer.mark_attached("fresh");
+    peer.mark_attached("known");
+    peer.note_hidden_attach_page("known", &json!({"events": [], "pageThrough": 10}));
+
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    let (asked_tx, _asked) = mpsc::unbounded_channel();
+    let fake = distant_peer(server, Hello::pipelines(), asked_tx);
+    let link = peer.clone();
+    let serving = tokio::spawn(async move {
+        let _ = link.serve(client, &mut out_rx).await;
+    });
+    let mut connected = false;
+    let mut reattached = Vec::new();
+    // Every notice of the handshake and the attaches after it, until the link goes quiet.
+    while let Ok(Some((_, _, notice))) =
+        tokio::time::timeout(RTT * 10, notices.recv()).await
+    {
+        match notice {
+            PeerNotice::Connected => connected = true,
+            PeerNotice::Notification { method: m, params, .. } if m == REATTACHED_NOTICE => {
+                assert!(connected, "told before the link was ready");
+                reattached.push(params["sessionId"].as_str().unwrap().to_owned());
+            }
+            _ => {}
+        }
+    }
+    assert!(connected, "the link connects");
+    assert_eq!(reattached, ["fresh"], "only the chat attached without history lagged");
+    fake.abort();
+    serving.abort();
+    peer.stop();
+}

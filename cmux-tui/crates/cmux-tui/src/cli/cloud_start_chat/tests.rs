@@ -16,6 +16,9 @@ fn request(words: &[&str]) -> Request {
     }
 }
 
+#[path = "folder_tests.rs"]
+mod folder;
+
 #[test]
 fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
     let parsed = request(&["--prompt", "hi there"]);
@@ -25,6 +28,7 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             prompt: Some("hi there".into()),
             agent: "claude".into(),
             cwd: None,
+            from_folder: None,
             login: None,
             environment: None,
             machine: Machine::New,
@@ -78,32 +82,6 @@ fn an_output_flag_after_the_separator_is_the_prompt() {
             "{args:?}: {words:?}"
         );
     }
-}
-
-#[test]
-fn parse_refuses_what_start_session_would() {
-    for words in [
-        vec!["--prompt", ""],
-        vec!["--prompt", "  "],
-        vec!["--prompt", "x", "--cwd", "relative"],
-        vec!["--prompt", "x", "--agent", "Claude Code"],
-        vec!["--prompt", "x", "--name", "a", "--target", "machine:b"],
-        vec!["--prompt", "x", "--timeout", "soon"],
-        vec!["--prompt", "x", "--bogus"],
-        vec!["--prompt"],
-        vec!["--prompt", "x", "--login", "github"],
-        vec!["--prompt", "x", "--login", ""],
-        vec!["--prompt", "x", "--login"],
-        vec!["--prompt", "x", "--environment", " "],
-        vec!["--prompt", "x", "--environment"],
-        vec!["--environment", "env_1", "--target", "machine:vm-1"],
-        vec!["--prompt", "x", "--", "y"],
-        vec!["--", "two", "words"],
-        vec!["--"],
-    ] {
-        assert!(parse(&strings(&words), || Ok(String::new())).is_err(), "{words:?}");
-    }
-    assert_eq!(parse(&strings(&["--help"]), || Ok(String::new())), Ok(Parsed::Help));
 }
 
 /// Leo (2026-11-06): one command line, in conjunction with "login with Claude or login with Codex or login with
@@ -1783,6 +1761,7 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         prompt: Some("And 2+3?".into()),
         agent: String::new(),
         cwd: None,
+        from_folder: None,
         login: None,
         environment: None,
         machine: Machine::Target("vm-1".into()),
@@ -1816,6 +1795,7 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         prompt: Some(prompt),
         agent: String::new(),
         cwd: None,
+        from_folder: None,
         login: None,
         environment: None,
         machine: Machine::Target("vm-1".into()),
