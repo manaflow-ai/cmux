@@ -899,12 +899,7 @@ fn byo_endpoint_concurrent_adds_of_one_id_store_one_key_under_its_own_profile() 
     let e = admin::add_endpoint_keyed(
         &p,
         &src,
-        &admin::EndpointKey {
-            value: Some(keys[0]),
-            store: &store,
-            taken: &taken,
-            ..admin::EndpointKey::NONE
-        },
+        &admin::EndpointKey { value: Some(keys[0]), store: &store, taken: &taken },
     )
     .unwrap_err();
     assert_eq!(e.reason(), Some("harness.exists"), "{e}");
