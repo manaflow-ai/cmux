@@ -363,6 +363,36 @@ mod tests {
         assert!(holds(unlocked_start.step(true, Lock::Locked, 1, 0, t0).unwrap()));
     }
 
+    /// A Mac that locks while nothing runs (review of cmux#37239 at 1a1ebad0, F2): the worker
+    /// does not read while idle, so the stretch counts from its last unlocked read, and a turn
+    /// that starts hours into the stretch opens no fresh window.
+    #[test]
+    fn a_lock_that_began_while_idle_counts_from_the_last_unlocked_read() {
+        let t0 = Instant::now();
+        let at = |minutes: u64| t0 + Duration::from_secs(minutes * 60);
+        let mut tracker = Tracker::new(t0, Lock::Unlocked);
+        assert!(tracker.step(true, Lock::Unlocked, 1, 0, t0).is_some());
+        assert_eq!(tracker.step(true, Lock::Unlocked, 0, 0, at(1)), None, "idle");
+        let late = tracker.step(true, Lock::Locked, 1, 0, at(180)).unwrap();
+        assert!(late.locked_for >= CAP, "the stretch began by the last unlocked read: {late:?}");
+        assert!(!holds(late), "no fresh window after an idle lock: {late:?}");
+        let soon = Tracker::new(t0, Lock::Unlocked).step(true, Lock::Locked, 1, 0, at(5)).unwrap();
+        assert!(holds(soon), "a turn soon after the last unlocked read still holds: {soon:?}");
+    }
+
+    /// A daemon that starts with a waiting session restored (review of cmux#37239 at 1a1ebad0,
+    /// F3) has not seen a turn run, so the waiting turn gets no fresh [`WAIT_GRACE`].
+    #[test]
+    fn a_waiting_session_the_daemon_never_saw_run_gets_no_grace() {
+        let t0 = Instant::now();
+        let mut tracker = Tracker::new(t0, Lock::Unlocked);
+        let restored = tracker.step(true, Lock::Locked, 0, 1, t0).unwrap();
+        assert!(!holds(restored), "no running turn seen: no grace: {restored:?}");
+        assert!(holds(tracker.step(true, Lock::Locked, 1, 0, t0).unwrap()));
+        let after = tracker.step(true, Lock::Locked, 0, 1, t0 + Duration::from_secs(60)).unwrap();
+        assert!(holds(after), "the grace runs from a turn it saw: {after:?}");
+    }
+
     #[test]
     fn the_setting_is_on_only_when_set_true_and_keep_awake_is_not_off() {
         let none = ManagedPreferences::default();
