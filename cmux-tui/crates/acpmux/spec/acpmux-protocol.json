@@ -970,6 +970,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/hunk_summary",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/wait",
       "params": true,
       "result": true
@@ -2679,7 +2685,8 @@
         "inline": true,
         "model": true,
         "question": true,
-        "sessionId": true
+        "sessionId": true,
+        "targetHarness": true
       },
       "type": "object"
     },

@@ -49,7 +49,8 @@ import type {
 import { QUEUED_MESSAGE, SINCE_DIVIDER, TURN_RETRY, type AcpmuxSince, type AcpmuxTurnRetry } from "./model";
 import { addSplit, callTokenSplit, NO_TOKENS, resultTokenSplit } from "./tokenSplit";
 import { continuesTurn } from "./turnStart";
-import { hostIsReconnecting } from "./hostRetry";
+import { HOST_ERROR_DEADLINE_MS, hostIsReconnecting } from "./hostRetry";
+import { sendsHeldForHost, untilHostAnswers } from "./sendWhenReady";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import {
@@ -1003,7 +1004,14 @@ function withKnownBytes(images: QueuedPromptImage[], known: readonly QueuedPromp
 /// (plans/cmux-next/composer-delivery-DESIGN.md): `failMs` on a connection with no native relay
 /// journal, `localFailMs` on one to this Mac's acpmux (a busy session's acknowledgement may be slow,
 /// and the page cannot see whether the journal kept the prompt). Tests shorten them.
-export const deliveryTiming = { slowMs: 10_000, failMs: 60_000, localFailMs: 300_000 };
+/// `hostWaitMs`: how long a prompt waits for an acpmux that is starting or reconnecting before it
+/// fails with Retry (sendWhenReady.ts), the pane's one deadline for a recovery.
+export const deliveryTiming = {
+  slowMs: 10_000,
+  failMs: 60_000,
+  localFailMs: 300_000,
+  hostWaitMs: HOST_ERROR_DEADLINE_MS,
+};
 
 const DELIVERY_RANK: Record<PromptDelivery["state"], number> = {
   sending: 0,
@@ -2310,6 +2318,9 @@ export class AcpmuxDirectClient {
   /// A prompt's transcript row id survives replay after acpmux accepts it, so an echo never
   /// becomes a different `user-${seq}` row when a live rebuild happens.
   private promptRowKeys = new Map<string, string>();
+  /// The held events' prompt rows while an older page folds (`foldOlder` swaps `promptRowKeys`
+  /// for the page's own), so a `sender_claim` on that page still reaches a row already drawn.
+  private heldPromptRowKeys: Map<string, string> | undefined;
   private optimisticPromptTexts = new Map<string, string>();
   /// Prompts of this pane that wait in acpmux's queue: their bubble went when they were queued,
   /// and comes back (failed, with Retry) if acpmux refuses them when their turn comes.
@@ -7835,7 +7846,7 @@ export class AcpmuxDirectClient {
         const from = sentFrom(msg);
         if (from) {
           this.sentFromPrompts.set(from.promptId, from);
-          const rowId = this.promptRowKeys.get(from.promptId);
+          const rowId = this.promptRowKeys.get(from.promptId) ?? this.heldPromptRowKeys?.get(from.promptId);
           const row = rowId === undefined ? undefined : this.rows.get(rowId);
           if (
             row?.kind === "user" &&
@@ -9660,24 +9671,40 @@ export class AcpmuxDirectClient {
     // chat. Only an upload depends on the chat shown now (its stager saves there), so only a send
     // with files to upload is refused when the selection moved (above).
     const gesture = await ticket;
+    // A prompt sent while acpmux starts, restarts or reconnects waits for it (sendWhenReady.ts):
+    // the same frame goes again under the same promptId, so a copy acpmux did take runs once. The
+    // row keeps its clock and says "Sending when ready"; only past the deadline does it fail below.
+    let unhold: (() => void) | undefined;
     try {
-      const answer = await this.request("session/prompt", {
-        sessionId,
-        // A recording goes only to a harness that takes voice input; one moved to another
-        // harness (a switch, a held prompt put back) goes as its transcript.
-        prompt: blocks,
-        _meta: {
-          acpmux: {
-            promptId,
-            ...(steer ? { steer: true } : {}),
-            ...(suggestionTaken ? { promptSuggestion: "taken" } : {}),
-            ...(context ? { context } : {}),
-            ...(fileDisplay.length ? { inlineParts: fileDisplay } : {}),
-            ...promptSurfaceMeta(),
+      const answer = await untilHostAnswers(
+        () =>
+          this.request("session/prompt", {
+            sessionId,
+            // A recording goes only to a harness that takes voice input; one moved to another
+            // harness (a switch, a held prompt put back) goes as its transcript.
+            prompt: blocks,
+            _meta: {
+              acpmux: {
+                promptId,
+                ...(steer ? { steer: true } : {}),
+                ...(suggestionTaken ? { promptSuggestion: "taken" } : {}),
+                ...(context ? { context } : {}),
+                ...(fileDisplay.length ? { inlineParts: fileDisplay } : {}),
+                ...promptSurfaceMeta(),
+              },
+              ...(gesture ? { cmuxGesture: gesture } : {}),
+            },
+          }),
+        {
+          deadlineMs: deliveryTiming.hostWaitMs,
+          stop: () => taken || this.closed || this.deliveries.get(promptId)?.delivery.state !== "sending",
+          waiting: () => {
+            unhold ??= sendsHeldForHost.hold();
+            if (this.setDelivery(promptId, { waitingForHost: true })) this.emit();
           },
-          ...(gesture ? { cmuxGesture: gesture } : {}),
         },
-      });
+      );
+      unhold?.();
       accept(
         (answer as { stopReason?: unknown } | undefined)?.stopReason === "steered" ? { state: "steered" } : undefined,
       );
@@ -9695,6 +9722,7 @@ export class AcpmuxDirectClient {
         this.queue = this.queue.filter((entry) => entry.id !== promptId);
       this.queuedSends.delete(promptId);
     } catch (error) {
+      unhold?.();
       this.promptAccepts.delete(promptId);
       // A Send now refused at dispatch answers its sender with the refusal (a remote acpmux sends the
       // pane no prompt_refused record): the turn it ended reads as ended. A transport error (a
@@ -9854,7 +9882,10 @@ export class AcpmuxDirectClient {
       delete next.error;
       delete next.failedAt;
     }
-    if (next.state !== "sending") delete next.slow;
+    if (next.state !== "sending") {
+      delete next.slow;
+      delete next.waitingForHost;
+    }
     entry.delivery = next;
     if (rowId) entry.rowId = rowId;
     if (next.state !== "sending" && next.state !== "failed") {
@@ -12069,12 +12100,29 @@ export class AcpmuxDirectClient {
   /// sends it only for a chat in the pane's scope (AcpmuxPaneMethods.sessionScoped) and on a click
   /// (its gesture rule), and its reply's session joins the scope, so the host may open it beside
   /// the chat (`chat.sideChat`).
-  async btw(question: string, sessionId = this.actingSessionId): Promise<string> {
+  async btw(question: string, sessionId = this.actingSessionId, targetHarness?: string): Promise<string> {
     if (!sessionId) throw new Error(translate("error.notOpen"));
-    const result = await this.request(SIDE_SESSION_METHOD, { sessionId, question });
+    const result = await this.request(SIDE_SESSION_METHOD, {
+      sessionId,
+      question,
+      ...(targetHarness ? { targetHarness } : {}),
+    });
     // No id: the caller says the side session did not start, without a reason it does not have.
     if (typeof result?.sessionId !== "string" || !result.sessionId) throw new Error("");
     return result.sessionId;
+  }
+  /// One-shot cross-harness guest reply. The daemon creates a fresh read-only side session,
+  /// carries the bounded transcript context, returns its answer, and removes the guest session.
+  async btwInline(question: string, targetHarness: string, sessionId = this.actingSessionId): Promise<string> {
+    if (!sessionId) throw new Error(translate("error.notOpen"));
+    const result = await this.request(SIDE_SESSION_METHOD, {
+      sessionId,
+      question,
+      targetHarness,
+      inline: true,
+    });
+    if (typeof result?.text !== "string" || !result.text.trim()) throw new Error("");
+    return result.text;
   }
   /// This machine's agent spend for History > Costs (`_acpmux/ledger`, ledger/ledgerModel.ts): read
   /// from acpmux's ledger index, never a log scan. An older acpmux answers method not found.
@@ -12720,6 +12768,7 @@ export class AcpmuxDirectClient {
     this.interrupting = undefined;
     this.awaiting = undefined;
     this.foldingBelow = this.firstSeq ?? Infinity;
+    this.heldPromptRowKeys = live.promptRowKeys;
     this.presetApprovalRemoved.clear();
     try {
       for (const event of [...older].sort((a, b) => a.seq - b.seq)) {
@@ -12728,6 +12777,7 @@ export class AcpmuxDirectClient {
       }
     } finally {
       this.foldingBelow = undefined;
+      this.heldPromptRowKeys = undefined;
     }
     this.sinceStale = true;
     // The held events' compactions take up the ones the page left open, in order, as reading the

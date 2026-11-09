@@ -261,6 +261,8 @@ on:
       - .github/workflows/cmux-next-pr-autofix.yml
       - .github/workflows/cmux-next-base-autofix.yml
       - tests/test_cmux_next_tree_notify.py
+      - tests/test_cmux_tui_tree_takeover.py
+      - scripts/ci/cmux_tui_tree_takeover.py
       - tests/test_cmux_next_update_dev_daily.py
       - scripts/cmux-next/update-dev-daily.sh
       - tests/test_cmux_next_classic_to_next.py
@@ -540,6 +542,8 @@ on:
       - tests/test_next_batch_groups.py
       - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_tree_notify.py
+      - tests/test_cmux_tui_tree_takeover.py
+      - scripts/ci/cmux_tui_tree_takeover.py
       - tests/test_cmux_next_update_dev_daily.py
       - scripts/cmux-next/update-dev-daily.sh
       - tests/test_cmux_next_classic_to_next.py
@@ -1817,6 +1821,7 @@ jobs:
             bash scripts/cmux-next/tests/pin-cmux-tui-host-target.test.sh
             bash scripts/cmux-next/tests/pin-cmux-tui-windows-fetch.test.sh
             python3 tests/test_cmux_next_tree_notify.py
+            python3 tests/test_cmux_tui_tree_takeover.py
             python3 tests/test_idea_ledger.py
             # The INTERNAL iOS builder's trigger decisions and What to Test notes.
             python3 tests/test_ios_internal_builder.py
@@ -2698,19 +2703,14 @@ jobs:
   # Reports a same-tree cmux-tui that nothing will publish, in red, at once.
   # It waits for nothing: path routing probed the tree (tree_state=failed), or
   # an artifacts run that ended without publishing it dispatched same-tree mode
-  # with same_tree_state=failed. A later publication of the key still starts
-  # the tree jobs (the marker stays) and posts their statuses.
-  # A ready tree is reported green the same way, so the tip has a verdict
-  # after a red one: a job that only ever ran red stayed a base red while it
-  # was skipped (NOW: "unverified: job skipped since ...").
-  # Builds the cmux-next web bundles once per source key (web-bundle-key.py --source: every
-  # input file and the pinned bun) on Linux and caches them under that key. The Mac jobs
-  # restore them by the same key instead of running bun and Vite+ themselves; a push to
-  # feat-cmux-next fills the cache every pull request can read. A pull request builds them
-  # only for a routed tier that restores them (swift test, daemon tests, generated files).
-  # A DEV daily run (direct or same-tree) builds them for the commit it compiles, next to the
-  # DEV Release compile, which restores them instead of building them on its Mac when this
-  # job (or the push of the same sources) has stored them by the time it gets there.
+  # with same_tree_state=failed; that one first re-runs its commit's
+  # artifacts run (cmux_tui_tree_takeover.py), red only if it can't.
+  # A publication of the key starts the tree jobs (the marker stays). A ready
+  # tree is reported green, so the tip has a verdict after a red one.
+  # Builds the cmux-next web bundles once per source key (web-bundle-key.py --source) on
+  # Linux and caches them; the Mac jobs restore them by that key instead of running bun.
+  # A pull request builds them only for a routed tier that restores them; a DEV daily run
+  # builds them for the commit its DEV Release compile restores them for.
   web-bundles:
     needs: path_route
     if: ${{ !cancelled() && needs.path_route.result == 'success' && (inputs.dev_daily == true || inputs.same_tree_sha == '') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.path_route.outputs.swift == 'true' || needs.path_route.outputs.daemon == 'true' || needs.path_route.outputs.generated == 'true')) }}
@@ -2828,14 +2828,15 @@ jobs:
 
   same-tree-cmux-tui:
     needs: [path_route, push-head-preflight]
-    # A superseded push reports nothing: its newer head is tested. Pull
-    # requests with a cold own tree are named in path_route's summary and
-    # skipped here; no synthetic cmux-tui-pin ref is created for them.
+    # A superseded push reports nothing (its newer head is tested); a pull
+    # request's cold tree is named in path_route's summary, skipped here.
     if: ${{ !cancelled() && github.event_name != 'pull_request' && inputs.same_tree_origin != 'pull_request' && (((needs.path_route.outputs.tree_state == 'failed' || needs.path_route.outputs.tree_state == 'ready') && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && (inputs.same_tree_state == 'failed' || inputs.same_tree_state == 'ready'))) }}
     name: same-tree cmux-tui
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
     permissions:
       statuses: write
+      actions: write
+      contents: read
     timeout-minutes: 3
     steps:
       - name: Report the ready same-tree cmux-tui
@@ -2843,11 +2844,17 @@ jobs:
         env:
           KEY: ${{ needs.path_route.outputs.tree_key }}
         run: echo "same-tree cmux-tui ${KEY:+tree $KEY }is ready"
+      - name: Check out the takeover script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
       - name: Report the unavailable same-tree cmux-tui
         if: ${{ (inputs.same_tree_sha != '' && inputs.same_tree_state || needs.path_route.outputs.tree_state) == 'failed' }}
         env:
           REASON: ${{ inputs.same_tree_reason || needs.path_route.outputs.tree_reason }}
           KEY: ${{ needs.path_route.outputs.tree_key }}
+          COMMIT: ${{ inputs.same_tree_sha }}
           STATUS_SHA: ${{ inputs.same_tree_status_sha }}
           TIERS: ${{ inputs.same_tree_tiers }}
           DEV_DAILY: ${{ inputs.dev_daily == true && 'true' || 'false' }}
@@ -2855,6 +2862,9 @@ jobs:
           TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
+          if [[ -n "$COMMIT" ]] && python3 scripts/ci/cmux_tui_tree_takeover.py --repo "$GITHUB_REPOSITORY" --commit "$COMMIT" --key "$KEY" --reason "$REASON"; then
+            echo "::notice title=same-tree cmux-tui taken over::$REASON"; exit 0
+          fi
           echo "::error title=same-tree cmux-tui unavailable::${KEY:+tree $KEY: }${REASON:-no reason given}"
           if [[ "$STATUS_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             for tier in ${TIERS//,/ }; do

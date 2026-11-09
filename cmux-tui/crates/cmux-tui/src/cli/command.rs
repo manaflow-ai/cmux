@@ -30,11 +30,12 @@ mod list_filter;
 mod machine;
 mod name_flags;
 mod notification;
+mod pane_move;
 pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 pub(super) mod plan;
 mod screen;
 mod session_reset;
-pub(super) use session_reset::run_session_reset_state;
+pub(super) use session_reset::{end_stopped_terminal_state, run_session_reset_state};
 pub(super) use state::parse_duration_ms;
 mod server_ensure;
 mod settings;
@@ -838,6 +839,9 @@ fn parse_pane_strings(
             selectors.insert("pane", "pane", selector)?;
             request(ResourceOperation::PaneGet, selectors, flags, Map::new())
         }
+        // `pane move ...` is the caller's pane (`current`).
+        ["move"] => pane_move::parse("current", selectors, flags),
+        [selector, "move"] => pane_move::parse(selector, selectors, flags),
         [selector, "split"] => {
             selectors.insert("pane", "pane", selector)?;
             let mut params = Map::new();
