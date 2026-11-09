@@ -475,6 +475,7 @@ impl Mux {
             target = target.max(self.wanted_roster_sequence());
         }
         let mut retired = false;
+        let mut retired_terminals = Vec::new();
         let (left, saved) = {
             let mut host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
             // Only after a head read and a fold that reached it: otherwise a
@@ -485,6 +486,7 @@ impl Mux {
                     for terminal in &pass.retire {
                         retired |= host.roster.retire_terminal(terminal);
                     }
+                    retired_terminals = pass.retire;
                     Vec::new()
                 }
                 _ => pass.retire,
@@ -495,6 +497,10 @@ impl Mux {
                 .then(|| (host.cursor, host.roster.snapshot().to_string()));
             (left, saved)
         };
+        // A stale roster's rebuild folds only the journal, where a close is
+        // no event: it retires the same terminals before it replaces this
+        // roster, or their entries would come back.
+        self.note_agent_roster_rebuild_retirements(retired_terminals);
         if let Some((cursor, snapshot)) = saved {
             #[cfg(test)]
             fold.note_io_for_test();

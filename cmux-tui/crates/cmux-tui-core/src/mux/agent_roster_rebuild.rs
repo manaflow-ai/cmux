@@ -53,12 +53,14 @@ const REBUILD_READ_ATTEMPTS: u32 = 15;
 const REBUILD_READ_ATTEMPTS: u32 = 4;
 
 /// A roster folded from the first journal record, the ranges the fold
-/// skipped because they did not decode, and the reads that failed in a row.
+/// skipped because they did not decode, the reads that failed in a row, and
+/// the terminals the live roster retired since the rebuild started.
 #[derive(Default)]
 pub(in crate::mux) struct AgentRosterRebuild {
     host: AgentRosterHost,
     skipped: Vec<SkippedJournalRange>,
     failed_reads: u32,
+    retired: Vec<String>,
 }
 
 /// Faults a test puts into one session's rebuild: a held rebuild takes no
@@ -110,6 +112,22 @@ impl Mux {
             Some(AgentRosterRebuild::default());
         worker.rebuilding.store(true, Ordering::Release);
         self.continue_agent_roster_rebuild_later();
+    }
+
+    /// Terminals a live pass retired, for the rebuild to retire too before
+    /// it replaces the live roster. The pass retired them only after its
+    /// fold reached a journal head read after their close, and the rebuild
+    /// replaces the roster only once it folded through the live cursor, past
+    /// that head: none of their events comes after the retirement.
+    pub(in crate::mux) fn note_agent_roster_rebuild_retirements(&self, terminals: Vec<String>) {
+        if terminals.is_empty() || !self.agent_roster_rebuilding() {
+            return;
+        }
+        let mut slot =
+            self.agent_roster_worker.rebuild.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(rebuild) = slot.as_mut() {
+            rebuild.retired.extend(terminals);
+        }
     }
 
     /// Whether the roster is stale and its rebuild is not done.
@@ -233,6 +251,9 @@ impl Mux {
         }
         let mut rebuilt = std::mem::take(rebuild);
         *slot = None;
+        for terminal in &rebuilt.retired {
+            rebuilt.host.roster.retire_terminal(terminal);
+        }
         let mut problem = None;
         if !rebuilt.skipped.is_empty() {
             let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
