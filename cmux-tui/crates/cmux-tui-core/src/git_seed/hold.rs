@@ -144,8 +144,13 @@ fn own(
             Ok(Op::Head(reply)) => {
                 let folders = head.folders();
                 let folders: Vec<&Path> = folders.iter().map(Path::new).collect();
+                // A head is marked only once its folders are there: a start in a folder the
+                // copy has not made yet would read nothing.
+                let there = std::iter::once(folder.to_path_buf())
+                    .chain(folders.iter().map(|sub| folder.join(sub)))
+                    .all(|dir| dir.is_dir());
                 let marked = job.status_head_ready()
-                    || cmux_git::harness_head::head_allowed(folder, &folders);
+                    || (there && cmux_git::harness_head::head_allowed(folder, &folders));
                 if marked && !job.status_head_ready() {
                     barrier.head_ready();
                     job.reached_head();
@@ -156,7 +161,8 @@ fn own(
                 let result = if ok {
                     barrier.complete().map_err(|error| failed(format!("cannot finish the sync: {error}")))
                 } else {
-                    // Dropping the barrier unfinished leaves it failed.
+                    // Dropping the barrier unfinished leaves it failed, released before the job
+                    // reads failed.
                     drop(barrier);
                     Err(failed("the copy ended without every file".into()))
                 };
@@ -165,6 +171,8 @@ fn own(
                 return;
             }
             Err(mpsc::RecvTimeoutError::Timeout | mpsc::RecvTimeoutError::Disconnected) => {
+                // Released first: a retry that reads the job failed may begin the folder again.
+                drop(barrier);
                 job.finish(Err(Failed {
                     code: "seed.hold_expired",
                     error: format!(

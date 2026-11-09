@@ -52,6 +52,9 @@ fn a_held_copy_opens_at_its_head_and_reads_ready_only_once_it_ends() {
     assert_eq!(state(&folder), "syncing", "nothing the copy writes reads ready");
     write(&folder.join("CLAUDE.md"), "notes\n");
     write(&folder.join(".claude/agents/a.md"), "a\n");
+    // The chat's folder is not there yet: no start may open in it.
+    let early = service.call("git.seed.hold.head", &json!({ "job": job })).unwrap();
+    assert_eq!(early["head_ready"], false, "{early}");
     write(&folder.join("app/AGENTS.md"), "app\n");
     let head = service.call("git.seed.hold.head", &json!({ "job": job })).unwrap();
     assert_eq!(head["head_ready"], true, "{head}");
