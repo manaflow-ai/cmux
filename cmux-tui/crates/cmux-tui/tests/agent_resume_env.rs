@@ -53,6 +53,15 @@ const CALLER_SESSION_ENV: &[(&str, &str)] = &[
     ("MUX_AGENT_TOKEN_FILE", SENTINEL),
     ("OPTCHAT_CHIEF_PARTICIPANT", SENTINEL),
     ("ACPMUX_CALLER_SUBAGENT", SENTINEL),
+    // The calling agent's app socket password and path (cmux sets no value
+    // of its own in a terminal `agent start` opens), Codex's sandbox mark
+    // and its session ids (review of #39027).
+    ("CMUX_SOCKET_PASSWORD", SENTINEL),
+    ("CMUX_SOCKET_PATH", "/nonexistent/w5r-caller-session-value.sock"),
+    ("CODEX_SANDBOX", SENTINEL),
+    ("CODEX_SANDBOX_NETWORK_DISABLED", SENTINEL),
+    ("CODEX_THREAD_ID", SENTINEL),
+    ("CODEX_SESSION_ID", SENTINEL),
 ];
 
 /// A setting of the person's own that the agents keep.
