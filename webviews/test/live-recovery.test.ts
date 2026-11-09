@@ -68,6 +68,20 @@ describe("a page whose modules stop loading", () => {
     expect(last.note()).toContain("cmux live status");
   });
 
+  test("stops when its try cannot be counted", () => {
+    const refusing = new Window().sessionStorage;
+    Object.defineProperty(refusing, "setItem", {
+      value: () => {
+        throw new Error("quota");
+      },
+    });
+    const p = page(refusing);
+    p.failModule();
+    flush(p);
+    expect(p.reloads).toBe(0);
+    expect(p.note()).toContain("cmux live status");
+  });
+
   test("is left alone while the Vite client holds the server", () => {
     const p = page();
     p.win.__cmuxLiveConnected = true;

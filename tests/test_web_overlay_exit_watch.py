@@ -118,6 +118,15 @@ class WebOverlayExitWatchTests(unittest.TestCase):
         self.assertFalse((self.state / "dev-server.exit").exists())
         self.assertNotIn("server", json.loads(self.web_dev.read_text()))
 
+    def test_a_server_picked_since_is_not_cleared(self):
+        # A server picked with `server URL` after this one started keeps its pick when this one exits.
+        self.start()
+        self.run_script("server", "http://127.0.0.1:1/")
+        os.kill(int((self.tmp / "child.pid").read_text()), signal.SIGKILL)
+        self.assertTrue(self.wait_for(lambda: not self.group_alive()))
+        self.assertEqual(json.loads(self.web_dev.read_text())["server"], "http://127.0.0.1:1/")
+        self.assertFalse((self.state / "dev-server.exit").exists())
+
     def test_a_new_start_clears_the_last_exit_note(self):
         self.start()
         os.kill(int((self.tmp / "child.pid").read_text()), signal.SIGKILL)

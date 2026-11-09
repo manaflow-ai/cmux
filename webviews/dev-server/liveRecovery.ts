@@ -50,7 +50,7 @@ export function liveRecovery(win: RecoveryWindow, options: typeof LIVE_RECOVERY)
       pill.setAttribute("role", "status");
       pill.style.cssText =
         "position:fixed;right:8px;bottom:8px;z-index:2147483647;max-width:min(360px,80vw);padding:4px 8px;" +
-        "border-radius:6px;font:caption;color:#fff;background:rgba(40,40,40,.88);pointer-events:none";
+        "border-radius:6px;font:500 11px/1.35 system-ui,-apple-system,sans-serif;color:#fff;background:rgba(32,32,32,.9);box-shadow:0 0 0 0.5px rgba(255,255,255,.18);pointer-events:none";
       root.append(pill);
       (doc.body ?? doc.documentElement).append(host);
     }
@@ -84,9 +84,13 @@ export function liveRecovery(win: RecoveryWindow, options: typeof LIVE_RECOVERY)
       () => {
         pending = false;
         if (win.__cmuxLiveConnected) return;
+        // A try that cannot be counted is not taken: without the count, reloads would never stop.
         try {
           win.sessionStorage.setItem(options.storageKey, JSON.stringify({ tries: tries + 1, at: Date.now() }));
-        } catch {}
+        } catch {
+          note("cmux Live: this page's code did not load from the dev server. `cmux live status` says why.");
+          return;
+        }
         note("cmux Live: the dev server did not answer. Loading this page again…");
         win.location.reload();
       },
