@@ -316,6 +316,8 @@ jobs:
           git_dir_digest() {
             (cd .git && find . \( -type f -o -type l \) -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256) | shasum -a 256
           }
+          # First, so a step that fails before the fixer starts (npm, the prompt) still leaves the check a digest.
+          git_dir_digest > "$RUNNER_TEMP/git-dir.before"
           npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
           python3 scripts/ci/main_compile_attribution.py prompt --report "$REPORT" --out "$RUNNER_TEMP/prompt.txt"
           schema='{"type":"object","properties":{"mechanical":{"type":"boolean"},"summary":{"type":"string"}},"required":["mechanical","summary"]}'
@@ -325,7 +327,6 @@ jobs:
           # tools may not touch a .git, only its edits to tracked files come back, and the next step fails the run
           # (and removes .git) when .git changed anyway.
           git() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 command git -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"; }
-          git_dir_digest > "$RUNNER_TEMP/git-dir.before"
           tree="$RUNNER_TEMP/fixer-tree"
           rm -rf "$tree"
           mkdir -p "$tree"
