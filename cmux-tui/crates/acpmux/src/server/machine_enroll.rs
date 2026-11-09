@@ -148,7 +148,9 @@ pub(crate) async fn start_joined_at_start(hub: &Arc<Hub>, carrier: Option<std::n
         pending,
         crate::cli::cloud_join::finish_leave_at_start(),
         move |hub: Arc<Hub>| -> BoxFuture<'static, ()> {
-            Box::pin(async move { start_joined(&hub, carrier).await; })
+            Box::pin(async move {
+                start_joined(&hub, carrier).await;
+            })
         },
     )
     .await;
@@ -239,7 +241,8 @@ mod tests {
     fn memory_hub() -> Arc<crate::hub::Hub> {
         let mut config = Config::default();
         config.store.mode = StoreMode::Memory;
-        let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
         crate::hub::Hub::new(config, store)
     }
 
@@ -270,7 +273,8 @@ mod tests {
                             Ok(n) => bytes.extend_from_slice(chunk.get(..n).unwrap_or_default()),
                         }
                     }
-                    let line = String::from_utf8_lossy(&bytes).lines().next().unwrap_or("").to_owned();
+                    let line =
+                        String::from_utf8_lossy(&bytes).lines().next().unwrap_or("").to_owned();
                     log.lock().unwrap().push(line);
                     let body = r#"{"error":"test"}"#;
                     let answer = format!(
@@ -285,7 +289,11 @@ mod tests {
     }
 
     fn sends(seen: &Mutex<Vec<String>>) -> usize {
-        seen.lock().unwrap().iter().filter(|line| line.starts_with("POST /v1/mesh/messages ")).count()
+        seen.lock()
+            .unwrap()
+            .iter()
+            .filter(|line| line.starts_with("POST /v1/mesh/messages "))
+            .count()
     }
 
     async fn send_one(hub: &crate::hub::Hub) {
@@ -343,7 +351,9 @@ mod tests {
                 Some(LeaveOutcome { left: true, kept: None, hub: Some("revoked") })
             },
             move |_| -> BoxFuture<'static, ()> {
-                Box::pin(async move { mark.store(true, Ordering::SeqCst); })
+                Box::pin(async move {
+                    mark.store(true, Ordering::SeqCst);
+                })
             },
         )
         .await
@@ -365,7 +375,9 @@ mod tests {
             true,
             async { Some(LeaveOutcome { left: false, kept: Some("signedIn"), hub: None }) },
             move |_| -> BoxFuture<'static, ()> {
-                Box::pin(async move { mark.store(true, Ordering::SeqCst); })
+                Box::pin(async move {
+                    mark.store(true, Ordering::SeqCst);
+                })
             },
         )
         .await
