@@ -154,18 +154,20 @@ impl Probe {
                 .kill_on_drop(true);
             cmd
         };
-        let mut cmd = build();
         // As an agent spawn: the login values this probe's env plan takes (`login_env::ChildEnv`).
-        let plan = crate::login_env::ChildEnv {
+        let mut plan = crate::login_env::ChildEnv {
             family,
             profile: Some(env),
             remote: false,
-            explicit: Some(crate::agent::explicit_env(cmd.as_std())),
+            explicit: None,
         };
-        let deadline = tokio::time::Instant::now() + crate::login_env::TIMEOUT;
-        if crate::login_env::await_child_env(&plan, deadline).await.map_err(|e| anyhow!(e))? {
-            cmd = build();
-        }
+        let mut cmd = crate::login_env::build_ready(
+            &mut plan,
+            || Ok(build()),
+            |cmd| crate::agent::explicit_env(cmd.as_std()),
+            |e| anyhow!(e),
+        )
+        .await?;
         let mut child = cmd.spawn().with_context(|| format!("cannot start {program}"))?;
         let stdin = child.stdin.take().ok_or_else(|| anyhow!("{program} has no stdin"))?;
         let stdout = child.stdout.take().ok_or_else(|| anyhow!("{program} has no stdout"))?;

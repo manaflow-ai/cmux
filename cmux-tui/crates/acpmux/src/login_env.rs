@@ -371,27 +371,38 @@ pub(crate) async fn build_ready<T, E>(
     build()
 }
 
-/// `await_child_env` from synchronous code (a sign-in check on a blocking
+/// `build_ready` from synchronous code (a sign-in check on a blocking
 /// thread, or outside any runtime), waiting at most `TIMEOUT`. Free when the
-/// plan takes nothing only the shell holds; otherwise the wait runs on a
-/// thread of its own, so it never blocks a runtime's worker.
-pub(crate) fn await_child_env_blocking(plan: &ChildEnv<'_>) -> Result<bool, String> {
-    if !ENABLED.load(Ordering::SeqCst) || plan.blocking().is_empty() {
-        return Ok(false);
+/// first build's plan takes nothing only the shell holds and no read ended
+/// meanwhile; otherwise the wait runs on a thread of its own, so it never
+/// blocks a runtime's worker.
+pub(crate) fn build_ready_blocking<T: Send, E: Send>(
+    plan: &mut ChildEnv<'_>,
+    mut build: impl FnMut() -> Result<T, E> + Send,
+    explicit: impl Fn(&T) -> Vec<(String, Option<String>)> + Send,
+    refuse: impl Fn(String) -> E + Sync,
+) -> Result<T, E> {
+    let reads = READS.load(Ordering::SeqCst);
+    let built = build();
+    plan.explicit = built.as_ref().ok().map(&explicit);
+    if !ENABLED.load(Ordering::SeqCst)
+        || (plan.blocking().is_empty() && READS.load(Ordering::SeqCst) == reads)
+    {
+        return built;
     }
+    let refuse = &refuse;
     std::thread::scope(|scope| {
         scope
-            .spawn(|| {
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_time()
-                    .build()
-                    .map_err(|e| format!("cannot wait for the login shell: {e}"))?;
-                runtime.block_on(async {
-                    await_child_env(plan, tokio::time::Instant::now() + TIMEOUT).await
-                })
+            .spawn(move || {
+                let runtime =
+                    tokio::runtime::Builder::new_current_thread()
+                        .enable_time()
+                        .build()
+                        .map_err(|e| refuse(format!("cannot wait for the login shell: {e}")))?;
+                runtime.block_on(build_ready(plan, build, explicit, refuse))
             })
             .join()
-            .unwrap_or_else(|_| Err("the login shell wait stopped".to_owned()))
+            .unwrap_or_else(|_| Err(refuse("the login shell wait stopped".to_owned())))
     })
 }
 
