@@ -2027,6 +2027,11 @@ async fn dispatch_request_with_identity(
                 send_now: false,
                 thread,
                 wake_or_fail: flag("wakeOrFail") == Some(true),
+                // Only a caller that waits for the reply and prints it reads it
+                // (`hub/question_replies.rs`); an outbox delivery's open request reads nothing.
+                reply_reader: (flag(crate::cli::output::READS_REPLY_META) == Some(true)
+                    || flag("wakeOrFail") == Some(true))
+                .then(|| conn.ended.subscribe()),
                 inbox: inbox_on
                     && crate::hub::inbox::plain_send(
                         conn.origin == super::Origin::Peer,
@@ -2557,6 +2562,19 @@ async fn dispatch_request_with_identity(
             tokio::task::spawn_blocking(move || hub.session_search(&s.id, &query))
                 .await
                 .map_err(|e| RpcError::internal(format!("session search stopped: {e}")))?
+        }
+        // What a chat said and did is its person's (C5): the local socket and the app only.
+        method::MUX_REVIEW_BRIEF => {
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+                return Err(RpcError::method_not_found(method::MUX_REVIEW_BRIEF));
+            }
+            let s = hub.resolve(session_key(&params)?)?;
+            let root = params.get("root").and_then(Value::as_str).map(str::to_owned);
+            // A chat's first brief reads its log: off the runtime.
+            let hub = Arc::clone(hub);
+            tokio::task::spawn_blocking(move || hub.review_brief(&s, root.as_deref()))
+                .await
+                .map_err(|e| RpcError::internal(format!("review brief stopped: {e}")))?
         }
         m if composer::handles(m) => heap(|| composer::handle(hub, conn, m, &params)).await,
         method::MUX_TAG => {

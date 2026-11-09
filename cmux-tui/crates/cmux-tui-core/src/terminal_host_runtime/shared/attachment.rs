@@ -664,8 +664,7 @@ impl HostAttachment {
                         !remaining.is_zero(),
                         "terminal host did not apply Kitty graphics limits before adoption"
                     );
-                    reader
-                        .set_read_timeout(Some(remaining.max(Duration::from_millis(1))))
+                    set_link_read_timeout(reader, Some(remaining.max(Duration::from_millis(1))))
                         .context("set terminal-host Kitty quota adoption timeout")?;
                     let frame = read_frame(reader, MAX_FRAME_PAYLOAD)
                         .map_err(protocol_io_error)?
@@ -698,8 +697,7 @@ impl HostAttachment {
                     return Ok(());
                 }
             })();
-            let restored = reader
-                .set_read_timeout(previous_timeout)
+            let restored = set_link_read_timeout(reader, previous_timeout)
                 .context("restore terminal-host timeout after Kitty quota adoption");
             response.and(restored)
         })();
@@ -904,5 +902,18 @@ impl Drop for HostAttachment {
         {
             let _ = acknowledge_terminal_host_exit_record(&exit_path, &exit);
         }
+    }
+}
+
+/// Sets the read timeout of a host link, where a link the host already closed
+/// counts as set. macOS fails setsockopt with EINVAL (or ENOTCONN) once both
+/// directions of the socket are shut down, as after the host ended. A read on
+/// that link returns its queued frames and then EOF without a wait, so no
+/// timeout is needed: the queued response (an exit frame, a terminate or
+/// Kitty limits acknowledgement) or the end of the stream decides the result.
+fn set_link_read_timeout(link: &HostStream, timeout: Option<Duration>) -> std::io::Result<()> {
+    match link.set_read_timeout(timeout) {
+        Err(error) if matches!(error.raw_os_error(), Some(libc::EINVAL | libc::ENOTCONN)) => Ok(()),
+        result => result,
     }
 }

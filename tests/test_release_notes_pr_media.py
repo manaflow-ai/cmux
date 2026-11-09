@@ -416,7 +416,7 @@ class GalleryRenderPlanTests(unittest.TestCase):
         rows, missing = self.tool.resolve([row], [self.case("a.b", "x")], lambda rev, path: "")
         self.assertEqual((rows, missing), ([], ["h: no gallery state in src/none.gallery.ts"]))
 
-    def test_a_before_at_the_parent_is_the_same_state_there_else_its_entry_first(self):
+    def test_a_before_at_the_parent_is_the_same_state_there_never_another(self):
         rows = [{"id": "h", "role": "before", "state": "a.b/new", "entry": "a.b", "variant": "new", "parent": "p"},
                 {"id": "g", "role": "before", "state": "a.c/x", "entry": "a.c", "variant": "x", "parent": "p"},
                 {"id": "h", "role": "after", "state": "a.b/new", "entry": "a.b", "variant": "new"}]
@@ -424,10 +424,85 @@ class GalleryRenderPlanTests(unittest.TestCase):
         out, missing = self.tool.manifest(rows, at_parent, "p")
         self.assertEqual(out, [{**at_parent[1], "id": "h--before"}])
         self.assertEqual(missing, ["g: no gallery state a.c/x at p"])
-        out, _ = self.tool.manifest(rows[:1], [self.case("a.b", "first")], "p")
-        self.assertEqual(out[0]["params"]["variant"], "first")
+        # A state new in the highlight's commit has no before there: never the entry's first variant,
+        # which showed an unrelated picture (notes-sections took popover-pr-links, 2026-11-09).
+        out, missing = self.tool.manifest(rows[:1], [self.case("a.b", "first")], "p")
+        self.assertEqual((out, missing), ([], ["h: no gallery state a.b/new at p"]))
         # Without --parent, the befores rendered there are left out.
         self.assertEqual([c["id"] for c in self.tool.manifest(rows, at_parent)[0]], ["h--after"])
+
+    GALLERY = ('variants: {\n  "notes-sections": {\n    note: "Picked and shipped",\n  },\n'
+               '  "notes-sections-light": {\n    note: "Light",\n  },\n  "notes-flat": {\n'
+               '    note: "Before: one flat list",\n  },\n  "card-button": {\n    note: \'Before (the old card)\',\n  },\n'
+               '  "card-solid": {},\n}\n')
+
+    def test_a_before_is_the_old_look_its_entry_marks_rendered_beside_the_after(self):
+        cases = [self.case("a.b", v) for v in ("notes-sections", "notes-sections-light", "notes-flat", "card-button", "card-solid")]
+        # The note-marked variant sharing the longest name prefix wins over other marked ones.
+        self.assertEqual(self.tool.marked_before("a.b/notes-sections", cases, self.GALLERY), "a.b/notes-flat")
+        self.assertEqual(self.tool.marked_before("a.b/card", cases, self.GALLERY), "a.b/card-button")
+        # A name in OLD_LOOK's words counts when no note says Before.
+        self.assertEqual(self.tool.marked_before("a.b/card", [self.case("a.b", v) for v in ("card", "card-solid")],
+                                                 "variants: {\n  card: {},\n  \"card-solid\": {},\n}\n"), "a.b/card-solid")
+        self.assertIsNone(self.tool.marked_before("a.b/x", [self.case("a.b", "x"), self.case("a.b", "y")], "x: {}\ny: {}\n"))
+        # Another surface's old look is not this one's, and "Before/after" is a name, not a mark.
+        self.assertIsNone(self.tool.marked_before("a.b/popover-compact", cases, self.GALLERY))
+        other = 'variants: {\n  "compare-slider": {},\n  "compare-side": {\n    note: "Before/after variant B",\n  },\n}\n'
+        self.assertIsNone(self.tool.marked_before("a.b/compare-slider",
+                                                  [self.case("a.b", "compare-slider"), self.case("a.b", "compare-side")], other))
+        rows = [{"id": "h", "role": "after", "sources": ["src/a.gallery.tsx"], "commit": "c"},
+                {"id": "h", "role": "before", "sources": ["src/a.gallery.tsx"], "commit": "c", "parent": "p"}]
+        files = {"c^": "variants: {\n}\n", "c": self.GALLERY}
+        out, missing = self.tool.resolve(rows, cases, lambda rev, path: files.get(rev), lambda state, cases: self.GALLERY)
+        self.assertEqual(missing, [])
+        self.assertEqual([(r["role"], r["state"], r.get("parent")) for r in out],
+                         [("after", "a.b/notes-sections", None), ("before", "a.b/notes-flat", None)])
+        # Rendered now, beside the after: both in the manifest without --parent.
+        self.assertEqual([c["id"] for c in self.tool.manifest(out, cases)[0]], ["h--after", "h--before"])
+
+    def test_an_entry_that_marks_no_old_look_renders_the_before_at_the_parent(self):
+        cases = [self.case("a.b", "x"), self.case("a.b", "y")]
+        rows = [{"id": "h", "role": "before", "state": "a.b/x", "parent": "p"}]
+        out, _ = self.tool.resolve(rows, cases, source_text=lambda state, cases: "x: {}\ny: {}\n")
+        self.assertEqual((out[0]["state"], out[0]["parent"]), ("a.b/x", "p"))
+
+    def test_parents_come_newest_highlight_first(self):
+        import json
+        from pathlib import Path
+        rows = [{"id": "a", "parent": "old", "born": 1}, {"id": "b", "parent": "new", "born": 3},
+                {"id": "c", "parent": "mid", "born": 2}, {"id": "d", "born": 4}]
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = Path(tmp) / "plan.json"
+            plan.write_text(json.dumps(rows))
+            import contextlib, io
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.tool.main(["parents", "--plan", str(plan), "--limit", "2"])
+        self.assertEqual(out.getvalue().split(), ["new", "mid"])
+
+    def test_a_published_picture_is_never_uploaded_again(self):
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            results = Path(tmp)
+            rows = [{"id": "h", "role": "after", "state": "a.b/x", "url": "u/after", "path": "p/after"},
+                    {"id": "h", "role": "before", "state": "a.b/y", "url": "u/before", "path": "p/before"}]
+            (results / "h--after-chromium.png").write_bytes(self.picture(40, 30, [(5, 6, 4)]))
+            (results / "h--before-chromium.png").write_bytes(self.picture(40, 30, [(9, 9, 4)]))
+            uploaded = []
+            fake = type("M", (), {"privacy_module": lambda self: type("P", (), {"ocr_binary": lambda self: "ocr"})(),
+                                  "check_privacy": lambda self, files, repo: None,
+                                  "put_file": lambda self, repo, branch, path, local, message, checked: uploaded.append(path)})()
+            original = self.tool._load
+            self.tool._load = lambda name, path: fake
+            try:
+                # Signed notes pin the after's bytes: its late before goes up alone.
+                self.tool.publish(rows, results, exists=lambda url: url == "u/after")
+                self.assertEqual(uploaded, ["p/before"])
+                uploaded.clear()
+                self.tool.publish(rows, results, exists=lambda url: True)
+                self.assertEqual(uploaded, [])
+            finally:
+                self.tool._load = original
 
 
 if __name__ == "__main__":

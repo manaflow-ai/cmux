@@ -116,6 +116,55 @@
   > .acpmux-composer-box:not(.acpmux-composer-queue ~ *)::before {
   border-radius: inherit;
 }
+/* The joined stack in the shared glass material (glass.css "GLASS MATERIAL"; Leo's image of
+   2026-11-05, the composer hat over the composer): one glass is lit once, from above. The tray's top
+   takes the card's light (its specular line, the soft band into the top corners and the sheen under
+   the top edge, at the card's glint, composerStates.css), and a card right under it gives up its own
+   top light, keeping the hairline where they meet and the return along its bottom. Before, the
+   card's bright top line ran across the middle of the stack under the hat, and the hat's top had
+   only the hairline. Over a see-through window the tray's frost is the card's vivid one. Reduce
+   Transparency, Lens and Spectrum over art, and the gallery's `cards` look keep what they drew.
+   test/composer-hat-material.test.ts measures it. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root:not([data-reduce-transparency], [data-bottom-stack="cards"]):not(
+      [data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"])
+    )
+    .acpmux-dock
+    > .acpmux-running-tray[data-card]:has(+ .acpmux-composer > .acpmux-composer-box.ui-glass-material) {
+    --acpmux-tray-glint: var(--acpmux-composer-glint, 0.5);
+    --acpmux-tray-specular: light-dark(
+      color-mix(in srgb, var(--cmux-tone-light, #fff) calc(95% * var(--glass-rim)), transparent),
+      color-mix(in srgb, var(--cmux-tone-light, #fff) calc(48% * var(--glass-rim) * var(--acpmux-tray-glint)), transparent)
+    );
+    --acpmux-tray-sheen: light-dark(
+      color-mix(in srgb, var(--cmux-tone-light, #fff) calc(34% * var(--glass-rim)), transparent),
+      color-mix(in srgb, var(--cmux-tone-light, #fff) calc(7% * var(--glass-rim) * var(--acpmux-tray-glint)), transparent)
+    );
+    box-shadow:
+      inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-composer-edge, transparent),
+      inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-composer-edge, transparent),
+      inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge, transparent),
+      inset 0 var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-tray-specular),
+      inset 1px 1.5px 1px -1px var(--acpmux-tray-specular),
+      inset 0 16px 20px -16px var(--acpmux-tray-sheen);
+  }
+  :root[data-cmux-see-through]:not([data-reduce-transparency], [data-bottom-stack="cards"], [data-glass="lens"], [data-glass="spectrum"])
+    .acpmux-dock
+    > .acpmux-running-tray[data-card]:has(+ .acpmux-composer > .acpmux-composer-box.ui-glass-material) {
+    --acpmux-tray-frost: var(--glass-material-backdrop);
+  }
+  :root:not([data-reduce-transparency], [data-bottom-stack="cards"]):not(
+      [data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"])
+    )
+    .acpmux-dock
+    > .acpmux-running-tray[data-card]
+    + .acpmux-composer
+    > .acpmux-composer-box.ui-glass-material:not(.acpmux-composer-queue ~ *) {
+    --acpmux-composer-rim:
+      inset -1px -1px 1px -1px var(--glass-material-return),
+      inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--glass-material-return);
+  }
+}
 .acpmux-dock > .acpmux-composer {
   display: flex;
   flex: 0 1 auto;

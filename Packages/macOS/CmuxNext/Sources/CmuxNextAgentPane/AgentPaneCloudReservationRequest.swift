@@ -20,9 +20,10 @@ public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable 
 
     /// Supplies only the native client's trusted platform and human-session credentials to Rust. `install` is the
     /// install token: Rust names the reservation in its team, the one the machine list reads and the spare warm uses.
+    /// `reserved`: told the machine a reserve answered, so its login copy starts on that exact machine.
     @MainActor
     public func run(allowed: Bool, binary: URL?, configuration: CloudConfiguration, auth: CloudAuth,
-                    install: () async throws -> String?) async -> [String: Any] {
+                    install: () async throws -> String?, reserved: (@MainActor (String) -> Void)? = nil) async -> [String: Any] {
         guard allowed, let binary, let platform = configuration.artifactsAPIBaseURL() else {
             return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled")
         }
@@ -40,6 +41,7 @@ public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable 
                 let code = reply["error_code"] as? String ?? "unavailable"
                 return AgentPaneReply.failure(code: code, message: code)
             }
+            if !release, let reserved, let machine = CloudMoveCLI.reservedMachine(reply) { reserved(machine) }
             return AgentPaneReply.success(reply)
         } catch {
             return AgentPaneReply.failure(code: "unavailable", message: "unavailable")

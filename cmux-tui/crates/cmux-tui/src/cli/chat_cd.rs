@@ -56,6 +56,7 @@ const TAKES_VALUE: &[&str] = &["--on", "--repo", "--ref", "--timeout"];
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(600);
 const MAX_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 /// The pause between two asks whether the machine's clone ended.
+// timeout: not a deadline, the pause between two polls; the clone itself is bounded by --timeout.
 const POLL_PAUSE: Duration = Duration::from_secs(3);
 
 /// Where the chat goes.
