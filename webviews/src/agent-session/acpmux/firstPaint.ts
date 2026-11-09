@@ -16,7 +16,12 @@ export type FirstPaintState = {
 };
 
 /// Whether the page shows what it is: the chat it opened, the failure that keeps it from opening,
-/// or a New Tab page.
+/// or a New Tab page. A failed handshake is what the page is only once it is said: a quiet one,
+/// while acpmux comes back after an update (hostRetry.ts `hostErrorShows`), draws nothing but an
+/// empty transcript, and counting it took the chat's copy and the host's picture off for that empty
+/// pane until acpmux answered and the rows came back (Leo, 2026-11-09: "the chat loading kinda
+/// flickered in and out and layout shifted"). The copy stays until the chat is read or the failure
+/// is said.
 export function pageShowsWhatItIs(state: FirstPaintState): boolean {
-  return (state.handshaken && state.chatDrawn) || state.hostError || state.newTab;
+  return (state.handshaken && state.chatDrawn) || state.hostErrorSaid || state.newTab;
 }
