@@ -455,6 +455,9 @@ mod unix {
 
     use super::*;
 
+    mod host_parser;
+    use host_parser::run_guarded_host_parser;
+
     static RECORD_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
     const HOST_TERMINATE_GRACE: Duration = Duration::from_millis(250);
     // Match the remote PTY bridge's bounded outstanding-write precedent.
@@ -5531,7 +5534,8 @@ mod unix {
         HostShared::start_exit_publisher(&shared, exit_publish_receiver)?;
 
         let parser_host = shared.clone();
-        thread::Builder::new().name("terminal-host-parser".into()).spawn(move || {
+        // The parser worker. run_guarded_host_parser runs it on its own thread.
+        let parse = move || {
             let mut last_colors = initial_colors;
             let mut last_pwd = None;
             // Ghostty can answer terminal queries without producing a parser
@@ -5643,6 +5647,10 @@ mod unix {
                     }
                 }
             }
+        };
+        let guarded_host = shared.clone();
+        thread::Builder::new().name("terminal-host-parser".into()).spawn(move || {
+            run_guarded_host_parser(&guarded_host, parse, || {});
         })?;
 
         let reader_host = shared.clone();
@@ -6819,6 +6827,8 @@ mod unix {
         use super::*;
         use cmux_pty::Child;
         use std::mem::size_of_val;
+
+        mod parser_failure;
 
         fn test_kitty_state() -> KittyReplayState {
             KittyReplayState {
