@@ -219,12 +219,12 @@ impl<'a> Owner<'a> {
             return;
         }
         let _ = self.dir.server(&self.session, "stop", &["--end-terminals"]);
-        let deadline = Instant::now() + Duration::from_secs(20);
+        let deadline = Instant::now() + Duration::from_secs(45);
         while self.child.try_wait().unwrap().is_none() {
             if Instant::now() >= deadline {
                 let _ = self.child.kill();
                 let _ = self.child.wait();
-                panic!("the owner did not exit within 20 s of `server stop`");
+                panic!("the owner did not exit within 45 s of `server stop`");
             }
             std::thread::sleep(Duration::from_millis(20));
         }

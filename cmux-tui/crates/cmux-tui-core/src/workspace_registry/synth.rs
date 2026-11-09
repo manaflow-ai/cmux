@@ -57,7 +57,7 @@ use super::session_journal::{
     JournalAppend, append_journal_record, query_journal_head, query_session_journal_after,
     write_journal_reducer_state,
 };
-use super::{WORKSPACE_REGISTRY_FILE, WorkspaceRegistry, persistent_session_state_dir};
+use super::{Actor, WORKSPACE_REGISTRY_FILE, WorkspaceRegistry, persistent_session_state_dir};
 use crate::journal_reducers::{
     AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster, RosterEvent,
 };
@@ -250,9 +250,13 @@ fn create_workspaces(mux: &Arc<crate::Mux>, count: u32) -> anyhow::Result<Vec<St
                 },
                 "idempotency_key": key,
             });
-            let created =
-                crate::resource_router::handle_resource_message(mux, &request.to_string())
-                    .map_err(|error| anyhow::anyhow!("workspace.create: {error:?}"))?;
+            // As the local user's app sends it.
+            let created = crate::resource_router::parse_resource_request_as(
+                &request.to_string(),
+                Actor::local_user(),
+            )
+            .and_then(|parsed| crate::resource_router::handle_parsed_resource_request(mux, parsed))
+            .map_err(|error| anyhow::anyhow!("workspace.create: {error:?}"))?;
             created
                 .pointer("/result/value/workspace_id")
                 .or_else(|| created.pointer("/value/workspace_id"))
@@ -517,7 +521,7 @@ impl Writer {
         let put = self.written.session_puts;
         let index = (put % SESSIONS as u64) as usize;
         let transport = self.transport(index, put);
-        let mut session = self.sessions[index].clone();
+        let mut session = self.sessions.get(index).context("synthetic session")?.clone();
         session.transport = transport;
         session.last_seen_ms = Some(super::session_journal::unix_epoch_ms()?);
         let revision = bump_personal_revision(tx)?;
@@ -535,7 +539,7 @@ impl Writer {
     /// ingress commit writes it, and folded into the roster.
     fn agent_event(&mut self, tx: &Transaction<'_>) -> anyhow::Result<()> {
         let index = (self.written.agent_events % AGENT_TERMINALS as u64) as usize;
-        let mut lane = self.lanes[index].clone();
+        let mut lane = self.lanes.get(index).context("agent lane")?.clone();
         let session = match &lane.session {
             Some(session) => session.clone(),
             None => {
@@ -620,7 +624,9 @@ impl Writer {
         let page = query_session_journal_after(tx, sequence - 1, 1)?;
         let record = page.records.first().context("the appended agent record reads back")?;
         self.roster.apply(&RosterEvent::from_record(record));
-        self.lanes[index] = lane;
+        if let Some(slot) = self.lanes.get_mut(index) {
+            *slot = lane;
+        }
         self.written.agent_events += 1;
         Ok(())
     }
@@ -635,7 +641,7 @@ impl Writer {
             );
         }
         bytes.truncate(OUTPUT_CHUNK_BYTES as usize);
-        let lane = &mut self.lanes[index];
+        let lane = self.lanes.get_mut(index).context("output lane")?;
         let start = lane.output_offset;
         let end = start + bytes.len() as u64;
         lane.output_offset = end;
