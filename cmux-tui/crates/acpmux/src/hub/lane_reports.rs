@@ -44,9 +44,13 @@
 //!   (`subsession_send.rs`): a busy coordinator reads it at its next tool step instead of after a
 //!   turn that may run for many minutes (Leo, 2026-10-29, of a lane's "your queue is drained"
 //!   left behind a 15-minute turn: "the drain guy came back but it's still not doing the right
-//!   thing"). A steered report is not counted as work the turn took in (`lane_steer_in`), so a
-//!   turn on reports only still reports nothing. A parent whose agent does not steer, or whose
-//!   turn is past its cap (`turn_cap.rs`), gets it when the turn ends, as before.
+//!   thing"). It goes into the person's own turn too, as a sub-session's family message does
+//!   (`Hub::own_lane_report`): the chat's own lane reporting to the session that started it. A
+//!   steered report is not counted as work the turn took in (`lane_steer_in`), so a turn on
+//!   reports only still reports nothing. A parent whose agent does not steer, or whose turn is
+//!   past its cap (`turn_cap.rs`), gets it when the turn ends, as before. A no-wait question's
+//!   reply (`question_replies.rs`) goes the same way into its asker's turn, as any agent's
+//!   message does, but never into a turn the asker's person started.
 //! - At most [`MAX_REPORTS`] reports a lane in [`WINDOW_MS`]: past it the newest is held and
 //!   goes when the window frees a place (or at a turn end under the cap), whatever the runaway
 //!   pair guard (`agent_pairs.rs`) decides.
@@ -464,6 +468,20 @@ fn new_items(found: impl IntoIterator<Item = String>, seen: &[String]) -> Vec<St
 
 impl Hub {
     /// The authenticated starter a lane reports to, independent of mutable display tags.
+    /// Whether `provenance` is the report of a lane `session` started, to it: as a sub-session's
+    /// family message does, it goes into the person's own turn (`turns.rs`, `steer_end.rs`), the
+    /// chat's own lane reporting to the session that started it. A report the hub sends another
+    /// asker (`question_replies.rs`) is none. Only the hub sets a report's provenance.
+    pub(super) fn own_lane_report(&self, session: &Session, provenance: Option<&Value>) -> bool {
+        provenance.is_some_and(|p| {
+            p.get("kind").and_then(Value::as_str) == Some(KIND)
+                && p.get("from")
+                    .and_then(Value::as_str)
+                    .and_then(|lane| self.lane_report_parent(lane))
+                    .is_some_and(|parent| parent == session.id)
+        })
+    }
+
     pub(crate) fn lane_report_parent(&self, lane: &str) -> Option<String> {
         self.lane_links(|links| links.get(lane).map(|link| link.parent.clone()))
     }
@@ -960,7 +978,9 @@ impl Hub {
         let hub = self.clone();
         // Steered into a running turn (see above); a still-waiting report that went as it is
         // after HELD_MAX_MS is no news, so it waits for the turn to end.
-        let steer = !report.interim && !report.released;
+        // A still-waiting report due only for a pull request it names first (`due_report`) is
+        // news, as `replace_ready_seen` takes it.
+        let steer = (!report.interim || !report.prs.is_empty()) && !report.released;
         let run =
             tokio::spawn(async move { hub.prompt_with(&p, blocks, "acpmux", steer, opts).await });
         if rx.await.is_ok() {

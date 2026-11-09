@@ -334,8 +334,10 @@ impl Hub {
                 .is_some();
         // A digest its drain asked to steer is not held behind a waiting prompt (`turns.rs`).
         let digest = super::digest::inbox_digest::is_digest(opts.provenance.as_ref());
-        // A sub-session family message still goes into the person's own turn (`turns.rs`).
-        let family = super::subsession_guard::is_family_prompt(opts.provenance.as_ref());
+        // A sub-session family message, and a report of the chat's own lane, still go into the
+        // person's own turn (`turns.rs`).
+        let family = super::subsession_guard::is_family_prompt(opts.provenance.as_ref())
+            || self.own_lane_report(session, opts.provenance.as_ref());
         // Set when the person's waiting prompt is what held it, so a steer-only one says so.
         let prompt_held = std::sync::atomic::AtomicBool::new(false);
         // Another agent's message (an inbox notice too) never goes into a turn a Stop is ending:

@@ -572,12 +572,12 @@ async fn lane_report_a_report_steers_into_a_steering_parents_turn_and_reports_no
     assert_eq!(got[0]["_meta"]["provenance"]["turn"], 1, "{got:#?}");
 }
 
-/// With the inbox on, as the daemon runs: a report steers into a turn another agent's message
-/// started, and waits behind a turn the person's own prompt started, as every agent's message
-/// does (`hub/inbox.rs`; Leo, 2026-11-01: "why do the x messages from y sessions seem to always
-/// piggyback on my messages instead of going on their own").
+/// With the inbox on, as the daemon runs: a lane's report steers into its parent's turn whoever
+/// started it, the person's own turn too, as a sub-session's family message does (`hub/inbox.rs`:
+/// the chat's own lane reporting to the session that started it). In Leo's case the coordinator's
+/// 15-minute turn was his own prompt's.
 #[tokio::test]
-async fn lane_report_a_report_steers_into_an_agents_turn_and_waits_behind_the_persons() {
+async fn lane_report_a_report_steers_into_an_agents_turn_and_the_persons_own() {
     let hub = hub_with_inbox(true);
     let mut person = Client::new(&hub);
     let top = person.new_session("top", json!({})).await;
@@ -587,7 +587,7 @@ async fn lane_report_a_report_steers_into_an_agents_turn_and_waits_behind_the_pe
         .await;
     let lane = Client::as_session(&hub, &coord).await.new_session("lane-i", json!({})).await;
 
-    // A turn another agent's message started: the report goes in.
+    // A turn another agent's message started.
     let mut from_top = Client::as_session(&hub, &top).await;
     from_top
         .send(
@@ -605,7 +605,7 @@ async fn lane_report_a_report_steers_into_an_agents_turn_and_waits_behind_the_pe
         .ok("_acpmux/wait", json!({"sessions": [coord], "until": ["ready"], "timeoutMs": 20000}))
         .await;
 
-    // The person's own turn: the report waits for its end and goes in after it.
+    // The person's own turn.
     let mut busy = Client::new(&hub);
     busy.send(
         "session/prompt",
@@ -613,12 +613,43 @@ async fn lane_report_a_report_steers_into_an_agents_turn_and_waits_behind_the_pe
     )
     .await;
     tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        hub.resolve(&coord).unwrap().turn().is_some_and(|t| t.persons),
+        "not the person's turn"
+    );
     Client::as_session(&hub, &coord).await.prompt(&lane, "second task").await;
-    tokio::time::sleep(Duration::from_millis(700)).await;
-    assert_eq!(person.reports(&coord).await.len(), 1, "a report went into the person's turn");
-    person.ok("session/cancel", json!({"sessionId": coord})).await;
     let got = person.exactly(&coord, 2).await;
-    assert!(got[1].get("steer").is_none(), "{got:#?}");
+    assert_eq!(got[1]["steer"], true, "the report waited behind the person's turn: {got:#?}");
+    assert!(hub.resolve(&coord).unwrap().turn().is_some(), "the turn ended before the report");
+    person.ok("session/cancel", json!({"sessionId": coord})).await;
+}
+
+/// Another session's message still waits behind the person's own turn (Leo, 2026-11-01: "why do
+/// the x messages from y sessions seem to always piggyback on my messages instead of going on
+/// their own"): only the chat's own lanes' reports go in.
+#[tokio::test]
+async fn lane_report_another_sessions_message_still_waits_behind_the_persons_turn() {
+    let hub = hub_with_inbox(true);
+    let mut person = Client::new(&hub);
+    let coord = person.new_session("coord", json!({"harness": "steer"})).await;
+    let other = person.new_session("other", json!({})).await;
+    let mut busy = Client::new(&hub);
+    busy.send(
+        "session/prompt",
+        json!({"sessionId": coord, "prompt": [{"type": "text", "text": "until-cancel"}]}),
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let refused = Client::as_session(&hub, &other)
+        .await
+        .call(
+            "session/prompt",
+            json!({"sessionId": coord, "prompt": [{"type": "text", "text": "hello"}],
+                   "_meta": {"acpmux": {"steer": true, "steerOnly": true}}}),
+        )
+        .await;
+    assert_eq!(refused["error"]["data"]["personsTurn"], true, "{refused}");
+    person.ok("session/cancel", json!({"sessionId": coord})).await;
 }
 
 #[tokio::test]
