@@ -63,10 +63,12 @@ package struct PaidPlanUpgrade {
     }
 
     /// The checkout over cmux.com's native route (`POST /api/billing/checkout`, the CLI's `billing.checkout`) as the
-    /// account `client` signs in, returning to `scheme`.
-    package static func cmuxComCheckout(_ client: CodeRouterClient) -> @MainActor (String, String) async throws -> URL {
+    /// account `client` signs in, returning to `scheme`. `yearly` bills Pro or Max yearly (the plan picker's Annual);
+    /// `team` is the team a Team checkout is for (the account's active team).
+    package static func cmuxComCheckout(_ client: CodeRouterClient, yearly: Bool = false,
+                                        team: String? = nil) -> @MainActor (String, String) async throws -> URL {
         { plan, scheme in
-            let body = try BillingCheckoutRequest(plan: plan, team: nil, scheme: scheme).body
+            let body = try BillingCheckoutRequest(plan: plan, team: team, scheme: scheme, yearly: yearly).body
             let data = try await client.request("POST", "/api/billing/checkout", body: body)
             guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let raw = object["url"] as? String, let url = URL(string: raw) else { throw URLError(.badServerResponse) }

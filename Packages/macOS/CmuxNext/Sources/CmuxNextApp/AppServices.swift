@@ -11,6 +11,7 @@ import CmuxNextBrowserHistory
 import CmuxNextChiefPetWiring
 import CmuxNextChromiumWarmup
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextCompat
 public import CmuxNextComputerUse
 import CmuxNextControl
@@ -927,10 +928,20 @@ final class AppServices {
 // Composition of the paid-plan path (plans/cmux-next/paid-plans-DESIGN.md §2); the logic is in CmuxNextAccounts/Billing.
 extension AppServices {
     /// The upgrade path every paywall takes: cmux.com Checkout as the signed-in account, returning to this build.
-    func paidPlanUpgrade() -> PaidPlanUpgrade {
-        let client = cloud.isSignedIn ? accounts.client : nil
-        return PaidPlanUpgrade(checkout: client.map(PaidPlanUpgrade.cmuxComCheckout), open: { LinkRouter.shared.open($0) },
+    /// `yearly` bills Pro or Max yearly; a Team checkout is for the account's active team.
+    func paidPlanUpgrade(yearly: Bool = false) -> PaidPlanUpgrade {
+        let client = cloud.isSignedIn ? accounts.client : nil, team = cloud.auth.teamID
+        return PaidPlanUpgrade(checkout: client.map { PaidPlanUpgrade.cmuxComCheckout($0, yearly: yearly, team: team) }, open: { LinkRouter.shared.open($0) },
                                scheme: cloud.configuration.callbackScheme, onboarding: PaidPlanOnboarding(defaults: .standard), pricing: StaticURL.pricing.url)
+    }
+
+    /// The Cloud plan picker over the active window (cmux#38299); a picked plan starts its checkout, billed as picked.
+    func cloudPlanPicked(_ picker: CloudPlanPicker, source: PaidPlanUpgrade.Source, fallback: URL? = nil) async -> CloudPlanPicker.Choice? {
+        let choice = await CloudPlanPickerPresenter().choose(picker, in: windows.active?.window)
+        if case let .plan(plan, interval)? = choice {
+            await paidPlanUpgrade(yearly: interval == .year).start(plan: plan.rawValue, source: source, fallback: fallback)
+        }
+        return choice
     }
 
     /// The welcome card for a plan the Cloud list read (shown once, after an upgrade).

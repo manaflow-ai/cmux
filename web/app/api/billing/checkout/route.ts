@@ -163,7 +163,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!app || !isStripeBillingConfigured()) return nativeCheckoutError("billing_unavailable");
     const attribution = nativeCheckoutAttribution();
     const scheme = validatedNativeCallbackScheme(typeof body.cmux_scheme === "string" ? body.cmux_scheme : null, request);
-    const response = await stripePersonalCheckout(request, app, plan, "month", scheme, attribution, user.id);
+    const response = await stripePersonalCheckout(request, app, plan, nativeCheckoutInterval(body, plan), scheme, attribution, user.id);
     const destination = response.headers.get("location");
     if (!destination) throw new Error("Checkout destination is unavailable");
     const url = new URL(destination);
@@ -180,6 +180,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     captureBillingError(error, { route: "/api/billing/checkout", method: "POST" });
     return nativeCheckoutError("billing_unavailable");
   }
+}
+
+/**
+ * The app's plan picker bills Pro and Max yearly when the person picked Annual
+ * (`interval: "year"`); every other plan and value stays on the monthly default.
+ */
+function nativeCheckoutInterval(body: unknown, plan: PersonalPlanId): BillingInterval {
+  const interval = body && typeof body === "object" ? (body as { interval?: unknown }).interval : null;
+  return interval === "year" && (plan === "pro" || plan === "max") ? "year" : CHECKOUT_BILLING_INTERVAL;
 }
 
 function nativeCheckoutPlan(body: unknown): PersonalPlanId | "team" | null {
