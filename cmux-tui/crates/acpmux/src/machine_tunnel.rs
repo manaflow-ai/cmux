@@ -38,8 +38,9 @@ const MAX_REPLY_BYTES: usize = 64 * 1024;
 /// The one rekey this daemon runs at a time.
 pub(crate) static REKEYS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// This Mac as the platform knows it: its `machine_` id, its team and the platform origin it
-/// joined through.
+/// This Mac as the platform knows it: its `machine_` id, its team and the platform origin the
+/// person's token goes to, which is the app's own (`platformOrigin` in the call), never one read
+/// from a file.
 #[derive(Clone, Debug)]
 pub(crate) struct Machine {
     pub(crate) id: String,
@@ -48,19 +49,39 @@ pub(crate) struct Machine {
 }
 
 impl Machine {
-    /// This box's join record; refused `not_joined` when there is none (or it is another box's
-    /// copy, or revoked).
-    pub(crate) fn joined() -> Result<Self, RpcError> {
+    /// This box's join record, for the app's platform origin `params.platformOrigin`; refused
+    /// `not_joined` when there is none (or it is another box's copy, or revoked).
+    pub(crate) fn joined(params: &Value) -> Result<Self, RpcError> {
         let record = crate::cli::cloud_join::machine_credential()
             .map_err(|_| RpcError::internal("this Mac's join record could not be read"))?
             .filter(|record| !record.revoked && record.machine_id.starts_with("machine_"))
             .ok_or_else(|| {
                 refusal("not_joined", "this Mac is not joined to a cmux team; add it first")
             })?;
-        let origin = crate::cli::cloud_join::hub_origin(&record.hub_origin).map_err(|_| {
-            refusal("not_joined", "this Mac's join record names no usable platform origin")
-        })?;
-        Ok(Self { id: record.machine_id, team: record.team_id, origin })
+        let trusted = params.get("platformOrigin").and_then(Value::as_str).unwrap_or_default();
+        Self::of(record.machine_id, record.team_id, &record.hub_origin, trusted)
+    }
+
+    /// The machine `id` of `team`, joined through `joined_origin` (the join record's, which any
+    /// process of this user can rewrite), for the app's platform origin `trusted`. The token
+    /// goes only to `trusted`; a record naming any other origin is refused
+    /// `machine.origin_untrusted` before a request is made.
+    pub(crate) fn of(
+        id: String,
+        team: String,
+        joined_origin: &str,
+        trusted: &str,
+    ) -> Result<Self, RpcError> {
+        let untrusted = |message: &str| refusal("machine.origin_untrusted", message);
+        let trusted = crate::cli::cloud_join::hub_origin(trusted)
+            .map_err(|_| untrusted("the app named no usable cmux platform origin"))?;
+        let joined = crate::cli::cloud_join::hub_origin(joined_origin).ok();
+        if joined.as_deref() != Some(trusted.as_str()) {
+            return Err(untrusted(
+                "this Mac's join record names another platform than the app's; add this Mac again",
+            ));
+        }
+        Ok(Self { id, team, origin: trusted })
     }
 }
 

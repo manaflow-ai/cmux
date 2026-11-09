@@ -27,11 +27,15 @@ public import Foundation
     public typealias Open = @MainActor () async -> (any AgentDialogLine)?
 
     private let open: Open
+    private let platformOrigin: URL
     private let fallback: String
 
-    /// `open` makes the connection; `fallback` is the text when no acpmux took the call.
-    public init(open: @escaping Open, fallback: String) {
+    /// `open` makes the connection; `platformOrigin` is this app's cmux-platform origin, the only
+    /// one acpmux sends the token to (it refuses a join record naming another); `fallback` is
+    /// the text when no acpmux took the call.
+    public init(open: @escaping Open, platformOrigin: URL, fallback: String) {
         self.open = open
+        self.platformOrigin = platformOrigin
         self.fallback = fallback
     }
 
@@ -42,11 +46,11 @@ public import Foundation
     public static let deadline: Duration = .seconds(60)
 
     /// This app's acpmux at `environment` (nil: none runs), each call's line living `deadline`.
-    public init(_ environment: AcpmuxEnvironment?, deadline: Duration = Self.deadline, fallback: String) {
+    public init(_ environment: AcpmuxEnvironment?, deadline: Duration = Self.deadline, platformOrigin: URL, fallback: String) {
         self.init(open: {
             guard let environment else { return nil }
             return await AcpmuxPersonLine.open(environment, deadline: deadline)
-        }, fallback: fallback)
+        }, platformOrigin: platformOrigin, fallback: fallback)
     }
 
     /// One call with `token` (and, for attach and detach, the team network `networkID`); the
@@ -56,7 +60,7 @@ public import Foundation
         guard let line = await open() else { throw Refusal(errorDescription: fallback) }
         defer { line.close() }
         guard line.isPerson else { throw Refusal(errorDescription: fallback) }
-        var params: [String: Any] = ["token": token]
+        var params: [String: Any] = ["token": token, "platformOrigin": platformOrigin.absoluteString]
         if let networkID, verb != .rekey { params["networkId"] = networkID }
         guard let reply = await line.call(verb.method, params) else {
             throw Refusal(errorDescription: line.lastError.flatMap { $0.isEmpty ? nil : $0 } ?? fallback)

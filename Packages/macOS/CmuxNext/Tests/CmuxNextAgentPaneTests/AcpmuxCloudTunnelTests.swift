@@ -30,8 +30,10 @@ struct AcpmuxCloudTunnelTests {
         func close() { closed = true }
     }
 
+    static let platform = URL(string: "https://platform.cmux.test")!
+
     static func tunnel(_ line: Line?) -> AcpmuxCloudTunnel {
-        AcpmuxCloudTunnel(open: { line }, fallback: "no daemon")
+        AcpmuxCloudTunnel(open: { line }, platformOrigin: platform, fallback: "no daemon")
     }
 
     @Test func eachCommandIsOneDaemonCallWithThePersonsToken() async throws {
@@ -69,6 +71,8 @@ struct AcpmuxCloudTunnelTests {
         try await Self.tunnel(line).run(.detach, token: "person-token", networkID: nil)
         #expect(line.calls.map { $0.params["networkId"] == nil } == [true, true])
         #expect(line.calls.map { $0.params["token"] as? String } == ["person-token", "person-token"])
+        #expect(line.calls.allSatisfy { $0.params["platformOrigin"] as? String == "https://platform.cmux.test" },
+                "each call names the app's own platform origin, the only one acpmux sends the token to")
     }
 
     @Test func aRefusalSaysTheDaemonsOwnWords() async {
@@ -100,7 +104,7 @@ struct AcpmuxCloudTunnelTests {
         let environment = AcpmuxEnvironment(executable: URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath(),
             home: URL(fileURLWithPath: (socket as NSString).deletingLastPathComponent), socketPath: socket,
             daemonArguments: [], childEnvironment: [:])
-        let reply = try await AcpmuxCloudTunnel(environment, fallback: "no daemon").run(.rekey, token: "person-token")
+        let reply = try await AcpmuxCloudTunnel(environment, platformOrigin: Self.platform, fallback: "no daemon").run(.rekey, token: "person-token")
         #expect(reply["machineId"] as? String == "machine_1")
         #expect(daemon.methods == ["initialize", "_acpmux/person_prove", "_acpmux/machine.tunnel.rekey"])
         #expect(AcpmuxCloudTunnel.deadline >= .seconds(60))

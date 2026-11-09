@@ -34,7 +34,7 @@ pub(super) async fn dispatch(
 
 async fn run(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError> {
     let token = machine_tunnel::token(params)?;
-    let machine = Machine::joined()?;
+    let machine = Machine::joined(params)?;
     let home = crate::config::home();
     let record = |key: &str| crate::cli::cloud_join::record_wg_public_key(&machine.id, key);
     match m {

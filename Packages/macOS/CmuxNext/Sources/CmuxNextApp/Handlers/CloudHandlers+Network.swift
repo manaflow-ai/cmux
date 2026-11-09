@@ -11,14 +11,14 @@ extension CloudHandlers {
         let cloud = context.services.cloud
         bind("cloudTunnelAttach", registry, reason: reason) { invocation in
             let networkID = invocation["path"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) // none: the joined team
-            runTracked("attach Cloud tunnel network", context) { try await AcpmuxCloudTunnel(QuitAgents.environment(context.services), fallback: CloudStrings.tunnelDaemonUnavailable).run(.attach, token: cloud.auth.tokens().access, networkID: networkID) }
+            runTracked("attach Cloud tunnel network", context) { try await AcpmuxCloudTunnel(QuitAgents.environment(context.services), platformOrigin: cloud.configuration.relayAPIBaseURL(), fallback: CloudStrings.tunnelDaemonUnavailable).run(.attach, token: cloud.auth.tokens().access, networkID: networkID) }
         }
         bind("cloudTunnelDetach", registry, reason: reason) { invocation in
             let networkID = invocation["path"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) // none: the joined team
-            runTracked("detach Cloud tunnel network", context) { try await AcpmuxCloudTunnel(QuitAgents.environment(context.services), fallback: CloudStrings.tunnelDaemonUnavailable).run(.detach, token: cloud.auth.tokens().access, networkID: networkID) }
+            runTracked("detach Cloud tunnel network", context) { try await AcpmuxCloudTunnel(QuitAgents.environment(context.services), platformOrigin: cloud.configuration.relayAPIBaseURL(), fallback: CloudStrings.tunnelDaemonUnavailable).run(.detach, token: cloud.auth.tokens().access, networkID: networkID) }
         }
         bind("cloudTunnelRotateKey", registry, reason: reason) { invocation in
-            runTracked("rotate Cloud tunnel key", context) { try await AcpmuxCloudTunnel(QuitAgents.environment(context.services), fallback: CloudStrings.tunnelDaemonUnavailable).run(.rekey, token: cloud.auth.tokens().access) }
+            runTracked("rotate Cloud tunnel key", context) { try await AcpmuxCloudTunnel(QuitAgents.environment(context.services), platformOrigin: cloud.configuration.relayAPIBaseURL(), fallback: CloudStrings.tunnelDaemonUnavailable).run(.rekey, token: cloud.auth.tokens().access) }
         }
         bind("cloudNetworkList", registry, reason: reason) { invocation in
             answer("list Cloud networks", invocation, context) {

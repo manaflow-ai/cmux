@@ -455,6 +455,36 @@ async fn a_sticky_detach_reads_as_the_platforms_refusal() {
     assert_eq!(error.data.unwrap()["code"], "mesh.node.not_found");
 }
 
+/// The token goes only to the app's platform origin: a join record whose origin was rewritten
+/// (another HTTPS host, or the same host on another port or scheme) is refused before any
+/// request, and a call naming no origin is refused too.
+#[tokio::test]
+async fn a_join_record_naming_another_host_gets_no_token() {
+    let dir = tempfile::tempdir().unwrap();
+    let substitute = platform(dir.path().into(), None, takes_the_key).await;
+    let trusted = "https://platform.cmux.test";
+    for joined in [
+        "https://attacker.example",
+        substitute.origin.as_str(),
+        "http://platform.cmux.test",
+        "https://platform.cmux.test:8443",
+        "",
+    ] {
+        let error = Machine::of("machine_1".into(), "team_1".into(), joined, trusted).unwrap_err();
+        assert_eq!(reason(&error), "machine.origin_untrusted", "{joined}");
+        assert!(!error.message.contains(TOKEN));
+    }
+    for named in ["", "not a url", "ftp://platform.cmux.test"] {
+        let error = Machine::of("machine_1".into(), "team_1".into(), trusted, named).unwrap_err();
+        assert_eq!(reason(&error), "machine.origin_untrusted", "{named:?}");
+    }
+    assert!(substitute.seen.lock().unwrap().is_empty(), "the substituted host got a request");
+    let machine =
+        Machine::of("machine_1".into(), "team_1".into(), "https://platform.cmux.test/", trusted)
+            .unwrap();
+    assert_eq!(machine.origin, trusted, "the token goes to the app's origin");
+}
+
 #[test]
 fn the_token_must_be_one_printable_word() {
     for bad in [

@@ -1675,7 +1675,8 @@ async fn only_the_person_moves_this_macs_cloud_tunnel() {
     let path = daemon.dir.join("machine-credential.json");
     std::fs::write(&path, json!({"credential":"cmm_test","machine_id":"machine_test","team_id":"team_test","name":"test","hub_origin":origin,"last_heartbeat":null,"revoked":false,"wgPublicKey":"old"}).to_string()).unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
-    let token = json!({"token": "person-token"});
+    // The app names its own platform origin with every call; the token goes only there.
+    let token = json!({"token": "person-token", "platformOrigin": origin});
     let mut shell = Rpc::connect(&daemon.socket).await;
     shell.initialize().await;
     for method in [
@@ -1691,6 +1692,25 @@ async fn only_the_person_moves_this_macs_cloud_tunnel() {
     let mut app = Rpc::person(&daemon.socket, KEY).await;
     let missing = app.call("_acpmux/machine.tunnel.attach", json!({})).await;
     assert_eq!(reason(&missing), "token_required", "{missing}");
+    // A join record rewritten to name another host (any process of this user can write it)
+    // gets no token: the call is refused before any request, to that host or the app's.
+    let (substitute, substitute_seen) = tunnel_platform().await;
+    let joined = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(&path, joined.replace(&origin, &substitute)).unwrap();
+    for method in [
+        "_acpmux/machine.tunnel.attach",
+        "_acpmux/machine.tunnel.detach",
+        "_acpmux/machine.tunnel.rekey",
+    ] {
+        let refused = app.call(method, token.clone()).await;
+        assert_eq!(reason(&refused), "machine.origin_untrusted", "{method}: {refused}");
+    }
+    assert!(substitute_seen.lock().unwrap().is_empty(), "the substituted host got a request");
+    assert!(seen.lock().unwrap().is_empty(), "a refused call reached the platform");
+    // No origin named by the app: refused the same way.
+    let unnamed = app.call("_acpmux/machine.tunnel.attach", json!({"token": "person-token"})).await;
+    assert_eq!(reason(&unnamed), "machine.origin_untrusted", "{unnamed}");
+    std::fs::write(&path, joined).unwrap();
     // A rekey whose answer was lost left its candidate key behind.
     use base64::Engine as _;
     let public_of = |key: [u8; 32]| {
@@ -1717,7 +1737,7 @@ async fn only_the_person_moves_this_macs_cloud_tunnel() {
     let mismatch = app
         .call(
             "_acpmux/machine.tunnel.attach",
-            json!({"token": "person-token", "networkId": "team_other"}),
+            json!({"token": "person-token", "platformOrigin": origin, "networkId": "team_other"}),
         )
         .await;
     assert_eq!(reason(&mismatch), "network_mismatch", "{mismatch}");
@@ -1760,7 +1780,7 @@ async fn only_the_person_moves_this_macs_cloud_tunnel() {
     let listed = cmux_cloud_api::perform(&list, tail).await.unwrap();
     assert_eq!(listed.as_array().map(Vec::len), Some(1), "{listed}");
     let network = listed[0]["id"].clone();
-    let team = json!({"token": "person-token", "networkId": network});
+    let team = json!({"token": "person-token", "platformOrigin": origin, "networkId": network});
     let detached = app.ok("_acpmux/machine.tunnel.detach", team.clone()).await;
     assert_eq!(detached["tunnel_id"], "machine_test");
     let attached = app.ok("_acpmux/machine.tunnel.attach", team).await;
