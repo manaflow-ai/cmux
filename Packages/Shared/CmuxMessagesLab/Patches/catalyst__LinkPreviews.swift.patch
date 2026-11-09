@@ -52,7 +52,119 @@
              return
          }
          if waiting[url] != nil { waiting[url]?.append(done); return } // no force unwrap
-@@ -160,117 +159,29 @@
+@@ -67,16 +66,11 @@
+         // only, redirects re-checked, an ephemeral session, size caps.
+         let fetcher = GuardedFetcher.shared
+         fetcher.timeout = timeout
+-        fetcher.get(u, limit: LinkGuard.htmlLimit, html: true) { [weak self] res in
++        readPage(u, hops: LinkPreviews.maxRefreshHops) { [weak self] res in
+             guard let self else { return }
+-            guard case let .success(page) = res,
+-                  let html = String(data: page.data, encoding: .utf8) ?? String(data: page.data, encoding: .isoLatin1) else {
+-                let refusal: LinkGuard.Refusal? = { if case let .failure(r) = res { return r }; return nil }()
+-                DispatchQueue.main.async { self.lastRefusal[url] = refusal; self.finish(url, nil) }; return
++            guard let (base, tags, title) = res else {
++                DispatchQueue.main.async { self.finish(url, nil) }; return
+             }
+-            let base = page.url
+-            let tags = LinkPreviews.metaTags(html)
+-            let title = (tags["og:title"] ?? tags["twitter:title"] ?? LinkPreviews.titleTag(html)).map { LinkPreviews.stripSite($0, tags["og:site_name"]) }
+             let site = base.host.map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 }   // Messages shows the domain
+             guard title != nil else { DispatchQueue.main.async { self.finish(url, nil) }; return }
+             let imageURL = (tags["og:image"] ?? tags["og:image:url"] ?? tags["twitter:image"]).flatMap { URL(string: $0, relativeTo: base)?.absoluteURL }
+@@ -98,6 +92,49 @@
+         }
+     }
+ 
++    /// Meta-refresh pages followed, at most, before a page's own tags are read.
++    static let maxRefreshHops = 2
++
++    /// Reads `u`'s page through `GuardedFetcher` (every hop checked by LinkGuard): its final URL,
++    /// meta tags and title. cmux: (issue 38178) a page that only redirects with
++    /// `<meta http-equiv="refresh">` (swift.org's "Redirecting…" stubs) is followed to its target, as
++    /// an HTTP redirect is, so the card shows the real page and not the stub's title.
++    private func readPage(_ u: URL, hops: Int, done: @escaping ((URL, [String: String], String?)?) -> Void) {
++        GuardedFetcher.shared.get(u, limit: LinkGuard.htmlLimit, html: true) { [weak self] res in
++            guard let self else { return }
++            guard case let .success(page) = res,
++                  let html = String(data: page.data, encoding: .utf8) ?? String(data: page.data, encoding: .isoLatin1) else {
++                let refusal: LinkGuard.Refusal? = { if case let .failure(r) = res { return r }; return nil }()
++                DispatchQueue.main.async { if let refusal { self.lastRefusal[u.absoluteString] = refusal } }
++                done(nil); return
++            }
++            let tags = LinkPreviews.metaTags(html)
++            if hops > 0, tags["og:title"] == nil, tags["twitter:title"] == nil,
++               let next = LinkPreviews.refreshTarget(html, base: page.url), next != page.url {
++                self.readPage(next, hops: hops - 1, done: done); return
++            }
++            let title = (tags["og:title"] ?? tags["twitter:title"] ?? LinkPreviews.titleTag(html)).map { LinkPreviews.stripSite($0, tags["og:site_name"]) }
++            done((page.url, tags, title))
++        }
++    }
++
++    /// The http(s) target of a `<meta http-equiv="refresh" content="N; url=…">` tag, if any.
++    static func refreshTarget(_ html: String, base: URL) -> URL? {
++        guard let re = try? NSRegularExpression(pattern: "<meta\\s+[^>]*http-equiv\\s*=\\s*[\"']?refresh[^>]*>", options: [.caseInsensitive]),
++              let content = try? NSRegularExpression(pattern: "content\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)')", options: [.caseInsensitive]),
++              let target = try? NSRegularExpression(pattern: "url\\s*=\\s*['\"]?([^'\"\\s]+)", options: [.caseInsensitive]) else { return nil }
++        let ns = html as NSString
++        guard let m = re.firstMatch(in: html, range: NSRange(location: 0, length: min(ns.length, 400_000))) else { return nil }
++        let tag = ns.substring(with: m.range) as NSString
++        guard let c = content.firstMatch(in: tag as String, range: NSRange(location: 0, length: tag.length)) else { return nil }
++        let r = c.range(at: 1).location != NSNotFound ? c.range(at: 1) : c.range(at: 2)
++        let value = decode(tag.substring(with: r)) as NSString
++        guard let t = target.firstMatch(in: value as String, range: NSRange(location: 0, length: value.length)),
++              let url = URL(string: value.substring(with: t.range(at: 1)), relativeTo: base)?.absoluteURL,
++              let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return nil }
++        return url
++    }
++
+     /// Why a URL's preview was refused (tests).
+     var lastRefusal: [String: LinkGuard.Refusal] = [:]
+ 
+@@ -138,13 +175,37 @@
+         let t = decode((html as NSString).substring(with: m.range(at: 1))).trimmingCharacters(in: .whitespacesAndNewlines)
+         return t.isEmpty ? nil : t
+     }
++    /// cmux: named entities a title commonly carries (issue 38178: swift.org's "Redirecting&hellip;").
++    static let namedEntities: [String: String] = [
++        "amp": "&", "quot": "\"", "apos": "'", "lt": "<", "gt": ">", "nbsp": " ", "hellip": "…", "mdash": "—",
++        "ndash": "–", "lsquo": "‘", "rsquo": "’", "ldquo": "“", "rdquo": "”", "middot": "·", "bull": "•",
++        "laquo": "«", "raquo": "»", "copy": "©", "reg": "®", "trade": "™",
++    ]
++
++    /// Decodes `&name;` (``namedEntities``), `&#N;` and `&#xH;` entities in one left-to-right pass
++    /// (`&amp;lt;` stays `&lt;`); an unknown or malformed entity is kept as written.
+     static func decode(_ s: String) -> String {
+         guard s.contains("&") else { return s }
+-        var t = s
+-        for (k, v) in [("&amp;", "&"), ("&quot;", "\""), ("&#39;", "'"), ("&#x27;", "'"), ("&apos;", "'"), ("&lt;", "<"), ("&gt;", ">"), ("&nbsp;", " ")] {
+-            t = t.replacingOccurrences(of: k, with: v)
++        var out = "", rest = Substring(s)
++        while let amp = rest.firstIndex(of: "&") {
++            out += rest[..<amp]
++            let after = rest[rest.index(after: amp)...]
++            if let semi = after.prefix(12).firstIndex(of: ";") {
++                let name = after[..<semi]
++                var value: String?
++                if name.hasPrefix("#x") || name.hasPrefix("#X") {
++                    value = UInt32(name.dropFirst(2), radix: 16).flatMap(Unicode.Scalar.init).map { String(Character($0)) }
++                } else if name.hasPrefix("#") {
++                    value = UInt32(name.dropFirst()).flatMap(Unicode.Scalar.init).map { String(Character($0)) }
++                } else {
++                    value = namedEntities[name.lowercased()]
++                }
++                if let value { out += value; rest = after[after.index(after: semi)...]; continue }
++            }
++            out += "&"
++            rest = after
+         }
+-        return t
++        return out + rest
+     }
+ 
+     /// A stable file name per URL (String.hashValue changes per launch).
+@@ -160,117 +221,29 @@
          let cbs = waiting.removeValue(forKey: url) ?? []
          cbs.forEach { $0(meta) }
          save()

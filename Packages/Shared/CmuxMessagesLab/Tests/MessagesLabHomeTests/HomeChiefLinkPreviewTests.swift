@@ -141,6 +141,23 @@ import Testing
         #expect(LinkPreviews.decode("a &amp;lt; b &bogus; & c &#xZZ;") == "a &lt; b &bogus; & c &#xZZ;")
     }
 
+    /// A page that only redirects with a meta refresh (swift.org's documentation stub) is followed
+    /// to its web target, so the card shows the real page; any other target is not followed.
+    @Test func aMetaRefreshPageIsFollowedToItsWebTarget() throws {
+        let base = try #require(URL(string: "https://www.swift.org/documentation/"))
+        let stub = """
+        <html><title>Redirecting&hellip;</title>
+        <meta http-equiv="refresh" content="0; url=https://docs.swift.org/latest/documentation/">
+        <meta name="robots" content="noindex"></html>
+        """
+        #expect(LinkPreviews.refreshTarget(stub, base: base)?.absoluteString == "https://docs.swift.org/latest/documentation/")
+        #expect(LinkPreviews.refreshTarget(#"<META HTTP-EQUIV=Refresh CONTENT="5;URL='/next?a=1&amp;b=2'">"#, base: base)?.absoluteString
+            == "https://www.swift.org/next?a=1&b=2")
+        #expect(LinkPreviews.refreshTarget(#"<meta http-equiv="refresh" content="0; url=javascript:alert(1)">"#, base: base) == nil)
+        #expect(LinkPreviews.refreshTarget(#"<meta http-equiv="refresh" content="30">"#, base: base) == nil)
+        #expect(LinkPreviews.refreshTarget(#"<meta name="description" content="url=https://x.example">"#, base: base) == nil)
+    }
+
     @Test func theHandShowsOverALinkAndTheArrowOverText() throws {
         let pane = pane()
         let controller = pane.controller
