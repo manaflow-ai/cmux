@@ -1146,6 +1146,10 @@ def validate_run_rollup(name: str, children: list[dict], repo: str = HOME_REPO) 
 # Once excused, its audit line names the status context too (cmux#37038 at 1f4963c0): merge_hold covers each red
 # at the head only by a line naming it, and named only the job, it refused 'cmux-next daemon tests (same-tree)'.
 SAME_TREE_SUFFIX = " (same-tree)"
+# cmux-next-fast-gates.yml's status: the PR head merged with the base named in its description (`base <sha>`). A
+# dispatched run's head_sha is the feat-cmux-next tip, not the PR head, so its red is never compared by the run: it is
+# the PR's own at that base (a merger reruns one at a stale base), never a base red (cmux#38640, 2026-11-09).
+FAST_GATES_STATUS = "cmux-next/fast-gates"
 
 
 def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
@@ -1160,6 +1164,13 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
     state, job_name = status.get("state"), name.removesuffix(SAME_TREE_SUFFIX)
     if state == "pending":
         raise Refused(f"'{name}': its status is still pending on {sha}")
+    if name == FAST_GATES_STATUS and state in ("failure", "error"):
+        description = status.get("description") or ""
+        tested = re.search(r"\bbase ([0-9a-f]{40})\b", description)
+        run = re.search(r"/actions/runs/(\d+)", status.get("target_url") or "")
+        raise Refused(f"'{name}': {state} at base {tested[1][:12] if tested else '(none named)'}"
+                      f"{f' (run {run[1]})' if run else ''} is the pull request's own: the fast gates ran on it merged "
+                      "with that base, never a base red; fix it, or dispatch them again on the tip if that base is stale")
     if name == COMPILE_PASS_STATUS and base and state in ("failure", "error"):
         # Its target_url is the source run, with no job of this name (inherited_compile_red).
         return inherited_compile_red(repo, base, sha, name, github)
