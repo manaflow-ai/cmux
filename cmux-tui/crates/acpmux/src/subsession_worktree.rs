@@ -147,25 +147,33 @@ fn git<'a>(dir: impl Into<Dir<'a>>, args: &[&str]) -> Result<String, String> {
 /// agent's `git push -u`, the person's own git) is tried again a few times with a short backoff.
 fn git_repo_write<'a>(dir: impl Into<Dir<'a>>, args: &[&str]) -> Result<String, String> {
     let dir = dir.into();
-    // Every worktree of a repository shares its common git folder's config.
+    with_repo_lock(dir, || {
+        let mut backoff = std::time::Duration::from_millis(20);
+        for _ in 0..CONFIG_LOCK_RETRIES {
+            match git(dir, args) {
+                Err(e) if e.contains("could not lock config file") => {
+                    // A bounded wait for another process's config.lock, not a poll for a state.
+                    std::thread::sleep(backoff);
+                    backoff = backoff.saturating_mul(2).min(std::time::Duration::from_millis(200));
+                }
+                done => return done,
+            }
+        }
+        git(dir, args)
+    })
+}
+
+/// Runs `f` while this process changes nothing else in `dir`'s repository ([`git_repo_write`]).
+/// `f` must not call [`git_repo_write`]: the lock is not reentrant.
+fn with_repo_lock<T>(dir: Dir<'_>, f: impl FnOnce() -> T) -> T {
+    // Every worktree of a repository shares its common git folder's config and worktree list.
     let repository = git(dir, &["rev-parse", "--path-format=absolute", "--git-common-dir"])
         .map_or_else(|_| dir.path.to_path_buf(), PathBuf::from);
     let lock = repo_lock(&repository);
     // A std mutex, not an actor: the callers are synchronous (blocking threads), and it is held
-    // for one short git run on one repository.
+    // for one short git run or file removal on one repository.
     let _held = lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let mut backoff = std::time::Duration::from_millis(20);
-    for _ in 0..CONFIG_LOCK_RETRIES {
-        match git(dir, args) {
-            Err(e) if e.contains("could not lock config file") => {
-                // A bounded wait for another process's config.lock, not a poll for a state.
-                std::thread::sleep(backoff);
-                backoff = backoff.saturating_mul(2).min(std::time::Duration::from_millis(200));
-            }
-            done => return done,
-        }
-    }
-    git(dir, args)
+    f()
 }
 
 /// How often [`git_repo_write`] tries again when another process holds `config.lock`
@@ -548,7 +556,9 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
             tracing::warn!(root = %worktree.root.display(), "worktree registration kept: not found as its own");
             return;
         };
-        if let Err(e) = registration.remove() {
+        // Under the repository's lock: a `worktree add` or `branch -D` in this process lists the
+        // worktrees and fails on a registration half removed.
+        if let Err(e) = with_repo_lock(folder, || registration.remove()) {
             tracing::warn!(registration = %registration.path.display(), "worktree registration kept: {e}");
             return;
         }
@@ -1146,7 +1156,9 @@ fn ensure_worktree_under(
     // A second pass covers another process adding it meanwhile.
     for _ in 0..2 {
         if root.exists() {
-            let listed = listed_worktree(folder, &root).ok_or_else(|| {
+            // Under the repository's lock: another worktree half added fails the listing.
+            let listed = with_repo_lock(folder.into(), || listed_worktree(folder, &root));
+            let listed = listed.ok_or_else(|| {
                 format!("{} exists but is not a worktree of this repository", root.display())
             })?;
             if let Some(requested) = explicit_branch
