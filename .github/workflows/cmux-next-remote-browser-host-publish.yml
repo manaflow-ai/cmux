@@ -329,9 +329,22 @@ jobs:
         run: |
           set -euo pipefail
           tag="cmux-rbh-src-${SHA:0:11}"
-          if have="$(gh api "repos/$GH_REPO/git/ref/tags/$tag" --jq .object.sha 2>/dev/null)"; then
-            [[ "$have" == "$SHA" ]] || { echo "::error::tag $tag already names $have, not $SHA" >&2; exit 1; }
-          else
-            gh api "repos/$GH_REPO/git/refs" -f ref="refs/tags/$tag" -f sha="$SHA" > /dev/null
-          fi
+          # Five tries, 10/20/40/80 s apart: a transient 5xx (run 42541124658 got a 502) must not fail a
+          # publish whose objects are already in R2. Each try reads the tag first, since a failed
+          # create may still have made it.
+          for attempt in 1 2 3 4 5; do
+            if have="$(gh api "repos/$GH_REPO/git/ref/tags/$tag" --jq .object.sha 2>/dev/null)"; then
+              [[ "$have" == "$SHA" ]] || { echo "::error::tag $tag already names $have, not $SHA" >&2; exit 1; }
+              break
+            fi
+            if gh api "repos/$GH_REPO/git/refs" -f ref="refs/tags/$tag" -f sha="$SHA" > /dev/null; then
+              break
+            fi
+            if (( attempt == 5 )); then
+              echo "::error::could not create tag $tag after $attempt tries" >&2
+              exit 1
+            fi
+            echo "::warning::tag push try $attempt failed; retrying"
+            sleep $(( 10 * 2 ** (attempt - 1) ))
+          done
           echo "Source tag $tag at $SHA" >> "$GITHUB_STEP_SUMMARY"
