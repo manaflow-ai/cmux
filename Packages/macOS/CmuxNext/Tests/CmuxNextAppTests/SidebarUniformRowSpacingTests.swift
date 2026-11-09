@@ -274,7 +274,9 @@ struct SidebarUniformRowSpacingTests {
         let h = Harness()
         defer { h.window.close() }
         let pinned = try h.pinnedRow(Self.pins[0])
-        let ink = try #require(pinned.pinInkFrame, "the pinned workspace row draws no pin")
+        // The harness's pins answer no workspace, so each draws its fallback glyph in the pin's place
+        // (`SidebarPinnedRowLeading.ownIcon`, #38061): the leading column's ink either way.
+        let ink = try #require(pinned.leadingInkFrame, "the pinned workspace row draws nothing in its leading column")
         let pin = h.list.convert(ink, from: pinned)
         let pinnedFrame = h.inList(pinned)
         let unpinned = try h.workspaceRow("w3")
@@ -291,7 +293,7 @@ struct SidebarUniformRowSpacingTests {
         // (Lawrence 2026-11-04, pinned rows were too short; 9353f4addd2).
         #expect(abs(pinnedFrame.height - SidebarRowTokens.current.band.rowHeight) < 0.01)
         if density != .expanded { #expect(abs(pinnedFrame.height - unpinnedFrame.height) < 0.01) }
-        // The pinned row's title still starts after its pin.
+        // The pinned row's title still starts after its leading glyph.
         #expect(h.list.convert(pinned.titleFrame, from: pinned).minX >= pin.maxX)
     }
 }

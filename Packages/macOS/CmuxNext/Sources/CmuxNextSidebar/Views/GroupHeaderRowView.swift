@@ -203,7 +203,7 @@ final class GroupHeaderRowView: SidebarRowView {
         glyph.configure(icon: group.icon)
         hostLook = group.hostLook
         configureMachine(group.machine)
-        pin.image = pinned ? NSImage.icon(.statePinned, size: SidebarStyle.leadingGlyphSide) : nil
+        pin.image = pinned ? NSImage.icon(.statePinned, size: SidebarStyle.pinGlyphSide) : nil
         collapsed = row.isCollapsed
         count.stringValue = details.memberCount && collapsed && row.childCount > 0 ? "\(row.childCount)" : ""
         chevronIcon = Self.disclosureIcon(collapsed: collapsed)
@@ -555,7 +555,7 @@ final class GroupHeaderRowView: SidebarRowView {
         // A pinned group's pin leads the bar, its ink centered on the rows' icon column, and its icon and name take the
         // one text column after it, as a pinned workspace row's do (Lawrence 2026-10-28, "home and pinned are not
         // aligned"; Leo 2026-10-28, "the alignment").
-        let pinSide = SidebarStyle.leadingGlyphSide
+        let pinSide = SidebarStyle.pinGlyphSide // Home's glyph square, as a pinned workspace row's pin (#38061)
         pin.isHidden = !pinned
         let pinInk = pin.image.flatMap { SidebarGlyphInk.shared.box(of: $0, glyph: SidebarItemRowView.pinGlyph) }
         let scale = window?.backingScaleFactor ?? 2
