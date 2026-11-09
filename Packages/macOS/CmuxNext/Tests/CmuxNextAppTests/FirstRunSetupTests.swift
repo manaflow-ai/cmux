@@ -197,10 +197,11 @@ import Testing
         #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "signedOut")
     }
 
-    /// Claude Code's Keychain login reads as unknown until a session proves it: once its login opened from the
-    /// card, the row is signed in and the card can finish; an unknown agent never signed in to here is not.
-    @Test func aKeychainLoginOpenedHereFinishesTheAgentsRow() async throws {
+    /// Claude Code's Keychain login reads as unknown until a session proves it. Opening its login from the card
+    /// proves nothing (it may be cancelled), so the row waits for the person to say it finished, then the card can end.
+    @Test func aKeychainLoginFinishesOnlyWhenThePersonConfirmsIt() async throws {
         let setup = FirstRunSetup(defaults: try defaults())
+        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
         let source = MockAgentSignInSource(agents: [OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .unknown)])
         let provider = SetupCardPageProvider(setup: setup, agents: source, environment: SetupCardEnvironment(
             account: { (true, nil) }, signInAccount: {}, cliState: { "installed" }, installCLI: { _ in }, openAgents: {},
@@ -208,14 +209,37 @@ import Testing
         defer { provider.stop() }
         await until { provider.agents.loaded && provider.cli != nil && provider.history != nil }
         #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "signedOut")
-        #expect(!provider.allDone)
 
-        provider.agents.signIn("claude")
+        // The login opens, then is cancelled: the sign-in still reads as unknown.
+        _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": "signInAgent", "id": "claude"]], context: click(1))
         await until { provider.agents.loginsOpened.contains("claude") }
         provider.agents.refresh(recheck: true)
         await until { !provider.agents.loading }
+        #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "unverified")
+        #expect(!provider.allDone && setup.shows, "an opened login is no proof: the card stays")
+
+        _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": "confirmAgent", "id": "claude"]], context: click(2))
         #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "signedIn")
         #expect(provider.allDone)
+    }
+
+    /// I'm Signed In does nothing for an agent whose login never opened here.
+    @Test func confirmingWithoutAnOpenedLoginDoesNothing() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        let source = MockAgentSignInSource(agents: [OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .unknown)])
+        let provider = SetupCardPageProvider(setup: setup, agents: source, environment: SetupCardEnvironment(
+            account: { (true, nil) }, signInAccount: {}, cliState: { "installed" }, installCLI: { _ in }, openAgents: {},
+            historySources: { false }, importHistory: { false }))
+        defer { provider.stop() }
+        await until { provider.agents.loaded && provider.cli != nil && provider.history != nil }
+        _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": "confirmAgent", "id": "claude"]], context: click(1))
+        #expect(provider.agents.confirmedLogins.isEmpty)
+        #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "signedOut")
+        #expect(!provider.allDone)
+    }
+
+    private func click(_ event: TimeInterval) -> PageCallContext {
+        PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: event)
     }
 
     /// Not Now on the chat history row answers it for good.

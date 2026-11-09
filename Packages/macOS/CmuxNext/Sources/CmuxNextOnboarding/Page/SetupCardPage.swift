@@ -164,7 +164,8 @@ public final class SetupCardPageProvider: PageProvider {
             let state: String = switch agents.installs[id] {
             case .installing: "installing"
             case .failed where !agent.installed: "failed"
-            default: !agent.installed ? "missing" : agents.countsAsSignedIn(agent) ? "signedIn" : "signedOut"
+            default: !agent.installed ? "missing" : agents.countsAsSignedIn(agent) ? "signedIn"
+                : agents.awaitsConfirmation(agent) ? "unverified" : "signedOut"
             }
             return ["id": .string(id), "name": .string(agent.name), "state": .string(state)]
         }
@@ -226,6 +227,7 @@ public final class SetupCardPageProvider: PageProvider {
         switch action["kind"]?.stringValue {
         case "installAgent" where Self.agentIDs.contains(id): agents.install(id)
         case "signInAgent" where Self.agentIDs.contains(id): agents.signIn(id)
+        case "confirmAgent" where Self.agentIDs.contains(id): agents.confirmLogin(id)
         case "signInAccount": environment.signInAccount()
         case "importHistory": if environment.importHistory() { setup.historyAnswered() }
         case "declineHistory": setup.historyAnswered()

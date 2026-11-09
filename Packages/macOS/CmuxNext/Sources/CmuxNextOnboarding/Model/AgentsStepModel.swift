@@ -80,9 +80,10 @@ public final class AgentsStepModel {
     public private(set) var signingIn: String?
     /// Sign In could not open its terminal tab.
     public private(set) var signInFailed = false
-    /// Agents whose login opened in a terminal tab here. Claude Code's Keychain login reads as unknown until a
-    /// session proves it, so an unknown agent the person signed in to here counts as signed in.
+    /// Agents whose login opened in a terminal tab here. Opening it proves nothing: the login may be cancelled.
     public private(set) var loginsOpened: Set<String> = []
+    /// Agents whose login opened here and that the person then said are signed in (``confirmLogin(_:)``).
+    public private(set) var confirmedLogins: Set<String> = []
     @ObservationIgnored let source: (any AgentSignInSource)?
     @ObservationIgnored private var read: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
@@ -142,9 +143,23 @@ public final class AgentsStepModel {
         }
     }
 
-    /// Signed in, or unknown after its login opened here (``loginsOpened``).
+    /// Signed in, or unknown with its login confirmed by the person (``confirmedLogins``). Claude Code's Keychain
+    /// login reads as unknown until a session proves it, so the person's word is the only completion it has.
     public func countsAsSignedIn(_ agent: OnboardingAgent) -> Bool {
-        agent.auth == .signedIn || agent.auth == .unknown && loginsOpened.contains(agent.id)
+        agent.auth == .signedIn || agent.auth == .unknown && confirmedLogins.contains(agent.id)
+    }
+
+    /// A login opened here whose sign-in reads as unknown, not yet confirmed: the person finishes it in its
+    /// terminal tab and says so, or signs in again.
+    public func awaitsConfirmation(_ agent: OnboardingAgent) -> Bool {
+        agent.auth == .unknown && loginsOpened.contains(agent.id) && !confirmedLogins.contains(agent.id)
+    }
+
+    /// The person says the login that opened here finished. Only for an agent whose login opened here and whose
+    /// sign-in reads as unknown; a known signed-out agent stays signed out.
+    public func confirmLogin(_ id: String) {
+        guard let agent = agents.first(where: { $0.id == id }), awaitsConfirmation(agent) else { return }
+        confirmedLogins.insert(id)
     }
 
     /// Install: the agent's vendor installer, then its row reads again and its Sign In runs,
