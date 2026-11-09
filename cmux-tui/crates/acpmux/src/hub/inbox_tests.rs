@@ -27,6 +27,7 @@ fn item(
         noticed: false,
         read: false,
         answer: None,
+        reader: None,
     }
 }
 
@@ -798,6 +799,9 @@ mod agent_messaging {
         asked.sender = sender.clone();
         let (tx, _rx) = tokio::sync::watch::channel(None);
         asked.answer = Some(tx);
+        // Its caller reads the reply (`send --wait`) and is still connected.
+        let (_left, reader) = tokio::sync::watch::channel(false);
+        asked.reader = Some(reader);
         let hint = reply_hint(&[&asked]).expect("a hint");
         assert!(
             hint.starts_with("Reply with acpmux, not your harness's own messaging: "),

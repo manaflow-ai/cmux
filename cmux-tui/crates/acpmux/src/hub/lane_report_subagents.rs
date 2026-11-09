@@ -106,7 +106,14 @@ impl Hub {
     /// Leaves `report` for its subagent in parent `p` (`report.for_subagent`): true when it is
     /// left for it, false when the subagent has stopped or no subagent of `p` runs, so the
     /// report goes to `p` itself.
-    pub(super) fn lane_report_to_subagent(&self, p: &Session, report: &Report) -> bool {
+    /// `question`: the report answers a question the subagent asked a session it did not start
+    /// (`question_replies.rs`), so a sweep hands it to the lead that way, not as a lane's.
+    pub(super) fn lane_report_to_subagent(
+        &self,
+        p: &Session,
+        report: &Report,
+        question: bool,
+    ) -> bool {
         let Some(id) =
             report.for_subagent.as_ref().and_then(|s| s.get("id")).and_then(Value::as_str)
         else {
@@ -122,6 +129,7 @@ impl Hub {
             "text": notice_text(report),
             "lane": report.session,
             "report": report,
+            "question": question,
         });
         let path = match crate::subagent_notice::leave(&dir, &report.prompt_id, &notice) {
             Ok(path) => path,
@@ -189,8 +197,14 @@ impl Hub {
                     continue;
                 };
                 report.subagent_ended = true;
-                // The same checks as any report: the lane still reports here, its turn unread.
-                if let Err(e) = hub.lane_deliver(&parent, lane, &report).await {
+                // A question's reply goes to the lead (`question_replies.rs`); a lane's report
+                // has the same checks as any: the lane still reports here, its turn unread.
+                let delivered = if notice.get("question") == Some(&Value::Bool(true)) {
+                    hub.question_reply_deliver(&parent, lane, &report).await
+                } else {
+                    hub.lane_deliver(&parent, lane, &report).await
+                };
+                if let Err(e) = delivered {
                     tracing::warn!(parent = %parent, lane, "lane report not delivered: {}", e.message);
                     // Left again, for the next look (a turn end of the parent).
                     let _ = crate::subagent_notice::leave(&dir, &report.prompt_id, &notice);
