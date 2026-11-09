@@ -50,6 +50,47 @@ pub(super) struct CarrierAnswer {
     /// The grant's `vmk` claim, `None` when the grant has none (or none
     /// that is `owner` or `team`).
     pub vmk: Option<Vmk>,
+    /// `rd_link`: the platform turns on the desktop's datagram link
+    /// (cmuxterm-hq#7976) for this machine and names its STUN servers. `None`
+    /// (absent, or not an object): the desktop keeps every datagram on the stream.
+    pub rd_link: Option<RdLink>,
+}
+
+/// The desktop datagram link's settings from the carrier answer.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct RdLink {
+    /// STUN servers, `host:port`.
+    pub stun: Vec<String>,
+}
+
+/// Most STUN servers read from an answer.
+const MAX_RD_LINK_STUN: usize = 4;
+
+/// `rd_link: {stun: ["host:port", ..]}`; a malformed entry is skipped, and
+/// anything but an object leaves the link off.
+fn rd_link(value: &Value) -> Option<RdLink> {
+    let object = value.get("rd_link")?.as_object()?;
+    let stun = object
+        .get("stun")
+        .and_then(Value::as_array)
+        .map(|servers| {
+            servers
+                .iter()
+                .filter_map(Value::as_str)
+                .filter(|s| {
+                    !s.is_empty()
+                        && s.len() <= 255
+                        && s.rsplit_once(':').is_some_and(|(host, port)| {
+                            !host.is_empty() && port.parse::<u16>().is_ok_and(|p| p > 0)
+                        })
+                        && s.bytes().all(|b| b.is_ascii_alphanumeric() || b".-:[]".contains(&b))
+                })
+                .take(MAX_RD_LINK_STUN)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(RdLink { stun })
 }
 
 impl std::fmt::Debug for CarrierAnswer {
@@ -60,6 +101,7 @@ impl std::fmt::Debug for CarrierAnswer {
             .field("grant", &self.grant.is_some())
             .field("daemon_key", &self.daemon_key.is_some())
             .field("vmk", &self.vmk)
+            .field("rd_link", &self.rd_link)
             .finish_non_exhaustive()
     }
 }
@@ -154,7 +196,17 @@ pub(super) fn parse_answer(value: &Value) -> Result<CarrierAnswer, String> {
     };
     let daemon_key = value.get("daemon_key").and_then(Value::as_str).and_then(key_bytes);
     let vmk = grant.as_deref().and_then(|g| grant_vmk(g));
-    Ok(CarrierAnswer { relay, slot: slot.to_owned(), ticket, expires_at, grant, daemon_key, vmk })
+    let rd_link = rd_link(value);
+    Ok(CarrierAnswer {
+        relay,
+        slot: slot.to_owned(),
+        ticket,
+        expires_at,
+        grant,
+        daemon_key,
+        vmk,
+        rd_link,
+    })
 }
 
 /// Reads one HTTP answer: `{ok: true, value}` is the carrier; anything else
@@ -211,7 +263,7 @@ impl Credential {
 }
 
 /// cmux-platform over HTTPS with the person's credential.
-pub(super) struct HttpSource {
+pub(crate) struct HttpSource {
     api: String,
     credential: Credential,
     /// A credential handed over later (`carrier serve`'s stdin), used in
@@ -250,6 +302,25 @@ impl HttpSource {
             Some(token) => Ok(token),
             None => self.credential.current(),
         }
+    }
+
+    /// POSTs `body` to `path` on the platform with the person's credential
+    /// (and the team header): the status and the JSON body (`Null` when the
+    /// body is not JSON). No answer at all is a retry.
+    pub(super) async fn post(&self, path: &str, body: &Value) -> Result<(u16, Value), SourceError> {
+        let credential = self.current()?;
+        let mut request = self
+            .client
+            .post(format!("{}{path}", self.api))
+            .bearer_auth(credential.as_str())
+            .json(body);
+        if let Some(team) = &self.team {
+            request = request.header(TEAM_HEADER, team);
+        }
+        let response =
+            request.send().await.map_err(|_| SourceError::retry("cmux-platform did not answer"))?;
+        let status = response.status().as_u16();
+        Ok((status, response.json().await.unwrap_or(Value::Null)))
     }
 
     /// Who the current credential names, read afresh (a stdin token, else
@@ -300,23 +371,12 @@ impl CarrierSource for HttpSource {
         machine: &str,
         noise_key: Option<&[u8; 32]>,
     ) -> Result<CarrierAnswer, SourceError> {
-        let credential = self.current()?;
         let body = match noise_key {
             Some(key) => json!({ "noise_key": key_text(key) }),
             None => json!({}),
         };
-        let mut request = self
-            .client
-            .post(format!("{}/v1/cloud/machines/{machine}/carrier", self.api))
-            .bearer_auth(credential.as_str())
-            .json(&body);
-        if let Some(team) = &self.team {
-            request = request.header(TEAM_HEADER, team);
-        }
-        let response =
-            request.send().await.map_err(|_| SourceError::retry("cmux-platform did not answer"))?;
-        let status = response.status().as_u16();
-        let body: Value = response.json().await.unwrap_or(Value::Null);
+        let (status, body) =
+            self.post(&format!("/v1/cloud/machines/{machine}/carrier"), &body).await?;
         read_reply(status, &body)
     }
 }

@@ -26,12 +26,6 @@ const USAGE: &str = "usage: cmux repo hold DIR -- CMD [ARG...] | cmux repo wait 
 /// The child's one stdout line once it holds the barrier.
 const HELD: &str = "held";
 
-/// The head's harness settings that run a command when the harness starts (hooks, and the
-/// project's MCP servers, which start outside the tool gate): a start at the head would run
-/// them on a partial checkout, so such a head is never marked.
-const START_SETTINGS: &[&str] =
-    &[".claude/settings.json", ".claude/settings.local.json", ".mcp.json"];
-
 pub(crate) fn run(args: &[String]) -> i32 {
     match args.split_first() {
         Some((verb, rest)) if verb == "hold" => match parse(rest) {
@@ -73,33 +67,10 @@ fn parse(rest: &[String]) -> Option<(PathBuf, &[String])> {
     }
 }
 
-/// The head's folders a harness reads at start (the step's `head_dirs`, beside the root's files).
-const HEAD_DIRS: &[&str] =
-    &[".claude", ".codex", ".cursor", ".gemini", ".github", ".vscode", ".devcontainer"];
-
-/// Whether the head may be marked ready: none of [`START_SETTINGS`] is in it, and no symlink at
-/// its root or in [`HEAD_DIRS`] points at what the head left out (a `CLAUDE.md` linked into
-/// `docs/`): a start would read no instructions where the whole checkout has them.
+/// Whether the head may be marked ready (`cmux_git::harness_head::head_allowed`): the repo
+/// pick's head is the root's files and the harness folders, with no subpath.
 pub(crate) fn head_allowed(dir: &Path) -> bool {
-    START_SETTINGS.iter().all(|settings| std::fs::symlink_metadata(dir.join(settings)).is_err())
-        && !links_out_of_the_head(dir, 0)
-}
-
-/// A symlink in `dir` (and, from the root, in [`HEAD_DIRS`]) whose target is not there.
-fn links_out_of_the_head(dir: &Path, depth: usize) -> bool {
-    let Ok(entries) = std::fs::read_dir(dir) else { return false };
-    entries.flatten().any(|entry| {
-        let path = entry.path();
-        let Ok(kind) = entry.file_type() else { return true };
-        if kind.is_symlink() {
-            return std::fs::metadata(&path).is_err();
-        }
-        let harness = depth == 0 && HEAD_DIRS.iter().any(|d| entry.file_name() == *d);
-        kind.is_dir()
-            && (harness || depth > 0)
-            && depth < 8
-            && links_out_of_the_head(&path, depth + 1)
-    })
+    cmux_git::harness_head::head_allowed(dir, &[])
 }
 
 /// Waits until the barrier on `dir` is open (`cmux_git::sync_barrier::wait_ready`).

@@ -481,6 +481,9 @@ impl Hub {
             permission_rules: None,
             tags: Default::default(),
             unread: false,
+            seen_seq: None,
+            unread_turns: 0,
+            last_return: None,
             claude_unstored: false,
             // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
             wait_start: false,
@@ -491,6 +494,7 @@ impl Hub {
             last_turn: None,
             auth_change: None,
             harness_failures: Default::default(),
+            harness_sandbox: Default::default(),
             // A fork of a remote-origin session stays remote-origin.
             remote_origin: parent_meta.remote_origin,
             vm_boundary: parent_meta.vm_boundary,
@@ -702,6 +706,8 @@ impl Hub {
         {
             let mut m = new.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.harness_failures = crate::session_liveness::HarnessFailures::after(m.last_seq);
+            // Its own harness: a refusal the parent's records carry is not the fork's.
+            m.harness_sandbox = Default::default();
         }
         let mut forked = json!({"parentId": session.id, "forkSeq": new.meta().fork_seq});
         if let Some((_, b)) = &before {
