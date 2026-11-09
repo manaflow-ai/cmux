@@ -33,6 +33,12 @@ final class FieldChrome: NSView {
     /// non-flipped view above both glass containers (a container tones its content).
     let keyFix = GlassKeyFix()
     private let keyFixView = NSView()
+    /// cmux: the field's hairline edge (cmux#39302), in the view above the glass containers: a border on the
+    /// glass view's own layer is not composited on screen. Its colour and width are set by
+    /// `FieldChrome.applyEdge` (Cmux/PaneHost.swift); it follows the field like the key correction does.
+    let edge = CALayer()
+    /// cmux: the layers that follow the field glass's frame and fade: the key correction's and the edge.
+    var fieldOverlayLayers: [CALayer] { keyFix.field.layers + [edge] }
     /// Glass shapes closer than this merge (the "+" button is 9.5 pt from
     /// the field: separate at rest).
     static let mergeSpacing: CGFloat = 6
@@ -47,6 +53,11 @@ final class FieldChrome: NSView {
         addSubview(fieldContainer)
         keyFixView.wantsLayer = true
         for l in keyFix.layers { keyFixView.layer?.addSublayer(l) }
+        // cmux: the field's hairline edge (no implicit animations; it moves with the glass's own springs).
+        edge.actions = ["position": NSNull(), "bounds": NSNull(), "hidden": NSNull(), "opacity": NSNull(),
+                        "borderColor": NSNull(), "borderWidth": NSNull(), "cornerRadius": NSNull()]
+        edge.borderWidth = 0
+        keyFixView.layer?.addSublayer(edge)
         addSubview(keyFixView)
         field.cornerRadius = 15
         // Real Messages' field glass reacts to a press (field-keyboard reference: the rim
@@ -216,6 +227,10 @@ final class FieldChrome: NSView {
         if keyFixView.frame != bounds { keyFixView.frame = bounds }
         let snap = { (r: CGRect) in self.keyFixView.backingAlignedRect(self.keyFixView.convert(r, from: self), options: .alignAllEdgesNearest) }
         keyFix.field.place(snap(field.frame))
+        // cmux: the edge on the glass's frame and curve.
+        let edgeFrame = snap(field.frame)
+        if edge.frame != edgeFrame { edge.frame = edgeFrame }
+        if edge.cornerRadius != field.cornerRadius { edge.cornerRadius = field.cornerRadius }
         keyFix.plus.place(snap(plusGlass.frame.insetBy(dx: -0.5, dy: 0)))
         keyFix.emoji.place(snap(emojiGlass.frame.insetBy(dx: -0.5, dy: 0)))
     }
@@ -242,7 +257,7 @@ final class FieldChrome: NSView {
     /// correction is hidden until their completion, then placed at the glass's frame.
     func keyFixHidden(_ hidden: Bool) {
         if !hidden { placeKeyFix() }
-        for l in keyFix.field.layers { l.opacity = hidden ? 0 : 1 }
+        for l in fieldOverlayLayers { l.opacity = hidden ? 0 : 1 }  // cmux: and the edge
     }
 
     func place(field f: CGRect, plus p: CGRect, emoji e: CGRect) {
@@ -308,7 +323,7 @@ final class FieldChrome: NSView {
         default:
             guard let l = fieldContainer.layer else { return }
             Animate.sampledPulse(l, "opacity", Springs.fieldOpacity, base: 1, begin: begin)
-            for k in keyFix.field.layers { Animate.sampledPulse(k, "opacity", Springs.fieldOpacity, base: 1, begin: begin) }
+            for k in fieldOverlayLayers { Animate.sampledPulse(k, "opacity", Springs.fieldOpacity, base: 1, begin: begin) }  // cmux: and the edge
         }
     }
 
@@ -322,7 +337,7 @@ final class FieldChrome: NSView {
         let done = tau >= e.settleTime
         let v = done ? 1 : CGFloat(min(1, max(0, e.value(tau, from: 1, to: 1))))
         if fieldContainer.alphaValue != v { fieldContainer.alphaValue = v }
-        for l in keyFix.field.layers where l.opacity != Float(v) { l.opacity = Float(v) }
+        for l in fieldOverlayLayers where l.opacity != Float(v) { l.opacity = Float(v) }  // cmux: and the edge
         if done { link.isPaused = true }
     }
 }
@@ -418,7 +433,7 @@ enum FieldAnimation: String {
                 return
             }
             // The key glass correction (a non-flipped view: y up) keeps its bottom edge, as the glass does.
-            for k in chrome.keyFix.field.layers {
+            for k in chrome.fieldOverlayLayers {  // cmux: and the edge
                 let ay = Double(k.anchorPoint.y)
                 Animate.scalar(k, "bounds.size.height", from: Double(k.bounds.height) - d, to: Double(k.bounds.height), el, begin: begin)
                 Animate.scalar(k, "position.y", from: Double(k.position.y) - ay * d, to: Double(k.position.y), el, begin: begin)

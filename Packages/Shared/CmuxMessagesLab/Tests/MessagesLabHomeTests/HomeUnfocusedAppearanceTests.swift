@@ -84,7 +84,7 @@ import Testing
         let chrome = controller.host.fieldChrome
         controller.applyFieldTheme(light: false, symbol: .white, edge: .black, restingEdge: .gray)
         controller.followKeyState()
-        let layer = try #require(chrome.field.layer)
+        let layer = chrome.edge
         #expect(layer.borderWidth == 1, "an unfocused dark Home field lost its outline")
         #expect(layer.borderColor == NSColor.gray.cgColor)
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)

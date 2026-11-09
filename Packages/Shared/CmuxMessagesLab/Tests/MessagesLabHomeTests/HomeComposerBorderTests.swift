@@ -4,19 +4,19 @@ import Testing
 import UniformTypeIdentifiers
 @testable import MessagesLabHome
 
-/// Isolates the field's outer rim from the compositor's glass, which cannot render offscreen.
+/// Isolates the field's outer rim from the compositor's glass, which cannot render offscreen. The rim is
+/// `FieldChrome.edge`, a layer above the glass containers (cmux#39302: a border on the glass view's own layer
+/// is not composited on screen).
 /// The gallery compares the old square rim, the rounded rim, and a thinner rounded alternative
 /// (left to right), with single-line and expanded drafts (top to bottom). Live app captures
 /// remain the evidence for glass and colors.
 @MainActor @Suite(.serialized) struct HomeComposerBorderTests {
     private func rim(height: CGFloat, variant: Int? = nil) throws -> CGImage {
         let chrome = FieldChrome(frame: NSRect(x: 0, y: 0, width: 240, height: height))
-        chrome.field.frame = chrome.bounds
+        chrome.setFrameNow(chrome.bounds)
         chrome.applyTheme(light: true, symbol: .black, edge: .black)
-        let layer = try #require(chrome.field.layer)
-        // Render the actual backing layer's border without the system-managed glass internals.
-        layer.sublayers?.forEach { $0.isHidden = true }
-        layer.backgroundColor = nil
+        let layer = chrome.edge
+        #expect(layer.bounds.size == chrome.field.frame.size, "the edge is not on the glass's frame")
         if let variant {
             layer.cornerRadius = variant == 0 ? 0 : chrome.field.cornerRadius
             layer.borderWidth = variant == 2 ? 0.5 : 1
@@ -45,7 +45,7 @@ import UniformTypeIdentifiers
         let chrome = FieldChrome(frame: .zero)
         chrome.applyTheme(light: true, symbol: .black, edge: .black)
         chrome.applyTheme(light: false, symbol: .white, edge: .white)
-        #expect(try #require(chrome.field.layer).borderWidth == 0)
+        #expect(chrome.edge.borderWidth == 0)
     }
 
     /// cmux#39302: a dark field in a window that is not key keeps a resting hairline (the system
@@ -53,7 +53,7 @@ import UniformTypeIdentifiers
     @Test func aDarkFieldKeepsItsRestingHairlineOutsideTheKeyWindow() throws {
         let chrome = FieldChrome(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
         chrome.applyTheme(light: false, symbol: .white, edge: .black, restingEdge: .red, windowIsKey: false)
-        let layer = try #require(chrome.field.layer)
+        let layer = chrome.edge
         #expect(layer.borderWidth == 1, "an unfocused dark field lost its outline")
         #expect(layer.borderColor == NSColor.red.cgColor)
         let theme = FieldEdgeTheme(light: false, edge: .black, restingEdge: .red)
@@ -67,7 +67,7 @@ import UniformTypeIdentifiers
     @Test func aLightFieldKeepsItsEdgeInBothKeyStates() throws {
         let chrome = FieldChrome(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
         chrome.applyTheme(light: true, symbol: .black, edge: .black, restingEdge: .red)
-        let layer = try #require(chrome.field.layer)
+        let layer = chrome.edge
         #expect(layer.borderColor == NSColor.black.cgColor)
         for key in [true, false] {
             chrome.applyEdge(FieldEdgeTheme(light: true, edge: .black, restingEdge: .red), windowIsKey: key)
@@ -84,6 +84,21 @@ import UniformTypeIdentifiers
             }
         }
         #expect(!FieldChrome.drawsHairline(light: false, windowIsKey: true, systemGlass: true))
+    }
+
+    /// The hairline is never a border on the glass view's own layer (the compositor does not draw it), and the
+    /// edge layer follows the field's frame when the field grows.
+    @Test func theEdgeIsAboveTheGlassAndFollowsTheField() throws {
+        let chrome = FieldChrome(frame: NSRect(x: 0, y: 0, width: 240, height: 120))
+        chrome.setFrameNow(NSRect(x: 0, y: 80, width: 240, height: 30))
+        chrome.applyTheme(light: false, symbol: .white, edge: .black, restingEdge: .red, windowIsKey: false)
+        #expect((chrome.field.layer?.borderWidth ?? 0) == 0)
+        #expect(chrome.edge.borderWidth == 1)
+        #expect(chrome.edge.bounds.height == 30)
+        #expect(chrome.edge.cornerRadius == chrome.field.cornerRadius)
+        chrome.setFrameNow(NSRect(x: 0, y: 20, width: 240, height: 90))
+        #expect(chrome.edge.bounds.height == 90)
+        #expect(chrome.fieldOverlayLayers.contains { $0 === chrome.edge })
     }
 
     @Test func borderGallery() throws {

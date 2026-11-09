@@ -12,9 +12,9 @@ extension ChatController {
     /// cmux (cx-95476, MessagesLab 806ef0c inactive-per-view): this pane's window view follows its own window only:
     /// didBecomeKey -> active, didResignKey -> inactive (an app that deactivates resigns its key window),
     /// `!window.isKeyWindow` when it joins a window, each through `viewInactive`. No other pane changes; a display
-    /// move never sets it. Without `followsKeyWindow` the view stays active.
-    /// The field's resting hairline follows the same key state in either mode (cmux#39302): the system glass loses
-    /// its lit rim in a window that is not key.
+    /// move never sets it. Without `followsKeyWindow` the view stays active, but the key observers are still installed:
+    /// the field's resting hairline follows the same key state in either mode (cmux#39302), since the system glass
+    /// loses its lit rim in a window that is not key.
     func followKeyState() {
         keyObservers.forEach { NotificationCenter.default.removeObserver($0) }
         keyObservers = []

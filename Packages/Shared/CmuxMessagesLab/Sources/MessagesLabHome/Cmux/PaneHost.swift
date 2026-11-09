@@ -340,10 +340,6 @@ extension FieldChrome {
     /// field takes `restingEdge` there instead (cmux#39302: only the focus look goes).
     /// `windowIsKey`: the key state to draw for (default: the field's window's).
     func applyTheme(light: Bool, symbol: NSColor, edge: NSColor? = nil, restingEdge: NSColor? = nil, windowIsKey: Bool? = nil) {
-        field.wantsLayer = true
-        // NSGlassEffectView rounds its glass internally, independently of its backing
-        // layer. Keep the added hairline on the same curve instead of boxing the glass.
-        if let layer = field.layer, layer.cornerRadius != field.cornerRadius { layer.cornerRadius = field.cornerRadius }
         let appearance = NSAppearance(named: light ? .aqua : .darkAqua)
         if self.appearance?.name != appearance?.name { self.appearance = appearance }
         let tint: NSColor = light ? symbol : .white
@@ -365,14 +361,15 @@ extension FieldChrome {
         light || !systemGlass || !windowIsKey
     }
 
-    /// The hairline for `theme` and one key state of the field's window (PaneHost+KeyState.swift observes it).
+    /// The hairline for `theme` and one key state of the field's window (PaneHost+KeyState.swift observes it). It
+    /// is drawn by `edge`, a layer above the glass containers on the glass's frame and curve (Materials.swift): a
+    /// border on the glass view's own layer is not composited on screen, in either theme.
     func applyEdge(_ theme: FieldEdgeTheme, windowIsKey: Bool) {
-        guard let layer = field.layer else { return }
         let color = (theme.light ? theme.edge : theme.restingEdge)?.cgColor
         let shows = color != nil && Self.drawsHairline(light: theme.light, windowIsKey: windowIsKey, systemGlass: hasSystemGlass)
         let width: CGFloat = shows ? 1 : 0
-        if let color, layer.borderColor != color { layer.borderColor = color }
-        if layer.borderWidth != width { layer.borderWidth = width }
+        if let color, edge.borderColor != color { edge.borderColor = color }
+        if edge.borderWidth != width { edge.borderWidth = width }
     }
 }
 
