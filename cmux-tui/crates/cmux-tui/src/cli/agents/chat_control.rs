@@ -455,14 +455,42 @@ pub(in crate::cli) fn new(
     arguments.insert("session".into(), json!(session));
     params.insert("args".into(), Value::Object(arguments));
     params.insert("background".into(), json!(true));
+    // The first prompt goes in as the chat's own, as a person types it into New Agent Chat
+    // and presses Return (a chat this caller just started, as `cmux acp new PROMPT` does).
+    // It goes while the app opens the tab, not after: acpmux starts the agent when the prompt
+    // reaches it, so a cold start no longer waits behind the tab (goal local-instant-start).
+    // The tab shows the chat's history when it attaches, the prompt included.
+    let send_prompt = || {
+        chat.prompt.as_ref().map(|prompt| {
+            let id = uuid::Uuid::new_v4().to_string();
+            let sent = if attachments.is_empty() {
+                chat::acp::prompt(&session, prompt, &id, None, socket)
+            } else {
+                chat::acp::prompt_attached(&session, prompt, &id, &attachments, socket)
+            };
+            let mut answer = match sent {
+                Ok(_) => json!({"state": "accepted", "prompt_id": id}),
+                Err(error) => json!({"state": "failed", "prompt_id": id, "error": error}),
+            };
+            if !attachments.is_empty() {
+                answer.set("attachments", json!(attachments.len()));
+            }
+            answer
+        })
+    };
     // No key: a retry starts another chat, so it must not get the first one's tab.
-    match mcp::agent_app(
-        global,
-        "action.run",
-        Value::Object(params),
-        app::WAITING_RUN_TIMEOUT,
-        None,
-    ) {
+    let (opened, prompt) = std::thread::scope(|scope| {
+        let sending = scope.spawn(send_prompt);
+        let opened = mcp::agent_app(
+            global,
+            "action.run",
+            Value::Object(params),
+            app::WAITING_RUN_TIMEOUT,
+            None,
+        );
+        (opened, sending.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)))
+    });
+    match opened {
         Ok(run) => {
             result.set("opened", json!(true));
             for field in ["tab", "pane", "workspace"] {
@@ -492,22 +520,7 @@ pub(in crate::cli) fn new(
         }
     }
 
-    // The first prompt goes in as the chat's own, as a person types it into New Agent Chat
-    // and presses Return (a chat this caller just started, as `cmux acp new PROMPT` does).
-    if let Some(prompt) = &chat.prompt {
-        let id = uuid::Uuid::new_v4().to_string();
-        let sent = if attachments.is_empty() {
-            chat::acp::prompt(&session, prompt, &id, None, socket)
-        } else {
-            chat::acp::prompt_attached(&session, prompt, &id, &attachments, socket)
-        };
-        let mut answer = match sent {
-            Ok(_) => json!({"state": "accepted", "prompt_id": id}),
-            Err(error) => json!({"state": "failed", "prompt_id": id, "error": error}),
-        };
-        if !attachments.is_empty() {
-            answer.set("attachments", json!(attachments.len()));
-        }
+    if let Some(answer) = prompt {
         result.set("prompt", answer);
     }
     Ok(json!({
