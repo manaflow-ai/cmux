@@ -28,7 +28,8 @@ const WARN_RATIO = 0.8
 
 const connectOnce = async (url: string): Promise<Client> => {
   const { default: pg } = await import("pg")
-  const client = new pg.Client({ connectionString: url, application_name: APP, connectionTimeoutMillis: 10_000, statement_timeout: 15_000 })
+  const client = new pg.Client({ connectionString: url, application_name: APP, connectionTimeoutMillis: 10_000, query_timeout: 15_000 })
+  // query_timeout is client side: PgBouncer refuses a statement_timeout startup parameter (08P01).
   client.on("error", () => {})
   await client.connect()
   return { query: async <T>(text: string, params?: Array<unknown>) => (await client.query(text, params)).rows as Array<T>, end: () => client.end() }
