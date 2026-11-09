@@ -100,9 +100,10 @@ export function SteerQueue({
         // Only the line that went leaves the field: words typed while it was on its way stay.
         if (typed !== undefined)
           setText((current) => (current.startsWith(sent) ? current.slice(sent.length).trimStart() : current));
-        // On down the list: the next chat that may need the person.
+        // On down the list: the next chat that may need the person. A line still in the field after
+        // a step that did not send it (a stop) stays with the chat it was typed for.
         const next = items[nextFocus(items.length, items.indexOf(item))];
-        if (next && act !== "fork") setFocusId(next.sessionId);
+        if (next && act !== "fork" && (typed !== undefined || !sent)) setFocusId(next.sessionId);
       },
       () => setStep({ sessionId: item.sessionId, act, state: "failed" }),
     );
@@ -197,6 +198,8 @@ export function SteerQueue({
           placeholder={placeholder}
           aria-label={placeholder}
           spellCheck={false}
+          // While a chat opens, its line is on its way to that chat's composer: nothing typed is lost.
+          readOnly={step?.act === "open" && step.state === "sending"}
           onChange={(event) => {
             // The first key typed pins the line to the chat it was typed for: a re-rank that moves
             // another chat to the top does not take the line with it.
