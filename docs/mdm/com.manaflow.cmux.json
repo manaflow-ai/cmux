@@ -525,6 +525,12 @@
       "title" : "Prompt Cache",
       "type" : "string"
     },
+    "agents.promptSuggestions" : {
+      "default" : true,
+      "description" : "After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change.",
+      "title" : "Suggest Next Prompt",
+      "type" : "boolean"
+    },
     "agents.subsessions.answerQuestions" : {
       "default" : false,
       "description" : "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer.",
