@@ -718,6 +718,7 @@ const shot = pass.steps[3].screenshot.match(/jpeg: (.+)\]/)[1];
 console.log('JPEG_SIGNATURE:' + Array.from(fs.readFileSync(shot).slice(0, 3)).join(','));
 if (pass.steps[0].line !== 'Open the form') throw new Error('note not kept: ' + pass.steps[0].line);
 console.log(String(pass).split('\n').pop().startsWith('cmux.walkthrough {') ? 'MACHINE_LINE_OK' : 'MACHINE_LINE_MISSING');
+if (pass.url !== 'http://127.0.0.1:__PORT__/walkthrough') throw new Error('final url not reported: ' + pass.url);
 console.log('PASS_FLOW_OK');
 const fail = await verifyFlow(__PORT__, [
     { open: '/walkthrough' },
@@ -726,6 +727,10 @@ const fail = await verifyFlow(__PORT__, [
 ], { timeout: 500 });
 if (fail.passed || !fail.steps[0].ok || fail.steps[1].ok || !fail.steps[1].error || !fail.steps[1].screenshot || !fail.steps[2].skipped) throw new Error('fail flow: ' + fail);
 console.log('FAIL_FLOW_OK');
+const loadStarted = Date.now();
+const slow = await verifyFlow(__PORT__, [{ open: '/hold?verify-flow-timeout' }], { timeout: 300 });
+if (slow.passed || !/timeout|timed out/i.test(slow.steps[0].error || '') || Date.now() - loadStarted > 5000) throw new Error('load timeout not honored: ' + slow);
+console.log('LOAD_TIMEOUT_OK');
 const implied = await verifyFlow('http://127.0.0.1:__PORT__/walkthrough', [{ expect: 'Name' }]);
 if (!implied.passed || implied.steps.length !== 2 || implied.steps[0].kind !== 'open') throw new Error('implied open: ' + implied);
 console.log('IMPLIED_OPEN_OK');
@@ -747,6 +752,7 @@ console.log('NO_TAB_LEFT');
         )
         .unwrap();
     let output = child.wait_with_output().unwrap();
+    release("verify-flow-timeout");
     let success = output.status.success();
     let output = format!(
         "{}{}",
@@ -764,6 +770,7 @@ console.log('NO_TAB_LEFT');
         "MACHINE_LINE_OK",
         "PASS_FLOW_OK",
         "FAIL_FLOW_OK",
+        "LOAD_TIMEOUT_OK",
         "IMPLIED_OPEN_OK",
         "NO_SERVER_OK",
         "BAD_INPUT_OK",

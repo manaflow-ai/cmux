@@ -649,6 +649,8 @@
       if (options === null || typeof options !== "object" || Array.isArray(options)) throw new Error(`verifyFlow: options must be an object, got ${JSON.stringify(options)}`);
       const timeout = options.timeout === undefined ? 5000 : options.timeout;
       if (!Number.isFinite(timeout) || timeout < 0) throw new Error("verifyFlow: timeout must be a finite nonnegative number");
+      // A page load gets 30 s unless the caller bounded the flow: then its timeout bounds loads too.
+      const loadTimeout = options.timeout === undefined ? 30000 : timeout;
       const kinds = steps.map(checkWalkthroughStep);
       // The page opens first: a flow that starts with a click opens the target itself.
       const plan = kinds[0] === "open" ? steps.map((s, i) => ({ s, k: kinds[i] })) : [{ s: { open: base }, k: "open", implied: true }, ...steps.map((s, i) => ({ s, k: kinds[i] }))];
@@ -658,6 +660,7 @@
       const page = await session.newPage(undefined, { background: true });
       const out = [];
       let error;
+      let reached = base;
       try {
         let failed = false;
         for (const [index, { s, k, implied }] of plan.entries()) {
@@ -672,7 +675,7 @@
             if (k === "open") {
               const url = new core.URL(s.open, base).href;
               try {
-                await page.goto(url, { waitUntil: "load", timeout: options.navigationTimeout === undefined ? 30000 : options.navigationTimeout });
+                await page.goto(url, { waitUntil: "load", timeout: loadTimeout });
               } catch (e) {
                 // Nothing listens there: say so plainly instead of a driver code.
                 if (/ERR_CONNECTION_REFUSED|ERR_CONNECTION_RESET|ERR_EMPTY_RESPONSE|ECONNREFUSED/.test(String(e && e.message))) {
@@ -702,9 +705,16 @@
               const file = path.join(dir, `${run}-${row.n}.jpg`);
               fs.writeFileSync(file, shot.buffer);
               row.screenshot = `[${shot}: ${file}]`;
-            } catch {
-              // A step keeps its verdict when the page can't be drawn.
+            } catch (e) {
+              // A step with no picture proves nothing: it fails, and the flow stops there.
+              if (row.ok) {
+                row.ok = false;
+                row.error = `No screenshot: ${String(e && e.message ? e.message : e).split("\n")[0].slice(0, 200)}`;
+                failed = true;
+              }
             }
+            const now = page.url();
+            if (/^https?:/.test(now)) reached = now;
           }
         }
       } finally {
@@ -716,7 +726,8 @@
         }
       }
       const passed = out.every((s) => s.ok);
-      return new Walkthrough({ walkthrough: 1, url: base, passed, ...(error && { error }), steps: out });
+      // The address the flow last reached (`/settings` after an open), not only where it started.
+      return new Walkthrough({ walkthrough: 1, url: reached, passed, ...(error && { error }), steps: out });
     }
 
     class Headers {

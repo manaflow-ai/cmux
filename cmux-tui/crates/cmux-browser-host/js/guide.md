@@ -67,8 +67,11 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
   locator selector), `{ type: "#name", text: "Ada" }`, `{ expect: "Saved" }`
   (visible text; `in: "#out"` scopes it). Each may carry `note`, its one line.
   A flow that does not start with `open` opens the target first. Every step
-  gets a JPEG; the first failure skips the rest. It returns
+  gets a JPEG (a step whose page can't be drawn fails); the first failure
+  skips the rest. `timeout` bounds each step, and page loads too when given
+  (otherwise a load gets 30 s). It returns
   `{ passed, url, error?, steps: [{ n, line, ok, skipped?, error?, screenshot }] }`
+  (`url` is the last page the flow reached)
   and prints PASS or FAIL per step; the chat draws it as a walkthrough under
   your final message. No server on the port fails with "No dev server answers
   at …". At most 12 steps; the newest 96 screenshots are kept.
