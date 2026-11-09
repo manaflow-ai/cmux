@@ -273,7 +273,7 @@ pub(super) async fn dispatch(
                     .map_err(|_| RpcError::internal("consent refusal could not be recorded"))
             }
         }
-        method::MUX_MACHINE_CONSENT_GET => Ok(crate::cli::cloud_join::consent_status()),
+        method::MUX_MACHINE_CONSENT_GET => Ok(crate::cli::cloud_join::consent_status_for(params)),
         method::MUX_MACHINE_ENROLL => super::machine_enroll::enroll(hub, conn, params).await,
         method::MUX_MACHINE_LEAVE_IF_AUTO => super::machine_enroll::leave_if_auto(hub, conn).await,
         _ => issue(hub, conn, params),

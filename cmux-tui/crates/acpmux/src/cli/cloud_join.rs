@@ -737,6 +737,15 @@ pub(crate) fn consent_status() -> Value {
     )
 }
 
+/// `_acpmux/machine_consent_get`'s answer. With `{"use": "localComputerUse"}` (the app asking
+/// for its Computer Use helper, which serves only this Mac's own sessions), a requirement only
+/// sign-in joins made gates nothing ([`machine_consent::Authority::status_for`]); every other
+/// caller gets the requirement as it is.
+pub(crate) fn consent_status_for(params: &Value) -> Value {
+    let local = params.get("use").and_then(Value::as_str) == Some("localComputerUse");
+    authority().map(|authority| authority.status_for(local)).unwrap_or_else(|_| consent_status())
+}
+
 pub fn require_consent(surface: &str) -> Result<()> {
     let status = consent_status();
     if matches!(surface, "screen" | "control") && status["consent"][surface] == "granted" {

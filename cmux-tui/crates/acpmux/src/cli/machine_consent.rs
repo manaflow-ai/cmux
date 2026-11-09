@@ -102,6 +102,23 @@ impl Authority {
             && !exists(&self.legacy.join("consent.json")).unwrap_or(true)
     }
 
+    /// [`Self::status`], as the Mac's own Computer Use is gated (`local_computer_use`: the app's
+    /// helper, which serves only this Mac's own sessions) or as what reaches the Mac from
+    /// elsewhere is. A requirement only sign-in joins made ([`Self::required_only_by_sign_in`])
+    /// never gates the Mac's own use: its answer says no consent is required, and why. What
+    /// reaches the Mac from elsewhere is gated as it always was.
+    pub(super) fn status_for(&self, local_computer_use: bool) -> Value {
+        let mut status = self.status();
+        if local_computer_use
+            && self.required_only_by_sign_in()
+            && let Some(fields) = status.as_object_mut()
+        {
+            fields.insert("consentRequired".to_owned(), Value::Bool(false));
+            fields.insert("localComputerUse".to_owned(), json!("keptBySignIn"));
+        }
+        status
+    }
+
     fn validate_marker(&self) -> Result<()> {
         let file = crate::config::private_state_file(&self.root.join("enrolled.json"))?;
         let value: Value = serde_json::from_reader(file)?;

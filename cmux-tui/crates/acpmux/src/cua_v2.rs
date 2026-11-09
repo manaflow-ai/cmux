@@ -387,7 +387,7 @@ where
 
 /// A trusted inventory readOnlyHint requires screen consent; unknown and action
 /// tools require both independent grants, including their post-action captures.
-fn require_tool_consent(read_only: bool, status: &Value) -> Result<()> {
+pub(crate) fn require_tool_consent(read_only: bool, status: &Value) -> Result<()> {
     let denied = || anyhow!(crate::cli::cloud_join::CONSENT_REQUIRED);
     let required = status["consentRequired"].as_bool().ok_or_else(denied)?;
     let screen = status["consent"]["screen"].as_str().ok_or_else(denied)?;
