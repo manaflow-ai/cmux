@@ -113,15 +113,19 @@ fn run_reading(
     payload: impl FnOnce() -> anyhow::Result<Value>,
 ) -> anyhow::Result<()> {
     let native = payload()?;
-    let session = native.get("session_id").and_then(Value::as_str);
-    if plugin_copy::stands_down(&args.source, &args.native_event, session, |name| env::var_os(name))
+    let session = native.get("session_id").and_then(Value::as_str).map(str::to_owned);
+    let session = session.as_deref();
+    // A Claude that another Claude of this terminal started (plugin_copy.rs)
+    // still waits for the repository below; it only reports nothing.
+    let nested = plugin_copy::claimed_elsewhere(&args.source, session, |name| env::var_os(name));
+    if !nested
+        && plugin_copy::stands_down(&args.source, &args.native_event, session, |name| {
+            env::var_os(name)
+        })
     {
         inbox::print_nothing(inbox::Delivery::for_event(&args.source, &args.native_event));
         return Ok(());
     }
-    plugin_copy::claim_terminal(&args.source, &args.native_event, session, |name| {
-        env::var_os(name)
-    });
     #[cfg(unix)]
     if let Err(error) = cmux_git::native_hook::wait(
         &args.source,
@@ -134,6 +138,13 @@ fn run_reading(
         println!("{}", cmux_git::native_hook::denial(&error.to_string()));
         return Ok(());
     }
+    if nested {
+        inbox::print_nothing(inbox::Delivery::for_event(&args.source, &args.native_event));
+        return Ok(());
+    }
+    plugin_copy::claim_terminal(&args.source, &args.native_event, session, |name| {
+        env::var_os(name)
+    });
     let result = run_after_ready(&args, exe_prefix, native);
     if result.is_err()
         && args.native_event == "PreToolUse"

@@ -11,16 +11,19 @@
 //! shim's wrapper removes the plugin from the folders it passes on, since its
 //! own `--settings` carries the hooks.
 //!
-//! Claude Code passes its environment, the plugin folder too, to the commands
-//! its tools run, so a Claude that such a command starts (`claude -p` in a
-//! Bash tool call) would report to the same terminal and take the messages
-//! queued for the terminal's agent. The plugin copy's `SessionStart` claims
-//! the terminal for its session: it appends
-//! `export CMUX_TUI_CLAUDE_OWNER=<terminal>/<session>` to Claude Code's
-//! `CLAUDE_ENV_FILE`, which Claude Code sources before each Bash tool command
-//! (its own hooks do not see it: Claude Code 2.1.319). A plugin copy that
-//! finds a claim for its terminal by another session does nothing. A Claude in another terminal
-//! (`cmux agent start` from a tool command) reports to its own terminal.
+//! Claude Code passes its environment, the plugin folder and the terminal's
+//! variables too, to the commands its tools run, so a Claude that such a
+//! command starts (`claude -p` in a Bash tool call) would report to the same
+//! terminal and take the messages queued for the terminal's agent, through the
+//! plugin, the installed hooks or the shim's hooks. So the copy of the hooks
+//! that reports `SessionStart` claims the terminal for its session: it
+//! appends `export CMUX_TUI_CLAUDE_OWNER=<terminal>/<session>` to Claude
+//! Code's `CLAUDE_ENV_FILE`, which Claude Code sources before each Bash tool
+//! command (its own hooks do not see it: Claude Code 2.1.319 names the file
+//! and leaves creating it to the hook). Any copy of a Claude hook that finds a
+//! claim for its terminal by another session does nothing. A Claude in
+//! another terminal (`cmux agent start` from a tool command) reports to its
+//! own terminal.
 
 use std::ffi::OsString;
 use std::io::{Read as _, Write as _};
@@ -45,10 +48,10 @@ const HOOKS_DISABLED_ENV: &str = "CMUX_TUI_CLAUDE_HOOKS_DISABLED";
 /// Settings files are small; a larger one is not read.
 const MAX_SETTINGS_BYTES: u64 = 16 * 1024 * 1024;
 
-/// Whether this run is the plugin copy of a Claude hook that must do nothing:
-/// cmux-tui's Claude hooks are turned off, another session's Claude claimed
-/// this terminal (this Claude runs under its tool), or the installed copy of
-/// the same event runs in this Claude too. `session` is the hook's
+/// Whether this run of a Claude hook must do nothing: another session's
+/// Claude claimed this terminal (this Claude runs under its tool), or it is
+/// the plugin copy and cmux-tui's Claude hooks are turned off or the installed
+/// copy of the same event runs in this Claude too. `session` is the hook's
 /// `session_id`.
 pub(super) fn stands_down(
     source: &str,
@@ -56,33 +59,53 @@ pub(super) fn stands_down(
     session: Option<&str>,
     getenv: impl Fn(&str) -> Option<OsString>,
 ) -> bool {
+    if source != "claude" {
+        return false;
+    }
+    if claimed_by_another(session, &getenv) {
+        return true;
+    }
     if !is_plugin_copy(source, &getenv) {
         return false;
     }
     if getenv(HOOKS_DISABLED_ENV).is_some_and(|value| value == "1") {
         return true;
     }
-    if let Some((terminal, owner)) = claim(&getenv)
-        && terminal_of(&getenv).as_deref() == Some(terminal.as_str())
-        && session != Some(owner.as_str())
-    {
-        return true;
-    }
     installed_copy_runs(&getenv)
         && user_settings(&getenv).is_some_and(|path| installs_event(&path, native_event))
 }
 
-/// After a plugin copy's `SessionStart` that reports: claims the terminal for
-/// `session` in `CLAUDE_ENV_FILE`, so the Claudes its tool commands start
-/// stand down (a later claim, after `/clear`, replaces it). Does nothing when
-/// an id holds anything but letters, digits, `-` and `_`.
+/// Whether this run is a Claude hook whose environment claims its terminal
+/// for another session (the part of [`stands_down`] that also holds for the
+/// installed and the shim's copies).
+pub(super) fn claimed_elsewhere(
+    source: &str,
+    session: Option<&str>,
+    getenv: impl Fn(&str) -> Option<OsString>,
+) -> bool {
+    source == "claude" && claimed_by_another(session, &getenv)
+}
+
+/// Whether this environment claims its terminal for a session other than
+/// `session`.
+fn claimed_by_another(session: Option<&str>, getenv: &impl Fn(&str) -> Option<OsString>) -> bool {
+    claim(getenv).is_some_and(|(terminal, owner)| {
+        terminal_of(getenv).as_deref() == Some(terminal.as_str()) && session != Some(owner.as_str())
+    })
+}
+
+/// After a Claude `SessionStart` that reports (any copy: the plugin, the
+/// installed hooks or the shim's): claims the terminal for `session` in
+/// `CLAUDE_ENV_FILE`, created when missing, so the Claudes its tool commands
+/// start stand down (a later claim, after `/clear`, replaces it). Does nothing
+/// when an id holds anything but letters, digits, `-` and `_`.
 pub(super) fn claim_terminal(
     source: &str,
     native_event: &str,
     session: Option<&str>,
     getenv: impl Fn(&str) -> Option<OsString>,
 ) {
-    if native_event != "SessionStart" || !is_plugin_copy(source, &getenv) {
+    if source != "claude" || native_event != "SessionStart" {
         return;
     }
     let plain = |id: &&str| {
@@ -102,10 +125,12 @@ pub(super) fn claim_terminal(
     let line = format!("export {OWNER_ENV}={terminal}/{session}\n");
     let _ = std::fs::OpenOptions::new()
         .append(true)
+        .create(true)
         .open(file)
         .and_then(|mut file| file.write_all(line.as_bytes()));
 }
 
+/// Whether this run is the plugin's copy of a Claude hook.
 fn is_plugin_copy(source: &str, getenv: &impl Fn(&str) -> Option<OsString>) -> bool {
     source == "claude" && getenv(ORIGIN_ENV).is_some_and(|origin| origin == PLUGIN_ORIGIN)
 }

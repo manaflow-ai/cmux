@@ -1,26 +1,34 @@
-//! The cmux-tui Claude Code plugin an agent must not inherit.
+//! Which Claude Code plugin folders are cmux-tui's: the one rule for acpmux
+//! and cmux-tui (which depends on acpmux).
 //!
 //! A cmux-tui pane names its build's Claude Code plugin in
 //! `CLAUDE_CODE_PLUGIN_DIRS` (cmux-tui `claude_plugin.rs`), whose hooks report
 //! to that pane. A daemon started in such a pane inherits the variable; its
 //! agents run in no pane, so `agent/command.rs` takes the plugin out of the
-//! agent's list and keeps every other folder.
+//! agent's list and keeps every other folder. cmux-tui uses the same rule to
+//! replace another build's plugin in a pane and to drop its own plugin where
+//! the shim's `--settings` carry the hooks.
 
 use std::ffi::{OsStr, OsString};
 use std::io::Read as _;
 use std::path::Path;
 
-/// The variable Claude Code reads plugin folders from (`:`-separated).
-pub(crate) const CLAUDE_PLUGIN_DIRS_ENV: &str = "CLAUDE_CODE_PLUGIN_DIRS";
+/// The variable Claude Code reads plugin folders from (`:`-separated,
+/// absolute paths only).
+pub const CLAUDE_PLUGIN_DIRS_ENV: &str = "CLAUDE_CODE_PLUGIN_DIRS";
 /// The name in a cmux-tui plugin's manifest.
-const PLUGIN_NAME: &str = "cmux-tui";
+pub const PLUGIN_NAME: &str = "cmux-tui";
+/// The folder a cmux-tui build writes its plugin into, inside its build
+/// folder (`<data>/cmux-tui/builds/<build>/claude-plugin`).
+pub const PLUGIN_FOLDER: &str = "claude-plugin";
 /// A plugin's manifest, inside its folder.
-const MANIFEST: &str = ".claude-plugin/plugin.json";
+pub const MANIFEST: &str = ".claude-plugin/plugin.json";
 /// Manifests are small; a larger file is not read.
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 
-/// `value` without cmux-tui plugin folders; `None` when no folder is left.
-pub(crate) fn without_cmux_tui_plugins(value: &OsStr) -> Option<OsString> {
+/// `value` (a `CLAUDE_CODE_PLUGIN_DIRS` list) without cmux-tui plugin
+/// folders or empty entries; `None` when no folder is left.
+pub fn without_cmux_tui_plugins(value: &OsStr) -> Option<OsString> {
     let kept: Vec<_> = std::env::split_paths(value)
         .filter(|folder| !folder.as_os_str().is_empty() && !is_cmux_tui_plugin(folder))
         .collect();
@@ -33,12 +41,12 @@ pub(crate) fn without_cmux_tui_plugins(value: &OsStr) -> Option<OsString> {
 /// Whether `folder` is a cmux-tui plugin: a build's plugin folder
 /// (`…/cmux-tui/builds/<build>/claude-plugin`, which holds for a build
 /// deleted since), or a folder whose manifest names it `cmux-tui`.
-fn is_cmux_tui_plugin(folder: &Path) -> bool {
+pub fn is_cmux_tui_plugin(folder: &Path) -> bool {
     let builds = folder.parent().and_then(Path::parent);
     let named = |path: Option<&Path>, name: &str| {
         path.and_then(Path::file_name).is_some_and(|file| file == name)
     };
-    if named(Some(folder), "claude-plugin")
+    if named(Some(folder), PLUGIN_FOLDER)
         && named(builds, "builds")
         && named(builds.and_then(Path::parent), "cmux-tui")
     {

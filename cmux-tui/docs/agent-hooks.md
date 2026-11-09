@@ -112,17 +112,21 @@ Claude Code 2.1 reads under any config directory and beside any
   it (only what screen detection finds). Remove the installed hooks
   (`agent hook uninstall claude`) or keep `user` in the sources to get the
   plugin's hooks.
-- Claude Code gives its tool commands its environment, the plugin folder too.
-  A Claude that a tool command starts (`claude -p` in a Bash call) would
-  report to the same terminal and take the messages queued for the
-  terminal's agent. So the plugin's `SessionStart` appends
+- Claude Code gives its tool commands its environment: the plugin folder,
+  `CMUX_TUI_HOOK` and the terminal's variables. A Claude that a tool command
+  starts (`claude -p` in a Bash call) would report to the same terminal and
+  take the messages queued for the terminal's agent, through the plugin, the
+  installed hooks or the shim's hooks. So the copy of the hooks that reports
+  `SessionStart` (whichever it is) appends
   `export CMUX_TUI_CLAUDE_OWNER=<terminal>/<session>` to Claude Code's
-  `CLAUDE_ENV_FILE`, which Claude Code sources before each Bash tool command.
-  The plugin's hooks do nothing in a Claude whose environment names its
-  terminal and another session, so the terminal's session, last reply and
-  messages stay the outer Claude's. A Claude started with
-  `cmux agent start` from a tool command runs in its own terminal and
-  reports there.
+  `CLAUDE_ENV_FILE` (creating it), which Claude Code sources before each Bash
+  tool command. Every copy of the Claude hooks does nothing in a Claude whose
+  environment names its terminal and another session, so the terminal's
+  session, last reply and messages stay the outer Claude's. A Claude started
+  with `cmux agent start` from a tool command runs in its own terminal and
+  reports there. The shim's fallback when no hook helper is found
+  (`cmux-tui agent hook emit`) records events only, delivers no messages, and
+  does not read the claim; the terminal keeps its first live session.
 - The wrapper removes the plugin from the folders it passes on, because its
   `--settings` already carries the same hooks. Other plugin folders stay.
 - `CMUX_TUI_CLAUDE_HOOKS_DISABLED=1` turns the plugin's hooks off. Set in the

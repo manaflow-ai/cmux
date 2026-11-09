@@ -65,10 +65,10 @@ use std::path::{Path, PathBuf};
 use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
-mod claude_plugin_dirs;
+pub mod claude_plugin_dirs;
 mod cua_helper;
 
-pub(crate) use claude_plugin_dirs::{CLAUDE_PLUGIN_DIRS_ENV, without_cmux_tui_plugins};
+pub use claude_plugin_dirs::{CLAUDE_PLUGIN_DIRS_ENV, without_cmux_tui_plugins};
 
 /// Directory that overrides where the cmux binaries are looked up.
 pub const BIN_DIR_ENV: &str = "CMUX_AGENT_TOOLS_BIN_DIR";
