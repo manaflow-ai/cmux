@@ -263,6 +263,7 @@ pub fn install_wrapper(path: &std::path::Path, script: &str) -> std::io::Result<
     // Private state, as every folder in the acpmux home: owner-only, and refused when another
     // user could write it or an ancestor (F1 of #39020): they could swap the script agents run.
     crate::config::private_state_dir(dir).map_err(|e| std::io::Error::other(format!("{e:#}")))?;
+    remove_dead_temporaries(dir);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = dir.join(format!(".{CLI_ALIAS}.{}.{n}.tmp", std::process::id()));
     let written = (|| {
@@ -278,6 +279,34 @@ pub fn install_wrapper(path: &std::path::Path, script: &str) -> std::io::Result<
         let _ = std::fs::remove_file(&tmp);
     }
     written
+}
+
+/// Removes the temporary wrappers (`.acpmux.<pid>.<n>.tmp`) in `dir` whose writer process is
+/// gone: one that died between its create and its rename left it there (F5 of #39020). A live
+/// writer's file stays: it is about to be renamed.
+#[cfg(unix)]
+fn remove_dead_temporaries(dir: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let prefix = format!(".{CLI_ALIAS}.");
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(pid) = name
+            .to_str()
+            .and_then(|n| n.strip_prefix(prefix.as_str()))
+            .and_then(|n| n.strip_suffix(".tmp"))
+            .and_then(|n| n.split_once('.'))
+            .and_then(|(pid, n)| n.parse::<u64>().ok().and(pid.parse::<libc::pid_t>().ok()))
+        else {
+            continue;
+        };
+        // SAFETY: kill with signal 0 only checks that the process exists.
+        let gone = pid > 0
+            && unsafe { libc::kill(pid, 0) } == -1
+            && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
+        if gone {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }
 
 /// [`install_wrapper`] where a shell script cannot run: refused, so [`BIN_ENV`] is not set.
