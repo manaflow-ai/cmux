@@ -55,14 +55,15 @@ test("an ended time with no end time stops where it ended", async () => {
   await act(async () => setEnded(true));
   const stopped = host.textContent;
   expect(stopped).toBeTruthy();
-  // Two of the page clock's seconds go by: each would have drawn a running time again.
+  // Two of the page clock's seconds go by: each would have drawn a running time again. (A subscriber
+  // is called once at once, with the clock's last sample: that call is not a second.)
   const { subscribePageSecond } = await import("../src/ui/pageClock");
   await act(
     async () =>
       new Promise<void>((resolve) => {
-        let seconds = 0;
+        let calls = 0;
         const stop = subscribePageSecond(() => {
-          if (++seconds < 2) return;
+          if (++calls < 3) return;
           stop();
           resolve();
         });
@@ -88,5 +89,49 @@ test("the environment pick is the same object until the chat or the pick changes
   expect(new Set(picks).size, "a pane render made a new pick").toBe(1);
   await act(async () => root.render(<Probe chat="b" />));
   expect(new Set(picks).size).toBeGreaterThan(1);
+  await act(async () => root.unmount());
+});
+
+test("a time that mounts between two ticks shows the same now as the times already there", async () => {
+  const { usePageNow } = await import("../src/ui/pageClock");
+  const shown = new Map<string, number>();
+  function Now({ name }: { name: string }) {
+    const now = usePageNow(true);
+    shown.set(name, now);
+    return String(now);
+  }
+  let open: (on: boolean) => void = () => {};
+  function Probe() {
+    const [opened, set] = useState(false);
+    open = set;
+    // The hat's header ticks; its lines mount when it opens, between two of the clock's seconds.
+    return (
+      <>
+        <Now name="header" />
+        {opened ? <Now name="line" /> : null}
+      </>
+    );
+  }
+  const { root } = await mount(<Probe />);
+  const { subscribePageSecond } = await import("../src/ui/pageClock");
+  // One second goes by, then part of the next: a fresh read now would be a later time than the header's.
+  await act(
+    async () =>
+      new Promise<void>((resolve) => {
+        let calls = 0;
+        const stop = subscribePageSecond(() => {
+          if (++calls < 2) return;
+          stop();
+          // Frames go by until the wall clock is 50 ms past the tick.
+          const tick = Date.now();
+          const frame = () => (Date.now() - tick >= 50 ? resolve() : requestAnimationFrame(frame));
+          frame();
+        });
+      }),
+  );
+  await act(async () => open(true));
+  expect(shown.get("line"), "a line that opened between ticks read a later now than its header").toBe(
+    shown.get("header"),
+  );
   await act(async () => root.unmount());
 });
