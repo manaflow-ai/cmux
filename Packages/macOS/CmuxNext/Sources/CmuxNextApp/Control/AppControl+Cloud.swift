@@ -210,7 +210,7 @@ extension AppControl {
         // else) says nothing about the run: `bad_response`, which the CLI treats as "the run may
         // exist" on a create, waits through on a wait, and as no answer on a cancel.
         guard let answer = try? JSONValue.parse(data), case .object = answer else {
-            throw ControlError(code: "bad_response", message: String(localized: "runs.error.badResponse", defaultValue: "cmux.com sent an answer the app couldn't read.", table: "Runs", bundle: .module))
+            throw ControlError(code: "bad_response", message: String(localized: "runs.error.badResponse", defaultValue: "The cmux daemon sent an answer the app couldn't read.", table: "Runs", bundle: .module))
         }
         return answer
     }
@@ -220,7 +220,7 @@ extension AppControl {
         let notSignedIn = String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app.", table: "Runs", bundle: .module)
         switch error {
         case .notSignedIn: return ControlError(code: "not_signed_in", message: notSignedIn)
-        case .timedOut: return ControlError(code: "timeout", message: String(localized: "runs.error.timeout", defaultValue: "cmux.com didn't answer in time.", table: "Runs", bundle: .module))
+        case .timedOut: return ControlError(code: "timeout", message: String(localized: "runs.error.timeout", defaultValue: "The cmux daemon didn't answer in time.", table: "Runs", bundle: .module))
         // An expired or revoked session: sign in again (the CLI's exit 3), not a failed run.
         case .http(401, _, _, _, _): return ControlError(code: "not_signed_in", message: notSignedIn)
         case .http(_, "run_sandbox_unavailable", _, _, _): return ControlError(code: "run_sandbox_unavailable", message: String(localized: "runs.error.sandboxUnavailable", defaultValue: "Sandboxed runs are not enabled for this cmux Cloud account yet.", table: "Runs", bundle: .module))
