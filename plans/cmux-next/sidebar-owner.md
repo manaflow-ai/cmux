@@ -9,6 +9,13 @@
   header, nor scrolls to the end past collapsed groups below; a known workspace listed again (a collapsed group's
   member) animates into its gap instead of the new-row snap. Regression: `SidebarStepThroughGroupsTests`,
   `ShortcutHintSidebarSlotsTests`, `SidebarRevealSelectionTests`.
+- 2026-11-09: a row patch with the list attached copies no node list. Leo, verbatim: "never ... acceptable ...
+  linear time growth degradation". `patchRowsNow` cached the model's section and group again on each patch, so the
+  list's cache shared the model's storage and the model's next in-place write copied the section's whole node list.
+  The list now writes the patched row into its own cached section and group in place (`SidebarSection.setRow`).
+  Regression: `SidebarListPatchCopyTests` (a real `SidebarListView` attached, elements copied per patch).
+  dcb21bf3e42 (review F1 of #39638: write into the cached section only when the same node sits at that place) has no
+  visual change; it reached the branch without its `Sidebar-Look:` trailer.
 - 2026-11-09: a multi-selection drags as one stack of its rows, as a browser's vertical tabs do. Leo,
   verbatim (2026-11-08, ask-2ba1bed2e4, screen recordings of ours beside a browser's): "ours vs edge's group moving i
   think we need to make ours more like edge and chrome". The card carried only the pressed row and a count badge
