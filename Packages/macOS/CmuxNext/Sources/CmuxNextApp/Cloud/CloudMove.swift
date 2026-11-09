@@ -345,10 +345,9 @@ struct CloudMove {
         CloudMoveStrings.notConnected(session.machine.title)
     }
 
-    /// Opens a moved chat (Move to Cloud's, Bring Back Local's) on `daemon`, bound to `shown.session` through `host`: a new
-    /// workspace placed like Cmd-N, its terminal in `shown.folder`, then the chat's tab (made once: `mutation` + `shown.key`),
-    /// selected. Each window that showed `tab`, the chat's tab the move leaves, shows it in its place even for a run that may
-    /// not change the view (a CLI move with no `--focus`), as focus follows a moved tab; else only a run that may shows it.
+    /// Opens a moved chat (Move to Cloud's, Bring Back Local's) on `daemon`, bound to `shown.session` through `host`: a workspace placed
+    /// like Cmd-N, its terminal in `shown.folder`, then the chat's tab (made once: `mutation` + `shown.key`), selected. Each window that
+    /// showed `tab`, the tab the chat leaves, shows it there even for a run with no `--focus`, as focus follows a moved tab.
     static func open(_ shown: CloudMoveRetries.Shown, host: String?, hostName: String?, on daemon: DaemonService, repair: EmptyWorkspaceRepair,
                      mutation: String, leaving tab: TabModel, services: AppServices) async throws {
         guard let connection = daemon.connection, let host else { throw DaemonError.notConnected }
@@ -361,8 +360,7 @@ struct CloudMove {
         }
         let keeping = services.windows.controllers.filter { shows(tab, in: $0.state, services: services) }.map(\.state.id)
         if keeping.isEmpty { services.windows.reveal(workspaceID: workspace.rawValue) }
-        ActionRunScope.carrying(ActionRunScope(origin: ActionRunScope.current?.origin ?? .user, allowsViewChange: true)) {
-            keeping.forEach { services.windows.show(workspaceID: workspace.rawValue, inWindow: $0) } }
+        ActionRunScope.carrying(ActionRunScope(origin: ActionRunScope.current?.origin ?? .user, allowsViewChange: true)) { keeping.forEach { services.windows.show(workspaceID: workspace.rawValue, inWindow: $0) } }
         let opened = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)", pane = await daemon.store.firstPane(mirroring: workspace)
         for window in services.windows.controllers { if let pane { window.state.selection.select(opened, in: pane.id) } }
     }
