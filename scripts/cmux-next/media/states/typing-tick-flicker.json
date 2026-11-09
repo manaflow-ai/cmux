@@ -1,162 +1,57 @@
 {
- "title": "Typing and tick flicker check (cmux#39104, cmux#39142): a fake-harness agent chat with eight turns of history and a running turn beside background subagent bg-1 (the composer's hat ticks its time), the transcript scrolled up, twenty characters typed into the composer at a person's pace, then eight more seconds of scrolling while the time ticks. The tab's and the workspace row's unread dots must not blink per key, and the composer and the hat must hold still but for the time digits. Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/typing-tick-flicker.json --video",
- "fakeHarness": true,
+ "title": "Typing and tick flicker check (cmux#39104, cmux#39142), in the showcase window (its sidebar rows and agent tab carry unread dots): a 300-turn agent chat scrolled up, twenty characters typed into the composer at a person's pace, more scrolling, then the subagents fixture's running subagents in the composer's hat, its time ticking, with more typing and six still seconds. The tab's and the workspace row's dots must not blink per key, and the composer and the hat must hold still but for the time digits. Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/typing-tick-flicker.json --video",
+ "launch_args": [
+  "--showcase"
+ ],
  "frameInterval": 0.25,
  "steps": [
   {
-   "title": "Launch",
-   "wait": 2,
-   "shot": false
-  },
-  {
-   "title": "Open an agent chat",
+   "title": "Showcase window: workspaces, an agent chat tab, unread notifications",
    "rpc": {
-    "method": "action.run",
+    "method": "debug.showcase.seed",
     "params": {
-     "action": "palette.newAgentChat",
      "focus": true
     }
    },
+   "wait": 6
+  },
+  {
+   "title": "Agent page ready",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "readiness"
+    }
+   },
+   "optional": "the page may still be loading",
    "wait": 2,
    "shot": false
   },
   {
-   "title": "Start the isolated fake harness",
+   "title": "Agent page ready (retry)",
    "rpc": {
     "method": "debug.agent_pane",
     "params": {
-     "action": "new_chat",
-     "harness": "fake"
+     "action": "readiness"
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "A long transcript: a 300-turn session (showcase mock daemon, loadFixture.ts)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "load_seed",
+     "turns": 300
     }
    },
    "record": true,
-   "wait": 2,
-   "shot": false
+   "wait": 2
   },
   {
-   "title": "History turn 1 (the fake harness echoes it)",
-   "rpc": {
-    "method": "debug.agent_pane",
-    "params": {
-     "action": "send_prompt",
-     "text": "Step 1: read the build log, list each warning with its file and line, then group the warnings by crate. Keep the list short; name the three noisiest crates first and say which warnings came back since yesterday."
-    }
-   },
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "History turn 2 (the fake harness echoes it)",
-   "rpc": {
-    "method": "debug.agent_pane",
-    "params": {
-     "action": "send_prompt",
-     "text": "Step 2: read the build log, list each warning with its file and line, then group the warnings by crate. Keep the list short; name the three noisiest crates first and say which warnings came back since yesterday."
-    }
-   },
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "History turn 3 (the fake harness echoes it)",
-   "rpc": {
-    "method": "debug.agent_pane",
-    "params": {
-     "action": "send_prompt",
-     "text": "Step 3: read the build log, list each warning with its file and line, then group the warnings by crate. Keep the list short; name the three noisiest crates first and say which warnings came back since yesterday."
-    }
-   },
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "History turn 4 (the fake harness echoes it)",
-   "rpc": {
-    "method": "debug.agent_pane",
-    "params": {
-     "action": "send_prompt",
-     "text": "Step 4: read the build log, list each warning with its file and line, then group the warnings by crate. Keep the list short; name the three noisiest crates first and say which warnings came back since yesterday."
-    }
-   },
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "History turn 5 (the fake harness echoes it)",
-   "rpc": {
-    "method": "debug.agent_pane",
-    "params": {
-     "action": "send_prompt",
-     "text": "Step 5: read the build log, list each warning with its file and line, then group the warnings by crate. Keep the list short; name the three noisiest crates first and say which warnings came back since yesterday."
-    }
-   },
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "History turn 6 (the fake harness echoes it)",
-   "rpc": {
-    "method": "debug.agent_pane",
-    "params": {
-     "action": "send_prompt",
-     "text": "Step 6: read the build log, list each warning with its file and line, then group the warnings by crate. Keep the list short; name the three noisiest crates first and say which warnings came back since yesterday."
-    }
-   },
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "History turn 7 (the fake harness echoes it)",
-   "rpc": {
-    "method": "debug.agent_pane",
-    "params": {
-     "action": "send_prompt",
-     "text": "Step 7: read the build log, list each warning with its file and line, then group the warnings by crate. Keep the list short; name the three noisiest crates first and say which warnings came back since yesterday."
-    }
-   },
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "History turn 8 (the fake harness echoes it)",
-   "rpc": {
-    "method": "debug.agent_pane",
-    "params": {
-     "action": "send_prompt",
-     "text": "Step 8: read the build log, list each warning with its file and line, then group the warnings by crate. Keep the list short; name the three noisiest crates first and say which warnings came back since yesterday."
-    }
-   },
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "An unread notification for the session",
-   "daemon": true,
-   "cmux": [
-    "notify",
-    "--title",
-    "Build",
-    "--body",
-    "unread"
-   ],
-   "optional": "notify targets the session's terminal or workspace, not the chat tab",
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "A running turn: background subagent bg-1 in the composer's hat (its time ticks) and a tool call every 100 ms for 60 s",
-   "rpc": {
-    "method": "debug.agent_pane",
-    "params": {
-     "action": "send_prompt",
-     "text": "works-through-cancel-beside-background"
-    }
-   },
-   "record": true,
-   "wait": 3
-  },
-  {
-   "title": "Scroll the transcript up to its top",
+   "title": "Scroll the transcript up",
    "rpc": {
     "method": "debug.agent_pane",
     "params": {
@@ -352,20 +247,153 @@
    "wait": 1
   },
   {
-   "title": "Keep scrolling for eight seconds while the hat's time ticks",
+   "title": "Keep scrolling while the session list ticks",
    "rpc": {
     "method": "debug.agent_pane",
     "params": {
      "action": "fling",
-     "seconds": 8,
+     "seconds": 4,
      "wait": true
     }
    },
    "record": true,
-   "wait": 1
+   "wait": 0.5
   },
   {
-   "title": "The turn still running",
+   "title": "Two background subagents run: the composer's hat shows them, its time ticking each second",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "seed_rows",
+     "fixture": "subagents",
+     "count": 1,
+     "agents": 3
+    }
+   },
+   "record": true,
+   "wait": 2
+  },
+  {
+   "title": "Focus the composer under the ticking hat",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "focus_composer"
+    }
+   },
+   "wait": 0.3,
+   "shot": false
+  },
+  {
+   "title": "Type ' ' (1/13) under the hat",
+   "key": "space",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 'a' (2/13) under the hat",
+   "key": "a",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 'n' (3/13) under the hat",
+   "key": "n",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 'd' (4/13) under the hat",
+   "key": "d",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type ' ' (5/13) under the hat",
+   "key": "space",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 't' (6/13) under the hat",
+   "key": "t",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 'h' (7/13) under the hat",
+   "key": "h",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 'e' (8/13) under the hat",
+   "key": "e",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type ' ' (9/13) under the hat",
+   "key": "space",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 't' (10/13) under the hat",
+   "key": "t",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 'r' (11/13) under the hat",
+   "key": "r",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 'a' (12/13) under the hat",
+   "key": "a",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 'y' (13/13) under the hat",
+   "key": "y",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "The hat ticks for six seconds while nothing else changes",
+   "wait": 6
+  },
+  {
+   "title": "The chat state at the end",
    "rpc": {
     "method": "debug.agent_pane",
     "params": {
@@ -373,7 +401,7 @@
     }
    },
    "record": "file",
-   "wait": 1
+   "wait": 0.5
   }
  ]
 }
