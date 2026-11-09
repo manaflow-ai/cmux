@@ -121,10 +121,30 @@ function closedOver(sessionId: string, key: string, closedBy: string): boolean {
   return true;
 }
 
+/// Whether the reader opened a line in `inherits` (joined with "\n") after they last set `key`, or
+/// opened one and never set `key`: then `key` reads open, over `closedOver` too. A line the reader
+/// opened stays open when another takes its place: an MCP group they opened in a run whose other
+/// groups they closed one by one keeps the run's line open at the turn's end. An earlier opening loses
+/// to a later choice on `key`, as `closedOver` orders them.
+function openedOver(sessionId: string, key: string, inherits: string): boolean {
+  if (inherits === "") return false;
+  const opened = new Set(inherits.split("\n").filter((line) => read(sessionId, line) === true));
+  if (opened.size === 0) return false;
+  const session = load().get(sessionId)!;
+  if (session.get(key) === undefined) return true;
+  let after = false;
+  for (const stored of session.keys()) {
+    if (stored === key) after = true;
+    else if (after && opened.has(stored)) return true;
+  }
+  return false;
+}
+
 /// How a disclosure follows the lines it takes the place of, or that take its place, as calls arrive
 /// and a turn ends (TurnRows.tsx): a run's line and the group lines it grows from or splits into.
 export type DisclosureLinks = {
-  /// Keys of the lines this one replaced: one the reader opened opens this one until they set it.
+  /// Keys of the lines this one replaced: one the reader opened opens this one until they set it, and
+  /// one they opened after setting it opens it again (`openedOver`).
   inherits?: readonly string[];
   /// Keys this line hands the reader's choice to, those of them the reader had set: a run's line to
   /// the group lines it splits back into, so a line they closed never reopens as one of those.
@@ -164,8 +184,9 @@ export function useTranscriptDisclosure(
   const by = (links.closedBy ?? NONE).join("\n");
   const current = useCallback(
     () =>
-      !closedOver(sessionId, key, by) &&
-      (read(sessionId, key) ?? (opens || inherited(sessionId, from) || inherited(sessionId, held))),
+      openedOver(sessionId, key, from) ||
+      (!closedOver(sessionId, key, by) &&
+        (read(sessionId, key) ?? (opens || inherited(sessionId, from) || inherited(sessionId, held)))),
     [sessionId, key, opens, from, held, by],
   );
   const open = useSyncExternalStore(subscribe, current, () => opens);

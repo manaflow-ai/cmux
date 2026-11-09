@@ -150,7 +150,10 @@ const ListedTunnel = Schema.Struct({
   displayName: Schema.optional(Schema.NullOr(Schema.String)),
   attachments: Schema.optional(Schema.NullOr(Schema.Array(Schema.Struct({ vpcId: Schema.optional(Schema.NullOr(Schema.String)) })))),
 });
-const TunnelList = Schema.Struct({ tunnels: Schema.Array(ListedTunnel) });
+/** The tunnel listing's bounds: one tunnel (its WireGuard config and attachments) and the whole reply, in characters. */
+const MAX_TUNNEL_CHARS = 64 * 1024;
+const MAX_LISTING_CHARS = 512 * 1024 * 1024;
+const LIST_TIMEOUT_MS = 60_000;
 
 /** A device tunnel at the provider, by the tenant and device its slug and name say made it. */
 export interface TunnelOwner {
@@ -220,22 +223,30 @@ const ownerOf = (environment: UpstreamConfig["environment"], tunnel: Schema.Sche
  * Before any delete it also checks the rule every found-tunnel delete checks (src/upstream/tunnel-attachment.ts): the
  * tunnel is attached to exactly its mesh's network. One that is not (a revoke refused it for that reason, and its
  * tombstone named it here) is skipped and reported, never deleted.
- * The listing is complete (the provider does not page it), and only exact provider ids from it are deleted.
+ * The provider does not page the listing, so it is read as it streams (src/upstream/json-items.ts) rather than through
+ * the 1 MiB cap of a whole reply: a large account's listing never disables the sweep. Only exact provider ids from it are
+ * deleted.
  */
 export const sweepOrphanTunnels = <E, R>(config: UpstreamConfig, options: TunnelSweepOptions<E, R>) =>
   Effect.gen(function* () {
     const http = makeUpstreamHttp(config);
-    const body = yield* http.json("listOrphanTunnels", "GET", "/v5/tunnels").pipe(
-      Effect.flatMap(Schema.decodeUnknown(TunnelList)),
-      Effect.mapError((error) => (error instanceof UpstreamError ? error : new UpstreamError({ operation: "listOrphanTunnels", status: null }))),
+    // The provider does not page this listing: it is read as it streams, keeping only this environment's device tunnels.
+    const listed = yield* http.items(
+      "listOrphanTunnels",
+      "/v5/tunnels",
+      "tunnels",
+      (item): OrphanTunnel | null => {
+        const tunnel = Schema.decodeUnknownOption(ListedTunnel)(item);
+        if (Option.isNone(tunnel)) return null;
+        const owner = ownerOf(config.environment, tunnel.value);
+        const upstreamId = tunnel.value.id ?? tunnel.value.tunnelId ?? null;
+        if (owner === null || upstreamId === null) return null;
+        return { ...owner, upstreamId, networks: (tunnel.value.attachments ?? []).map((attachment) => attachment.vpcId ?? null) };
+      },
+      { timeoutMs: LIST_TIMEOUT_MS, maxItemChars: MAX_TUNNEL_CHARS, maxChars: MAX_LISTING_CHARS },
     );
     const candidates = new Map<string, OrphanTunnel>();
-    for (const tunnel of body.tunnels) {
-      const owner = ownerOf(config.environment, tunnel);
-      const upstreamId = tunnel.id ?? tunnel.tunnelId ?? null;
-      if (owner === null || upstreamId === null) continue;
-      candidates.set(upstreamId, { ...owner, upstreamId, networks: (tunnel.attachments ?? []).map((attachment) => attachment.vpcId ?? null) });
-    }
+    for (const tunnel of listed) if (tunnel !== null) candidates.set(tunnel.upstreamId, tunnel);
     const all = [...candidates.values()];
     const sweepable = new Map<string, string>();
     for (let index = 0; index < all.length; index += LOOKUP_BATCH) {
