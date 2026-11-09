@@ -99,3 +99,37 @@ fn a_small_synthetic_registry_opens_and_refolds_to_the_same_roster() {
     assert_eq!(refolded["hook_fences"], generated["hook_fences"]);
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// Bumping an existing registry sets only the roster version one behind,
+/// as the generator's own bump writes it; a registry without a roster
+/// snapshot is left alone.
+#[test]
+fn bumping_an_existing_registry_keeps_its_roster_cursor_and_snapshot() {
+    let root = temp_root("bump");
+    let options = SynthOptions {
+        session: "synth-bump".into(),
+        session_puts: 40,
+        agent_events: 20,
+        workspaces: 1,
+        batch_rows: 16,
+        ..SynthOptions::default()
+    };
+    let report = generate(&root, &options).unwrap();
+    let (version, cursor, snapshot) = roster_meta(&report.registry_path);
+    assert_eq!(version, AGENT_ROSTER_REDUCER_VERSION);
+
+    assert_eq!(bump_roster_version(&report.registry_path).unwrap(), Some(version));
+    let (bumped, bumped_cursor, bumped_snapshot) = roster_meta(&report.registry_path);
+    assert_eq!(bumped, AGENT_ROSTER_REDUCER_VERSION - 1);
+    assert_eq!((bumped_cursor, bumped_snapshot), (cursor, snapshot));
+
+    Connection::open(&report.registry_path)
+        .unwrap()
+        .execute(
+            "DELETE FROM meta WHERE key = ?1",
+            [format!("journal_reducer.{AGENT_ROSTER_REDUCER_ID}")],
+        )
+        .unwrap();
+    assert_eq!(bump_roster_version(&report.registry_path).unwrap(), None);
+    let _ = std::fs::remove_dir_all(root);
+}

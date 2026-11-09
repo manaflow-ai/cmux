@@ -46,7 +46,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
-use rusqlite::{Connection, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -65,6 +65,10 @@ use crate::{
     JournalAuthority, JournalClass, JournalIngress, JournalProducer, JournalReplayPolicy,
     JournalSensitivity, JournalSubject,
 };
+
+/// The agent-roster reducer's current version: a snapshot at another
+/// version is discarded on load and the journal re-folded.
+pub const ROSTER_REDUCER_VERSION: u32 = AGENT_ROSTER_REDUCER_VERSION;
 
 /// Bytes of terminal output per `terminal.output` row.
 const OUTPUT_CHUNK_BYTES: u64 = 4096;
@@ -733,6 +737,43 @@ fn capabilities() -> Value {
 fn transaction_session_id(tx: &Transaction<'_>) -> anyhow::Result<String> {
     tx.query_row("SELECT value FROM meta WHERE key = 'session_public_id'", [], |row| row.get(0))
         .context("read the registry's session id")
+}
+
+/// Set an existing registry's roster snapshot one version behind the
+/// current reducer, as [`SynthOptions::roster_version_bump`] writes it,
+/// keeping its cursor and snapshot, so the next start re-folds the whole
+/// journal. For a copy of a real registry: never the original, which an
+/// owner may be using. Returns the version it had, or `None` (and writes
+/// nothing) when the registry has no roster snapshot.
+pub fn bump_roster_version(registry_path: &Path) -> anyhow::Result<Option<u32>> {
+    let connection = Connection::open_with_flags(
+        registry_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    let raw: Option<String> = connection
+        .query_row(
+            "SELECT value FROM meta WHERE key = ?1",
+            [format!("journal_reducer.{AGENT_ROSTER_REDUCER_ID}")],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(raw) = raw else { return Ok(None) };
+    let value: Value = serde_json::from_str(&raw).context("roster snapshot is not JSON")?;
+    let version = value.get("version").and_then(Value::as_u64).unwrap_or(0) as u32;
+    let cursor = value
+        .get("cursor")
+        .and_then(Value::as_str)
+        .and_then(|cursor| cursor.parse::<u64>().ok())
+        .unwrap_or(0);
+    let snapshot = value.get("snapshot").and_then(Value::as_str).unwrap_or_default();
+    write_journal_reducer_state(
+        &connection,
+        AGENT_ROSTER_REDUCER_ID,
+        AGENT_ROSTER_REDUCER_VERSION - 1,
+        cursor,
+        snapshot,
+    )?;
+    Ok(Some(version))
 }
 
 /// The registry file of `session` below `state_root`.
