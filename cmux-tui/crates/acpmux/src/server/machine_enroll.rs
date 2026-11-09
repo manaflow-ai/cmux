@@ -131,7 +131,8 @@ mod tests {
     async fn refused(m: &str, params: Value) -> Value {
         let mut config = Config::default();
         config.store.mode = StoreMode::Memory;
-        let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
         let hub = crate::hub::Hub::new(config, store);
         let (input, incoming) = mpsc::channel(8);
         let (out, mut output) = mpsc::channel(64);
