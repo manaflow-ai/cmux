@@ -399,6 +399,16 @@ class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
         self.planted_hook(self.repo / ".git/hooks")
         self.assert_own_stale_pin(self.run_step())
 
+    def test_a_check_left_out_of_the_base_extraction_still_runs_the_base_copy(self):
+        # An earlier step's code marks the check export-ignore in .git/info/attributes (git archive then leaves it
+        # out without an error) and rewrites the checkout's copy.
+        (self.repo / ".git/info").mkdir(exist_ok=True)
+        (self.repo / ".git/info/attributes").write_text(
+            "scripts/cmux-next/check-app-ffi-pin.sh export-ignore\nscripts/ci/app_ffi_pin.py export-ignore\n")
+        (self.repo / "scripts/cmux-next/check-app-ffi-pin.sh").write_text(
+            "#!/usr/bin/env bash\necho 'app FFI pin: sources match (planted)'\n")
+        self.assert_own_stale_pin(self.run_step())
+
     def test_the_rollup_sources_no_file_from_the_checkout(self):
         # The pin step continues on error, so the rollup decides the job. Run it as the runner does (the workflow's
         # env, then the step's literal env) after an earlier step rewrote scripts/ci/api_call_log/env.sh, which the
