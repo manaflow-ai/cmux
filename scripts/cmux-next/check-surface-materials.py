@@ -60,52 +60,71 @@ def code_lines(text: str) -> list[str]:
 
 
 def opening_tags(text: str):
-    """Each JSX opening tag: (offset, its text), from `<Name` to the `>` that ends it outside braces and strings."""
+    """Each JSX opening tag: (offset, its whole text, its own attributes, its own comments). Its own attributes are
+    the tag's text outside braces with string contents blanked, so a mark nested in a value (a child element, a
+    string) is not the element's; its own comments are the comments outside braces."""
     for match in TAG_START.finditer(text):
         depth = 0
         quote = ""
+        own: list[str] = []
+        notes: list[str] = []
         index = match.end()
         while index < len(text):
             char = text[index]
-            if not quote and text.startswith("//", index):
-                end = text.find("\n", index)
-                index = len(text) if end < 0 else end
-                continue
-            if not quote and text.startswith("/*", index):
-                end = text.find("*/", index + 2)
-                index = len(text) if end < 0 else end + 2
+            if not quote and text.startswith(("//", "/*"), index):
+                block = text.startswith("/*", index)
+                end = text.find("*/" if block else "\n", index + 2)
+                end = len(text) if end < 0 else end + (2 if block else 0)
+                if depth == 0:
+                    notes.append(text[index:end])
+                index = end
                 continue
             if quote:
                 if char == "\\":
                     index += 1
                 elif char == quote:
                     quote = ""
+                    if depth == 0:
+                        own.append(char)
             elif char in "\"'`":
                 quote = char
+                if depth == 0:
+                    own.append(char)
             elif char == "{":
                 depth += 1
             elif char == "}":
                 depth -= 1
             elif char == ">" and depth == 0:
-                yield match.start(), text[match.start() : index + 1]
+                yield match.start(), text[match.start() : index + 1], "".join(own), "\n".join(notes)
                 break
             elif char == "<" and depth == 0:
                 break  # a comparison or a stray `<`, not a tag
+            elif depth == 0:
+                own.append(char)
             index += 1
 
 
+# A class held in a const: a string or a cx(...) of strings, never a component or a function.
 CONST = re.compile(r"\bconst\s+(\w+)\s*=([^;]*);", re.S)
 
 
 def unmarked_surfaces(text: str) -> list[int]:
     """The 1-based lines of the floating glass elements with no host glass of their own and no allowance. A class
-    held in a const of the same file (`const popupClassName = cx("ui-popup ui-glass ...")`) counts as the tag's."""
-    floating_names = [m.group(1) for m in CONST.finditer(text) if POPUP.search(m.group(2)) and GLASS.search(m.group(2))]
+    held in a const of the same file (`const popupClassName = cx("ui-popup ui-glass ...")`) counts as the tag's when
+    the tag's className names it."""
+    floating_names = [
+        m.group(1)
+        for m in CONST.finditer(text)
+        if POPUP.search(m.group(2)) and GLASS.search(m.group(2)) and "<" not in m.group(2) and "=>" not in m.group(2)
+    ]
     lines = []
-    for offset, tag in opening_tags(text):
-        named = any(re.search(r"\b" + name + r"\b", tag) for name in floating_names)
+    for offset, tag, own, notes in opening_tags(text):
+        class_value = re.search(r"\bclassName=\{([^}]*)", tag)
+        named = class_value is not None and any(
+            re.search(r"\b" + name + r"\b", class_value.group(1)) for name in floating_names
+        )
         floating = (POPUP.search(tag) and GLASS.search(tag)) or named
-        if floating and not HOST_GLASS.search(tag) and "host-glass-allow:" not in tag:
+        if floating and not HOST_GLASS.search(own) and "host-glass-allow:" not in notes:
             lines.append(text.count("\n", 0, offset) + 1)
     return lines
 
@@ -178,7 +197,7 @@ def check(root: Path) -> list[str]:
                         ' data-host-glass="menu|popover|chip" (ui/glass/hostGlass.ts) or say why: host-glass-allow: <reason>'
                     )
     for rel in sorted(set(pending) - unmarked):
-        errors.append(f"{MANIFEST}: [web-floating] {rel} is marked now: remove it from web_floating_pending")
+        errors.append(f"{MANIFEST}: [web-floating] {rel} is marked or gone now: remove it from web_floating_pending")
     return errors
 
 

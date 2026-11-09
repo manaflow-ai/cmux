@@ -88,4 +88,15 @@ expect_fail class-in-a-const web-floating
 printf 'const popupClassName = cx("ui-popup ui-glass ui-popover", className);\nreturn <BasePopover.Popup className={popupClassName} data-host-glass="popover">x</BasePopover.Popup>;\n' > "$web/Named.tsx"
 expect_pass class-in-a-const-marked
 
+reset; manifest '' ''
+printf '<div className="ui-popup ui-glass" children={<span data-host-glass="menu" />} />\n' > "$web/Nested.tsx"
+expect_fail nested-mark-is-not-the-elements web-floating
+
+printf '<div className="ui-popup ui-glass" title="data-host-glass=menu" />\n' > "$web/Nested.tsx"
+expect_fail mark-in-a-string-is-not-a-mark web-floating
+
+reset; manifest '' ''
+printf 'const Popup = () => <div className="ui-popup ui-glass" data-host-glass="menu" />;\nreturn <Popup />;\n' > "$web/Component.tsx"
+expect_pass component-const-is-not-a-class
+
 echo "check-surface-materials.test: ok"
