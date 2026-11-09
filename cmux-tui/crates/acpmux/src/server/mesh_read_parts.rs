@@ -50,7 +50,7 @@ impl ReadParts {
         let entry = held.get_mut(id).filter(|h| h.session == session)?;
         let start = index.checked_mul(size).filter(|start| *start < entry.text.len())?;
         let end = start.saturating_add(size).min(entry.text.len());
-        let part = base64::engine::general_purpose::STANDARD.encode(&entry.text[start..end]);
+        let part = base64::engine::general_purpose::STANDARD.encode(entry.text.get(start..end)?);
         entry.touched = Instant::now();
         if end == entry.text.len() {
             held.remove(id);
