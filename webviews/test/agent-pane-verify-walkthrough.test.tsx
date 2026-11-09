@@ -76,6 +76,25 @@ describe("toolWalkthrough", () => {
     expect(parseWalkthrough(JSON.stringify({ walkthrough: 2, steps: [] }))).toBeUndefined();
   });
 
+  // Review F2: `console.log(await cmux.browser_repl_eval(...))` in a cmux_exec script puts the
+  // REPL's result in the answer's logs as a JSON string.
+  test("reads it from a script's logs, where the REPL result is serialized JSON", () => {
+    const repl = JSON.stringify({ content: [{ type: "text", text: printed(PASSED) }] });
+    const answer = JSON.stringify({ content: [{ type: "text", text: JSON.stringify({ logs: [repl], result: null }) }] });
+    expect(toolWalkthrough(evalCall(answer).tool)?.steps.map((s) => s.line)).toEqual(["Open Settings", "Click Save"]);
+  });
+
+  // Review F1: any tool can print deeply nested JSON; reading it must neither throw nor recurse.
+  // The app's web view overflows a recursive walk near 5,000 levels; Bun's larger stack near
+  // 100,000, so the test goes that deep to fail on a recursive walk here too.
+  test("deeply nested output is no walkthrough and does not throw", () => {
+    const deep = `${"[".repeat(100_000)}"cmux.walkthrough "${"]".repeat(100_000)}`;
+    expect(() => toolWalkthrough(evalCall(deep).tool)).not.toThrow();
+    expect(toolWalkthrough(evalCall(deep).tool)).toBeUndefined();
+    const rows = turn(deep);
+    expect(() => turnView(rows, new Set())).not.toThrow();
+  });
+
   test("a report that says passed over a failed step draws as failed", () => {
     const forged = report({ passed: true, steps: [{ n: 1, line: "Open", ok: false }] });
     expect(parseWalkthrough(forged)?.passed).toBe(false);
