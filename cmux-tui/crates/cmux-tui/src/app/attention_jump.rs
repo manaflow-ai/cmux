@@ -57,8 +57,18 @@ pub(crate) fn tree_attention_entries(tree: &TreeView, agents: &[AgentInfo]) -> V
                         push(AttentionKind::Blocked, AttentionLevel::Warning, u64::MAX);
                     }
                     if let Some(notification) = tab.notification.filter(|marker| marker.unread) {
+                        // An unread tab whose agent waits at its prompt, or
+                        // whose program reported a finished turn, is that
+                        // agent's turn nobody viewed: `done`, as every list
+                        // says (cmux attention list).
+                        let finished = agents
+                            .iter()
+                            .any(|agent| agent.surface == tab.surface && agent.state == "idle")
+                            || tab
+                                .program_status
+                                .is_some_and(|status| status.state == ProgramStatusState::Done);
                         push(
-                            AttentionKind::Unread,
+                            if finished { AttentionKind::Done } else { AttentionKind::Unread },
                             AttentionLevel::parse(notification.level),
                             notification.sequence,
                         );
@@ -181,7 +191,7 @@ impl App {
 }
 
 /// `! work › claude · needs you: approve deploy`: the marker (`!` the person
-/// must act, `•` unread), the workspace, the tab, and why.
+/// must act, `•` done or unread), the workspace, the tab, and why.
 fn attention_row_label(entry: &AttentionEntry) -> String {
     let messages = &localization::catalog().attention;
     let (marker, detail) = match entry.candidate.kind {
@@ -193,6 +203,7 @@ fn attention_row_label(entry: &AttentionEntry) -> String {
             },
         ),
         AttentionKind::Blocked => ("!", messages.blocked.to_string()),
+        AttentionKind::Done => ("•", messages.done.to_string()),
         AttentionKind::Unread => ("•", messages.unread.to_string()),
     };
     let label = format!("{marker} {} › {} · {detail}", entry.workspace, entry.tab);
