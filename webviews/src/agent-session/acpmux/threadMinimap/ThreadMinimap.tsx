@@ -470,6 +470,7 @@ export function ThreadMinimap({
     shown,
     hovered,
     loadedStart,
+    filtered: named.filtered,
   });
   useLayoutEffect(() => {
     live.current = {
@@ -484,6 +485,7 @@ export function ThreadMinimap({
       shown,
       hovered,
       loadedStart,
+      filtered: named.filtered,
     };
   });
 
@@ -847,18 +849,29 @@ export function ThreadMinimap({
     /// own prompt when that is above the view and matches, else to the match before it.
     const target = (by: -1 | 1, matches: (index: number) => boolean) => {
       const node = scroller.current;
-      const { turns: all, ticks: keys, tops, total } = live.current;
+      const { turns: all, ticks: keys, tops, total, filtered } = live.current;
       if (!node || !all.length) return undefined;
       const stepping =
         pending.tick !== undefined && performance.now() < pending.until ? tickIndex(keys, pending.tick) : -1;
       const top = Math.min(layoutScrollTop(node), Math.max(0, total - node.clientHeight));
-      let reading = Math.max(0, all.pendingCount - 1);
+      // A filtered rail's first kept prompt can lie below the view (model.ts filterTurns): with none
+      // at or above the view's top, forward goes to it (-1), and back has nowhere to go. Unfiltered,
+      // that is only the chat's top, where the first prompt (under its date line) is the one read.
+      const first = all.at(all.pendingCount);
+      const below = filtered && first !== undefined && turnScrollTop(first, tops) > top + LANDING_OFFSET;
+      let reading = below ? -1 : Math.max(0, all.pendingCount - 1);
       if (stepping >= 0) reading = stepping;
       else
         for (let index = all.pendingCount; index < all.length; index += 1)
           if (turnScrollTop(all.at(index)!, tops) <= top + 1) reading = index;
       const start =
-        by > 0 || stepping >= 0 || turnScrollTop(all.at(reading)!, tops) >= top - 1 ? reading + by : reading;
+        reading < 0
+          ? by > 0
+            ? 0
+            : -1
+          : by > 0 || stepping >= 0 || turnScrollTop(all.at(reading)!, tops) >= top - 1
+            ? reading + by
+            : reading;
       for (let index = start; index >= 0 && index < all.length; index += by) if (matches(index)) return index;
       return undefined;
     };
