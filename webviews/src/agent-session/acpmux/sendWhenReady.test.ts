@@ -5,7 +5,13 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { HOST_ERROR_DEADLINE_MS } from "./hostRetry";
 import { failedSendText, retryHelps, sendCause } from "./sendFailure";
-import { SEND_RETRY_FIRST_MS, sendWaitsForHost, sendsHeldForHost, untilHostAnswers } from "./sendWhenReady";
+import {
+  SEND_RETRY_FIRST_MS,
+  heldStartStop,
+  sendWaitsForHost,
+  sendsHeldForHost,
+  untilHostAnswers,
+} from "./sendWhenReady";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -41,18 +47,19 @@ function fakeClock() {
   };
 }
 
-test("only a failure the host clears by itself holds a send", () => {
+test("only a frame that never left the pane goes again", () => {
   expect(sendWaitsForHost({ code: "native.not_connected" })).toBe(true);
-  expect(sendWaitsForHost({ code: "native.timed_out" })).toBe(true);
-  expect(sendWaitsForHost({ code: "host_unavailable", details: { reconnecting: true } })).toBe(true);
-  expect(sendWaitsForHost({ code: "known", data: { retryable: true } })).toBe(true);
+  // A frame that reached the app spent its gesture ticket: asking again would only be refused.
+  expect(sendWaitsForHost({ code: "native.timed_out" })).toBe(false);
+  expect(sendWaitsForHost({ code: "host_unavailable", details: { reconnecting: true } })).toBe(false);
+  expect(sendWaitsForHost({ code: "known", data: { retryable: true } })).toBe(false);
   // A send's own refusals are plain errors with no code: never sent again.
   expect(sendWaitsForHost(new Error("agent_session.changed_during_send"))).toBe(false);
   expect(sendWaitsForHost({ code: "agent_session.untrusted" })).toBe(false);
   expect(sendWaitsForHost({ code: "transport.gesture_required" })).toBe(false);
   expect(sendWaitsForHost({ code: "native.not_connected", reason: "message.too_large" })).toBe(false);
   // acpmux took it, or it already shows as a failed row: never from here.
-  expect(sendWaitsForHost({ code: "native.timed_out", taken: true })).toBe(false);
+  expect(sendWaitsForHost({ code: "native.not_connected", taken: true })).toBe(false);
   expect(sendWaitsForHost({ code: "native.not_connected", failedRow: "local-1" })).toBe(false);
   expect(sendWaitsForHost(null)).toBe(false);
 });
@@ -140,4 +147,28 @@ test("the composer's held count rises and falls with each held send", () => {
   expect(sendsHeldForHost.get()).toBe(false);
   expect(seen).toEqual([true, false]);
   unsubscribe();
+});
+
+test("a held start stops once another chat is selected, so the prompt never goes there", async () => {
+  const client = { isClosed: false, trustGeneration: 3, selectedSession: undefined as string | undefined };
+  const clock = fakeClock();
+  let starts = 0;
+  const error = await untilHostAnswers(
+    async () => {
+      starts += 1;
+      // The person picks another chat while the start waits for acpmux.
+      client.trustGeneration = 4;
+      client.selectedSession = "other-chat";
+      throw notConnected();
+    },
+    { ...clock, stop: heldStartStop(client) },
+  ).catch((caught: unknown) => caught);
+  expect(starts).toBe(1);
+  expect((error as { code?: string }).code).toBe("native.not_connected");
+
+  const closed = { isClosed: false, trustGeneration: 1, selectedSession: "chat" };
+  const stop = heldStartStop(closed);
+  expect(stop()).toBe(false);
+  closed.isClosed = true;
+  expect(stop()).toBe(true);
 });

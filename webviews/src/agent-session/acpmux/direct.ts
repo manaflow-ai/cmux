@@ -9594,9 +9594,7 @@ export class AcpmuxDirectClient {
       const refusedAtTurn = queued && !String(code ?? "").startsWith("native.");
       // The connection went before acpmux took it (`rejectPending`, a closed client): this client's
       // rows go with it, so the sender gets the prompt back instead of a row nobody will see.
-      // A prompt that waited out the host's deadline on a client still open is not that: it fails as
-      // its row, kept with Retry (sendFailure.ts `host-away`), instead of leaving the transcript.
-      if (!taken && (this.closed || (code === "native.timed_out" && !unhold))) {
+      if (!taken && (this.closed || code === "native.timed_out")) {
         this.rows.delete(rowId);
         this.failedPrompts.delete(rowId);
         this.optimisticPromptRows.delete(promptId);

@@ -1,5 +1,4 @@
-// A prompt sent while acpmux is still loading (the bridge has no acpmux yet, or acpmux does not
-// answer in time) was failed at once, and its row said to restart (ask-5174ba0b6d, Leo 2026-11-06:
+// A prompt sent while acpmux is still loading (the app has no connection to it yet) was failed at once, and its row said to restart (ask-5174ba0b6d, Leo 2026-11-06:
 // "your sends are getting busted intermittently as things load"). Now the pane sends it again under
 // the same prompt id once acpmux answers; the row waits ("Sending when ready") and never fails.
 import { afterAll, beforeAll, expect, test } from "bun:test";
@@ -24,7 +23,7 @@ afterAll(() => {
 
 type Row = { id: string; kind: string; text?: string; failed?: boolean; delivery?: Record<string, unknown> };
 
-test("a prompt acpmux times out on while it loads is sent again under its id and never fails", async () => {
+test("a prompt the pane could not hand acpmux while it loads is sent again under its id and never fails", async () => {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   type Hooks = { answer: (method: string, params: any) => Promise<unknown> };
@@ -40,10 +39,10 @@ test("a prompt acpmux times out on while it loads is sent again under its id and
         if (method !== "session/prompt") return answer(method, params);
         prompts.push(String(params?._meta?.acpmux?.promptId));
         if (prompts.length === 2) secondAsk();
-        // The first two asks land while acpmux is still loading.
+        // The first two asks find no acpmux yet: the app says it is not connected.
         if (prompts.length <= 2)
           return Promise.reject(
-            Object.assign(new Error("acpmux did not answer in time"), { code: "native.timed_out" }),
+            Object.assign(new Error("The agent connection is not open."), { code: "native.not_connected" }),
           );
         return answer(method, params);
       };
@@ -101,7 +100,9 @@ test("a prompt that waits out the host's deadline stays as a failed row with Ret
       hooks.answer = (method, params) => {
         if (method !== "session/prompt") return answer(method, params);
         asks += 1;
-        return Promise.reject(Object.assign(new Error("acpmux did not answer in time"), { code: "native.timed_out" }));
+        return Promise.reject(
+          Object.assign(new Error("The agent connection is not open."), { code: "native.not_connected" }),
+        );
       };
     }
   }

@@ -4,36 +4,23 @@
 // keeps its clock. Only a wait past the host's deadline (hostRetry.ts `HOST_ERROR_DEADLINE_MS`, the
 // same 25 s after which the pane says the host is down) fails the send, as a row with Retry.
 import { HOST_ERROR_DEADLINE_MS, hostIsReconnecting, hostRefusedTooLarge, nextRetryDelay } from "./hostRetry";
-import { peerLinkFailure } from "./hostLine";
 
 /// The first wait before a held send asks again; each next wait doubles up to 2 s (`nextRetryDelay`).
 export const SEND_RETRY_FIRST_MS = 250;
 
-/// Whether a failed send is one the host clears by itself: the bridge has no acpmux yet
-/// (`native.not_connected`), acpmux did not answer in time (`native.timed_out`), the host marked it
-/// reconnecting or retryable, or the chat's machine is reconnecting. Unlike the handshake's
-/// `hostIsReconnecting`, an error with no code of its own is never held: a send's own refusals
-/// (a selection that moved, a cancelled start) are plain errors and must not be sent again. A
-/// prompt acpmux took, or one already shown as a failed row, is never sent again from here.
+/// Whether a failed send may go again on its own: the pane had no connection to acpmux, so the
+/// frame never left it (`native.not_connected`), and acpmux comes back by itself. Only such a frame
+/// goes again: a frame that reached the app spent the send's gesture ticket (the native relay
+/// redeems it before forwarding), so asking again with it would only be refused, and a
+/// `native.timed_out` keeps its own way back (the relay journal, `lostPrompt`). A send's own
+/// refusals (a selection that moved, a cancelled start) are plain errors and never go again; nor
+/// does a prompt acpmux took, or one already shown as a failed row.
 export function sendWaitsForHost(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
-  const fields = error as {
-    code?: unknown;
-    retryable?: unknown;
-    taken?: unknown;
-    failedRow?: unknown;
-    details?: { reconnecting?: unknown };
-    data?: { retryable?: unknown };
-  };
+  const fields = error as { code?: unknown; taken?: unknown; failedRow?: unknown };
   if (fields.taken === true || fields.failedRow !== undefined) return false;
   if (hostRefusedTooLarge(error)) return false;
-  const owned =
-    typeof fields.code === "string" ||
-    fields.retryable === true ||
-    fields.details?.reconnecting === true ||
-    fields.data?.retryable === true ||
-    peerLinkFailure(error) !== undefined;
-  return owned && hostIsReconnecting(error);
+  return fields.code === "native.not_connected" && hostIsReconnecting(error);
 }
 
 export type HostWait = {
@@ -67,6 +54,20 @@ export async function untilHostAnswers<T>(attempt: () => Promise<T>, wait: HostW
       delay = nextRetryDelay(delay, true);
     }
   }
+}
+
+/// The stop for a held start (`ensureSession` retried while acpmux comes back): it belongs to the
+/// chat selected at the send. Once the client closed, or another chat is selected (a new selection
+/// generation), the next try would send the prompt into that chat, so the wait stops and the send
+/// fails as before. A start's own successful selection ends the wait with its answer, never here.
+export function heldStartStop(client: {
+  readonly isClosed: boolean;
+  readonly trustGeneration: number;
+  readonly selectedSession: string | undefined;
+}): () => boolean {
+  const generation = client.trustGeneration;
+  const sessionId = client.selectedSession;
+  return () => client.isClosed || client.trustGeneration !== generation || client.selectedSession !== sessionId;
 }
 
 /// How many of this page's sends are held for the host now: the composer says "Sending when ready"

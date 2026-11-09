@@ -592,7 +592,7 @@ import {
   nextRetryDelay,
   offersAcpmuxRestart,
 } from "./hostRetry";
-import { sendsHeldForHost, untilHostAnswers } from "./sendWhenReady";
+import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "./sendWhenReady";
 import { pageShowsWhatItIs } from "./firstPaint";
 import { ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { type Subagent } from "./subagents/subagentFold";
@@ -7623,9 +7623,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // A chat that starts while acpmux starts or reconnects waits for it (sendWhenReady.ts): the
           // composer keeps the prompt and says "Sending when ready"; only past the deadline is the
           // send refused, as before.
+          // A retry belongs to the chat selected at the send: once another chat is selected, the
+          // next try would send this prompt there, so it stops and fails as before.
           let unhold: (() => void) | undefined;
+          const movedOn = heldStartStop(client);
           const sessionId = await untilHostAnswers(() => client.ensureSession(), {
-            stop: () => client.isClosed || !ownsSession(),
+            stop: () => movedOn() || !ownsSession(),
             waiting: () => {
               unhold ??= sendsHeldForHost.hold();
             },
