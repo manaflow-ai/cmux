@@ -101,6 +101,60 @@ pub fn paused_for(before_ns: i128, after_ns: i128) -> Option<Duration> {
     Some(Duration::from_nanos(u64::try_from(late).unwrap_or(u64::MAX)))
 }
 
+/// What the pause watch has seen, for every thread of this process: the boot
+/// clock at its last look and at the last pause it found (ns, 0 for never).
+/// It is the one record of stops: the pause watch's looks and the clock-set
+/// resumes go in, and the updater's hold before a flip reads it
+/// ([`PauseWatch::stopped_since`]).
+#[derive(Debug, Default)]
+pub struct PauseWatch {
+    last_look_ns: std::sync::atomic::AtomicI64,
+    last_pause_ns: std::sync::atomic::AtomicI64,
+}
+
+/// The pause watch of this process (the Linux platform's thread feeds it).
+pub static PAUSES: PauseWatch = PauseWatch::new();
+
+impl PauseWatch {
+    pub const fn new() -> Self {
+        Self {
+            last_look_ns: std::sync::atomic::AtomicI64::new(0),
+            last_pause_ns: std::sync::atomic::AtomicI64::new(0),
+        }
+    }
+
+    /// One look of the watch at boot time `now_ns`: whether it found a pause.
+    pub fn looked(&self, now_ns: i128, paused: bool) {
+        use std::sync::atomic::Ordering;
+        let now = i64::try_from(now_ns).unwrap_or(i64::MAX);
+        if paused {
+            self.last_pause_ns.store(now, Ordering::SeqCst);
+        }
+        self.last_look_ns.store(now, Ordering::SeqCst);
+    }
+
+    /// A resume another way found at boot time `now_ns` (a clock set that
+    /// moved realtime against the boot clock, where the boot clock stops).
+    pub fn found(&self, now_ns: i128) {
+        let now = i64::try_from(now_ns).unwrap_or(i64::MAX);
+        self.last_pause_ns.store(now, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Whether the machine was stopped between boot times `since_ns` and
+    /// `now_ns`: the watch found a pause at or after `since_ns`, or it has not
+    /// looked for longer than a pause takes to find ([`paused_for`] from its
+    /// last look), so it is still waking from one. False while no watch runs.
+    pub fn stopped_since(&self, since_ns: i128, now_ns: i128) -> bool {
+        use std::sync::atomic::Ordering;
+        let look = i128::from(self.last_look_ns.load(Ordering::SeqCst));
+        if look == 0 {
+            return false;
+        }
+        let pause = i128::from(self.last_pause_ns.load(Ordering::SeqCst));
+        (pause != 0 && pause >= since_ns) || paused_for(look, now_ns).is_some()
+    }
+}
+
 /// Wall time within which a clock set and a pause-watch gap are the same
 /// resume. Each fires within about a second of the resume, and on a provider
 /// that has one of them the other never fires.

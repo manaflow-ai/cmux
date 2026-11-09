@@ -374,18 +374,6 @@ fn a_hold_that_starts_during_staging_holds_the_flip() {
     }
 }
 
-/// A new machine is a restore of the bake's snapshot: `realtime - boottime`
-/// jumps by the stopped time, which starts the connect hold before the
-/// supervisor's `Resumed` arrives; a clock sync's drift does not.
-#[cfg(target_os = "linux")]
-#[test]
-fn a_snapshot_restore_counts_from_the_clock_offset_not_a_sync() {
-    let second = 1_000_000_000_i128;
-    assert!(!role::restored_between(None, 50 * second));
-    assert!(!role::restored_between(Some(50 * second), 50 * second + second / 2));
-    assert!(role::restored_between(Some(50 * second), 50 * second + 3 * 24 * 3600 * second));
-}
-
 /// Attached carrier sessions hold an update, an unreadable list too, and only
 /// for [`carrier::CARRIER_MAX_HOLD`]: then the update goes at the next idle
 /// gap of the agent turns, and the bound is reported once. No sessions ends
@@ -492,107 +480,70 @@ fn a_bind_commit_starts_the_connect_hold() {
     assert!(left > role::CONNECT_HOLD - Duration::from_secs(5), "{left:?}");
 }
 
-/// Review F1 of #38280: each look at `realtime - boottime` compares with the
-/// look just before it, so many clock syncs, each below a restore's jump,
-/// never start the connect hold however far they move the clock in total.
-/// One real jump still does.
 #[cfg(target_os = "linux")]
-#[test]
-fn many_small_clock_syncs_never_start_a_restore_hold() {
-    let step = crate::agent::RESUME_CLOCK_JUMP_NS - 1;
-    let mut last = None;
-    let mut offset = 0_i128;
-    assert!(!role::restore_look(&mut last, offset), "the first look has nothing to compare");
-    for _ in 0..1000 {
-        offset += step;
-        assert!(!role::restore_look(&mut last, offset), "a sync started a hold at {offset}");
-    }
-    assert!(offset > 1000 * crate::agent::RESUME_CLOCK_JUMP_NS / 2, "the syncs added up");
-    assert!(role::restore_look(&mut last, offset + 3600 * 1_000_000_000), "a restore");
-    assert!(!role::restore_look(&mut last, offset + 3600 * 1_000_000_000 + step));
+const SECOND_NS: i128 = 1_000_000_000;
+/// A boot time of the pause tests (ns).
+#[cfg(target_os = "linux")]
+const B0: i128 = 5_000_000 * SECOND_NS;
+
+/// The pause watch at `B0`, its last look, with no pause found yet.
+#[cfg(target_os = "linux")]
+fn watch_at_b0() -> crate::agent::PauseWatch {
+    let watch = crate::agent::PauseWatch::new();
+    watch.looked(B0, false);
+    watch
+}
+
+/// The boot and wall clock `s` seconds after `B0` / `T0_MS`.
+#[cfg(target_os = "linux")]
+fn at(s: i128) -> (i128, u64) {
+    (B0 + s * SECOND_NS, T0_MS + u64::try_from(s).unwrap() * 1000)
 }
 
 /// A claimed spare is a paused machine resumed, and on Freestyle the boot
 /// clock runs through the pause (every production probe machine, 2026-11-07
 /// to 11-08, reports one boot at 2026-10-31T03:02Z), so `realtime - boottime`
-/// never moves and neither the supervisor's `Resumed` nor the restore look
-/// fires. The worker's 60 s wait ends at once on the resume and its hold ran
-/// out before the pause: 17 of 45 production chat runs flipped 1 to 184 s
-/// after the create. A wait or a check that took far more wall time than it
-/// could have is a stop, and it starts the connect hold.
+/// never moves. The worker's 60 s wait ends at once on the resume and its
+/// hold ran out before the pause: 17 of 45 production chat runs flipped 1 to
+/// 184 s after the create. The pause watch saw it: its record holds the flip.
 #[cfg(target_os = "linux")]
 #[test]
-fn a_pause_during_the_wait_starts_the_connect_hold() {
-    use std::time::Duration;
-
+fn a_pause_the_watch_found_starts_the_connect_hold() {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::new(dir.path());
     let gate = gate::Gate::new(&paths);
-    let minute = Duration::from_secs(60);
-    // An ordinary wait, a few seconds late: no hold.
-    assert!(!role::hold_if_stopped(&paths, T0_MS, T0_MS + 65_000, minute));
-    assert_eq!(gate.held_left(T0_MS + 65_000), None);
-    // Paused 40 minutes in its pool, then claimed: the wait comes back 40 minutes late.
-    let resumed = T0_MS + 40 * 60_000;
-    assert!(role::hold_if_stopped(&paths, T0_MS, resumed, minute));
-    assert_eq!(gate.held_left(resumed), Some(role::CONNECT_HOLD));
+    let watch = watch_at_b0();
+    // An ordinary minute, the watch looking every 10 s: no hold.
+    watch.looked(at(60).0, false);
+    assert!(!role::hold_if_paused(&paths, &watch, B0, at(65)));
+    assert_eq!(gate.held_left(at(65).1), None);
+    // Paused 40 minutes in its pool, then claimed: the watch found it.
+    watch.looked(at(65 + 2400).0, true);
+    let resumed = at(65 + 2401);
+    assert!(role::hold_if_paused(&paths, &watch, at(60).0, resumed));
+    assert_eq!(gate.held_left(resumed.1), Some(role::CONNECT_HOLD));
 }
 
-/// A pause that lands inside a check (its download, its busy look) is seen
-/// at the flip: a check that took longer than [`role::CHECK_BOUND`] holds its
-/// own flip, and the next check, with the binaries staged, goes after the hold.
+/// A wait or check that ends at the resume can look before the watch wakes
+/// from the same pause: a watch that has not looked for longer than a pause
+/// takes to find is still waking from one, and that holds too.
 #[cfg(target_os = "linux")]
 #[test]
-fn a_pause_during_a_check_holds_its_flip() {
+fn a_pause_the_watch_has_not_woken_from_yet_holds() {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::new(dir.path());
-    let gate = gate::Gate::new(&paths);
-    let quick = T0_MS + 20_000;
-    assert!(!role::hold_if_stopped(&paths, T0_MS, quick, role::CHECK_BOUND));
-    assert_eq!(gate.held_left(quick), None);
-    let late =
-        T0_MS + role::CHECK_BOUND.as_millis() as u64 + role::STOP_SLACK.as_millis() as u64 + 1;
-    assert!(role::hold_if_stopped(&paths, T0_MS, late, role::CHECK_BOUND));
-    assert!(gate.held_left(late).is_some(), "the flip after a stopped check is held");
-}
-
-/// Review P2 of #39035: a check that returns early (here its busy look's
-/// acpmux query timed out across a pause) never reached the flip's stop look,
-/// and the next wait's clock started after the resume, so a flip could follow
-/// a minute later with no hold. Every way out of a check looks at its wall time.
-#[cfg(target_os = "linux")]
-#[test]
-fn a_check_that_returns_early_after_a_pause_starts_the_connect_hold() {
-    use std::cell::Cell;
-
-    let dir = tempfile::tempdir().unwrap();
-    let paths = Paths::new(dir.path());
-    let gate = gate::Gate::new(&paths);
-    let resumed = T0_MS + 40 * 60_000;
-    let times = Cell::new(0);
-    let clock = || {
-        times.set(times.get() + 1);
-        if times.get() == 1 { T0_MS } else { resumed }
-    };
-    let outcome = role::check_step(&paths, &clock, |started| {
-        assert_eq!(started, T0_MS);
-        role::Outcome::Busy(vec!["acpmux: timed out".to_owned()])
-    });
-    assert!(matches!(outcome, role::Outcome::Busy(_)), "{outcome:?}");
-    assert_eq!(gate.held_left(resumed), Some(role::CONNECT_HOLD));
-
-    // A quick check that returns early holds nothing.
-    let dir = tempfile::tempdir().unwrap();
-    let paths = Paths::new(dir.path());
-    let quick = || T0_MS;
-    role::check_step(&paths, &quick, |_| role::Outcome::Current("abc".to_owned()));
-    assert_eq!(gate::Gate::new(&paths).held_left(T0_MS), None);
+    let watch = watch_at_b0();
+    // 25 s since its last look: within a tick and its slack.
+    assert!(!role::hold_if_paused(&paths, &watch, B0, at(25)));
+    // 3 minutes since: the machine was stopped.
+    assert!(role::hold_if_paused(&paths, &watch, B0, at(180)));
+    assert!(gate::Gate::new(&paths).held_left(at(180).1).is_some());
 }
 
 /// Design review of #39049 (cloud-v0-lead): a spare paused 3 minutes during
-/// a check and then claimed must be held, whether the check returns early
-/// (its busy look timed out across the pause) or goes on to its flip. A
-/// 5-minute bound over the whole check let pauses of 2 to 5 minutes through.
+/// a check and then claimed is held, whether the check returns early (its
+/// busy look timed out across the pause) or goes on to its flip. A 5-minute
+/// wall-time bound over the whole check let pauses of 2 to 5 minutes through.
 #[cfg(target_os = "linux")]
 #[test]
 fn a_three_minute_pause_during_a_check_that_returns_early_holds() {
@@ -600,14 +551,28 @@ fn a_three_minute_pause_during_a_check_that_returns_early_holds() {
 
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::new(dir.path());
-    let resumed = T0_MS + 3 * 60_000;
+    let watch = watch_at_b0();
     let times = Cell::new(0);
     let clock = || {
         times.set(times.get() + 1);
-        if times.get() == 1 { T0_MS } else { resumed }
+        if times.get() == 1 { at(1) } else { at(182) }
     };
-    role::check_step(&paths, &clock, |_| role::Outcome::Busy(vec!["acpmux: timed out".to_owned()]));
-    assert!(gate::Gate::new(&paths).held_left(resumed).is_some(), "a 3 min pause was let through");
+    let outcome = role::check_step(&paths, &watch, &clock, |started| {
+        assert_eq!(started, at(1).0);
+        // The busy look: paused 3 minutes, then the watch woke and found it.
+        watch.looked(at(181).0, true);
+        role::Outcome::Busy(vec!["acpmux: timed out".to_owned()])
+    });
+    assert!(matches!(outcome, role::Outcome::Busy(_)), "{outcome:?}");
+    assert_eq!(gate::Gate::new(&paths).held_left(at(182).1), Some(role::CONNECT_HOLD));
+
+    // A quick check that returns early holds nothing.
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let watch = watch_at_b0();
+    let quick = || at(2);
+    role::check_step(&paths, &watch, &quick, |_| role::Outcome::Current("abc".to_owned()));
+    assert_eq!(gate::Gate::new(&paths).held_left(at(2).1), None);
 }
 
 #[cfg(target_os = "linux")]
@@ -615,10 +580,15 @@ fn a_three_minute_pause_during_a_check_that_returns_early_holds() {
 fn a_three_minute_pause_during_a_check_holds_its_flip() {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::new(dir.path());
-    let resumed = T0_MS + 3 * 60_000;
+    let watch = watch_at_b0();
+    // Paused 3 minutes during the staging download; the watch found it.
+    watch.looked(at(181).0, true);
     // The flip's own look, as check_inner makes it right before the gate.
-    role::hold_if_stopped(&paths, T0_MS, resumed, role::CHECK_BOUND);
-    assert!(gate::Gate::new(&paths).held_left(resumed).is_some(), "a 3 min pause was let through");
+    assert!(role::hold_if_paused(&paths, &watch, at(1).0, at(182)));
+    let gate = gate::Gate::new(&paths);
+    assert_eq!(gate.held_left(at(182).1), Some(role::CONNECT_HOLD));
+    // The flip runs inside the gate, which refuses it while the hold is on.
+    assert!(gate.run(at(182).1, true, |_| ()).is_err(), "the flip ran under the hold");
 }
 
 /// Review F2 of #38326: the health timeout's rollback waits while carrier
