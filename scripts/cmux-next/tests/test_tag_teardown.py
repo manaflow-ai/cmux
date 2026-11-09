@@ -141,6 +141,13 @@ class MatchTests(unittest.TestCase):
         self.assertEqual(tag_teardown.fnv1a(b"a"), 0xaf63dc4c8601ec8c)
         self.assertEqual(tag_teardown.holder_socket("/x", uid=7), f"/tmp/cmux-hd-7/{tag_teardown.fnv1a(b'/x'):016x}.sock")
 
+    def test_a_moved_host_root_keeps_its_holder_socket(self):
+        # NEXT's folder move: the daemon hashes the root's name from before the move (build_identity::path_identity).
+        support = "/Users/a/Library/Application Support"
+        moved, before = (f"{support}/{folder}/tags/nightly/tui/terminal-hosts-x" for folder in ("cmux-next", "cmux"))
+        self.assertEqual(tag_teardown.holder_socket(moved, uid=7), tag_teardown.holder_socket(before, uid=7))
+        self.assertEqual(tag_teardown.path_identity(f"{support}/cmux-next/agent-home"), f"{support}/cmux-next/agent-home")
+
     def test_the_state_root_is_read_once_per_daemon_and_kept_after_it_exits(self):
         teardown = self.teardown()
         reads = []

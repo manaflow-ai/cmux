@@ -417,14 +417,15 @@ pub fn path_identity(path: &Path) -> std::borrow::Cow<'_, Path> {
     use std::path::Component;
     let parts: Vec<Component<'_>> = path.components().collect();
     let moved = parts.windows(3).position(|window| {
-        window[0].as_os_str() == "Application Support"
-            && window[1].as_os_str() == "cmux-next"
-            && (window[2].as_os_str() == "tags" || window[2].as_os_str() == "builds")
+        matches!(window, [support, next, kind]
+            if support.as_os_str() == "Application Support"
+                && next.as_os_str() == "cmux-next"
+                && (kind.as_os_str() == "tags" || kind.as_os_str() == "builds"))
     });
     let Some(at) = moved else { return std::borrow::Cow::Borrowed(path) };
     let mut before = PathBuf::new();
     for (index, part) in parts.iter().enumerate() {
-        before.push(if index == at + 1 { std::ffi::OsStr::new("cmux") } else { part.as_os_str() });
+        before.push(if Some(index) == at.checked_add(1) { std::ffi::OsStr::new("cmux") } else { part.as_os_str() });
     }
     std::borrow::Cow::Owned(before)
 }
