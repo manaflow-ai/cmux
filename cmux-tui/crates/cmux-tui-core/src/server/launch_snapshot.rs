@@ -297,6 +297,10 @@ fn write_launch_snapshot(mux: &Mux, path: &Path) -> anyhow::Result<Vec<String>> 
         bytes.len() <= MAX_LAUNCH_SNAPSHOT_BYTES,
         "launch snapshot exceeds {MAX_LAUNCH_SNAPSHOT_BYTES} bytes"
     );
+    // Most wakeups change nothing the snapshot holds: the same bytes are not written and synced again.
+    if std::fs::read(path).is_ok_and(|stored| stored == bytes) {
+        return Ok(dropped);
+    }
     let directory = path.parent().context("launch snapshot path has no directory")?;
     let temporary = directory.join(format!("{LAUNCH_SNAPSHOT_FILE}.{}.tmp", std::process::id()));
     let result = (|| -> anyhow::Result<()> {

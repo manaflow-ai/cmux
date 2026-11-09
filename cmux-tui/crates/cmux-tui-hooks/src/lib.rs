@@ -1423,11 +1423,16 @@ fn install_provider(
                     );
                 }
             }
-            atomic_write(&module_path, module.as_bytes(), Some(0o600))?;
-            atomic_write(&manifest_path, manifest.as_bytes(), Some(0o600))?;
-            let changed = before_module.as_deref() != Some(module.as_bytes())
-                || before_manifest.as_deref() != Some(manifest.as_bytes());
-            Ok(("installed", changed))
+            // Each install pass writes only a file whose bytes differ, as the Plugin arm does.
+            let module_changed = before_module.as_deref() != Some(module.as_bytes());
+            let manifest_changed = before_manifest.as_deref() != Some(manifest.as_bytes());
+            if module_changed {
+                atomic_write(&module_path, module.as_bytes(), Some(0o600))?;
+            }
+            if manifest_changed {
+                atomic_write(&manifest_path, manifest.as_bytes(), Some(0o600))?;
+            }
+            Ok(("installed", module_changed || manifest_changed))
         }
         Format::RovoYaml => {
             let existing = fs::read_to_string(path).unwrap_or_default();
