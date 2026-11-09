@@ -172,6 +172,15 @@ fn identify_reports_the_restore_while_the_owner_restores() {
     let mut client = Client::connect(&fixture.socket);
     let (first, took) = client.identify(1, Duration::from_secs(3));
     eprintln!("restore-progress-identify: first identify answer while restoring after {took:?}");
+    let mut samples = vec![took];
+    for id in 100..110 {
+        samples.push(client.identify(id, Duration::from_secs(3)).1);
+    }
+    fs::write(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/restore-identify-ms.txt"),
+        format!("{samples:?}\n"),
+    )
+    .unwrap();
     let first = first
         .unwrap_or_else(|| panic!("identify got no answer in {took:?} while the owner restores"));
     assert!(took < Duration::from_secs(1), "identify took {took:?}: {first}");
