@@ -58,7 +58,7 @@ nonisolated enum SessionSettingsSchema {
                     SettingChoice(SessionKeepAwakeSetting.always.rawValue, SettingsText.keyed("settings.choice.keepAwakeAlways", "Always")),
                 ]),
                 default: .string(SessionSettings.keepAwakeDefault.rawValue),
-                keywords: ["sleep", "awake", "caffeinate", "battery", "power", "agents"]
+                keywords: ["sleep", "awake", "keep awake", "stay awake", "prevent sleep", "no sleep", "idle", "caffeinate", "battery", "power", "agents"]
             ),
             SettingDescriptor(
                 SessionSettings.keepAwakeForCommandsPath,
@@ -68,7 +68,7 @@ nonisolated enum SessionSettingsSchema {
                 help: SettingsText.keyed("settings.sessions.keepAwakeForCommands.help", "A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work."),
                 kind: .toggle,
                 default: .bool(SessionSettings.keepAwakeForCommandsDefault),
-                keywords: ["sleep", "awake", "caffeinate", "terminal", "command", "build"]
+                keywords: ["sleep", "awake", "keep awake", "stay awake", "prevent sleep", "no sleep", "caffeinate", "terminal", "command", "build"]
             ),
             SettingDescriptor(
                 SessionSettings.resumeAgentsPath,
