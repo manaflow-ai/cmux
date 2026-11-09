@@ -215,7 +215,10 @@
 .acpmux-bg__task-open.ui-btn:disabled {
   cursor: default;
 }
-/* A hover lights only the control it belongs to (rulebook). */
+/* A hover lights only the control it belongs to (rulebook), on the frame the pointer reaches it
+   (no fill fade trailing the pointer down the list while the tasks update), and fades out on the
+   button's quick step when it leaves, as a list row's hover does (pages/shared/desktop.css "Hover
+   intent"; conversation.css HOVER FOLLOWS THE POINTER; test/agent-pane-hover-follows-row.test.ts). */
 .acpmux-bg__name.ui-btn:hover:not(:disabled),
 .acpmux-bg__task-open.ui-btn:hover:not(:disabled),
 .acpmux-bg__fold.ui-btn:hover:not(:disabled),
@@ -223,6 +226,7 @@
 .acpmux-bg__more.ui-btn:hover:not(:disabled),
 .acpmux-bg__line--fold.ui-btn:hover:not(:disabled) {
   background: var(--ds-color-hover);
+  transition-duration: 0s;
 }
 .acpmux-bg__icon.ui-btn:focus-visible,
 .acpmux-bg__name.ui-btn:focus-visible,
