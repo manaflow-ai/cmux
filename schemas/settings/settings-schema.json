@@ -1298,7 +1298,8 @@
               "sessions.keepAwake",
               "sessions.resumeAgents",
               "sessions.allowFullAccess",
-              "sessions.promptSuggestions"
+              "sessions.promptSuggestions",
+              "agents.promptSuggestions"
             ],
             "title" : {
               "key" : "settings.group.sessions",
@@ -1411,6 +1412,8 @@
             "key" : "settings.group.chiefDock",
             "rows" : [
               "home.chiefDock.edge",
+              "home.chiefPanel.style",
+              "home.chiefPanel.seesScreen",
               "home.chiefDock.openBeside"
             ],
             "title" : {
@@ -1838,7 +1841,8 @@
         ],
         "id" : "server",
         "lead" : [
-          "server"
+          "server",
+          "tailnet"
         ],
         "symbol" : "server.rack",
         "title" : {
@@ -1944,7 +1948,16 @@
           "advanced"
         ],
         "groups" : [
-
+          {
+            "key" : "settings.group.developerTools",
+            "rows" : [
+              "developerTools.appPages"
+            ],
+            "title" : {
+              "key" : "settings.group.developerTools",
+              "text" : "Developer Tools"
+            }
+          }
         ],
         "id" : "advanced",
         "lead" : [
@@ -11865,6 +11878,141 @@
       "title" : {
         "key" : "settings.sessions.promptSuggestions",
         "text" : "Suggest Follow-Up Tasks"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.agents.promptSuggestions.help",
+        "text" : "After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.promptSuggestions",
+      "keywords" : [
+        "suggestions",
+        "prompt",
+        "next prompt",
+        "ghost text",
+        "autocomplete",
+        "claude",
+        "codex",
+        "usage"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "promptSuggestions"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agents.promptSuggestions"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.promptSuggestions",
+        "text" : "Suggest Next Prompt"
       },
       "validation" : "portable"
     },
@@ -46624,6 +46772,8 @@
     },
     {
       "accepts" : [
+        "system-ui",
+        "system-ui-tight",
         "inter-tuned",
         "inter",
         "verdana",
@@ -46633,17 +46783,29 @@
         "geist",
         "cmux-sans",
         "hanken",
-        "atkinson",
-        "system-ui",
-        "system-ui-tight"
+        "atkinson"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
         {
           "title" : {
+            "key" : "settings.choice.agentChatUiFontSystemUi",
+            "text" : "System (default)"
+          },
+          "value" : "system-ui"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatUiFontSystemUiTight",
+            "text" : "System, tight"
+          },
+          "value" : "system-ui-tight"
+        },
+        {
+          "title" : {
             "key" : "settings.choice.agentChatUiFontInterTuned",
-            "text" : "cmux Inter (default)"
+            "text" : "cmux Inter"
           },
           "value" : "inter-tuned"
         },
@@ -46709,26 +46871,12 @@
             "text" : "Atkinson Hyperlegible Next"
           },
           "value" : "atkinson"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.agentChatUiFontSystemUi",
-            "text" : "System"
-          },
-          "value" : "system-ui"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.agentChatUiFontSystemUiTight",
-            "text" : "System, tight"
-          },
-          "value" : "system-ui-tight"
         }
       ],
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "inter-tuned",
+      "default" : "system-ui",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.agentChat",
@@ -46758,7 +46906,8 @@
         "source sans",
         "cmux sans",
         "hanken",
-        "atkinson"
+        "atkinson",
+        "system"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -89147,6 +89296,339 @@
     },
     {
       "accepts" : [
+        "composeBar",
+        "pill",
+        "card",
+        "panel",
+        "bubble",
+        "seeThrough",
+        "seeThroughBar"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPanelStyle.composeBar",
+            "text" : "Compose Bar"
+          },
+          "value" : "composeBar"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPanelStyle.pill",
+            "text" : "Pill"
+          },
+          "value" : "pill"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPanelStyle.card",
+            "text" : "Card"
+          },
+          "value" : "card"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPanelStyle.panel",
+            "text" : "Panel"
+          },
+          "value" : "panel"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPanelStyle.bubble",
+            "text" : "Bubble"
+          },
+          "value" : "bubble"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPanelStyle.seeThrough",
+            "text" : "See-Through"
+          },
+          "value" : "seeThrough"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPanelStyle.seeThroughBar",
+            "text" : "See-Through Bar"
+          },
+          "value" : "seeThroughBar"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "composeBar",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefDock",
+        "text" : "Chief Dock"
+      },
+      "help" : {
+        "key" : "settings.home.chiefPanelStyle.help",
+        "text" : "How the Chief looks when it floats over a workspace. Compose Bar, Pill and Bubble stay small until you click them, then show the whole chat. Drag any style by its grip."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.chiefPanel.style",
+      "keywords" : [
+        "chief",
+        "floating",
+        "style",
+        "compose",
+        "pill",
+        "card",
+        "panel",
+        "bubble",
+        "minimal",
+        "home"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "chiefPanel",
+        "style"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "home",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:home.chiefPanel.style"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.home.chiefPanelStyle",
+        "text" : "Floating Chief Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefDock",
+        "text" : "Chief Dock"
+      },
+      "help" : {
+        "key" : "settings.home.chiefPanelSeesScreen.help",
+        "text" : "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.chiefPanel.seesScreen",
+      "keywords" : [
+        "chief",
+        "screen",
+        "see",
+        "context",
+        "screenshot",
+        "eye",
+        "floating",
+        "privacy",
+        "home"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "chiefPanel",
+        "seesScreen"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:home.chiefPanel.seesScreen"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.home.chiefPanelSeesScreen",
+        "text" : "Chief Sees Your Screen When It Opens"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -101495,6 +101977,140 @@
       "title" : {
         "key" : "settings.diagnostics.hangReports",
         "text" : "Send Hang Reports"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.developerTools",
+        "text" : "Developer Tools"
+      },
+      "help" : {
+        "key" : "settings.developerTools.appPages.help",
+        "text" : "Inspect Element in the right-click menu and Toggle Developer Tools (⌥⌘I) work in agent chats, Home, Markdown and Settings. Browser tabs always have them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "developerTools.appPages",
+      "keywords" : [
+        "developer",
+        "devtools",
+        "inspector",
+        "web inspector",
+        "inspect element",
+        "chrome",
+        "debug"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "developerTools",
+        "appPages"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:developerTools.appPages"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.developerTools.appPages",
+        "text" : "Developer Tools for cmux Pages"
       },
       "validation" : "portable"
     },

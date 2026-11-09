@@ -8,11 +8,13 @@
 // bold title over a muted reason, a quiet details band, then Deny (esc) and the filled Allow once
 // (⌘↩) at the trailing edge with their keycaps. scopeStyle and rowStyle draw gallery-only
 // alternatives over the shipped card.
-import type { ComponentProps } from "react";
+import { type ComponentProps, useRef } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
+import type { ChatUiFont } from "./chatUiFont";
 import type { AcpmuxPermission } from "./model";
 import { PermissionCard } from "./PermissionCard";
+import { CardFontCaption, fontMeasured, PAIRED_UI_FONTS, useCardFont } from "./permissions/cardFontGallery";
 import { SHORTCUT_ACTIONS, ShortcutsContext } from "./shortcuts";
 
 type ScopeStyle = "under" | "labelled" | "front";
@@ -20,10 +22,17 @@ type RowStyle = "light" | "keycap" | "hover" | "trailing";
 /// How the one-time line of an ask the chat's highest mode does not answer reads: "line" (shipped,
 /// a muted line under the title), "callout" (an inset tinted box) or "pill" (a small pill).
 type OneTimeStyle = "line" | "callout" | "pill";
+/// How each answer's letter (y, a, n) sits beside its other keys: "slash" (shipped, "Y / ⌘ ↩"),
+/// "only" (the letter alone; Esc and ⌘↩ still answer) or "joined" (no slash, a wider gap).
+type LetterStyle = "slash" | "only" | "joined";
 type Props = Pick<ComponentProps<typeof PermissionCard>, "permission" | "harness" | "fullAccessMode" | "shortcuts"> & {
+  letterStyle?: LetterStyle;
   scopeStyle?: ScopeStyle;
   rowStyle?: RowStyle;
   oneTimeStyle?: OneTimeStyle;
+  /// The chat's Interface Font for the card (chatUiFont.ts), with a caption of the row estimator's
+  /// first height for it (permissions/cardHeight.ts) beside the height the card draws.
+  uiFont?: ChatUiFont;
 };
 
 const oneTimeStyles: Record<Exclude<OneTimeStyle, "line">, string> = {
@@ -33,6 +42,16 @@ const oneTimeStyles: Record<Exclude<OneTimeStyle, "line">, string> = {
   pill: `
     [data-one-time-style="pill"] .acpmux-permission-one-time { align-self: flex-start; padding: 2px 8px;
       border-radius: 999px; border: 1px solid color-mix(in srgb, currentColor 25%, transparent); }`,
+};
+
+const letterStyles: Record<Exclude<LetterStyle, "slash">, string> = {
+  only: `
+    [data-letter-style="only"] .acpmux-permission-keys-or,
+    [data-letter-style="only"] .acpmux-permission-keys .acpmux-keycap:not(:first-child),
+    [data-letter-style="only"] .acpmux-permission-keys .acpmux-permission-action-shortcut { display: none; }`,
+  joined: `
+    [data-letter-style="joined"] .acpmux-permission-keys-or { display: none; }
+    [data-letter-style="joined"] .acpmux-permission-keys .acpmux-keycap:first-child { margin-inline-end: 6px; }`,
 };
 
 const rowStyles: Record<Exclude<RowStyle, "light">, string> = {
@@ -203,20 +222,26 @@ function GalleryPermissionCard({
   scopeStyle,
   rowStyle,
   oneTimeStyle,
+  letterStyle,
+  uiFont,
 }: Props) {
+  const stack = useRef<HTMLDivElement>(null);
+  const font = useCardFont(uiFont, permission, stack);
   return (
     <div
       className="acpmux-shell"
       data-scope-style={scopeStyle}
       data-row-style={rowStyle}
       data-one-time-style={oneTimeStyle}
-      style={{ paddingTop: 12 }}
+      data-letter-style={letterStyle}
+      style={{ paddingTop: 12, ...font.style }}
     >
       {scopeStyle && scopeStyle !== "under" && <style>{scopeStyles[scopeStyle]}</style>}
       {rowStyle && rowStyle !== "light" && <style>{rowStyles[rowStyle]}</style>}
       {oneTimeStyle && oneTimeStyle !== "line" && <style>{oneTimeStyles[oneTimeStyle]}</style>}
+      {letterStyle && letterStyle !== "slash" && <style>{letterStyles[letterStyle]}</style>}
       <div className="acpmux-main">
-        <div className="acpmux-permission acpmux-asks-stack">
+        <div className="acpmux-permission acpmux-asks-stack" ref={stack}>
           <ShortcutsContext value={labels}>
             <PermissionCard
               permission={permission}
@@ -227,6 +252,7 @@ function GalleryPermissionCard({
             />
           </ShortcutsContext>
         </div>
+        <CardFontCaption caption={font.caption} />
       </div>
     </div>
   );
@@ -280,6 +306,18 @@ export default componentEntry<Props>({
       note: "Grid measurement: pending permission without a play that answers it.",
       props: { permission: shortRule, harness: "claude" },
     },
+    // cmux#38886 review: System UI and System UI, tight share a stack, as Inter and cmux Inter do,
+    // but not their letter-spacing: the card's first estimate measures each font's tracking.
+    ...Object.fromEntries(
+      PAIRED_UI_FONTS.map((font) => [
+        `font-${font}`,
+        {
+          note: `The four-option transcript card (no key hints) in the ${font} Interface Font, with the row estimator's first height beside the drawn one.`,
+          props: { permission: fourOptions, harness: "codex" as const, shortcuts: false, uiFont: font },
+          play: fontMeasured,
+        },
+      ]),
+    ),
     "long-rule": {
       note: 'Leo 2026-11-05, on Claude desktop\'s "Allow Claude to use …?" card: "The whole, like, allow whatever to use, allow for this session, or deny. And then it shows the hotkeys." A bold title and a muted reason, a quiet details band with the command and the long rule on one muted line (cut, whole on hover), then the answers at the trailing edge: Deny with its esc keycap, Always allow with ⌥⌘2, and the filled Allow once with ⌘↩.',
       props: { permission: longRule, harness: "claude" },
@@ -356,6 +394,18 @@ export default componentEntry<Props>({
     "trailing-four-options": {
       note: "Row variant D with four options.",
       props: { permission: fourOptions, harness: "codex", rowStyle: "trailing" },
+    },
+    "letters-slash": {
+      note: "Answer letters variant A (shipped): Y / ⌘ ↩, A / ⌥⌘2, N / Esc.",
+      props: { permission: longRule, harness: "claude", letterStyle: "slash" },
+    },
+    "letters-only": {
+      note: "Answer letters variant B: the letter alone on each answer; Esc and ⌘↩ still answer.",
+      props: { permission: longRule, harness: "claude", letterStyle: "only" },
+    },
+    "letters-joined": {
+      note: "Answer letters variant C: the letter, a wider gap, then the other keys, no slash.",
+      props: { permission: longRule, harness: "claude", letterStyle: "joined" },
     },
   },
 });

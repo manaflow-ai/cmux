@@ -163,7 +163,11 @@ struct CloudStartChatLoginTests {
         #expect(decision(headless).refusal == .needsLoginChoice)
         var codex = decision(headless)
         codex.harness = "codex"
-        #expect(codex.refusal == nil, "a headless Codex start goes on as on base (cmux#34209 tracks refusing it)")
+        #expect(codex.refusal == .needsLoginChoice, "a headless Codex start with no choice refuses at once, as Claude's does (cmux#34209)")
+        codex.stored = Decision.Choice.none
+        #expect(codex.refusal == nil && codex.reason == .choseNone, "--login none still starts Codex with nothing passed")
+        codex.stored = .pass
+        #expect(codex.refusal == nil && codex.step == .install, "the person's kept pass still runs the broker")
     }
 
     /// A rejected credential's automatic recovery never copies a login the run or the person refused.

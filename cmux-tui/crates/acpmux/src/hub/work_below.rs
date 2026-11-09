@@ -38,7 +38,7 @@ impl Hub {
             (after != before).then_some(after)
         };
         if let Some(count) = count {
-            self.append(session, "mux", super::views::SUBAGENTS_RUNNING, json!({"count": count}));
+            self.subagents_running(session, count);
         }
     }
 
@@ -107,6 +107,8 @@ impl Hub {
     pub(super) fn end_background_subagents(&self, session: &Session) {
         session.subagents.lock().unwrap_or_else(|e| e.into_inner()).end_background();
         self.refresh_work_below(session);
+        // Reports left for its subagents go to it now (`lane_report_subagents.rs`).
+        self.subagent_notices_sweep(session);
     }
 
     /// Before a daemon adopts `session`'s running host (`hosts.rs` `adopt_held`), its subagents
@@ -150,12 +152,7 @@ impl Hub {
             (before, live.running_count())
         };
         if running_after != running_before {
-            self.append(
-                session,
-                "mux",
-                super::views::SUBAGENTS_RUNNING,
-                json!({"count": running_after}),
-            );
+            self.subagents_running(session, running_after);
         }
         self.refresh_work_below(session);
     }
@@ -180,7 +177,7 @@ impl Hub {
     }
 
     /// The session that started `session` as its sub-session, if it is one and is here.
-    fn subsession_parent(&self, session: &Session) -> Option<Arc<Session>> {
+    pub(super) fn subsession_parent(&self, session: &Session) -> Option<Arc<Session>> {
         let parent = session.meta.lock().unwrap_or_else(|e| e.into_inner()).subsession.clone()?;
         let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         sessions.get(&parent.started_by).filter(|p| p.id != session.id).cloned()

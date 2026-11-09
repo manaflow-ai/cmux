@@ -15,6 +15,9 @@ pub(crate) struct PaneCliMessages {
     pub socket: &'static str,
     pub outer_app: &'static str,
     pub guide: &'static str,
+    /// `cmux identify` with no cmux app: the app row's label and value.
+    pub app: &'static str,
+    pub no_app: &'static str,
     /// The session does not place the caller's terminal: `{why}`.
     pub not_found: &'static str,
     /// The root help's heading over the app scopes when no cmux app answers.
@@ -36,6 +39,8 @@ pub(super) const ENGLISH: PaneCliMessages = PaneCliMessages {
     socket: "socket",
     outer_app: "outer cmux app",
     guide: "agent guide",
+    app: "cmux app",
+    no_app: "none (this session runs headless; app commands need --app-socket PATH)",
     not_found: "not placed in this session ({why})",
     app_heading_unreachable: "CMUX APP (these scopes need the cmux app; none answers here)",
     app_heading_outer: "CMUX APP (the cmux app around this session; it does not own this session)",
@@ -53,6 +58,8 @@ pub(super) const JAPANESE: PaneCliMessages = PaneCliMessages {
     socket: "ソケット",
     outer_app: "外側の cmux アプリ",
     guide: "エージェントガイド",
+    app: "cmux アプリ",
+    no_app: "なし (このセッションはヘッドレスで動作中。アプリのコマンドには --app-socket パス が必要です)",
     not_found: "このセッションに配置されていません ({why})",
     app_heading_unreachable: "CMUX アプリ (これらのスコープには cmux アプリが必要です。ここでは応答するアプリがありません)",
     app_heading_outer: "CMUX アプリ (このセッションの外側の cmux アプリ。このセッションの所有者ではありません)",

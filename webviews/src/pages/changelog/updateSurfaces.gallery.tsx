@@ -17,6 +17,7 @@ import {
   type ReadyLayout,
   type WhatsNewPlacement,
 } from "./UpdateSurfaces";
+import { UpdatedNotes, type NotesLook } from "./UpdatedNotes";
 
 const base: UpdateHighlights = {
   version: "1.0.0-nightly.3845050428001",
@@ -53,7 +54,7 @@ const base: UpdateHighlights = {
 };
 
 type Props = {
-  surface: "card" | "popover";
+  surface: "card" | "popover" | "notes";
   data: UpdateHighlights;
   /** The notes of every build the update spans, as the card loads them from the host. */
   span?: ReleaseNotes[];
@@ -84,6 +85,8 @@ type Props = {
    *  card's glass (`glass`, what the host's native glass draws), seen through the page's tint alone
    *  (`tint`, no frost), or hidden under the solid surface the card painted before (`solid`). */
   overRows?: "glass" | "tint" | "solid";
+  /** How the Updated card's changes beside the sidebar stand (UpdatedNotes); `sections` ships. */
+  notesLook?: NotesLook;
 };
 
 // Three themes as WebTheme sends them (the page's --page-* and the glass's surface), each over its
@@ -393,6 +396,7 @@ function UpdateSurfacesGallery({
   previewLayout,
   besideComposer = false,
   overRows,
+  notesLook,
 }: Props) {
   const [strings] = useState(() => createStrings(table));
   const noop = () => undefined;
@@ -400,7 +404,7 @@ function UpdateSurfacesGallery({
     <div
       className="wn-gallery-stage"
       style={{
-        width: width ?? (surface === "card" ? 260 : 360),
+        width: width ?? (surface === "card" ? 260 : surface === "notes" ? 360 : 360),
         padding: 10,
         ...(onWallpaper ? { backgroundImage: wallpaper } : {}),
         ...(theme ? themeStyle(theme) : {}),
@@ -408,7 +412,30 @@ function UpdateSurfacesGallery({
       }}
     >
       {overRows && <RowsStandIn />}
-      {surface === "card" ? (
+      {surface === "notes" ? (
+        <div
+          style={{
+            // The hover card window beside the sidebar: 340 wide, at most 60% of a short window here
+            // so the list scrolls (SidebarUpdatedNotesPopover.maxHeightFraction).
+            width: 340,
+            display: "flex",
+            flexDirection: "column",
+            maxHeight: maxHeight ?? 420,
+            borderRadius: 8,
+            background: "var(--page-elevated)",
+            boxShadow: "0 0 0 1px var(--page-separator)",
+            overflow: "hidden",
+          }}
+        >
+          <UpdatedNotes
+            data={data}
+            span={notes}
+            strings={strings}
+            actions={{ openChangelog: noop, dismiss: noop }}
+            look={notesLook}
+          />
+        </div>
+      ) : surface === "card" ? (
         <div
           className="wn-gallery-card-row"
           style={
@@ -477,6 +504,7 @@ export default componentEntry<Props>({
     "pages/changelog/UpdateSurfaces.tsx#UpdatedCard",
     "pages/changelog/UpdateSurfaces.tsx#UpdateReadyHighlights",
     "pages/changelog/UpdatedCardPreview.tsx#UpdatedCardPreview",
+    "pages/changelog/UpdatedNotes.tsx#UpdatedNotes",
   ],
   load: async () => UpdateSurfacesGallery,
   styles: async () => {
@@ -486,6 +514,26 @@ export default componentEntry<Props>({
     await import("./updateSurfaces.css");
   },
   variants: {
+    "notes-sections": {
+      note: "Picked and shipped (Leo 2026-11-08: \"the sections should be more obvious what's what ... distinguishing which row does what is unclear ... unclear whether you can even scroll down and why\"): the Updated card's changes beside the sidebar under What's New's own area headers (glyph, name, count, in its order), each change one pill with a gap between, and a count of the changes still below while some are. A click opens What's New at that change. Chosen over hairlines because the gap separates pills without adding lines inside the glass.",
+      props: { surface: "notes", data: spanData, span, theme: "dark" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".wn-notes-area").length > 1);
+        await ctx.waitFor(() => ctx.document.querySelector(".wn-notes-more") !== null);
+      },
+    },
+    "notes-sections-light": {
+      note: "The shipped look in the light theme.",
+      props: { surface: "notes", data: spanData, span, theme: "light" },
+    },
+    "notes-divided": {
+      note: "Variant: the same headers, rows divided by hairlines instead of gaps between pills.",
+      props: { surface: "notes", data: spanData, span, theme: "dark", notesLook: "divided" },
+    },
+    "notes-flat": {
+      note: "Before: one flat list with no areas; the rows run together and nothing says the list goes on.",
+      props: { surface: "notes", data: spanData, span, theme: "dark", notesLook: "flat" },
+    },
     "popover-pr-links": {
       note: "Structured PR metadata on a leading change and a remaining change; both reuse the shared PR chip and card. Public PR titles, representative update data.",
       play: async (ctx) => {

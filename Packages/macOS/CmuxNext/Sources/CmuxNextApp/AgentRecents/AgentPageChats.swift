@@ -151,9 +151,10 @@ final class AgentPageChats {
         tabs.pageChats.cloudRepick = CloudStartChat.repickRunner(tabs, services: services)
         tabs.pageChats.cloudReservation = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
+            if !request.release { CloudStartChat.warmSpare(services) } // never awaited: Send's gesture ticket waits only on the reserve
             return await request.run(allowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud,
                                      binary: services.cloud.move.cli, configuration: services.cloud.configuration, auth: services.cloud.auth,
-                                     team: { try await services.cloud.reservationTeam() })
+                                     install: { try await services.cloud.installIdentity.installToken() })
         }
         tabs.pageChats.cloudEnvironment = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }

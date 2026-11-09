@@ -86,9 +86,8 @@ final class BrowserImportOfferService {
         shownThisLaunch = true
         shownOn = chrome
         let offer = BrowserCookieImportOffer(icons: [first.icon], title: BrowserImportOfferStrings.title(browser: first.browser.displayName),
-                                             detail: BrowserImportOfferStrings.detail, importTitle: BrowserImportOfferStrings.importData,
-                                             notNowTitle: BrowserImportOfferStrings.notNow, neverTitle: BrowserImportOfferStrings.dontShowAgain,
-                                             keepInSyncTitle: first.browser.family == .chromium && sync != nil ? BrowserImportOfferStrings.keepInSync : nil, keepInSync: sync?.isOn ?? true) { [sync] in sync?.set($0) }
+                                             importTitle: BrowserImportOfferStrings.importData, notNowTitle: BrowserImportOfferStrings.notNow,
+                                             neverTitle: BrowserImportOfferStrings.dontShowAgain)
         let target = BrowserProfileRecord.wireID(for: chrome.tab.profileID)
         // A window toast (a recovered draft, an undo) sits at the bottom too: the card rises above it
         // instead of waiting (an inactive window keeps its toasts, so waiting could last the launch).
@@ -115,7 +114,6 @@ final class BrowserImportOfferService {
 
     /// `browser.import.cookieBanner` (``CookieBannerSwitch``); nil before settings load (a test).
     private var banner: CookieBannerSwitch? { services?.settings.map(CookieBannerSwitch.init) }
-    private var sync: CookieSyncSwitch? { services?.settings.map(CookieSyncSwitch.init) }
 
     /// Show Import Cookies Banner (palette, CLI, MCP): turns it on again and shows it on the person's
     /// browser tab on screen. It reads no browser data: Import on the card is still the person's click.

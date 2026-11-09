@@ -28,7 +28,7 @@ public struct DiffChangesScreen: View {
                         DiffFileScreen(state: state, fileID: file.id)
                     } label: {
                         DiffFileRow(file: file, isViewed: viewed.contains(file.id)) {
-                            withAnimation(.cmuxMobileSnap) { state.toggleViewed(file) }
+                            withAnimation(.cmuxMobileSnap.unlessReduceMotion) { state.toggleViewed(file) }
                         }
                         .equatable()
                     }

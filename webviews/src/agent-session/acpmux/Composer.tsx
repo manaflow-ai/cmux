@@ -126,7 +126,7 @@ import {
 import { keepElsewhere, type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
-import { markPastes } from "./composer/pasteMarks";
+import { markPastes, unmarkPastes } from "./composer/pasteMarks";
 import { DropOverlay } from "./composer/DropOverlay";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
@@ -877,9 +877,14 @@ function ComposerFrame({
         const picks = pickedSkillsOf(restoredText, commandsNow.current);
         if (!(field.current?.value() ?? "").trim()) pickedSkills.current = picks;
         else for (const name of picks) pickedSkills.current.add(name);
-        const restored = bindMarks(withoutSkillDollars(restoredText, commandsNow.current), restoredAttachments);
+        // A paste that went as a placed paste chip (markPastes) under the chip's size comes back as
+        // the text it was in the draft, remembered as a paste again; only a huge one stays a chip.
+        const restored = unmarkPastes(
+          bindMarks(withoutSkillDollars(restoredText, commandsNow.current), restoredAttachments),
+        );
         restoredText = restored.text;
         restoredAttachments = restored.attachments;
+        box.current?.rememberPastes(restored.pastes);
         // The editor parses tokens synchronously; make their payload IDs known before replacing its document.
         attachmentsRef.current = appendAttachments(attachmentsRef.current, restoredAttachments);
         // Put back, not typed: the Enter that sent it says nothing about this change.
@@ -2552,6 +2557,9 @@ function ComposerFrame({
                     ? `acpmux-emoji-${emojiSelected}`
                     : undefined,
             spellcheck: String(spellChecking),
+            // Attached files, or ones still being read, are a draft too: an ask's keys leave it alone
+            // (composerTyped.ts).
+            "data-draft-attachments": attachments.length + pending.length > 0 ? "" : undefined,
             // WEB-SWAP: the prompt keeps its own draft (composerDraft.ts holds until it is written).
             [WEB_SWAP_KEPT_TEXT]: "",
           },

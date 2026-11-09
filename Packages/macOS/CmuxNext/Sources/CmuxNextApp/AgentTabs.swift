@@ -581,7 +581,7 @@ final class AgentTabStore {
             newTab: local || record.host.hasPrefix(AgentTabRemoteStart.registryPrefix) ? newTabPages[tabKey]?.page : nil,
             allowsTabConversion: local
         )
-        model.pendingRevealTurn = pendingTurns.removeValue(forKey: tabKey)
+        model.pendingRevealTurn = pendingTurns.removeValue(forKey: tabKey) ?? seed?.revealTurn
         model.pendingWake = wakeStates.removeValue(forKey: tabKey)
         relaunchWake.hand(tabKey.relaunchKeyCandidates, to: model)
         (model.onCloudRepositoryLocal, model.miniUnreachable) = (cloudRepositoryLocal, kind != .local) // the mini sends through this Mac's acpmux

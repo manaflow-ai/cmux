@@ -145,7 +145,8 @@ impl Surface {
     }
 
     /// Publish a changed OSC 9;4 progress, shell busy state, or OSC 7501
-    /// program status as a terminal upsert, then post the notifications the
+    /// program status as a terminal upsert (and a program's wait starting or
+    /// ending as agent roster evidence), then post the notifications the
     /// records asked for (after the upsert, so a client that opens the
     /// notification finds the record). Adoption, the first view of an app
     /// terminal and its readiness call this directly.
@@ -167,11 +168,12 @@ impl Surface {
             let progress = metadata.take_progress_change().is_some();
             (metadata.take_busy_change() || progress, metadata.program_status())
         };
-        let (status_changed, shown_changed, alerts) = {
+        let (status_changed, shown_changed, alerts, blocker) = {
             let mut records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let shown = records.take_shown_change(!self.is_dead());
             let alerts = if with_alerts { records.take_alerts() } else { Vec::new() };
-            (records.take_change(), shown, alerts)
+            let blocker = records.take_blocker_change(!self.is_dead());
+            (records.take_change(), shown, alerts, blocker)
         };
         // A publish after the terminal died (reconnect) can hide its
         // running records with no new report: send that shown change too.
@@ -184,6 +186,10 @@ impl Surface {
             && let Err(error) = mux.publish_terminal_progress(self, mutation)
         {
             eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
+        }
+        // After the terminal's upsert, so the roster's row follows it.
+        if let Some(state) = blocker {
+            mux.record_program_status_evidence(self, state);
         }
         // The tab indicator (TUI) changes only with the shown status.
         if let Some(status) = shown_changed {

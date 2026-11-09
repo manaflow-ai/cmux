@@ -154,6 +154,12 @@ pub struct DialOptions {
     /// (srflx 500 ms, prflx 1 s, relay 2 s) for before/after comparisons.
     #[doc(hidden)]
     pub stock_ice_waits: bool,
+    /// WireGuard, phone side: the person's "Ultra mode on cellular" setting.
+    /// On, a tunnel dialed while the phone's network is cellular
+    /// ([`wireguard::set_cellular_path`]) sends Reed-Solomon repair data
+    /// ([`wireguard::ultra_for_dial`]), about 2-3x the bytes, so loss costs
+    /// no time. `CMUX_WG_ULTRA` still wins over it.
+    pub ultra_on_cellular: bool,
     /// Bound on the whole dial or answer.
     pub timeout: Duration,
     /// Dial side, WebRTC: how long an offer waits for the Mac's answer. An
@@ -185,6 +191,7 @@ impl Default for DialOptions {
             video_cap_bps: 0,
             video_blackout: None,
             stock_ice_waits: false,
+            ultra_on_cellular: false,
             timeout: Duration::from_secs(25),
             answer_timeout: Duration::from_secs(8),
             timeline: crate::Timeline::new(),

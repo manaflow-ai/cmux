@@ -7,16 +7,20 @@
 //! so a write never notices. The registration is dead when:
 //!
 //! - a ping got no answer (any control message) within [`PONG_TIMEOUT`]; or
-//! - the wall clock moved [`CLOCK_JUMP`] more than the monotonic clock
-//!   between two checks. A paused VM's monotonic clock stands still while
-//!   its wall clock is set forward on resume, so the jump sends a ping at
-//!   once instead of at the next heartbeat.
+//! - the wall clock moved more than the monotonic clock between two checks
+//!   ([`ClockWatch`]). A paused VM's monotonic clock stands still while its
+//!   wall clock is set forward on resume. A jump past [`CLOCK_JUMP`] sends a
+//!   ping at once instead of at the next heartbeat; a jump past
+//!   [`RELAY_RETIRES_SILENT`] is a resume the relay's control did not
+//!   survive, so the registration is dead at once ([`Check::Resumed`]).
 //!
 //! The registration loop checks every [`CHECK_INTERVAL`], so a dead
-//! registration after a resume is found within about `CHECK_INTERVAL +
-//! PONG_TIMEOUT`. It then registers again with a fresh ticket, waiting a
-//! jittered backoff ([`Backoff`]) that starts at [`FIRST_BACKOFF`] and resets
-//! once a registration is ready.
+//! registration after a resume is found within about `CHECK_INTERVAL`. It
+//! then registers again with a fresh ticket ([`Retry`]): at once after a
+//! resume, else after a jittered backoff ([`Backoff`]) that starts at
+//! [`FIRST_BACKOFF`] and resets once a registration is ready. A resume while
+//! the loop waits out a backoff (a credential source that failed before the
+//! pause) also ends the wait, resets the backoff and registers at once.
 
 use std::time::{Duration, SystemTime};
 
@@ -28,6 +32,9 @@ pub(crate) const CHECK_INTERVAL: Duration = Duration::from_secs(1);
 pub(crate) const PONG_TIMEOUT: Duration = Duration::from_secs(3);
 /// A wall-clock step beyond the monotonic clock that counts as a resume.
 pub(crate) const CLOCK_JUMP: Duration = Duration::from_secs(2);
+/// A pause longer than this outlived the registration: the relay retires a
+/// daemon control that is silent for 45 s.
+pub(crate) const RELAY_RETIRES_SILENT: Duration = Duration::from_secs(45);
 /// The first wait before registering again.
 pub(crate) const FIRST_BACKOFF: Duration = Duration::from_millis(100);
 /// The longest wait before registering again.
@@ -47,6 +54,31 @@ pub(crate) enum Check {
     Ping,
     /// The registration is dead: close it and register again.
     Dead,
+    /// The machine resumed from a pause the registration did not survive:
+    /// close it and register again at once.
+    Resumed,
+}
+
+/// The wall clock against the monotonic clock: how far the wall clock moved
+/// past the monotonic one since the last look (a paused VM's resume).
+#[derive(Debug)]
+pub(crate) struct ClockWatch {
+    last: (Instant, SystemTime),
+}
+
+impl ClockWatch {
+    pub(crate) fn new(mono: Instant, wall: SystemTime) -> Self {
+        Self { last: (mono, wall) }
+    }
+
+    /// The wall clock's step beyond the monotonic clock since the last look.
+    pub(crate) fn jump(&mut self, mono: Instant, wall: SystemTime) -> Duration {
+        let (last_mono, last_wall) = self.last;
+        self.last = (mono, wall);
+        let mono_step = mono.duration_since(last_mono);
+        let wall_step = wall.duration_since(last_wall).unwrap_or_default();
+        wall_step.saturating_sub(mono_step)
+    }
 }
 
 /// The liveness of one registration.
@@ -55,14 +87,19 @@ pub(crate) struct Liveness {
     heartbeat: Duration,
     last_ping: Instant,
     awaiting_since: Option<Instant>,
-    last_check: (Instant, SystemTime),
+    clocks: ClockWatch,
 }
 
 impl Liveness {
     /// A registration that became ready at `mono`/`wall`, pinging every
     /// `heartbeat` when nothing else happens.
     pub(crate) fn new(heartbeat: Duration, mono: Instant, wall: SystemTime) -> Self {
-        Self { heartbeat, last_ping: mono, awaiting_since: None, last_check: (mono, wall) }
+        Self {
+            heartbeat,
+            last_ping: mono,
+            awaiting_since: None,
+            clocks: ClockWatch::new(mono, wall),
+        }
     }
 
     /// The check at `mono`/`wall`.
@@ -70,11 +107,11 @@ impl Liveness {
         if self.awaiting_since.is_some_and(|since| mono.duration_since(since) >= PONG_TIMEOUT) {
             return Check::Dead;
         }
-        let (last_mono, last_wall) = self.last_check;
-        self.last_check = (mono, wall);
-        let mono_step = mono.duration_since(last_mono);
-        let wall_step = wall.duration_since(last_wall).unwrap_or_default();
-        let jumped = wall_step > mono_step + CLOCK_JUMP;
+        let jump = self.clocks.jump(mono, wall);
+        if jump > RELAY_RETIRES_SILENT {
+            return Check::Resumed;
+        }
+        let jumped = jump > CLOCK_JUMP;
         let due = mono.duration_since(self.last_ping) >= self.heartbeat;
         if self.awaiting_since.is_none() && (jumped || due) {
             self.last_ping = mono;
@@ -126,6 +163,51 @@ impl Backoff {
     }
 }
 
+/// How an attempt to register ended, for [`Retry::wait`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Ended {
+    /// The relay refused or the socket failed.
+    Relay,
+    /// The credential source (the ticket command) failed.
+    Credential,
+    /// The machine resumed: the registration from before the pause is gone.
+    Resumed,
+}
+
+/// The waits between registrations: one backoff after relay failures, one
+/// after credential source failures, both reset by a ready registration or
+/// a resume.
+#[derive(Debug)]
+pub(crate) struct Retry {
+    relay: Backoff,
+    credential: Backoff,
+}
+
+impl Retry {
+    pub(crate) fn new() -> Self {
+        Self { relay: Backoff::new(), credential: Backoff::credential() }
+    }
+
+    /// A registration got ready (and may have ended since).
+    pub(crate) fn ready(&mut self) {
+        self.relay.reset();
+        self.credential.reset();
+    }
+
+    /// The wait before the next attempt, for a random `unit` in `[0, 1)`. A
+    /// resume waits nothing and starts both backoffs over.
+    pub(crate) fn wait(&mut self, ended: Ended, unit: f64) -> Duration {
+        match ended {
+            Ended::Relay => self.relay.next(unit),
+            Ended::Credential => self.credential.next(unit),
+            Ended::Resumed => {
+                self.ready();
+                Duration::ZERO
+            }
+        }
+    }
+}
+
 /// A uniform random fraction in `[0, 1)`, or 1 when randomness fails.
 pub(crate) fn random_unit() -> f64 {
     let mut bytes = [0_u8; 8];
@@ -174,17 +256,18 @@ mod tests {
         assert_eq!(live.check(m, w), Check::Dead);
     }
 
-    /// A pause: the monotonic clock stands still while the wall clock moves
-    /// ten minutes. The next check pings at once, and a dead registration
-    /// is found within PONG_TIMEOUT, long before the next heartbeat.
+    /// A short pause (30 s, inside the relay's 45 s): the monotonic clock
+    /// stands still while the wall clock moves. The next check pings at once,
+    /// and a dead registration is found within PONG_TIMEOUT, long before the
+    /// next heartbeat.
     #[test]
-    fn a_resume_pings_at_once_and_finds_a_dead_registration_in_seconds() {
+    fn a_short_pause_pings_at_once_and_finds_a_dead_registration_in_seconds() {
         let (mono, wall) = start();
         let mut live = Liveness::new(HEARTBEAT, mono, wall);
         let (m, w) = (mono + Duration::from_secs(5), wall + Duration::from_secs(5));
         assert_eq!(live.check(m, w), Check::Idle);
-        // Paused 10 minutes: monotonic +1 s (the next check), wall +601 s.
-        let resumed = (m + CHECK_INTERVAL, w + Duration::from_secs(601));
+        // Paused 30 s: monotonic +1 s (the next check), wall +31 s.
+        let resumed = (m + CHECK_INTERVAL, w + Duration::from_secs(31));
         assert_eq!(live.check(resumed.0, resumed.1), Check::Ping);
         let later =
             |s: u64| (resumed.0 + Duration::from_secs(s), resumed.1 + Duration::from_secs(s));
@@ -192,6 +275,43 @@ mod tests {
         assert_eq!(live.check(m, w), Check::Idle);
         let (m, w) = later(3);
         assert_eq!(live.check(m, w), Check::Dead);
+    }
+
+    /// A pause past the relay's 45 s: the registration is dead at once, with
+    /// no ping and no pong timeout.
+    #[test]
+    fn a_resume_past_the_relays_retirement_is_a_dead_registration_at_once() {
+        let (mono, wall) = start();
+        let mut live = Liveness::new(HEARTBEAT, mono, wall);
+        let (m, w) = (mono + CHECK_INTERVAL, wall + CHECK_INTERVAL + Duration::from_secs(600));
+        assert_eq!(live.check(m, w), Check::Resumed);
+    }
+
+    /// A credential source failed three times before a pause (its backoff
+    /// is up to 8 s); the resume registers at once and starts the backoff over.
+    #[test]
+    fn a_resume_registers_with_no_backoff_and_starts_the_backoffs_over() {
+        let mut retry = Retry::new();
+        for _ in 0..3 {
+            retry.wait(Ended::Credential, 1.0);
+        }
+        assert_eq!(retry.wait(Ended::Credential, 1.0), Duration::from_secs(8));
+        assert_eq!(retry.wait(Ended::Resumed, 1.0), Duration::ZERO);
+        assert_eq!(retry.wait(Ended::Credential, 1.0), FIRST_CREDENTIAL_BACKOFF);
+        assert_eq!(retry.wait(Ended::Relay, 1.0), FIRST_BACKOFF);
+    }
+
+    #[test]
+    fn the_clock_watch_sees_a_pause_and_not_a_steady_clock() {
+        let (mono, wall) = start();
+        let mut clocks = ClockWatch::new(mono, wall);
+        assert_eq!(clocks.jump(mono + CHECK_INTERVAL, wall + CHECK_INTERVAL), Duration::ZERO);
+        let (m, w) = (mono + CHECK_INTERVAL * 2, wall + CHECK_INTERVAL * 2 + RELAY_RETIRES_SILENT);
+        assert_eq!(clocks.jump(m, w), RELAY_RETIRES_SILENT);
+        let (m, w) = (m + CHECK_INTERVAL, w + CHECK_INTERVAL + Duration::from_secs(46));
+        assert_eq!(clocks.jump(m, w), Duration::from_secs(46));
+        let back = clocks.jump(m + CHECK_INTERVAL, w - Duration::from_secs(600));
+        assert_eq!(back, Duration::ZERO, "a clock set back is no resume");
     }
 
     #[test]

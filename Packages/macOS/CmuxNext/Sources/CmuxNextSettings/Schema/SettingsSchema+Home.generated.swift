@@ -58,6 +58,13 @@ extension ChiefDockSetting {
     public nonisolated static let edgePath = ["home", "chiefDock", "edge"]
     public nonisolated static let edgeDefault = "left"
     public nonisolated static let edgeValues = ["left", "right", "top", "bottom"]
+    /// `home.chiefPanel.style`: The compose bar: the least on screen that still takes a message (user 2026-11-07).
+    public nonisolated static let stylePath = ["home", "chiefPanel", "style"]
+    public nonisolated static let styleDefault = "composeBar"
+    public nonisolated static let styleValues = ["composeBar", "pill", "card", "panel", "bubble", "seeThrough", "seeThroughBar"]
+    /// `home.chiefPanel.seesScreen`: On: the eye in the panel shows it, and a click turns it off (user 2026-11-07, default picked by the Chief).
+    public nonisolated static let seesScreenPath = ["home", "chiefPanel", "seesScreen"]
+    public nonisolated static let seesScreenDefault = true
     /// `home.chiefDock.openBeside`: On: a link clicked in the Chief opens its workspace with the Chief floating over it.
     public nonisolated static let openBesidePath = ["home", "chiefDock", "openBeside"]
     public nonisolated static let openBesideDefault = true
@@ -259,6 +266,34 @@ nonisolated enum HomeSettingsSchema {
                 ]),
                 default: .string(ChiefDockSetting.edgeDefault),
                 keywords: ["chief", "dock", "window", "edge", "left", "right", "top", "bottom", "side", "home"]
+            ),
+            SettingDescriptor(
+                ChiefDockSetting.stylePath,
+                section: .home,
+                group: group,
+                title: SettingsText.keyed("settings.home.chiefPanelStyle", "Floating Chief Style"),
+                help: SettingsText.keyed("settings.home.chiefPanelStyle.help", "How the Chief looks when it floats over a workspace. Compose Bar, Pill and Bubble stay small until you click them, then show the whole chat. Drag any style by its grip."),
+                kind: .choice([
+                    SettingChoice("composeBar", SettingsText.keyed("settings.choice.chiefPanelStyle.composeBar", "Compose Bar")),
+                    SettingChoice("pill", SettingsText.keyed("settings.choice.chiefPanelStyle.pill", "Pill")),
+                    SettingChoice("card", SettingsText.keyed("settings.choice.chiefPanelStyle.card", "Card")),
+                    SettingChoice("panel", SettingsText.keyed("settings.choice.chiefPanelStyle.panel", "Panel")),
+                    SettingChoice("bubble", SettingsText.keyed("settings.choice.chiefPanelStyle.bubble", "Bubble")),
+                    SettingChoice("seeThrough", SettingsText.keyed("settings.choice.chiefPanelStyle.seeThrough", "See-Through")),
+                    SettingChoice("seeThroughBar", SettingsText.keyed("settings.choice.chiefPanelStyle.seeThroughBar", "See-Through Bar")),
+                ]),
+                default: .string(ChiefDockSetting.styleDefault),
+                keywords: ["chief", "floating", "style", "compose", "pill", "card", "panel", "bubble", "minimal", "home"]
+            ),
+            SettingDescriptor(
+                ChiefDockSetting.seesScreenPath,
+                section: .home,
+                group: group,
+                title: SettingsText.keyed("settings.home.chiefPanelSeesScreen", "Chief Sees Your Screen When It Opens"),
+                help: SettingsText.keyed("settings.home.chiefPanelSeesScreen.help", "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off."),
+                kind: .toggle,
+                default: .bool(ChiefDockSetting.seesScreenDefault),
+                keywords: ["chief", "screen", "see", "context", "screenshot", "eye", "floating", "privacy", "home"]
             ),
             SettingDescriptor(
                 ChiefDockSetting.openBesidePath,

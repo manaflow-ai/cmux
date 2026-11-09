@@ -774,9 +774,24 @@ impl Store for JournalStore {
             durable: self.inner.durable.clone(),
             kept: Arc::clone(&self.inner.kept),
             written: self.inner.written.clone(),
-            stalled: Arc::new(move |why: String| {
-                if let Some(inner) = inner.upgrade() {
-                    inner.ask_to_stop(why);
+            stalled: Arc::new(move |waited: Duration| {
+                let Some(inner) = inner.upgrade() else { return false };
+                let stats = inner.journal.stats();
+                match stats.failing {
+                    Some(failing) => {
+                        inner.ask_to_stop(format!(
+                            "a reply waited {waited:.0?} for the event journal, whose writer is failing ({failing})"
+                        ));
+                        true
+                    }
+                    None => {
+                        tracing::warn!(
+                            waited = ?waited,
+                            durable_lsn = stats.durable_lsn,
+                            "a reply waits for the event journal on a slow disk; it keeps waiting (no restart)"
+                        );
+                        false
+                    }
                 }
             }),
         })
@@ -934,6 +949,9 @@ impl Store for JournalStore {
     }
     fn briefs_path(&self) -> Option<PathBuf> {
         Store::briefs_path(&self.inner.local)
+    }
+    fn audit_dir(&self) -> Option<PathBuf> {
+        Store::audit_dir(&self.inner.local)
     }
 }
 

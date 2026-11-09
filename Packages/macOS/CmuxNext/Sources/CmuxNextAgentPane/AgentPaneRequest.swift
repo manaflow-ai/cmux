@@ -163,6 +163,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chats.open {key}`: a device chat card (`harness:sessionId`) the New Tab page shows,
     /// opened through the app's shared Open Chat path.
     case openChat(String)
+    /// `chats.resume {ref}`: `/resume <ref>` in the composer: the chat a pasted session id, id start,
+    /// transcript path or resume command names, resumed through the app's shared Open Chat path.
+    case resumeChat(String)
     /// `chats.openInTerminal {key}`: Open in Terminal from an All chats row's right-click menu.
     case openChatInTerminal(String)
     /// `chats.watch {key}`: View Only from an All chats row's right-click menu.
