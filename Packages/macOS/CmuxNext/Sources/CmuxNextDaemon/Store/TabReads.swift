@@ -33,11 +33,12 @@ import Foundation
         // no longer standing (`stands`)
         return Task { @MainActor in
             var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(5), jitter: 0.1)
-            _ = backoff
             while stands(), !Task.isCancelled {
                 do {
                     let reply = try await attempt()
                     return answered(reply)
+                } catch where PersonalWriteLedger.isUnanswered(error) {
+                    await pause(&backoff)
                 } catch {
                     if stands() { refused(error) }
                     return
