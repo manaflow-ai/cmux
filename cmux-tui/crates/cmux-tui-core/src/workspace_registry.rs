@@ -5267,21 +5267,39 @@ pub(crate) enum SessionOwnerProbe {
 /// daemon holds it, without waiting on a daemon (the coordinator's short
 /// bound). A daemon that starts the session while the lease is held here
 /// fails its start, as it does during a session reset.
+///
+/// The guard file itself is opened, never made: a missing one is
+/// [`SessionOwnerProbe::NoGuard`], and any other doubt (it cannot be opened,
+/// it changed while opening, its lock is taken) is
+/// [`SessionOwnerProbe::Owned`]. Whoever holds the lease checks
+/// [`SessionLease::still_guards`] before each step that ends a host.
 pub(crate) fn probe_session_owner(root: &Path, component: &str) -> SessionOwnerProbe {
     let lock_dir = platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
     let lock_path = session_guard_lock_component_path(&lock_dir, component);
-    if !lock_path.is_file() {
-        return SessionOwnerProbe::NoGuard;
+    let mut options = OpenOptions::new();
+    options.read(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
     }
+    let file = match options.open(&lock_path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return SessionOwnerProbe::NoGuard;
+        }
+        Err(_) => return SessionOwnerProbe::Owned,
+    };
     let Ok(_coordinator) =
         SessionLease::acquire_coordinator(&session_guard_coordinator_path(&lock_dir))
     else {
         return SessionOwnerProbe::Owned;
     };
-    match SessionLease::acquire(&lock_path) {
-        Ok(lease) => SessionOwnerProbe::Unowned(lease),
-        Err(_) => SessionOwnerProbe::Owned,
+    // Locked first, then checked: the path must still name the locked file.
+    if FileExt::try_lock(&file).is_err() || validate_session_lock_file(&lock_path, &file).is_err() {
+        return SessionOwnerProbe::Owned;
     }
+    SessionOwnerProbe::Unowned(SessionLease { file, path: lock_path, coordinator_waiter_dir: None })
 }
 
 /// What the last owner run of the session `component` of `root` left in its
@@ -5335,6 +5353,17 @@ pub(crate) fn session_guard_component(session: &str) -> String {
 
 fn session_guard_lock_component_path(lock_dir: &Path, component: &str) -> PathBuf {
     platform::normalize_filesystem_path(lock_dir.join(format!("{component}.lock")))
+}
+
+/// A daemon's start of `session` in `root` as a session reset takes it: the
+/// coordinator with its short bound, then the guard.
+#[cfg(test)]
+pub(crate) fn start_session_guard_for_test(
+    root: &Path,
+    session_name: &str,
+) -> anyhow::Result<SessionLease> {
+    fs::create_dir_all(root)?;
+    acquire_session_guard_from_private_dir(root, session_name, true)
 }
 
 #[cfg(test)]
@@ -5761,6 +5790,28 @@ pub(crate) struct SessionLease {
 }
 
 impl SessionLease {
+    /// Whether the guard path still names the file this lease locked: a
+    /// guard deleted (and maybe made again) since is no longer held here,
+    /// and a daemon may own the session through the new file.
+    pub(crate) fn still_guards(&self) -> bool {
+        validate_session_lock_file(&self.path, &self.file).is_ok()
+    }
+
+    /// Runs `act` only while this lease still guards its session, with the
+    /// session-locks coordinator held from that check until `act` returns.
+    /// A daemon makes or replaces a guard file only under that coordinator
+    /// (`acquire_session_guard_from_private_dir` takes it before
+    /// [`SessionLease::acquire`] opens the guard), so none can own the
+    /// session in between. `None`: the coordinator is busy past its short
+    /// bound, or the guard no longer names this lease's file. Keep `act`
+    /// short: a daemon start waits on the coordinator meanwhile.
+    pub(crate) fn while_guarding<T>(&self, act: impl FnOnce() -> T) -> Option<T> {
+        let lock_dir = self.path.parent()?;
+        let _coordinator =
+            SessionLease::acquire_coordinator(&session_guard_coordinator_path(lock_dir)).ok()?;
+        self.still_guards().then(act)
+    }
+
     fn acquire(path: &Path) -> anyhow::Result<Self> {
         let file = open_session_lock_file(path)?;
         restrict_session_lock_file(path, &file)?;

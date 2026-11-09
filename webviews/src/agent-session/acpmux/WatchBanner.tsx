@@ -7,12 +7,16 @@ import { watchedApp } from "./watchBannerModel";
 /// Continue in New Chat forks a Claude Code session into a new chat, and New Chat Here starts a
 /// Codex chat in its folder (a Codex session cannot be forked while another app runs it). It drops in
 /// from the top of the chat (ui/popupSurface.css `data-enter`).
+/// `bridged`: a Claude desktop session acpmux delivers replies into (`bridgedWatch`), so the hint
+/// says where a reply goes instead of that it takes the session over.
 export function WatchBanner({
   family,
+  bridged = false,
   onTakeOver,
   onContinue,
 }: {
   family: string;
+  bridged?: boolean;
   onTakeOver(): void;
   onContinue?(): void;
 }) {
@@ -20,7 +24,7 @@ export function WatchBanner({
   return (
     <div className="acpmux-link-missing acpmux-watch-banner" data-enter="top">
       <p>{t("watch.banner", { app: watchedApp(family) })}</p>
-      <p className="acpmux-watch-hint">{t("watch.composer")}</p>
+      <p className="acpmux-watch-hint">{t(bridged ? "watch.composerBridged" : "watch.composer")}</p>
       <p className="acpmux-live-chat-actions">
         <button type="button" className="acpmux-folder-choice-button" onClick={onTakeOver}>
           {t("watch.takeOver")}

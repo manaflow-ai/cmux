@@ -74976,7 +74976,7 @@
     {
       "arguments" : [
         {
-          "isRequired" : true,
+          "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
           "isTargetName" : false,
@@ -75001,7 +75001,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Attaches this Mac's Cloud tunnel to a private network. The network id (from `cmux cloud network-list`) goes in the path argument: --arg path=<network id>. Returns no fields.",
+      "description" : "Attaches this Mac's Cloud tunnel to its team's network, the only one it joins. The path argument is optional: none means the joined team; a network id (--arg path=<team id>) must be that team's. Returns no fields.",
       "focuses" : false,
       "group" : "CloudActionCatalog",
       "hint" : null,
@@ -75056,7 +75056,7 @@
     {
       "arguments" : [
         {
-          "isRequired" : true,
+          "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
           "isTargetName" : false,
@@ -75081,7 +75081,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Detaches this Mac's Cloud tunnel from a private network. The network id goes in the path argument: --arg path=<network id>. Returns no fields.",
+      "description" : "Detaches this Mac's Cloud tunnel from its team's network. The path argument is optional: none means the joined team; a network id (--arg path=<team id>) must be that team's. Returns no fields.",
       "focuses" : false,
       "group" : "CloudActionCatalog",
       "hint" : null,
@@ -75135,16 +75135,7 @@
     },
     {
       "arguments" : [
-        {
-          "isRequired" : true,
-          "isSuppliedByTarget" : false,
-          "isTargetDescription" : false,
-          "isTargetName" : false,
-          "kind" : "string",
-          "name" : "publicKey",
-          "suggestions" : null,
-          "title" : "SSH Public Key"
-        }
+
       ],
       "category" : "cloud",
       "cliName" : "cloud tunnel-rotate-key",
@@ -75161,7 +75152,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Replaces the client public key of this Mac's Cloud tunnel with --public-key. Returns no fields.",
+      "description" : "Gives this Mac a new WireGuard key for its Cloud tunnel: the agent daemon makes the key, registers it, then uses it. Returns no fields.",
       "focuses" : false,
       "group" : "CloudActionCatalog",
       "hint" : null,
