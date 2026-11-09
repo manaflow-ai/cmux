@@ -109,4 +109,22 @@ import Testing
         #expect(large.perPatch == small.perPatch, "a patch copied \(small.perPatch) elements at 250, \(large.perPatch) at 3,000")
         #expect(large.perPatch <= 25, "a patch copied more than one group's members: \(large.by)")
     }
+
+    /// Review F1 of #39638: a cached section that lists the row at the same place under another group (a model change
+    /// the list has not shown yet) takes the model's section, not a write into the stale group.
+    @Test func aCachedSectionWithAnotherGroupAtThePatchedPlaceTakesTheModelsSection() throws {
+        let (list, window) = Self.list(250)
+        defer { window.close() }
+        let model = list.model
+        let sectionID = model.sections[0].id
+        let member = WorkspaceID("w0")
+        guard case let .group(group) = model.sections[0].nodes[0] else { Issue.record("node 0 is not a group"); return }
+        var stale = group
+        stale.id = GroupID("stale")
+        list.sections[sectionID]?.nodes[0] = .group(stale)
+        #expect(model.patchWorkspaces([SidebarWorkspace(id: member, title: "w0 renamed", branch: "b0")]))
+        let shown = try #require(list.sections[sectionID])
+        #expect(shown.nodes[0].id == .group(group.id), "the list kept the stale group at the patched place")
+        #expect(shown.workspaces.first { $0.id == member }?.title == "w0 renamed")
+    }
 }
