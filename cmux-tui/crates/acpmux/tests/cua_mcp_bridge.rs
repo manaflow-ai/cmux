@@ -557,9 +557,7 @@ async fn a_v2_helper_that_does_not_say_it_checks_the_lock_gets_a_call_only_while
             }
         }
     });
-    let call = |id: u64| {
-        json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"click","arguments":{"x":1,"y":2}}})
-    };
+    let call = |id: u64| json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"click","arguments":{"x":1,"y":2}}});
     let input = format!("{}\n{}\n", call(1), call(2));
     let mut output = Vec::new();
     serve_gated(
