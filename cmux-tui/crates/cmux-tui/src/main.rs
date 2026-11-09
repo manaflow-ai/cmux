@@ -2784,9 +2784,10 @@ fn run_server(
     // period and are not marked keep (`terminal-reap-v1`). Every owner that
     // `ensure` starts (`cmux`, `cmux-tui`, `daemon ensure`, also over SSH:
     // the iOS remote and `remote_host/serve.rs`) gets the option, 30 s unless
-    // the client names another (local_owner.rs, W5-O). Only a daemon started
-    // directly with `--headless` and no option does not reap (the Mac app's
-    // SSH remote, `SSHCommandLine.swift`).
+    // the client names another (local_owner.rs, W5-O), and so does the mux
+    // owner `remote-link` starts for the Mac app's SSH remote
+    // (remote_cli/remote_link_mux.rs). Only a daemon started directly with
+    // `--headless` and no option does not reap.
     let terminal_reaper = match args.terminal_reap_grace {
         Some(grace) => {
             mux.set_terminal_reap_grace(grace)?;

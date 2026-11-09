@@ -735,9 +735,11 @@ class UploadTests(unittest.TestCase):
             return tip
 
         with tempfile.TemporaryDirectory() as scratch, mock.patch.object(MODULE.MediaBranch, "fetch", fetch), \
-                mock.patch.object(MODULE.time, "sleep"), self.assertRaises(MODULE.MediaError) as raised:
+                mock.patch.object(MODULE.time, "sleep"), self.assertRaises(MODULE.MediaConflict) as raised:
             MODULE.put_files("o/r", "pr-media", {"7/shot.png": written(scratch, "shot.png", PNG)}, "m",
                              checked=True, expect={"7/shot.png": None})
+        # Its own class, so a create-only caller keeps the other copy and still stops on any other failure.
+        self.assertIsInstance(raised.exception, MODULE.MediaError)
         self.assertIn("changed on pr-media", str(raised.exception))
         self.assertEqual(len(fetches), 2)
         self.assertEqual(origin.files()["7/shot.png"], b"theirs")

@@ -235,7 +235,12 @@ export function ComposerPickers({
     !harnessSwitch &&
     !!summary?.harness &&
     ((summary.turnCount ?? 0) > 0 || snapshot.rows.some((row) => row.kind !== "sessionStart"));
-  const allEntries = composerPickerEntries(snapshot, pickerCatalog);
+  const allEntries = composerPickerEntries(
+    snapshot,
+    pickerCatalog,
+    // A snapshot that already holds acpmux's harnesses has had its answer, flag or not.
+    harnessesListed || snapshot.catalog.some((entry) => !entry.folder),
+  );
   // A harness acpmux has not listed yet (the first open after launch) keeps the whole list rather
   // than an empty picker. A chat that can fork keeps every harness: a pick of another's model is
   // held for the next message's fork, never a switch in place (Leo 2026-10-22: "can expose as fork").

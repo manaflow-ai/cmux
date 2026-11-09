@@ -111,24 +111,31 @@ function Trailing({
   wide?: boolean;
   marksDone?: boolean;
 }) {
-  const { action, secondary } = step;
+  const { action, secondary, tertiary } = step;
   return (
     <span className="hm-setup__slot">
-      {step.busy ? (
-        <Spinner size={16} loading />
-      ) : step.done ? (
+      {step.done ? (
         marksDone && <StatusGlyph name="done" size={12} />
       ) : (
         <>
+          {tertiary && (
+            <Button variant="ghost" size="sm" onClick={() => onAction(tertiary.run)}>
+              {tertiary.label}
+            </Button>
+          )}
           {secondary && (
-            <Button variant="ghost" size="sm" onClick={() => onAction(secondary.run)}>
+            <Button variant="ghost" size="sm" disabled={secondary.disabled} onClick={() => onAction(secondary.run)}>
               {secondary.label}
             </Button>
           )}
-          {action && (
-            <Button variant={wide ? "solid" : "subtle"} size="sm" onClick={() => onAction(action.run)}>
-              {action.label}
-            </Button>
+          {step.busy ? (
+            <Spinner size={16} loading />
+          ) : (
+            action && (
+              <Button variant={wide ? "solid" : "subtle"} size="sm" onClick={() => onAction(action.run)}>
+                {action.label}
+              </Button>
+            )
           )}
         </>
       )}

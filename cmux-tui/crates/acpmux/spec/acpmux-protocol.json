@@ -533,6 +533,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/review_brief",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/review_verdict",
       "params": true,
       "result": true
@@ -1985,6 +1991,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/machine.tunnel.attach",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine.tunnel.detach",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine.tunnel.rekey",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/pair_redeem",
       "params": true,
       "result": true
@@ -2103,6 +2127,8 @@
         "argv": true,
         "author": true,
         "beforePromptId": true,
+        "callerKind": true,
+        "callerProtocol": true,
         "callerSession": true,
         "cancelToken": true,
         "class": true,
@@ -3979,6 +4005,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "localOnly": true,
         "probe": true,
         "refresh": true
       },

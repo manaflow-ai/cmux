@@ -153,6 +153,7 @@ export const MESH_ENDPOINTS = [
   { name: "detachMeshVm", method: "DELETE", template: "/v1/meshes/{meshId}/vms/{vmId}", scope: "mesh:write", target: "member" },
   { name: "getDevice", method: "GET", template: "/v1/devices/{deviceId}", scope: "mesh:read", target: "device" },
   { name: "deleteDevice", method: "DELETE", template: "/v1/devices/{deviceId}", scope: "mesh:join", target: "device" },
+  { name: "revokeDeviceIntent", method: "POST", template: "/v1/meshes/{meshId}/device-intents/{intentId}/revoke", scope: "mesh:join", target: "mesh" },
   { name: "getDevicePeers", method: "GET", template: "/v1/devices/{deviceId}/peers", scope: "mesh:join", target: "device" },
   { name: "getDeviceOverlayPolicy", method: "GET", template: "/v1/devices/{deviceId}/overlay-policy", scope: "mesh:join", target: "device" },
   { name: "createOverlayServerCode", method: "POST", template: "/v1/meshes/{meshId}/overlay-server-codes", scope: "mesh:join", target: "mesh" },

@@ -9,6 +9,8 @@ export interface AcpmuxRequestMeta {
   argv?: unknown;
   author?: unknown;
   beforePromptId?: unknown;
+  callerKind?: unknown;
+  callerProtocol?: unknown;
   callerSession?: unknown;
   cancelToken?: unknown;
   class?: unknown;
@@ -747,6 +749,7 @@ export type MessageSender = {
 
 export interface ModelsParams {
   _meta?: RequestMeta;
+  localOnly?: unknown;
   probe?: unknown;
   refresh?: unknown;
 }

@@ -1122,10 +1122,12 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     }
 
     /// The transcript row that draws Find in Chat's block `key` (`AgentChatFind.promptKey`:
-    /// the turn's prompt bubble; `AgentChatFind.blockKey`: one block of an answer).
+    /// the turn's prompt bubble; `AgentChatFind.steerKey`: a steered message's row;
+    /// `AgentChatFind.blockKey`: one block of an answer).
     static func rowID(findBlock key: String) -> String {
         guard let bar = key.lastIndex(of: "|") else { return key }
         let owner = key[..<bar], part = key[key.index(after: bar)...]
+        if part == "steer" { return String(owner) }
         return part == "prompt" ? "u-\(owner)" : "\(owner)#\(part)"
     }
 
@@ -1379,6 +1381,7 @@ extension ChatRow {
         case .sessionStart: "other"
         case .prompt: "prompt"
         case .incoming: "incoming"
+        case .steer(let message): message.incoming == nil ? "prompt" : "incoming"
         case .block: "block"
         case .thought: "thought"
         case .tool: "tool"
@@ -1440,6 +1443,12 @@ extension ChatRow {
         case .incoming(let incoming, let attachments, _):
             return (incoming.messages.count == 1 ? 46 + lines(incoming.text) * perLine : 46 + CGFloat(incoming.messages.count) * 40)
                 + (attachments.isEmpty ? 0 : 156)
+        case .steer(let message):
+            if let incoming = message.incoming {
+                return (incoming.messages.count == 1 ? 46 + lines(incoming.text) * perLine : 46 + CGFloat(incoming.messages.count) * 40)
+                    + (message.attachments.isEmpty ? 0 : 156)
+            }
+            return lines(message.text) * perLine + 22 + (message.attachments.isEmpty ? 0 : 156)
         case .block(_, let block):
             switch block.kind {
             case .heading: return 30
