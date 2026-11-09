@@ -121,13 +121,12 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
     let path = write_script(&run_id, &script).map_err(|e| RpcError::internal(format!("save the run's script: {e}")))?;
     let task = re::task_command("ssh", &destination, &path);
     let description = format!("{} on {peer}", crate::bg_run::label(None, command));
+    // The task's own shell removes the script when the run ends; a start acpmux refuses (a stopped
+    // chat, too many tasks) leaves it here, readable only by this user.
     let started =
-        hub.bg_start(&session, &task, Some(plan.root.clone()), Some(description), false, false, None).await;
-    if started.is_err() {
-        let _ = std::fs::remove_file(&path);
-    }
+        hub.bg_start(&session, &task, Some(plan.root.clone()), Some(description), false, false, None).await?;
     Ok(json!({
-        "task": started?,
+        "task": started,
         "machine": peer,
         "base": plan.base,
         "sent": plan.files.len() - left_out.len(),

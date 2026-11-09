@@ -127,7 +127,7 @@ fn dirty_clone(tmp: &Path) -> PathBuf {
     write(&work.join("src/lib.rs"), b"pub fn a() -> u8 { 3 } // edited, not committed\n");
     write(&work.join("src/new.rs"), b"pub fn n() {}\n");
     git_in(&work, &["add", "src/new.rs"]);
-    std::fs::remove_file(work.join("src/gone.rs")).unwrap();
+    git_in(&work, &["rm", "-q", "src/gone.rs"]);
     write(&work.join("assets/logo.bin"), &[9, 0, 8, 0, 7, 255]);
     write(&work.join(".env"), b"TOKEN=hunter2\n");
     git_in(&work, &["add", ".env"]);
