@@ -178,6 +178,8 @@ export interface MockFeedOptions {
   pending?: string[];
   /** The owner's cloud link (the banner says it). */
   connection?: FeedView["connection"];
+  /** The cloud owner's snapshot has come (default true); false: a first connection that failed. */
+  loaded?: boolean;
   /** Every intent is refused with this code (`feed.moving`, `feed.closed`...). */
   refuse?: string;
   /** The reports reply is not sent. */
@@ -336,7 +338,7 @@ export class MockFeedProvider implements PageClient {
     const unreadNotices = active.filter((item) => !isRequest(item) && item.read_at == null).length;
     return {
       revision: this.revision,
-      loaded: true,
+      loaded: this.options.loaded ?? true,
       connection: this.options.connection ?? { state: "connected" },
       counts: {
         open_requests: open,

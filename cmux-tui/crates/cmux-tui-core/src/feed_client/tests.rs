@@ -165,6 +165,30 @@ fn the_client_subscribes_on_the_lease_and_mirrors_the_snapshot() {
     assert!(h.events.lock().unwrap().iter().any(|event| matches!(event, FeedEvent::View { .. })));
 }
 
+/// A first connection that fails leaves the view unloaded, so the app sends
+/// no empty Needs you set to the phone (which would close its requests); the
+/// next connection's snapshot loads it with the items.
+#[test]
+fn a_failed_first_connection_is_not_loaded_until_a_snapshot_comes() {
+    let backend = Arc::new(FakeBackend::default());
+    let (cloud, _) = signed_in(&backend);
+    let h = harness(Some(cloud));
+    wait_until("the failed first connection", || {
+        let shown = view(&h.feed);
+        shown["connection"]["state"] == "disconnected" && shown["connection"]["reason"] == "offline"
+    });
+    let offline = view(&h.feed);
+    assert_eq!(offline["loaded"], false, "{offline}");
+    assert_eq!(offline["total"], 0, "{offline}");
+    // The backoff's next connection takes the snapshot.
+    let wire = backend.wire();
+    connected(&wire, vec![request("fi_1")]);
+    wait_until("the snapshot", || view(&h.feed)["connection"]["state"] == "connected");
+    let shown = view(&h.feed);
+    assert_eq!(shown["loaded"], true, "{shown}");
+    assert_eq!(shown["groups"][0]["entries"][0]["id"], "fi_1", "{shown}");
+}
+
 #[test]
 fn an_answer_shows_at_once_and_answers_on_the_owners_settle_line() {
     let backend = Arc::new(FakeBackend::default());

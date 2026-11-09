@@ -176,6 +176,22 @@ test("an empty feed says Nothing new", async () => {
   expect(host.querySelector(".feed-badge")!.hasAttribute("data-hidden")).toBe(true);
 });
 
+test("a feed whose cloud snapshot never came is loading, not empty", async () => {
+  const offline = { loaded: false, connection: { state: "disconnected" as const, reason: "offline" } };
+  await mount("#/list", offline, []);
+  expect(host.querySelector(".feed-empty")).toBeNull();
+  act(() => root?.unmount());
+  root = undefined;
+  await mount("#/inbox", offline, []);
+  expect(host.querySelector(".feed-empty")).toBeNull();
+  expect(host.querySelector(".feed-inbox-list")).not.toBeNull();
+  act(() => root?.unmount());
+  root = undefined;
+  // Signed out, there is no cloud part to wait for: empty is empty.
+  await mount("#/list", { loaded: false, connection: { state: "disconnected", reason: "signed_out" } }, []);
+  expect(host.querySelector(".feed-empty")!.textContent).toBe("Nothing new");
+});
+
 test("the Inbox: tabs, triage, groups with counts, the detail and its toolbar", async () => {
   const { provider } = await mount("#/inbox");
   expect(text('[role="tab"]')).toEqual(["GitHub", "Feed", "Reports basket"]);

@@ -347,6 +347,35 @@ fn a_cloud_snapshot_keeps_the_local_owners_items() {
     assert_eq!(ids, vec!["fi_l"]);
 }
 
+/// The view is loaded only once the cloud owner's snapshot came: a first
+/// connection that fails leaves it unloaded (an empty view then says nothing
+/// about the cloud's requests), and an account change unloads it again.
+#[test]
+fn the_view_is_loaded_only_after_a_cloud_snapshot() {
+    let mut mirror = Mirror::new("Mac");
+    assert!(!mirror.loaded(), "a new mirror has no cloud snapshot");
+    mirror.set_connection(Connection::Connecting);
+    mirror.set_connection(Connection::Disconnected("offline".to_owned()));
+    // The integration owner's items show at once; the view is still not loaded.
+    mirror.event(Owner::Local, vec![notice("fi_l", 4)], vec![], None, NOW);
+    assert!(!mirror.loaded(), "a failed first connection is not a loaded view");
+    assert!(!view(&mirror, json!({"layout": "list"}))["loaded"].as_bool().unwrap_or(true));
+    mirror.set_connection(Connection::Connecting);
+    mirror.cloud_snapshot("usr_me", vec![request("fi_r", "question", Priority::High, 5)], NOW);
+    mirror.set_connection(Connection::Connected);
+    assert!(mirror.loaded());
+    let shown = view(&mirror, json!({"layout": "list"}));
+    assert_eq!(shown["loaded"], true, "{shown}");
+    let ids: Vec<&str> = mirror.timeline().map(|item| item.id.as_str()).collect();
+    assert_eq!(ids, vec!["fi_r", "fi_l"]);
+    // Offline after it loaded: still loaded (the mirror keeps the cloud items).
+    mirror.set_connection(Connection::Disconnected("offline".to_owned()));
+    assert!(mirror.loaded());
+    // Another account: unloaded until its own snapshot.
+    mirror.clear_cloud(NOW);
+    assert!(!mirror.loaded(), "a cleared cloud part is not loaded");
+}
+
 #[test]
 fn the_list_orders_requests_by_priority_then_newest_and_counts_the_badge() {
     let mut snoozed = notice("fi_s", 1);
