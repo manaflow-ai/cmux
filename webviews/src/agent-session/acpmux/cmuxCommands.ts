@@ -1,4 +1,5 @@
 import { cliOnlyCommand } from "./cliOnlyCommands";
+import { commandPlace } from "./commandPlace";
 import type { StringKey } from "./i18n";
 import { goesAsText, type SlashCommand } from "./slashCommands";
 
@@ -104,7 +105,8 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     name: "side",
     description: "",
     descriptionKey: "composer.slashSide",
-    hint: "<prompt>",
+    // `--on=cloud` (or `--on cloud`) starts it in Cloud, as `cmux chat --on cloud` does (commandPlace.ts).
+    hint: "[--on=cloud] <prompt>",
     source: "cmux",
     action: "side",
   },
@@ -119,7 +121,7 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     name: "cd",
     description: "",
     descriptionKey: "composer.slashCd",
-    hint: "<folder>",
+    hint: "[--on=cloud] <folder>",
     source: "cmux",
     action: "cd",
   },
@@ -252,10 +254,14 @@ export function composerCommand(
   }
 }
 
+/// The commands that take `--on here|cloud` before their arguments (commandPlace.ts): the ones that
+/// start a chat. `/side` and `/cd` start it in Cloud; `/fork` and `/continue` say why they can't.
+const PLACED: ReadonlySet<CmuxCommand["action"]> = new Set(["side", "cd", "fork", "continue"]);
+
 /** The same refusal policy is used before either composer dispatches a command. */
 export function cmuxCommandRefusal(
   command: CmuxCommand,
-  args: string | undefined,
+  typedArgs: string | undefined,
   state: {
     summary: boolean;
     forkable: boolean;
@@ -272,8 +278,29 @@ export function cmuxCommandRefusal(
     cwd?: string;
     /// New Tab, whose own project chip picks its folder.
     newTab?: boolean;
+    /// The chat runs in Cloud: `--on cloud` is where its `/side` and `/cd` already start.
+    inCloud?: boolean;
+    /// This pane can open New Cloud Chat for `/side --on cloud` and `/cd --on cloud` (not Quick Chat).
+    cloudStart?: boolean;
   },
 ): StringKey | undefined {
+  const placed = PLACED.has(command.action) ? commandPlace(typedArgs) : undefined;
+  if (placed && "refused" in placed) return "composer.cmuxOnPlace";
+  if (placed?.place === "cloud" && !state.inCloud) {
+    switch (command.action) {
+      case "side":
+        // A new Cloud chat, not a fork: nothing of this chat has to be copied first.
+        return !state.newTab && state.session && state.cloudStart ? undefined : "composer.cmuxSideUnavailable";
+      case "cd":
+        if (state.newTab) return "composer.cmuxCdNewTab";
+        if (!state.cloudStart) return "composer.cmuxUnavailable";
+        return !placed.rest || cdFolder(placed.rest, state.cwd) ? undefined : "composer.cmuxCdPath";
+      default:
+        // /fork and /continue take the chat with them, so they run where it runs.
+        return "composer.cmuxOnCloudCarries";
+    }
+  }
+  const args = placed ? placed.rest : typedArgs;
   switch (command.action) {
     case "import":
     case "model":

@@ -7,7 +7,8 @@ use std::time::Duration;
 
 use super::{
     Parsed, Reads, Route, Start, TAKES_VALUE, USAGE, cloud_words, global_words, here_wait,
-    here_words, new_args, parse, parse_with, pick_target, route, setting_stream, start_words,
+    here_words, in_environment, new_args, parse, parse_with, pick_target, route, setting_stream,
+    start_words,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -191,6 +192,41 @@ fn a_vm_chat_is_the_cloud_start_chat_run() {
     // A Cloud chat needs a prompt, and takes no model or chat name.
     assert!(cloud_words(&start(&[]), &Machine::New).is_err());
     assert!(cloud_words(&start(&["--model", "m", "go"]), &Machine::New).is_err());
+}
+
+/// Leo, 2026-11-06: "Shared chat commands can start in cloud." `cmux chat --on cloud` takes the
+/// Environment the composer's chip picks: none is Auto, and one makes the chat's machine in it.
+#[test]
+fn a_cloud_chat_takes_an_environment_and_auto_is_none() {
+    let auto = start(&["--on", "cloud", "go"]);
+    assert_eq!(auto.environment, None);
+    assert_eq!(
+        in_environment(&auto, Route::Cloud(Machine::Target("vm-dev".into()))),
+        Ok(Route::Cloud(Machine::Target("vm-dev".into())))
+    );
+    assert_eq!(in_environment(&start(&["go"]), Route::Here), Ok(Route::Here));
+
+    let picked = start(&["--on", "cloud", "--environment", "staging-db", "go"]);
+    assert_eq!(picked.environment.as_deref(), Some("staging-db"));
+    assert!(TAKES_VALUE.contains(&"--environment"));
+    // cmux Cloud's choice of place: a new machine in the environment, not the VM it would reuse.
+    assert_eq!(
+        in_environment(&picked, Route::Cloud(Machine::Target("vm-dev".into()))),
+        Ok(Route::Cloud(Machine::New))
+    );
+    assert_eq!(
+        cloud_words(&picked, &Machine::New).unwrap(),
+        words(&["--prompt", "go", "--environment", "staging-db"])
+    );
+    let made = start(&["--on", "vm:new", "--environment=env_1", "go"]);
+    assert_eq!(in_environment(&made, Route::Cloud(Machine::New)), Ok(Route::Cloud(Machine::New)));
+    // Refused, never dropped: a VM that exists has its environment, and a chat here has none.
+    let existing = start(&["--on", "vm:dev", "--environment", "env_1", "go"]);
+    assert!(in_environment(&existing, Route::Cloud(Machine::Target("vm-dev".into()))).is_err());
+    let here = start(&["--environment", "env_1", "go"]);
+    assert!(in_environment(&here, Route::Here).is_err());
+    assert!(parse(&words(&["--environment", " ", "go"]), None).is_err());
+    assert!(USAGE.contains("--environment ENV"));
 }
 
 /// Before, `cmux chat --prompt X --wait` here was refused ("--wait and --timeout wait for a Cloud

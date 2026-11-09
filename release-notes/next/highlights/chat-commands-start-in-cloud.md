@@ -1,0 +1,4 @@
+title: /side and /cd can start a chat in Cloud
+category: new
+
+Type /side --on cloud with a prompt, or /cd --on cloud with a folder, in any chat to open a new Cloud chat ready to send. cmux chat --on cloud takes --environment too.
