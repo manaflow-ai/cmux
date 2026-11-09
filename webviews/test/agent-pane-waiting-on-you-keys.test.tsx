@@ -201,11 +201,13 @@ test("a question is answered in its chat; on a pull request Deny asks for the ch
   await press(list, "j");
   // The question offers no answer here: its card in the chat asks the whole of it.
   await press(list, "2");
+  // Its shortcut answers nothing and opens the chat, where the card asks it.
   await shortcut("AllowOnce");
   expect(calls.answers).toEqual([]);
+  expect(calls.opened).toEqual(["s2"]);
   expect(host.querySelector("#wq-row-acpmux_p2 .wq-button")).toBeNull();
   await press(list, "Enter");
-  expect(calls.opened).toEqual(["s2"]);
+  expect(calls.opened).toEqual(["s2", "s2"]);
   await press(list, "j");
   expect(selected()).toBe("wq-row-pr_u");
   await shortcut("Deny");
