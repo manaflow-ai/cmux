@@ -2,12 +2,12 @@
    (Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FindPill/). Every Cmd-F bar in a page (Find in
    Chat, Find in Diff) is this one capsule, the same size and place as the terminal's and the
    browser's (Lawrence, 2026-10-20; plans/cmux-next/find-pill-gallery.html, variant A). The numbers
-   below are FindPillMetrics'. Material: the card material native cards and the native pill draw
-   (CardMaterial: --cmux-card-tint, the popup surface mostly opaque at the least alpha that keeps
-   primary and secondary text 4.5:1 over black and white; Lawrence 2026-10-20: floating cards were
-   "too liquid glassy") under the tooltip blur, the popup's one-pixel rim and the raised drop. A
-   page the host has not themed yet falls back to the tooltip tint. Reduce Transparency: the
-   opaque popup surface (desktop.css swaps both tokens). Reduce Motion: it appears in one frame. */
+   below are FindPillMetrics'. Material: see-through glass (Leo, 2026-11-05: "I don't think it's
+   glass enough"): the tooltip tint and its paired ink, under the shared glass material's blur and
+   lit rim over the popup's one-pixel rim and the raised drop; its text is full ink, the only ink
+   the tint keeps 4.5:1 over black and white. Reduce Transparency: the opaque popup surface, no
+   blur and no material rim. Reduce Motion: it appears in one frame. The native pill
+   (FindPillView) still draws the card material. */
 :root {
   --find-pill-height: 34px;
   --find-pill-inset: 10px;
