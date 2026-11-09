@@ -21,9 +21,12 @@ test "${ACPMUX_ENV:-}" = 1 && echo "I am session $ACPMUX_SESSION_NAME ($ACPMUX_S
 When set, `@` names your own session (`acpmux last @`, `acpmux history @`).
 Sessions you start are siblings, not children: they outlive you.
 
-Inside a session, run the daemon's own CLI: `"$ACPMUX_BIN"` is one absolute
-path that runs it, also inside cmux. Use it in place of `acpmux` in every
-command, as in `"$ACPMUX_BIN" send NAME "text"`. The `acpmux` on your PATH can
+To message another session from a chat, use the `send` tool
+(`mcp__acpmux__send`, or `cmux.acpmux_send` in a cmux_exec script), not
+`acpmux send` in Bash ("Messages between agents" below). For the rest, run
+the daemon's own CLI: `"$ACPMUX_BIN"` is one absolute path that runs it, also
+inside cmux. Use it in place of `acpmux` in every command, as in
+`"$ACPMUX_BIN" last NAME`. The `acpmux` on your PATH can
 be another, older build (a login profile puts `~/.local/bin` first). A CLI
 older than the daemon does not say who runs it: the daemon records its sends as
 an unverified program, not as you or the person, and refuses it what only the
@@ -118,6 +121,9 @@ knows; the session is not created.
 
 ## 3. Core loop
 
+From a chat with acpmux's MCP tools, message with the `send` tool, not the
+`send` lines below; they are for shells and scripts.
+
 ```bash
 acpmux run -m codex --cwd ~/proj --policy approve-edits --tag task=fix "fix the failing test"   # create, send, print only the reply
 acpmux --json run -m claude "…"                    # {"sessionId","name","reply","stopReason"}
@@ -171,7 +177,7 @@ the person's prompt. What the receiver gets depends on who you are to it:
 | --- | --- | --- | --- |
 | the session that started it or first gave it work | a prompt, its own turn | yes | `send --wait` prints it |
 | another session, with `--wait` | a question in its inbox | yes | `send --wait` prints that turn's reply |
-| another session, with `--no-wait` | an action in its inbox | no: it goes with its next turn | it answers with `inbox_reply` or `acpmux send YOU` |
+| another session, with `--no-wait` | an action in its inbox | no: it goes with its next turn | it answers with `inbox_reply` or the `send` tool |
 | another session, `--no-wait --class question` or `block` | a question in its inbox | yes | that turn's report comes back to you (to your subagent, if one asked); not to a session on another machine |
 | the person, in a plain terminal | the person's prompt | yes | streamed |
 
@@ -193,12 +199,13 @@ the person's prompt. What the receiver gets depends on who you are to it:
   lead, saying `This report is for your TYPE subagent ID`. If it ended with no
   `SubagentStop` hook, its reports wait until no subagent of the lead runs. The
   end message of a background task it started (`bg_start`, `run_wait`) takes
-  the same rule. On a path that names no subagent (a cmux workflow script), a
-  subagent passes `notify: false` and reads the task
-  with `bg_output`. The receiver reads `From another agent (LEAD's TYPE
+  the same rule. A cmux workflow it starts (`cmux.cmux_workflow`) runs as it:
+  the workflow's commands and its script's sends name it. On a path that names
+  no subagent, a subagent passes `notify: false` and reads the task with
+  `bg_output`. The receiver reads `From another agent (LEAD's TYPE
   subagent ID)` and ends its turn with its answer; it does not send it to the
   lead.
-  `acpmux send LEAD` reaches the lead.
+  The `send` tool (`to: LEAD`) reaches the lead.
   A Codex subagent is named `LEAD's codex subagent THREAD` (its own
   `CODEX_THREAD_ID`); when acpmux does not know the lead's thread, the line
   says `LEAD (subagent identity not available for codex)`.

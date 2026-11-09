@@ -22,6 +22,12 @@ def workflow(name: str) -> dict:
     return yaml.load((WORKFLOWS / name).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
 
+def environment_name(job: dict) -> object:
+    """A job's environment name, whether it is written plain or as {name, deployment: false}."""
+    environment = job.get("environment")
+    return environment.get("name") if isinstance(environment, dict) else environment
+
+
 def run_text(job: dict) -> str:
     return "\n".join(str(step.get("run", "")) for step in job.get("steps", []))
 
@@ -43,7 +49,7 @@ def test_secret_dispatch_jobs_use_branch_restricted_environments_and_ephemeral_r
     )
     for name, job_name, environment, runner in cases:
         job = workflow(name)["jobs"][job_name]
-        assert job.get("environment") == environment, f"{name} secrets need {environment}"
+        assert environment_name(job) == environment, f"{name} secrets need {environment}"
         assert job.get("runs-on") == runner, f"{name} must use its declared ephemeral pool"
         assert "fromJSON(vars.RUNNER_POOLS)." in runner
 
@@ -53,7 +59,7 @@ def test_secret_dispatch_jobs_use_branch_restricted_environments_and_ephemeral_r
     )
     for name, job_name, environment in shared_secret_readers:
         job = workflow(name)["jobs"][job_name]
-        assert job.get("environment") == environment, f"{name} secrets need {environment}"
+        assert environment_name(job) == environment, f"{name} secrets need {environment}"
 
     claude_triggers = set(workflow("claude.yml")["on"])
     assert claude_triggers == {"issue_comment", "issues"}, (
@@ -206,10 +212,10 @@ def test_environment_secret_rollout_keeps_untrusted_jobs_secretless() -> None:
     assert "secrets.vercel_" not in yaml.dump(docs_deploy)
 
     namespace = workflow("namespace-autofix.yml")["jobs"]["autofix"]
-    assert namespace.get("environment") == "ci-routing-agent"
+    assert namespace.get("environment") == {"name": "ci-routing-agent", "deployment": "false"}
 
     pr_autofix = workflow("cmux-next-pr-autofix.yml")["jobs"]["push"]
-    assert pr_autofix.get("environment") == "cmux-pr-autofix"
+    assert pr_autofix.get("environment") == {"name": "cmux-pr-autofix", "deployment": "false"}
     assert "github.event_name != 'pull_request'" in pr_autofix.get("if", ""), (
         "the protected App job must skip PR refs before environment evaluation"
     )
@@ -222,7 +228,7 @@ def test_environment_secret_rollout_keeps_untrusted_jobs_secretless() -> None:
         ("dogfood-artifact-publish.yml", "capture", "ci-bot"),
     )
     for name, job_name, environment in trusted_automation:
-        assert workflow(name)["jobs"][job_name].get("environment") == environment
+        assert environment_name(workflow(name)["jobs"][job_name]) == environment
 
 
 def test_ci_and_deployment_container_images_are_digest_pinned() -> None:
