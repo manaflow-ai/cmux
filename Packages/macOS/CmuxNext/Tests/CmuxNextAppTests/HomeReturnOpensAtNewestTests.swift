@@ -129,10 +129,11 @@ import Testing
         let held = try place(view, "in the Chief panel")
         #expect(!held.pinned && abs(held.back - before) < 1, "in the Chief panel: \(held.back) pt up, was \(before)")
 
-        // The panel gives it back to Home (shown again in the same turn): still the reader's place.
+        // The panel gives it back to Home in one turn (WindowRootView.show unhides Home, then
+        // ChiefPanelView.release and the pane takes it back): still the reader's place.
+        home.isHidden = false
         host.removeFromSuperview()
         home.addSubview(host)
-        home.isHidden = false
         await settle()
         pass(window, view)
         let back = try place(view, "given back to Home")
@@ -147,5 +148,21 @@ import Testing
         await settle()
         pass(window, view)
         try expectAtNewest(view, "Cmd-I from a parked Home")
+
+        // A tab dragged to another window in one turn (TabMoves.move): a new window, so the newest message.
+        try await scrollUp(window, view, "scrolled up before the drag to another window")
+        let other = NSWindow(contentRect: NSRect(x: 40, y: 40, width: 900, height: 800), styleMask: [.titled, .resizable],
+                             backing: .buffered, defer: false)
+        other.isReleasedWhenClosed = false
+        defer { other.closeAfterTest() }
+        let otherPane = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 800))
+        other.contentView = otherPane
+        other.orderFrontRegardless()
+        host.removeFromSuperview()
+        host.frame = otherPane.bounds
+        otherPane.addSubview(host)
+        await settle()
+        pass(other, view)
+        try expectAtNewest(view, "dragged to another window")
     }
 }

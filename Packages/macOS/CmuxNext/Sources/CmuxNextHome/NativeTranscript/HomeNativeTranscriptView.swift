@@ -610,10 +610,12 @@ public final class HomeNativeTranscriptView: NSView {
     /// place: the window's Chief panel takes Home's chat beside a link it opened, and gives it back, in one turn
     /// (`WindowRootView.show` hides Home, `ChiefPanelView.hold` moves its `HomeHostView`).
     ///
-    /// So what counts is whether the person saw the chat when the last turn ended and sees it when this one
-    /// ends, not the hide, show and move events in between: AppKit's order for those depends on which view
-    /// moves (a view leaving a hidden parent hears `viewDidUnhide` before `viewWillMove(toWindow: nil)`).
-    /// The check runs on the main actor right after the turn, before the run loop commits its frame.
+    /// So what counts is the window the person saw the chat in when the last turn ended and the one they see it
+    /// in when this one ends, not the hide, show and move events in between: AppKit's order for those depends
+    /// on which view moves (a view leaving a hidden parent hears `viewDidUnhide` before
+    /// `viewWillMove(toWindow: nil)`). Out of sight to seen, or another window (a tab dragged there), pins.
+    /// The check runs as the next main-actor job; when that comes after the run loop's commit, the old offset
+    /// shows for one frame before the pin.
     private func settleSightAtTurnEnd() {
         guard !sightCheckPending else { return }
         sightCheckPending = true
@@ -621,14 +623,15 @@ public final class HomeNativeTranscriptView: NSView {
         Task { [weak self] in
             guard let self else { return }
             self.sightCheckPending = false
-            let seen = self.seenNow
-            if seen, !self.seenAtTurnEnd, !self.stopped { self.showNewestOnReturn() }
-            self.seenAtTurnEnd = seen
+            let seenIn = self.seenNow ? self.window.map(ObjectIdentifier.init) : nil
+            if let seenIn, seenIn != self.seenInAtTurnEnd, !self.stopped { self.showNewestOnReturn() }
+            self.seenInAtTurnEnd = seenIn
         }
     }
 
-    /// Whether the person could see this chat when the last turn with a hide, show or move ended.
-    private var seenAtTurnEnd = false
+    /// The window the person could see this chat in when the last turn with a hide, show or move ended; nil
+    /// when out of sight. Its identity, not a reference: the window may close and go away after.
+    private var seenInAtTurnEnd: ObjectIdentifier?
     private var sightCheckPending = false
 
     /// The chat rests at its newest message as the person returns to it; `returnPins` counts them (tests).
