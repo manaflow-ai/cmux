@@ -12,12 +12,14 @@ workspace = true
 
 [features]
 # The UDP driver (a thread, one socket, STUN candidates) for the host and the viewer.
-net = ["dep:libc", "cmux-transport/local-networks"]
+net = ["dep:libc", "dep:cmux-rd-proto", "cmux-transport/local-networks"]
 
 [dependencies]
 libc = { version = "0.2", optional = true }
 snow.workspace = true
 cmux-transport = { path = "../cmux-transport" }
+# The datagram link's offer and answer (`dlink`, feature `net`).
+cmux-rd-proto = { path = "../cmux-rd-proto", features = ["serde"], optional = true }
 # TURN long-term credentials (RFC 8489): HMAC-SHA1 keyed with MD5(username:realm:password).
 hmac = "0.12"
 sha1 = "0.10"

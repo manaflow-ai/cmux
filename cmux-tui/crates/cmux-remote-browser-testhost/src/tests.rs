@@ -45,6 +45,7 @@ fn hello_with(viewer: &mut TcpStream, service: &str, caps: &[&str]) {
         token: None,
         service: service.into(),
         caps: caps.iter().map(|c| (*c).to_string()).collect(),
+        link_offer: None,
     };
     let mut out = Vec::new();
     encode_stream_frame(STREAM_CONTROL, &serde_json::to_vec(&control).expect("json"), &mut out)

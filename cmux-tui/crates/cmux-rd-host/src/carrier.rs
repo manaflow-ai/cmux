@@ -167,6 +167,72 @@ impl Carrier for LinkCarrier {
     }
 }
 
+/// The stream carrier plus the datagram link a viewer offered (dlink.rs):
+/// control on the stream; datagrams on the link while it is up, else on the
+/// stream; datagrams taken from both.
+#[cfg(feature = "link")]
+pub struct HybridCarrier<'a, S> {
+    pub inner: SocketCarrier<'a, S>,
+    pub link: cmux_rd_link::dlink::DatagramLink,
+}
+
+#[cfg(feature = "link")]
+impl<S: Read + Write + AsRawFd> Carrier for HybridCarrier<'_, S> {
+    fn fds(&self) -> Vec<RawFd> {
+        let mut fds = self.inner.fds();
+        fds.extend(self.link.fd());
+        fds
+    }
+
+    fn receive(&mut self, out: &mut Vec<Incoming>) -> Result<(), String> {
+        use cmux_rd_link::dlink::{LinkOut, LinkState};
+        let start = out.len();
+        self.inner.receive(out)?;
+        // The viewer's routes are the link's, not the session's.
+        let mut i = start;
+        while i < out.len() {
+            if let Incoming::Control(Control::LinkCandidate { candidate }) = &out[i] {
+                self.link.add_remote_candidate(candidate);
+                out.remove(i);
+            } else {
+                i += 1;
+            }
+        }
+        let mut produced = Vec::new();
+        self.link.poll(&mut produced);
+        for item in produced {
+            match item {
+                LinkOut::Datagram(d) => out.push(Incoming::Datagram(d)),
+                LinkOut::Candidate(candidate) => {
+                    // A lost route only costs the link a path; the stream is what matters.
+                    let _ = self.inner.send_control(&Control::LinkCandidate { candidate });
+                }
+                LinkOut::State(LinkState::Up) => eprintln!("cmux-rd host: datagram link up"),
+                LinkOut::State(LinkState::Quiet) => {
+                    eprintln!("cmux-rd host: datagram link quiet; datagrams on the stream")
+                }
+                LinkOut::State(LinkState::Failed(reason)) => {
+                    eprintln!("cmux-rd host: datagram link ended ({reason}); datagrams on the stream")
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()> {
+        if self.link.is_up() {
+            self.link.send_datagram(datagram);
+            Ok(())
+        } else {
+            self.inner.send_datagram(datagram)
+        }
+    }
+
+    fn send_control(&mut self, control: &Control) -> io::Result<()> {
+        self.inner.send_control(control)
+    }
+}
+
 /// A TURN relay as the app passes it (the hub ticket's relays): `host:port` and
 /// the long-term credential. Resolved to IPv4 here; an unresolvable one is skipped.
 #[cfg(feature = "link")]

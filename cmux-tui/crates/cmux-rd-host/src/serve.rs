@@ -384,6 +384,7 @@ fn serve_session(
         carrier: "link".into(),
         service: negotiated.service.clone(),
         caps: negotiated.caps.clone(),
+        link: None,
     })?;
     carrier.send_control(&Control::Started { session })?;
     let reason = media.run(carrier, &mut table, session, &principal);

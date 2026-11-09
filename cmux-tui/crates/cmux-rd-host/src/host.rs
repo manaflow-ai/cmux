@@ -453,6 +453,7 @@ fn serve_viewer<S: ViewerStream>(
         token: provided,
         service,
         caps,
+        link_offer,
     } = read_control(&mut stream, &mut reader)?
     else {
         return Err("first message must be hello".into());
@@ -513,6 +514,18 @@ fn serve_viewer<S: ViewerStream>(
         return Err("max_datagram below 512 refused".into());
     }
     let max_datagram = max_datagram.min(MAX_DATAGRAM_DEFAULT);
+    // The datagram link (dlink.rs), only next to the stream carrier: a viewer
+    // with its own UDP port already has a datagram path. An offer the host
+    // cannot take leaves every datagram on the stream, as before.
+    let link = match (&out, link_offer) {
+        (DatagramOut::Stream, Some(offer)) => accept_link(&offer),
+        _ => None,
+    };
+    // Datagrams must fit both paths, since either may carry any of them.
+    let max_datagram = match &link {
+        Some(_) => max_datagram.min(link_max_datagram()),
+        None => max_datagram,
+    };
     let Control::Start { key, mode } = read_control(&mut stream, &mut reader)? else {
         return Err("second message must be start".into());
     };
@@ -548,6 +561,7 @@ fn serve_viewer<S: ViewerStream>(
         max_datagram,
         &negotiated,
         sink,
+        link,
     ) {
         Ok(reason) => reason,
         Err(e) => format!("failed: {e}"),
@@ -573,6 +587,7 @@ fn stream_session<S: ViewerStream>(
     max_datagram: usize,
     negotiated: &Negotiated,
     sink: Box<dyn crate::upstream::UpstreamSink>,
+    link: Option<HostLink>,
 ) -> Res<String> {
     // Datagrams left over from an earlier viewer must not reach this session (bounded).
     let mut scratch = [0u8; 2048];
@@ -597,14 +612,90 @@ fn stream_session<S: ViewerStream>(
             carrier: carrier_name.into(),
             service: negotiated.service.clone(),
             caps: negotiated.caps.clone(),
+            link: link_answer(&link),
         },
     )?;
     write_control(stream, &Control::Started { session })?;
-    let mut carrier = SocketCarrier::new(stream, reader, udp, out);
-    let reason = media.run(&mut carrier, table, session, principal);
+    let carrier = SocketCarrier::new(stream, reader, udp, out);
+    let reason = run_media(&mut media, carrier, link, table, session, principal);
     media.release_input();
     media.close_upstreams();
     Ok(reason)
+}
+
+/// The host's side of an offered datagram link and its answer.
+#[cfg(feature = "link")]
+pub(crate) type HostLink = (cmux_rd_link::dlink::DatagramLink, cmux_rd_proto::control::LinkAnswer);
+#[cfg(not(feature = "link"))]
+pub(crate) type HostLink = std::convert::Infallible;
+
+/// Takes a viewer's link offer: an ephemeral UDP socket on every interface,
+/// reached only by the offering viewer's authenticated link (dlink.rs).
+#[cfg(feature = "link")]
+fn accept_link(offer: &cmux_rd_proto::control::LinkOffer) -> Option<HostLink> {
+    let bind = SocketAddr::from(([0, 0, 0, 0], 0));
+    match cmux_rd_link::dlink::DatagramLink::accept(offer, bind) {
+        Ok(taken) => {
+            eprintln!(
+                "cmux-rd host: datagram link offered; answering with {} route(s)",
+                taken.1.candidates.len()
+            );
+            Some(taken)
+        }
+        Err(why) => {
+            eprintln!("cmux-rd host: datagram link not taken ({why}); datagrams on the stream");
+            None
+        }
+    }
+}
+
+#[cfg(not(feature = "link"))]
+fn accept_link(_offer: &cmux_rd_proto::control::LinkOffer) -> Option<HostLink> {
+    None
+}
+
+#[cfg(feature = "link")]
+fn link_max_datagram() -> usize {
+    cmux_rd_link::dlink::LINK_MAX_DATAGRAM
+}
+
+#[cfg(not(feature = "link"))]
+fn link_max_datagram() -> usize {
+    MAX_DATAGRAM_DEFAULT
+}
+
+#[cfg(feature = "link")]
+fn link_answer(link: &Option<HostLink>) -> Option<cmux_rd_proto::control::LinkAnswer> {
+    link.as_ref().map(|(_, answer)| answer.clone())
+}
+
+#[cfg(not(feature = "link"))]
+fn link_answer(_link: &Option<HostLink>) -> Option<cmux_rd_proto::control::LinkAnswer> {
+    None
+}
+
+/// Runs the media session on the stream carrier, with the datagram link when there is one.
+fn run_media<S: ViewerStream>(
+    media: &mut MediaSession,
+    carrier: SocketCarrier<'_, S>,
+    link: Option<HostLink>,
+    table: &mut SessionTable,
+    session: SessionId,
+    principal: &Principal,
+) -> String {
+    match link {
+        #[cfg(feature = "link")]
+        Some((link, _)) => {
+            let mut hybrid = crate::carrier::HybridCarrier { inner: carrier, link };
+            media.run(&mut hybrid, table, session, principal)
+        }
+        #[cfg(not(feature = "link"))]
+        Some(never) => match never {},
+        None => {
+            let mut carrier = carrier;
+            media.run(&mut carrier, table, session, principal)
+        }
+    }
 }
 
 #[cfg(test)]

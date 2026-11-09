@@ -38,6 +38,7 @@ fn the_probe_sees_whether_the_welcome_grants_service_input() {
             carrier: "stream".into(),
             service: SERVICE_REMOTE_BROWSER.into(),
             caps: caps.iter().map(|c| (*c).to_string()).collect(),
+            link: None,
         })
         .expect("json")
     };

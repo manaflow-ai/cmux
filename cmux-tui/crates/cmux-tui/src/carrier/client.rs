@@ -67,6 +67,8 @@ pub(super) struct Dialed {
     pub mux: OpenedMuxControl,
     /// The grant's `vmk`, when it has one.
     pub vmk: Option<super::contract::Vmk>,
+    /// The desktop datagram link's settings, when the platform turned it on.
+    pub rd_link: Option<super::answer::RdLink>,
 }
 
 /// What one dial needs.
@@ -371,7 +373,7 @@ async fn attempt(
         }
     };
     step.mark(|marks| marks.mux_open = Some(Instant::now()));
-    Ok(Dialed { connection, multiplexer, mux, vmk: answer.vmk })
+    Ok(Dialed { connection, multiplexer, mux, vmk: answer.vmk, rd_link: answer.rd_link.clone() })
 }
 
 /// The daemon key of an answer that came without one: asked of the platform

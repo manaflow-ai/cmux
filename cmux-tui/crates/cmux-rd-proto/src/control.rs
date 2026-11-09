@@ -33,6 +33,11 @@ pub enum Control {
         /// Optional rd features the viewer supports (C1).
         #[serde(default)]
         caps: Vec<String>,
+        /// The viewer asks for media datagrams on a secure UDP link next to
+        /// this stream ([`LinkOffer`]). A host that does not know the field
+        /// ignores it and keeps every datagram on the stream.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        link_offer: Option<LinkOffer>,
     },
     Start {
         key: String,
@@ -49,6 +54,10 @@ pub enum Control {
         service: String,
         /// The offered caps the host also supports.
         caps: Vec<String>,
+        /// The host's half of the datagram link, when it took the hello's
+        /// `link_offer`. Absent: every datagram stays on the stream.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        link: Option<LinkAnswer>,
     },
     Started {
         session: u64,
@@ -102,6 +111,12 @@ pub enum Control {
     StreamClose {
         stream: u16,
     },
+    /// One more route (`"<host|srflx|relay> <ip:port>"`) for the datagram
+    /// link, either direction, sent only after a welcome with `link`. A
+    /// side that cannot use it drops it.
+    LinkCandidate {
+        candidate: String,
+    },
     Stats {
         kbps: u32,
         frames: u64,
@@ -110,6 +125,37 @@ pub enum Control {
         encode_ms_p50: f64,
         loss_pct: f64,
     },
+}
+
+/// The datagram link version this build speaks.
+pub const LINK_VERSION: u32 = 1;
+
+/// The viewer's half of the datagram link (cmuxterm-hq#7976): a secure UDP
+/// link (cmux-rd-link: Noise_XX, sealed datagrams, a replay window) that
+/// carries rd datagrams while this stream keeps control. The stream is
+/// already end to end inside the carrier's authenticated session, so the
+/// keys here are vouched for by it, and each side accepts only the other's.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinkOffer {
+    /// [`LINK_VERSION`]; a host answers only a version it speaks.
+    pub v: u32,
+    /// 32 hex characters, fresh per session: the Noise prologue.
+    pub id: String,
+    /// The viewer's link key (25519 public key, 64 hex characters).
+    pub key: String,
+    /// STUN servers (`host:port`) the host may use for its reflexive route.
+    #[serde(default)]
+    pub stun: Vec<String>,
+}
+
+/// The host's half of the datagram link.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinkAnswer {
+    /// The host's link key (64 hex characters).
+    pub key: String,
+    /// The host's routes known at welcome; more follow as `link_candidate`.
+    #[serde(default)]
+    pub candidates: Vec<String>,
 }
 
 /// What a stream carries (`stream_open`). A kind this build does not know

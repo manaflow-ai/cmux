@@ -100,6 +100,7 @@ pub(crate) mod drill;
 pub(crate) mod fault;
 mod held;
 mod noise_key;
+mod rd_link;
 mod route_log;
 mod secrets;
 mod serve;
@@ -523,14 +524,29 @@ pub(crate) fn run(args: &[String]) -> i32 {
                 reply(&line);
             }
         });
-        let client::Dialed { connection, multiplexer, mux, .. } = dialed;
+        let client::Dialed { connection, multiplexer, mux, rd_link, .. } = dialed;
         let _ = match desktop {
             Some(stream) => {
                 mux.close().await;
-                cmux_remote::bridge::bridge_raw_stream(
+                // The datagram link only when the platform turned it on and
+                // `CMUX_RD_LINK=0` does not keep it off.
+                let killed = std::env::var(rd_link::KILL_SWITCH).is_ok_and(|v| v == "0");
+                let stun = rd_link.filter(|_| !killed).map(|link| link.stun);
+                let machine = args.machine.clone();
+                let link_log = route_log::default_path();
+                rd_link::bridge(
                     stream,
                     tokio::io::stdin(),
                     tokio::io::stdout(),
+                    stun,
+                    move |note| {
+                        if let Some(path) = &link_log {
+                            route_log::append(
+                                path,
+                                &format!("cloud.desktop_link machine={machine} {note}\n"),
+                            );
+                        }
+                    },
                 )
                 .await
             }

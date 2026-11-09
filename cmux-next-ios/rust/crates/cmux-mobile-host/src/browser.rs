@@ -353,6 +353,7 @@ pub fn hello_frame(secret: &str, peer: &Peer) -> Vec<u8> {
         token: Some(SecretHex(secret.to_owned())),
         service: SERVICE_REMOTE_BROWSER.into(),
         caps: vec![INPUT_SERVICE.into()],
+        link_offer: None,
     };
     let mut out = Vec::new();
     let json = serde_json::to_vec(&hello).unwrap_or_default();
