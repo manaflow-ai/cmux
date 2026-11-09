@@ -146,7 +146,8 @@ export default agentPaneEntry({
     },
     "under-tab-row": {
       note: "Play: a one-tab pane's row floats over the page; the gallery opens below it, its title in its own bar.",
-      snapshot: media(),
+      // Images only: render cards run as the gallery opens, and their frames are not what this measures.
+      snapshot: toolOutputs(),
       play: underTabRow,
     },
     image: {
