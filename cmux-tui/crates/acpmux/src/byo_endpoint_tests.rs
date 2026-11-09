@@ -977,8 +977,8 @@ async fn byo_endpoint_a_keyless_endpoint_names_no_key_and_its_env_resolves() {
     assert!(!profile.env.contains_key(OPENAI_KEY_ENV), "{:?}", profile.env);
     // Any program that is there: the env step comes after the command step.
     profile.argv[0] = fake_claude(&root).to_string_lossy().into_owned();
-    let config: Value = serde_json::from_str(&profile.env["OPENCODE_CONFIG_CONTENT"]).unwrap();
-    assert!(config["provider"]["byo"]["options"].get("apiKey").is_none(), "{config}");
+    let inline: Value = serde_json::from_str(&profile.env["OPENCODE_CONFIG_CONTENT"]).unwrap();
+    assert!(inline["provider"]["byo"]["options"].get("apiKey").is_none(), "{inline}");
     // The doctor's env step (what startup resolves) passes with no Keychain at all.
     let cfg = config("local", profile, meta);
     let mut opts = options(GOOD_KEY, false);

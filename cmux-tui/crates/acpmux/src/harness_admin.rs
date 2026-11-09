@@ -596,10 +596,14 @@ fn add_endpoint(
         .and_then(|cmd| (key.store)(&cmd));
         if let Err(e) = stored {
             // Never a profile that names a key that is not there: back as it was.
-            let _ = match &before {
-                Some(old) => crate::config::write_atomic(&path, old),
-                None => std::fs::remove_file(&path),
-            };
+            match &before {
+                Some(old) => {
+                    let _ = crate::config::write_atomic(&path, old);
+                }
+                None => {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
             return Err(AdminError::Failed(format!("the key was not stored: {e:#}")));
         }
     }
