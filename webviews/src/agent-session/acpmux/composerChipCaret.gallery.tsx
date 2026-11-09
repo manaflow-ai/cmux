@@ -14,7 +14,8 @@ import type { MarkdownFieldElement } from "./MarkdownField";
 const HEX = "a21d11e10694e6e0fbf7ea446075f32c";
 const WORKSPACE = `cmux-nightly://workspace/ws_${HEX}`;
 
-type Props = { draft: string; locked?: boolean };
+/// `chat`: the variant's own chat, so no variant's saved draft comes back in another's.
+type Props = { chat: string; draft: string; locked?: boolean };
 
 /** The field's handle, once the draft drew its chips. */
 const field = async (ctx: PlayContext, chips: number) => {
@@ -68,18 +69,22 @@ export default componentEntry<Props>({
     await import("./composerLook.css");
   },
   load: async () => {
-    const { useEffect, useRef } = await import("react");
+    const { useEffect, useMemo, useRef } = await import("react");
     const { Composer } = await import("./Composer");
     const { setLinkPlaces } = await import("./chips/cmuxLinkPlaces");
     setLinkPlaces([{ id: `ws_${HEX}`, kind: "workspace", title: "workspace-413" }]);
-    const sessionId = "gallery-chip-caret";
-    const snapshot = noChat([], {
-      sessionId,
-      summary: { sessionId, harness: "claude", cwd: "/Users/you/src/app", turnCount: 0 },
-    });
     const Chips = () => null;
-    return function ChipCaret({ draft, locked }: Props) {
+    return function ChipCaret({ chat, draft, locked }: Props) {
       const handle = useRef<ComposerHandle>(null);
+      const sessionId = `gallery-chip-caret-${chat}`;
+      const snapshot = useMemo(
+        () =>
+          noChat([], {
+            sessionId,
+            summary: { sessionId, harness: "claude", cwd: "/Users/you/src/app", turnCount: 0 },
+          }),
+        [sessionId],
+      );
       useEffect(() => {
         if (draft) handle.current?.restore(draft, []);
       }, [draft]);
@@ -99,32 +104,32 @@ export default componentEntry<Props>({
   variants: {
     "caret-after-chip": {
       note: "The link pasted alone: the chip with the caret after it, at the line's height (it had been drawn at no height inside the chip).",
-      props: { draft: WORKSPACE },
+      props: { chat: "caret-after-chip", draft: WORKSPACE },
       play: caretAt((draft) => draft.length),
     },
     "caret-before-chip": {
       note: "The caret before the chip, in front of its icon.",
-      props: { draft: `See ${WORKSPACE}` },
+      props: { chat: "caret-before-chip", draft: `See ${WORKSPACE}` },
       play: caretAt(() => "See ".length),
     },
     "chip-mid-text": {
       note: "The chip mid-sentence, the caret at the end of the text after it.",
-      props: { draft: `Open ${WORKSPACE} and compare it with the last run` },
+      props: { chat: "chip-mid-text", draft: `Open ${WORKSPACE} and compare it with the last run` },
       play: caretAt((draft) => draft.length),
     },
     "after-second-paste": {
       note: "The same link pasted again right after the chip: both stay chips, a space between (the first had turned back into its URL).",
-      props: { draft: WORKSPACE },
+      props: { chat: "after-second-paste", draft: WORKSPACE },
       play: pasteAtEnd(WORKSPACE, 2),
     },
     "after-pasted-text": {
       note: "Text pasted right after the chip: the chip stays, a space before the text.",
-      props: { draft: WORKSPACE },
+      props: { chat: "after-pasted-text", draft: WORKSPACE },
       play: pasteAtEnd("can you look at this one", 1),
     },
     "starting-chat": {
       note: "A Cloud start is out (locked): the composer still takes a click and typing; Send keeps the draft until the start ends.",
-      props: { draft: "", locked: true },
+      props: { chat: "starting-chat", draft: "", locked: true },
       play: typeWhileStarting,
     },
   },
