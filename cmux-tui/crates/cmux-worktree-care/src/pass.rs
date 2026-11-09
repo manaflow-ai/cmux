@@ -150,7 +150,9 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
                 continue;
             }
             if worktree.prunable {
-                if options.apply && !pruned {
+                // A stale-only pass touches only the folders it was given:
+                // `git worktree prune` is repository-wide.
+                if options.apply && !pruned && !options.stale_only {
                     pruned = true;
                     let _ = crate::git::user_git(
                         repo.main_root.as_deref().unwrap_or(&repo.common_dir),
