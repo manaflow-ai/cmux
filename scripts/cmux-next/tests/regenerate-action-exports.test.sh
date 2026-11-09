@@ -57,7 +57,7 @@ git clone -q "$repo" "$tmp/lane"
 git -C "$tmp/lane" apply "$repo/.build/exports.patch" || fail "the patch does not apply to a clean checkout"
 cmp -s "$tmp/lane/$surfaces" "$repo/$surfaces" || fail "the patched action-surfaces.json differs from the regenerated one"
 cmp -s "$tmp/lane/$md" "$repo/$md" || fail "the patched actions.md differs from the regenerated one"
-[[ "$(git -C "$tmp/lane" diff --name-only | sort | tr '\n' ' ')" == "$md $surfaces " ]] || fail "the patch touches other files: $(git -C "$tmp/lane" diff --name-only)"
+[[ "$(git -C "$tmp/lane" diff --name-only | LC_ALL=C sort | tr '\n' ' ')" == "$(printf '%s\n' "$md" "$surfaces" | LC_ALL=C sort | tr '\n' ' ')" ]] || fail "the patch touches other files: $(git -C "$tmp/lane" diff --name-only)"
 
 # 2. Nothing changed: the patch is empty (an earlier run's patch is not handed over again), and
 #    `git apply` of it is a no-op a lane can run unconditionally.
