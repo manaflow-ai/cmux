@@ -42,7 +42,7 @@ def receipt_script():
 
 class Rerun(unittest.TestCase):
     def invoke(self, status="completed", *, missing=False, error="", post_error=False, conclusion=None,
-               event="issue_comment", action="created", review_state=""):
+               event="issue_comment", action="created", review_state="", reviews=(), reviews_error=False):
         self.assertIsNotNone(shutil.which("jq"), "this shell harness needs jq")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -62,6 +62,12 @@ class Rerun(unittest.TestCase):
                     query = args[args.index("--jq") + 1]
                     result = subprocess.run(["jq", "-r", query], input=os.environ["RUNS"], text=True)
                     sys.exit(result.returncode)
+                if endpoint.endswith("/pulls/7/reviews?per_page=100"):
+                    if os.environ["REVIEWS_ERROR"] == "1":
+                        sys.exit("gh: HTTP 500")
+                    query = args[args.index("--jq") + 1]
+                    result = subprocess.run(["jq", "-r", query], input=os.environ["REVIEWS"], text=True)
+                    sys.exit(result.returncode)
                 if args[1:3] == ["-X", "POST"] and endpoint.endswith("/runs/123/rerun"):
                     sys.exit(1 if os.environ["POST_ERROR"] == "1" else 0)
                 sys.exit("unexpected API read or mutation: " + repr(args))
@@ -72,7 +78,9 @@ class Rerun(unittest.TestCase):
                    "REPO": REPO, "HEAD_SHA": HEAD, "CALL_LOG": str(log),
                    "RUNS": json.dumps({"workflow_runs": runs}), "API_ERROR": error,
                    "POST_ERROR": "1" if post_error else "0", "EVENT_NAME": event, "EVENT_ACTION": action,
-                   "REVIEW_STATE": review_state}
+                   "REVIEW_STATE": review_state, "PR_NUMBER": "7",
+                   "REVIEWS": json.dumps([{"state": st} for st in reviews]),
+                   "REVIEWS_ERROR": "1" if reviews_error else "0"}
             result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", rerun_script()],
                                     env=env, text=True, capture_output=True, timeout=5)
             calls = [json.loads(line) for line in log.read_text().splitlines()]
@@ -100,8 +108,15 @@ class Rerun(unittest.TestCase):
             with self.subTest(event=event, action=action, state=state):
                 result, calls = self.invoke(conclusion="success", event=event, action=action, review_state=state)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(len(calls), 1, calls)
+                self.assertEqual(len(calls), 2, calls)  # the runs read and the reviews read
                 self.assertIn("already passed", result.stdout)
+
+    def test_green_run_is_rerun_by_a_receipt_after_an_approval_was_taken_back(self):
+        for reviews, error in ((("APPROVED", "CHANGES_REQUESTED"), False), (("DISMISSED",), False), ((), True)):
+            with self.subTest(reviews=reviews, error=error):
+                result, calls = self.invoke(conclusion="success", reviews=reviews, reviews_error=error)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(calls[-1], ["api", "-X", "POST", f"repos/{REPO}/actions/runs/123/rerun"])
 
     def test_green_run_is_rerun_when_a_review_can_take_approval_back(self):
         for action, state in (("submitted", "changes_requested"), ("dismissed", "dismissed"),

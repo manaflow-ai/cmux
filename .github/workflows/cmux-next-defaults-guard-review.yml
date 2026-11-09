@@ -105,6 +105,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           EVENT_ACTION: ${{ github.event.action }}
           REVIEW_STATE: ${{ github.event.review.state }}
+          PR_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
         run: |
           error_file="$(mktemp)"
           trap 'rm -f "$error_file"' EXIT
@@ -128,12 +129,20 @@ jobs:
           fi
           # A green guard stays green on a SHIP receipt or an approving review: approvals only add up
           # (defaults_guard.py approval()). Only a review that requests changes or is dismissed can take
-          # one back. A re-run of a green guard decides nothing and moves the head's last check suite
-          # later (pr-verdict-fast: the guard ended 132 heads' verdicts a day, a median 16 min after cmux-next).
+          # one back, and a feat-cmux-next head has no review workflow of its own to re-run the guard when
+          # that happens, so the next receipt must. A green guard is kept only while the pull request has
+          # no such review at all. A re-run of a green guard otherwise decides nothing and moves the head's
+          # last check suite later (pr-verdict-fast: the guard ended 132 heads' verdicts a day, a median
+          # 16 min after cmux-next).
           if [[ "$run_conclusion" == success && ! ( "$EVENT_NAME" == pull_request_review \
             && ( "$EVENT_ACTION" == dismissed || "$REVIEW_STATE" == changes_requested ) ) ]]; then
-            echo "Defaults guard run $run_id already passed on $HEAD_SHA; a $EVENT_NAME cannot turn it red."
-            exit 0
+            if withdrawn="$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" \
+              --jq '[.[] | select(.state == "CHANGES_REQUESTED" or .state == "DISMISSED")] | length' 2>"$error_file")" \
+              && [[ "$withdrawn" == 0 ]]; then
+              echo "Defaults guard run $run_id already passed on $HEAD_SHA and no review took an approval back; a $EVENT_NAME cannot turn it red."
+              exit 0
+            fi
+            echo "A review may have taken an approval back (or the reviews could not be read); re-running the guard."
           fi
           gh api -X POST "repos/$REPO/actions/runs/$run_id/rerun" >/dev/null
           echo "Re-ran defaults guard run $run_id for $HEAD_SHA."
