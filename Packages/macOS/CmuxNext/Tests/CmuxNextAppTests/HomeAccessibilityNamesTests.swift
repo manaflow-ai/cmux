@@ -109,7 +109,9 @@ import Testing
             window.nameStandardWindowButtons()
             window.orderFrontRegardless()
             view.layoutSubtreeIfNeeded()
-            await Self.wait { (dock.messages?.host?.focusTarget is NSTextView) || scene == "homeTab" && tab.host?.focusTarget is NSTextView }
+            let loaded = { scene == "dock" ? dock.messages?.host?.focusTarget is NSTextView : tab.host?.focusTarget is NSTextView }
+            await Self.wait(until: loaded)
+            #expect(loaded(), "\(scene): the chat and its composer never loaded, so the audit would read a partial tree")
             view.layoutSubtreeIfNeeded()
             Self.dump(scene, window)
             let unnamed = Self.unnamed(under: window)
