@@ -168,6 +168,30 @@ it("finds and deletes the tunnel of a create whose reply was lost, instead of ca
   expect(await listed(admin, mesh)).toHaveLength(1);
 });
 
+it("never deletes a tunnel at the device's slug unless it is attached to exactly this mesh's network", async () => {
+  const { admin, mesh } = await setup();
+  const cases: ReadonlyArray<readonly [string, (own: string) => ReadonlyArray<string>]> = [
+    ["no-attachments", () => []],
+    ["ours-and-another", (own) => [own, "vpc-someone-else"]],
+    ["only-another", () => ["vpc-someone-else"]],
+  ];
+  for (const [intentId, attached] of cases) {
+    // A create whose reply was lost: its tunnel is at the slug with the right name, the attempt open.
+    h.mesh.loseTunnelReplies(1);
+    expect((await enroll(admin, mesh, intentId)).status).toBe(503);
+    const attempt = h.mesh.store.deviceIntentAttempts().find((row) => row.intentId === intentId);
+    const found = [...h.mesh.tunnels.values()].find((tunnel) => tunnel.slug === `cmux-tun-local-${attempt?.deviceId.replace("_", "-")}`);
+    expect(found).toBeDefined();
+    if (found === undefined) continue;
+    h.mesh.tunnels.set(found.id, { ...found, attachedVpcs: attached(found.vpc) });
+    // The lookup fails closed: the revoke answers 503, deletes nothing, and the attempt stays open.
+    expect((await revoke(admin, mesh, intentId)).status, intentId).toBe(503);
+    expect(h.mesh.tunnels.has(found.id), intentId).toBe(true);
+    expect(h.mesh.store.deviceIntentAttempts().filter((row) => row.intentId === intentId && row.resolvedAt === null), intentId).toHaveLength(1);
+    expect(h.upstream.callsTo("DELETE", new RegExp(`^/v5/tunnels/${found.id}$`, "u")), intentId).toHaveLength(0);
+  }
+});
+
 it("keeps the claim of a create whose rollback failed, and a takeover keeps that attempt's cleanup tracked", async () => {
   const { admin, mesh } = await setup();
   h.mesh.failIntentCommits(1);

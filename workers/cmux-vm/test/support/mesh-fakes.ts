@@ -27,6 +27,8 @@ export interface FakeTunnel {
   readonly serverPublicKey?: string;
   readonly slug?: string;
   readonly displayName?: string;
+  /** The networks the provider reports the tunnel attached to; absent: the one it was created on (`vpc`). */
+  readonly attachedVpcs?: ReadonlyArray<string>;
 }
 
 export interface FakeRule {
@@ -190,7 +192,7 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     displayName: tunnel.displayName ?? null,
     clientConfig: `[Interface]\nPrivateKey = ${privateKey}\nAddress = 100.64.0.1/32\n`,
     clientPrivateKey: privateKey,
-    attachments: [{ vpcId: tunnel.vpc, address: tunnel.ipv4, ipv4: tunnel.ipv4, vpcCidr: "", allowedIps: [], createdAt: "2026-10-07T00:00:00Z" }],
+    attachments: (tunnel.attachedVpcs ?? [tunnel.vpc]).map((vpcId) => ({ vpcId, address: tunnel.ipv4, ipv4: tunnel.ipv4, vpcCidr: "", allowedIps: [], createdAt: "2026-10-07T00:00:00Z" })),
     createdAt: "2026-10-07T00:00:00Z",
     updatedAt: "2026-10-07T00:00:00Z",
   });
