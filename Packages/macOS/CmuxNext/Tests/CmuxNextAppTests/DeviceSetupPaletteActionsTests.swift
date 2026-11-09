@@ -26,9 +26,9 @@ import Testing
 
     @Test func manageBillingOpensThePageBillingPortalOpens() {
         let base = URL(string: "https://cmux.com")!
-        #expect(BillingPortal.url(base: base, team: nil)?.absoluteString == "https://cmux.com/dashboard/billing")
-        #expect(BillingPortal.url(base: base, team: "")?.absoluteString == "https://cmux.com/dashboard/billing")
-        #expect(BillingPortal.url(base: base, team: "team_1")?.absoluteString == "https://cmux.com/dashboard/billing?team=team_1")
+        #expect(base.billingPortal(team: nil)?.absoluteString == "https://cmux.com/dashboard/billing")
+        #expect(base.billingPortal(team: "")?.absoluteString == "https://cmux.com/dashboard/billing")
+        #expect(base.billingPortal(team: "team_1")?.absoluteString == "https://cmux.com/dashboard/billing?team=team_1")
     }
 
     @Test func aProxyIsSentAsTheCLISendsIt() throws {

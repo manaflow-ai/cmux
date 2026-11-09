@@ -12,14 +12,14 @@ import Foundation
 /// `cmux setup notifications` reads one and asks with the other. A launch that never uses the
 /// system center (an automation launch, a GUI job, a host that is not the app bundle) answers
 /// `unavailable`. Not in the remote relay allowlist: an ssh session has no business prompting.
-package enum NotificationsControl {
+extension ControlMethod {
     /// The macOS prompt waits for the person; the system bounds it, this only ends a lost one.
-    package static let requestDeadline: Duration = .seconds(600)
+    package static let notificationsRequestDeadline: Duration = .seconds(600)
 
     /// The methods over `center`, made on the main actor for each call (nil: the app is closing).
     /// On the main actor because `DesktopNotifier` is main-actor-only; the settings read itself runs
     /// off the main actor in the follow-up.
-    package static func methods(center make: @escaping @MainActor @Sendable () throws -> (any NotificationPermissionCenter)?) -> [ControlMethod] {
+    package static func notifications(center make: @escaping @MainActor @Sendable () throws -> (any NotificationPermissionCenter)?) -> [ControlMethod] {
         [
             .mainActor("notifications.status") { _ in
                 guard let center = try make() else { return .value(.null) }
@@ -28,7 +28,7 @@ package enum NotificationsControl {
             .mainActor("notifications.request") { _ in
                 guard let center = try make() else { return .value(.null) }
                 return .followUp { try await center.request().json }
-            }.withDeadline(.fixed(requestDeadline)),
+            }.withDeadline(.fixed(notificationsRequestDeadline)),
         ]
     }
 }

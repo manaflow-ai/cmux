@@ -46,7 +46,7 @@ extension AppControl {
                 let open = try Self.openRequest(params)
                 let base = await MainActor.run { services.cloud.configuration.apiBaseURL }
                 let team = (params["teamId"] ?? params["team_id"])?.stringValue
-                guard let url = BillingPortal.url(base: base, team: team) else { throw ControlError(code: "bad_response", message: BillingStrings.badResponse) }
+                guard let url = base.billingPortal(team: team) else { throw ControlError(code: "bad_response", message: BillingStrings.badResponse) }
                 return .object(["url": .string(url.absoluteString)].merging(try await Self.openBillingPage(url, open, services)) { _, opened in opened })
             }.withDeadline(network),
             ControlMethod.async("billing.status") { call in

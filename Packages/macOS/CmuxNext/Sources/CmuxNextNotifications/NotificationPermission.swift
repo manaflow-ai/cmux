@@ -28,6 +28,9 @@ package nonisolated struct NotificationPermission: Equatable, Sendable {
         URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension" + (bundleID.map { "?id=\($0)" } ?? ""))
     }
 
+    /// What a caller says when this process has no system notification center to read or ask.
+    package static var unavailableMessage: String { NotificationPermissionStrings.unavailable }
+
     package var json: JSONValue {
         ["authorization": .string(authorization), "alert": .bool(alert), "alert_style": .string(alertStyle),
          "sound": .bool(sound), "badge": .bool(badge), "bundle_id": bundleID.map(JSONValue.string) ?? .null]
@@ -67,8 +70,8 @@ package nonisolated struct SystemNotificationPermission: NotificationPermissionC
     }
 }
 
-package struct NotificationPermissionStrings {
-    package static var unavailable: String {
+struct NotificationPermissionStrings {
+    static var unavailable: String {
         String(localized: "notifications.permission.unavailable",
                defaultValue: "This cmux process does not use macOS notifications (an automation or test host, or not the cmux app bundle)",
                bundle: .module)

@@ -102,7 +102,7 @@ final class AppControl {
         service.router.register(services.cmuxRemoteActions.controlMethods())
         service.router.register(TerminalLinkOpenControl.methods(services: services))
         service.router.register(PermissionsControl.methods(services: services))
-        service.router.register(NotificationsControl.methods(services: services))
+        service.router.register(ControlMethod.notifications(services: services))
         service.router.register(SessionTransferControl.methods(services: services))
         // The error journal (`cmux errors`): app log, page consoles, acpmux, Chief, crash reports.
         let errors = ErrorJournalService.make(environment: services.environment)

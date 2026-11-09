@@ -1,8 +1,8 @@
 import CmuxNextControl
 import CmuxNextNotifications
 
-extension NotificationsControl {
-    static func methods(services: AppServices) -> [ControlMethod] {
-        methods { [weak services] in try services?.notifications.desktop.permission() }
+extension ControlMethod {
+    static func notifications(services: AppServices) -> [ControlMethod] {
+        notifications { [weak services] in try services?.notifications.desktop.permission() }
     }
 }
