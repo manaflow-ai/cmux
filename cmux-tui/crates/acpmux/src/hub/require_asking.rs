@@ -158,7 +158,9 @@ mod tests {
             require_asking: true,
             ..NewRequest::default()
         };
-        let e = hub.new_session(req).await.unwrap_err();
+        let Err(e) = hub.new_session(req).await else {
+            panic!("the start ran on the legacy adapter");
+        };
         assert!(e.message.contains("cannot be held to asking"), "{}", e.message);
         assert_eq!(e.data.as_ref().and_then(|d| d["reason"].as_str()), Some("start.not_asking"));
         assert!(hub.sessions.lock().unwrap().is_empty());
