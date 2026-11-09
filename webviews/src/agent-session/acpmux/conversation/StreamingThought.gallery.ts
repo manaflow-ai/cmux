@@ -36,7 +36,7 @@ export default agentPaneEntry({
       snapshot: chat([user(PROMPT, 0.1), streaming(LONG)], { isWorking: true }),
     },
     "then-call": {
-      note: "A call ends it: the thought stays in the run where it was drawn, and the line names the call.",
+      note: "A call ends it: the thought stays in the run as it was drawn, open in its viewport, until the turn's one fold at its end; the line names the call.",
       snapshot: chat(
         [
           user(PROMPT, 0.1),

@@ -132,7 +132,8 @@ export function WorkedFor({
 /// last of the live turn's latest row, so a thought there may still stream. `folded`: the run is
 /// finished and draws no summary line of its own, so a group starts closed. `thoughts`: how many
 /// thoughts the row's earlier entries hold, so a thought is `${rowId}:thought:<n>` wherever it
-/// draws, on its own or inside a group a later call joined it to.
+/// draws, on its own or inside a group a later call joined it to. `held`: the run is a running turn's,
+/// so a thought keeps the shape it streamed in until the turn ends (ThoughtRow `held`).
 function groupNode(
   group: ToolGroup,
   index: number,
@@ -142,6 +143,7 @@ function groupNode(
   folded = false,
   thoughts = 0,
   runLine?: readonly string[],
+  held = false,
 ): ReactNode {
   switch (group.type) {
     case "group":
@@ -234,6 +236,7 @@ function groupNode(
           id={`${rowId}:thought:${thoughts}`}
           item={group.item}
           streaming={live}
+          held={held}
         />
       );
   }
@@ -292,6 +295,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
           start.groupsClosed,
           thoughts[at],
           [key],
+          row.liveRun === true,
         );
       });
     if (!stretch.fold) return drawn;

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Before and after a send change, from one harness on one machine: bench/send-status-shift.bench.ts at
 # this checkout's pane, then at BASE's pane (`src` checked out from BASE, the bench file kept), in its
-# three modes (an open chat, a new chat's composer, the New Tab page). Writes before-MODE.json and
+# two modes (an open chat, a new chat's composer). Writes before-MODE.json and
 # after-MODE.json to OUT (default $FAST_CHECKS_OUT) and restores `src` when done.
 #   bench/send-status-ab.sh BASE [rounds=3]
 #   cmux-ci test --setup playwright -- bash webviews/bench/send-status-ab.sh <base sha>
@@ -13,7 +13,7 @@ out="${OUT:-${FAST_CHECKS_OUT:-$(mktemp -d)}}"
 mkdir -p "$out"
 run() {
   local label="$1" mode
-  for mode in open new-chat new-tab; do
+  for mode in open new-chat; do
     local flag=()
     [ "$mode" != open ] && flag=("--$mode")
     echo "=== $label $mode"

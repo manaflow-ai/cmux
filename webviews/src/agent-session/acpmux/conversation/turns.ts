@@ -50,7 +50,7 @@ import { turnCopyParts } from "./turnCopy";
 import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
 import { hidesEveryCall } from "./mcpPresentation";
-import { isThought, thoughtDuration } from "./thoughts";
+import { isThought, QUIET_THOUGHT_CHARS, thoughtDuration } from "./thoughts";
 import {
   BACKGROUND_TURN,
   backgroundTurnRowId,
@@ -2469,19 +2469,28 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
         // differs from every other state of the run (`RUN_STATES`).
         const lined = shown.length !== items.length;
         return [
-          { ...kept, items: shown, settled: true, foldRun: false, version: row.version * RUN_STATES + (lined ? 4 : 2) },
+          {
+            ...kept,
+            items: shown,
+            settled: true,
+            foldRun: false,
+            liveRun: true,
+            version: row.version * RUN_STATES + (lined ? 4 : 2),
+          },
         ];
       });
     // The latest run: what is happening now leaves it for the live line, so the run holds only
     // finished steps and never grows a stack of live rows (Leo 2026-10-20: "rows pile up instead
     // of replacing each other").
     const all = row.items ?? [];
-    // A thought still coming stays in the run from its first words, in its live viewport
+    // A thought still coming stays in the run from its first line, in its live viewport
     // (ThoughtRow `streaming`, the row's `live`), not only once the next step ends it (Leo,
     // 2026-11-09: "we can be a bit more optimistic with, like, the displaying of the thinking ... I
-    // only started seeing your thinking bit, like, seven seconds in").
+    // only started seeing your thinking bit, like, seven seconds in"). Not before it is past a quiet
+    // thought's length: one that ends that short draws no row (thoughts.ts `isQuietThought`), so it
+    // would show and then leave.
     const tail = all.at(-1);
-    const thinking = tail !== undefined && isThought(tail) && tail.text.trim() !== "";
+    const thinking = tail !== undefined && isThought(tail) && tail.text.trim().length >= QUIET_THOUGHT_CHARS;
     const items = all.filter(
       (item, at) =>
         !(item.tool ? isRunning(item.tool) : at === all.length - 1 && item.kind !== "tool" && !thinking),
@@ -2493,6 +2502,7 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
         items,
         settled: true,
         foldRun: false,
+        liveRun: true,
         ...(thinking && { live: true }),
         version: row.version * RUN_STATES + (thinking ? 3 : 1),
       },
