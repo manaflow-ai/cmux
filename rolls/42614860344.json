@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42614860344",
+  "recorded_at": "2026-11-09T12:18:27Z",
+  "reason": "cmux-tui 254be36a48c0 changes the image's cmux-tui (pinned 5cf33ecb3ff6)",
+  "dry_run": false,
+  "cmux_tui": "254be36a48c0eeae63d52ae122e44abfc9abef75",
+  "fixes": [
+    {
+      "sha": "254be36a48c0eeae63d52ae122e44abfc9abef75",
+      "mergedAt": "2026-11-09T03:45:54-08:00",
+      "subject": "carrier tunnel: a failed exit wait kills and reaps the hub before reporting it ended (#39273)"
+    },
+    {
+      "sha": "09133c9923e11b1f2ae13a46e7e43f702bafff8a",
+      "mergedAt": "2026-11-09T03:44:31-08:00",
+      "subject": "cmux-tui registry: time each step of the open's migrations (#39542)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T12:18:27Z",
+    "snapshot_id": "sh-aefb01ee41e9482a876efa7ddf643c8a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42614860344): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4f2ad4408e7a970af79986b9ec7610d54e03f374",
+    "image": "cloud-native-auto-254be36a-42614860344-1",
+    "revision": "ci-42614860344-1",
+    "at": "2026-11-09T12:18:27Z"
+  },
+  "rolled_back": false
+}
