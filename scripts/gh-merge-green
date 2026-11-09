@@ -82,7 +82,7 @@ case "${1:-}" in
       '       gh-merge-green --revert OWNER/REPO#PR' \
       'Merges only when the PR head'"'"'s required-in-practice checks are green.' \
       'Into feat-cmux-next it waits only for the fast gate (scripts/ci/merge_fast_gate.py); --full waits for every check.' \
-      '--wait SECONDS (default 2400) bounds the fast gate'"'"'s wait and, into feat-cmux-next, the check-path gate'"'"'s reruns of the fast gates after it (the first dispatched run always gets its own 900s).' \
+      '--wait SECONDS (default 2400) bounds the fast gate'"'"'s wait and, into feat-cmux-next, the check-path gate'"'"'s reruns of the fast gates after it (the first dispatched run always gets its own 1200s).' \
       '--dry-run runs every gate, then posts and merges nothing.' \
       '--sha SHA (or --match-head-commit SHA) refuses unless SHA is the current head.' \
       'gh pr merge flags passed on: --squash --merge --rebase --delete-branch --subject --body --body-file --author-email --auto --disable-auto --admin' \
@@ -1188,7 +1188,7 @@ check_paths_gate() {
   check_paths_ran=0
   err=$(mktemp)
   tmp_files+=("$err")
-  # The reruns share --wait with the fast gate; the first run keeps its own 900s timeout.
+  # The reruns share --wait with the fast gate; the first run keeps its own 1200s timeout.
   budget=$(( wait_seconds - waited_seconds ))
   [ "$budget" -ge 0 ] || budget=0
   # Its wait adds to the fast gate's in the summary, and in a SIGTERM's.
@@ -1485,7 +1485,7 @@ fi
 # checks run again, since they too ran on the old tip; then check again. The head-only gates
 # (conflict markers, freezes, the review receipt) do not depend on the base and are not repeated.
 # Not a poll: each round after the first waits for a dispatched fast-gates run, and the
-# check-path gate refuses once --wait has less than one run (300s) left, so the rounds end.
+# check-path gate refuses once --wait has less than one run (370s) left, so the rounds end.
 final_check_paths() {
   [ "$base" = feat-cmux-next ] && [ "$gate_mode" != main-fix ] && [ "$check_paths_listed" -eq 1 ] || return 0
   check_paths_gate final

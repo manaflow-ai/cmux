@@ -19,7 +19,7 @@ passes; a red, or a run that never reports within --timeout, refuses. When the b
 during the run (feat-cmux-next lands often: on 2026-11-09 this race refused #39632, #39631 twice and #39705), the
 success proves nothing for the new tip, so it dispatches again there and waits again, while --budget lasts
 (gh-merge-green passes what its --wait left; the default is --timeout). The first run always gets its full
---timeout (not with --rerun: gh-merge-green dispatched one earlier in this merge); any other run starts only with
+--timeout (default 1200s; not with --rerun: gh-merge-green dispatched one earlier in this merge); any other run starts only with
 one run's time (MIN_RUN) of the budget left and stops at its end, and a budget that runs out refuses with the
 last reason. A run that stopped with no verdict (a pending "stopped ..., no verdict" status, or the dispatched run
 completed with no status: a whole-run cancel skips the post job) is dispatched again the same way. The list is read
@@ -29,7 +29,8 @@ right before gh pr merge (the base may change a check path after the first pass)
 
 --check-only (gh-merge-green --dry-run) says whether it would dispatch and dispatches nothing. Before the file
 is on the base (its read answers 404) the gate passes with a note. Each poll is one REST read of
-the head's combined status, and one of the dispatched run when the dispatch answered its id.
+the head's combined status and one of the dispatched run (a dispatch whose answer names no workflow_run_id
+refuses).
 Prints `checked=<what>` and `waited=<seconds>`. Exit 0: pass; 1: refused (the reason on stderr); 3: GitHub
 rate-limited a read (the reset time on stderr).
 """
@@ -55,7 +56,9 @@ MAX_AHEAD = 250  # as next-autoland: further behind than this, the compare is no
 MAX_FILES = 300  # GitHub's compare lists at most 300 files
 # A rerun is dispatched only with this much of the budget left: the fastest successful dispatched run on
 # 2026-11-09 took 370s (most 440-830s), so a rerun with less could not report and would waste a Linux run.
-MIN_RUN = 300
+MIN_RUN = 370
+# How long one dispatched run may take to post its result: successful runs took up to 826s on 2026-11-09.
+TIMEOUT = 1200
 NO_VERDICT = "no verdict"  # a pending fast-gates status whose gates job was cancelled or timed out
 
 
@@ -135,7 +138,7 @@ class Api:
                          "{status, ahead_by, files: [(.files // [])[] | .filename, (.previous_filename // empty)]}")
 
     def dispatch(self, number: str, branch: str) -> int | None:
-        """Dispatch the fast gates; the run's id when GitHub answers it (200 with workflow_run_id), else None."""
+        """Dispatch the fast gates; the run's id from GitHub's 200 answer (workflow_run_id), else None (refused)."""
         text = self.gh("-X", "POST", f"repos/{self.repo}/actions/workflows/{WORKFLOW}/dispatches",
                        "-f", f"ref={branch}", "-f", f"inputs[pr]={number}")
         try:
@@ -229,6 +232,10 @@ def gate(api: Api, number: str, sha: str, branch: str, timeout: float, interval:
         by_budget = not first and started + budget < run_started + timeout
         limit = started + budget if by_budget else run_started + timeout
         run_id = api.dispatch(number, branch)
+        if run_id is None:
+            # Without it a stop or a whole-run cancel of this run cannot be told from another run's: fail closed.
+            raise Refused(f"{why}; dispatched {WORKFLOW}, but GitHub's answer named no workflow_run_id, so the gate "
+                          "cannot follow its run; retry (a status that run posts counts then)")
         kind, status = _result(api, sha, before, run_id, limit, interval, clock, sleep)
         if kind is None and by_budget:
             raise Refused(f"{why}; the wait budget of {int(budget)}s (what gh-merge-green --wait left) ran out "
@@ -262,13 +269,12 @@ def _new(status: dict | None, seen: tuple) -> bool:
     return bool(status) and (status.get("updated_at"), status.get("description")) != seen
 
 
-def _result(api: Api, sha: str, before: dict | None, run_id: int | None, limit: float, interval: float,
+def _result(api: Api, sha: str, before: dict | None, run_id: int, limit: float, interval: float,
             clock: Callable[[], float], sleep: Callable[[float], None]) -> tuple[str | None, dict | None]:
     """("result", status), ("stopped", status or None), or (None, None) after LIMIT.
 
     A result is the first non-pending status on SHA other than BEFORE. A stopped run is a new pending status
-    with no verdict (from RUN_ID when it is known), or RUN_ID completed with no new status (a whole-run cancel
-    skips the post job).
+    with no verdict from RUN_ID, or RUN_ID completed with no new status (a whole-run cancel skips the post job).
     """
     # The run's post job writes only its final state; a status other than the one read before the dispatch is it.
     seen = (before or {}).get("updated_at"), (before or {}).get("description")
@@ -278,10 +284,10 @@ def _result(api: Api, sha: str, before: dict | None, run_id: int | None, limit: 
         if _new(status, seen):
             if (status.get("state") or "") != "pending":
                 return "result", status
-            ours = run_id is None or str(status.get("target_url") or "").endswith(f"/actions/runs/{run_id}")
+            ours = str(status.get("target_url") or "").endswith(f"/actions/runs/{run_id}")
             if NO_VERDICT in (status.get("description") or "") and ours:
                 return "stopped", status
-        if run_id is not None and (api.run(run_id).get("status") or "") == "completed":
+        if (api.run(run_id).get("status") or "") == "completed":
             # The post job writes before the run completes: a status still missing now never comes.
             status = api.status(sha)
             if _new(status, seen) and (status.get("state") or "") != "pending":
@@ -297,7 +303,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("number")
     parser.add_argument("sha")
     parser.add_argument("--base", default=BRANCH)
-    parser.add_argument("--timeout", type=float, default=900)
+    parser.add_argument("--timeout", type=float, default=TIMEOUT)
     parser.add_argument("--budget", type=float, default=None)
     parser.add_argument("--rerun", action="store_true",
                         help="a run was dispatched earlier in this merge: no run gets a timeout past the budget")
