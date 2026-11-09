@@ -149,7 +149,7 @@ fn an_input_op_reads_the_lease_then_drives_cmux_cua_on_the_chiefs_computer() {
 }
 
 #[test]
-fn while_the_person_has_control_input_is_refused_and_screenshots_still_work() {
+fn while_the_person_has_control_every_op_is_refused_screenshots_too() {
     let fake = Fake {
         chief_computer: Some("vm-1".into()),
         action_answers: answers(&[
@@ -164,6 +164,8 @@ fn while_the_person_has_control_input_is_refused_and_screenshots_still_work() {
         json!({"op": "click", "x": 1, "y": 1}),
         json!({"op": "type", "text": "x"}),
         json!({"op": "open_url", "url": "https://example.com"}),
+        json!({"op": "screenshot"}),
+        json!({"op": "list_windows"}),
     ] {
         let refused = call(&mut server, "cloud_computer", arguments.clone());
         assert_eq!(refused["isError"], true, "{arguments}");
@@ -173,10 +175,23 @@ fn while_the_person_has_control_input_is_refused_and_screenshots_still_work() {
         assert_eq!(refused["structuredContent"]["state"], "not_run");
     }
     assert!(
-        app_runs(&server).iter().all(|run| run["action"] != "cloud exec"),
-        "no input reached the machine"
+        app_runs(&server).iter().all(|run| run["action"] == "cloud.computerControl"),
+        "nothing reached the machine"
     );
+}
 
+#[test]
+fn a_screenshot_reads_the_lease_then_the_chief_holding_it_gets_the_image() {
+    let fake = Fake {
+        chief_computer: Some("vm-1".into()),
+        action_answers: answers(&[
+            ("cloud.computerControl", holder("chief")),
+            ("cloud exec", exec("")),
+            ("cloud file-read", Ok(json!({"data_base64": "iVBORw0K"}))),
+        ]),
+        ..Fake::default()
+    };
+    let mut server = serve(fake);
     let shot = call(&mut server, "cloud_computer", json!({"op": "screenshot"}));
     assert_eq!(shot["isError"], false, "{shot}");
     assert_eq!(
@@ -184,11 +199,13 @@ fn while_the_person_has_control_input_is_refused_and_screenshots_still_work() {
         json!({"type": "image", "data": "iVBORw0K", "mimeType": "image/png"})
     );
     let runs = app_runs(&server);
-    let tail = &runs[runs.len() - 2..];
-    assert_eq!(tail[0]["action"], "cloud exec", "a screenshot reads no lease");
-    assert!(tail[0]["args"]["command"].as_str().unwrap().contains("get_desktop_state"));
-    assert_eq!(tail[1]["action"], "cloud file-read");
-    assert_eq!(tail[1]["target"], "machine:vm-1");
+    assert_eq!(runs.len(), 3, "{runs:?}");
+    assert_eq!(runs[0]["action"], "cloud.computerControl");
+    assert_eq!(runs[0]["args"], json!({"machine": "vm-1", "action": "status"}));
+    assert_eq!(runs[1]["action"], "cloud exec");
+    assert!(runs[1]["args"]["command"].as_str().unwrap().contains("get_desktop_state"));
+    assert_eq!(runs[2]["action"], "cloud file-read");
+    assert_eq!(runs[2]["target"], "machine:vm-1");
 }
 
 #[test]

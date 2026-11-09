@@ -616,8 +616,8 @@ Uses a Cloud machine's desktop (1280x800) with its cmux-cua. Without
   key --keys KEYS                             Return, ctrl+l, shift+Tab
   open-url --url URL                          Open it in a new Chrome window
 
-While the person has taken over the desktop, input is refused with
-computer.human_has_control; screenshot and list-windows still work.
+While the person has taken over the desktop, every op is refused with
+computer.human_has_control, screenshot and list-windows too.
 control status says who drives, control request asks the person to take
 over (--reason: a sign-in, a payment), control release hands it back.
 ";

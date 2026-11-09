@@ -4,7 +4,8 @@ public import Foundation
 /// One owner per computer kind: the Worker's ChiefBrainDO for a Cloud Chief's own sandbox
 /// (`POST v1/chiefs/<agent>/computer/control`), the app's `ChiefComputerControlStore` for a Cloud
 /// machine attached to a Chief on this Mac (`cloud computer-control`). While a person drives, the
-/// Chief's input actions are refused; its screenshots are not.
+/// Chief's actions on it are refused, screenshots and the window list too: what the person does
+/// there (a sign-in, a payment) is theirs.
 public enum HomeChiefComputerHolder: String, Equatable, Sendable {
     case chief
     case human

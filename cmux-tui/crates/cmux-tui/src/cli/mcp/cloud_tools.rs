@@ -10,9 +10,11 @@
 //! agent display (Xvfb `:99`, 1280x800; web/scripts/cmux-vm-image/agent-tools.ts) driven by its
 //! own `cmux-cua` (`cmux-agent-cua.service`, started on first use) through `cloud exec`.
 //!
-//! Take-over: before every input op `cloud_computer` reads the lease and refuses with
-//! `computer.human_has_control` while the person holds it; `screenshot` and `list_windows` still
-//! run. An app without the action (older, no take-over UI) has no lease, so input runs there.
+//! Take-over: before every op `cloud_computer` reads the lease and refuses with
+//! `computer.human_has_control` while the person holds it, `screenshot` and `list_windows` too:
+//! what they do there (a sign-in, a payment) is theirs, and `cloud exec`, which every op runs
+//! through, is refused then anyway. An app without the action (older, no take-over UI) has no
+//! lease, so the ops run there.
 
 use std::time::{Duration, Instant};
 
@@ -38,7 +40,7 @@ pub(super) const CONTROL_ACTION: &str = "cloud.computerControl";
 /// default machine.
 pub(super) const CHIEF_ENGINE_ENV: &str = acpmux::agent_tools::CHIEF_ENGINE_ENV;
 
-/// The ops of `cloud_computer`, and whether each sends input (refused while a person drives).
+/// The ops of `cloud_computer`, and whether each sends input. All are refused while a person drives.
 const OPS: &[(&str, bool)] = &[
     ("screenshot", false),
     ("list_windows", false),
@@ -134,7 +136,7 @@ pub(super) fn descriptors() -> [Value; 6] {
         ),
         descriptor(
             COMPUTER,
-            "Use a Cloud machine's desktop (1280x800): screenshot (an image), list_windows, click, move, drag, scroll, type, key (ctrl+l, Return), open_url. machine defaults to this Chief's computer. Input is refused while the person has control.",
+            "Use a Cloud machine's desktop (1280x800): screenshot (an image), list_windows, click, move, drag, scroll, type, key (ctrl+l, Return), open_url. machine defaults to this Chief's computer. Every op is refused while the person has control.",
             json!({
                 "op":{"type":"string","enum":OPS.iter().map(|(op, _)| *op).collect::<Vec<_>>()},
                 "machine":machine,
@@ -154,7 +156,7 @@ pub(super) fn descriptors() -> [Value; 6] {
         ),
         descriptor(
             COMPUTER_CONTROL,
-            "Who drives a Cloud machine's desktop: status, request_human (ask the person to take over, with reason: a sign-in, a payment) or hand_back. While the person has control, cloud_computer input is refused.",
+            "Who drives a Cloud machine's desktop: status, request_human (ask the person to take over, with reason: a sign-in, a payment) or hand_back. While the person has control, every cloud_computer op is refused.",
             json!({
                 "action":{"type":"string","enum":["status","request_human","hand_back"]},
                 "machine":machine,
@@ -564,15 +566,15 @@ impl<B: Backend> Calls<'_, B> {
         let step = desktop_step(op, arguments)?;
         let machine = self.computer_machine(arguments)?;
         let target = format!("machine:{machine}");
-        if input
-            && let Some(state) = self.lease(&machine, "status", None)?
+        if let Some(state) = self.lease(&machine, "status", None)?
             && state.get("holder").and_then(Value::as_str) == Some("human")
         {
             return Err(refused(
                 "computer.human_has_control",
                 format!(
-                    "the person has control of {target}'s desktop: input is refused until they \
-                     give it back (cloud_computer_control status); screenshots still work"
+                    "the person has control of {target}'s desktop: every op, screenshots and the \
+                     window list too, is refused until they give it back or stay idle for 10 \
+                     minutes (cloud_computer_control status)"
                 ),
                 json!({"machine": target, "control": state}),
                 "not_run",
