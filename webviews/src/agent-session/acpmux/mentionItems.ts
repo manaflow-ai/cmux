@@ -196,25 +196,22 @@ function sessionItems(
 export const hasOtherChats = (sessions: readonly AcpmuxSessionEntry[], chatId: string | undefined) =>
   sessions.some((entry) => entry.sessionId !== chatId && listed(entry));
 
-function harnessItems(
-  catalog: readonly AcpmuxSnapshot["catalog"][number][],
-  query: string,
-): MentionItem[] {
+function harnessItems(catalog: readonly AcpmuxSnapshot["catalog"][number][], query: string): MentionItem[] {
   const ranked: { entry: AcpmuxSnapshot["catalog"][number]; score: number; indexes: number[]; label: string }[] = [];
   for (const entry of catalog) {
     const raw = entry as AcpmuxSnapshot["catalog"][number] & { folder?: { state?: string } };
     if (
       !entry.id ||
       entry.pickable === false ||
-      entry.unavailable && !entry.probeFailed ||
+      (entry.unavailable && !entry.probeFailed) ||
       entry.kind === "terminal" ||
       entry.kind === "unknown" ||
       isModelRouterKind(entry.kind) ||
-      raw.folder?.state && raw.folder.state !== "enabled"
+      (raw.folder?.state && raw.folder.state !== "enabled")
     )
       continue;
     const label = entry.name?.trim() || entry.id;
-    const match = query ? fuzzyIndices(query, label) ?? fuzzyIndices(query, entry.id) : [];
+    const match = query ? (fuzzyIndices(query, label) ?? fuzzyIndices(query, entry.id)) : [];
     if (query && !match) continue;
     const score = query ? (entry.id.toLowerCase().startsWith(query.toLowerCase()) ? 2 : 1) : 0;
     ranked.push({ entry, score, indexes: match ?? [], label });

@@ -16,10 +16,10 @@ export function BtwAside({ note, onDismiss }: { note: BtwNote; onDismiss(): void
   return (
     <aside className="acpmux-btw-note" aria-label={t("sideQuestion.label")} aria-busy={pending} aria-live="polite">
       <header className="acpmux-btw-head">
-      <span className="acpmux-btw-label">
-        {t("sideQuestion.label")}
-        {note.harness ? ` · @${note.harness}` : ""}
-      </span>
+        <span className="acpmux-btw-label">
+          {t("sideQuestion.label")}
+          {note.harness ? ` · @${note.harness}` : ""}
+        </span>
         <button type="button" className="acpmux-btw-dismiss" aria-label={t("sideQuestion.dismiss")} onClick={onDismiss}>
           <Icon name="action.close" size={14} />
         </button>

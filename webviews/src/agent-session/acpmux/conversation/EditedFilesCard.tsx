@@ -203,7 +203,12 @@ function Card({
           <button
             type="button"
             className="acpmux-review-changes"
-            onClick={() => secondOpinion(row.id, files.map((file) => file.path))}
+            onClick={() =>
+              secondOpinion(
+                row.id,
+                files.map((file) => file.path),
+              )
+            }
           >
             {t("edited.secondOpinion")}
           </button>
