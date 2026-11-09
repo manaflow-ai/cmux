@@ -28,6 +28,14 @@ import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
+import { NewProjectName, NewProjectFailure } from "./NewProjectName";
+import {
+  awaitProjectPreview,
+  forgetProjectPreview,
+  newProjectPrompt,
+  projectNameFrom,
+  projectSlug,
+} from "./newProject";
 import { BrowseFailure } from "../BrowseFailure";
 import { browseFailureMessage } from "../browseFailureModel";
 import { type BrowseRequest } from "../AddProjectPanel";
@@ -309,6 +317,9 @@ type Props = NewTabScreenActions & {
   projects?: Project[];
   /// The host's folder panel; resolves with the folder picked, if any.
   onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult>;
+  /// New Project (newProject.ts): acpmux makes folder `name` with an empty git repository; resolves
+  /// with the folder it made.
+  onNewProject?(name: string): Promise<string>;
   /// The new chat's extra folders, in its folder menu (ComposerContext `extraFolders`).
   extraFolders?: ExtraFolderControl;
   chips?: NewTabChips;
@@ -405,6 +416,12 @@ export function NewTabScreen(props: Props) {
   // a carried composer draft is already serialized Markdown, including attachment tokens.
   const untouchedText = useRef((location ?? "").replace(/[!-/:-@[-`{-~]/g, "\\$&").replace(/\r\n?|\n/g, "\\\n"));
   const [text, setText] = useState(carried?.text || untouchedText.current);
+  // New Project is the choice: the send makes the folder first (askInNewProject). `name` is the one
+  // the person typed; until then it is the prompt's (projectNameFrom).
+  const [newProject, setNewProject] = useState<{ name?: string }>();
+  const [newProjectError, setNewProjectError] = useState<string>();
+  const newProjectPending = useRef(false);
+  const newProjectMade = useRef<{ name: string; folder: string }>(undefined);
   const originalLocation = useRef((location ?? "").replace(/\r\n?/g, "\n"));
   const [commandActive, setCommandActive] = useState(0);
   /// The `/word` the arrows chose a row at: Return picks that row while the word and the list stay.
@@ -679,6 +696,13 @@ export function NewTabScreen(props: Props) {
   const runMode = props.runMode && {
     ...props.runMode,
     onMode: (mode: RunMode) => {
+      // Cloud and Sandboxed start no chat in a folder of this Mac: New project ends.
+      if (mode !== "persistent") {
+        // A folder still on its way, or made for a start that failed, is no longer this draft's.
+        projectChoice.current += 1;
+        setNewProject(undefined);
+        newProjectMade.current = undefined;
+      }
       if (mode === "cloud") {
         saved.pick(undefined);
         setMachine(undefined);
@@ -724,6 +748,8 @@ export function NewTabScreen(props: Props) {
     setStarting(args[0]);
     const failed = (error: unknown) => {
       created.current = false;
+      // A New project folder whose chat did not start opens no page for a later chat there.
+      forgetProjectPreview(args[2]);
       // A cancelled start (Not now, a newer folder request, another chat taking the page) is no
       // failure: the draft stays and nothing says it failed. A real refusal still says why.
       if (!isStartCancelled(error)) setStartError(errorMessage(error) || t("switch.unknownError"));
@@ -786,6 +812,7 @@ export function NewTabScreen(props: Props) {
       return started === true;
     }
     if (environment) return askInEnvironment(environment, agent, sent.text, model, sentAttachments);
+    if (newProject && props.onNewProject) return askInNewProject(agent, sent.text, model, sentAttachments);
     if (machine)
       return requestChat(
         agent,
@@ -803,6 +830,8 @@ export function NewTabScreen(props: Props) {
     return none ? requestChat(agent, sent.text, cwd, model, true) : requestChat(agent, sent.text, cwd, model);
   };
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
+  // The chips' agent or model pick starts no chat in a folder New project has not made yet.
+  const chipFolder = newProject ? undefined : chatFolder;
   const remembered = useLastPick(chatFolder);
   const harnessesListed = useHarnessesListed();
   const { harness, snapshot: chipSnapshot } = useMemo(
@@ -849,14 +878,10 @@ export function NewTabScreen(props: Props) {
   const environmentCwd = environment?.kind === "local" ? (environment.folder ?? props.startCwd) : environment?.folder;
   const createsWorktree =
     environment?.kind === "local" && environment.worktree && environment.folder && props.onNewWorktree;
-  // Its final directory (and project-local credentials) exists only after creation.
-  const targetCwd = createsWorktree
-    ? undefined
-    : environment
-      ? environmentCwd
-      : machine
-        ? machine.folder
-        : localChatCwd;
+  // Its final directory (and project-local credentials) exists only after creation, as New
+  // project's folder does.
+  const targetCwd =
+    createsWorktree || newProject ? undefined : environment ? environmentCwd : machine ? machine.folder : localChatCwd;
   // Cloud and Sandbox allocate their own destination. Local credentials say nothing about it.
   const authQuery =
     harness && !offMachine && (!remoteTarget || targetHost)
@@ -1293,7 +1318,7 @@ export function NewTabScreen(props: Props) {
     // agent here to warm; an address the person ends up typing releases it once cleared.
     props.onPromptTyped?.(
       shell ? "" : next,
-      environment || !askFolder || !harness ? undefined : { harness, cwd: askFolder },
+      environment || newProject || !askFolder || !harness ? undefined : { harness, cwd: askFolder },
     );
   };
   const submit = () => {
@@ -1649,9 +1674,28 @@ export function NewTabScreen(props: Props) {
     };
   }, []);
   const [browseError, setBrowseError] = useState<string>();
+  const chooseNewProject = () => {
+    projectChoice.current += 1;
+    setBrowseError(undefined);
+    setNewProjectError(undefined);
+    props.onCloudMachinePicked?.(undefined);
+    saved.pick(undefined);
+    setMachine(undefined);
+    touch();
+    setNone(false);
+    // A new folder is this Mac's: a Cloud or Sandboxed pick goes back to this Mac.
+    if (props.runMode && props.runMode.mode !== "persistent") runMode?.onMode("persistent");
+    // A folder kept from a failed start belongs to that choice; a new choice makes its own.
+    newProjectMade.current = undefined;
+    setNewProject((before) => before ?? {});
+    requestAnimationFrame(() => field.current?.focus());
+  };
   const pickProject = (cwd?: string) => {
     projectChoice.current += 1;
     setBrowseError(undefined);
+    setNewProject(undefined);
+    // A folder made for a start that failed is New project's only while it stays the choice.
+    newProjectMade.current = undefined;
     // A folder choice starts this draft on this Mac. Drop any account Cloud target selected
     // earlier so the next keystroke cannot wake that stale machine.
     props.onCloudMachinePicked?.(undefined);
@@ -1675,6 +1719,9 @@ export function NewTabScreen(props: Props) {
     // A newer choice than any worktree still on its way (`projectChoice`).
     projectChoice.current += 1;
     setBrowseError(undefined);
+    setNewProject(undefined);
+    // A folder made for a start that failed is New project's only while it stays the choice.
+    newProjectMade.current = undefined;
     // Choosing a local or SSH machine replaces an account Cloud target for this draft.
     props.onCloudMachinePicked?.(undefined);
     saved.pick(undefined);
@@ -1729,6 +1776,39 @@ export function NewTabScreen(props: Props) {
       (error: unknown) => {
         unstarted();
         setWorktreeError((error instanceof Error && error.message) || String(error));
+      },
+    );
+  }
+  // New Project's chat: acpmux makes the folder and its repository, then the chat starts there as in
+  // a picked folder, asked to serve what it builds; its first local page opens beside it (App.tsx
+  // takeProjectPreview). A refusal shows above the card and the prompt stays in the field. A send
+  // again after a start that failed reuses the folder made for the same name, never a `name-2`.
+  function askInNewProject(agent: string, prompt: string, model?: string, sentAttachments?: ComposerAttachment[]) {
+    if (newProjectPending.current || !props.onNewProject) return;
+    newProjectPending.current = true;
+    setNewProjectError(undefined);
+    const extra = sentAttachments?.length ? sentAttachments : undefined;
+    const name = projectSlug(newProject?.name ?? "") || projectNameFrom(prompt);
+    const made = newProjectMade.current?.name === name ? newProjectMade.current.folder : undefined;
+    // The choice this send belongs to: a folder picked, or the page gone, while acpmux makes the
+    // folder starts no chat there (as a worktree's late reply, `projectChoice`).
+    const choice = projectChoice.current;
+    const current = () => browseAlive.current && choice === projectChoice.current;
+    void (made ? Promise.resolve(made) : props.onNewProject(name)).then(
+      (folder) => {
+        newProjectPending.current = false;
+        if (!current()) {
+          created.current = false;
+          return;
+        }
+        newProjectMade.current = { name, folder };
+        awaitProjectPreview(folder);
+        requestChat(agent, newProjectPrompt(prompt), folder, model, undefined, extra, {});
+      },
+      (error: unknown) => {
+        newProjectPending.current = false;
+        created.current = false;
+        if (current()) setNewProjectError((error instanceof Error && error.message) || String(error));
       },
     );
   }
@@ -1843,7 +1923,7 @@ export function NewTabScreen(props: Props) {
           sessionId: chipSnapshot.summary?.sessionId ?? "",
           ...(machine
             ? { peer: machine.peer, cwd: machine.folder }
-            : askFolder
+            : askFolder && !newProject
               ? { cwd: askFolder }
               : { cwd: undefined }),
         }}
@@ -1862,7 +1942,21 @@ export function NewTabScreen(props: Props) {
         projectChoices={props.projects ?? []}
         onProject={(cwd, peer) => (peer ? pickMachine({ peer, folder: cwd }) : pickProject(cwd))}
         onNoProject={() => pickProject(undefined)}
-        noProject={none}
+        noProject={none && !newProject}
+        {...(props.onNewProject
+          ? {
+              onNewProject: chooseNewProject,
+              newProject: !!newProject,
+              newProjectName: newProject && (
+                <NewProjectName
+                  {...(newProject.name !== undefined ? { name: newProject.name } : {})}
+                  derived={projectNameFrom(text)}
+                  onName={(name) => setNewProject({ name })}
+                  onDone={() => field.current?.focus()}
+                />
+              ),
+            }
+          : {})}
         {...(browseProject ? { onBrowseProject: browseProject } : {})}
         {...(props.environments ? { environments: true } : {})}
         {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
@@ -1877,6 +1971,9 @@ export function NewTabScreen(props: Props) {
                 onPick: (id: string) => {
                   projectChoice.current += 1;
                   setBrowseError(undefined);
+                  // An environment is where the chat starts: New project's folder is no longer it.
+                  setNewProject(undefined);
+                  newProjectMade.current = undefined;
                   touch();
                   // Saved environments are local/SSH destinations, never account Cloud machines.
                   props.onCloudMachinePicked?.(undefined);
@@ -1949,7 +2046,7 @@ export function NewTabScreen(props: Props) {
         {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
         switch is the one Enter reuses. */}
         {!split && Chips && (
-          <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} onAddAgent={openSetup} />
+          <Chips snapshot={chipSnapshot} {...(chipFolder ? { cwd: chipFolder } : {})} onAddAgent={openSetup} />
         )}
         <span className="acpmux-composer-actions">
           {props.accessory}
@@ -2074,6 +2171,9 @@ export function NewTabScreen(props: Props) {
           </p>
         )}
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
+        {newProjectError && (
+          <NewProjectFailure error={newProjectError} onDismiss={() => setNewProjectError(undefined)} />
+        )}
         {browseError && browseProject && (
           <BrowseFailure error={browseError} onRetry={browseProject} onDismiss={() => setBrowseError(undefined)} />
         )}
@@ -2267,7 +2367,7 @@ export function NewTabScreen(props: Props) {
         {split && Chips && (
           <div className="nt-foot" onPointerDownCapture={touch}>
             <ComposerFoot ref={foot} plain={plainFooter}>
-              <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} onAddAgent={openSetup} />
+              <Chips snapshot={chipSnapshot} {...(chipFolder ? { cwd: chipFolder } : {})} onAddAgent={openSetup} />
             </ComposerFoot>
           </div>
         )}
