@@ -36,7 +36,7 @@ use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
 use cmux_json::JsonSet as _;
 
-const OPERATION: &str = "git.worktree.create";
+pub(super) const OPERATION: &str = "git.worktree.create";
 pub(super) const BRANCH_PREFIX: &str = "cmux/";
 const MAX_NAME_CHARS: usize = 48;
 /// Suffixes tried after a taken name: `name-2` up to this.
@@ -233,6 +233,16 @@ pub(super) fn create(
                 return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
             }
         }
+    }
+    // An ordinary worktree never takes a review's checkout (the pull
+    // request's code): its setup recipe would run there.
+    if review.is_none() && reviewed(&attempt.root) {
+        let message = format!(
+            "{} is a pull request review's worktree on {}",
+            attempt.root.display(),
+            attempt.branch
+        );
+        return Err(refused(OPERATION, "path_exists", message, Value::Null));
     }
     if let Some(url) = review {
         let recorded = repository

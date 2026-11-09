@@ -93,7 +93,9 @@ fn start(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resou
     let key = key(request);
     let target = Target::resolve(mux, request, START)?;
     let fingerprint = target.fingerprint(request);
-    target.exclusive(START, || {
+    // `git.worktree.create`'s own lock: the two never plan or make a
+    // worktree at once, so neither takes the other's.
+    target.exclusive(worktree::OPERATION, || {
         if let Some(replayed) = ledger::prior(mux, &key, START, &fingerprint)? {
             return Ok(replayed);
         }
