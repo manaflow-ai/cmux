@@ -1,4 +1,5 @@
-//! Per-chat consent. Removing or narrowing a share closes existing links.
+//! Per-chat consent on a tailnet host. Removing or narrowing a share closes existing links. A cmux
+//! Cloud machine's shares live on the cmux platform instead (`platform_shares.rs`).
 use std::io::{BufRead as _, IsTerminal as _, Read as _, Write as _};
 
 use anyhow::bail;
@@ -39,7 +40,21 @@ pub(super) struct Chat {
 
 pub(super) fn run(verb: &str, args: &[String]) -> anyhow::Result<()> {
     let text = &crate::localization::catalog().host_share;
-    let flags = Flags::parse(args, if verb == "share" { &["role"] } else { &[] }, &["json"])?;
+    let role: &[&str] = if verb == "share" { &["role"] } else { &[] };
+    let with_value: Vec<&str> =
+        role.iter().copied().chain(["machine", "platform", "team", "cloud-token-file"]).collect();
+    let flags = Flags::parse(args, &with_value, &["json", "all", "cloud-token-stdin"])?;
+    // A Cloud machine's shares live on the cmux platform (platform_shares.rs).
+    #[cfg(unix)]
+    let own = crate::machine_secrets::this_machine_id();
+    #[cfg(not(unix))]
+    let own = None;
+    if let Some(target) = super::platform_shares::target(flags.value("machine"), own)? {
+        return super::platform_shares::run(verb, &flags, &target);
+    }
+    if super::platform_shares::CLOUD_FLAGS.iter().any(|name| flags.has(name)) {
+        return Err(super::usage(text.cloud_flags));
+    }
     let config = config::load()?;
     if verb == "shares" {
         if !flags.positional.is_empty() {
@@ -155,7 +170,7 @@ pub(super) fn allowable(config: &config::Config, login: &str) -> anyhow::Result<
 
 /// The daemon's boot and the surface's current agent session, over the same-user socket. A
 /// surface that is not an agent chat with a session cannot be shared.
-fn chat(config: &config::Config, surface: u64) -> anyhow::Result<Chat> {
+pub(super) fn chat(config: &config::Config, surface: u64) -> anyhow::Result<Chat> {
     let text = &crate::localization::catalog().host_share;
     let identify = daemon(config, &json!({"cmd": "identify"}))?;
     let generation = identify["data"]["generation"].as_str().unwrap_or_default();

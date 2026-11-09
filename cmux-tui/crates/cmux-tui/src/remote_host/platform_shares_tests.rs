@@ -1,0 +1,501 @@
+//! Cloud machine shares against a stand-in platform: create, list and revoke, the refusal of an
+//! "every chat" share, the one-time move of local shares (a crash between a create and the config
+//! write included), and what each platform refusal says.
+
+use std::cell::RefCell;
+
+use serde_json::{Value, json};
+
+use super::*;
+use crate::remote_host::shares::{Role, Share};
+
+const VM: &str = "vm_0123456789abcdefghij";
+const ANA: &str = "user_00000000000000000a0a";
+const BO: &str = "user_00000000000000000b0b";
+
+/// What the stand-in platform holds and was asked.
+#[derive(Default)]
+struct Platform {
+    shares: RefCell<Vec<PlatformShare>>,
+    members: Vec<Member>,
+    /// Every create's body, as the live client would send it.
+    creates: RefCell<Vec<Value>>,
+    revokes: RefCell<Vec<String>>,
+    next: RefCell<u32>,
+    /// Answers every call with this, when set.
+    down: Option<Failure>,
+    /// Refuses a create for this person.
+    refuse_create_for: Option<(String, Failure)>,
+}
+
+impl Platform {
+    fn with_members(members: &[(&str, &str)]) -> Self {
+        Self {
+            members: members
+                .iter()
+                .map(|(user, name)| Member { user: (*user).into(), name: (*name).into() })
+                .collect(),
+            ..Self::default()
+        }
+    }
+
+    fn live(&self, person: &str, sessions: &[&str]) -> &Self {
+        let id = format!("csh_{:0>20}", self.shares.borrow().len());
+        self.shares.borrow_mut().push(PlatformShare {
+            id,
+            machine: VM.into(),
+            person: person.into(),
+            sessions: Some(sessions.iter().map(|s| (*s).to_owned()).collect()),
+            created_at: Some(1),
+            revoked_at: None,
+            created_by: Some("user_ffffffffffffffffffff".into()),
+        });
+        self
+    }
+
+    fn live_sessions(&self, person: &str) -> Option<Vec<String>> {
+        self.shares
+            .borrow()
+            .iter()
+            .find(|s| s.person == person && s.revoked_at.is_none())
+            .and_then(|s| s.sessions.clone())
+    }
+}
+
+impl Api for Platform {
+    fn list(&self, machine: &str) -> Result<Vec<PlatformShare>, Failure> {
+        if let Some(down) = &self.down {
+            return Err(down.clone());
+        }
+        assert_eq!(machine, VM);
+        Ok(self.shares.borrow().iter().filter(|s| s.revoked_at.is_none()).cloned().collect())
+    }
+
+    fn create(
+        &self,
+        machine: &str,
+        person: &str,
+        sessions: &Sessions,
+    ) -> Result<PlatformShare, Failure> {
+        if let Some(down) = &self.down {
+            return Err(down.clone());
+        }
+        if let Some((who, failure)) = &self.refuse_create_for
+            && who == person
+        {
+            return Err(failure.clone());
+        }
+        let body = sessions.body(person);
+        assert!(body["sessions"].as_array().is_some_and(|s| !s.is_empty()), "{body}");
+        self.creates.borrow_mut().push(body);
+        // A create for the same person replaces their live share.
+        for share in self.shares.borrow_mut().iter_mut() {
+            if share.person == person && share.revoked_at.is_none() {
+                share.revoked_at = Some(2);
+            }
+        }
+        *self.next.borrow_mut() += 1;
+        let share = PlatformShare {
+            id: format!("csh_new{:0>17}", self.next.borrow()),
+            machine: machine.into(),
+            person: person.into(),
+            sessions: Some(sessions.ids().to_vec()),
+            created_at: Some(3),
+            revoked_at: None,
+            created_by: Some("user_ffffffffffffffffffff".into()),
+        };
+        self.shares.borrow_mut().push(share.clone());
+        Ok(share)
+    }
+
+    fn revoke(&self, _: &str, share: &str) -> Result<PlatformShare, Failure> {
+        if let Some(down) = &self.down {
+            return Err(down.clone());
+        }
+        self.revokes.borrow_mut().push(share.into());
+        let mut shares = self.shares.borrow_mut();
+        let Some(found) = shares.iter_mut().find(|s| s.id == share && s.revoked_at.is_none())
+        else {
+            return Err(refused(404, "cloud.carrier_share.not_found"));
+        };
+        found.revoked_at = Some(4);
+        Ok(found.clone())
+    }
+
+    fn members(&self) -> Result<Vec<Member>, Failure> {
+        if let Some(down) = &self.down {
+            return Err(down.clone());
+        }
+        Ok(self.members.clone())
+    }
+}
+
+fn refused(status: u16, code: &str) -> Failure {
+    Failure::Refused { status, code: code.into(), message: "refused".into() }
+}
+
+fn words(words: &[&str]) -> Vec<String> {
+    words.iter().map(|w| (*w).to_owned()).collect()
+}
+
+fn here() -> Target {
+    Target { machine: VM.into(), here: true }
+}
+
+fn elsewhere() -> Target {
+    Target { machine: VM.into(), here: false }
+}
+
+/// Runs `act` with a person who says yes, surfaces 3 and 4 showing `s-three` and `s-four`, and
+/// acpmux resolving a name to `s-<name>`. The asked prompts and the audit lines come back too.
+fn run(
+    verb: &str,
+    args: &[&str],
+    all: bool,
+    target: &Target,
+    api: &Platform,
+) -> (anyhow::Result<Value>, Vec<String>, Vec<Value>) {
+    let mut asked = Vec::new();
+    let mut audited = Vec::new();
+    let result = {
+        let mut confirm = |prompt: &str| -> anyhow::Result<()> {
+            asked.push(prompt.to_owned());
+            Ok(())
+        };
+        let surface_session = |surface: u64| -> anyhow::Result<String> {
+            match surface {
+                3 => Ok("s-three".into()),
+                4 => Ok("s-four".into()),
+                _ => anyhow::bail!("not a chat"),
+            }
+        };
+        let resolve_session = |key: &str| -> anyhow::Result<String> { Ok(format!("s-{key}")) };
+        let local_sessions = || vec![("s-one".to_owned(), "one".to_owned())];
+        let mut audit = |entry: Value| audited.push(entry);
+        let mut hooks = Hooks {
+            confirm: &mut confirm,
+            surface_session: &surface_session,
+            resolve_session: &resolve_session,
+            local_sessions: &local_sessions,
+            audit: &mut audit,
+        };
+        act(verb, &words(args), all, None, target, api, &mut hooks)
+    };
+    (result, asked, audited)
+}
+
+#[test]
+fn a_share_creates_one_with_the_named_chats_and_asks_first() {
+    let api = Platform::default();
+    let (answer, asked, audited) = run("share", &["3", "review", ANA], false, &here(), &api);
+    let answer = answer.unwrap();
+    assert_eq!(answer["share"]["sessions"], json!(["s-three", "s-review"]));
+    assert_eq!(
+        *api.creates.borrow(),
+        vec![json!({"person": ANA, "sessions": ["s-three", "s-review"]})]
+    );
+    assert_eq!(asked.len(), 1);
+    assert!(asked[0].contains(ANA) && asked[0].contains("s-three"), "{}", asked[0]);
+    assert_eq!(audited[0]["decision"], "share");
+}
+
+#[test]
+fn a_share_adds_to_the_persons_live_share_instead_of_replacing_it() {
+    let api = Platform::default();
+    api.live(ANA, &["s-old"]);
+    let (answer, ..) = run("share", &["s-new", ANA], false, &elsewhere(), &api);
+    answer.unwrap();
+    assert_eq!(api.live_sessions(ANA).unwrap(), ["s-old", "s-new"]);
+}
+
+#[test]
+fn a_share_already_covered_changes_nothing_and_asks_nothing() {
+    let api = Platform::default();
+    api.live(ANA, &["s-three"]);
+    let (answer, asked, _) = run("share", &["3", ANA], false, &here(), &api);
+    assert_eq!(answer.unwrap()["unchanged"], true);
+    assert!(api.creates.borrow().is_empty());
+    assert!(asked.is_empty());
+}
+
+#[test]
+fn every_chat_is_refused_with_this_machines_chats_and_nothing_is_sent() {
+    let api = Platform::default();
+    for (args, all) in [(&[ANA][..], true), (&["3", ANA][..], true), (&[ANA][..], false)] {
+        let (answer, asked, _) = run("share", args, all, &here(), &api);
+        let message = answer.unwrap_err().to_string();
+        assert!(message.contains("isn't supported yet"), "{message}");
+        assert!(message.contains("s-one"), "lists the chats: {message}");
+        assert!(asked.is_empty());
+    }
+    // Another machine's chats are not listed from here.
+    let (answer, ..) = run("share", &[ANA], true, &elsewhere(), &api);
+    assert!(!answer.unwrap_err().to_string().contains("s-one"));
+    assert!(api.creates.borrow().is_empty(), "never a create with null sessions");
+}
+
+#[test]
+fn a_share_never_sends_null_or_empty_sessions() {
+    assert_eq!(Sessions::new(Vec::new()), None);
+    assert_eq!(Sessions::new(vec!["bad id".to_owned()]), None);
+    let sessions = Sessions::new(words(&["a", "b", "a"])).unwrap();
+    assert_eq!(sessions.body(ANA), json!({"person": ANA, "sessions": ["a", "b"]}));
+}
+
+#[test]
+fn a_guest_role_is_refused_on_a_cloud_machine() {
+    let api = Platform::default();
+    let mut asked = Vec::new();
+    let mut confirm = |p: &str| -> anyhow::Result<()> {
+        asked.push(p.to_owned());
+        Ok(())
+    };
+    let none = |_: u64| -> anyhow::Result<String> { anyhow::bail!("no") };
+    let same = |k: &str| -> anyhow::Result<String> { Ok(k.to_owned()) };
+    let listed: fn() -> Vec<(String, String)> = Vec::new;
+    let mut audit = |_: Value| {};
+    let mut hooks = Hooks {
+        confirm: &mut confirm,
+        surface_session: &none,
+        resolve_session: &same,
+        local_sessions: &listed,
+        audit: &mut audit,
+    };
+    let error = act("share", &words(&["s", ANA]), false, Some("guest"), &here(), &api, &mut hooks)
+        .unwrap_err();
+    assert!(error.to_string().contains("guest"), "{error}");
+    assert!(api.creates.borrow().is_empty());
+}
+
+#[test]
+fn a_surface_number_names_a_chat_of_this_machine_only() {
+    let api = Platform::default();
+    let (answer, ..) = run("share", &["3", ANA], false, &elsewhere(), &api);
+    assert!(answer.unwrap_err().to_string().contains("this machine only"));
+    // Another machine's chats go by id, as given.
+    let (answer, ..) = run("share", &["chat-9", ANA], false, &elsewhere(), &api);
+    assert_eq!(answer.unwrap()["share"]["sessions"], json!(["chat-9"]));
+}
+
+#[test]
+fn shares_lists_the_machines_live_shares() {
+    let api = Platform::default();
+    api.live(ANA, &["a"]).live(BO, &["b"]);
+    let (answer, ..) = run("shares", &[], false, &elsewhere(), &api);
+    let answer = answer.unwrap();
+    assert_eq!(answer["machine"], VM);
+    assert_eq!(answer["shares"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn unshare_revokes_narrows_or_says_there_is_nothing() {
+    let api = Platform::default();
+    api.live(ANA, &["a", "b"]);
+    // One chat out of two: the person keeps the other.
+    let (answer, ..) = run("unshare", &["a", ANA], false, &elsewhere(), &api);
+    answer.unwrap();
+    assert_eq!(api.live_sessions(ANA).unwrap(), ["b"]);
+    // The last chat: the share is revoked.
+    let (answer, ..) = run("unshare", &["b", ANA], false, &elsewhere(), &api);
+    assert!(answer.unwrap()["revoked"]["revoked_at"].is_number());
+    assert_eq!(api.live_sessions(ANA), None);
+    // Nothing left to unshare.
+    let (answer, ..) = run("unshare", &[ANA], false, &elsewhere(), &api);
+    assert!(answer.unwrap_err().to_string().contains("no live share"));
+}
+
+#[test]
+fn unshare_with_no_chats_or_a_share_id_revokes_the_whole_share() {
+    let api = Platform::default();
+    api.live(ANA, &["a", "b"]).live(BO, &["c"]);
+    let (answer, ..) = run("unshare", &[ANA], false, &elsewhere(), &api);
+    answer.unwrap();
+    let bo = api.shares.borrow().iter().find(|s| s.person == BO).unwrap().id.clone();
+    let (answer, ..) = run("unshare", &[bo.as_str()], false, &elsewhere(), &api);
+    answer.unwrap();
+    assert_eq!(api.revokes.borrow().len(), 2);
+    assert!(api.shares.borrow().iter().all(|s| s.revoked_at.is_some()));
+}
+
+#[test]
+fn a_person_is_a_user_id_or_one_teammates_name() {
+    let api = Platform::with_members(&[(ANA, "Ana"), (BO, "Bo"), (BO, "bo")]);
+    assert_eq!(person(&api, ANA).unwrap(), ANA);
+    assert_eq!(person(&api, "ana").unwrap(), ANA);
+    assert!(person(&api, "Bo").unwrap_err().to_string().contains("more than one"));
+    assert!(person(&api, "ana@example.com").unwrap_err().to_string().contains("not emails"));
+    assert!(person(&api, "Cy").unwrap_err().to_string().contains("no teammate"));
+}
+
+#[test]
+fn each_platform_refusal_says_what_it_means() {
+    let cases = [
+        (refused(409, "cloud.carrier.team_unsupported"), "image does not accept teammate"),
+        (refused(409, "acpmux.team_without_chats"), "names no chats"),
+        (refused(403, "cloud.carrier_share.not_teammate"), "may not use this team's machines"),
+        (refused(404, "cloud.machine.not_found"), "no such machine"),
+        (refused(403, "auth.forbidden"), "only the machine's creator"),
+        (refused(401, "auth.unauthenticated"), "did not accept your sign-in"),
+        (refused(503, "owner.unreachable"), "could not be reached"),
+        (Failure::Unreachable("dns".into()), "could not be reached"),
+        (refused(400, "validation.invalid"), "400 validation.invalid: refused"),
+    ];
+    for (failure, says) in cases {
+        let message = explain(&failure);
+        assert!(message.contains(says), "{failure:?}: {message}");
+    }
+}
+
+#[test]
+fn a_share_route_answer_is_its_value_or_its_refusal() {
+    let share = json!({"share": {"id": "csh_aaaaaaaaaaaaaaaaaaaa", "machine": VM, "person": ANA,
+        "sessions": ["a"], "created_at": 1, "revoked_at": null, "created_by": BO}});
+    let ok = serde_json::to_vec(&json!({"ok": true, "value": share})).unwrap();
+    let value = value_of(200, &ok).unwrap();
+    assert_eq!(share_of(&value).unwrap().sessions.unwrap(), ["a"]);
+    let refusal =
+        br#"{"ok":false,"error":{"code":"cloud.carrier_share.not_teammate","message":"no"}}"#;
+    assert_eq!(
+        value_of(403, refusal),
+        Err(Failure::Refused {
+            status: 403,
+            code: "cloud.carrier_share.not_teammate".into(),
+            message: "no".into()
+        })
+    );
+    assert!(matches!(value_of(200, b"<html>"), Err(Failure::Unreadable(_))));
+    assert!(matches!(value_of(200, br#"{"ok":false}"#), Err(Failure::Unreadable(_))));
+    // An "every chat" share reads as one (`sessions: null`).
+    let all = json!({"shares": [{"id": "csh_bbbbbbbbbbbbbbbbbbbb", "machine": VM, "person": ANA,
+        "sessions": null, "created_at": 1, "revoked_at": null, "created_by": BO}]});
+    assert_eq!(shares_of(&all).unwrap()[0].sessions, None);
+}
+
+#[test]
+fn the_target_is_the_named_machine_or_this_cloud_machine() {
+    let own = || Some(VM.to_owned());
+    assert_eq!(target(None, own()).unwrap(), Some(here()));
+    assert_eq!(target(None, None).unwrap(), None, "a tailnet host keeps its own shares");
+    let other = "vm_bbbbbbbbbbbbbbbbbbbb";
+    assert_eq!(
+        target(Some(other), own()).unwrap(),
+        Some(Target { machine: other.into(), here: false })
+    );
+    assert_eq!(target(Some(format!("machine:{VM}").as_str()), own()).unwrap(), Some(here()));
+    assert!(target(Some("i-provider"), own()).is_err());
+}
+
+fn local(login: &str, session: &str, role: Role) -> Share {
+    Share {
+        surface: 3,
+        login: login.into(),
+        role,
+        shared_at: "2026-11-01T00:00:00Z".into(),
+        generation: "g1".into(),
+        session: session.into(),
+    }
+}
+
+fn with_shares(shares: Vec<Share>) -> config::Config {
+    config::Config { enabled: true, shares, ..config::Config::default() }
+}
+
+#[test]
+fn local_shares_move_once_and_what_cannot_move_stays() {
+    let api = Platform::with_members(&[(ANA, "ana@example.com"), (BO, "Bo")]);
+    api.live(BO, &["s-bo-old"]);
+    let config = with_shares(vec![
+        local("ana@example.com", "s-1", Role::Member),
+        local("ana@example.com", "s-2", Role::Member),
+        local("bo", "s-3", Role::Member),
+        local("ana@example.com", "s-4", Role::Guest),
+        local("cy@example.com", "s-5", Role::Member),
+        local("bo", "", Role::Member),
+    ]);
+    let outcome = move_local(config, &api, VM, "now").unwrap();
+    assert!(outcome.failed.is_none());
+    // One create per person, added to what they already had.
+    assert_eq!(api.creates.borrow().len(), 2);
+    assert_eq!(api.live_sessions(ANA).unwrap(), ["s-1", "s-2"]);
+    assert_eq!(api.live_sessions(BO).unwrap(), ["s-bo-old", "s-3"]);
+    let moved: Vec<_> = outcome.moved.iter().map(|m| m.session.as_str()).collect();
+    assert_eq!(moved, ["s-1", "s-2", "s-3"]);
+    assert_eq!(outcome.config.moved_shares, outcome.moved);
+    // The guest, the unknown login and the share with no chat stay local.
+    let left: Vec<_> = outcome.config.shares.iter().map(|s| s.session.as_str()).collect();
+    assert_eq!(left, ["s-4", "s-5", ""]);
+    let reasons: Vec<_> = outcome.kept.iter().map(|k| k.reason).collect();
+    assert_eq!(reasons, ["guest", "no teammate", "no chat"]);
+    // A second run finds nothing to move.
+    let again = move_local(outcome.config, &api, VM, "later").unwrap();
+    assert!(again.moved.is_empty());
+    assert_eq!(api.creates.borrow().len(), 2);
+}
+
+#[test]
+fn a_crash_between_the_create_and_the_config_write_moves_without_a_second_create() {
+    let api = Platform::default();
+    let config = with_shares(vec![local(ANA, "s-1", Role::Member)]);
+    // The first run's creates reach the platform, then the process dies before its write.
+    let lost = move_local(config.clone(), &api, VM, "first").unwrap();
+    assert_eq!(lost.moved.len(), 1);
+    drop(lost);
+    assert_eq!(api.creates.borrow().len(), 1);
+    // The re-run reads the same config: the share is covered, so it only leaves the config.
+    let rerun = move_local(config, &api, VM, "second").unwrap();
+    assert_eq!(api.creates.borrow().len(), 1, "no second create");
+    assert!(rerun.config.shares.is_empty());
+    assert_eq!(rerun.config.moved_shares.len(), 1);
+    assert_eq!(rerun.moved[0].share, api.shares.borrow()[0].id);
+}
+
+#[test]
+fn an_unreachable_platform_moves_nothing_and_keeps_every_local_share() {
+    let api =
+        Platform { down: Some(Failure::Unreachable("offline".into())), ..Platform::default() };
+    let config =
+        with_shares(vec![local(ANA, "s-1", Role::Member), local("bo", "s-2", Role::Member)]);
+    assert_eq!(
+        move_local(config, &api, VM, "now").unwrap_err(),
+        Failure::Unreachable("offline".into())
+    );
+}
+
+#[test]
+fn a_create_that_fails_keeps_that_person_and_the_rest_local() {
+    let api = Platform {
+        refuse_create_for: Some((BO.into(), Failure::Unreachable("reset".into()))),
+        ..Platform::default()
+    };
+    let config = with_shares(vec![
+        local(ANA, "s-1", Role::Member),
+        local(BO, "s-2", Role::Member),
+        local("user_00000000000000000c0c", "s-3", Role::Member),
+    ]);
+    let outcome = move_local(config, &api, VM, "now").unwrap();
+    assert_eq!(outcome.failed, Some(Failure::Unreachable("reset".into())));
+    let moved: Vec<_> = outcome.moved.iter().map(|m| m.session.as_str()).collect();
+    assert_eq!(moved, ["s-1"]);
+    let left: Vec<_> = outcome.config.shares.iter().map(|s| s.session.as_str()).collect();
+    assert_eq!(left, ["s-2", "s-3"]);
+}
+
+#[test]
+fn an_every_chat_share_covers_local_shares_and_cannot_be_narrowed_by_name() {
+    let api = Platform::default();
+    api.shares.borrow_mut().push(PlatformShare {
+        id: "csh_cccccccccccccccccccc".into(),
+        machine: VM.into(),
+        person: ANA.into(),
+        sessions: None,
+        created_at: None,
+        revoked_at: None,
+        created_by: None,
+    });
+    let outcome =
+        move_local(with_shares(vec![local(ANA, "s-1", Role::Member)]), &api, VM, "now").unwrap();
+    assert_eq!(outcome.moved.len(), 1);
+    assert!(api.creates.borrow().is_empty());
+    let (answer, ..) = run("unshare", &["s-1", ANA], false, &elsewhere(), &api);
+    assert!(answer.unwrap_err().to_string().contains("covers every chat"));
+}
