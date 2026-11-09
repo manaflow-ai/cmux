@@ -358,6 +358,15 @@ fn w5o_worktree_close_reports_only_the_terminals_the_session_ended() {
 /// Build skew: a daemon older than `if_unplaced` refuses an unknown request
 /// parameter. That refusal, from the daemon that receives the close, picks
 /// the plain end; the caller's terminal is still spared.
+///
+/// A fake stands in for the older daemon: CI builds only the current tree,
+/// and a current daemon accepts the field. The contract is pinned at both
+/// ends instead: the core test
+/// `w5o_an_unknown_terminal_close_field_is_refused_before_it_is_keyed` shows
+/// the refusal a daemon gives to an unknown `terminal.close` field (the
+/// catalog has `extra: false` for it since its first commit, so an older
+/// daemon gives it to `if_unplaced`), and this test feeds that same refusal
+/// to the command.
 #[test]
 fn w5o_worktree_close_on_an_older_daemon_ends_without_if_unplaced() {
     const HERE: &str = "term_11111111111111111111111111111111";

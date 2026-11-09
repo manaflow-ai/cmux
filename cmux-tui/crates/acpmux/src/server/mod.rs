@@ -2167,6 +2167,7 @@ use outbound::{
     OUTBOUND_CONTROL_RESERVE, enqueue_after_controls, enqueue_outbound, enqueue_outbound_locked,
     report_outbound_loss_locked,
 };
+mod machine_tunnel;
 pub(crate) mod outbox;
 mod pairing;
 pub use pairing::serve_connection_device;

@@ -87,7 +87,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/harnesses": (["cwd"], []),
         // `refresh`: the picker's Refresh models; acpmux probes its agents' model lists again. It
         // grants nothing (the same probes acpmux runs in the background), so no gesture rule.
-        "_acpmux/models": (["refresh"], []),
+        // `localOnly`: this machine's lists only, without waiting on the peers (the picker's own read).
+        "_acpmux/models": (["refresh", "localOnly"], []),
         "_acpmux/status": ([], []),
         "_acpmux/peers": ([], []),
         "_acpmux/draft_get": (["sessionId"], []),
