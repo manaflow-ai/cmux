@@ -376,7 +376,9 @@ export function llmsLink(
   if (!isDocsZoneDeployment(env)) return `${origin}${publicPath}`;
   const channel: DocsChannel = env.CMUX_DOCS_CHANNEL === "nightly" ? "nightly" : "release";
   const zonePath = publicPath.replace(/\/docs\/nightly(?=\/|\.|$)/u, "/docs");
-  if (isDocsPathname(zonePath) && docsPathAvailableInChannel(channel, zonePath)) {
+  // The channel tables match page paths: /docs/next.md is the page /docs/next.
+  const page = zonePath.replace(extensionPattern, "");
+  if (isDocsPathname(page) && docsPathAvailableInChannel(channel, page)) {
     return `${origin}${zonePath}`;
   }
   return `${docsCanonicalOrigin()}${publicPath}`;
