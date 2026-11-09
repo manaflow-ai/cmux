@@ -25,6 +25,8 @@ VALIDATOR = ROOT / "scripts/ci/validate-cla-policy.rb"
 REPOSITORY = "manaflow-ai/cmux"
 REPOSITORY_ID = 1001
 BASE = "b" * 40
+MERGED_AT = "2026-11-09T05:15:17Z"
+MERGED_AT_EPOCH = 1794201317  # MERGED_AT in seconds since 1970
 HEAD = "c" * 40
 
 RUBY_DRIVER = r"""
@@ -43,6 +45,9 @@ def api_json(repository, endpoint, allow_missing: false)
 
   fail!("GitHub API request failed for #{endpoint}")
 end
+def api_wall_time
+  ENV.fetch("NOW").to_f
+end
 def git_remote_url(repository)
   ENV.fetch("FIXTURE_REMOTE")
 end
@@ -60,22 +65,26 @@ class CLAGuardMergedPullRequestTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
 
-    def pull_request(self, state: str, head: str = HEAD) -> dict:
+    def pull_request(self, state: str, head: str = HEAD, base_ref: str = "main",
+                     merged_at: str | None = MERGED_AT) -> dict:
         # The shape api_json returns for a pull request (mapped from GraphQL,
         # where the state is OPEN, CLOSED or MERGED).
         return {
             "number": 7, "state": state, "mergeable": None, "user": {"id": 42},
-            "base": {"ref": "main", "sha": BASE, "repo": {"full_name": REPOSITORY, "id": REPOSITORY_ID}},
+            "merged_at": merged_at if state == "merged" else None,
+            "base": {"ref": base_ref, "sha": BASE, "repo": {"full_name": REPOSITORY, "id": REPOSITORY_ID}},
             "head": {"ref": "feature", "sha": head, "repo": {"full_name": "contributor/cmux", "id": 2002}},
         }
 
-    def run_validator(self, pull_request: dict) -> tuple[subprocess.CompletedProcess, list[str]]:
+    def run_validator(self, pull_request: dict, *, seconds_after_merge: int = 13
+                      ) -> tuple[subprocess.CompletedProcess, list[str]]:
         api_file = Path(self.directory.name) / "api.json"
         api_file.write_text(json.dumps({f"repos/{REPOSITORY}/pulls/7": pull_request}))
         env = {
             **os.environ, "GH_REPO": REPOSITORY, "PR_NUMBER": "7", "BASE_SHA": BASE, "HEAD_SHA": HEAD,
             "GITHUB_REPOSITORY_ID": str(REPOSITORY_ID), "FIXTURE_API_FILE": str(api_file),
             "FIXTURE_REMOTE": (Path(self.directory.name) / "no-such-remote").as_uri(),
+            "NOW": str(MERGED_AT_EPOCH + seconds_after_merge),
         }
         env.pop("CANDIDATE_DIR", None)
         result = subprocess.run(["ruby", "-e", RUBY_DRIVER, str(VALIDATOR)], env=env,
@@ -89,6 +98,24 @@ class CLAGuardMergedPullRequestTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("already merged", result.stdout)
         self.assertEqual(calls, [f"repos/{REPOSITORY}/pulls/7"])
+
+    def test_a_run_long_after_the_merge_still_fails(self):
+        # A pass on the merged head counts for that commit in any pull request
+        # (the newest run of a required check wins). An edit long after the
+        # merge must not mint a new pass that another pull request could reuse.
+        result, _ = self.run_validator(self.pull_request("merged"), seconds_after_merge=301)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertNotIn("already merged", result.stdout)
+
+    def test_a_merge_with_no_merge_time_still_fails(self):
+        result, _ = self.run_validator(self.pull_request("merged", merged_at=None))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertNotIn("already merged", result.stdout)
+
+    def test_a_merge_into_another_base_still_fails(self):
+        result, _ = self.run_validator(self.pull_request("merged", base_ref="release"))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertNotIn("already merged", result.stdout)
 
     def test_a_closed_pull_request_that_did_not_merge_still_fails(self):
         # A closed pull request can reopen; it stays fail-closed.

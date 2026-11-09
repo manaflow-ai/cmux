@@ -164,6 +164,8 @@ class ApiReadTests(unittest.TestCase):
         self.assertEqual(result["head"]["repo"]["full_name"], "contributor/cmux")
         self.assertTrue(result["mergeable"])
         self.assertEqual(result["merge_commit_sha"], "a" * 40)
+        self.assertIsNone(result["merged_at"])
+        self.assertIn("mergedAt", " ".join(outcome["calls"][0]))
         self.assertIn("graphql", " ".join(outcome["calls"][0]).lower())
         self.assertNotIn("/pulls/7", " ".join(outcome["calls"][0]))
 
