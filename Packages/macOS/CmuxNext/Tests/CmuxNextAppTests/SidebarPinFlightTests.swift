@@ -98,12 +98,16 @@ struct SidebarPinFlightTests {
         /// The view's fill inset (a pinned item's pill is narrower than its bounds; a row's bounds are its fill): the
         /// probe reports the fill a person sees.
         let inset: CGFloat
+        /// The view's layer mask (a flying pin glyph's clip to its item's pill): its frame in the view's layer and its
+        /// position path, read once.
+        let mask: (frame: CGRect, position: MotionPath)?
 
         init(_ view: NSView, in list: NSView, now: CFTimeInterval) {
             self.view = view
             inset = SidebarPinFlightTests.fillInset(of: view)
             attached = view.window != nil && !view.isHiddenOrHasHiddenAncestor
             rest = list.convert(view.bounds, from: view)
+            mask = view.layer?.mask.map { ($0.frame, MotionPath($0, "position", now: now)) }
             size = MotionPath(view.layer ?? CALayer(), "bounds.size", now: now)
             var nodes: [Node] = []
             var current: NSView? = view
@@ -139,6 +143,15 @@ struct SidebarPinFlightTests {
                 }
                 return value
             }
+        }
+
+        /// The x span (in the list) the view's mask lets draw at `time`, nil without a mask: the mask rides the view's
+        /// own offset and its own animations.
+        func maskSpan(at time: CFTimeInterval) -> ClosedRange<CGFloat>? {
+            guard let mask else { return nil }
+            let ridden = nodes.reduce(CGFloat(0)) { $0 + $1.position.value(at: time).x - $1.model.x }
+            let minX = rest.minX + ridden + mask.frame.minX + mask.position.value(at: time).x - mask.position.model.x
+            return minX...(minX + mask.frame.width)
         }
 
         /// Why it shows or not at `time` (a failure's detail): attached, opacity, size and the view's type.
@@ -337,20 +350,36 @@ struct SidebarPinFlightTests {
 
     /// The pin glyph (the arriving item's own on a pin, the item's copy on an unpin's row) and the title move as one line
     /// while the glyph shows: their gap never changes (PIN7 films: at an unpin's start the title slid onto the fading pin,
-    /// "the pin icon touches the e").
+    /// "the pin icon touches the e"). On a pin the glyph never draws outside the flying item's pill (PIN8 films, SB-PIN:
+    /// on the third frame the pin showed left of the pill, then a wide gap from the title). The title must move too: a
+    /// title with no layer of its own drops its slide (the probe then reads no title: "the title never shows").
     static func checkGlyphRidesTitle(_ name: String, _ view: NSView, in list: NSView, now: CFTimeInterval, failures: inout [String]) {
         let glyph = (view as? SidebarItemRowView)?.pinGlyph ?? view.subviews.first { $0 is NSImageView && !$0.isHidden && ($0.layer?.opacity ?? 1) < 0.001 }
         guard let glyph, let title = SidebarListView.flightTitle(of: view) else { return failures.append("\(name): no pin glyph or title") }
-        // The display pass's layout places a new item's glyph and title (the flight's springs are additive: they stay).
-        view.layoutSubtreeIfNeeded()
+        guard title.layer != nil else { return failures.append("\(name): the title has no layer, so its slide is dropped") }
         let glyphProbe = Probe(glyph, in: list, now: now), titleProbe = Probe(title, in: list, now: now)
-        var gaps: [CGFloat] = []
+        let pill = view is SidebarItemRowView ? Probe(view, in: list, now: now) : nil
+        var gaps: [CGFloat] = [], outside: (tick: Int, by: CGFloat)?, glyphShows = false, titleShows = false
         for tick in 0..<ticks {
             let time = now + Double(tick) / 120
-            guard let shown = glyphProbe.shown(at: time), let text = titleProbe.shown(at: time) else { continue }
+            let shown = glyphProbe.shown(at: time), text = titleProbe.shown(at: time)
+            glyphShows = glyphShows || shown != nil
+            titleShows = titleShows || text != nil
+            if let shown, let fill = pill?.shown(at: time)?.frame {
+                // What a person sees of the glyph: its frame less what its mask (if any) cuts off.
+                let span = glyphProbe.maskSpan(at: time)
+                let minX = max(shown.frame.minX, span?.lowerBound ?? -.greatestFiniteMagnitude)
+                let maxX = min(shown.frame.maxX, span?.upperBound ?? .greatestFiniteMagnitude)
+                let by = maxX - minX > 0.25 ? max(fill.minX - minX, maxX - fill.maxX) : 0
+                if by > 0.5, by > (outside?.by ?? 0) { outside = (tick, by) }
+            }
+            guard let shown, let text else { continue }
             gaps.append(text.frame.minX - shown.frame.maxX)
         }
-        guard let low = gaps.min(), let high = gaps.max() else { return failures.append("\(name): the pin glyph never shows") }
+        if let outside { failures.append("\(name) tick \(outside.tick): the pin glyph draws \(outside.by) pt outside the pill") }
+        guard let low = gaps.min(), let high = gaps.max() else {
+            return failures.append("\(name): the \(glyphShows ? "title" : "pin glyph") never shows (title shows \(titleShows))")
+        }
         if high - low > 0.5 { failures.append("\(name): the gap from the pin glyph to the title goes \(low)...\(high) pt over the move") }
     }
 
