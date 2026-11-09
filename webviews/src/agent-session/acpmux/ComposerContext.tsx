@@ -46,10 +46,11 @@ import {
   draftFolders,
   removeExtraFolder,
   type ExtraFolderControl,
+  type ExtraFolderDraft,
   type ExtraFolderRows,
 } from "./extraFolders";
 import type { BrowseRequest } from "./AddProjectPanel";
-import type { BrowseResult } from "./addProjectPanelModel";
+import { BROWSE_BUSY, type BrowseResult } from "./addProjectPanelModel";
 import type { Project } from "./ProjectChooser";
 import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
@@ -387,9 +388,24 @@ export function ComposerContext({
   const [browseError, setBrowseError] = useState<string>();
   // The browse that failed, so Retry runs the same one.
   const browseRetry = useRef<() => void>(undefined);
+  // This render's extra-folder rows, for a Retry that runs after they changed.
+  const latestExtra = useRef<ExtraFolderRows | undefined>(undefined);
   // Counts folder picks: a folder panel's late answer (or failure) after one is dropped.
   const folderPicks = useRef(0);
+  // Counts changes to the new chat's extra folders: Add another folder…'s late panel answer after one
+  // adds nothing, so it never adds to (or writes back) a list the person changed meanwhile.
+  const extraEdits = useRef(0);
   const browseRequest = useRef(0);
+  // The host's folder panel is open: one at a time, so a second Add folder… in this composer waits for
+  // it instead of opening another panel.
+  const browsing = useRef(false);
+  const oneBrowse = <T,>(run: () => Promise<T>, busy: T): Promise<T> => {
+    if (browsing.current) return Promise.resolve(busy);
+    browsing.current = true;
+    return run().finally(() => {
+      browsing.current = false;
+    });
+  };
   useEffect(
     () => () => {
       browseRequest.current += 1;
@@ -528,52 +544,60 @@ export function ComposerContext({
   const browseNewChat =
     onBrowseFolder && onNewChat
       ? () => {
-          const request = ++browseRequest.current;
-          setBrowseError(undefined);
-          void Promise.resolve()
-            .then(() => onBrowseFolder())
-            .then((cwd) => {
-              if (request === browseRequest.current && cwd) onNewChat(cwd);
-            })
-            .catch((error: unknown) => {
-              if (request !== browseRequest.current) return;
-              browseRetry.current = browseNewChat;
-              setBrowseError(browseFailureMessage(error));
-            });
+          void oneBrowse(() => {
+            const request = ++browseRequest.current;
+            setBrowseError(undefined);
+            return Promise.resolve()
+              .then(() => onBrowseFolder())
+              .then((cwd) => {
+                if (request === browseRequest.current && cwd) onNewChat(cwd);
+              })
+              .catch((error: unknown) => {
+                if (request !== browseRequest.current) return;
+                browseRetry.current = browseNewChat;
+                setBrowseError(browseFailureMessage(error));
+              });
+          }, undefined);
         }
       : undefined;
   // A new chat's Add folder…: the host's folder panel, then the chat's folder. As Add project's dialog
   // did, the panel only answers (deferPick) and the pick commits here, so a folder picked while the
   // panel was open wins over its late answer; a refused or failed panel says why beside a Retry.
   const browseProject = onBrowseProject
-    ? (): Promise<BrowseResult> => {
-        const picks = folderPicks.current;
-        setBrowseError(undefined);
-        return Promise.resolve()
-          .then(() => onBrowseProject({ deferPick: true }) ?? undefined)
-          .then((cwd) => {
-            if (picks === folderPicks.current && typeof cwd === "string" && cwd) pickFolder(cwd);
-            return cwd;
-          })
-          .catch((error: unknown) => {
-            if (picks === folderPicks.current) {
-              browseRetry.current = () => void browseProject?.();
-              setBrowseError(browseFailureMessage(error));
-            }
-            return undefined;
-          });
-      }
+    ? (): Promise<BrowseResult> =>
+        oneBrowse((): Promise<BrowseResult> => {
+          const picks = folderPicks.current;
+          setBrowseError(undefined);
+          return Promise.resolve()
+            .then(() => onBrowseProject({ deferPick: true }) ?? undefined)
+            .then((cwd) => {
+              if (picks === folderPicks.current && typeof cwd === "string" && cwd) pickFolder(cwd);
+              return cwd;
+            })
+            .catch((error: unknown) => {
+              if (picks === folderPicks.current) {
+                browseRetry.current = () => void browseProject?.();
+                setBrowseError(browseFailureMessage(error));
+              }
+              return undefined;
+            });
+        }, BROWSE_BUSY)
     : undefined;
   // An account Cloud machine acpmux does not list runs its machine action (resume or open); the
   // chat cannot start there until acpmux links it. The pick waits for that (`waiting`): the
   // control names the machine as starting, and the chat moves there once its row is ready, so a
   // paused machine is one pick, not a pick, a wait and the same pick again.
+  // Every change to the extra folders goes here, so a panel's answer started before it adds nothing.
+  const changeExtras = (next: ExtraFolderDraft | undefined) => {
+    extraEdits.current += 1;
+    extraFolders?.onChange(next);
+  };
   const pickCloudMachine = (id: string) => {
     const machine = computers.find((computer) => computer.id === id)?.cloudMachine;
     if (machine && !readOnly) {
       onCloudMachinePicked?.(machine);
       // Folders are the machine's: the pick drops this machine's at once, not when (or if) it arrives (cmux#34527).
-      if (extraFolders?.draft) extraFolders.onChange(undefined);
+      if (extraFolders?.draft) changeExtras(undefined);
       onCloudMachine(machine);
       setWaiting({ key: pickKey, id: machine.id, name: machine.name });
     }
@@ -591,7 +615,7 @@ export function ComposerContext({
     if (waiting) setWaiting(undefined);
     if (!readOnly && id !== selectedComputer) {
       // Folders are the machine's: another machine starts with none.
-      if (extraFolders?.draft && extraFolders.draft.machine !== id) extraFolders.onChange(undefined);
+      if (extraFolders?.draft && extraFolders.draft.machine !== id) changeExtras(undefined);
       setSelectedComputer(id);
       const folder = availableFolders(summary, sessions, id)[0]?.id;
       if (folder) onProject?.(folder, id === "local" ? undefined : id);
@@ -664,26 +688,29 @@ export function ComposerContext({
   // Add another folder…'s Add folder…: a refused or failed panel says why beside a Retry, which adds
   // the folder it picks.
   const browseExtra = extraFolders?.onBrowse
-    ? (): Promise<string | undefined> => {
-        const picks = folderPicks.current;
-        setBrowseError(undefined);
-        return (
-          Promise.resolve()
+    ? (): Promise<string | undefined> =>
+        oneBrowse(() => {
+          const picks = folderPicks.current;
+          const edits = extraEdits.current;
+          // A folder or machine picked, or an extra folder added or removed, while the panel was
+          // open: its answer adds nothing.
+          const current = () => picks === folderPicks.current && edits === extraEdits.current;
+          setBrowseError(undefined);
+          return Promise.resolve()
             .then(() => extraFolders.onBrowse?.() ?? undefined)
-            // A folder or machine picked while the panel was open: its answer adds nothing.
-            .then((path) => (picks === folderPicks.current ? path : undefined))
+            .then((path) => (current() ? path : undefined))
             .catch((error: unknown) => {
-              if (picks === folderPicks.current) {
+              if (current()) {
+                // Retry adds to the list as it is then, not as it was when the panel failed.
                 browseRetry.current = () =>
                   void browseExtra?.().then((path) => {
-                    if (path) extra?.onAdd(path);
+                    if (path) latestExtra.current?.onAdd(path);
                   });
                 setBrowseError(browseFailureMessage(error));
               }
               return undefined;
-            })
-        );
-      }
+            });
+        }, undefined)
     : undefined;
   const extra: ExtraFolderRows | undefined =
     extraFolders && extraShown
@@ -691,16 +718,17 @@ export function ComposerContext({
           folders: extraShown,
           onAdd: (path) => {
             const next = addExtraFolder(extraShown, path, currentFolder);
-            if (next !== extraShown) extraFolders.onChange({ machine: selectedComputer, folders: next });
+            if (next !== extraShown) changeExtras({ machine: selectedComputer, folders: next });
           },
           onRemove: (path) => {
             const next = removeExtraFolder(extraShown, path);
             if (next !== extraShown)
-              extraFolders.onChange(next.length > 0 ? { machine: selectedComputer, folders: next } : undefined);
+              changeExtras(next.length > 0 ? { machine: selectedComputer, folders: next } : undefined);
           },
           ...(selectedComputer === "local" && browseExtra ? { onBrowse: browseExtra } : {}),
         }
       : undefined;
+  latestExtra.current = extra;
   // The folder control says how many more folders the chat sees: "cmux +2".
   const extraCount = extraShown && extraShown.length > 0 ? ` +${extraShown.length}` : "";
   // The strip's layout: a started chat (or one that cannot change) keeps the one combined control.
