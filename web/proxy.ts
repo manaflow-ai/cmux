@@ -477,30 +477,6 @@ function handleLegalAndDocsRoutes(
     url.pathname = "/en/docs/cloud-security";
     return NextResponse.rewrite(url);
   }
-  return handleNextDocsRoutes(request, pathname);
-}
-
-function handleNextDocsRoutes(
-  request: NextRequest,
-  pathname: string,
-): NextResponse | undefined {
-  // cmux-next docs are English-only as well (data/next-docs/pages.ts): a
-  // browser or Markdown fetch preferring another language must not select a
-  // /<locale>/docs/next page, which 404s.
-  const nextDocsMatch = pathname.match(
-    /^\/([a-z]{2}(?:-[A-Z]{2})?)(\/docs\/next(?:\/[a-z0-9-]+)?)\/?$/,
-  );
-  if (nextDocsMatch && nextDocsMatch[1] !== "en") {
-    const url = request.nextUrl.clone();
-    url.pathname = nextDocsMatch[2]!;
-    return NextResponse.redirect(url, 301);
-  }
-  const nextDocsPath = pathname.match(/^(\/docs\/next(?:\/[a-z0-9-]+)?)\/?$/);
-  if (nextDocsPath) {
-    const url = request.nextUrl.clone();
-    url.pathname = `/en${nextDocsPath[1]}`;
-    return NextResponse.rewrite(url);
-  }
   return undefined;
 }
 
