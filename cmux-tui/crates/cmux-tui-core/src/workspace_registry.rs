@@ -5236,6 +5236,69 @@ fn acquire_session_guard_from_private_dir(
     SessionLease::acquire(&lock_path)
 }
 
+/// Whether a daemon owns another session of `root` now, asked by the session
+/// guard every owner holds from its registry open to its exit
+/// (`mux/unowned_hosts.rs`). `component` is the guard's file stem
+/// ([`session_storage_component`]).
+pub(crate) enum SessionOwnerProbe {
+    /// No daemon holds the guard: the lease is held here until dropped, so
+    /// none can start the session meanwhile.
+    Unowned(SessionLease),
+    /// A daemon holds the guard, or the probe could not tell.
+    Owned,
+    /// The session has no guard file in `root`.
+    NoGuard,
+}
+
+/// Takes the guard of the session whose file stem is `component` when no
+/// daemon holds it, without waiting on a daemon (the coordinator's short
+/// bound). A daemon that starts the session while the lease is held here
+/// fails its start, as it does during a session reset.
+pub(crate) fn probe_session_owner(root: &Path, component: &str) -> SessionOwnerProbe {
+    let lock_dir = platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
+    let lock_path = session_guard_lock_component_path(&lock_dir, component);
+    if !lock_path.is_file() {
+        return SessionOwnerProbe::NoGuard;
+    }
+    let Ok(_coordinator) =
+        SessionLease::acquire_coordinator(&session_guard_coordinator_path(&lock_dir))
+    else {
+        return SessionOwnerProbe::Owned;
+    };
+    match SessionLease::acquire(&lock_path) {
+        Ok(lease) => SessionOwnerProbe::Unowned(lease),
+        Err(_) => SessionOwnerProbe::Owned,
+    }
+}
+
+/// The guard file stems in `root` (`session-locks/<stem>.lock`), sorted.
+#[cfg(unix)]
+pub(crate) fn session_guard_components(root: &Path) -> Vec<String> {
+    let lock_dir = platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
+    let mut components = fs::read_dir(lock_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            let stem = name.strip_suffix(".lock")?;
+            (!stem.starts_with('.')).then(|| stem.to_owned())
+        })
+        .collect::<Vec<_>>();
+    components.sort();
+    components
+}
+
+/// The guard file stem of `session` ([`session_storage_component`]).
+#[cfg(any(windows, test))]
+pub(crate) fn session_guard_component(session: &str) -> String {
+    session_storage_component(session)
+}
+
+fn session_guard_lock_component_path(lock_dir: &Path, component: &str) -> PathBuf {
+    platform::normalize_filesystem_path(lock_dir.join(format!("{component}.lock")))
+}
+
 fn prepare_session_guard_dir(root: &Path) -> anyhow::Result<PathBuf> {
     let lock_dir = platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
     match fs::symlink_metadata(&lock_dir) {

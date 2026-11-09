@@ -316,6 +316,8 @@ mod terminal_create;
 mod terminal_defaults;
 mod terminal_directory;
 mod terminal_lifecycle_commit;
+#[cfg(any(unix, windows))]
+mod unowned_hosts;
 use terminal_lifecycle_commit::{commit_terminal_lifecycle, commit_terminals_adopting};
 mod incognito_terminals;
 mod terminal_exit;
