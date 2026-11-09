@@ -155,7 +155,7 @@ function OpenFrames({ order, scheme }: { order: Order; scheme: Scheme }) {
       {ORDERS[order].map((frame, index) => (
         <div key={frame.label} data-frame={index} style={{ position: "relative", width: 232, height: 290 }}>
           <div style={{ fontWeight: "var(--weight-emphasis)" }}>{frame.label}</div>
-          <div style={{ position: "absolute", left: 8, top: 60, width: 216, lineHeight: 1.5, opacity: 0.8 }}>
+          <div style={{ position: "absolute", left: 8, top: 40, width: 216, lineHeight: 1.5, opacity: 0.8 }}>
             {TRANSCRIPT.slice(0, 220)}
           </div>
           {frame.app ? <AppGlass box={MINI} scheme={scheme} at={{ left: 12 + index * 244 + MINI.left, top: 12 + MINI.top }} /> : null}
