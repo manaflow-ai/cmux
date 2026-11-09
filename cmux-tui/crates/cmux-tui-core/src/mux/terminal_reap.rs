@@ -240,6 +240,14 @@ impl Mux {
         self.workspace_registry.lock().unwrap().terminal_keep(terminal_id)
     }
 
+    /// Whether a client streams terminal `public_id` (`terminal attach`).
+    /// The reaper and a guarded `terminal.close` (`if_unplaced`) leave such
+    /// a terminal running.
+    pub(crate) fn terminal_attached(&self, public_id: &TerminalPublicId) -> bool {
+        self.resource_surface_for_terminal(public_id)
+            .is_some_and(|runtime| self.control_clients.attach_observation(&[runtime]).0)
+    }
+
     pub(super) fn wake_terminal_reaper(&self) {
         if let Some(events) = self.terminal_reaper_events.lock().unwrap().as_ref() {
             events.wake();

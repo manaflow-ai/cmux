@@ -43,13 +43,17 @@ public nonisolated enum ChiefMigration {
     }
 
     /// Every old per-tag Chief on this Mac: `~/.cmux/mux/tags/<tag>` and the
-    /// tag daemon's conversation store.
+    /// tag daemon's conversation store, under `cmux-next/tags/<tag>` once that
+    /// build moved its folder (StateFolderMove), else under classic's `cmux/tags/<tag>`.
     public static func oldChiefs(userHome: URL, applicationSupport: URL) -> [Old] {
         let tags = userHome.appendingPathComponent(".cmux/mux/tags", isDirectory: true)
         let names = (try? FileManager.default.contentsOfDirectory(atPath: tags.path)) ?? []
         return names.sorted().map { tag in
             let session = "cmux-app-\(tag)"
-            let store = applicationSupport.appendingPathComponent("cmux/tags/\(tag)/tui/\(sessionComponent(session))/conversations.sqlite3")
+            let relative = "tags/\(tag)/tui/\(sessionComponent(session))/conversations.sqlite3"
+            let moved = applicationSupport.appendingPathComponent("cmux-next/\(relative)")
+            let store = FileManager.checked.fileExists(atPath: moved.path)
+                ? moved : applicationSupport.appendingPathComponent("cmux/\(relative)")
             return Old(tag: tag, muxHome: tags.appendingPathComponent(tag, isDirectory: true), store: store)
         }
     }

@@ -19,24 +19,19 @@ extension SidebarListViewComponents {
         var standing: WorkspaceID?
         if let header = pressed.standingHeader, case let .workspace(id) = press.key,
            !(model.selection.contains(id) && model.selection.count > 1 && press.switchedOnPress == nil) {
-            if let before = press.switchedOnPress {
-                if let shown = before.shown, shown != model.activeWorkspaceID { model.click(shown) }
-                model.selection = before.selection
-                if !patchSelection(from: .workspace(id), oldSelection: [id]) { reload(animated: false) }
-            }
+            if let before = press.switchedOnPress { restorePressSelection(before, pressed: id) }
             key = header.key
             standing = id
         }
         switch key {
         case let .workspace(id):
-            guard !model.isPlaceholder(id) else { return }
+            // A creating row drags alone (it is never selected); a placeholder bar never drags.
+            guard !model.isPlaceholder(id) || model.isCreating(id) else { return }
             let ids = model.selection.contains(id) && press.switchedOnPress == nil ? model.orderedSelection : [id]
             // A plain press's drag moves the row and leaves the shown workspace (and the selection) as it was
             // before the press: a press that switched on mouse-down switches back.
             if let before = press.switchedOnPress {
-                if let shown = before.shown, shown != model.activeWorkspaceID { model.click(shown) }
-                model.selection = before.selection
-                if !patchSelection(from: .workspace(id), oldSelection: [id]) { reload(animated: false) }
+                restorePressSelection(before, pressed: id)
             } else if !model.selection.contains(id), press.clickOnRelease != id { model.click(id) }
             payload = .workspaces(ids)
             hidden = Set(ids.map(SidebarRowKey.workspace))
@@ -101,6 +96,21 @@ extension SidebarListViewComponents {
         // The source slot closes on the drag's spring; the list does not reload while the drag is held.
         showDragLayout()
         SidebarEmptyZones.begin(self, drag)
+    }
+    /// A press that became a drag puts back the shown workspace and the selection it switched on mouse-down. That is
+    /// no focus change: the list does not scroll to the workspace shown before the press (Leo 2026-11-06: "it jumps me
+    /// up or to the bottom"). A row pressed near the bottom of a scrolled list, with the shown workspace far above,
+    /// scrolled the list there as the drag lifted.
+    func restorePressSelection(_ before: (shown: WorkspaceID?, selection: Set<WorkspaceID>), pressed id: WorkspaceID) {
+        // Marked revealed before the click: in the app the click's select redraws the list in the same turn
+        // (`SidebarSameTurn.syncNow`), and that reload must see the put-back as no focus change too.
+        if let shown = before.shown, shown != model.activeWorkspaceID {
+            revealedActive = .workspace(shown)
+            model.click(shown)
+        }
+        model.selection = before.selection
+        revealedActive = selectionRevealKey
+        if !patchSelection(from: .workspace(id), oldSelection: [id]) { reload(animated: false) }
     }
     func updateDrag(windowPoint: NSPoint) {
         guard let drag else { return }

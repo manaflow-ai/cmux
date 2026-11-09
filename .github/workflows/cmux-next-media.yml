@@ -665,6 +665,7 @@ jobs:
           record() {  # ROLE APP [--before SHA]
             local role="$1" app="$2"; shift 2
             # Highlight ids are lowercase words and dashes: one path per word.
+            # shellcheck disable=SC2046 # split on purpose, one tour path per word
             set -- $(python3 "$clips" tours --plan "$out/plan.json" --role "$role" --dir "$RUNNER_TEMP/clip-tours" "$@")
             [ "$#" -gt 0 ] || return 0
             python3 scripts/cmux-next/media/tour.py --app "$app" --out "$out/$role" --fresh-state "$@" \
@@ -744,7 +745,7 @@ jobs:
     name: Publish the What's New clips
     needs: tour
     if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.tour.outputs.clips != '' && needs.tour.outputs.clips != '0' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 20
     environment: pr-media
     permissions:
