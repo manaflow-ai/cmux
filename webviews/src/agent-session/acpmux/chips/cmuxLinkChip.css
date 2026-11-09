@@ -18,13 +18,15 @@
   vertical-align: -2px;
   color: var(--cv-text-muted, var(--agent-muted));
 }
+/* The kind and the machine are quieter than the title, but on the chip's wash over a sent message's
+   bubble the muted token reads 2.9:1 in dark; 78% of the text holds 4.5:1 in both schemes there. */
 .cv-cmux-link__kind {
   margin-inline-end: var(--ds-space-1, 4px);
-  color: var(--cv-text-muted, var(--agent-muted));
+  color: color-mix(in srgb, var(--cv-text, var(--agent-text)) 78%, transparent);
 }
 .cv-cmux-link__host {
   margin-inline-start: var(--ds-space-1, 4px);
-  color: var(--cv-text-muted, var(--agent-muted));
+  color: color-mix(in srgb, var(--cv-text, var(--agent-text)) 78%, transparent);
   font-size: var(--text-detail);
   white-space: nowrap;
 }

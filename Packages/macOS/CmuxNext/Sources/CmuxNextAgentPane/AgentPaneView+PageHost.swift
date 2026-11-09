@@ -21,6 +21,9 @@ extension AgentPaneView {
             self.model.transport.gestures.recordQuestionReturn(false)
             self.questionKeyBinding = nil
             if visible { self.refreshQuestionKeyBinding() }
+            // Hidden: the page writes its chat's drawn copy now, before a hidden page freezes
+            // (chatSnapshot/live.ts), so the next launch draws what it showed last.
+            else { _ = self.pageEvents?.publish(.chatSnapshotWrite) }
         }
         page.onQuestionKeyChannelInvalidated = { [weak self] in
             guard let self else { return }

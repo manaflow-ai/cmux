@@ -59,6 +59,7 @@ pub(crate) struct RemoteClientMessages {
     pub connect_one_route: &'static str,
     pub reconnect_policy_invalid: &'static str,
     pub upgrade_no_install: &'static str,
+    pub upgrade_forced_command: &'static str,
     pub json_requires_headless: &'static str,
     pub help_invalid_options: &'static str,
     pub ssh_destination_required: &'static str,
@@ -272,6 +273,8 @@ through an in-process WireGuard peer (owner-only wg-quick file; no root)
 instead; exclusive with --wireguard-config
   --wireguard-hub-token-stdin  read that hub's client token as one line on stdin
   --ssh-binary PATH  --remote-binary PATH  --ssh-arg ARG  --no-install
+  --ssh-forced-command  the SSH key's forced command already runs remote-link,
+so the client never runs remote-probe or an install over it
   --agent-hooks PROVIDER[,PROVIDER...] installs those coding-agent hooks for
 the remote user on each attach (for example claude,codex)
   --remote-state-dir PATH for a non-default daemon state directory
@@ -410,6 +413,7 @@ for up to two relay fallbacks
     connect_one_route: "connect accepts one route",
     reconnect_policy_invalid: "reconnect delays, attempt timeout, and enabled heartbeat timeout must be positive; max delay must be at least initial",
     upgrade_no_install: "--upgrade cannot be combined with --no-install",
+    upgrade_forced_command: "--upgrade cannot be combined with --ssh-forced-command: that key runs only remote-link, so nothing can be installed over it",
     json_requires_headless: "--json requires --headless for connect and ssh",
     help_invalid_options: "help cannot be combined with invalid connect options",
     ssh_destination_required: "ssh expects the destination before options",
@@ -479,6 +483,8 @@ ID とセッション:
 --wireguard-config とは併用できません
   --wireguard-hub-token-stdin  そのハブのクライアントトークンを標準入力から 1 行で読みます
   --ssh-binary パス  --remote-binary パス  --ssh-arg 引数  --no-install
+  --ssh-forced-command  SSH 鍵の強制コマンドがすでに remote-link を実行するため、
+その接続では remote-probe もインストールも実行しません
   --agent-hooks プロバイダー[,プロバイダー...] 接続のたびにリモートユーザーへ
 コーディングエージェントのフックを導入 (例: claude,codex)
   --remote-state-dir パス  既定以外のデーモン状態ディレクトリ
@@ -614,6 +620,7 @@ ID とセッション:
     connect_one_route: "connect に指定できるルートは 1 つです",
     reconnect_policy_invalid: "再接続遅延、試行タイムアウト、有効なハートビートタイムアウトには正の値が必要です。最大遅延は初期遅延以上にしてください",
     upgrade_no_install: "--upgrade と --no-install は同時に指定できません",
+    upgrade_forced_command: "--upgrade と --ssh-forced-command は同時に指定できません。その鍵は remote-link しか実行しないため、インストールできません",
     json_requires_headless: "connect と ssh で --json を使うには --headless が必要です",
     help_invalid_options: "ヘルプと無効な connect オプションは同時に指定できません",
     ssh_destination_required: "ssh の接続先をオプションより前に指定してください",

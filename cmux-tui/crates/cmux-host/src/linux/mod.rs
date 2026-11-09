@@ -1,7 +1,17 @@
-//! The Linux [`Platform`]: one epoll set over the clock-set timerfd,
-//! rtnetlink, inotify on `/run/cmux` and `/etc/cmux`, a signalfd, three
-//! one-shot timerfds (re-arm, backoff, stop deadline) and the session
-//! host's pidfd.
+//! The Linux [`Platform`]: one epoll set over the clock-set timerfd, the
+//! pause watch's socket, rtnetlink, inotify on `/run/cmux` and `/etc/cmux`,
+//! a signalfd, three one-shot timerfds (re-arm, backoff, stop deadline) and
+//! the session host's pidfd.
+//!
+//! A resume reaches the agent one of two ways. Where a pause stops the boot
+//! clock, the realtime set after it moves `realtime - boottime`
+//! ([`crate::agent::clock_set_wake`]). Where the boot clock keeps running
+//! through a pause (Freestyle: every machine reports the same boot time for
+//! days, across many pauses), nothing moves against it, so the pause watch
+//! thread looks at the boot clock every [`PAUSE_TICK`] and reports a sleep
+//! that ended more than [`crate::agent::PAUSE_GAP`] late
+//! ([`crate::agent::paused_for`]). [`ResumeOnce`] keeps a resume both see
+//! to one `Resumed`.
 
 pub mod fds;
 pub mod identity;
@@ -15,10 +25,10 @@ use std::net::IpAddr;
 use std::os::unix::net::UnixDatagram;
 use std::path::PathBuf;
 use std::process::Child;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Instant;
 
-use crate::agent::{Exit, Platform, Wake};
+use crate::agent::{Exit, PAUSE_TICK, Platform, ResumeOnce, ResumeSource, Wake, paused_for};
 use crate::announce::{arping_args, is_announce_target, is_global_address};
 use crate::config::{
     AGENT_DIR, BAKE_FILE_NAME, BAKE_INSTANCE_FILE, BOUND_INSTANCE_FILE, Config, DAEMON_PID_FILE,
@@ -43,6 +53,7 @@ const T_DAEMON: u64 = 8;
 const T_RETRY: u64 = 9;
 const T_ANNOUNCE: u64 = 10;
 const T_IDENTITY: u64 = 11;
+const T_PAUSE: u64 = 12;
 
 struct Daemon {
     pid: u32,
@@ -76,6 +87,13 @@ pub struct LinuxPlatform {
     /// `realtime - boottime` when the clock was last armed or set: how far a
     /// clock set moved realtime tells a resume from a sync.
     clock_offset_ns: i128,
+    /// The pause watch's reports: one datagram (the stopped milliseconds,
+    /// little-endian `u64`) per pause.
+    pause: UnixDatagram,
+    /// The pause watch thread ends within a tick of this being dropped.
+    _pause_alive: Arc<()>,
+    /// Keeps a resume seen by both the clock set and the pause watch to one.
+    resume_once: ResumeOnce,
     netlink: Netlink,
     inotify: Inotify,
     wd_run: i32,
@@ -144,11 +162,25 @@ impl LinuxPlatform {
         } else {
             None
         };
+        // After the signalfd blocked its signals: the thread inherits the mask.
+        let (pause, pause_tx) = UnixDatagram::pair()?;
+        pause.set_nonblocking(true)?;
+        let pause_alive = Arc::new(());
+        // The record reaches the processes that flip outside this one (the
+        // operator's `cmux host update check`), on a machine with the updater.
+        let pause_file = paths.at(crate::updater::PAUSE_FILE);
+        if paths.is_system_root() && pause_file.parent().is_some_and(std::path::Path::is_dir) {
+            crate::agent::PAUSES.persist_to(pause_file);
+        }
+        spawn_pause_watch(Arc::downgrade(&pause_alive), pause_tx)?;
         let platform = Self {
             epoll: Epoll::new()?,
             clock: TimerFd::new(Clock::Realtime)?,
             clock_armed: false,
             clock_offset_ns: realtime_minus_boottime_ns(),
+            pause,
+            _pause_alive: pause_alive,
+            resume_once: ResumeOnce::default(),
             netlink: Netlink::new()?,
             inotify,
             wd_run,
@@ -173,6 +205,7 @@ impl LinuxPlatform {
         };
         let e = &platform.epoll;
         e.add(platform.clock.raw(), T_CLOCK)?;
+        e.add(std::os::fd::AsRawFd::as_raw_fd(&platform.pause), T_PAUSE)?;
         e.add(platform.netlink.raw(), T_NET)?;
         e.add(platform.inotify.raw(), T_INOTIFY)?;
         e.add(platform.signals.raw(), T_SIGNAL)?;
@@ -511,17 +544,55 @@ fn interface_addresses() -> Vec<(String, IpAddr)> {
     out
 }
 
-/// `CLOCK_REALTIME - CLOCK_BOOTTIME` in nanoseconds. A snapshot restore
-/// stops the boot clock while the machine is stopped, so this grows by the
-/// stopped time once realtime is set again; a sync moves it only by drift.
+/// `clock` in nanoseconds.
+fn clock_ns(clock: libc::clockid_t) -> i128 {
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: `ts` is a valid, writable timespec for the call.
+    unsafe { libc::clock_gettime(clock, &mut ts) };
+    i128::from(ts.tv_sec) * 1_000_000_000 + i128::from(ts.tv_nsec)
+}
+
+/// `CLOCK_BOOTTIME` in nanoseconds: the clock the pause watch reads.
+pub(crate) fn boottime_ns() -> i128 {
+    clock_ns(libc::CLOCK_BOOTTIME)
+}
+
+/// `CLOCK_REALTIME - CLOCK_BOOTTIME` in nanoseconds. Where a snapshot
+/// restore stops the boot clock while the machine is stopped, this grows by
+/// the stopped time once realtime is set again; a sync moves it only by
+/// drift. Where the boot clock keeps running through a pause (Freestyle), it
+/// does not move at a resume: the pause watch finds those.
 pub(crate) fn realtime_minus_boottime_ns() -> i128 {
-    fn read(clock: libc::clockid_t) -> i128 {
-        let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
-        // SAFETY: `ts` is a valid, writable timespec for the call.
-        unsafe { libc::clock_gettime(clock, &mut ts) };
-        i128::from(ts.tv_sec) * 1_000_000_000 + i128::from(ts.tv_nsec)
-    }
-    read(libc::CLOCK_REALTIME) - read(libc::CLOCK_BOOTTIME)
+    clock_ns(libc::CLOCK_REALTIME) - clock_ns(libc::CLOCK_BOOTTIME)
+}
+
+/// The pause watch: a thread that sleeps [`PAUSE_TICK`] at a time and sends
+/// `tx` the stopped milliseconds of every sleep the boot clock says ended
+/// far past its tick. It never wakes the agent otherwise, and ends within a
+/// tick of `alive`'s platform being dropped, or when `tx`'s peer is gone. It
+/// sleeps on its own thread so a busy agent thread (a metadata read, a
+/// role's stop) never looks like a pause.
+fn spawn_pause_watch(alive: Weak<()>, tx: UnixDatagram) -> io::Result<()> {
+    std::thread::Builder::new().name("cmux-host-pause-watch".to_owned()).spawn(move || {
+        loop {
+            let before = clock_ns(libc::CLOCK_BOOTTIME);
+            std::thread::sleep(PAUSE_TICK);
+            if alive.strong_count() == 0 {
+                return;
+            }
+            let after = clock_ns(libc::CLOCK_BOOTTIME);
+            let found = paused_for(before, after);
+            // Before the report: a flip that looks now already sees it.
+            crate::agent::PAUSES.looked(after, found.is_some());
+            if let Some(stopped) = found {
+                let ms = u64::try_from(stopped.as_millis()).unwrap_or(u64::MAX);
+                if tx.send(&ms.to_le_bytes()).is_err() {
+                    return;
+                }
+            }
+        }
+    })?;
+    Ok(())
 }
 
 impl Platform for LinuxPlatform {
@@ -547,9 +618,38 @@ impl Platform for LinuxPlatform {
                         self.clock.drain();
                         self.arm_clock();
                         let offset = realtime_minus_boottime_ns();
-                        let wake = crate::agent::clock_set_wake(self.clock_offset_ns, offset);
+                        let mut wake = crate::agent::clock_set_wake(self.clock_offset_ns, offset);
                         self.clock_offset_ns = offset;
+                        if wake == Wake::ClockSet {
+                            crate::agent::PAUSES.found();
+                        }
+                        if wake == Wake::ClockSet
+                            && !self
+                                .resume_once
+                                .first(ResumeSource::ClockSet, clock_ns(libc::CLOCK_REALTIME))
+                        {
+                            wake = Wake::ClockAdjusted;
+                        }
                         wakes.push(wake);
+                    }
+                    T_PAUSE => {
+                        let mut buf = [0_u8; 8];
+                        let mut paused = false;
+                        while let Ok(8) = self.pause.recv(&mut buf) {
+                            let ms = u64::from_le_bytes(buf);
+                            eprintln!(
+                                "cmux-host: the machine resumed: its boot clock ran {} s past the pause watch's tick",
+                                ms / 1000
+                            );
+                            paused = true;
+                        }
+                        if paused
+                            && self
+                                .resume_once
+                                .first(ResumeSource::PauseWatch, clock_ns(libc::CLOCK_REALTIME))
+                        {
+                            wakes.push(Wake::Paused);
+                        }
                     }
                     T_NET => {
                         // Act only when the set of global addresses changed:

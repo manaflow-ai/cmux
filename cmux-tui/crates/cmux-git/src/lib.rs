@@ -12,6 +12,8 @@
 
 pub mod diff;
 #[cfg(unix)]
+pub mod harness_head;
+#[cfg(unix)]
 pub mod native_hook;
 pub mod parse;
 pub mod refs;

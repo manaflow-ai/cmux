@@ -930,3 +930,32 @@ test("a strip prompt is estimated as its attachment row over a bubble of its tex
   ]);
   expect(heightsOf([withBand])[0]).toBeCloseTo(heightsOf([placedOnly])[0]! + tile, 5);
 });
+
+// Leo, 2026-11-08: "the text in this situation isn't from the subagent?". A turn the agent ran on
+// its own that draws as its own turn (no line over it) stands the turn gap from the row above, as a
+// prompt's turn does, in the first layout as in the drawn one (transcriptGrid.ts MARK_OPENS_TURN);
+// the rows inside it and the footer under it keep their own gaps. The subagent's line is estimated
+// with only its short note under it, never the agent's replies.
+test("a turn the agent ran on its own opens with the turn gap, its rows and footer as any turn's", () => {
+  const done = {
+    id: "subagentDone:fixer",
+    version: 1,
+    at: 0,
+    kind: "subagentDone",
+    subagents: [{ id: "fixer", parent: null, name: "fixer", state: "completed", startedAt: 0 }],
+  };
+  const own = (n: number) => [
+    { ...reply(`own-${n}`, "Hourly pass done. Every unmet goal now has a live owner."), inBackground: `bg-${n}` },
+    { ...footer(`backgroundEnd-bg-${n}`), inBackground: undefined },
+  ];
+  const rows = [reply("a", "Started a subagent."), footer("f"), done, ...own(1), ...own(2)];
+  const layout = layoutConversation(rows as never, 720);
+  const gapOver = (index: number) => layout.tops[index]! - layout.tops[index - 1]! - layout.heights[index - 1]!;
+  // Under the subagent's line, and under the first own turn's footer: the turn gap.
+  expect(gapOver(3)).toBe(gridLength("gap-turn"));
+  expect(gapOver(5)).toBe(gridLength("gap-turn"));
+  // The footer sits under its reply as any reply's does.
+  expect(gapOver(4)).toBe(gridLength("gap-footer"));
+  // The subagent's line is its one row: nothing of the agent's replies is counted in it.
+  expect(layout.heights[2]).toBe(layoutConversation([done] as never, 720).heights[0]);
+});

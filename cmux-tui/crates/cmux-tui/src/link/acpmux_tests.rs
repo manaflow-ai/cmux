@@ -476,6 +476,7 @@ fn acpmux_connect_baseline() {
             config.peers = BTreeMap::from([(
                 "other".to_string(),
                 acpmux::config::PeerConfig {
+                    link_host: None,
                     url: "ws://127.0.0.1:1".into(),
                     wireguard: Some(acpmux::wireguard::StaticPeer {
                         public_key: keys[other].public_key_b64(),

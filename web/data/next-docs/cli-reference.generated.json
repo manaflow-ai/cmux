@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 858,
-    "mcp": 772
+    "verbs": 859,
+    "mcp": 773
   },
   "nouns": [
     {
@@ -1769,7 +1769,7 @@
         },
         {
           "command": "cmux density use-cozy",
-          "title": "Density: Cozy",
+          "title": "Density: Default",
           "id": "appearance.density.cozy",
           "mcp": false,
           "mcpTool": null
@@ -2092,6 +2092,13 @@
           "id": "home.showHiddenConversations",
           "mcp": true,
           "mcpTool": "app_home_show_hidden"
+        },
+        {
+          "command": "cmux home start-agent",
+          "title": "Start Queued Agent Now",
+          "id": "home.startQueuedAgent",
+          "mcp": true,
+          "mcpTool": "app_home_start_agent"
         },
         {
           "command": "cmux home switch-view",

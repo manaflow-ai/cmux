@@ -18,7 +18,9 @@ use crate::stamp::{FileStamp, FileState};
 use crate::text::{prompt_text, title_line};
 use crate::time::parse_rfc3339_ms;
 
+mod rows;
 mod threads;
+pub use rows::{CodexThreadRow, thread_rows};
 pub use threads::forget;
 use threads::query_threads;
 

@@ -58,6 +58,33 @@ import Testing
         hint.hide()
     }
 
+    /// A terminal that shrinks below the hint while it shows takes it down rather than clip it or
+    /// let it spill into the next pane.
+    @Test func aTerminalShrunkBelowTheHintHidesIt() {
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 200))
+        let hint = TerminalSelectionHint(view: view)
+        hint.pressed([], captured: true)
+        hint.dragged()
+        #expect(hint.shownText == TerminalSelectionHint.text)
+        view.setFrameSize(NSSize(width: 700, height: 200))
+        hint.resized()
+        #expect(hint.shownText == TerminalSelectionHint.text)
+        view.setFrameSize(NSSize(width: 60, height: 200))
+        hint.resized()
+        #expect(hint.shownText == nil)
+    }
+
+    /// A press whose release never comes (the terminal left its window mid-drag) leaves no Option
+    /// selection or armed hint behind for a later press that skips the rule (a link click).
+    @Test func aTerminalLeavingItsWindowEndsThePress() {
+        let hint = TerminalSelectionHint(view: nil)
+        hint.pressed(.option, captured: true)
+        #expect(hint.selecting)
+        hint.ended()
+        #expect(!hint.selecting)
+        #expect(hint.following(.option) == .option)
+    }
+
     @Test(arguments: [NSEvent.ModifierFlags([]), .command, .shift, .option, .control, .function,
                       [.command, .shift, .option, .control, .function, .capsLock, .numericPad]])
     func keysRoundTrip(_ flags: NSEvent.ModifierFlags) {

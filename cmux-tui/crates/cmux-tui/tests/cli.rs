@@ -110,6 +110,7 @@ impl HeadlessServer {
         // Durable state and the shell integration scripts stay in the test
         // folder, never below the host's HOME (support/private_state.rs).
         private_state::use_private_state(&mut command, &dir)
+            .env("CMUX_TUI_LOG_FILE", daemon_log_path(&dir))
             .envs(env.iter().copied())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
@@ -341,12 +342,38 @@ fn signal_test_process_group(pid: u32, signal: libc::c_int) {
     }
 }
 
+/// The headless daemon's diagnostic log. The daemon records the cause of a
+/// `mutation.indeterminate` and other internal faults only here.
+fn daemon_log_path(dir: &std::path::Path) -> PathBuf {
+    dir.join("daemon.log")
+}
+
+/// Prints the end of the daemon log, so a failed CLI assertion shows the
+/// daemon-side cause next to the client error.
+fn print_daemon_log(dir: &std::path::Path) {
+    const MAX_PRINTED_BYTES: usize = 64 * 1024;
+    let path = daemon_log_path(dir);
+    let Ok(log) = fs::read(&path) else {
+        eprintln!("headless daemon log {}: none", path.display());
+        return;
+    };
+    let tail = &log[log.len().saturating_sub(MAX_PRINTED_BYTES)..];
+    eprintln!(
+        "--- headless daemon log {} (last {} of {} bytes) ---\n{}\n--- end of daemon log ---",
+        path.display(),
+        tail.len(),
+        log.len(),
+        String::from_utf8_lossy(tail)
+    );
+}
+
 impl Drop for HeadlessServer {
     fn drop(&mut self) {
         if std::thread::panicking() {
             // A failed assertion (for example an indeterminate terminal
             // write) is explained by what the daemon logged before it.
             eprintln!("headless daemon stderr before the failure:\n{}", self.stderr_tail());
+            print_daemon_log(&self.dir);
         }
         // Durable terminal hosts intentionally outlive the daemon. Tests must
         // close their terminal resources first rather than assuming SIGKILL
@@ -1484,6 +1511,7 @@ fn explicit_socket_keeps_state_in_platform_root() {
         .args(["--headless", "--socket"])
         .arg(&socket)
         .env("CMUX_TUI_STATE_DIR", &state)
+        .env("CMUX_TUI_LOG_FILE", daemon_log_path(&dir))
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
@@ -3721,6 +3749,9 @@ mod browser_profiles;
 #[path = "cli/caller_selector.rs"]
 mod caller_selector;
 #[cfg(unix)]
+#[path = "cli/carrier_tunnel.rs"]
+mod carrier_tunnel;
+#[cfg(unix)]
 #[path = "cli/chief.rs"]
 mod chief;
 #[cfg(unix)]
@@ -3783,6 +3814,8 @@ mod launch_credential;
 mod layout_delta;
 #[path = "cli/left_dock_undock.rs"]
 mod left_dock_undock;
+#[path = "cli/list_filters.rs"]
+mod list_filters;
 #[path = "cli/lone_width.rs"]
 mod lone_width;
 #[path = "cli/new_terminal_cwd.rs"]
@@ -3801,6 +3834,12 @@ mod state_helpers;
 mod status;
 #[path = "cli/tab_group_hex.rs"]
 mod tab_group_hex;
+#[cfg(unix)]
+#[path = "cli/tabless_terminals.rs"]
+mod tabless_terminals;
+#[cfg(unix)]
+#[path = "cli/terminal_paste.rs"]
+mod terminal_paste;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;

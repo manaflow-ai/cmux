@@ -163,8 +163,12 @@ public struct TabStripMetrics: Equatable, Sendable {
         overflow = DesignSettings.shared.tabOverflow
         switch overflow {
         case .shrink:
-            // A larger inactive minimum (a user's) raises the active one, never the other way round.
-            minInactiveTabWidth = min(Metrics.tabMinInactiveWidth, maxTabWidth)
+            // Unset, the inactive minimum is `crowdedMinimumWidth` at this density's parts, not the tunable's
+            // compact/comfortable pair: Default (level 0.5, #37274) draws Comfortable's 16 pt favicon, where the
+            // pair's 73 left 23 of `crowdedTitleRoom`'s 24. A larger inactive minimum (a user's) raises the active
+            // one, never the other way round.
+            let inactiveMinimum = MetricTunables.tabMinInactiveWidth.explicitValue ?? activeFloor + Self.crowdedTitleRoom
+            minInactiveTabWidth = min(inactiveMinimum, maxTabWidth)
             minActiveTabWidth = min(max(Metrics.tabMinActiveWidth, activeFloor, minInactiveTabWidth), maxTabWidth)
         case .scroll:
             // Scrolling tabs: every unpinned tab stays this wide, then the strip scrolls.

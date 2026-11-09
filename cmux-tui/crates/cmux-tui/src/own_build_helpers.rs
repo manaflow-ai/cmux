@@ -1,6 +1,8 @@
 //! The agent helpers a daemon's panes run, all of this daemon's own build:
-//! the `claude` and `codex` shims first on the pane PATH, and the agent hook
-//! helper in `CMUX_TUI_HOOK`.
+//! the `claude` and `codex` shims first on the pane PATH, the agent hook
+//! helper in `CMUX_TUI_HOOK`, the Claude Code plugin in
+//! `CLAUDE_CODE_PLUGIN_DIRS`, and this build's `cmux` in `CMUX_TUI_CLI` (the
+//! `cmux` on PATH can be another install, W5-Q).
 //!
 //! Every install on a machine (the npm package, the app bundle, a tagged dev
 //! build) shares the user's data home. When all of them wrote one
@@ -22,6 +24,12 @@ use crate::agent_hook_install;
 
 /// File name of the standalone hook helper an install ships beside its CLI.
 const HOOK_HELPER: &str = "cmux-tui-hook";
+
+/// The pane variable that names this build's `cmux` by absolute path.
+pub(crate) const CLI_ENV: &str = "CMUX_TUI_CLI";
+
+/// The program name that selects the `cmux` CLI surface (cli/surface.rs).
+const CLI_NAME: &str = "cmux";
 
 /// This build's folder under cmux-tui's data home.
 fn build_dir(executable: &Path) -> Option<PathBuf> {
@@ -53,7 +61,13 @@ fn hook_helper(executable: &Path) -> Option<PathBuf> {
     if agent_hook_install::is_executable_file(&sibling) {
         return Some(sibling);
     }
-    let launcher = build_dir(executable)?.join("bin").join(HOOK_HELPER);
+    hook_launcher(&build_dir(executable)?, executable)
+}
+
+/// Writes (when its content changed) and returns the launcher of this
+/// build's hook helper in its build folder `build`.
+fn hook_launcher(build: &Path, executable: &Path) -> Option<PathBuf> {
+    let launcher = build.join("bin").join(HOOK_HELPER);
     let script = format!(
         "#!/bin/sh\nexec {} {} \"$@\"\n",
         agent_hook_install::shell_quote(executable.to_str()?),
@@ -63,9 +77,51 @@ fn hook_helper(executable: &Path) -> Option<PathBuf> {
         && fs::read(&launcher).is_ok_and(|existing| existing == script.as_bytes());
     if !current {
         fs::create_dir_all(launcher.parent()?).ok()?;
-        agent_hook_install::atomic_write(&launcher, script.as_bytes(), Some(0o755)).ok()?;
+        agent_hook_install::replace_rewritable_file(&launcher, script.as_bytes(), Some(0o755))
+            .ok()?;
     }
     Some(launcher)
+}
+
+/// This build's `cmux`, by an absolute path whose file name is `cmux` (the
+/// name selects the `cmux` CLI surface): the executable itself when it is
+/// named so, else a `cmux` beside it that is the same file (the app
+/// bundle), else a link in the build folder (written when missing or stale).
+fn own_cli(executable: &Path) -> Option<PathBuf> {
+    if executable.file_stem().is_some_and(|stem| stem == CLI_NAME) {
+        return Some(executable.to_path_buf());
+    }
+    let sibling =
+        executable.with_file_name(CLI_NAME).with_extension(std::env::consts::EXE_EXTENSION);
+    if same_file(&sibling, executable) {
+        return Some(sibling);
+    }
+    own_cli_link(executable)
+}
+
+#[cfg(unix)]
+fn own_cli_link(executable: &Path) -> Option<PathBuf> {
+    let link = build_dir(executable)?.join("bin").join(CLI_NAME);
+    if fs::read_link(&link).is_ok_and(|target| target == executable) {
+        return Some(link);
+    }
+    let folder = link.parent()?;
+    fs::create_dir_all(folder).ok()?;
+    // Link beside it, then rename over: two daemons of one build may race.
+    let staged = folder.join(format!(".{CLI_NAME}.{}", std::process::id()));
+    let _ = fs::remove_file(&staged);
+    std::os::unix::fs::symlink(executable, &staged).ok()?;
+    if fs::rename(&staged, &link).is_err() {
+        let _ = fs::remove_file(&staged);
+        return None;
+    }
+    Some(link)
+}
+
+/// Windows has no `cmux` link of its own: only a `cmux` beside the build.
+#[cfg(not(unix))]
+fn own_cli_link(_executable: &Path) -> Option<PathBuf> {
+    None
 }
 
 /// The hook helper a wrapped agent launch uses: the `CMUX_TUI_HOOK` the
@@ -77,28 +133,65 @@ pub(crate) fn launch_hook_helper(
     executable: &Path,
     inherited: Option<OsString>,
 ) -> Option<PathBuf> {
+    inherited_hook_helper(inherited).or_else(|| hook_helper(executable))
+}
+
+/// The inherited `CMUX_TUI_HOOK` when it names an absolute executable file
+/// other than the shared per-user helper, else `None`. Reads only: it never
+/// writes a launcher.
+pub(crate) fn inherited_hook_helper(inherited: Option<OsString>) -> Option<PathBuf> {
     let shared = agent_hook_install::runtime_helper_path();
     inherited
         .map(PathBuf::from)
         .filter(|path| path.is_absolute() && agent_hook_install::is_executable_file(path))
         .filter(|path| shared.as_deref().is_none_or(|shared| !same_file(path, shared)))
-        .or_else(|| hook_helper(executable))
+}
+
+/// The pane's `CLAUDE_CODE_PLUGIN_DIRS` with this build's Claude Code plugin
+/// (claude_plugin.rs), written into the build folder. `None` leaves the
+/// variable as the daemon inherited it: cmux-tui's Claude hooks are turned
+/// off, this machine's Claude Code policy refuses plugin folders from the
+/// environment, or the plugin could not be written.
+fn claude_plugin_dirs(executable: &Path, helper: &Path) -> Option<String> {
+    if std::env::var_os("CMUX_TUI_CLAUDE_HOOKS_DISABLED").is_some_and(|value| value == "1") {
+        return None;
+    }
+    let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).map(PathBuf::from);
+    let config_dir =
+        std::env::var_os("CLAUDE_CONFIG_DIR").filter(|dir| !dir.is_empty()).map(PathBuf::from);
+    let policy = crate::claude_plugin::policy_files(home.as_deref(), config_dir.as_deref());
+    if crate::claude_plugin::sideloading_disabled(&policy) {
+        return None;
+    }
+    let dir = build_dir(executable)?.join(crate::claude_plugin::PLUGIN_FOLDER);
+    crate::claude_plugin::install(&dir, executable, helper).ok()?;
+    let inherited = std::env::var_os(crate::claude_plugin::PLUGIN_DIRS_ENV);
+    crate::claude_plugin::pane_plugin_dirs(inherited.as_deref(), &dir)?.into_string().ok()
 }
 
 fn same_file(a: &Path, b: &Path) -> bool {
     a == b || matches!((a.canonicalize(), b.canonicalize()), (Ok(a), Ok(b)) if a == b)
 }
 
-/// Points this daemon's panes at this build's helpers: `CMUX_TUI_HOOK`, the
-/// shim folder first on PATH (kept first over a caller PATH and after shell
-/// startup files), and `CMUX_TUI_AGENT_SHIMS`. A helper that could not be
-/// written leaves its part of the pane environment alone.
+/// Points this daemon's panes at this build's helpers: `CMUX_TUI_CLI`,
+/// `CMUX_TUI_HOOK`, the shim folder first on PATH (kept first over a caller
+/// PATH and after shell startup files), `CMUX_TUI_AGENT_SHIMS`, and this
+/// build's Claude Code plugin in `CLAUDE_CODE_PLUGIN_DIRS`. A helper that
+/// could not be written leaves its part of the pane environment alone.
 pub(crate) fn configure_pane(options: &mut cmux_tui_core::SurfaceOptions) {
     let Ok(executable) = crate::claude_wrapper::current_executable() else { return };
+    if let Some(cli) = own_cli(&executable).and_then(|cli| cli.into_os_string().into_string().ok())
+    {
+        options.extra_env.push((CLI_ENV.into(), cli));
+    }
+    let helper = hook_helper(&executable);
     if let Some(helper) =
-        hook_helper(&executable).and_then(|helper| helper.into_os_string().into_string().ok())
+        helper.clone().and_then(|helper| helper.into_os_string().into_string().ok())
     {
         options.extra_env.push(("CMUX_TUI_HOOK".into(), helper));
+    }
+    if let Some(dirs) = helper.and_then(|helper| claude_plugin_dirs(&executable, &helper)) {
+        options.extra_env.push((crate::claude_plugin::PLUGIN_DIRS_ENV.into(), dirs));
     }
     let Some(dir) = shim_dir(&executable) else { return };
     let claude = crate::claude_wrapper::install_shim(&dir, &executable).is_ok();
@@ -136,6 +229,41 @@ mod tests {
         assert_eq!(build_dir(a), Some(dir_a.clone()));
         assert_eq!(dir_a.file_name().unwrap().len(), 16);
         assert_eq!(dir_a.parent().unwrap().file_name().unwrap(), "builds");
+    }
+
+    /// The build's helpers (its hook launcher, `claude` and `codex` shims and
+    /// Claude plugin) are written before the owner binds its socket, and a
+    /// start rewrites any that differ, so they are written without durable
+    /// syncs: on macOS each is a full fsync of the drive, and one of them
+    /// took 2.2 s of a 2.3 s first start on a fleet Mac (2026-11-09).
+    #[test]
+    fn own_build_helpers_are_written_without_durable_syncs() {
+        let root = tempfile::tempdir().unwrap();
+        let build = root.path().join("builds/0123456789abcdef");
+        let executable = root.path().join("cmux-tui");
+        fs::write(&executable, b"").unwrap();
+        let before = agent_hook_install::durable_syncs_on_this_thread();
+        let helper = hook_launcher(&build, &executable).unwrap();
+        crate::claude_plugin::install(
+            &build.join(crate::claude_plugin::PLUGIN_FOLDER),
+            &executable,
+            &helper,
+        )
+        .unwrap();
+        let shims = build.join("shims");
+        crate::claude_wrapper::install_shim(&shims, &executable).unwrap();
+        crate::codex_wrapper::install_shim(&shims, &executable).unwrap();
+        let synced = agent_hook_install::durable_syncs_on_this_thread() - before;
+        assert_eq!(synced, 0, "the build's helpers made {synced} durable syncs");
+        for path in [helper, shims.join("claude"), shims.join("codex")] {
+            assert!(agent_hook_install::is_executable_file(&path), "{}", path.display());
+        }
+        assert!(
+            build
+                .join(crate::claude_plugin::PLUGIN_FOLDER)
+                .join(".claude-plugin/plugin.json")
+                .is_file()
+        );
     }
 
     #[test]

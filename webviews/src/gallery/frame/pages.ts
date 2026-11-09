@@ -119,6 +119,9 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       "cmux.markdown.listFiles": () => ({ entries: [...files.keys()].map((path) => path.slice(dir.length)) }),
       "cmux.markdown.loadRemoteImages": () => ({ remoteImageBase: "/__gallery/none/" }),
       "cmux.markdown.openLink": () => null,
+      // A Run button or Run all opens a terminal or a chat in the app; the gallery opens nothing.
+      "cmux.markdown.runBlock": () => ({}),
+      "cmux.markdown.runAll": () => ({}),
       "cmux.markdown.setTableWidths": (params: { path: string; value: unknown }) => {
         try {
           if (params.value) sessionStorage.setItem(widthsKey(params.path), JSON.stringify(params.value));
@@ -240,8 +243,13 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
           appearance: context.appearance,
           labels,
           commentsSend: state.commentsSend,
+          reviewBrief: state.reviewBrief != null,
         },
-        ops: ["cmux.diff.comments", ...(state.fingerprintError ? ["cmux.diff.git.fingerprint"] : [])],
+        ops: [
+          "cmux.diff.comments",
+          ...(state.fingerprintError ? ["cmux.diff.git.fingerprint"] : []),
+          ...(state.reviewBrief != null ? ["cmux.diff.brief"] : []),
+        ],
       }),
       "cmux.diff.protocolHandshake": () => ({
         type: "handshake",
@@ -260,6 +268,7 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
         if (state.fingerprintError) throw new HostError(state.fingerprintError.code, state.fingerprintError.message);
         return { fingerprint: hash(patch) };
       },
+      "cmux.diff.brief": () => state.reviewBrief,
       "cmux.diff.sessionClose": () => ({ type: "sessionClosed" }),
       "cmux.diff.branchList": () => ({
         type: "branches",

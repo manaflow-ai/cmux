@@ -22,7 +22,19 @@ import UniformTypeIdentifiers
 /// by the previous frame until then.
 @MainActor
 final class TerminalSurfaceView: UIView {
+    /// Every write Ghostty encodes for the remote: what the person typed,
+    /// pressed or pasted, and Ghostty's own replies (terminal queries, mouse
+    /// and focus reports).
     var onInput: ((Data) -> Void)?
+    /// Whether the write `onInput` just took goes out to the remote now (the
+    /// session is attached and did not refuse it). Prediction records only
+    /// input that goes: a refused or held key never echoes.
+    var inputGoesOut: () -> Bool = { true }
+    /// Set while `perform` hands Ghostty something the person typed, pressed
+    /// or pasted. Ghostty writes its encoding to `io_write_cb` on this thread
+    /// before it returns (D6), so a write delivered while this is set is
+    /// theirs; any other write is Ghostty's own, which prediction never sees.
+    var isEncodingUserInput = false
     /// The person typed, pressed a key or pasted (before the bytes go out).
     var onUserInput: (() -> Void)?
     var onEvent: ((TerminalSurfaceEvent) -> Void)?
@@ -94,8 +106,17 @@ final class TerminalSurfaceView: UIView {
         self.app = app
         let box = InputBox()
         box.deliver = { [weak self] data in
-            self?.prediction?.sent(data)
-            self?.onInput?(data)
+            guard let self else { return }
+            let typed = isEncodingUserInput
+            onInput?(data)
+            // Only the person's own input, once the session took it: a
+            // terminal reply or a mouse report is no keystroke and would
+            // withdraw what is drawn, and a refused key would stand there
+            // until it timed out. Ghostty also writes a mouse report while
+            // it holds the renderer lock, so redrawing for one (which reads
+            // its grid metrics) froze the screen.
+            guard typed, inputGoesOut() else { return }
+            prediction?.sent(data)
         }
         box.view = self
         inputBox = box

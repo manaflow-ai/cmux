@@ -151,6 +151,20 @@ test("a background task's end without its call keeps the raw command visible", a
   expect(note.getAttribute("title")).toBeNull();
 });
 
+// Leo, 2026-11-05, on a note reading "Background command completed hold": "what are you even holding
+// for?". An agent's Monitor named "hold" reads as the tray reads it, what it does, then its name.
+test("a background task an agent named reads as what it does, then its name", async () => {
+  const container = await render(
+    <BackgroundTaskNote
+      task={{ toolCallId: "bg-hold", command: "sleep 840; echo t", description: "hold", state: "completed" }}
+    />,
+  );
+  const named = container.querySelector<HTMLElement>(".cv-bgtask__title")!;
+  expect(named.textContent).toBe("Waiting 14m · hold");
+  expect(named.title).toBe("sleep 840; echo t");
+  expect(container.querySelector(".cv-bgtask__command")).toBeNull();
+});
+
 test("a background task names and links its owner, and keeps its duration in the details", async () => {
   const opened: string[] = [];
   const task: AcpmuxBackgroundTask = {

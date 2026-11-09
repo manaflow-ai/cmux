@@ -455,8 +455,8 @@ impl Hub {
         if let Some(display_parts) = &run.display_parts {
             msg.set("displayParts", display_parts.clone());
         }
+        let mut msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
         super::session::mark_pasted(&mut msg, &run.blocks);
-        let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
         self.append(session, "mux", "queue_updated", msg);
         drop(queue);
         Ok(true)

@@ -23,7 +23,9 @@ cd "$(dirname "$0")/../cmux-tui"
 
 rtts="${RTTS-30 100 300}"
 losses="${LOSSES:-0 1 3 5 10}"
-# A mode is a CMUX_WG_ULTRA value; "+nocc" also sets CMUX_WG_ULTRA_CC=none.
+# A mode is a CMUX_WG_ULTRA value; "+nocc" also sets CMUX_WG_ULTRA_CC=none, and
+# "@viewer" turns it on at the viewer only (the host starts off, as a peer
+# without the app setting does).
 modes="${MODES:-off dup fec:8:2 fec:8:2+nocc rs:8:4 rs:4:4}"
 secs="${SECONDS_PER_RUN:-8}"
 bulk="${BULK_BYTES:-4000000}"
@@ -38,9 +40,12 @@ run() { # mode, label, args...
   local mode="$1" label="$2"
   shift 2
   local line
-  local ultra="${mode%+nocc}" cc=cubic
-  [ "$ultra" = "$mode" ] || cc=none
-  line="$(CMUX_WG_ULTRA="$ultra" CMUX_WG_ULTRA_CC="$cc" timeout 150 "$bench" --seconds "$secs" --bulk-bytes "$bulk" "$@" 2>/dev/null || true)"
+  local ultra="${mode%@viewer}" host=""
+  [ "$ultra" = "$mode" ] || host=off
+  local cc=cubic base="$ultra"
+  ultra="${ultra%+nocc}"
+  [ "$ultra" = "$base" ] || cc=none
+  line="$(CMUX_WG_ULTRA="$ultra" CMUX_WG_ULTRA_HOST="$host" CMUX_WG_ULTRA_CC="$cc" timeout 150 "$bench" --seconds "$secs" --bulk-bytes "$bulk" "$@" 2>/dev/null || true)"
   [ -n "$line" ] || line='{"error":"no output"}'
   printf '{"mode":"%s","link":"%s",%s\n' "$mode" "$label" "${line#\{}" | tee -a "$out"
 }

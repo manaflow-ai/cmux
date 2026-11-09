@@ -29,7 +29,6 @@ import { caretInView } from "./composer/caretInView";
 import { fieldGrowth } from "./composer/fieldGrowth";
 import { commandEdit, setSlashNames, slashTokensPlugin, slashTriggerAt } from "./composer/slashTokens";
 import { deeplinkTokensPlugin } from "./composer/deeplinkTokens";
-import { composerDeeplinkLook } from "./composer/deeplinkLook.experiment";
 import { deeplinkTitlesPlugin, type DeeplinkTitles } from "./composer/deeplinkTitles";
 import { CMUX_LINK_ICONS, knownCmuxLink, subscribeCmuxLinks } from "./chips/cmuxLinkResolve";
 import { iconMaskUrl } from "./icons/iconMask";
@@ -1020,6 +1019,12 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   }
                   if (!returnInput || (input.inputType !== "insertParagraph" && input.inputType !== "insertLineBreak"))
                     return false;
+                  // The input method can emit paragraph input without a keydown. Its candidate
+                  // confirmation is still composition, even when this event omits isComposing.
+                  if (input.isComposing || composing.current) {
+                    event.preventDefault();
+                    return true;
+                  }
                   event.preventDefault();
                   if (returnTaken) returnTaken = false;
                   else returnInput();
@@ -1389,8 +1394,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         .use(clipboard)
         .use(placesInline ? [inlineAttachmentNode, inlinePlugin(inline.current)] : [])
         .use($prose(() => slashTokensPlugin(() => slashNamesNow.current ?? NO_SLASH_NAMES)))
-        // A cmux deeplink draws as a link, its text kept (composer/deeplinkTokens.ts).
-        .use($prose(() => deeplinkTokensPlugin(experimentArm(composerDeeplinkLook))))
+        // Finds each cmux deeplink, drawn as plain text (composer/deeplinkTokens.ts).
+        .use($prose(() => deeplinkTokensPlugin()))
         // One it knows draws as what it names, its text still the link (composer/deeplinkTitles.ts).
         .use($prose(() => deeplinkTitlesPlugin(draftLinkTitles())))
         .create()

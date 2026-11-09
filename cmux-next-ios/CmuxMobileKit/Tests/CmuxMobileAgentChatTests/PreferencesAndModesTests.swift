@@ -68,6 +68,10 @@ import Testing
         #expect(CmuxMobilePreferences.predictiveEcho(defaults))
         #expect(CmuxMobilePreferences.dismissKeyboardAfterSend(defaults) == settings.dismissKeyboardAfterSend)
         #expect(!CmuxMobilePreferences.steersFollowUps(defaults))
+        // Queueing on (the default), Send and Return still steer, as the Mac's Return does; only
+        // Queue waits for the turn.
+        #expect(CmuxMobilePreferences.steersMidTurn(queue: false, defaults))
+        #expect(!CmuxMobilePreferences.steersMidTurn(queue: true, defaults))
 
         settings.terminalFontSize = 17
         settings.wrapCode = true
@@ -81,9 +85,17 @@ import Testing
         #expect(!CmuxMobilePreferences.predictiveEcho(defaults))
         #expect(!CmuxMobilePreferences.dismissKeyboardAfterSend(defaults))
         #expect(CmuxMobilePreferences.steersFollowUps(defaults))
+        // Queueing off, Queue steers too, as the Mac's ⌘Return does.
+        #expect(CmuxMobilePreferences.steersMidTurn(queue: true, defaults))
 
         settings.terminalFontSize = 99
         #expect(CmuxMobilePreferences.terminalFontSize(defaults) == CmuxMobilePreferences.terminalFontSizes.upperBound)
+
+        // Ultra mode on cellular: off by default, stored under the key the WireGuard dial reads.
+        #expect(!settings.ultraOnCellular)
+        #expect(CmuxMobilePreferences.Key.ultraOnCellular == "cmuxMobile.settings.ultraOnCellular")
+        settings.ultraOnCellular = true
+        #expect(defaults.bool(forKey: CmuxMobilePreferences.Key.ultraOnCellular))
     }
 
     @Test func liveSessionsHideCheckpoints() {

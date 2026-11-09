@@ -23,14 +23,16 @@
 //!   (a pass with few datagrams) get a parity of their own, so bytes run
 //!   higher in practice (1.25-1.35x for `fec:8:2` on the desktop bench) and
 //!   never above twice the data bytes.
-//! - `rs` / `rs:K:M` (default `rs:8:4`) groups datagrams the same way, but its
+//! - `rs` / `rs:K:M` (default `rs:4:4`) groups datagrams the same way, but its
 //!   parities are Reed-Solomon over GF(2^8) ([`crate::ultra_rs`]): any `n` of
 //!   a group's parities rebuild any `n` of its lost members, wherever they
 //!   fall, where XOR parity loses a group to two losses in one subgroup. A
-//!   group of `n` members gets `ceil(n * M / K)` parities (at least one), each
-//!   as long as the longest member, so a full group costs (K+M)/K and a lone
-//!   datagram with one parity costs 2x. It holds at loss rates where XOR
-//!   parity collapses (10 %).
+//!   group of `n` members gets `ceil(n * M / K)` parities, and at least two
+//!   (one when M is 1): most groups are a pass's one or two datagrams, and
+//!   with one parity those are what still stall TCP at 10 % loss. Each parity
+//!   is as long as the longest member, so a full group costs (K+M)/K and a
+//!   lone datagram 3x; bytes stay under (1+M)x. It holds at loss rates where
+//!   XOR parity collapses (10 %).
 //!
 //! A parity datagram is a header plus the XOR of ciphertexts; the WireGuard
 //! header of a rebuilt datagram comes from the parity header, so a parity is
@@ -43,15 +45,19 @@
 //! from, and keeps a data datagram (received or rebuilt) for rebuilding only
 //! once WireGuard has authenticated that datagram itself. Rebuilding is
 //! automatic: any side rebuilds from trusted parity, whatever its own mode.
-//! Sending repair data is not: each side sends parity or copies only in the
-//! mode it was started with, because the parity header is not authenticated
-//! and an on-path attacker could rewrap a genuine ciphertext as parity whose
-//! rebuilt datagram authenticates, so a mode learned from parity would be the
-//! attacker's choice. To protect both directions, turn the mode on at both
-//! ends; agreeing on it inside the tunnel is a follow-up.
+//! Sending repair data is not learned from parity: the parity header is not
+//! authenticated, and an on-path attacker could rewrap a genuine ciphertext as
+//! parity whose rebuilt datagram authenticates, so a mode learned from parity
+//! would be the attacker's choice. The two sides agree on the mode inside the
+//! tunnel instead ([`crate::ultra_hello`]): each sends the mode it was started
+//! with in an authenticated hello, and both send in the stronger of the two
+//! ([`UltraMode::agree`]), so turning the mode on at one end protects both
+//! directions.
 //!
 //! The mode is the `CMUX_WG_ULTRA` environment variable (`off`, `dup`,
-//! `dup3`, `fec`, `fec:8:2`, `rs`, `rs:8:4`), read when a tunnel starts.
+//! `dup3`, `fec`, `fec:8:2`, `rs`, `rs:8:4`), read when a tunnel starts, else
+//! the app's setting in [`crate::WgConfig::ultra`] ([`UltraMode::SETTING`]:
+//! desktop `remote.ultraMode`, the iPhone's "Ultra mode on cellular").
 
 use std::collections::{HashMap, VecDeque};
 use std::io;
@@ -100,6 +106,12 @@ const PARITY_PER_POLL: usize = 64;
 const MAX_GROUP: u8 = 32;
 const MAX_PARITY: u8 = 15;
 const MAX_COPIES: u8 = 4;
+/// The most bytes per data byte a peer can ask this side to send: a peer's
+/// mode is taken up only when its full groups cost at most this many
+/// datagrams per data datagram, and in a mode taken up from the peer the
+/// bytes of each group (its datagrams and their repair) stay within this
+/// multiple of its data bytes ([`rs_parity_datagrams`]).
+const MAX_AGREED_OVERHEAD: u32 = 4;
 /// The environment variable that turns the mode on.
 pub const ENV: &str = "CMUX_WG_ULTRA";
 /// `none` turns the tunnel's TCP congestion control off, so loss never
@@ -143,7 +155,7 @@ impl UltraMode {
             "" | "off" | "0" | "false" => return Some(Self::Off),
             "dup" => return Some(Self::Duplicate { copies: 2 }),
             "fec" => return Some(Self::Fec { group: 8, parity: 2 }),
-            "rs" => return Some(Self::Rs { group: 8, parity: 4 }),
+            "rs" => return Some(Self::Rs { group: 4, parity: 4 }),
             _ => {}
         }
         if let Some(copies) = text.strip_prefix("dup") {
@@ -184,6 +196,33 @@ impl UltraMode {
             .then_some(Self::Fec { group, parity })
     }
 
+    /// The mode an app's "ultra mode" setting turns on: Reed-Solomon `rs:4:4`,
+    /// which holds the lossless latency up to 10 % random loss on the desktop
+    /// bench at about 2.4-2.9x the bytes (#38861).
+    pub const SETTING: Self = Self::Rs { group: 4, parity: 4 };
+
+    /// The mode a tunnel starts with: [`ENV`] when it is set and not empty
+    /// (so `CMUX_WG_ULTRA=off` turns a setting's mode off for one run), else
+    /// the app's `setting`, else off. An unreadable [`ENV`] is reported and
+    /// the setting applies.
+    pub fn resolve(setting: Option<Self>) -> Self {
+        Self::resolve_with(std::env::var(ENV).ok().as_deref(), setting)
+    }
+
+    /// [`UltraMode::resolve`] with [`ENV`]'s value given.
+    fn resolve_with(env: Option<&str>, setting: Option<Self>) -> Self {
+        let fallback = setting.unwrap_or(Self::Off);
+        match env.map(str::trim).filter(|text| !text.is_empty()) {
+            None => fallback,
+            Some(text) => Self::parse(text).unwrap_or_else(|| {
+                eprintln!(
+                    "{ENV}={text:?} is not off, dup, dupN, fec, fec:K:M, rs or rs:K:M; using {fallback:?}"
+                );
+                fallback
+            }),
+        }
+    }
+
     /// The mode in [`ENV`], or off when it is unset or unreadable.
     pub fn from_env() -> Self {
         match std::env::var(ENV) {
@@ -209,6 +248,60 @@ impl UltraMode {
         }
     }
 
+    /// The mode a side started with `own` sends in once the peer says it
+    /// started with `peer`: the one that sends more repair data (ties go to
+    /// the stronger code: Reed-Solomon, then XOR, then copies), so both sides
+    /// land on the same mode. A peer's mode costing more than
+    /// [`MAX_AGREED_OVERHEAD`] times the datagrams is not taken up (this
+    /// side keeps `own`). Reed-Solomon parity is as long as a group's longest
+    /// datagram, so the datagram count alone would let bytes run higher when
+    /// sizes differ; a side sending in a mode it took up from the peer also
+    /// caps each group's repair bytes, so an authenticated peer can ask this
+    /// side for up to 4x the bytes, no more.
+    pub fn agree(own: Self, peer: Self) -> Self {
+        let (own, peer) = (own.normalized(), peer.normalized());
+        let costly = peer.overhead_under_load() > f64::from(MAX_AGREED_OVERHEAD);
+        if costly || own.strength_cmp(peer).is_ge() { own } else { peer }
+    }
+
+    /// A total order on modes: bytes sent, then the code, then its numbers.
+    fn strength_cmp(self, other: Self) -> std::cmp::Ordering {
+        let key = |mode: Self| {
+            let (kind, a, b) = mode.wire();
+            let rank = match mode {
+                Self::Off => 0,
+                Self::Duplicate { .. } => 1,
+                Self::Fec { .. } => 2,
+                Self::Rs { .. } => 3,
+            };
+            (mode.overhead_under_load(), rank, kind, b, a)
+        };
+        let ((left, l1, l2, l3, l4), (right, r1, r2, r3, r4)) = (key(self), key(other));
+        left.total_cmp(&right).then((l1, l2, l3, l4).cmp(&(r1, r2, r3, r4)))
+    }
+
+    /// The mode as the hello carries it: a kind byte and two numbers.
+    pub(crate) fn wire(self) -> (u8, u8, u8) {
+        match self {
+            Self::Off => (0, 0, 0),
+            Self::Duplicate { copies } => (1, copies, 0),
+            Self::Fec { group, parity } => (2, group, parity),
+            Self::Rs { group, parity } => (3, group, parity),
+        }
+    }
+
+    /// The mode a hello carries, within limits; off for a kind this side does
+    /// not know.
+    pub(crate) fn from_wire(kind: u8, a: u8, b: u8) -> Self {
+        let mode = match kind {
+            1 => Self::Duplicate { copies: a },
+            2 => Self::Fec { group: a, parity: b },
+            3 => Self::Rs { group: a, parity: b },
+            _ => Self::Off,
+        };
+        mode.normalized()
+    }
+
     /// Parities for a group of `members`: in proportion to `parity / group`,
     /// at least one, so a small group pays no more than a full one would.
     fn parities_for(group: u8, parity: u8, members: usize) -> usize {
@@ -216,11 +309,13 @@ impl UltraMode {
         wanted.clamp(1, usize::from(parity).min(members.max(1)))
     }
 
-    /// Reed-Solomon parities for a group of `members`: like
-    /// [`Self::parities_for`], but not capped at the member count.
+    /// Reed-Solomon parities for a group of `members`: in proportion like
+    /// [`Self::parities_for`], not capped at the member count, and at least
+    /// two (when `parity` allows), so a pass's lone datagram survives any two
+    /// of its three datagrams being lost.
     fn rs_parities_for(group: u8, parity: u8, members: usize) -> usize {
         let wanted = (members * usize::from(parity)).div_ceil(usize::from(group).max(1));
-        wanted.clamp(1, usize::from(parity).max(1))
+        wanted.clamp(usize::from(parity).clamp(1, 2), usize::from(parity).max(1))
     }
 }
 
@@ -322,9 +417,19 @@ fn parity_datagrams(group: &Group, k: u8, m: u8) -> Vec<Vec<u8>> {
 
 /// The Reed-Solomon parity datagrams for one closed group: the XOR layout,
 /// version [`VERSION_RS`], bytes 6-7 the length code.
-fn rs_parity_datagrams(group: &Group, k: u8, m: u8) -> Vec<Vec<u8>> {
+///
+/// Each parity is as long as the group's longest datagram, so a group of one
+/// full datagram and small ones (a frame and keystrokes) would send several
+/// times its bytes in parity. `capped` (a mode taken up from the peer) keeps
+/// the group's datagrams and parity within [`MAX_AGREED_OVERHEAD`] times its
+/// data bytes by sending fewer parities, at least one. XOR parity needs no
+/// cap: each member is in one subgroup, so it is at most 2x the bytes.
+fn rs_parity_datagrams(group: &Group, k: u8, m: u8, capped: bool) -> Vec<Vec<u8>> {
     let members = group.ciphertexts.len();
-    let parities = UltraMode::rs_parities_for(k, m, members);
+    let mut parities = UltraMode::rs_parities_for(k, m, members);
+    if capped {
+        parities = parities.min(rs_parity_budget(&group.ciphertexts));
+    }
     (0..parities)
         .filter_map(|j| {
             let (code, body) = crate::ultra_rs::encode(j, &group.ciphertexts)?;
@@ -344,6 +449,17 @@ fn rs_parity_datagrams(group: &Group, k: u8, m: u8) -> Vec<Vec<u8>> {
             Some(out)
         })
         .collect()
+}
+
+/// The most Reed-Solomon parities a group of `ciphertexts` sends in a mode
+/// taken up from the peer: repair bytes at most `MAX_AGREED_OVERHEAD - 1`
+/// times the group's data bytes (whole datagrams, header and all), and at
+/// least one parity.
+fn rs_parity_budget(ciphertexts: &[Vec<u8>]) -> usize {
+    let data: usize = ciphertexts.iter().map(|ciphertext| WG_DATA_HEADER + ciphertext.len()).sum();
+    let parity = PARITY_HEADER + ciphertexts.iter().map(Vec::len).max().unwrap_or(0);
+    let repair = data * (MAX_AGREED_OVERHEAD as usize - 1);
+    (repair / parity.max(1)).max(1)
 }
 
 /// Which code a parity carries.
@@ -562,6 +678,9 @@ impl Kept {
 pub(crate) struct UltraUnderlay {
     inner: Box<dyn Underlay>,
     mode: UltraMode,
+    /// The mode this side was started with; a different `mode` was taken up
+    /// from the peer, and its repair bytes are capped.
+    configured: UltraMode,
     group: Option<Group>,
     received: Kept,
     /// Rebuild from parity: on when this side sends FEC or the peer does.
@@ -575,7 +694,10 @@ pub(crate) struct UltraUnderlay {
     /// The data datagram just handed to the tunnel: kept for rebuilding only
     /// once WireGuard authenticates it, so a forged one cannot move a
     /// session's counter epoch or fill the kept set.
-    staged: Option<([u8; 4], u64, Vec<u8>)>,
+    /// Staged whatever the mode, so a hello that turns rebuilding on can
+    /// still keep the datagram that carried it.
+    staged: Option<([u8; 4], u64)>,
+    staged_bytes: Vec<u8>,
     counters: Arc<UltraCounters>,
 }
 
@@ -590,12 +712,14 @@ impl UltraUnderlay {
             inner,
             decoding: matches!(mode, UltraMode::Fec { .. } | UltraMode::Rs { .. }),
             mode,
+            configured: mode,
             group: None,
             received: Kept::default(),
             pending: VecDeque::new(),
             trusted: Vec::new(),
             rebuilt: VecDeque::new(),
             staged: None,
+            staged_bytes: Vec::new(),
             counters,
         }
     }
@@ -683,7 +807,9 @@ impl UltraUnderlay {
         let Some(group) = self.group.take() else { return };
         let parities = match self.mode {
             UltraMode::Fec { group: k, parity: m } => parity_datagrams(&group, k, m),
-            UltraMode::Rs { group: k, parity: m } => rs_parity_datagrams(&group, k, m),
+            UltraMode::Rs { group: k, parity: m } => {
+                rs_parity_datagrams(&group, k, m, self.mode != self.configured)
+            }
             UltraMode::Off | UltraMode::Duplicate { .. } => return,
         };
         for parity in parities {
@@ -700,13 +826,25 @@ impl UltraUnderlay {
     /// Hold a data datagram handed to the tunnel until WireGuard says whether
     /// it is genuine (see [`Underlay::authenticated`]).
     fn stage(&mut self, datagram: &[u8]) {
-        if !self.decoding {
-            return;
-        }
         if let Some((index, counter)) = data_id(datagram) {
             let ciphertext = datagram.get(WG_DATA_HEADER..).unwrap_or_default();
-            self.staged = Some((index, counter, ciphertext.to_vec()));
+            self.staged_bytes.clear();
+            self.staged_bytes.extend_from_slice(ciphertext);
+            self.staged = Some((index, counter));
         }
+    }
+
+    /// Send in `mode` from now on: the mode the two sides agreed inside the
+    /// tunnel. A mode that sends parity also means the peer sends it, so
+    /// rebuilding starts now, before the peer's first parity arrives.
+    pub(crate) fn set_mode(&mut self, mode: UltraMode) {
+        let mode = mode.normalized();
+        if mode == self.mode {
+            return;
+        }
+        self.close_group();
+        self.mode = mode;
+        self.decoding |= matches!(mode, UltraMode::Fec { .. } | UltraMode::Rs { .. });
     }
 
     fn on_parity(&mut self, datagram: &[u8], origin: Origin) {
@@ -918,8 +1056,12 @@ impl Underlay for UltraUnderlay {
     /// The driver calls this right after handling the datagram `poll_recv`
     /// returned, when WireGuard authenticated it.
     fn authenticated(&mut self, origin: Origin) {
-        if let Some((index, counter, ciphertext)) = self.staged.take() {
+        if let Some((index, counter)) = self.staged.take()
+            && self.decoding
+        {
+            let ciphertext = std::mem::take(&mut self.staged_bytes);
             self.on_data(index, counter, &ciphertext);
+            self.staged_bytes = ciphertext;
         }
         if !self.trusts(origin) {
             if self.trusted.len() >= TRUSTED {
@@ -932,6 +1074,10 @@ impl Underlay for UltraUnderlay {
 
     fn has_peer(&self) -> bool {
         self.inner.has_peer()
+    }
+
+    fn take_path_change(&mut self) -> bool {
+        self.inner.take_path_change()
     }
 
     fn peer_hint(&self) -> Option<SocketAddr> {
@@ -949,6 +1095,29 @@ mod tests {
         out.extend_from_slice(&counter.to_le_bytes());
         out.extend((0..len).map(|i| fill.wrapping_add(i as u8)));
         out
+    }
+
+    #[test]
+    fn the_environment_overrides_the_setting() {
+        let on = Some(UltraMode::SETTING);
+        assert_eq!(UltraMode::resolve_with(None, None), UltraMode::Off);
+        assert_eq!(UltraMode::resolve_with(None, on), UltraMode::SETTING);
+        assert_eq!(UltraMode::resolve_with(Some(""), on), UltraMode::SETTING);
+        assert_eq!(UltraMode::resolve_with(Some("  "), None), UltraMode::Off);
+        assert_eq!(UltraMode::resolve_with(Some("off"), on), UltraMode::Off);
+        assert_eq!(UltraMode::resolve_with(Some("dup"), on), UltraMode::Duplicate { copies: 2 });
+        assert_eq!(
+            UltraMode::resolve_with(Some("fec:8:2"), None),
+            UltraMode::Fec { group: 8, parity: 2 }
+        );
+        assert_eq!(UltraMode::resolve_with(Some("bogus"), on), UltraMode::SETTING);
+        assert_eq!(UltraMode::resolve_with(Some("bogus"), None), UltraMode::Off);
+    }
+
+    #[test]
+    fn the_setting_is_rs_4_4() {
+        assert_eq!(UltraMode::parse("rs"), Some(UltraMode::SETTING));
+        assert_eq!(UltraMode::SETTING.normalized(), UltraMode::SETTING);
     }
 
     #[test]
@@ -1282,6 +1451,34 @@ mod tests {
         assert!(ultra.pending.is_empty());
     }
 
+    /// The hello that agrees on FEC arrives in the session's first data
+    /// datagram, while this side is still off. The driver sets the mode
+    /// before reporting that datagram authenticated, so it is kept and a loss
+    /// in the first group is rebuilt (no parity had arrived before).
+    #[test]
+    fn an_agreed_mode_rebuilds_the_first_group() {
+        let index = [6, 5, 4, 3];
+        let peer = origin(1);
+        let (sent, parity) = group_of(index, 0, 4);
+        let inbox: Vec<_> = [0, 1, 3].map(|i| (sent[i].clone(), peer)).to_vec();
+        let script = Script { inbox: inbox.into(), sent: Arc::default() };
+        let mut ultra = UltraUnderlay::new(Box::new(script), UltraMode::Off, Arc::default());
+        let mut cx = Context::from_waker(std::task::Waker::noop());
+        let mut buffer = vec![0u8; 4096];
+        let mut first = true;
+        while let Poll::Ready(Ok(received)) = ultra.poll_recv(&mut cx, &mut buffer) {
+            if first {
+                // The hello this datagram carried.
+                ultra.set_mode(UltraMode::Fec { group: 4, parity: 1 });
+                first = false;
+            }
+            ultra.authenticated(received.origin);
+        }
+        ultra.on_parity(&parity[0], peer);
+        let rebuilt = ultra.rebuilt.pop_front().map(|(datagram, _)| datagram);
+        assert_eq!(rebuilt, Some(sent[2].clone()), "the first group is rebuilt");
+    }
+
     #[test]
     fn modes_built_in_code_are_brought_within_limits() {
         assert_eq!(UltraMode::Duplicate { copies: 0 }.normalized(), UltraMode::Off);
@@ -1303,7 +1500,7 @@ mod tests {
 
     #[test]
     fn parses_reed_solomon_modes() {
-        assert_eq!(UltraMode::parse("rs"), Some(UltraMode::Rs { group: 8, parity: 4 }));
+        assert_eq!(UltraMode::parse("rs"), Some(UltraMode::Rs { group: 4, parity: 4 }));
         assert_eq!(UltraMode::parse("RS:16:8"), Some(UltraMode::Rs { group: 16, parity: 8 }));
         assert_eq!(UltraMode::parse("rs:2:3"), Some(UltraMode::Rs { group: 2, parity: 3 }));
         assert_eq!(UltraMode::parse("rs:8:16"), None);
@@ -1311,10 +1508,11 @@ mod tests {
         assert_eq!(UltraMode::parse("rs:8:0"), None);
         assert_eq!(UltraMode::Rs { group: 8, parity: 0 }.normalized(), UltraMode::Off);
         assert_eq!(UltraMode::Rs { group: 8, parity: 4 }.overhead_under_load(), 1.5);
-        assert_eq!(UltraMode::rs_parities_for(8, 4, 1), 1);
-        assert_eq!(UltraMode::rs_parities_for(8, 4, 3), 2);
+        assert_eq!(UltraMode::rs_parities_for(8, 4, 1), 2, "at least two");
+        assert_eq!(UltraMode::rs_parities_for(8, 4, 5), 3);
         assert_eq!(UltraMode::rs_parities_for(8, 4, 8), 4);
-        assert_eq!(UltraMode::rs_parities_for(2, 3, 1), 2, "not capped at the members");
+        assert_eq!(UltraMode::rs_parities_for(8, 1, 8), 1, "never more than M");
+        assert_eq!(UltraMode::rs_parities_for(1, 3, 1), 3, "not capped at the members");
     }
 
     fn rs_group(
@@ -1334,7 +1532,7 @@ mod tests {
             ciphertexts: sent.iter().map(|d| d[WG_DATA_HEADER..].to_vec()).collect(),
             priority: None,
         };
-        let parities = rs_parity_datagrams(&group, lengths.len() as u8, m);
+        let parities = rs_parity_datagrams(&group, lengths.len() as u8, m, false);
         (sent, parities)
     }
 
@@ -1440,6 +1638,52 @@ mod tests {
         assert_eq!(wire.lock().unwrap().len(), 1, "no parity goes out");
     }
 
+    /// Bytes a group of `lengths` (ciphertext bytes) costs in `mode`, sent by
+    /// a side started `configured`: (sent bytes / data bytes, parities).
+    fn group_cost(configured: UltraMode, mode: UltraMode, lengths: &[usize]) -> (f64, u64) {
+        let script = Script { inbox: VecDeque::new(), sent: Arc::default() };
+        let mut ultra = UltraUnderlay::new(Box::new(script), configured, Arc::default());
+        ultra.set_mode(mode);
+        for (i, len) in lengths.iter().enumerate() {
+            ultra.send(&data([2, 2, 2, 2], i as u64, *len, 0));
+        }
+        ultra.flush();
+        let stats = ultra.counters.snapshot();
+        let ratio = (stats.data_bytes + stats.overhead_bytes) as f64 / stats.data_bytes as f64;
+        (ratio, stats.parity_sent)
+    }
+
+    /// The 4x a peer can ask for counts bytes. Reed-Solomon parity is as
+    /// long as the group's longest datagram, so a full datagram among small
+    /// ones (the case from the review: `rs:5:15` with one 1232-byte member
+    /// and four of 80) sent 12.9x its bytes; taken up from the peer, it now
+    /// sends at most 4x, with fewer parities. The side's own mode is the
+    /// user's choice and is not capped, and groups of like sizes keep every
+    /// parity.
+    #[test]
+    fn a_mode_taken_up_from_the_peer_sends_at_most_four_times_the_bytes() {
+        let mixed = [1232 - WG_DATA_HEADER, 64, 64, 64, 64];
+        let costly = UltraMode::Rs { group: 5, parity: 15 };
+        let (own, parities) = group_cost(costly, costly, &mixed);
+        assert!(own > 12.0 && parities == 15, "own mode, uncapped: {own:.2}x, {parities}");
+        let (taken_up, parities) = group_cost(UltraMode::Off, costly, &mixed);
+        assert!(taken_up <= 4.0, "{taken_up:.2}x with {parities} parities");
+        assert!(parities >= 1);
+
+        let setting = UltraMode::Rs { group: 4, parity: 4 };
+        let shapes: [&[usize]; 5] =
+            [&[1216, 64, 64, 64], &[1216], &[64], &[1216, 1216, 1216, 1216], &[1216, 64]];
+        for lengths in shapes {
+            let (ratio, _) = group_cost(UltraMode::Off, setting, lengths);
+            assert!(ratio <= 4.0, "{lengths:?}: {ratio:.2}x");
+        }
+        let full = [1216; 4];
+        assert_eq!(group_cost(UltraMode::Off, setting, &full).1, 4, "like sizes keep all four");
+        assert_eq!(group_cost(UltraMode::Off, setting, &[64]).1, 2, "a lone datagram keeps two");
+        let (own, parities) = group_cost(setting, setting, &[1216, 64, 64, 64]);
+        assert!(own > 4.0 && parities == 4, "the setting at its own side: {own:.2}x");
+    }
+
     /// A Reed-Solomon sender sends its parities after each group, and an XOR
     /// receiver's parser and a Reed-Solomon one tell them apart.
     #[test]
@@ -1455,7 +1699,7 @@ mod tests {
         ultra.flush();
         let wire = wire.lock().unwrap();
         let parity: Vec<&Vec<u8>> = wire.iter().filter(|d| is_parity(d)).collect();
-        assert_eq!(parity.len(), 3, "2 for the full group, 1 for the lone datagram");
+        assert_eq!(parity.len(), 4, "2 for the full group, and 2 for the lone datagram");
         assert!(parity.iter().all(|p| p[1] == VERSION_RS && classify(p) == DatagramClass::Unknown));
         assert!(parity.iter().all(|p| parse_parity(p).unwrap().code == Code::ReedSolomon));
     }

@@ -12,6 +12,69 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### One pin for the RESIZE hold and the upstream picks (ghostty-next)
+
+- Release branch `release/cmux-538a3e2e-resize-p0-22` at `b3a5ebfdf`: a `--no-ff` merge of
+  `release/cmux-538a3e2e-upstream-picks` (`8379ecc8a`) into `release/cmux-538a3e2e-resize-p0-16` (`7a372c740`). Both
+  branch from `538a3e2ef` (#86); the merge had no conflicts (the picks touch `render.zig` `RowBuilder.scan` and
+  `ref_counted_set.zig`; the hold touches `Terminal.zig`, `Termio.zig`, `stream_handler.zig`, the renderer's host frame).
+  The pin is this branch until #86, #87, #88, the P0 16 fix and #90 merge to fork `main`.
+
+### A clear does not draw the grid (ghostty-next)
+
+- Release branch `release/cmux-538a3e2e-resize-p0-16` at `7a372c740` (red test `b3cd3811c`, on `8e881185b`); the pin is
+  that branch until it and #86, #87 and #88 merge to fork `main`.
+- What: a full clear (ED 2, ED 0 from home) outside a synchronized update begins a picture and reaches only the last
+  column. The picture reaches the last row when the program prints on it or moves there, or at a read's end when the
+  grid's last two rows have text (`Terminal.programDrewBottomRows`). Other erases to the end reach both edges as before.
+  ncurses programs (htop) write their repaint after the clear in several reads; the first read's end no longer marks
+  the grid drawn.
+- Conflict notes: `src/terminal/Terminal.zig` (`eraseDisplay`, `programOutputEnd`, `ProgramRedraw.cleared`).
+
+### READY_PROGRAM means the program redrew the whole new grid (ghostty-next)
+
+- Fork PR #88 (`resize-p0-13-ready`, head `8e881185b`, stacked on #87 `2db2ea423`); the pin is the release branch
+  `release/cmux-538a3e2e-resize-p0-13` at `8e881185b` until #86, #87 and #88 merge to fork `main`.
+- What: `Terminal.program_redraw` replaces `output_since_grid_change`. A picture begins at BSU (mode 2026), a CUP home
+  (outside a synchronized update: when no picture is open, it went past the grid, or it scrolled), a full clear, or a
+  line feed with no picture open (a scrolled picture). It is whole at ESU, or at the end of a PTY read outside a
+  synchronized update, when it reached the last row and the last column (an erase to the end counts) and did not go
+  past the grid (a CUP past the grid, a print past the last column, or a line feed that scrolls the whole screen).
+  `drew_grid` then stamps `Target.program_fresh`, so `hostFrame(false)` returns `.ready_program` only for that frame.
+- Conflict notes: `src/terminal/Terminal.zig` (`program_redraw`, `programIndex` from `index()`), `src/termio/Termio.zig`
+  (end of read), `src/termio/stream_handler.zig` (BSU/ESU), `src/renderer/generic.zig`, `src/renderer/metal/Target.zig`.
+
+### Host frames say whether the program drew at their grid (ghostty-next)
+
+- Fork PR #87 (`resize-p0-12-hold`, head `2db2ea423`, stacked on #86 `538a3e2ef`); the pin is the release branch
+  `release/cmux-538a3e2e-resize-p0-12` at `2db2ea423` until #86 and #87 merge to fork `main`.
+- What: `Terminal.output_since_grid_change` (cleared by `Terminal.resize` when the grid changes, set by
+  `Termio.processOutputLocked` on parsed output); `generic.zig` stamps `Target.program_fresh` for cells built from the
+  live terminal at the frame's size after that output; `Metal.zig` `hostFrame(false)` returns `.ready_program` (C
+  `GHOSTTY_HOST_FRAME_READY_PROGRAM = 7`) for such a kept frame and `.ready` for a frame of the size only. While the
+  embedder presents host sizes, a program-fresh frame also goes through the main queue, so the embedder's pre-commit
+  observer presents it in that refresh. cmux uses it for the resize hold (`TerminalFramePresenter`, RESIZE P0 12).
+- Conflict notes: touches `src/renderer/Metal.zig` next to #86's `hostFrameWaits`, `src/apprt/structs.zig` `HostFrame`
+  and `include/ghostty.h` `ghostty_host_frame_e`.
+
+### Upstream terminal performance picks: style-run scan and RefCountedSet dead-ID reuse (ghostty-next)
+
+- Fork PR #90 (`lane/upstream-refcount-rowscan`, on `1740c4452`): `cherry-pick -m 1 -x` of upstream ghostty-org/ghostty
+  #15111 (merge `171a4e044`, with its regression fix `d1ce0c465`) and #15121 (merge `b5d9c93da`). The pin is the release
+  branch `release/cmux-538a3e2e-upstream-picks` at `8379ecc8a`: the same two picks on `538a3e2ef` (fork PR #86), so
+  #86 stays in the pin until both merge to fork `main`.
+- What: `src/terminal/render.zig` `RowBuilder.scan` finds a row's style runs in one pass; `src/terminal/ref_counted_set.zig`
+  `add` reuses a dead item's ID in place once every ID was handed out, instead of returning `NeedsRehash` (which made
+  every caller clone the whole page). Bench-only: `ghostty-bench +terminal-stream --scrollback-max-bytes` and a
+  `ghostty-gen +hyperlink` generator.
+- Why: Leo's dependency fork trawl (2026-11-07). `ghostty-bench`, 10 interleaved runs per binary, median ms:
+  terminal-stream 120x80 links 122.5 -> 81.8 (1.50x), styled-heavy 80.8 -> 49.9 (1.62x); screen-clone styled-heavy
+  render-locked 191.1 -> 147.6 (1.30x) at 120x80 and 135.9 -> 106.2 (1.28x) at 160x50. No row slower beyond noise.
+- Review: fork PR #90 got a different-family SHIP at `8352952d0` and merged to fork `main` as `e23cc1c36`. The release
+  branch commits are the same patches (`git patch-id --stable`: #15111 `e175f06dacd8` on `5083bc441` and `77fe41a73`,
+  #15121 `5557340f3480` on `8352952d0` and `8379ecc8a`), and `git diff 8352952d0 8379ecc8a` is exactly #86's diff.
+- Conflict notes: none; the next upstream sync brings both, so drop these picks then.
+
 ### An update draws at once while a host size's frame waits for the embedder's present (ghostty-next)
 
 - Fork PR #86 (`fix/renderer-draws-now-for-a-waiting-host-frame`, head `538a3e2ef`, on `1740c4452`); the pin is the fix

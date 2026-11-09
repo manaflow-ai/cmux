@@ -256,12 +256,19 @@
   min-height: 0;
 }
 
+/* The side's track is the placement's default until its edge is dragged (SplitEdge sets
+   --chief-views-side-width here, saved per placement); it reads invalid while that is unset, and the
+   pane keeps 320px. */
+.cv-layout {
+  --cv-side-track: clamp(200px, var(--chief-views-side-width), 100% - 320px);
+}
+
 .cv-layout[data-side="split"] {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) var(--cv-side-track, minmax(0, 1fr));
 }
 
 .cv-layout[data-side="sidebar"] {
-  grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
+  grid-template-columns: minmax(0, 1fr) var(--cv-side-track, minmax(240px, 300px));
 }
 
 @container (max-width: 720px) {
@@ -282,6 +289,7 @@
 }
 
 .cv-side {
+  position: relative;
   padding-inline-start: var(--ds-space-4);
   border-inline-start: 0.5px solid var(--page-separator);
 }
@@ -292,6 +300,17 @@
     padding-block-start: var(--ds-space-3);
     border-inline-start: 0;
     border-block-start: 0.5px solid var(--page-separator);
+  }
+
+  /* Stacked under the pane: nothing to drag. */
+  .cv-side > .ui-split-edge {
+    display: none;
+  }
+}
+
+@container (max-width: 720px) {
+  .cv-side > .ui-split-edge {
+    display: none;
   }
 }
 

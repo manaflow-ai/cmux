@@ -335,7 +335,7 @@ pub fn named_sender(name: &str, to: &str) -> Value {
 /// ([`of`] keeps only its listed fields), and the person's prompt carries none (see [`ORIGIN`]).
 pub const VERIFIED: &str = "verified";
 /// How the prompt reached this daemon, as the daemon saw it: `unix` (the socket, any local
-/// process of the user), `app` (the app's own connection), `web`, `peer`, `trigger`.
+/// process of the user), `app` (the app's own connection), `web`, `peer`, `carrier`, `trigger`.
 pub const TRANSPORT: &str = "transport";
 /// Labels a sender gave about itself that prove nothing (`cliHost`, `fromHarness`): kept apart
 /// from who the daemon knows sent it.

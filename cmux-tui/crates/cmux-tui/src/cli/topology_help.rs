@@ -3,7 +3,7 @@
 
 pub(super) const WORKSPACE_HELP: &str = "\
 USAGE
-  cmux workspace list [--order session|personal]
+  cmux workspace list [--order session|personal] [--name <name>] [--cwd <path>]
   cmux --machine <cloud machine> workspace list
   cmux workspace create [--name <value>] [--empty] [--ephemeral] [--focus] [--top] [--correlation-key <value>]
     [--expected-revision <revision>] [--cwd <path>] [--shell <script> | -- <argv...>]
@@ -77,7 +77,12 @@ personal: they live in this Mac's home session. --remote makes a remote
 group: it connects <host> (an ~/.ssh/config alias, a Tailscale name or
 user@host) and its new workspaces run there. --parent makes a group inside
 <group>. A group or room is named by
-its id or exact name. list --order session gives the session's workspace
+its id or exact name. list --name <name> keeps the workspaces named exactly
+<name>; list --cwd <path> keeps those with a terminal in <path> or a folder
+inside it (relative to the current folder; links resolved too). Both together
+keep rows that match both; no match is an empty list and exit 0, so
+`list --name api --json` finds every workspace a `name:api` selector calls
+ambiguous. list --order session gives the session's workspace
 order: creation order unless a workspace was moved. list --order personal
 gives the cmux app's sidebar order: loose workspaces, and each group's
 workspaces where the group shows. Without --order, list gives the sidebar
@@ -97,8 +102,10 @@ svg:sha256-<hex> asset); --clear-icon removes it. --pinned true
 saves a group so it stays when its workspaces close; false unpins it.
 
 SELECTORS
-  <selector> is an id (ws_…, pane_…, tab_…, term_…), caller, current, or an
-  exact name. Prefix name: to a name that looks like an id or a command word.
+  <selector> is an id (ws_…, pane_…, tab_…, term_…), a unique id prefix
+  (pane_3f0a, 4 hex digits or more), the bare 32 hex digits (for a terminal also the host
+  terminal_id that run prints, or a tab or pane id), caller, current, focused
+  (the object the person looks at), or an exact name. Prefix name: to a name that looks like an id or a command word.
   caller is the object this command runs in: the cmux terminal or agent chat
   it was started from (`cmux identify` reports it). current is that same
   object when cmux knows the caller, and the focused one otherwise (a shell
@@ -108,7 +115,7 @@ SELECTORS
 
 pub(super) const PANE_HELP: &str = "\
 USAGE
-  cmux pane list [--workspace <selector>] [--screen <selector>]
+  cmux pane list [--workspace <selector>] [--screen <selector>] [--name <name>] [--cwd <path>]
   cmux pane create [--cwd <path>] [--correlation-key <value>]
     [--shell <script> | -- <argv...>]
   cmux pane <selector> show|focus|close
@@ -125,12 +132,15 @@ USAGE
   cmux pane <selector> split ratio set --split <id> --ratio <value>
   cmux pane <selector> viewport width set --columns <value>
   cmux pane <selector> run [--on-exit <close|keep|shell>] [--correlation-key <value>] -- <argv...>
-  cmux pane <selector> move --to-pane <selector> [--split right|down|left|up] [--focus]
-  cmux pane <selector> move --to-tab <selector> [--focus]
+  cmux pane <selector> move --to-pane <selector> [--split right|down|left|up] [--index <n>] [--focus]
+  cmux pane <selector> move --to-tab <selector> [--index <n>] [--focus]
+    (with --to-pane or --to-tab: [--to-workspace <selector>] [--to-screen <selector>])
   cmux pane <selector> move --to-workspace <selector> [--name <value>] [--focus]
   cmux pane <selector> move --new-screen|--new-tab [--name <value>] [--focus]
   cmux pane <selector> tab ...
 
+list --name <name> keeps the panes named exactly <name>; list --cwd <path>
+keeps those with a terminal in <path> or a folder inside it.
 split keeps the focus where it is unless --focus is given. With --shell or
 -- argv the new pane (of split or create) runs that command instead of a
 shell. To add a terminal
@@ -138,17 +148,24 @@ to a pane that already exists, use `cmux tab create terminal --pane <selector>`
 instead of splitting again.
 
 move moves the whole pane, all its tabs in order (tmux join-pane and
-break-pane): --to-pane puts them at the end of that pane, or with --split
-into a new pane split off it; --to-tab puts them after that tab in its pane;
---to-workspace into a new screen in that workspace; --new-screen (--new-tab is
-the same) into a new screen in the pane's own workspace. The emptied pane
-closes. The focus stays where it is unless --focus is given (when the moved
-pane had the focus, the focus goes with it). --json prints pane, moved_tabs,
-destination {workspace, screen, pane, index}, created and focused_pane.
+break-pane), in one change: a retry with the same --idempotency-key does not
+move it twice. With --to-pane and --split it goes beside that pane, with
+--to-workspace into a new screen in that workspace, with --new-screen
+(--new-tab is the same) into a new screen in its own workspace: the pane keeps
+its id. --to-pane without --split puts the tabs at the end of that pane (or at
+--index), --to-tab after that tab: the tabs keep their ids and the moved pane
+closes. With --to-pane or --to-tab, --to-workspace and --to-screen name that
+pane's or tab's workspace and screen (for a name in another one). The focus
+stays where it is unless --focus is given (when the moved
+pane had the focus, the focus goes with it). --json prints pane_id (where the
+tabs are now), moved_pane_id, pane_kept, workspace_id, screen_id, tab_ids,
+index, and created_screen_id, closed_screen_id and focused_pane_id.
 
 SELECTORS
-  <selector> is an id (ws_…, pane_…, tab_…, term_…), caller, current, or an
-  exact name. An agent name (cmux agent start NAME) or a tab name that is
+  <selector> is an id (ws_…, pane_…, tab_…, term_…), a unique id prefix
+  (pane_3f0a, 4 hex digits or more), the bare 32 hex digits (for a terminal also the host
+  terminal_id that run prints, or a tab or pane id), caller, current, focused
+  (the object the person looks at), or an exact name. An agent name (cmux agent start NAME) or a tab name that is
   unique in the session selects that tab's terminal, tab or pane. Prefix
   name: to a name that looks like an id or a command word.
   caller is the object this command runs in: the cmux terminal or agent chat
@@ -202,8 +219,10 @@ pink, purple, cyan, orange, a custom #RRGGBB, or none. A group icon is one emoji
 image:sha256-<hex> or svg:sha256-<hex> asset; --clear-icon removes it.
 
 SELECTORS
-  <selector> is an id (ws_…, pane_…, tab_…, term_…), caller, current, or an
-  exact name. An agent name (cmux agent start NAME) or a tab name that is
+  <selector> is an id (ws_…, pane_…, tab_…, term_…), a unique id prefix
+  (pane_3f0a, 4 hex digits or more), the bare 32 hex digits (for a terminal also the host
+  terminal_id that run prints, or a tab or pane id), caller, current, focused
+  (the object the person looks at), or an exact name. An agent name (cmux agent start NAME) or a tab name that is
   unique in the session selects that tab's terminal, tab or pane. Prefix
   name: to a name that looks like an id or a command word.
   caller is the object this command runs in: the cmux terminal or agent chat
@@ -216,7 +235,7 @@ SELECTORS
 pub(super) const TERMINAL_HELP: &str = "\
 USAGE
   cmux terminal list [--workspace <selector>] [--screen <selector>] [--pane <selector>]
-    [--tab <selector>]
+    [--tab <selector>] [--cwd <path>]
   cmux terminal list --agents
   cmux terminal <selector> show
   cmux terminal <selector> status
@@ -244,7 +263,9 @@ USAGE
   cmux terminal <selector> resume [--cmd <launcher>] [--pane <selector>]
     [--split right|down|left|up] [--cwd <dir>] [--no-focus] [--no-wait]
   cmux terminal <term_id> keep on|off
+  cmux terminal <term_id>|current pin-tail on|off
 
+list --cwd <path> keeps the terminals in <path> or a folder inside it.
 screen read prints the screen's text; --details (or --json) gives the whole
 record. screen read --unwrap joins rows the terminal soft-wrapped into the
 lines the program printed; --lines <n> reads the last n lines of scrollback and
@@ -255,6 +276,9 @@ cursor's line after the call, never a typed command's echo or older output. keep
 when it has no tab; keep off lets it end after the reap grace period.
 status prints the program status records (OSC 7501) the terminal's
 programs reported: state, progress, kind, app, title and msg per record id.
+STATE is the word list --agents shows (a finished turn somebody viewed is
+idle, one nobody viewed done); --json keeps the program's own word as state
+and adds that word as status.
 wait --until prompt returns when the shell shows its prompt; --until idle
 when no command runs and no program reports work. Both need OSC 133 shell
 integration to see commands, and print the terminal record; a passed
@@ -265,8 +289,8 @@ list --agents lists the terminals that run a coding agent (Claude Code,
 Codex, or a program reporting OSC 7501 status): name, harness, state
 (blocked, done, working, idle, unknown, ended), age, workspace and title.
 done is a finished turn nobody has viewed yet; viewing the tab makes it idle.
-The JSON rows carry that word as status and the older word (busy, idle,
-waiting-for-input, ended) as state, and add the tab, the pane and the
+The JSON rows carry that word as status (state is a deprecated alias with
+the same word), and add the agent's name, the tab, the pane and the
 agent's last reply.
 resume starts an agent that exited again with its recorded harness session
 (claude --resume <id>, codex resume <id>), in the same pane by default, and
@@ -295,8 +319,10 @@ line: ^ and $ match at the start and end of each line, as in grep, so
 pattern with (?-m) to match the whole text instead.
 
 SELECTORS
-  <selector> is an id (ws_…, pane_…, tab_…, term_…), caller, current, or an
-  exact name. An agent name (cmux agent start NAME) or a tab name that is
+  <selector> is an id (ws_…, pane_…, tab_…, term_…), a unique id prefix
+  (pane_3f0a, 4 hex digits or more), the bare 32 hex digits (for a terminal also the host
+  terminal_id that run prints, or a tab or pane id), caller, current, focused
+  (the object the person looks at), or an exact name. An agent name (cmux agent start NAME) or a tab name that is
   unique in the session selects that tab's terminal, tab or pane. Prefix
   name: to a name that looks like an id or a command word.
   caller is the object this command runs in: the cmux terminal or agent chat

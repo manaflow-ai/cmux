@@ -1,8 +1,9 @@
 // l10n-allow-file: test fixture commands and messages, not shipped UI.
-// A received agent message that the agent reads mid-turn folds the run above it into a message run
+// A received agent message that the agent reads mid-turn joins the run above it in a message run
 // line, and that line stays the run's row on screen: no unmount, no new frame, no entrance (Leo,
 // 2026-11-07: "I just saw that the tool call of this thing that got sent in, that came in, flickered
-// a bit").
+// a bit"). While the turn runs nothing folds (cmux#38339): the run and the message keep their rows
+// until the turn ends, which folds them under the line.
 //
 // Before: the line was a new row keyed `messageRun-<run id>`, so the run's frame unmounted and a new
 // one mounted and played the live entrance. After: the line is drawn in its first row's frame
@@ -92,9 +93,14 @@ const message = (steer?: "waiting") =>
   });
 const live = (expanded: Set<string>, steer?: "waiting") =>
   turnView([prompt, calls, message(steer)], expanded, { agentFamily: "claude", working: true });
+const reply = row("assistant", { id: "reply", text: "Done looking around." });
+const summary = row("turnSummary", { id: "summary", status: "completed", durationMs: 5_000 });
+/// The turn ended: the run and the message it read fold under one line.
+const ended = (expanded: Set<string>) =>
+  turnView([prompt, calls, message(), reply, summary], expanded, { agentFamily: "claude" });
 
 for (const fold of [undefined, "runs"] as const)
-  test(`the run's line keeps its frame when the agent reads a steered message (claude-turn-fold ${fold ?? "default"})`, async () => {
+  test(`the run's line keeps its frame when the turn's end folds a steered message the agent read (claude-turn-fold ${fold ?? "default"})`, async () => {
     globalThis.cmuxExperiments = fold ? { "claude-turn-fold": fold } : undefined;
     const host = dom.window.document.createElement("div");
     dom.window.document.body.append(host);
@@ -126,11 +132,20 @@ for (const fold of [undefined, "runs"] as const)
         for (const record of records) removed.push(...record.removedNodes);
       });
       watch.observe(before!.parentElement!, { childList: true });
-      // The agent reads it: the run and the message fold under one line.
+      // The agent reads it: the turn still runs, so the run and the message keep their own rows.
       const read = live(expanded);
-      const line = read.find((item) => item.kind === "messageRun")!;
-      expect(line.id).toBe("messageRun-activity-1");
+      expect(read.some((item) => item.kind === "messageRun")).toBe(false);
       await render(read);
+      expect(host.querySelector('[data-row-id="activity-1"]') === before).toBe(true);
+      // The turn ends: the run and the message fold under one line. Under the default fold the line
+      // is in the turn's "Worked for", held open as the turn's end holds the work in view
+      // (turnEndHold.ts); the per-run fold draws it in the turn.
+      const work = fold ? [] : ["worked-prompt"];
+      expanded = new Set(work);
+      const done = ended(expanded);
+      const line = done.find((item) => item.kind === "messageRun")!;
+      expect(line.id).toBe("messageRun-activity-1");
+      await render(done);
       watch.takeRecords().forEach((record) => removed.push(...record.removedNodes));
       watch.disconnect();
       const after = host.querySelector<HTMLElement>("[data-message-run]")?.closest("article");
@@ -144,8 +159,8 @@ for (const fold of [undefined, "runs"] as const)
 
       // Opening the line draws its rows under it, keeps the line's own frame, and the open run's
       // first row (the run's own id) draws in a frame of its own.
-      expanded = new Set([line.id]);
-      await render(live(expanded));
+      expanded = new Set([...work, line.id]);
+      await render(ended(expanded));
       const open = host.querySelector<HTMLElement>("[data-message-run]")?.closest("article");
       expect(open === before).toBe(true);
       expect(open!.querySelector("[data-message-run]")?.getAttribute("aria-expanded")).toBe("true");
@@ -153,8 +168,8 @@ for (const fold of [undefined, "runs"] as const)
       expect(member).toBeTruthy();
       expect(member === before).toBe(false);
       // Closed again, the line is still that frame.
-      expanded = new Set();
-      await render(live(expanded));
+      expanded = new Set(work);
+      await render(ended(expanded));
       expect(host.querySelector<HTMLElement>("[data-message-run]")?.closest("article") === before).toBe(true);
     } finally {
       await act(async () => root.unmount());

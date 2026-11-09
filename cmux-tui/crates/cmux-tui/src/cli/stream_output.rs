@@ -31,21 +31,36 @@ pub(super) fn refuse_json(output: OutputMode) -> Option<i32> {
     Some(super::wire::print_local_error(&error, output, 2))
 }
 
-/// `cmux ARGS` with `--json` as `--jsonl`, one POSIX shell word each. A
-/// `--json` after `--` is an argument, not the output switch.
+/// `cmux ARGS` with the output switch `--json` as `--jsonl`, one POSIX shell
+/// word each. Only the switch the global parser reads changes: a `--json`
+/// after `--`, or one that is an option's value (`--regex --json`), is the
+/// caller's argument and stays as typed (the same arity as `scan_globals`).
 fn jsonl_command(args: &[String]) -> String {
     let mut words = vec!["cmux".to_owned()];
+    let mut command: Vec<String> = Vec::new();
     let mut switched = false;
-    let mut options = true;
-    for arg in args {
-        if options && arg == "--" {
-            options = false;
+    let mut index = 0;
+    while let Some(arg) = args.get(index) {
+        index += 1;
+        if arg == "--" {
+            words.push(shell_word(arg));
+            words.extend(args.get(index..).unwrap_or_default().iter().map(|word| shell_word(word)));
+            break;
         }
-        if options && arg == "--json" {
+        if arg == "--json" && !switched {
             words.push("--jsonl".to_owned());
             switched = true;
-        } else {
-            words.push(shell_word(arg));
+            continue;
+        }
+        words.push(shell_word(arg));
+        command.push(arg.clone());
+        if super::option_takes_value(arg)
+            && !super::own_switch(&command, arg)
+            && let Some(value) = args.get(index)
+        {
+            words.push(shell_word(value));
+            command.push(value.clone());
+            index += 1;
         }
     }
     if !switched {
@@ -95,6 +110,36 @@ mod tests {
         assert_eq!(
             jsonl_command(&words(&["--json", "terminal", "attach", "--", "it's", "--json"])),
             "cmux --jsonl terminal attach -- 'it'\\''s' --json"
+        );
+    }
+
+    /// A `--json` that is an option's value is the caller's filter, not the
+    /// output switch (review finding F1 on #38766).
+    #[test]
+    fn an_option_value_of_json_is_kept() {
+        assert_eq!(
+            jsonl_command(&words(&[
+                "--json",
+                "session",
+                "current",
+                "journal",
+                "subscribe",
+                "--regex",
+                "--json",
+            ])),
+            "cmux --jsonl session current journal subscribe --regex --json"
+        );
+        assert_eq!(
+            jsonl_command(&words(&[
+                "session",
+                "current",
+                "journal",
+                "subscribe",
+                "--regex",
+                "--json",
+                "--json",
+            ])),
+            "cmux session current journal subscribe --regex --json --jsonl"
         );
     }
 

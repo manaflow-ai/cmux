@@ -12,16 +12,16 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.density", "Density"),
-                help: SettingsText.keyed("settings.appearance.density.help", "Row height, padding, corners, icons and text size together. Compact is the default."),
+                help: SettingsText.keyed("settings.appearance.density.help", "Row height, padding, corners, icons and text size together."),
                 kind: .choice([
                     SettingChoice(DensityPreset.ultraCompact.rawValue, SettingsText.keyed("settings.choice.ultraCompact", "Ultra-compact")),
                     SettingChoice(DensityPreset.compact.rawValue, SettingsText.keyed("settings.choice.compact", "Compact")),
-                    SettingChoice(DensityPreset.cozy.rawValue, SettingsText.keyed("settings.choice.cozy", "Cozy")),
+                    SettingChoice(DensityPreset.cozy.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
                     SettingChoice(DensityPreset.comfortable.rawValue, SettingsText.keyed("settings.choice.comfortable", "Comfortable")),
                     SettingChoice(DensityPreset.spacious.rawValue, SettingsText.keyed("settings.choice.spacious", "Spacious")),
                 ]),
                 default: .string(DensitySetting.fallback.rawValue),
-                keywords: ["size", "spacing", "compact", "comfortable", "cozy", "spacious", "dense", "font"]
+                keywords: ["size", "spacing", "compact", "comfortable", "cozy", "default", "normal", "spacious", "dense", "font"]
             ),
             SettingDescriptor(
                 CustomDensitySelectionSetting.configPath,
@@ -45,21 +45,22 @@ extension AppearanceSettingsSchema {
                 UIScaleSetting.configPath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.appearance.uiScale", "Interface Scale"),
+                title: SettingsText.keyed("settings.appearance.uiScale", "App Zoom"),
+                help: SettingsText.keyed("settings.appearance.uiScale.help", "Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app."),
                 kind: .number(SettingNumber(UIScaleSetting.range, step: 0.05, unit: .fraction, placeholder: UIScaleSetting.placeholder)),
                 default: .number(UIScaleSetting.fallback),
-                keywords: ["scale", "zoom", "size", "chrome", "web", "bigger", "smaller"]
+                keywords: ["scale", "zoom", "size", "chrome", "web", "bigger", "smaller", "interface scale"]
             ),
             SettingDescriptor(
                 InterfaceSizeSetting.configPath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.appearance.interfaceSize", "Interface Size"),
-                help: SettingsText.keyed("settings.appearance.interfaceSize.help", "Text size of tabs, the sidebar and other controls. Terminal text has its own size."),
+                title: SettingsText.keyed("settings.appearance.textSize", "Text Size"),
+                help: SettingsText.keyed("settings.appearance.textSize.help", "Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size."),
                 kind: .number(SettingNumber(InterfaceSizeSetting.range, step: 1, unit: .points, placeholder: InterfaceSizeSetting.placeholder)),
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["font", "text", "size", "chromeFontSize"]
+                keywords: ["font", "text", "size", "density", "interface size", "chromeFontSize"]
             ),
             SettingDescriptor(
                 InterfaceScaleSetting.configPath,

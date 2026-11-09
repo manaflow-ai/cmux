@@ -10,6 +10,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 @testable import CmuxNextSettings
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -658,7 +659,7 @@ struct CloudMoveTests {
         _ = NSApplication.shared
         // The app's own defaults, as the app keeps them, for this run only.
         let suite = "cn-move-\(UUID().uuidString.prefix(8).lowercased())"
-        let ledger = try #require(UserDefaults(suiteName: suite))
+        let ledger = try #require(UserDefaults(testSuiteName: suite))
         defer { ledger.removePersistentDomain(forName: suite) }
         let vmSocket = try await vm.endpointProvider().socketPath
         func app() async throws -> (AppServices, CloudMachineSession) {

@@ -1,15 +1,17 @@
 //! A machine's exec and file routes. A Worker machine's go through `cmux cloud machine-io`'s
 //! logic ([`crate::machine_io`]: straight to the provider with a client session when
 //! it can, else the cmux API's `/v1/cloud/machines/{id}/...`); classic's are `/api/vm/{id}/exec` and
-//! `/api/vm/{id}/fs/...`, as they were. Either answer reads the same way.
+//! `/api/vm/{id}/fs/...`, as they were. Either answer reads the same way. A machine's SCP route
+//! ([`scp_endpoint`]) is always cmux-platform's.
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use cmux_json::JsonSet as _;
 use reqwest::Method;
 use serde_json::{Map, Value, json};
 
-use super::http::{Http, vm_error};
+use super::http::{Auth, Body, Http, path_text, vm_error};
+use super::owner::is_machine_id;
 use super::{Failure, Request, optional_int, text};
 use crate::machine_io;
 use crate::session::secure_origin;
@@ -192,4 +194,64 @@ pub(crate) async fn classic(http: &Http, args: &Map<String, Value>) -> Result<Va
         }
         other => Err(Failure::Transport(format!("no machine op {other:?}"))),
     }
+}
+
+/// `vm.scp_endpoint`: cmux-platform's `POST /v1/cloud/machines/{id}/ssh-endpoint` with the
+/// caller's `publicKey` (the app's `prepareSCP`), answered only when the route is safe
+/// ([`safe_scp_endpoint`]). Classic's `/api/vm/{id}/scp-endpoint` is never called: a `stack`
+/// call is refused before any request.
+pub(crate) async fn scp_endpoint(http: &Http, args: &Map<String, Value>) -> Result<Value, Failure> {
+    if http.auth == Auth::Stack {
+        return Err(Failure::Transport(
+            "an SCP route comes from cmux-platform: send the call with auth worker".into(),
+        ));
+    }
+    let id = text(args, "id")?;
+    // The id is the only path part that varies, so nothing else ever lands in the URL.
+    if !is_machine_id(id) {
+        return Err(Failure::Transport("not a Cloud machine id".into()));
+    }
+    let body = json!({ "publicKey": text(args, "publicKey")? });
+    let segments = ["v1", "cloud", "machines", id, "ssh-endpoint"];
+    let path = path_text(&segments);
+    let reply = http
+        .send(
+            Method::POST,
+            http.url(&segments, &[]),
+            Some(Body::Json(body)),
+            None,
+            Duration::from_secs(100),
+            &path,
+        )
+        .await?;
+    if !reply.ok() {
+        return Err(vm_error(reply.status, &reply.body, reply.header_code.as_deref()));
+    }
+    let endpoint =
+        reply.json().ok_or_else(|| Failure::Decoding(format!("{path}: the answer is not JSON")))?;
+    if safe_scp_endpoint(&endpoint, now_secs()) {
+        Ok(endpoint)
+    } else {
+        Err(Failure::Decoding(format!("{path} returned an unsafe endpoint")))
+    }
+}
+
+/// A private SCP route the app may hand to `scp`: port 22, user `cmux`, an ed25519 host key,
+/// and not expired.
+pub(crate) fn safe_scp_endpoint(endpoint: &Value, now: i64) -> bool {
+    let either = |a: &str, b: &str| endpoint.get(a).or_else(|| endpoint.get(b));
+    endpoint.get("port").and_then(Value::as_i64) == Some(22)
+        && endpoint.get("username").and_then(Value::as_str) == Some("cmux")
+        && either("hostPublicKey", "host_public_key")
+            .and_then(Value::as_str)
+            .is_some_and(|k| k.starts_with("ssh-ed25519 "))
+        && either("expiresAtUnix", "expires_at_unix")
+            .and_then(Value::as_i64)
+            .is_some_and(|t| t > now)
+}
+
+fn now_secs() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
 }

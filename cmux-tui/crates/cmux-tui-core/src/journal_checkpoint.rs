@@ -1419,6 +1419,76 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    /// Two sealers in one owner, the maintenance worker and a seal a client
+    /// or the registry generator asks for, take turns: a seal waits for the
+    /// one in progress and then plans the next segment from the boundary it
+    /// left. They used to interleave: each commit found the boundary the other
+    /// had moved, and a caller that lost four times in a row failed with
+    /// "journal segment boundary changed repeatedly during sealing" (the
+    /// 10 GB registry generator, 2026-11-09).
+    #[test]
+    fn a_seal_waits_for_the_seal_in_progress_instead_of_racing_it() {
+        use crate::workspace_registry::session_journal::kind_read_tests::TestJournalRecord;
+        // Two segments' worth (a segment holds at most 1,024 records).
+        const RECORDS: usize = 2_048;
+        let root = std::env::temp_dir()
+            .join(format!("cmux-journal-seal-turns-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux =
+            Mux::open_persistent("journal-seal-turns", crate::SurfaceOptions::default(), &root)
+                .unwrap();
+        mux.stop_journal_maintenance();
+        let records = (0..RECORDS)
+            .map(|index| TestJournalRecord {
+                kind: "personal.session.put".into(),
+                producer: JournalProducer { kind: "presentation".into(), id: "cmux-tui".into() },
+                subjects: vec![],
+                payload: json!({"index": index}),
+            })
+            .collect::<Vec<_>>();
+        mux.workspace_registry.lock().unwrap().append_journal_records_for_test(&records);
+        let through = mux
+            .create_journal_checkpoint("client_test", "seal_turns_checkpoint")
+            .unwrap()
+            .checkpoint
+            .source_sequence;
+
+        let (prepare_entered_tx, prepare_entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_prepare_tx, release_prepare_rx) = std::sync::mpsc::sync_channel(1);
+        mux.set_journal_segment_prepare_hook_for_test(move || {
+            prepare_entered_tx.send(()).unwrap();
+            release_prepare_rx.recv().unwrap();
+        });
+        let first_mux = mux.clone();
+        let first = std::thread::spawn(move || {
+            first_mux.seal_journal_segments(through, "client_test", "seal_turns_first")
+        });
+        prepare_entered_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+
+        // A second seal while the first prepares its segment.
+        let second_mux = mux.clone();
+        let (second_tx, second_rx) = std::sync::mpsc::sync_channel(1);
+        let second = std::thread::spawn(move || {
+            let result =
+                second_mux.seal_journal_segments(through, "client_test", "seal_turns_second");
+            second_tx.send(result.is_ok()).unwrap();
+        });
+        assert!(
+            second_rx.recv_timeout(std::time::Duration::from_millis(500)).is_err(),
+            "a second seal committed while the first was preparing the same segment"
+        );
+        release_prepare_tx.send(()).unwrap();
+        let first = first.join().unwrap().unwrap();
+        assert!(second_rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap());
+        second.join().unwrap();
+        let segments = mux.journal_segments().unwrap();
+        assert_eq!(segments.len(), 2, "each seal sealed its own segment");
+        assert_eq!(first.through_sequence, segments[0].end_sequence);
+
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn segment_compression_never_holds_the_session_writer() {
         let root = std::env::temp_dir().join(format!(

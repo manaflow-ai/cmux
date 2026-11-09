@@ -7334,6 +7334,38 @@
       }
     }
   },
+  "settingsPage.personalization.chief": {
+    "class": "brand",
+    "source": "Chief"
+  },
+  "settingsPage.personalization.theme": {
+    "source": "Theme",
+    "identityLocales": {
+      "de": {
+        "reason": "Theme is the standard German noun for an app's color theme.",
+        "values": [
+          "Theme"
+        ]
+      }
+    }
+  },
+  "home.firstRun.switchKeys.tabs": {
+    "source": "Tab 1–9",
+    "identityLocales": {
+      "de": {
+        "reason": "Tab is the standard German noun for a window tab. The translated German entry is still required.",
+        "values": [
+          "Tab 1–9"
+        ]
+      },
+      "vi": {
+        "reason": "Tab is the standard Vietnamese UI word for a window tab. The translated Vietnamese entry is still required.",
+        "values": [
+          "Tab 1–9"
+        ]
+      }
+    }
+  },
   "action.new.terminal": {
     "source": "Terminal",
     "identityLocales": {
