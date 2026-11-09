@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   failureCopy,
   failureKind,
@@ -165,6 +167,12 @@ test("an own key's account out of credit reads as no-credit, not a rate limit", 
   const gateway = "402 Payment Required: insufficient credits, url: https://inference.baseten.co/v1/chat/completions";
   expect(failureKind(gateway, claude)).toBe("no-credit");
   expect(failureKind(gateway, claude, "insufficient_quota")).toBe("no-credit");
+  // The free tier's spent daily quota (backend inference/free.ts) is a 429 typed
+  // `insufficient_quota`: a limit that resets, never "fund the account behind your API key".
+  const freeQuota =
+    'unexpected status 429 Too Many Requests: {"error":{"code":"free.quota","message":"today\'s free quota is used up; sign in to continue","type":"insufficient_quota"}}';
+  expect(failureKind(freeQuota, claude)).toBe("rate-limited");
+  expect(failureKind(freeQuota, claude, "insufficient_quota")).toBe("rate-limited");
   // A provider's bare `insufficient_quota`, with no rate words, is still out of credit.
   expect(failureKind('{"error":{"type":"insufficient_quota","code":"insufficient_quota"}}', claude)).toBe("no-credit");
   // A plain rate limit still reads as one, and the cmux model router's refusal as needs-credits.
@@ -261,4 +269,55 @@ test("a bare invalid_rapt is the agent's own sign-in", () => {
     expect(failureKind(message), message).toBe("subscription-login");
     expect(failureRecovery(failureKind(message)), message).toBe("sign-in");
   }
+});
+
+// Every refusal code the cmux model router sends (backend inference/: `free.*`, `inference.*`,
+// `budget.*`, `usage.*`) is the router's own, never the account behind the chat's key: none reads as
+// no-credit, whatever type comes with it. The list is read from the backend's source when this
+// checkout has it, so a new code is covered without editing a list here.
+test("no cmux model router code reads as an own key's empty account", () => {
+  const claude = { name: "Claude Code", harness: "claude" };
+  const known = [
+    "budget.exhausted",
+    "free.assertion",
+    "free.attestation",
+    "free.challenge",
+    "free.device_used",
+    "free.devicecheck",
+    "free.expired",
+    "free.images",
+    "free.model",
+    "free.not_configured",
+    "free.quota",
+    "free.rate",
+    "free.unknown_device",
+    "inference.cost_over_bound",
+    "inference.daily_limit",
+    "inference.disabled",
+    "inference.plan_required",
+    "inference.request",
+    "inference.settle_failed",
+    "usage.included_reached",
+    "usage.user_limit_reached",
+  ];
+  const backend = join(import.meta.dir, "../../../../backend/apps/api/src/inference");
+  const fromBackend = existsSync(backend)
+    ? readdirSync(backend)
+        .filter((file) => file.endsWith(".ts") && !file.endsWith(".test.ts"))
+        .flatMap((file) =>
+          [...readFileSync(join(backend, file), "utf8").matchAll(/"((?:free|inference|budget|usage)\.[a-z_]+)"/g)].map(
+            (m) => m[1],
+          ),
+        )
+    : [];
+  for (const code of new Set([...known, ...fromBackend])) {
+    for (const status of ["429 Too Many Requests", "402 Payment Required"]) {
+      const body = `${status}: {"error":{"code":"${code}","message":"refused","type":"insufficient_quota"}}`;
+      expect(failureKind(body, claude), body).not.toBe("no-credit");
+      expect(failureKind(body, claude, "insufficient_quota"), body).not.toBe("no-credit");
+    }
+  }
+  // Never inside an address: a provider host that starts like a code keeps its own meaning.
+  for (const host of ["inference.baseten.co", "usage.example.com", "free.example.org"])
+    expect(failureKind(`402 Payment Required: insufficient credits, url: https://${host}/v1`, claude)).toBe("no-credit");
 });
