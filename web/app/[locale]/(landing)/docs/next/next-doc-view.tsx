@@ -6,7 +6,37 @@ import cliReference from "@/data/next-docs/cli-reference.generated.json";
 import paletteReference from "@/data/next-docs/palette-reference.generated.json";
 import settingsReference from "@/data/next-docs/settings-reference.generated.json";
 import type { CliReference, PaletteReference, SettingsReference } from "@/scripts/export-next-docs";
-import { headingId, nextDocHref, nextDocPage, type DocBlock, type NextDocPage } from "@/data/next-docs/pages";
+import {
+  headingId,
+  nextDocHref,
+  nextDocPage,
+  nextDocPublicPath,
+  type DocBlock,
+  type NextDocPage,
+} from "@/data/next-docs/pages";
+import { baseDocsLocales } from "@/app/[locale]/components/docs-nav-items";
+import { docsChannel } from "@/app/lib/docs-channel";
+import { buildAlternates } from "@/i18n/seo";
+import { DocsSchema } from "../docs-schema";
+
+/** Where this docs channel serves a cmux-next page: the nightly zone's public path, else /docs/next. */
+function nextDocChannelPath(slug: string): string {
+  return docsChannel() === "nightly" ? nextDocPublicPath(slug) : nextDocHref(slug);
+}
+
+/**
+ * Metadata of a cmux-next page. The nightly zone is noindex (docs/layout.tsx)
+ * because it repeats the release docs, but only it serves these pages, so
+ * they stay indexable and name their nightly URL as canonical.
+ */
+export function nextDocMetadata(page: NextDocPage, locale: string) {
+  return {
+    title: page.title,
+    description: page.description,
+    alternates: buildAlternates(locale, nextDocChannelPath(page.slug), baseDocsLocales),
+    robots: { index: true, follow: true },
+  };
+}
 
 function Block({ block }: { block: DocBlock }) {
   if ("h2" in block) return <DocsHeading level={2} id={headingId(block.h2)}>{block.h2}</DocsHeading>;
@@ -123,6 +153,7 @@ function SettingsTables() {
 export function NextDocView({ page }: { page: NextDocPage }) {
   return (
     <>
+      <DocsSchema title={page.title} path={nextDocChannelPath(page.slug)} />
       <DocsHeading level={1} id="title">{page.title}</DocsHeading>
       {page.slug === "getting-started" ? null : <p><em>{page.description}</em></p>}
       {page.body.map((block, index) => <Block key={index} block={block} />)}

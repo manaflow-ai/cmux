@@ -196,17 +196,19 @@ const nextConfig: NextConfig = {
     return [...(isDocsZone ? [] : [...baseNightlyMoves, ...nextDocsNightlyMoves]), ...agentRedirects];
   },
   async headers() {
-    const channelSecurityHeaders =
+    // The nightly zone repeats the release docs, so search engines skip it,
+    // except cmux-next docs: only this zone serves them, so they are the one
+    // copy and stay indexable (their pages set robots too).
+    const nightlyNoindexRules =
       docsChannel !== "nightly"
-        ? securityHeaderRules
-        : securityHeaderRules.map((rule) => ({
-            ...rule,
-            headers: [
-              ...rule.headers,
-              { key: "X-Robots-Tag", value: "noindex, follow" },
-            ],
-          }));
-    return [...channelSecurityHeaders, ...tuiInstallerHeaderRules];
+        ? []
+        : [
+            {
+              source: "/((?!(?:en/)?docs/next(?:/|$)).*)",
+              headers: [{ key: "X-Robots-Tag", value: "noindex, follow" }],
+            },
+          ];
+    return [...securityHeaderRules, ...nightlyNoindexRules, ...tuiInstallerHeaderRules];
   },
   turbopack: {
     root: webRoot,

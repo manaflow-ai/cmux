@@ -17,6 +17,7 @@ import {
   remoteTmuxDocsLocales,
 } from "../../i18n/locale-availability";
 import { genericCodingAgents } from "../../i18n/coding-agents";
+import { nextDocPages, nextDocPublicPath } from "../../data/next-docs/pages";
 
 export type AgentPageFormat = "md" | "txt";
 
@@ -258,6 +259,12 @@ export const agentReadablePages = [
     path: "/docs/agent-integrations/oh-my-claudecode",
     title: "oh-my-claudecode",
   },
+  // cmux-next docs, English only, at the URL cmux.com serves them from.
+  ...nextDocPages.map((page) => ({
+    path: nextDocPublicPath(page.slug),
+    title: `cmux-next: ${page.title}`,
+    locales: ["en"],
+  })),
   { path: "/docs/changelog", title: "Changelog" },
   { path: "/community", title: "Community" },
   { path: "/wall-of-love", title: "Wall of Love" },
@@ -480,9 +487,18 @@ const agentReadablePageByPath: Map<string, AgentReadablePage> = new Map(
   agentReadablePages.map((page) => [page.path, page]),
 );
 
+/**
+ * The nightly docs zone gets /docs/nightly/next/... without its /nightly
+ * prefix (next.config.ts rewrites), so it looks cmux-next pages up by the
+ * public path.
+ */
+function publicDocsPath(path: string): string {
+  return /^\/docs\/next(?:\/|$)/u.test(path) ? path.replace(/^\/docs/u, "/docs/nightly") : path;
+}
+
 function isKnownAgentReadablePage(canonicalPath: string): boolean {
   const { path, locale } = basePagePath(canonicalPath);
-  const page = agentReadablePageByPath.get(path);
+  const page = agentReadablePageByPath.get(publicDocsPath(path));
   if (page) {
     return !locale || !page.locales || page.locales.includes(locale);
   }
