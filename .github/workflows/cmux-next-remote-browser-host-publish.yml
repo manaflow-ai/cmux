@@ -10,10 +10,11 @@ name: cmux NEXT remote browser host publish
 #
 # resolve  the branch's commit (a branch of this repository, so no fork code
 #          reaches a build Mac), its pinned CEF and the crate's tree. No secret.
-# build    on an ephemeral macOS VM (it holds a token): fetches the pinned CEF archive from R2 with the
-#          read-only token (ensure-cef.sh checks it against the manifest
-#          sha256), then `cargo build --release --locked` with a job-local
-#          Rust toolchain (the one cmux-tui/rust-toolchain.toml names).
+# cef      on Linux, with the read-only token: downloads the pinned CEF archive
+#          from R2 and checks it against the manifest sha256.
+# build    on a macOS runner, holding no secret: unpacks that archive (its
+#          digest checked again) and runs `cargo build --release --locked` with
+#          a job-local Rust toolchain (the one cmux-tui/rust-toolchain.toml names).
 # publish  in the cef-publish environment, which waits for one of its required
 #          reviewers and alone holds the cmux-cef-write token. Only main code
 #          runs here: the binary is data. It checks the binary's digest and
@@ -49,6 +50,7 @@ jobs:
       sha: ${{ steps.resolve.outputs.sha }}
       cef_version: ${{ steps.cef.outputs.version }}
       cef_sha256: ${{ steps.cef.outputs.sha256 }}
+      cef_r2_key: ${{ steps.cef.outputs.r2_key }}
       crate_tree: ${{ steps.cef.outputs.crate_tree }}
     steps:
       - name: Resolve the branch
@@ -84,19 +86,53 @@ jobs:
           BRANCH: ${{ inputs.branch }}
         run: |
           set -euo pipefail
-          read -r version sha256 < <(python3 -I -c 'import json,sys; m=json.load(open(sys.argv[1])); print(m["version"], m["sha256"])' scripts/cmux-next/cef-manifest.json)
+          read -r version sha256 r2_key < <(python3 -I -c 'import json,sys; m=json.load(open(sys.argv[1])); print(m["version"], m["sha256"], m.get("r2_key", ""))' scripts/cmux-next/cef-manifest.json)
           [[ "$version" =~ ^cef-[0-9]+\.[0-9]+\.[0-9]+-cmux\.[0-9]+$ && "$sha256" =~ ^[0-9a-f]{64}$ ]] ||
             { echo "::error::cef-manifest.json has no valid version and sha256" >&2; exit 1; }
+          [[ "$r2_key" == "cef/$sha256/$version-macos-arm64.tar.xz" ]] ||
+            { echo "::error::cef-manifest.json's r2_key is not cef/<sha256>/<version>-macos-arm64.tar.xz" >&2; exit 1; }
           tree="$(git rev-parse "HEAD:cmux-tui/crates/cmux-remote-browser-host")"
-          { echo "version=$version"; echo "sha256=$sha256"; echo "crate_tree=$tree"; } >> "$GITHUB_OUTPUT"
+          { echo "version=$version"; echo "sha256=$sha256"; echo "r2_key=$r2_key"; echo "crate_tree=$tree"; } >> "$GITHUB_OUTPUT"
           echo "Branch $BRANCH at $SHA; CEF $version (sha256 $sha256); crate tree $tree" >> "$GITHUB_STEP_SUMMARY"
+
+  cef:
+    name: Fetch the pinned CEF
+    needs: resolve
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions: {}
+    steps:
+      # R2 only, read-only token, credential on curl's stdin; the bytes must match the manifest.
+      - name: Download from R2
+        env:
+          ACCOUNT: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
+          ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
+          SECRET: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
+          KEY: ${{ needs.resolve.outputs.cef_r2_key }}
+          WANT: ${{ needs.resolve.outputs.cef_sha256 }}
+        run: |
+          set -euo pipefail
+          [[ -n "$ACCOUNT" && -n "$ID" && -n "$SECRET" ]] || { echo "::error::the read-only CMUX_CEF_R2_* secrets are not set" >&2; exit 1; }
+          mkdir -p "$RUNNER_TEMP/cef"
+          printf 'user = "%s:%s"\n' "$ID" "$SECRET" |
+            curl --config - --fail --silent --show-error --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 1800 \
+              --aws-sigv4 "aws:amz:auto:s3" -H "x-amz-content-sha256: UNSIGNED-PAYLOAD" \
+              -o "$RUNNER_TEMP/cef/cef-macos-arm64.tar.xz" "https://$ACCOUNT.r2.cloudflarestorage.com/cmux-cef/$KEY"
+          echo "$WANT  $RUNNER_TEMP/cef/cef-macos-arm64.tar.xz" | sha256sum --strict -c -
+
+      - name: Upload the CEF archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cef-macos-arm64
+          path: ${{ runner.temp }}/cef/cef-macos-arm64.tar.xz
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
 
   build:
     name: Build the host
-    needs: resolve
-    # It holds the read-only R2 token, so it runs on one fixed ephemeral VM that no
-    # repository variable can move to an owned Mac (test_ci_fork_runner_routing.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    needs: [resolve, cef]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
     permissions:
       contents: read
@@ -113,7 +149,6 @@ jobs:
           sparse-checkout: |
             .xcode-version
             cmux-tui
-            scripts/cmux-next
             scripts/ci/xcode-pins.txt
             scripts/select-ci-xcode.sh
           sparse-checkout-cone-mode: false
@@ -138,25 +173,25 @@ jobs:
           { echo "RUSTUP_HOME=$RUSTUP_HOME"; echo "CARGO_HOME=$CARGO_HOME"; echo "RUSTUP_TOOLCHAIN=$channel"; } >> "$GITHUB_ENV"
           echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
 
-      # R2 only, with the read-only token; ensure-cef.sh checks the archive
-      # against the manifest sha256, which resolve read from the same commit.
-      - name: Fetch the pinned CEF
+      - name: Download the CEF archive
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cef-macos-arm64
+          path: ${{ runner.temp }}/cef-archive
+
+      - name: Unpack the pinned CEF
         id: cef
         env:
-          CMUX_CEF_R2_ACCOUNT_ID: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
-          CMUX_CEF_R2_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
-          CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
-          CMUX_CEF_R2_ENV_FILE: /dev/null
-          CMUX_CEF_CACHE_DIR: ${{ runner.temp }}/cef
-          CMUX_CEF_NO_STORE: "1"
-          CMUX_CEF_NO_GITHUB: "1"
           WANT: ${{ needs.resolve.outputs.cef_sha256 }}
+          VERSION: ${{ needs.resolve.outputs.cef_version }}
         run: |
           set -euo pipefail
-          now="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha256"])' scripts/cmux-next/cef-manifest.json)"
-          [[ "$now" == "$WANT" ]] || { echo "::error::the manifest's CEF changed between resolve and build" >&2; exit 1; }
-          dir="$(./scripts/cmux-next/ensure-cef.sh --arch arm64)"
-          [[ -d "$dir/include" ]] || { echo "::error::ensure-cef.sh gave no CEF dist" >&2; exit 1; }
+          archive="$RUNNER_TEMP/cef-archive/cef-macos-arm64.tar.xz"
+          echo "$WANT  $archive" | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/cef"
+          tar -xJf "$archive" -C "$RUNNER_TEMP/cef"
+          dir="$RUNNER_TEMP/cef/$VERSION"
+          [[ -d "$dir/include" ]] || { echo "::error::the archive holds no $VERSION/include" >&2; exit 1; }
           grep -q 'cmux_rp_capture_start' "$dir/include/cef_cmux.h" ||
             { echo "::error::the pinned CEF is not a remote presentation build (no cmux_rp_* in cef_cmux.h)" >&2; exit 1; }
           echo "dir=$dir" >> "$GITHUB_OUTPUT"
