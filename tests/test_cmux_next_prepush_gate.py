@@ -297,10 +297,11 @@ class PrePushGateTests(unittest.TestCase):
         snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
         installed = snapshot.resolve() / "check-ui-font.py"
         runs = self.root / "ui-font-runs"
-        entry = 'if __name__ == "__main__":'
+        # The marker is in check_tree, so it counts the check's passes, not the gate asking it what it reads.
+        entry = "def check_tree(tree: Tree) -> list[str]:\n"
         text = installed.read_text()
         self.assertIn(entry, text)
-        installed.write_text(text.replace(entry, f"open({str(runs)!r}, 'a').write('ran\\n')\n\n\n{entry}", 1))
+        installed.write_text(text.replace(entry, f"{entry}    open({str(runs)!r}, 'a').write('ran\\n')\n", 1))
         self.kit("Fresh", NEW_CLEAN)
         self.commit("a Swift change only")
 
@@ -315,6 +316,18 @@ class PrePushGateTests(unittest.TestCase):
         result = self.push()
 
         self.assertTrue(runs.exists(), "a push that changes a file the UI font check reads must run it\n"
+                        + result.stdout + result.stderr)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)  # the next push holds only its own change
+
+        # A push that changes the check itself runs it too (review of #39765).
+        runs.unlink()
+        self.write("scripts/cmux-next/check-ui-font.py",
+                   (self.repo / "scripts/cmux-next/check-ui-font.py").read_text() + "\n# a change to the check\n")
+        self.commit("a change to the UI font check only")
+
+        result = self.push()
+
+        self.assertTrue(runs.exists(), "a push that changes check-ui-font.py must run it\n"
                         + result.stdout + result.stderr)
 
     def kit(self, name, text):
