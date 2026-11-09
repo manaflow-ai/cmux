@@ -1,6 +1,6 @@
 /** The ownership lookups of the orphan sweep (src/upstream/orphan-sweep.ts): which cmux VM ids a row still protects. */
 import { Effect, Schema } from "effect";
-import { SqlClient, StoreError } from "./sql.ts";
+import { SqlClient, StoreError, type SqlParam } from "./sql.ts";
 
 /**
  * A VM whose row was deleted this long ago or longer, but which the provider still lists, is swept. The delete paths
@@ -11,14 +11,15 @@ export const ORPHAN_DELETED_ROW_GRACE_MS = 60 * 60_000;
 
 const Row = Schema.Struct({ cmux_id: Schema.String });
 
-const idsOf = (operation: string, text: string, params: ReadonlyArray<unknown>) =>
+const idsOf = (operation: string, text: string, params: ReadonlyArray<SqlParam>) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient;
     const rows = yield* sql.query(operation, text, params);
     const decoded = yield* Schema.decodeUnknown(Schema.Array(Row))(rows).pipe(
       Effect.mapError((cause) => new StoreError({ operation, cause })),
     );
-    return new Set(decoded.map((row) => row.cmux_id)) as ReadonlySet<string>;
+    const ids: ReadonlySet<string> = new Set(decoded.map((row) => row.cmux_id));
+    return ids;
   });
 
 /**
