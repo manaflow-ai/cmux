@@ -547,7 +547,8 @@ export class SessionsBy {
     }
     // A session that left while another came, or another listed twice, keeps the same length: drop
     // what it left behind, so it is new again when it comes back.
-    const listed = listedIds ?? (this.seen.size > sessions.length ? new Set(sessions.map((entry) => entry.sessionId)) : undefined);
+    const listed =
+      listedIds ?? (this.seen.size > sessions.length ? new Set(sessions.map((entry) => entry.sessionId)) : undefined);
     if (listed && this.seen.size !== listed.size)
       for (const id of this.seen.keys()) if (!listed.has(id)) this.seen.delete(id);
     this.count = sessions.length;
