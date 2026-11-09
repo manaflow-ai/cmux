@@ -38,7 +38,9 @@ doc.getElementById("root")!.innerHTML = `
   <div data-row-id="r1"><p>See <a id="link" href="${href}"><span id="inner">50a4e17d</span></a> and
   <code id="path" data-path="/tmp/a.txt">/tmp/a.txt</code> here.</p></div>`;
 const reports: Record<string, unknown>[] = [];
-installMessageMenuReporter(doc, () => ({ postMessage: (body: unknown) => reports.push(body as Record<string, unknown>) }));
+installMessageMenuReporter(doc, () => ({
+  postMessage: (body: unknown) => reports.push(body as Record<string, unknown>),
+}));
 
 function rightClick(id: string, select?: string) {
   const selection = doc.getSelection()!;
