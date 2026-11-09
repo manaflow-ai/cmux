@@ -129,56 +129,61 @@ import Testing
         #expect(!host.hostView.layerHosting.inPaneDrag)
     }
 
-    /// Leo 2026-11-07 (softened): closing the pane beside a Chromium page "plays a two-part animation. It, like, first
-    /// shifts over to the left ... And then after the shift, then it expands. It's not, like, expanding as it goes".
-    /// A split's or close's spring resizes the pane in every frame as a key resize does, but only drags and key resizes
-    /// took the page window out of the motion's way (`CEFLayerHosting.resizeMotion`): in a split or close each frame moved
-    /// and resized an attached child window through the WindowServer, Chromium's frames at the new sizes came after the
-    /// pane had moved, and its last frame slid with the pane's edge until they did. The spring's start
-    /// (`PaneHostView.announceRest` tells the content its rest, ``PaneMotionTargeting``) begins the same motion: the page
-    /// follows its pane's page area at each frame's size with its window detached, and its landing
-    /// (`notifyPaneMotionSettled`) brings the window back once, at the final size. The main thread never waits for it.
-    @Test func aSplitOrCloseSpringShowsThePageAtThePanesSizeInEveryFrameOutOfItsWindowsWay() throws {
+    /// A split's, close's or zoom's spring resizes the pane in every frame, as a key resize does: its start
+    /// (`PaneHostView.announceRest` tells the content its rest, ``PaneMotionTargeting``) begins the key resize's page
+    /// sync, so the page follows its pane's page area at each frame's size, and its landing (`notifyPaneMotionSettled`)
+    /// ends it, with the page at the final size. The page window stays attached all along, as in a key resize (RESIZE P0
+    /// 5): detached (#37754), a page in a pane that grew upward showed at its old place, clipped or blank, and snapped at
+    /// the landing (Leo 2026-11-08, ask-1cbd6386ac, softened: "the upwards thing ... shit doesn't look right, shit is not
+    /// smooth, shit lags"). The main thread never waits for it.
+    @Test func aSplitOrCloseSpringShowsThePageAtThePanesSizeInEveryFrameWithItsWindowAttached() throws {
+        PageSpyShim.forkAPI = 30
+        PageSpyShim.hostingContext = 7
+        defer { (PageSpyShim.forkAPI, PageSpyShim.hostingContext) = (27, 0) }
         let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, first) = try Self.liveHost(runtime)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: .borderless, backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         defer { window.closeAfterTest() }
-        first.container.frame = NSRect(x: 200, y: 0, width: 600, height: 500)
+        first.container.frame = NSRect(x: 0, y: 0, width: 1000, height: 300)
         window.contentView?.addSubview(first.container)
         first.container.layoutSubtreeIfNeeded()
+        // The hosting request of a new page window runs at the end of the run-loop turn: run that one pass.
+        CFRunLoopRunInMode(.defaultMode, 0, true)
         let page = host.hostView
         let hosting = page.layerHosting
-        try #require(page.superview === first.container && page.frame.width > 0 && !hosting.inResizeMotion,
-                     "SETUP: the page is not shown at a size, or is already in a resize motion")
+        try #require(hosting.page != nil && page.superview === first.container && page.frame.width > 0 && !hosting.inResizeMotion,
+                     "SETUP: the page is not hosted and shown at a size, or is already in a resize motion")
+        PageSpyShim.detachAsks = []
         PageSpyShim.resizeSyncs = []
 
-        // The spring's start: the pane's left neighbour closed, so it will rest 200 pt wider, its leading edge 200 pt left.
-        first.container.notifyPaneMotionWillRest(sizeChange: CGSize(width: 200, height: 0))
-        #expect(hosting.inResizeMotion, "the spring's start left the page window in the motion's way (attached, moved by the WindowServer each frame)")
+        // The spring's start: the pane above closed, so this pane grows upward, 300 pt taller.
+        first.container.notifyPaneMotionWillRest(sizeChange: CGSize(width: 0, height: 300))
+        #expect(hosting.inPaneDrag, "the spring's start began no page sync: the page would lay out only at the landing")
         var misses: [String] = []
-        var attached: [Int] = []
+        var detached: [Int] = []
         for step in 1...12 {
-            let dx = CGFloat(step) * 200 / 12
-            first.container.frame = NSRect(x: 200 - dx, y: 0, width: 600 + dx, height: 500)
+            let dy = CGFloat(step) * 300 / 12
+            first.container.frame = NSRect(x: 0, y: 0, width: 1000, height: 300 + dy)
             first.container.layoutSubtreeIfNeeded()
             if page.frame != first.container.bounds { misses.append("step \(step): page \(page.frame), pane page area \(first.container.bounds)") }
-            if !hosting.inResizeMotion { attached.append(step) }
+            if hosting.inResizeMotion || hosting.isDetached { detached.append(step) }
         }
         #expect(misses.isEmpty, "\(misses.count) of 12 spring frames do not show the page at its pane's size: \(misses.prefix(3))")
-        #expect(attached.isEmpty, "the page window was in the motion's way in spring frames \(attached)")
+        #expect(detached.isEmpty, "the page window left its window in spring frames \(detached): it shows its old place until the landing")
+        #expect(PageSpyShim.detachAsks.isEmpty, "a split's or close's spring detached the page window: \(PageSpyShim.detachAsks)")
         #expect(PageSpyShim.resizeSyncs.isEmpty, "a page window was asked to hold the main thread's commit: \(PageSpyShim.resizeSyncs)")
 
-        // The landing: the page window comes back once, at the final size.
+        // The landing: the page sync ends, with the page at the final size.
         first.container.notifyPaneMotionSettled()
-        #expect(!hosting.inResizeMotion, "the page window did not come back at the spring's landing")
         #expect(!hosting.inPaneDrag, "the page sync outlived the spring")
+        #expect(PageSpyShim.detachAsks.isEmpty, "the spring's landing asked for a detach or attach: \(PageSpyShim.detachAsks)")
         #expect(page.frame == first.container.bounds)
     }
 
-    /// A spring that starts and retargets (a second close mid-motion tells the content a new rest) is one motion: the page
-    /// window leaves once and comes back once, at the landing; a container that leaves its window mid-spring lets it go.
+    /// A spring that starts and retargets (a second close mid-motion tells the content a new rest) is one motion: one page
+    /// sync, ended once at the landing; a container that leaves its window mid-spring ends it.
     @Test func aRetargetedSpringIsOneMotionAndAContainerLeavingItsWindowEndsIt() throws {
         let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -193,15 +198,16 @@ import Testing
 
         first.container.notifyPaneMotionWillRest(sizeChange: CGSize(width: 200, height: 0))
         first.container.notifyPaneMotionWillRest(sizeChange: CGSize(width: 300, height: 0))
-        #expect(hosting.motionHolders == 1, "a retarget began a second motion: \(hosting.motionHolders) holders")
+        #expect(hosting.paneDragHolders == 1, "a retarget began a second page sync: \(hosting.paneDragHolders) holders")
+        #expect(!hosting.inResizeMotion, "the spring took the page window out of its window")
         first.container.notifyPaneMotionSettled()
-        #expect(!hosting.inResizeMotion, "one landing did not end the retargeted spring")
+        #expect(!hosting.inPaneDrag, "one landing did not end the retargeted spring")
 
         first.container.notifyPaneMotionWillRest(sizeChange: CGSize(width: -100, height: 0))
-        #expect(hosting.inResizeMotion)
+        #expect(hosting.inPaneDrag)
         first.container.removeFromSuperview()
-        #expect(!hosting.inResizeMotion, "a container that left its window mid-spring kept its page window detached")
-        #expect(!hosting.inPaneDrag)
+        #expect(!hosting.inPaneDrag, "a container that left its window mid-spring kept its page sync")
+        #expect(!hosting.inResizeMotion)
     }
 
     /// Every new page window is hosted in the window's layer tree (no switch): the page's pixels commit with its pane.

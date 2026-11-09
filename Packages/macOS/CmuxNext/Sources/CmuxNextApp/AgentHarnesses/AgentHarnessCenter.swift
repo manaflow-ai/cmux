@@ -204,7 +204,7 @@ final class AgentHarnessCenter {
         var state: [String: JSONValue] = [
             "status": .string(status),
             "manages": .bool(manages),
-            "harnesses": .array(AgentHarnessRows.rows(list)),
+            "harnesses": .array(AgentHarnessRows(list).rows),
             "doctor": .object(doctors),
         ]
         if let message { state["message"] = .string(message) }

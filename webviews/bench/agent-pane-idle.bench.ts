@@ -183,6 +183,8 @@ try {
       p95: msPerSecond,
       target: 5,
       floor: 2,
+      clock: "cpu",
+      version: 3,
     });
     // Let the last repeat's frame land before the next phase.
     await page.waitForTimeout(500);
