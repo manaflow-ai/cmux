@@ -274,6 +274,7 @@
     "pane.focus_direction",
     "pane.get",
     "pane.list",
+    "pane.move",
     "pane.neighbor.get",
     "pane.rename",
     "pane.run",

@@ -52,6 +52,9 @@ export interface SetupStep {
   /** A quieter second button (classic's Not Now, the next agent); it stays while the row is busy, greyed
    * (`disabled`) when it waits on the run in flight. */
   secondary?: { label: string; run: SetupAction; disabled?: boolean };
+  /** A third, quieter still: only while an agent waits for its sign-in to be confirmed and another agent
+   * exists, so Sign In Again and the other agent both stay one click away. */
+  tertiary?: { label: string; run: SetupAction };
   /** An action is running (an install): the slot shows a spinner. */
   busy?: boolean;
 }
@@ -127,6 +130,8 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
       ? {
           action: { label: t("home.setup.confirmSignedIn"), run: { kind: "confirmAgent", id: unverified.id } as const },
           secondary: { label: t("home.setup.signInAgain"), run: { kind: "signInAgent", id: unverified.id } as const },
+          // The other agent stays one click away while this one waits (every agent keeps a button).
+          ...(other !== undefined && { tertiary: agentAction(other, strings) }),
         }
       : other !== undefined && { secondary: { ...agentAction(other, strings), ...(waits && { disabled: true }) } }),
   });

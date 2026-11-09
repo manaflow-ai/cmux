@@ -1555,6 +1555,7 @@ mod cloud_workspace_list;
 mod machine_catalog;
 mod retained;
 mod settings;
+mod terminal_wait_timeout;
 
 fn code_mode_server(fake: Fake) -> Server<Fake> {
     let mut server = Server::new(fake, None);
