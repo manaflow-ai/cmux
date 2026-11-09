@@ -468,8 +468,21 @@ impl Hub {
                 "base": base,
                 "root": root,
             });
-            let read = match base {
-                Some(base) => {
+            // A run whose worktree a Keep removed: what Compare read of it right before.
+            let saved = m
+                .subsession
+                .as_ref()
+                .and_then(|l| l.plan_build_change.clone())
+                .filter(|_| root.symlink_metadata().is_err());
+            let read = match (saved, base) {
+                (Some(Value::Object(saved)), _) => {
+                    for (k, v) in saved {
+                        row.set(&k, v);
+                    }
+                    rows.push(row);
+                    continue;
+                }
+                (_, Some(base)) => {
                     let root: PathBuf = root.clone();
                     // Only from the worktree the run was made in: a folder put at its path since
                     // (another checkout, the branch re-added) is not this run's change.
@@ -477,14 +490,7 @@ impl Hub {
                     tokio::task::spawn_blocking(move || {
                         // Checked before and after the read: a folder swapped in while git read
                         // by path is never shown as the run's change.
-                        let same = || match &made {
-                            Some(made) => still_made(made).map_err(|why| {
-                                format!(
-                                    "the folder at its path is not this run's worktree now: {why}"
-                                )
-                            }),
-                            None => Ok(()),
-                        };
+                        let same = || compare_identity(made.as_ref());
                         same()?;
                         let change = read_change(&root, &base)?;
                         same()?;
@@ -493,7 +499,7 @@ impl Hub {
                     .await
                     .unwrap_or_else(|e| Err(e.to_string()))
                 }
-                None => Err("this build has no base recorded".to_owned()),
+                (_, None) => Err("this build has no base recorded".to_owned()),
             };
             match read {
                 Ok(change) => {
@@ -549,6 +555,33 @@ impl Hub {
             link.plan_build_kept = true;
         }
         Ok(Kept::Now(kept, builds.into_iter().filter(|s| s.id != keep).collect()))
+    }
+
+    /// Saves in each of `runs`' lineage its change from `compare` (a `plan_compare` reply read
+    /// before a Keep removes their worktrees), so Compare still shows it once they are gone. A run
+    /// whose read failed keeps what it had.
+    pub(crate) fn plan_keep_changes(&self, runs: &[Arc<Session>], compare: &Value) {
+        let rows = compare.get("builds").and_then(Value::as_array);
+        for run in runs {
+            let Some(row) = rows
+                .and_then(|r| r.iter().find(|b| b["sessionId"] == run.id.as_str()))
+                .filter(|b| b.get("error").is_none())
+            else {
+                continue;
+            };
+            let change = json!({
+                "added": row["added"],
+                "removed": row["removed"],
+                "files": row["files"],
+                "moreFiles": row["moreFiles"],
+            });
+            if let Some(link) =
+                run.meta.lock().unwrap_or_else(|e| e.into_inner()).subsession.as_mut()
+            {
+                link.plan_build_change = Some(change);
+            }
+            self.save_meta(run);
+        }
     }
 
     /// The builds a Keep let go, gone now: each chat closes, then worktree care archives its
@@ -683,6 +716,18 @@ impl Hub {
             rows.push(json!({"sessionId": id, "removed": false, "error": error}));
         }
         rows
+    }
+}
+
+/// Whether Compare may read a run's change from the folder at `made.root`: the worktree its
+/// start made ([`still_made`]). Off unix no folder identity is recorded, and Compare only reads,
+/// so it reads by path there, as it did before identities were checked; Keep's removal still
+/// refuses such a folder (`plan_discard`).
+fn compare_identity(made: Option<&crate::store::MadeWorktree>) -> Result<(), String> {
+    match made {
+        Some(made) if cfg!(unix) => still_made(made)
+            .map_err(|why| format!("the folder at its path is not this run's worktree now: {why}")),
+        _ => Ok(()),
     }
 }
 

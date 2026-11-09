@@ -123,3 +123,19 @@ fn a_worktree_is_still_made_only_with_its_folder_and_branch() {
     assert!(still_made(&same_inode).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Compare reads by path off unix, where no folder identity is recorded, and refuses a folder that
+/// is not the one made on unix. Keep's removal refuses it everywhere (`still_made`).
+#[test]
+fn compare_checks_the_folder_only_where_its_identity_is_recorded() {
+    let made = crate::store::MadeWorktree {
+        root: std::env::temp_dir().join(format!("acpmux-no-such-run-{}", uuid::Uuid::now_v7())),
+        pin: None,
+        born: None,
+        branch: "cmux/run-1".to_owned(),
+        base: None,
+    };
+    assert!(still_made(&made).is_err());
+    assert_eq!(compare_identity(Some(&made)).is_ok(), !cfg!(unix));
+    assert_eq!(compare_identity(None), Ok(()));
+}

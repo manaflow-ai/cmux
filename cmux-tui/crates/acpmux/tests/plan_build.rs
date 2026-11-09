@@ -510,6 +510,19 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
     }
     assert!(!Path::new(&run_roots[0]).exists() && !Path::new(&run_roots[2]).exists(), "{kept}");
     assert!(Path::new(&run_roots[1]).join("NOTICE").is_file(), "the kept run stays");
+    // The removed runs still show what they changed, as Compare read it right before they went:
+    // in Keep's reply and in every Compare after.
+    let after = app.ok("_acpmux/plan/compare", json!({"sessionId": chat, "buildId": run_id})).await;
+    for reply in [&kept, &after] {
+        for i in [0, 2] {
+            let id = &runs[i]["sessionId"];
+            let row = reply["builds"].as_array().unwrap().iter().find(|b| &b["sessionId"] == id);
+            let row = row.unwrap();
+            assert_eq!(row["added"].as_u64(), Some(1), "run {i}: {reply}");
+            assert_eq!(row["files"][0]["path"], "NOTICE", "run {i}: {reply}");
+            assert!(row.get("error").is_none(), "run {i}: {reply}");
+        }
+    }
     // Keeping it again changes nothing; keeping another run (a second pane's stale choice) is
     // refused, so it never discards the kept one.
     let again = app

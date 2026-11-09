@@ -448,6 +448,7 @@ async fn a_child_with_only_an_owner_held_prompt_takes_no_width_slot() {
         worktree: None,
         plan_build: None,
         plan_build_kept: false,
+        plan_build_change: None,
     };
     let child = hub.new_session(new(Some(link))).await.unwrap();
     hub.set_status(&child, SessionStatus::Idle);

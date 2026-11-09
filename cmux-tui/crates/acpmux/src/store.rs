@@ -584,6 +584,11 @@ pub struct SubsessionLink {
     /// a build has one, and a later Keep of another run is refused.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub plan_build_kept: bool,
+    /// Its change as Compare read it right before a Keep removed its worktree (`added`,
+    /// `removed`, `files`, `moreFiles`), set by the daemon: Compare shows it once the folder is
+    /// gone, where a read would find nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_build_change: Option<Value>,
 }
 
 /// A sub-session's worktree as its start made it: its top folder, that folder's device and inode

@@ -343,6 +343,7 @@ impl Hub {
             worktree: None,
             plan_build: None,
             plan_build_kept: false,
+            plan_build_change: None,
         }
     }
 
@@ -700,6 +701,7 @@ impl Hub {
             }),
             plan_build: None,
             plan_build_kept: false,
+            plan_build_change: None,
         };
         if req.fork {
             let sub = super::fork::SubsessionFork { link, lineage, checked: &cwd };

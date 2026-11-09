@@ -322,6 +322,11 @@ async fn handle(
                 } else {
                     others.clone()
                 };
+                // Read before they go: once removed, Compare shows what it read here.
+                if !left.is_empty() {
+                    let before = hub.plan_compare(&session, build_id).await?;
+                    hub.plan_keep_changes(&left, &before);
+                }
                 hub.plan_discard(build_id, &left).await
             } else {
                 Vec::new()

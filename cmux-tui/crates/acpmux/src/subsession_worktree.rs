@@ -367,17 +367,12 @@ pub(crate) fn numstat_without_config(
         std::fs::write(scratch.join("config"), config).map_err(|e| e.to_string())?;
         std::fs::write(info.join("alternates"), format!("{}\n", objects.display()))
             .map_err(|e| e.to_string())?;
-        // What the person's git leaves out stays out here: the repository's `info/exclude` and
-        // their global excludes file, carried over as patterns (nothing in them runs), so an
-        // ignored cache is never counted as added nor hashed past the deadline.
-        let mut excludes = String::new();
-        if let Ok(own) = at(&["rev-parse", "--git-path", "info/exclude"]) {
-            excludes.push_str(&std::fs::read_to_string(absolute(own)).unwrap_or_default());
-            excludes.push('\n');
-        }
-        if let Some(global) = global_excludes(by) {
-            excludes.push_str(&std::fs::read_to_string(global).unwrap_or_default());
-        }
+        // What the person's git leaves out stays out here: their global excludes file, then the
+        // repository's `info/exclude`, carried over as patterns (nothing in them runs), so an
+        // ignored cache is never counted as added nor hashed past the deadline. In git's order: a
+        // repository's `!kept.txt` wins over a global `*.txt`, as it does there.
+        let own = at(&["rev-parse", "--git-path", "info/exclude"]).ok().map(absolute);
+        let excludes = carried_excludes(global_excludes(by).as_deref(), own.as_deref());
         std::fs::create_dir_all(scratch.join("info")).map_err(|e| e.to_string())?;
         std::fs::write(scratch.join("info/exclude"), excludes).map_err(|e| e.to_string())?;
         let scratch_index = scratch.join("index");
@@ -402,6 +397,49 @@ pub(crate) fn numstat_without_config(
     })();
     let _ = std::fs::remove_dir_all(&scratch);
     result
+}
+
+/// The patterns of the global excludes file, then the repository's: git reads a later pattern
+/// over an earlier one, and the repository's file over the global one.
+fn carried_excludes(global: Option<&Path>, own: Option<&Path>) -> String {
+    let mut excludes = global.map(read_patterns).unwrap_or_default();
+    excludes.push('\n');
+    excludes.push_str(&own.map(read_patterns).unwrap_or_default());
+    excludes
+}
+
+/// The most of an excludes file Compare carries over; a larger one is left out.
+const MAX_PATTERNS_BYTES: u64 = 1 << 20;
+
+/// An excludes file's patterns, or nothing for one that is not a regular file of at most
+/// [`MAX_PATTERNS_BYTES`]. An agent can write `info/exclude`: a FIFO there never blocks the read
+/// (opened non-blocking, then refused as no regular file), and a link to `/dev/zero` or a huge
+/// file never grows the daemon. A link is followed once, to its target (a person's dotfiles
+/// often link their global file), and that target is opened without following another.
+fn read_patterns(path: &Path) -> String {
+    use std::io::Read as _;
+    let Ok(target) = std::fs::canonicalize(path) else { return String::new() };
+    let mut open = std::fs::OpenOptions::new();
+    open.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        open.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let Ok(file) = open.open(&target) else { return String::new() };
+    match file.metadata() {
+        Ok(m) if m.is_file() && m.len() <= MAX_PATTERNS_BYTES => {}
+        _ => return String::new(),
+    }
+    let mut bytes = Vec::new();
+    // Capped again as it reads: a file that grew since `metadata` stops at the limit, and is
+    // then left out.
+    if file.take(MAX_PATTERNS_BYTES + 1).read_to_end(&mut bytes).is_err()
+        || bytes.len() as u64 > MAX_PATTERNS_BYTES
+    {
+        return String::new();
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 /// The person's global excludes file: `core.excludesFile` in their own git config, else git's
@@ -1694,5 +1732,54 @@ mod tests {
         let e = ensure_worktree_under(&repo, "y", None, &home, None).err().unwrap();
         assert!(e.contains("checked out in another worktree") && e.contains("elsewhere"), "{e}");
         assert!(ensure_worktree_under(&repo, "//", None, &home, None).is_err());
+    }
+
+    /// An agent-written `info/exclude` never hangs or grows Compare: a FIFO, a link to an endless
+    /// device and an oversize file are left out; a regular file, or a link to one, is read.
+    #[cfg(unix)]
+    #[test]
+    fn excludes_are_read_only_from_a_bounded_regular_file() {
+        let dir = std::env::temp_dir().join(format!("acpmux-patterns-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fifo = dir.join("fifo");
+        let c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        let started = Instant::now();
+        assert_eq!(read_patterns(&fifo), "");
+        assert!(started.elapsed() < std::time::Duration::from_secs(2), "a FIFO blocked the read");
+        let zero = dir.join("zero");
+        std::os::unix::fs::symlink("/dev/zero", &zero).unwrap();
+        assert_eq!(read_patterns(&zero), "");
+        let big = dir.join("big");
+        std::fs::write(&big, vec![b'x'; MAX_PATTERNS_BYTES as usize + 1]).unwrap();
+        assert_eq!(read_patterns(&big), "");
+        let own = dir.join("exclude");
+        std::fs::write(&own, "cache/\n").unwrap();
+        assert_eq!(read_patterns(&own), "cache/\n");
+        let linked = dir.join("linked");
+        std::os::unix::fs::symlink(&own, &linked).unwrap();
+        assert_eq!(read_patterns(&linked), "cache/\n");
+        assert_eq!(read_patterns(&dir.join("none")), "");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The repository's patterns come after the global ones, as git reads them: its `!kept.txt`
+    /// keeps a file a global `*.txt` leaves out.
+    #[test]
+    fn the_repositorys_excludes_win_over_the_global_ones() {
+        let (_scratch, repo, home) = repo();
+        let global = home.join("ignore");
+        std::fs::write(&global, "*.txt\n").unwrap();
+        let own = repo.join(".git/info/exclude");
+        std::fs::create_dir_all(own.parent().unwrap()).unwrap();
+        std::fs::write(&own, "!kept.txt\n").unwrap();
+        let carried = carried_excludes(Some(&global), Some(&own));
+        assert_eq!(carried, "*.txt\n\n!kept.txt\n");
+        std::fs::write(&own, &carried).unwrap();
+        std::fs::write(repo.join("kept.txt"), "x\n").unwrap();
+        std::fs::write(repo.join("other.txt"), "x\n").unwrap();
+        let status = sh(&repo, &["status", "--porcelain", "--untracked-files=all"]);
+        assert!(status.contains("kept.txt"), "{status}");
+        assert!(!status.contains("other.txt"), "{status}");
     }
 }
