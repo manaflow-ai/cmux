@@ -48,6 +48,12 @@ await requireBrowserLane("agent-pane-scroll-tick-composer-hat-still.test.ts", as
   for (const shells of [1, 2])
     test(`scrolling while the hat ticks (${shells} background shell${shells > 1 ? "s" : ""}) leaves the composer and the hat still`, async () => {
       const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+      // The dev server's runtime budgets (devkit/perfBudgets.ts) collect instead of warning: the
+      // composer and the hat are `still-surface`s, so a redraw of either per tick warns while anyone
+      // edits the pane, not only here.
+      await page.addInitScript(() => {
+        (window as any).__cmuxPerfBudgets = { mode: "collect" };
+      });
       const { port } = vite!.httpServer!.address() as { port: number };
       await page.goto(`http://127.0.0.1:${port}/?mock`);
       await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
@@ -65,6 +71,9 @@ await requireBrowserLane("agent-pane-scroll-tick-composer-hat-still.test.ts", as
           }),
         shells,
       )) as Record<string, any>;
+      const budgetViolations = (await page.evaluate(() =>
+        ((window as any).__cmuxPerfBudgetsHandle?.violations ?? []).map((violation: any) => violation.message),
+      )) as string[];
       await page.close();
       const still = run.still as Record<string, any>;
       const ticks = Math.max(1, still?.clock_ticks ?? 0);
@@ -79,6 +88,7 @@ await requireBrowserLane("agent-pane-scroll-tick-composer-hat-still.test.ts", as
         hat_renders_per_tick: Math.round(((still?.renders?.tray ?? 0) / ticks) * 100) / 100,
         pane_renders: still?.renders?.pane ?? 0,
         parts: still?.parts,
+        budgets: budgetViolations,
       };
       console.log(`COMPOSER-HAT-TICK ${JSON.stringify(report)}`);
       expect(run.error).toBeUndefined();
@@ -100,6 +110,10 @@ await requireBrowserLane("agent-pane-scroll-tick-composer-hat-still.test.ts", as
       expect(still.parts.hat.structure_mutations, "hat nodes added, removed or re-attributed").toBeLessThanOrEqual(
         EVENTS,
       );
+      expect(
+        budgetViolations.filter((message) => message.includes("still-surface")),
+        "the dev budgets' still-surface warnings",
+      ).toEqual([]);
       expect(
         still.parts.composer.structure_mutations,
         "composer nodes added, removed or re-attributed",
