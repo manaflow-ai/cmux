@@ -7417,5 +7417,13 @@
     "identityLocales": {
       "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
     }
+  },
+  "settings.updates.liveWebReload": {
+    "class": "brand",
+    "source": "cmux Live"
+  },
+  "liveWeb.failed": {
+    "class": "brand",
+    "source": "cmux Live: %@"
   }
 }
