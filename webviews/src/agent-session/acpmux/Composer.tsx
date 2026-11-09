@@ -257,6 +257,9 @@ export type ComposerWake = {
 
 type Props = {
   snapshot: AcpmuxSnapshot;
+  /// The harnesses the @ menu offers as read-only guests: only where the chat's daemon serves
+  /// them (App's `guestsHere`). Undefined: none.
+  guestHarnesses?: AcpmuxSnapshot["catalog"];
   /// The native tab's folder, which the header's PR chip describes. A fresh chat's folder pick
   /// (`projectDraft`) moves `snapshot`'s cwd but not the tab's until the chat starts, so the
   /// header's PR belongs to another folder then.
@@ -460,6 +463,7 @@ export function Composer(props: Props) {
 /// so its arguments can follow.
 function ComposerFrame({
   snapshot,
+  guestHarnesses,
   headerCwd,
   chips: Chips,
   onSend,
@@ -1264,9 +1268,9 @@ function ComposerFrame({
             recent: loadRecentMentionPaths(recentScope),
             sessions: snapshot.sessions,
             chatId,
-            harnesses: snapshot.catalog,
+            harnesses: guestHarnesses,
           }),
-    [mentionWord, mentionFiles, snapshot.sessions, snapshot.catalog, chatId, recentScope],
+    [mentionWord, mentionFiles, snapshot.sessions, guestHarnesses, chatId, recentScope],
   );
   // A chat whose folder cannot be searched (a remote chat) opens the picker only on a matching
   // chat; it never hints at a file search.
