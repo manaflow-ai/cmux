@@ -513,6 +513,7 @@ impl ClientRegistry {
                 owner_plugin,
                 #[cfg(unix)]
                 machine_catalog: None,
+                #[cfg(unix)]
                 started_tabs: HashSet::new(),
             },
         );
@@ -986,6 +987,7 @@ impl ClientRegistry {
     }
 
     /// Records that `client`'s own `agent-session-start` bound a chat to `surface`.
+    #[cfg(unix)]
     pub(super) fn remember_started_tab(&self, client: u64, surface: SurfaceId) {
         if let Some(record) = self.state.lock().recover_poison().clients.get_mut(&client) {
             record.started_tabs.insert(surface);
@@ -993,6 +995,7 @@ impl ClientRegistry {
     }
 
     /// Whether `client`'s own `agent-session-start` bound a chat to `surface`.
+    #[cfg(unix)]
     pub(super) fn started_tab(&self, client: u64, surface: SurfaceId) -> bool {
         self.state
             .lock()
