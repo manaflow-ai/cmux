@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42636780889",
+  "recorded_at": "2026-11-09T14:48:57Z",
+  "reason": "cmux-tui 8a35dd822474 changes the image's cmux-tui (pinned 76b1f8673e47)",
+  "dry_run": false,
+  "cmux_tui": "8a35dd8224748b74e1f36508f72dee6cb8bc183d",
+  "fixes": [
+    {
+      "sha": "8a35dd8224748b74e1f36508f72dee6cb8bc183d",
+      "mergedAt": "2026-11-09T06:12:54-08:00",
+      "subject": "Ledger: 1-hour cache writes in the CSV, and a tier-only usage report agrees with its price (#39577)"
+    },
+    {
+      "sha": "c07b620aaf37602c37df4544cd7f6e07b1033639",
+      "mergedAt": "2026-11-09T06:09:58-08:00",
+      "subject": "cmux-tui(W5-Q): agent start placement counts only live lifecycle words (follow-ups 1) (#39580)"
+    },
+    {
+      "sha": "cda41bdcb7889e4a383b06be3e9626325be0fbd0",
+      "mergedAt": "2026-11-09T06:09:03-08:00",
+      "subject": "cmux-tui/acpmux tests: four stale tests on feat (#39350, #39040, #39029 base reds) (#39589)"
+    },
+    {
+      "sha": "f0fc27336993bf2cf3e57900b9d9075efafab88b",
+      "mergedAt": "2026-11-09T06:01:51-08:00",
+      "subject": "cmux-host updater: the carrier read has a hard deadline, killing its process group (#39628)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T14:48:57Z",
+    "snapshot_id": "sh-234b18d44e8a41189077b1b921e97d4a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42636780889): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9f45a49ce6146ee9f4074a3df146f363d2f5c7b9",
+    "image": "cloud-native-auto-8a35dd82-42636780889-1",
+    "revision": "ci-42636780889-1",
+    "at": "2026-11-09T14:48:57Z"
+  },
+  "rolled_back": false
+}
