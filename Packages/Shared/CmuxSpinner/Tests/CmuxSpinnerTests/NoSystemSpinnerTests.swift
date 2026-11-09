@@ -8,7 +8,8 @@ import Testing
 /// a `.linear` style) is not a spinner. The Mac app's own sources (Packages/macOS/CmuxNext) have the
 /// ast-grep rule no-ad-hoc-spinner instead.
 @Suite struct NoSystemSpinnerTests {
-    private static let roots = ["cmux-next-ios", "Packages/Shared", "Packages/iOS"]
+    // feat-imsg-parity-gui migrates only CmuxConversation; feat-cmux-next's copy guards every iOS root.
+    private static let roots = ["Packages/iOS/CmuxConversation"]
     private static let skipped = ["/Tests/", "/UITests/", "/.build/", "/CmuxSpinner/"]
     private static var spinner: Regex<Substring> {
         #/ProgressView\(\s*\)|ProgressView\(\s*"|UIActivityIndicatorView\(|NSProgressIndicator\(/#
