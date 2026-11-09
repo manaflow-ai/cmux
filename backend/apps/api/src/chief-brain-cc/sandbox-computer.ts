@@ -216,7 +216,7 @@ const shot = async (b: ChiefBrainDO, id: string): Promise<string> => {
  * succeeds carries a note to look again first.
  *
  * The lease is checked when a Chief action starts: an action already running (a type of a long text, an exec) may
- * finish after the person takes over. A desktop setup checks again when its exec ends, before it writes anything: it
+ * finish after the person takes over, but what it captured (a screenshot, the window list) is dropped. A desktop setup checks again when its exec ends, before it writes anything: it
  * runs for minutes and would end the person's hold by making a computer.
  */
 export const CONTROL_KEY = "cc_computer_control"
@@ -306,7 +306,8 @@ export const computerVerb = async (b: ChiefBrainDO, id: string, state: string, r
     const r = await execAs(b, id, { command: script(SETUP), timeout_ms: 290_000, user: "root" })
     if (r.exit !== 0) return { status: 502, json: { error: `the desktop did not install (exit ${r.exit})`, stderr: r.stderr.slice(-2000) } }
     // The person took over while it ran: their lease and the computer they hold stay, and this sandbox does not replace it.
-    if (humanHasControl(b)) return humanHasControlRefusal(b)
+    // With no computer left (its TTL ended under an old hold) there is nothing of theirs to keep, as at the start of this verb.
+    if (computerOf(b) && humanHasControl(b)) return humanHasControlRefusal(b)
     const now = Date.now()
     const driver = /driver cua-driver/.test(r.stdout) ? "cua-driver" : "xdotool"
     // A new computer starts with the Chief in control.
@@ -338,14 +339,18 @@ export const computerVerb = async (b: ChiefBrainDO, id: string, state: string, r
     if (row.returned && now.returned && now.holder === "chief" && now.since_ms === row.since_ms) writeControl(b, { holder: "chief", since_ms: row.since_ms })
   }
   writeConfig(b.sql, { [COMPUTER_ACTIVE_KEY]: String(Date.now()) })
+  // What a look captured across a take-over is the person's: it never reaches the Chief.
+  const taken = () => mine && humanHasControl(b)
   if (op === "screenshot") {
     const image = await shot(b, id)
+    if (taken()) return humanHasControlRefusal(b)
     seen()
     return { status: 200, json: { screen: SCREEN, image, ...note } }
   }
   if (op === "windows") {
     const r = await execAs(b, id, { command: WINDOWS, timeout_ms: 30_000, user: "chief" })
     if (r.exit !== 0) return { status: 502, json: { error: `windows failed (exit ${r.exit})`, stderr: r.stderr.slice(-1000) } }
+    if (taken()) return humanHasControlRefusal(b)
     seen()
     return { status: 200, json: { windows: windowsOf(r.stdout), ...note } }
   }
@@ -353,8 +358,9 @@ export const computerVerb = async (b: ChiefBrainDO, id: string, state: string, r
   if (done.status !== 200) return done
   writeConfig(b.sql, { [COMPUTER_ACTIVE_KEY]: String(Date.now()) })
   seen()
-  // The screen after the action (the Chief looks before its next step), unless it asked for none.
-  return { status: 200, json: { done: op, screen: SCREEN, ...note, ...(req.shot === false ? {} : { image: await shot(b, id) }) } }
+  // The screen after the action (the Chief looks before its next step), unless it asked for none or the person took over.
+  const image = req.shot === false || taken() ? null : await shot(b, id)
+  return { status: 200, json: { done: op, screen: SCREEN, ...note, ...(image === null || taken() ? {} : { image }) } }
 }
 
 /**
