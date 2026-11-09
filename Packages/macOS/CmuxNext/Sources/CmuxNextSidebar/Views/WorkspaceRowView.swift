@@ -217,6 +217,7 @@ final class WorkspaceRowView: SidebarRowView {
         onToggleTree = nil
         onToggleAudio = nil
         title.stopMarquee()
+        title.cancelRoll()
         title.layer?.removeAnimation(forKey: "workspace-title-motion")
         lastTitle = nil
         titleArrivalGeneration &+= 1

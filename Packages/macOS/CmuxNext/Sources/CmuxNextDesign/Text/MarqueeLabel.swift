@@ -101,6 +101,9 @@ public final class MarqueeLabel: NSView {
     @discardableResult
     public func rollText(from old: String) -> Bool { gate.rollTitle(text, from: old, flipped: isFlipped, in: self) }
 
+    /// Ends a running roll at once (`MotionGate.cancelTitleRoll`).
+    public func cancelRoll() { gate.cancelTitleRoll(text) }
+
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         text.contentsScale = window?.backingScaleFactor ?? 2

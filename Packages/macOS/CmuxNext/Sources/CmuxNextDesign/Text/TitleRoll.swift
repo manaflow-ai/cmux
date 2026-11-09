@@ -57,7 +57,15 @@ extension MotionGate {
         return true
     }
 
-    /// A Gaussian blur at radius 0, named so `filters.blur.inputRadius` animates it.
+    /// Ends `text`'s roll at once: its outgoing words go and the title stands at rest. A recycled
+    /// row calls it, so a roll never carries one workspace's name over another's.
+    public func cancelTitleRoll(_ text: ChromeTextLayer) {
+        text.superlayer?.sublayers?.filter { $0.name == Self.rollOutName }.forEach { $0.removeFromSuperlayer() }
+        for key in ["opacity", "transform.translation.y", Self.blurPath] { text.removeAnimation(forKey: key) }
+        text.filters = nil
+    }
+
+, named so `filters.blur.inputRadius` animates it.
     private static func blur() -> [CIFilter] {
         guard let filter = CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: 0]) else { return [] }
         filter.name = "blur"

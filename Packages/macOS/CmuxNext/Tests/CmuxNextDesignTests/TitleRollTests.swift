@@ -46,6 +46,20 @@ import Testing
         #expect(host.sublayers?.contains { $0.name == MotionGate.rollOutName } != true)
     }
 
+    @Test func cancellingARollLeavesTheTitleAtRest() {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let host = CALayer()
+        let text = title("Fix login", in: host)
+        text.string = "Renamed"
+        #expect(Motion.sidebar.rollTitle(text, from: "Fix login", flipped: true, in: nil))
+        Motion.sidebar.cancelTitleRoll(text)
+        #expect(host.sublayers?.contains { $0.name == MotionGate.rollOutName } != true)
+        #expect(text.animation(forKey: "opacity") == nil)
+        #expect(text.animation(forKey: "transform.translation.y") == nil)
+        #expect(text.filters == nil)
+    }
+
     @Test func aSecondRenameReplacesTheFirstsOutgoingWords() {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
