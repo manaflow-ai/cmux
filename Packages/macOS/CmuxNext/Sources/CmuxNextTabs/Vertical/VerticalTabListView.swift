@@ -76,6 +76,8 @@ public final class VerticalTabListView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.tabGroup)
         setAccessibilityLabel(Strings.axStrip)
+        // Group headers draw their glass opaque under Reduce Transparency, a notification rather than an observed setting.
+        ReduceTransparency.shared.register(repainting: self)
         relayout()
     }
 

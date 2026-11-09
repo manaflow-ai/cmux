@@ -8,7 +8,7 @@ import QuartzCore
 /// sidebar group headers' tinted glass with a rim (#36225, ``GroupChipGlass``)
 /// unless `sidebar.groupHeader.background` asks for solid; the look changes
 /// only the pill's fill, rim and ink, never its size.
-final class TabGroupChipCell {
+final class TabGroupChipCell: ReduceTransparencyFollower {
     let layer = CALayer()
     let accessibility = TabAccessibilityElement()
 
@@ -92,6 +92,7 @@ final class TabGroupChipCell {
         accessibility.setAccessibilityRole(.disclosureTriangle)
         accessibility.setAccessibilitySubrole(nil)
         contentChanged()
+        ReduceTransparency.shared.register(following: self)
     }
 
     /// Takes its duration from the `Motion.transaction` it runs in.
@@ -215,12 +216,17 @@ final class TabGroupChipCell {
         let hairline = 1 / max(scale, 1)
         rim.frame = bounds
         rimStroke.frame = bounds
-        rimStroke.lineWidth = Metrics.lineWidth(hairline)
+        rimStroke.lineWidth = look.borders.width(hairline)
         let inset = bounds.insetBy(dx: hairline / 2, dy: hairline / 2)
         // CoreGraphics refuses a corner wider than half the rect.
         let corner = min(max(radius - hairline / 2, 0), max(min(inset.width, inset.height) / 2, 0))
         rimStroke.path = inset.width > 0 && inset.height > 0
             ? CGPath(roundedRect: inset, cornerWidth: corner, cornerHeight: corner, transform: nil) : nil
+    }
+
+    /// The pane goes opaque or back to glass with Reduce Transparency, which is a notification, not an observed setting.
+    func reduceTransparencyChanged() {
+        updateColors(animated: false)
     }
 
     func updateColors(animated: Bool) {
@@ -274,7 +280,10 @@ final class TabGroupChipCell {
         CATransaction.setDisableActions(true)
         rim.isHidden = colors == nil
         if let colors { rim.colors = [colors.top.cgColor, colors.bottom.cgColor] }
-        pill.borderWidth = border == nil ? 0 : Metrics.lineWidth(1)
+        // The look's borders, not a read at layout: a change to `appearance.borders` reaches the rim and border
+        // with the recolor, without waiting for a relayout.
+        rimStroke.lineWidth = look.borders.width(1 / max(scale, 1))
+        pill.borderWidth = border == nil ? 0 : look.borders.width(1)
         pill.borderColor = border?.cgColor
         CATransaction.commit()
     }

@@ -23,20 +23,28 @@ public nonisolated struct GroupChipGlass: Equatable, Sendable {
     public var palette: GroupPalette
     /// The desktop picture's color, read so the Wallpaper palette repaints the chips when it changes.
     public var wallpaper: WallpaperTint?
+    /// The gradient the Gradient palette steps through (`sidebar.groupGradient`), read so a change repaints the chips.
+    public var gradient: GroupGradient
+    /// Whether lines draw (`appearance.borders`), read so the chip's rim and border follow a change without relayout.
+    public var borders: Borders
 
     public init(glass: SidebarGroupGlass, background: SidebarGroupBackgroundStyle, palette: GroupPalette,
-                wallpaper: WallpaperTint? = nil) {
+                wallpaper: WallpaperTint? = nil, gradient: GroupGradient = .sunset,
+                borders: Borders = Borders(mode: .default)) {
         self.glass = glass
         self.background = background
         self.palette = palette
         self.wallpaper = wallpaper
+        self.gradient = gradient
+        self.borders = borders
     }
 
     /// The look the settings ask for now. Read inside an observation, it registers every setting the chip follows.
     @MainActor public static var current: GroupChipGlass {
         let sections = DesignSettings.shared.sidebarSections
         return GroupChipGlass(glass: SidebarGroupGlass.tunable.value, background: sections.groupHeaderBackground,
-                              palette: sections.groupPalette, wallpaper: DesignSettings.shared.groupWallpaperTint)
+                              palette: sections.groupPalette, wallpaper: DesignSettings.shared.groupWallpaperTint,
+                              gradient: sections.groupGradient, borders: Borders.current)
     }
 
     /// Whether the chip draws as glass: the headers' rule (`SidebarGroupBackgroundStyle.drawsGlass`).

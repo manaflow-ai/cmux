@@ -92,4 +92,43 @@ import Testing
         #expect(GroupChipGlass.current.glass == SidebarGroupGlass.tunable.value)
         #expect(SidebarGroupGlass.tunable.defaultValue == .vivid)
     }
+
+    /// A gradient or border change is part of the look, so the strip's observation hands it to the chip.
+    @Test func theLookCarriesTheGradientAndBorders() {
+        #expect(GroupChipGlass.current.gradient == DesignSettings.shared.sidebarSections.groupGradient)
+        #expect(GroupChipGlass.current.borders == Borders.current)
+        var other = Self.glass
+        other.gradient = GroupGradient.allCases.first { $0 != Self.glass.gradient } ?? Self.glass.gradient
+        #expect(other != Self.glass || GroupGradient.allCases.count == 1)
+    }
+
+    /// `appearance.borders: none` takes the rim's hairline away with the look, without a relayout.
+    @Test func bordersNoneRemovesTheRimWithoutRelayout() throws {
+        let scope = try #require(GroupPaletteDefaultTests.themes().first?.1)
+        let chip = Self.chip(.blue, scope: scope)
+        let stroke = try #require(chip.rim.mask as? CAShapeLayer)
+        #expect(stroke.lineWidth > 0)
+        var none = Self.glass
+        none.borders = Borders(mode: .none)
+        chip.look = none
+        #expect(stroke.lineWidth == 0)
+        chip.look = Self.glass
+        #expect(stroke.lineWidth > 0)
+    }
+
+    /// Reduce Transparency is a notification, not an observed setting: a live chip goes opaque with a hairline
+    /// when it turns on, and back to glass with its rim when it turns off.
+    @Test func aChipFollowsReduceTransparency() throws {
+        let scope = try #require(GroupPaletteDefaultTests.themes().first?.1)
+        let chip = Self.chip(.purple, scope: scope)
+        let saved = ReduceTransparency.shared.override
+        defer { ReduceTransparency.shared.override = saved }
+        ReduceTransparency.shared.override = false
+        #expect(!chip.rim.isHidden && chip.pill.borderWidth == 0)
+        ReduceTransparency.shared.override = true
+        #expect(chip.rim.isHidden && chip.pill.borderWidth > 0)
+        #expect(chip.pill.backgroundColor?.alpha == 1)
+        ReduceTransparency.shared.override = false
+        #expect(!chip.rim.isHidden && chip.pill.borderWidth == 0)
+    }
 }
