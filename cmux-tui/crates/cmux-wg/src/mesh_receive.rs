@@ -120,6 +120,12 @@ impl MeshDriver {
     /// the current key takes (the peer answered a probe from it): the peer
     /// moves there. False when that session does not take it (an answer to
     /// the retired session, or a forgery), which then goes on as usual.
+    ///
+    /// A cookie reply from that session's rate limiter is not a taken
+    /// response: it checked only MAC1, which anyone who knows this side's
+    /// public key computes. It goes to the sender, and the peer stays where
+    /// it is. True then (the datagram is handled): a response whose MAC1 is
+    /// keyed to the current key fails the retired session's MAC1 anyway.
     fn answer_on_current(
         &mut self,
         key: PeerKey,
@@ -130,6 +136,12 @@ impl MeshDriver {
         let Some(current) = peer.current.as_mut() else { return false };
         let from = source.map(|route| route.address().ip());
         match current.decapsulate(from, datagram, &mut self.scratch) {
+            TunnResult::WriteToNetwork(packet)
+                if classify(packet) == DatagramClass::WireGuardCookieReply =>
+            {
+                self.out.send(source, packet);
+                true
+            }
             TunnResult::WriteToNetwork(packet) => {
                 peer.move_to_current();
                 peer.authenticated(source, &self.local.networks, Instant::now());

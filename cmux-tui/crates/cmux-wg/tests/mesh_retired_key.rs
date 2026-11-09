@@ -146,17 +146,19 @@ fn initiation(private: [u8; 32], responder: [u8; 32]) -> Vec<u8> {
     }
 }
 
-/// An initiation's MAC1 (WireGuard: keyed BLAKE2s of the message so far, by
-/// the hash of "mac1----" and the responder's key), which anyone may compute.
+/// A handshake message's MAC1 (WireGuard: keyed BLAKE2s of the message up
+/// to its two MACs, by the hash of "mac1----" and the receiver's key), which
+/// anyone may compute; MAC2 is left empty.
 fn seal_mac1(message: &mut [u8], responder: [u8; 32]) {
     use blake2::digest::consts::U16;
     use blake2::digest::{Digest, KeyInit, Mac};
     let key =
         blake2::Blake2s256::new().chain_update(b"mac1----").chain_update(responder).finalize();
     let mut mac = <blake2::Blake2sMac<U16> as KeyInit>::new_from_slice(&key).expect("key");
-    Mac::update(&mut mac, &message[..116]);
-    message[116..132].copy_from_slice(&mac.finalize().into_bytes());
-    message[132..148].fill(0);
+    let body = message.len() - 32;
+    Mac::update(&mut mac, &message[..body]);
+    message[body..body + 16].copy_from_slice(&mac.finalize().into_bytes());
+    message[body + 16..].fill(0);
 }
 
 /// Whether `socket` gets any datagram within `wait`.
@@ -242,4 +244,88 @@ async fn a_probe_of_the_current_key_never_interrupts_the_retired_session() {
     assert!(within(a.mesh.probe_current(b.public)).await.unwrap());
     let mut fresh = within(a.mesh.connect(SocketAddr::new(overlay(2), LINK_PORT))).await.unwrap();
     echo_round_trip(&mut fresh, 512).await;
+}
+
+/// A handshake response to the current key naming a peer on the retired key,
+/// with a valid MAC1 and nothing else: past the current session's handshake
+/// rate, it is answered with a cookie challenge, which checked only that
+/// MAC1. The challenge goes to the sender; the peer stays on its retired
+/// session and is not moved to the current key.
+#[tokio::test]
+async fn a_cookie_challenge_to_a_forged_response_never_moves_the_peer() {
+    let (old_private, old_public) = random_keypair();
+    let a = retiring(overlay(1), old_private).await;
+    let (b_private, b_public) = random_keypair();
+    let b = WgPeer {
+        public_key: b_public,
+        preshared_key: None,
+        allowed_ips: vec![host(overlay(2))],
+        route: None,
+        candidates: Vec::new(),
+        persistent_keepalive: None,
+    };
+    within(a.mesh.add_peer_on_retired_key(b)).await.unwrap();
+
+    // B's session on the retired key; A's answer names the index A gave B.
+    let socket = UdpSocket::bind("127.0.0.1:0").await.expect("bind");
+    let mut tunn = Tunn::new(
+        x25519_dalek::StaticSecret::from(b_private),
+        x25519_dalek::PublicKey::from(old_public),
+        None,
+        None,
+        7,
+        None,
+    );
+    let mut scratch = [0u8; 256];
+    let TunnResult::WriteToNetwork(first) = tunn.format_handshake_initiation(&mut scratch, false)
+    else {
+        panic!("no initiation");
+    };
+    socket.send_to(first, a.udp).await.expect("send");
+    let mut buffer = [0u8; 256];
+    let (length, _) = within(socket.recv_from(&mut buffer)).await.expect("response");
+    let response = buffer.get(..length).expect("response").to_vec();
+    assert_eq!(response.first(), Some(&2), "A did not answer with a response");
+    let receiver: [u8; 4] =
+        response.get(4..8).and_then(|bytes| bytes.try_into().ok()).expect("index");
+    if let TunnResult::WriteToNetwork(keepalive) =
+        tunn.decapsulate(Some(a.udp.ip()), &response, &mut scratch)
+    {
+        socket.send_to(keepalive, a.udp).await.expect("send");
+    }
+
+    // Responses to A's current key from another address: MAC1 right, the
+    // rest garbage, until the current session's rate limiter challenges one.
+    let attacker = UdpSocket::bind("127.0.0.1:0").await.expect("bind");
+    let mut forged = [0u8; 92];
+    forged[0] = 2;
+    forged[4..8].copy_from_slice(&[1, 2, 3, 4]);
+    forged[8..12].copy_from_slice(&receiver);
+    forged[12..60].fill(0x5a);
+    seal_mac1(&mut forged, a.public);
+    let mut challenged = false;
+    for _ in 0..32 {
+        attacker.send_to(&forged, a.udp).await.expect("send");
+        let mut reply = [0u8; 256];
+        if let Ok(Ok((length, _))) =
+            timeout(Duration::from_millis(100), attacker.recv_from(&mut reply)).await
+        {
+            assert_eq!(
+                (reply.first(), length),
+                (Some(&3), 64),
+                "a forged response got more than a cookie"
+            );
+            challenged = true;
+            break;
+        }
+    }
+    assert!(challenged, "no forged response was challenged");
+
+    // Still on the retired key: a probe of the current key is not answered at
+    // once (it is for a peer already there) and goes unanswered.
+    let probed = timeout(QUIET, a.mesh.probe_current(b_public)).await;
+    assert!(
+        !matches!(probed, Ok(Ok(true))),
+        "a cookie challenge moved the peer to the current key"
+    );
 }

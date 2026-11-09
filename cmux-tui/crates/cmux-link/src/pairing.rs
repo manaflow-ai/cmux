@@ -129,7 +129,11 @@ impl Pairings {
         Ok(out)
     }
 
-    /// Write the file at `path` with mode 0600, replacing it atomically.
+    /// Write the file at `path` with mode 0600, replacing it atomically and
+    /// durably: the synced temporary file is renamed into place and then the
+    /// directory is synced, so once this returns the new file survives a
+    /// crash. A rekey is acknowledged on that (the peer then deletes its old
+    /// key), so a rename still only in the page cache is not enough.
     pub fn save(&self, path: &Path) -> io::Result<()> {
         let text = serde_json::to_string_pretty(self)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
@@ -139,7 +143,8 @@ impl Pairings {
         if result.is_err() {
             let _ = std::fs::remove_file(&temporary);
         }
-        result
+        result?;
+        sync_parent(path)
     }
 
     /// Add `record`, replacing a record with the same install or key.
@@ -218,6 +223,21 @@ fn unique_temporary(path: &Path) -> std::path::PathBuf {
     path.with_file_name(format!(".{name}.{}.{serial}.tmp", std::process::id()))
 }
 
+/// Sync the directory holding `path`, so a rename or removal in it survives a crash.
+#[cfg(unix)]
+fn sync_parent(path: &Path) -> io::Result<()> {
+    let dir = match path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir,
+        _ => Path::new("."),
+    };
+    std::fs::File::open(dir)?.sync_all()
+}
+
+#[cfg(not(unix))]
+fn sync_parent(_path: &Path) -> io::Result<()> {
+    Ok(())
+}
+
 #[cfg(unix)]
 fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     use std::io::Write;
@@ -290,5 +310,31 @@ mod tests {
         assert_eq!(taken.kind(), io::ErrorKind::AlreadyExists);
         assert_eq!(pairings.by_install("inst_b").unwrap().key(), Some([2; 32]));
         assert_eq!(pairings.rekey("inst_c", &[4; 32]).unwrap_err().kind(), io::ErrorKind::NotFound);
+    }
+
+    /// A save is durable only once its directory is synced: when the directory
+    /// cannot be opened to sync it, the save reports failure even though the
+    /// rename happened, so nothing is acknowledged on a rename a crash could undo.
+    #[cfg(unix)]
+    #[test]
+    fn a_save_whose_directory_cannot_be_synced_fails() {
+        use std::os::unix::fs::PermissionsExt;
+        // SAFETY: geteuid has no preconditions.
+        if unsafe { libc::geteuid() } == 0 {
+            return; // root opens any directory; the failure cannot be staged.
+        }
+        let directory = cmux_unix_socket::short_test_dir("pairsync");
+        let dir = directory.path().join("d");
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("peers.json");
+        let mut pairings = Pairings::default();
+        pairings.upsert(record("inst_a", 1)).unwrap();
+        pairings.save(&path).unwrap();
+        // Writable and searchable, not readable: create and rename work, opening it does not.
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o300)).unwrap();
+        pairings.upsert(record("inst_b", 2)).unwrap();
+        let saved = pairings.save(&path);
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(saved.map_err(|error| error.kind()), Err(io::ErrorKind::PermissionDenied));
     }
 }
