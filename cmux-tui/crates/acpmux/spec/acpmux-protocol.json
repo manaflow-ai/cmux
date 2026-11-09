@@ -2743,7 +2743,8 @@
         "inline": true,
         "model": true,
         "question": true,
-        "sessionId": true
+        "sessionId": true,
+        "targetHarness": true
       },
       "type": "object"
     },

@@ -119,7 +119,7 @@
     "_acpmux/stash_get": {"params": ["chat", "id"], "acpmux": []},
     "_acpmux/stash_drop": {"params": ["chat", "id"], "acpmux": []},
     "_acpmux/stash_move": {"params": ["chat", "to"], "acpmux": []},
-    "_acpmux/btw": {"params": ["sessionId", "question", "model", "inline"], "acpmux": []},
+    "_acpmux/btw": {"params": ["sessionId", "question", "model", "inline", "targetHarness"], "acpmux": []},
     "_acpmux/context": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/ledger": {"params": ["since", "until", "limit", "groupBy"], "acpmux": []},
     "_acpmux/review_queue": {"params": ["localOnly", "limit"], "acpmux": []},
