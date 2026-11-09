@@ -24,6 +24,11 @@ public enum PointerTopWindow {
     /// How many clear-band windows one answer looks through (one hover card today).
     static let maxPassThroughs = 4
 
+    /// Posted with the window under a clear band (object) when the pointer moves, enters or leaves the
+    /// band: that window hears no pointer event of its own there, so a hover that follows the pointer
+    /// itself (the layout's dividers) recomputes on it.
+    public static let pointerMovedInBand = Notification.Name("cmux.pointerTopWindow.pointerMovedInBand")
+
     /// The number of the window on top at `screenPoint` (0: none of any app).
     public static func number(at screenPoint: NSPoint) -> Int {
         number(at: screenPoint,

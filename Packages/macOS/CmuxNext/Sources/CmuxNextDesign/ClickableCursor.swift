@@ -37,7 +37,7 @@ open class ClickableButton: NSButton {
 
     /// `pointer(in:screenPoint:topWindowNumber:)` for the real pointer and window list.
     public static func currentPointer(in window: NSWindow) -> NSPoint? {
-        // A hover card's clear band covers nothing: the pointing hand shows over the x under it.
+        // A hover card's clear band covers nothing (`PointerClearBandWindow`).
         pointer(in: window, screenPoint: NSEvent.mouseLocation) { PointerTopWindow.number(at: $0) }
     }
 

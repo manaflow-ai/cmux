@@ -173,8 +173,21 @@ public final class PointerHover: NSObject {
         #if DEBUG
         if debugPointer(in: window) != nil { return true }
         #endif
-        let top = PointerTopWindow.number(at: NSEvent.mouseLocation)
+        let top = topWindowNumber()
         return top == window.windowNumber || passThrough.contains(top)
+    }
+
+    /// The top window under the pointer, asked once per refresh pass: every target of the pass reads the
+    /// same pointer, and each answer is a synchronous window server round trip (a move in a hover card's
+    /// band refreshes the window, `HoverCardPanel+PointerBand`).
+    private static var passTop: (point: NSPoint, number: Int)?
+
+    private static func topWindowNumber() -> Int {
+        let point = NSEvent.mouseLocation
+        if refreshing, let passTop, passTop.point == point { return passTop.number }
+        let number = PointerTopWindow.number(at: point)
+        if refreshing { passTop = (point, number) }
+        return number
     }
 
     // MARK: The owner
@@ -199,7 +212,10 @@ public final class PointerHover: NSObject {
             return
         }
         refreshing = true
-        defer { refreshing = false }
+        defer {
+            refreshing = false
+            passTop = nil
+        }
         var queue = [window]
         // Bounded: a hover that moves its own view away and back must not spin.
         var passes = 0

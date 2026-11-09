@@ -30,7 +30,8 @@ extension LayoutRootView {
         for token in keyWindowObservers { center.removeObserver(token) }
         keyWindowObservers = []
         guard isLive, let window else { return }
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+        // A move in a hover card's clear band over this window: the screens hear no move of their own there.
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, PointerTopWindow.pointerMovedInBand] {
             keyWindowObservers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.refreshDividerHover() } // main-proof: observer on queue: .main
             })
@@ -47,7 +48,7 @@ extension LayoutRootView {
         while let view = stack.popLast() {
             guard let root = view as? LayoutRootView else { stack.append(contentsOf: view.subviews); continue }
             report["pointer"] = root.context.hoverPointer(window).map { "\($0.x),\($0.y)" } ?? "none"
-            let top = NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0)
+            let top = PointerTopWindow.number(at: NSEvent.mouseLocation)
             let owner = NSApp.windows.first { $0.windowNumber == top }
             report["topmost"] = "\(top) key=\(window.windowNumber) ours=\(owner.map { String(describing: type(of: $0)) } ?? "no")"
                 + " reaches=\(root.context.hoverReaches(window, pointer: root.context.hoverPointer(window) ?? .zero))"

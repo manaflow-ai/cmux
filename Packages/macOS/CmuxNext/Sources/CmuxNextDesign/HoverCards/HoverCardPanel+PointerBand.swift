@@ -8,10 +8,12 @@ import AppKit
 ///
 /// Two parts: the hover's topmost check looks through the band (``PointerClearBandWindow``), and
 /// since the parent window hears no pointer moves while this window is over the point, a move,
-/// enter or exit in the band recomputes the parent's hover (`PointerHover.refresh(in:)`).
+/// enter or exit in the band recomputes the parent's hover (`PointerHover.refresh(in:)`) and tells
+/// the window's other hovers (`PointerTopWindow.pointerMovedInBand`: the layout's dividers).
 extension HoverCardPanel: PointerClearBandWindow {
+    /// Outside the drawn card (where a slide or morph has it now), as presses are forwarded there.
     func passesPointer(atScreen screenPoint: NSPoint) -> Bool {
-        ignoresMouseEvents || !isVisible || !presentedCardFrame.contains(screenPoint)
+        !isVisible || !presentedCardFrame.contains(screenPoint)
     }
 
     /// Tracks the pointer over the whole window while the card takes the mouse (an interactive card;
@@ -43,7 +45,7 @@ final class HoverCardBandRelay: NSObject {
     @objc(mouseExited:) func mouseExited(with event: NSEvent) {
         wasInBand = false
         guard let parent = panel?.parent else { return }
-        PointerHover.refresh(in: parent)
+        Self.refresh(parent)
     }
     @objc(mouseMoved:) func mouseMoved(with event: NSEvent) { relay(event) }
 
@@ -53,6 +55,13 @@ final class HoverCardBandRelay: NSObject {
         // A move inside the card covers the same views as the last one: nothing to recompute.
         guard inBand || wasInBand else { return }
         wasInBand = inBand
+        Self.refresh(parent)
+    }
+
+    /// The parent's chrome hover (`PointerHover`) and every other hover of the window that follows the
+    /// pointer on its own (the layout's dividers, `PointerTopWindow.pointerMovedInBand`).
+    private static func refresh(_ parent: NSWindow) {
         PointerHover.refresh(in: parent)
+        NotificationCenter.default.post(name: PointerTopWindow.pointerMovedInBand, object: parent)
     }
 }
