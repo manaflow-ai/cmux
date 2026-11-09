@@ -12,6 +12,14 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### One pin for the RESIZE hold and the upstream picks (ghostty-next)
+
+- Release branch `release/cmux-538a3e2e-resize-p0-22` at `b3a5ebfdf`: a `--no-ff` merge of
+  `release/cmux-538a3e2e-upstream-picks` (`8379ecc8a`) into `release/cmux-538a3e2e-resize-p0-16` (`7a372c740`). Both
+  branch from `538a3e2ef` (#86); the merge had no conflicts (the picks touch `render.zig` `RowBuilder.scan` and
+  `ref_counted_set.zig`; the hold touches `Terminal.zig`, `Termio.zig`, `stream_handler.zig`, the renderer's host frame).
+  The pin is this branch until #86, #87, #88, the P0 16 fix and #90 merge to fork `main`.
+
 ### A clear does not draw the grid (ghostty-next)
 
 - Release branch `release/cmux-538a3e2e-resize-p0-16` at `7a372c740` (red test `b3cd3811c`, on `8e881185b`); the pin is
@@ -48,6 +56,24 @@ When we change the fork, update this document and the parent submodule SHA.
   observer presents it in that refresh. cmux uses it for the resize hold (`TerminalFramePresenter`, RESIZE P0 12).
 - Conflict notes: touches `src/renderer/Metal.zig` next to #86's `hostFrameWaits`, `src/apprt/structs.zig` `HostFrame`
   and `include/ghostty.h` `ghostty_host_frame_e`.
+
+### Upstream terminal performance picks: style-run scan and RefCountedSet dead-ID reuse (ghostty-next)
+
+- Fork PR #90 (`lane/upstream-refcount-rowscan`, on `1740c4452`): `cherry-pick -m 1 -x` of upstream ghostty-org/ghostty
+  #15111 (merge `171a4e044`, with its regression fix `d1ce0c465`) and #15121 (merge `b5d9c93da`). The pin is the release
+  branch `release/cmux-538a3e2e-upstream-picks` at `8379ecc8a`: the same two picks on `538a3e2ef` (fork PR #86), so
+  #86 stays in the pin until both merge to fork `main`.
+- What: `src/terminal/render.zig` `RowBuilder.scan` finds a row's style runs in one pass; `src/terminal/ref_counted_set.zig`
+  `add` reuses a dead item's ID in place once every ID was handed out, instead of returning `NeedsRehash` (which made
+  every caller clone the whole page). Bench-only: `ghostty-bench +terminal-stream --scrollback-max-bytes` and a
+  `ghostty-gen +hyperlink` generator.
+- Why: Leo's dependency fork trawl (2026-11-07). `ghostty-bench`, 10 interleaved runs per binary, median ms:
+  terminal-stream 120x80 links 122.5 -> 81.8 (1.50x), styled-heavy 80.8 -> 49.9 (1.62x); screen-clone styled-heavy
+  render-locked 191.1 -> 147.6 (1.30x) at 120x80 and 135.9 -> 106.2 (1.28x) at 160x50. No row slower beyond noise.
+- Review: fork PR #90 got a different-family SHIP at `8352952d0` and merged to fork `main` as `e23cc1c36`. The release
+  branch commits are the same patches (`git patch-id --stable`: #15111 `e175f06dacd8` on `5083bc441` and `77fe41a73`,
+  #15121 `5557340f3480` on `8352952d0` and `8379ecc8a`), and `git diff 8352952d0 8379ecc8a` is exactly #86's diff.
+- Conflict notes: none; the next upstream sync brings both, so drop these picks then.
 
 ### An update draws at once while a host size's frame waits for the embedder's present (ghostty-next)
 

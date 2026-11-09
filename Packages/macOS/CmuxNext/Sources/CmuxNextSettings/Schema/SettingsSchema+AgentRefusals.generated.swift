@@ -126,7 +126,7 @@ extension SettingsSchema {
         // Privacy: whether banners show what agents said is the person's call.
         "notifications.showPreviews": .userOnly,
         // Battery and sleep are the person's call: an agent must not keep the Mac up for itself.
-        "sessions.keepAwake": .userOnly,
+        "sessions.keepAwake": .userOnly, "sessions.keepAwakeForCommands": .userOnly,
         // Whether agents start again by themselves after a restart is the person's call.
         "sessions.resumeAgents": .userOnly,
         // An agent must not let itself, or another agent, skip the person's approvals.
@@ -165,6 +165,8 @@ extension SettingsSchema {
         "macScreen.systemShortcuts": .userOnly,
         // cmux Remote: the person's call.
         "remote.endSharingOnQuit": .userOnly,
+        // Spends about 2 to 3 times the data on every remote connection; only the person turns it on.
+        "remote.ultraMode": .userOnly,
         // Changes how this Mac's Mac Screen streams leave the network; only the person sets it.
         "macScreen.debug.relayOnly": .userOnly,
         // Chooses the server this Mac registers its device keys with; only the person sets it.

@@ -109,14 +109,9 @@ export const sessionInfoStage = (
   overflow = 0,
 ): SessionInfoStage => {
   if (!pushes(placement)) {
-    // Wherever the column fits beside the whole panel, the chat moves left and centers in what the panel
-    // leaves, a wide pane too, as Codex's does (Lucas, 2026-11-06: "we need to make sure that the chat is
-    // centered when the session info is open"): floating in a wide gutter left it 348px from the pane's
-    // left and 20px from the panel at 1500px. A handoff review's wide form and a short pane's popover
-    // keep their own places.
-    const all = pushedWidth(pane.width, width) + FLOAT_MARGIN;
-    if (!wide && pane.width > 0 && !sessionInfoPopover(pane.height, true) && pushKeepsColumn(pane.width, all, column))
-      return "push";
+    // Where the gutter holds the panel, the chat does not move: it pushes only once there is no room
+    // left (Leo, 2026-11-09: "if it has enough space, then don't push the layout. Don't make it affect
+    // the layout. You only push when you don't have any space left").
     if (!sessionInfoOverChat(pane.width, width + (wide ? 0 : Math.max(0, overflow)), column, wide)) return "float";
     if (wide || sessionInfoPopover(pane.height, true) || !sessionInfoFits(pane.width)) return "overlay";
   }
@@ -193,13 +188,11 @@ export const pushedRoom = (paneWidth: number, panel: number, column?: ChatColumn
   // Panel widths are user-controlled and may be any pixel value. Keep the panel's own 8px inset exact
   // instead of rounding the whole room up: an odd drag width must not leave a gap (#33865).
   if (full) return all;
-  // Pushed, the column keeps its whole-pane width, centered in the chat (pinnedColumnEnd).
+  // Pushed, the column keeps its whole-pane width, centered in the chat (pinnedColumnEnd). It takes
+  // only the room the gutter lacks, never the whole panel's where less clears it (Leo, 2026-11-09: "You
+  // only push when you don't have any space left").
   const pinned = transcriptColumn(paneWidth, column).width;
   const edge = transcriptColumn(0, column).inset;
-  // Wherever the pinned column fits beside the whole panel, it takes the whole room: the chat is
-  // centered in what the panel leaves, as Codex's is (Lucas, 2026-11-06: "we need to make sure that
-  // the chat is centered when the session info is open, currently its a bit too shifted to the right").
-  if (paneWidth - all >= pinned + 2 * edge) return all;
   const end = paneWidth - panel - 2 * FLOAT_MARGIN - Math.max(0, overflow);
   if (columnEnd(paneWidth, column) <= end) return 0;
   if (paneWidth - all <= 0 || pinnedColumnEnd(paneWidth - all, pinned, edge) > end) return all;
@@ -210,9 +203,7 @@ export const pushedRoom = (paneWidth: number, panel: number, column?: ChatColumn
   while (room < all && pinnedColumnEnd(paneWidth - room, pinned, edge) > end) room += 2;
   // Once the chat would end under the panel itself (its page edge under the card), the whole room: the
   // chat's right edge, its scrollbar with it, is then the panel's left margin, as Push always draws it.
-  // A room within the margin of the panel is the whole room too: the pinned column only clears the panel
-  // in less where it nearly fits beside the whole of it, and a chat a few pixels off center there is not
-  // the centered push (Lucas, 2026-11-06); the stage is the overlay instead, as at every narrower pane.
+  // A room within the margin of the panel is the whole room too.
   return room > panel - FLOAT_MARGIN ? all : room;
 };
 /// The chat's content Session Info must never float over: the transcript's rows and the composer.

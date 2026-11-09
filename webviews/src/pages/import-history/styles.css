@@ -240,7 +240,6 @@
 }
 
 /* Notes under the list */
-.history-note,
 .history-safety {
   margin: var(--ds-space-3) 0 0;
   color: var(--page-text-2);

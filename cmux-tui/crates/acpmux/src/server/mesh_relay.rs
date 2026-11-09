@@ -236,6 +236,7 @@ async fn read_book(
 }
 
 /// How long a start's ack waits for the heartbeat that lists its new session.
+// timeout: past this the start acks without the listing heartbeat; the start never fails on it.
 const START_LISTED_WAIT: Duration = Duration::from_secs(5);
 
 /// A heartbeat on demand. A start through the hub acks only once a heartbeat that lists the new
@@ -377,6 +378,7 @@ async fn heartbeats(
         };
         let read_receipts = async {
             if let Some(hub) = hub.upgrade() {
+                // timeout: receipts not flushed by then go with a later heartbeat.
                 let budget = wait.min(Duration::from_secs(5));
                 let _ = tokio::time::timeout(budget, hub.flush_team_read_receipts(client.as_ref()))
                     .await;
@@ -408,6 +410,7 @@ async fn heartbeats(
         hub.set_mesh_book(Default::default(), Vec::new());
     }
     let last = Heartbeat { host, sessions: Vec::new(), leaving: true };
+    // timeout: the leaving heartbeat is best effort; the relay must still end.
     let _ = tokio::time::timeout(Duration::from_secs(5), client.heartbeat(&last)).await;
 }
 

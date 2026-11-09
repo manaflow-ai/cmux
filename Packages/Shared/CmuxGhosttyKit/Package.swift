@@ -172,6 +172,15 @@ import PackageDescription
 // ncurses (htop) writes its repaint after the clear in several reads, so the
 // first read's end showed a nearly empty frame (RESIZE P0 16).
 //
+// Since 538a3e2ef..8379ecc8a (fork PR #90, release branch
+// release/cmux-538a3e2e-upstream-picks): upstream #15111 (one-scan style runs
+// in RowBuilder.scan) and #15121 (RefCountedSet reuses dead IDs instead of
+// a whole-page clone), picked onto the #86 pin. ghostty-bench: 1.24-1.62x on
+// styled and hyperlink streams and render-state updates.
+//
+// b3a5ebfdf (release/cmux-538a3e2e-resize-p0-22) merges 8379ecc8a into
+// 7a372c740: both changes above in one pin (RESIZE P0 22).
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -195,8 +204,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-7a372c74075f9194900ee401b699d02d8fee5f9c-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "2e754da266ce884619ae777dd983a426e47ce24ad35e83c257829790abf74af9"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-b3a5ebfdfe700635696ea8f71e9dfc72e496ab82-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "007a462b6e99a96a21cbfe4d37756164494b5337f9482d3c25fe14da7cec9b8a"
         ),
     ]
 )

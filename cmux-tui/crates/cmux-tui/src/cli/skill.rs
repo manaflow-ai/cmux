@@ -111,7 +111,7 @@ pub(super) const RECIPES: &[Recipe] = &[
                startup dialog waits on the person; never answer it yourself. The name works \
                wherever a terminal, tab or pane selector goes. send pastes the task, presses \
                Enter, waits until the agent is idle and prints its new `output`; `state` is \
-               `idle`, or `waiting-for-input` when it shows a dialog (send refuses to type \
+               `idle`, or `blocked` when it shows a dialog (send refuses to type \
                into a dialog unless --force). cmux adds its hooks to `claude` and `codex` \
                started in a cmux terminal; nothing is written to ~/.claude or ~/.codex.",
     },
@@ -124,8 +124,9 @@ pub(super) const RECIPES: &[Recipe] = &[
         ],
         read: "wait --until ready: `state` `ready`, or `blocked` with `dialog` and `reason` \
                (exit 4). terminal list --agents: one record per agent with `name`, `harness`, \
-               `state`, `tab_id`, `pane_id` and `last_reply` (the agent's last answer, one \
-               line, at most 200 characters). screen read prints the screen as text \
+               `status` (blocked, working, done, idle, unknown; null when the session \
+               ended; `state` is a deprecated alias), `tab_id`, `pane_id` and `last_reply` \
+               (the agent's last answer, one line, at most 200 characters). screen read prints the screen as text \
                (--details or --json for the whole record).",
     },
     Recipe {
@@ -148,15 +149,39 @@ pub(super) const RECIPES: &[Recipe] = &[
             "cmux terminal <term> status",
         ],
         read: "terminal list --agents: one record per agent terminal of this session \
-               (`harness`, `state`, `terminal`, `workspace`, `title`). agent list --needs-me: \
-               the agents that wait on the person. status: what the program reports \
+               (`name`, `harness`, `status`, `terminal`, `workspace`, `title`). agent list \
+               --needs-me: the agents that wait on the person, with the same `name` and \
+               `status` words (`state` is a deprecated alias of `status`). status: what the program reports \
                (for a dialog: kind permission, state blocked, msg).",
+    },
+    Recipe {
+        ask: "Tell me when that agent is idle. / Wait until the workspace exists, then go on.",
+        commands: &[
+            "cmux --json agents events --until agent.state --match state=idle --match terminal_id=<term> --timeout 10m",
+            "cmux --json agents events --until workspace.changed --match name=<name> --timeout 30s",
+        ],
+        read: "--until names the event (agents events: KIND.CHANGE such as agent.state, \
+               dialog.opened; events: the app's name; a trailing * is a prefix) and \
+               --match PATH=VALUE checks its fields. It prints only that event and exits 0, \
+               or `timed_out: true` and exits 124. Start it before the action, or pass \
+               --after so events already past count; always pass --timeout.",
     },
     Recipe {
         ask: "Stop it. / Press Ctrl-C. / Answer the dialog with Escape.",
         commands: &["cmux terminal <term> keys ctrl+c", "cmux terminal <term> keys escape"],
         read: "keys sends named keys (`enter`, `escape`, `tab`, `up`, `ctrl+c`, ...). To type \
                text without Enter: `cmux terminal <term> write --text '...'`.",
+    },
+    Recipe {
+        ask: "Find the workspace called api. / Which workspaces are in ~/src/app?",
+        commands: &[
+            "cmux --json workspace list --name api",
+            "cmux --json workspace list --cwd ~/src/app",
+            "cmux --json terminal list --cwd ~/src/app",
+        ],
+        read: "--name keeps exact names (two workspaces may share one, which a `name:api` \
+               selector refuses as ambiguous); --cwd keeps the workspaces with a terminal in \
+               that folder or below it. No match is `[]`, exit 0. pane list takes both flags.",
     },
     Recipe {
         ask: "Zoom that pane. / Rename this workspace. / Open a new screen called api.",
