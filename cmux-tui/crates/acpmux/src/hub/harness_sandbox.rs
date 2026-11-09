@@ -29,9 +29,10 @@ pub(super) fn refusal(update: &Value) -> Option<String> {
     let blocks = update.get("content").and_then(Value::as_array)?;
     blocks.iter().take(BLOCKS).find_map(|block| {
         let text = block.pointer("/content/text").and_then(Value::as_str)?;
-        let head = text.char_indices().nth(SCAN).map_or(text, |(i, _)| &text[..i]);
+        let head =
+            text.char_indices().nth(SCAN).map_or(text, |(i, _)| text.get(..i).unwrap_or(text));
         let at = REFUSALS.iter().filter_map(|r| head.find(r)).min()?;
-        let line = head[at..].lines().next().unwrap_or_default();
+        let line = head.get(at..)?.lines().next().unwrap_or_default();
         Some(super::session::masked_preview(line, MAX_ERROR))
     })
 }
