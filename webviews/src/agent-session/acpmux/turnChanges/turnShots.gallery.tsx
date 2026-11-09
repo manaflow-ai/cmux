@@ -58,8 +58,10 @@ const showBefore: Play = async (ctx) => {
   await ctx.click({ selector: ".ui-compare-switch button" });
   await ctx.waitFor(() => ctx.document.querySelector('.ui-compare[data-showing="before"]'));
 };
+// The pair drawn once its read settles (the grow-in mark itself: test/turn-shots.test.tsx; a card
+// the stage mounts again draws a pair read before at once, unmarked).
 const arrive: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-turn-shots[data-arrived]"));
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-turn-shots .ui-compare"));
 };
 
 export default componentEntry<Props>({
