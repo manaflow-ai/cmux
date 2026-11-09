@@ -4095,5 +4095,22 @@ esac
                     self.assertIn("no verdict", done.stdout)
 
 
+class WorkflowFileSize(unittest.TestCase):
+    """GitHub starts no job of a workflow file over 500 KB (512,000 bytes): run 42653037410 (2026-11-09)
+    failed at once with "Workflow file exceeds the maximum allowed size of 500 KB" at 527,170 bytes, so
+    the change that grew the file had no checks at all. The budget is below that limit, so a change
+    that grows the file goes red here while its run still starts."""
+
+    BUDGET = 450_000
+
+    def test_the_workflow_is_within_its_byte_budget(self):
+        size = WORKFLOW.stat().st_size
+        self.assertLessEqual(
+            size, self.BUDGET,
+            f"{WORKFLOW.relative_to(ROOT)} is {size:,} bytes, over its {self.BUDGET:,}-byte budget (GitHub refuses"
+            " a workflow file over 512,000 bytes): move long notes to docs/ci/cmux-next-workflow-notes.md or a"
+            " long step script to a file under scripts/")
+
+
 if __name__ == "__main__":
     unittest.main()
