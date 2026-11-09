@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
+import * as chaos from "./cloud-chaos.ts";
 import { causeEndedAt, chaosProbeRow, countedSteps, countingTurnScript, countMarker, dropCommand, FAULTS, journalCommand, journalEvent, judgeLoss, judgeTerminal, NOT_INJECTED, relayCutCommand, SeqTerminal, sessionHostKillCommand, type ChaosResult, type SeqEvent, type TerminalRead } from "./cloud-chaos.ts";
 
 const ok = (fault: string, ms: number): ChaosResult => ({ fault, outcome: "ok", recover_ms: ms, carrier: "resumed the session", turn: "completed once", detail: "" });
@@ -314,11 +315,133 @@ describe("judgeTerminal", () => {
     const dir = mkdtempSync(join(tmpdir(), "chaos-seq-"));
     try {
       const file = join(dir, "seq.txt");
+      // With every pause made instant the hold loop runs out its bound at once, so the script ends.
       const r = spawnSync("sh", ["-c", SeqTerminal.script(3, file).replace(/sleep [0-9.]+/g, "true")], { encoding: "utf8" });
       expect(r.stdout).toBe(all(3));
       expect(sha(spawnSync("cat", [file], { encoding: "utf8" }).stdout)).toBe(sha(all(3)));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  // Codex review F2: the terminal exited during the 60 s drop, and a read after the exit answers with the snapshot.
+  test("the guest terminal stays alive after its last line until the leg releases it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "chaos-seq-"));
+    try {
+      const file = join(dir, "seq.txt");
+      const child = spawn("sh", ["-c", SeqTerminal.script(3, file).replace(/sleep 0\.1/g, "true")], { stdio: ["ignore", "pipe", "ignore"] });
+      let out = "";
+      let exited = false;
+      const exit = new Promise<void>((resolve) => child.on("exit", () => { exited = true; resolve(); }));
+      await new Promise<void>((resolve) => child.stdout!.on("data", (d) => { out += d; if (out === all(3)) resolve(); }));
+      // Every line is out, the tee'd copy is whole, and the terminal has not ended.
+      await new Promise((r) => setTimeout(r, 1_500));
+      expect(exited).toBe(false);
+      expect(spawnSync("cat", [file], { encoding: "utf8" }).stdout).toBe(all(3));
+      // The leg's release ends it.
+      const release = spawnSync("sh", ["-c", chaos.SeqTerminal.releaseCommand(file)], { encoding: "utf8" });
+      expect(release.status).toBe(0);
+      await exit;
+      expect(exited).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a read after the terminal ended that answers with the snapshot from offset 0 replaces what was read: no loss", () => {
+    const text = pty(50);
+    const r = reads(text, 17).slice(0, 4);
+    // The terminal exits; the next read from r[3].next comes back as the snapshot's projection, from 0, to the end.
+    const snapshot: TerminalRead = { after: r[3].next, start: 0, next: text.length + 20, complete: true, text: all(50) };
+    const drained: TerminalRead = { after: snapshot.next, start: snapshot.next, next: snapshot.next, complete: true, text: "" };
+    const v = judgeTerminal({ n: 50, reads: [...r, snapshot, drained], machineSha256: sha(all(50)), sha256: sha });
+    expect(v.text).toContain("all 50 lines");
+    expect(v.text).toContain("1 snapshot");
+    expect(v.ok).toBe(true);
+  });
+
+  test("a snapshot that lost lines, or a chunk that really came back again, still fails", () => {
+    const text = pty(50);
+    const r = reads(text, 17).slice(0, 4);
+    const short: TerminalRead = { after: r[3].next, start: 0, next: text.length, complete: true, text: all(40) };
+    expect(judgeTerminal({ n: 50, reads: [...r, short], machineSha256: sha(all(50)), sha256: sha }).ok).toBe(false);
+    // A live read that starts inside what was already read (not a snapshot from 0) repeats bytes.
+    const repeated = reads(text, 17);
+    repeated[3] = { ...repeated[3], start: repeated[3].after - 6, text: text.slice(repeated[3].after - 6, repeated[3].next) };
+    const v = judgeTerminal({ n: 50, reads: repeated, machineSha256: sha(all(50)), sha256: sha });
+    expect(v.ok).toBe(false);
+    expect(v.text).toContain("repeated 6 bytes");
+    // A response from 0 that is not complete is not a snapshot the client may take in place of what it read.
+    const partial: TerminalRead = { after: r[3].next, start: 0, next: text.length, complete: false, text: all(50) };
+    expect(judgeTerminal({ n: 50, reads: [...r, partial], machineSha256: sha(all(50)), sha256: sha }).ok).toBe(false);
+    // A response from 0 that ends before the offset asked for answers nothing past it.
+    const behind: TerminalRead = { after: r[3].next, start: 0, next: r[3].next - 1, complete: true, text: all(5) };
+    expect(judgeTerminal({ n: 50, reads: [...r, behind], machineSha256: sha(all(50)), sha256: sha }).ok).toBe(false);
+  });
+});
+
+// Codex review F1: a session host restart restores the mux with new numeric surface ids; the chat's tab id stays.
+describe("the chat's surface after a restart", () => {
+  const tree = (tabs: Array<Record<string, unknown>>) => ({ ok: true, data: { workspaces: [{ id: 1, screens: [{ panes: [{ id: 2, tabs }] }] }] } });
+  const agent = (session: string) => ({ agent_session: { host: "registry:r", session, harness: "claude", host_name: null } });
+  test("resolves the stable tab id to the tab's current surface", async () => {
+    const asked: any[] = [];
+    const request = async (frame: Record<string, unknown>) => {
+      asked.push(frame);
+      return tree([{ surface: 3, tab_resource_id: "tab_other", conversation: agent("s-1") }, { surface: 42, tab_resource_id: "tab_chat", conversation: agent("s-1") }]);
+    };
+    expect(await chaos.resolveChatSurface(request, "tab_chat", "s-1")).toBe(42);
+    expect(asked).toEqual([{ cmd: "list-workspaces" }]);
+  });
+  test("with no tab id it finds the tab bound to the chat's session, the lowest surface when several are", async () => {
+    const request = async () => tree([{ surface: 9, conversation: agent("s-1") }, { surface: 5, conversation: agent("s-1") }, { surface: 2, conversation: agent("s-2") }]);
+    expect(await chaos.resolveChatSurface(request, "", "s-1")).toBe(5);
+    expect(await chaos.resolveChatSurface(request, "tab_gone", "s-1")).toBe(5);
+  });
+  test("a tab that is gone is null, and a refused list is an error", async () => {
+    expect(await chaos.resolveChatSurface(async () => tree([{ surface: 1, tab_resource_id: "tab_x" }]), "tab_chat", "s-1")).toBeNull();
+    await expect(chaos.resolveChatSurface(async () => ({ ok: false, error: "nope" }), "tab_chat", "s-1")).rejects.toThrow();
+  });
+
+  /** A fake carrier dial: answers the chat's requests from `answer`, records every frame, and redials on demand. */
+  const fakeDial = (answer: (frame: any) => any) => {
+    const frames: any[] = [];
+    let onDial: () => void = () => undefined;
+    const dial = {
+      dials: 0,
+      start() { this.dials += 1; queueMicrotask(() => onDial()); },
+      async request(frame: any) { frames.push(frame); return { ok: true, data: answer(frame) }; },
+      stop() {},
+    };
+    return { frames, dial, make: (_onLine: (m: any) => void, d: () => void) => { onDial = d; return dial; }, redial: () => onDial() };
+  };
+
+  test("after a redial the chat attaches, and prompts, on the tab's new surface", async () => {
+    let surface = 7;
+    const f = fakeDial((frame) => {
+      switch (frame.cmd) {
+        case "identify": return { registry_id: "r" };
+        case "create-workspace": return { workspace: 1 };
+        case "new-conversation-tab": return { surface: 7, tab_resource_id: "tab_chat" };
+        case "agent-session-start": return { session: "s-1" };
+        case "list-workspaces": return tree([{ surface, tab_resource_id: "tab_chat", conversation: agent("s-1") }]).data;
+        case "agent-session-attach": return { lastSeq: 10, events: [], hasMore: false };
+        default: return {};
+      }
+    });
+    const chat = new chaos.ChatClient({ cmux: "", env: {}, machine: "m", exec: async () => ({ code: 0, stdout: "", stderr: "" }), guest: "", session: "", tag: "t" }, f.make);
+    await chat.open("claude");
+    expect(chat.surface).toBe(7);
+    // The session host restarted: its mux came back with new surface ids, and the client's dial was dialed again.
+    surface = 31;
+    f.frames.length = 0;
+    f.redial();
+    await chat.caughtUp(10, 5_000);
+    const attach = f.frames.find((x) => x.cmd === "agent-session-attach");
+    expect(attach?.surface).toBe(31);
+    expect(chat.surface).toBe(31);
+    await chat.prompt("hi");
+    expect(f.frames.find((x) => x.cmd === "agent-session-prompt")?.surface).toBe(31);
+    chat.stop();
   });
 });
