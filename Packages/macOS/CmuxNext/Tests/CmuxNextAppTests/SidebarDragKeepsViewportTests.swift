@@ -49,6 +49,11 @@ struct SidebarDragKeepsViewportTests {
         list.scrollClip(to: end, animated: false)
         try #require(end > 100 && abs(clip.bounds.minY - end) < 0.5, "the sidebar did not scroll to its end \(end), it is at \(clip.bounds.minY)")
         let offset = clip.bounds.minY
+        // As the app's bridge does: a select redraws the list in the same turn, before the drag goes on.
+        model.onIntent = { [unowned model, unowned list] intent in
+            model.apply(intent)
+            list.reload(animated: false)
+        }
 
         // A press on the second-to-last row switches to it, then moves past the drag threshold: the row lifts.
         list.leftButtonIsDown = { true }

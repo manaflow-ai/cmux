@@ -102,7 +102,12 @@ extension SidebarListViewComponents {
     /// up or to the bottom"). A row pressed near the bottom of a scrolled list, with the shown workspace far above,
     /// scrolled the list there as the drag lifted.
     func restorePressSelection(_ before: (shown: WorkspaceID?, selection: Set<WorkspaceID>), pressed id: WorkspaceID) {
-        if let shown = before.shown, shown != model.activeWorkspaceID { model.click(shown) }
+        // Marked revealed before the click: in the app the click's select redraws the list in the same turn
+        // (`SidebarSameTurn.syncNow`), and that reload must see the put-back as no focus change too.
+        if let shown = before.shown, shown != model.activeWorkspaceID {
+            revealedActive = .workspace(shown)
+            model.click(shown)
+        }
         model.selection = before.selection
         revealedActive = selectionRevealKey
         if !patchSelection(from: .workspace(id), oldSelection: [id]) { reload(animated: false) }
