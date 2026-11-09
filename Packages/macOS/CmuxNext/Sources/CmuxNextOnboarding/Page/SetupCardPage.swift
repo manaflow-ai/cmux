@@ -129,6 +129,7 @@ public final class SetupCardPageProvider: PageProvider {
         self.setup = setup
         self.agents = setup.agents(source: agents)
         self.environment = environment
+        setup.cardOpened()
         self.agents.start()
         readCLI()
         // task-owner: one read of the chat sources at start; stop() cancels it.
@@ -140,10 +141,16 @@ public final class SetupCardPageProvider: PageProvider {
     }
 
     /// The card's own reads end; the shared agents model (``FirstRunSetup/agents(source:)``) and its install go on.
+    /// A classic import asking on this card's row goes back to the dialog when no other card is drawn.
     func stop() {
         cliRead?.cancel()
         historyRead?.cancel()
+        guard !stopped else { return }
+        stopped = true
+        setup.cardClosed()
     }
+
+    @ObservationIgnored private var stopped = false
 
     private func readCLI() {
         cliRead?.cancel()
@@ -181,7 +188,7 @@ public final class SetupCardPageProvider: PageProvider {
         guard let offer = setup.classic else { return .null }
         var wire: [String: JSONValue] = [
             "workspaces": .number(Double(offer.workspaces)), "app": .string(offer.app), "savedAt": .number(offer.savedAt * 1000),
-            "running": .bool(offer.running), "resumes": .bool(offer.sshWorkspaces + offer.agentChats > 0),
+            "running": .bool(offer.running), "resumes": .bool(offer.resumes),
         ]
         switch setup.classicAnswer {
         case .accepted: wire["answered"] = .string("imported")

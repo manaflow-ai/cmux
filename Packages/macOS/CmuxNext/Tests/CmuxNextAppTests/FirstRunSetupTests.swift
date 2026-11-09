@@ -375,6 +375,35 @@ import Testing
         #expect(await again.value == .declined && after.dialogs == 1, "with no card, the launch asks with its dialog")
     }
 
+    /// A card that shows but is drawn nowhere (its page could not be made, or its window closed mid-ask) never holds
+    /// the migration: with no card drawn the dialog asks at once, and the last card closing hands an ask to it.
+    @Test func withNoCardDrawnTheDialogAsks() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+        let none = LaunchRun()
+        let first = none.start(setup)
+        await until { none.gated }
+        none.ask()
+        #expect(await first.value == .declined && none.dialogs == 1 && setup.classic == nil, "no card drawn: the dialog")
+
+        let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: Self.quiet)
+        let closing = LaunchRun()
+        let second = closing.start(setup)
+        await until { closing.gated }
+        closing.ask()
+        await until { setup.classic != nil }
+        provider.stop()
+        provider.stop()
+        #expect(await second.value == .declined && closing.dialogs == 1, "the card closed mid-ask: the dialog")
+        #expect(setup.classic == nil && setup.shows)
+    }
+
+    /// A browser-only import still says what Import also does (it loads the saved pages).
+    @Test func aBrowserOnlyImportSaysItLoadsPages() {
+        #expect(FirstRunSetup.ClassicOffer(workspaces: 1, app: "cmux", savedAt: 0, running: false, browserTabs: 2).resumes)
+        #expect(!FirstRunSetup.ClassicOffer(workspaces: 1, app: "cmux", savedAt: 0, running: false).resumes)
+    }
+
     /// A test's answer (`classicMigrationConfirmation`) wins over the card's row.
     @Test func aTestsAnswerWinsOverTheCard() async throws {
         let setup = FirstRunSetup(defaults: try defaults())

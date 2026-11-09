@@ -81,19 +81,23 @@ public final class FirstRunSetup {
         /// When it saved (seconds since 1970), and whether that app is still open (its autosave, not its quit save).
         public var savedAt: Double
         public var running: Bool
-        /// Import reconnects these and resumes these, so the row says so.
+        /// Import loads these pages, reconnects these hosts and resumes these chats, so the row says so first.
+        public var browserTabs: Int
         public var sshWorkspaces: Int
         public var agentChats: Int
 
-        public init(workspaces: Int, app: String, savedAt: Double, running: Bool, sshWorkspaces: Int = 0, agentChats: Int = 0) {
+        public init(workspaces: Int, app: String, savedAt: Double, running: Bool, browserTabs: Int = 0, sshWorkspaces: Int = 0, agentChats: Int = 0) {
             (self.workspaces, self.app, self.savedAt, self.running) = (workspaces, app, savedAt, running)
-            (self.sshWorkspaces, self.agentChats) = (sshWorkspaces, agentChats)
+            (self.browserTabs, self.sshWorkspaces, self.agentChats) = (browserTabs, sshWorkspaces, agentChats)
         }
 
         public init(_ plan: ClassicImportPlan) {
             self.init(workspaces: plan.workspaces.count, app: plan.source.appName, savedAt: plan.savedAt, running: plan.classicRunning,
-                      sshWorkspaces: plan.sshWorkspaces, agentChats: plan.agentChats)
+                      browserTabs: plan.browserTabs, sshWorkspaces: plan.sshWorkspaces, agentChats: plan.agentChats)
         }
+
+        /// Import does more than make workspaces: it loads pages, connects to hosts or resumes chats.
+        public var resumes: Bool { browserTabs + sshWorkspaces + agentChats > 0 }
     }
 
     /// The cmux Classic row's offer while the launch's import asks, and after it was answered.
@@ -103,7 +107,10 @@ public final class FirstRunSetup {
     /// The launch's classic migration has not decided yet whether it asks: the card does not end before it has,
     /// so a migration that reads slowly cannot lose its row (as the chat history row waits for its read).
     public private(set) var awaitsClassic = false
-    @ObservationIgnored private var classicReply: CheckedContinuation<ClassicImportAnswer, Never>?
+    /// The answer to the ask on the row: nil when no card is left to ask on (the dialog asks then).
+    @ObservationIgnored private var classicReply: CheckedContinuation<ClassicImportAnswer?, Never>?
+    /// The cards drawn now (``SetupCardPageProvider``s not stopped): the row asks only while one is.
+    @ObservationIgnored private var cardsOpen = 0
 
     /// Runs the launch's classic migration (`run`, given its confirmation): while the card shows, the card waits for
     /// it and its cmux Classic row asks (``askClassic(_:)``); otherwise `dialog` asks, as before. `seam` (a test's
@@ -122,12 +129,28 @@ public final class FirstRunSetup {
 
     /// The launch's classic import asks on the cmux Classic row: the answer is the person's own click there (Import,
     /// or Skip, a No the migration keeps), or unanswered when the card leaves first (Hide: the next launch asks
-    /// again). Nil when the card does not show: the caller asks with its dialog, as before.
+    /// again). Nil when no card is drawn (none shows, or its page could not be made), or the last one drawn closes
+    /// before an answer: the caller asks with its dialog, as before, so the migration never waits on nothing.
     public func askClassic(_ offer: ClassicOffer) async -> ClassicImportAnswer? {
-        guard shows, classicReply == nil else { return nil }
+        guard shows, cardsOpen > 0, classicReply == nil else { return nil }
         classic = offer
         classicAnswer = nil
-        return await withCheckedContinuation { classicReply = $0 }
+        let answer = await withCheckedContinuation { classicReply = $0 }
+        if answer == nil { classic = nil }
+        return answer
+    }
+
+    /// A card's provider started (``SetupCardPageProvider``).
+    func cardOpened() {
+        cardsOpen += 1
+    }
+
+    /// A card's provider stopped; with none left, an ask on the row goes back to the dialog.
+    func cardClosed() {
+        cardsOpen = max(0, cardsOpen - 1)
+        guard cardsOpen == 0, let reply = classicReply else { return }
+        classicReply = nil
+        reply.resume(returning: nil)
     }
 
     /// The cmux Classic row's button (Import or Skip), on the person's click; nothing when no import asks.
