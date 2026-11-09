@@ -135,6 +135,20 @@ pub fn resolve_env_refs(
     Ok(())
 }
 
+/// The names `${env:NAME}` references in `env`'s values read from the login environment.
+pub fn env_ref_names(env: &BTreeMap<String, String>) -> Vec<String> {
+    let mut names = Vec::new();
+    for value in env.values() {
+        let mut rest = value.as_str();
+        while let Some((_, after)) = rest.split_once("${env:") {
+            let Some((name, tail)) = after.split_once('}') else { break };
+            names.push(name.to_owned());
+            rest = tail;
+        }
+    }
+    names
+}
+
 /// Whether any env value holds a reference that must be resolved.
 pub fn has_env_refs(env: &BTreeMap<String, String>) -> bool {
     env.values().any(|v| is_reference(v))

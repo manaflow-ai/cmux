@@ -1851,13 +1851,14 @@ impl Hub {
                 "machine environment changed; login env refresh failed",
             ));
         }
-        let cmd = crate::agent::harness_command(
+        let cmd = crate::agent::harness_command_ready(
             &meta.harness,
             profile,
             &meta.cwd,
             command_line,
             Some((&session.id, &meta.name)),
         )
+        .await
         .map_err(internal)?;
         self.record_preview_format(session, crate::agent::pinned_preview_format(&cmd));
         let std_cmd = cmd.as_std();

@@ -39,6 +39,47 @@ fn claude_name_args(
     if name.is_empty() || remote || own { Vec::new() } else { vec!["--name".into(), name.into()] }
 }
 
+/// `harness_command` for a spawn, the one every spawn path builds: when its
+/// final env plan takes a login value only the shell holds (a cached start),
+/// wait for the shell (at most `login_env::TIMEOUT`) and build it again with
+/// the read's values; a base URL or `${env:X}` it still lacks refuses the
+/// start (`login_env::ChildEnv`). A name the plan sets, unsets or never
+/// inherits (a route's unset, a remote-origin launch) never waits; one a
+/// scrub removes and the login import restores does. A read that ends while
+/// the command is built builds it again (`login_env::build_ready`).
+pub(crate) async fn harness_command_ready(
+    name: &str,
+    profile: &HarnessProfile,
+    cwd: &std::path::Path,
+    command_line: Option<(String, Vec<String>)>,
+    session: Option<(&str, &str)>,
+) -> Result<Command> {
+    let family = crate::config::derive_family(name, profile);
+    let mut plan = crate::login_env::ChildEnv {
+        family: &family,
+        profile: Some(&profile.env),
+        remote: profile.env.get(REMOTE_ENV_POLICY_KEY).map(String::as_str) == Some("1"),
+        explicit: None,
+    };
+    crate::login_env::build_ready(
+        &mut plan,
+        || harness_command(name, profile, cwd, command_line.clone(), session),
+        explicit_env,
+        |e| anyhow!(e),
+    )
+    .await
+}
+
+/// The env changes `cmd` makes: a name it sets, or removes (`None`).
+pub(crate) fn explicit_env(cmd: &Command) -> Vec<(String, Option<String>)> {
+    cmd.as_std()
+        .get_envs()
+        .map(|(k, v)| {
+            (k.to_string_lossy().into_owned(), v.map(|v| v.to_string_lossy().into_owned()))
+        })
+        .collect()
+}
+
 /// The harness command line and environment, as acpmux runs it: the login
 /// environment, no nested-agent markers, the session's `ACPMUX_*` caller
 /// context, and the profile's env. Shared by direct children and hosts.
@@ -858,6 +899,11 @@ mod tests {
             super::super::foreign_login::foreign_login_keys("opencode").any(|k| k == key)
         };
         assert!(!opencode_loses("ANTHROPIC_API_KEY") && !opencode_loses("OPENAI_API_KEY"));
+        // A provider key in the daemon's own env reaches OpenCode, never Claude Code or Codex.
+        for key in ["OPENROUTER_API_KEY", "GROQ_API_KEY"] {
+            assert!(removed(&claude, key) && removed(&codex, key), "{key} reaches Claude or Codex");
+            assert!(!removed(&opencode, key), "OpenCode loses {key}");
+        }
         // A value the profile sets is the person's choice and passes.
         let chosen =
             profile(HarnessKind::Acp, "codex-acp", serde_json::json!({"ANTHROPIC_API_KEY": "own"}));
