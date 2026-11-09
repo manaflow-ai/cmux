@@ -12,7 +12,7 @@ import { pillAsks } from "./needsYou/jumpPillModel";
 import { needsYouItems } from "./needsYou/model";
 import { promptSuggestion } from "./promptSuggestion";
 import { hatQuestions } from "./question/hatModel";
-import { noteReplaced, SessionIndex, sessionIndex, type SessionMark } from "./sessionIndex";
+import { noteReplaced, replacedSince, SessionIndex, sessionIndex, STEPS, type SessionMark } from "./sessionIndex";
 import { folderFields, recentLocalFolders, sessionEntry, SessionsBy, type AcpmuxSessionEntry } from "./sessionList";
 import { SessionHoverStore } from "./started/sessionHover";
 import { SubsessionStore } from "./subagents/subsessions";
@@ -240,4 +240,22 @@ test("a page that lists one session twice in place of another drops the one it l
   expect(hover.get("s2")).toBeUndefined();
   expect(subsessions.get("s2")).toBeUndefined();
   expect(subsessions.has("s2")).toBe(false);
+});
+
+test("a list keeps only the last few lists it was made from alive", () => {
+  const lists: AcpmuxSessionEntry[][] = [Array.from({ length: 10 }, (_, index) => counted(index))];
+  for (let change = 0; change < 1000; change++) {
+    const next = lists.at(-1)!.slice();
+    next[change % 10] = counted(change % 10, { title: `Renamed ${change}` });
+    noteReplaced(lists.at(-1)!, next, [change % 10]);
+    lists.push(next);
+  }
+  const last = lists.length - 1;
+  // The newest list still finds the ones just before it, at the positions replaced since.
+  expect(replacedSince(lists[last - 3], lists[last])).toEqual([9, 8, 7]);
+  // The record that joined a list STEPS back to the one before it is gone, so nothing older stays
+  // reachable from the newest list; one further back was cut long ago.
+  expect(replacedSince(lists[last - STEPS - 1], lists[last - STEPS])).toBeUndefined();
+  expect(replacedSince(lists[499], lists[500])).toBeUndefined();
+  expect(replacedSince(lists[last - STEPS + 1], lists[last - STEPS + 2])).toEqual([(last - STEPS + 1) % 10]);
 });

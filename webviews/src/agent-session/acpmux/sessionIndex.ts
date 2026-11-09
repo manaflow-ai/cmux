@@ -118,13 +118,24 @@ function sortedIndex(positions: readonly number[], at: number): number {
 /// place by entries of the same ids (direct.ts `sessionEntryList`).
 const madeFrom = new WeakMap<readonly unknown[], { from: readonly unknown[]; at: readonly number[] }>();
 
-/// Records that `to` is `from` with the entries at `at` replaced in place, same ids.
+/// How many recorded steps back `replacedSince` looks before it gives up, and how many earlier lists
+/// a list keeps reachable through its records.
+export const STEPS = 16;
+
+/// Records that `to` is `from` with the entries at `at` replaced in place, same ids. Each record
+/// holds its earlier list, so the chain is cut `STEPS` back: a list keeps at most `STEPS` earlier
+/// lists (and their indexes) alive, however many changes came before (review of #39379, F1: a
+/// pane open through thousands of changes kept every list it had shown). O(STEPS) per record.
 export function noteReplaced<T>(from: readonly T[], to: readonly T[], at: readonly number[]): void {
   madeFrom.set(to, { from, at });
+  let list: readonly unknown[] = to;
+  for (let steps = 0; steps < STEPS; steps++) {
+    const step = madeFrom.get(list);
+    if (!step) return;
+    list = step.from;
+  }
+  madeFrom.delete(list);
 }
-
-/// How many recorded steps back `replacedSince` looks before it gives up.
-const STEPS = 64;
 
 /// The positions at which `to` differs from `from`, when `to` was made from it by in-place
 /// replacements (`noteReplaced`, up to `STEPS` of them): O(steps), no entry read. Undefined when no
