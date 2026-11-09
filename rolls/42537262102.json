@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42537262102",
+  "recorded_at": "2026-11-09T00:00:54Z",
+  "reason": "cmux-tui 3343dd4eabad changes the image's cmux-tui (pinned c9c9558f12bd)",
+  "dry_run": false,
+  "cmux_tui": "3343dd4eabad1125762ddb9242e96b6842070dbc",
+  "fixes": [
+    {
+      "sha": "c71e035b8f3d67173157871321ca7cc2577e4adc",
+      "mergedAt": "2026-11-08T15:35:54-08:00",
+      "subject": "remote: a failed first connect recovers like a later drop instead of exiting (#38972)"
+    },
+    {
+      "sha": "930c32b77a1c4bb4029fb9c03c3faa7728f9cb5f",
+      "mergedAt": "2026-11-08T15:34:21-08:00",
+      "subject": "acpmux request_stack: rows for chat.fix_from_link and its prepare (red since #38625) (#38973)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T00:00:54Z",
+    "snapshot_id": "sh-c646028763ba45d1bd0d997deb6cb0e8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42537262102): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3abd04a2f23fd7820ea3d2d704ec6c9d4df8d5e9",
+    "image": "cloud-native-auto-3343dd4e-42537262102-1",
+    "revision": "ci-42537262102-1",
+    "at": "2026-11-09T00:00:54Z"
+  },
+  "rolled_back": false
+}
