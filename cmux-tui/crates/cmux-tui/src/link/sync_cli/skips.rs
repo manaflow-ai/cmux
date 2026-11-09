@@ -238,6 +238,22 @@ pub(super) fn credential(relative: &str, folder: bool) -> Option<Why> {
     .then_some(Why::CredentialFile)
 }
 
+/// The first of [`CREDENTIAL_FOLDERS`] that the canonical `folder` is in anywhere on this Mac
+/// (`/Users/me/backup/.aws`), in any case: a copy of it would hold only the files inside, whose
+/// own names say nothing. Mirrors the App's `AgentPaneCloudFolderRefusal.nestedSecretFolder`.
+pub(crate) fn credential_folder_of(folder: &str) -> Option<&'static str> {
+    let names: Vec<String> = folder.split('/').map(str::to_ascii_lowercase).collect();
+    (1..=names.len()).find_map(|end| {
+        CREDENTIAL_FOLDERS.iter().copied().find(|path| ends_with(&names, end, path))
+    })
+}
+
+/// Why an untracked file at `relative` (in its working copy) stays on this Mac as a credential, for the
+/// seed's untracked files: the same rule a plain copy leaves files out by ([`credential`]).
+pub(crate) fn credential_text(relative: &str) -> Option<&'static str> {
+    credential(relative, false).map(Why::text)
+}
+
 /// The first of [`CREDENTIAL_FOLDERS`] under `home` that the canonical `folder` is in or holds, in any case:
 /// a selected folder the App refuses too (`AgentPaneCloudFolderRefusal.secretFolder`), which
 /// `cloud start-chat --from-folder` checks before any machine is made.

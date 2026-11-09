@@ -165,18 +165,21 @@ fn from_folder_refuses_home_above_it_and_credential_folders_before_any_step() {
     use super::super::folder::local_folder_in;
     let root = tempfile::tempdir().unwrap();
     let home = root.path().join("me");
-    for dir in ["proj/src", ".ssh/keys", ".config/gh", "Code/.Cargo"] {
+    for dir in ["proj/src", ".ssh/keys", ".config/gh", "Code/.Cargo", "backup/.aws/sub"] {
         std::fs::create_dir_all(home.join(dir)).unwrap();
     }
     let at = |dir: &str| home.join(dir).to_string_lossy().into_owned();
     let above = root.path().to_string_lossy().into_owned();
-    let refused = [String::from("/"), above, at(""), at(".ssh/keys"), at(".config")];
-    for dir in &refused {
-        assert!(local_folder_in(dir, false, Some(&home)).is_err(), "{dir}");
+    // A credential folder anywhere is refused too: its copy would hold only bare names (`credentials`).
+    let refused = [String::from("/"), above, at(""), at(".ssh/keys"), at(".config")]
+        .into_iter()
+        .chain([at("Code/.Cargo"), at("backup/.aws"), at("backup/.aws/sub")]);
+    for dir in refused {
+        assert!(local_folder_in(&dir, false, Some(&home)).is_err(), "{dir}");
     }
     let project = std::fs::canonicalize(home.join("proj")).unwrap().to_string_lossy().into_owned();
     assert_eq!(local_folder_in(&at("proj"), false, Some(&home)).ok(), Some(project));
-    // A project's own `.cargo` is no folder of home's: the copy leaves it out instead.
+    // A folder holding a project's own `.cargo` goes: the copy leaves that out instead.
     assert!(local_folder_in(&at("Code"), false, Some(&home)).is_ok());
     assert!(local_folder_in(&at("proj/src"), false, None).is_ok());
     let control = format!("{}\n", at("proj"));

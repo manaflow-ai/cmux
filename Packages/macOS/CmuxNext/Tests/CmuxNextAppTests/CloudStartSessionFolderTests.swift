@@ -144,7 +144,9 @@ struct CloudStartSessionFolderTests {
                       ("/Users/me/Library/Keychains", "~/Library/Keychains"), ("/Users/me/.config/gh", "~/.config/gh"),
                       ("/Users/me/.config/gh/extensions", "~/.config/gh"), ("/Users/me/.cargo", "~/.cargo"),
                       ("/Users/me/.cargo/registry/src", "~/.cargo"), ("/Users/me/.kube", "~/.kube"), ("/Users/me/.gem", "~/.gem"),
-                      ("/Users/me/.terraform.d", "~/.terraform.d"), ("/Users/me/.password-store", "~/.password-store")])
+                      ("/Users/me/.terraform.d", "~/.terraform.d"), ("/Users/me/.password-store", "~/.password-store"),
+                      // Anywhere else on this Mac too: a copy of `backup/.aws` would hold a bare `credentials`.
+                      ("/Users/me/backup/.aws", ".aws"), ("/Users/me/code/.Cargo/registry", ".cargo"), ("/Volumes/x/Library/Keychains", "Library/Keychains")])
     func aCredentialFolderIsRefused(folder: String, secret: String) {
         for invocation in Self.runs(["fromFolder": .string(folder)]) {
             #expect(throws: ActionFailure(message: CloudStartSessionStrings.fromFolderSecret(folder, secret: secret)), Self.label(invocation)) {
