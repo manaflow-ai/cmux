@@ -341,7 +341,9 @@
    line. */
 .acpmux-newtab-actions{margin-top:var(--ds-space-3)}
 .acpmux-newtab-actions .acpmux-newtab-all{width:auto;margin-inline-start:calc(var(--acpmux-newtab-lead) - var(--ui-ghost-inset));font-size:var(--text-detail);color:var(--acpmux-composer-dim)}
-.acpmux-newtab-failed{margin:var(--ds-space-2) var(--ds-space-3) 0;color:var(--agent-text);font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-newtab-failed{margin:var(--ds-space-2) var(--ds-space-3) 0;color:var(--agent-text);font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing);display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--ds-space-1) var(--ds-space-2)}
+.acpmux-newtab-failed-message{margin:0}
+.acpmux-newtab-failed-details{flex-basis:100%}
 /* Hover, press and focus: a tonal step from the theme, on the host's Motion `hover` fade. The
    compatibility alias falls back to 0.08 s before the host theme arrives. Under Reduce Motion the
    fills change at once. Fills only, never size, so nothing shifts. */

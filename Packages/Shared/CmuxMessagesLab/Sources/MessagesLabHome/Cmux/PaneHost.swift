@@ -367,6 +367,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// cmux: where the user's changes go (the HomeStore adapter).
     weak var intents: ChatIntents?
     var approvalDecision: ((PartRef, Bool) -> Void)?
+    /// A failed-turn card's button (HomeTurnFailureRowProvider): Retry, Copy error or Details.
+    var turnFailureAction: ((PartRef, HomeTurnFailureRowProvider.Action) -> Void)?
     /// cmux: a click on an app link (`URL.isCmuxAppLink`): the host runs it; nil opens nothing.
     var onAppLink: ((URL) -> Void)?
     /// cmux: a click on an agent's pill in an agents row (``HomeAgentFoldRowProvider``): the host opens
@@ -880,6 +882,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         // (the vendored handler had no caller here: the band took no click, Lawrence 2026-10-21).
         if demo.longTextBandHit(p) { return }
         if approvalClicked(at: p) { return }
+        if turnFailureClicked(at: p) { return }
         if let hit = demo.hit(p) {
             // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.
             if openLink(hit, at: p) { return }
