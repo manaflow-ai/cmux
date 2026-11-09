@@ -874,6 +874,8 @@ pub struct Hub {
     #[cfg(test)]
     pub(super) queue_approval_off: AtomicBool,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
+    /// The one check of every watched transcript (`watch_tick.rs`).
+    pub(super) watch_ticker: watch::WatchTicker,
     /// The settings file watched for start-mode changes (`settings_watch.rs`).
     pub(super) settings_watch: settings_watch::SettingsWatchState,
     /// The HEAD of each attached session's folder, watched for a checkout (`git_watch.rs`).
@@ -1187,6 +1189,7 @@ impl Hub {
             #[cfg(test)]
             refuse_seam: Default::default(),
             harness_watch: Default::default(),
+            watch_ticker: Default::default(),
             settings_watch: Default::default(),
             git_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
