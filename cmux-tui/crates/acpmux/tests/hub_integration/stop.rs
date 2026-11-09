@@ -744,6 +744,6 @@ async fn a_long_replayed_history_stays_out_of_the_resumed_sessions_last_message(
 #[test]
 fn a_stand_in_harness_runs_at_normal_class_in_tests() {
     let kind = acpmux::config::HarnessKind::Acp;
-    let class = acpmux::cpu_class::CpuClass::for_session(kind, "agent".as_ref(), []);
+    let class = acpmux::cpu_class::CpuClass::for_session(kind, &[], []);
     assert_eq!(class, acpmux::cpu_class::CpuClass::Normal);
 }

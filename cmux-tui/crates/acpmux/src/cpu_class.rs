@@ -77,15 +77,19 @@ pub enum CpuClass {
 /// The class a session runs at when nothing names one, and its harness is no launcher.
 pub const DEFAULT: CpuClass = CpuClass::Background;
 
-/// The class a harness runs at when nothing names one (module docs, item 2). What the command
-/// says decides, never what another process is named. A Claude Code profile whose program is not
-/// named as Claude Code is a launcher. A wrapper that execs Claude Code reads as one too, and then
-/// it and its tools run at normal class; its profile can still ask for `background`.
-/// `sandbox-exec` execs what it runs in place, so its process is the agent.
-pub fn default_for(kind: crate::config::HarnessKind, program: &std::ffi::OsStr) -> CpuClass {
-    let name = std::path::Path::new(program).file_name().and_then(|name| name.to_str());
+/// The class a harness runs at when nothing names one (module docs, item 2). What the profile
+/// says decides, never what another process is named. A Claude Code profile whose `argv` does not
+/// start with Claude Code is a launcher. A wrapper that execs Claude Code reads as one too, and
+/// then it and its tools run at normal class; its profile can still ask for `background`.
+/// It reads the profile's `argv`, not the spawned program: a remote chain spawns `sandbox-exec`
+/// around a resolved path whatever the profile runs. An empty `argv` runs `claude`
+/// (`claude_stdio::spawn_plan`).
+pub fn default_for(kind: crate::config::HarnessKind, argv: &[String]) -> CpuClass {
     let launcher = kind == crate::config::HarnessKind::ClaudeStdio
-        && !matches!(name, Some("claude" | "claude.exe" | "sandbox-exec"));
+        && argv.first().is_some_and(|program| {
+            let name = std::path::Path::new(program).file_name().and_then(|name| name.to_str());
+            !matches!(name, Some("claude" | "claude.exe"))
+        });
     if launcher { CpuClass::Normal } else { DEFAULT }
 }
 
@@ -99,26 +103,26 @@ impl CpuClass {
         }
     }
 
-    /// The class of a session whose harness of `kind` runs `program` and gets the environment
-    /// `harness_env` (the command's complete one: the profile's values resolved, the daemon's own
+    /// The class of a session whose harness has `kind` and `argv` in its profile and gets the
+    /// environment `harness_env` (the command's complete one: the profile's values resolved, the daemon's own
     /// `ACPMUX_*` removed), with the daemon's env and config read now (at each spawn, as the
     /// session scope's limits are).
     #[cfg(target_os = "macos")]
     pub fn for_session<'a>(
         kind: crate::config::HarnessKind,
-        program: &std::ffi::OsStr,
+        argv: &[String],
         harness_env: impl IntoIterator<Item = (&'a str, &'a str)>,
     ) -> Self {
         let profile = harness_env.into_iter().find(|(k, _)| *k == ENV).map(|(_, v)| v);
         let config = crate::config::Config::load().ok().and_then(|c| c.session.cpu_class);
-        Self::resolve(profile, std::env::var(ENV).ok(), config, default_for(kind, program))
+        Self::resolve(profile, std::env::var(ENV).ok(), config, default_for(kind, argv))
     }
 
     /// Off macOS: `normal`, with nothing read.
     #[cfg(not(target_os = "macos"))]
     pub fn for_session<'a>(
         _kind: crate::config::HarnessKind,
-        _program: &std::ffi::OsStr,
+        _argv: &[String],
         _harness_env: impl IntoIterator<Item = (&'a str, &'a str)>,
     ) -> Self {
         Self::Normal
@@ -553,18 +557,18 @@ mod tests {
     use super::*;
     use crate::config::HarnessKind;
 
-    const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
-
     /// `sr2 claude` is the case that starved (module docs, item 2).
     #[test]
     fn a_claude_launcher_defaults_to_normal_and_claude_itself_to_background() {
-        let default = |kind, program: &str| default_for(kind, std::ffi::OsStr::new(program));
+        let default = |kind, program: &str| default_for(kind, &[program.to_owned()]);
         for launcher in ["/Users/me/.local/bin/claude-sr2", "/Users/me/bin/sr", "sr2", "python3"] {
             assert_eq!(default(HarnessKind::ClaudeStdio, launcher), CpuClass::Normal, "{launcher}");
         }
-        for agent in ["claude", "/opt/homebrew/bin/claude", "/x/bin/claude.exe", SANDBOX_EXEC] {
+        for agent in ["claude", "/opt/homebrew/bin/claude", "/x/bin/claude.exe"] {
             assert_eq!(default(HarnessKind::ClaudeStdio, agent), DEFAULT, "{agent}");
         }
+        // An empty argv runs `claude`.
+        assert_eq!(default_for(HarnessKind::ClaudeStdio, &[]), DEFAULT);
         // Another protocol keeps the default: no case of a relay is known there.
         assert_eq!(default(HarnessKind::Acp, "/Users/me/.local/bin/codex"), DEFAULT);
         assert_eq!(default(HarnessKind::Acp, "sr2"), DEFAULT);

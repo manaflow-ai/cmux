@@ -1,6 +1,6 @@
 //! A session's harness starts at normal CPU class and runs below the GUI's once its start is over
 //! (macOS, `cpu_class.rs`): background (`PRIO_DARWIN_BG`) unless its profile, the daemon's env or
-//! config asks for `normal`. A start has a deadline, and at background class a busy disk held a
+//! config asks for `normal`, or it is a Claude Code launcher, which defaults to `normal`. A start has a deadline, and at background class a busy disk held a
 //! harness past it (2026-10-30), so the daemon lowers the running harness only after its
 //! `session/new` answered; the tools its turns start inherit the class. A start that still misses
 //! its deadline at background class runs once more, and a start that misses it names what its

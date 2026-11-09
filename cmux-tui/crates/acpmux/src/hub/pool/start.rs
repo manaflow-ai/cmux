@@ -113,7 +113,7 @@ impl Hub {
         // profile's value as resolved (`cpu_class.rs`). Until then it stays at normal class.
         let run_class = crate::cpu_class::CpuClass::for_session(
             profile.kind,
-            std_cmd.get_program(),
+            &profile.argv,
             env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
         );
         let mut host_spec = agent_host::SpawnSpec {

@@ -1861,7 +1861,7 @@ impl Hub {
         // value as resolved (`cpu_class.rs`). It starts at normal class.
         let run_class = crate::cpu_class::CpuClass::for_session(
             profile.kind,
-            std_cmd.get_program(),
+            &profile.argv,
             env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
         );
         let mut spec = crate::agent_host::SpawnSpec {
