@@ -47,6 +47,7 @@
 use cmux_json::JsonSet as _;
 
 mod base;
+pub(super) mod fence;
 mod git_back;
 mod history;
 mod links;
@@ -893,13 +894,13 @@ fn parse(args: &[String]) -> Option<Parsed> {
 /// progress on stderr ([`progress_printer`]).
 pub(super) fn push(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Result<Summary> {
     let mut printer = progress_printer();
-    push_inner(socket, local, remote_root, &|_, _| true, false, Some(&mut printer))
+    push_inner(socket, local, remote_root, &|_, _| true, false, false, Some(&mut printer))
 }
 
 /// [`push`] of only the files in the head of a chat opened at `subpath`
-/// (`cmux_git::harness_head::in_head`), and every symlink: what the held copy
-/// sends before the machine marks the head (`seed_cli`). The [`push`] after it
-/// finds these unchanged.
+/// (`cmux_git::harness_head::in_head`), and every symlink with what it points
+/// at: what the held copy sends before the machine marks the head
+/// (`seed_cli`). The [`push`] after it finds these unchanged.
 pub(super) fn push_head(
     socket: &Path,
     local: &Path,
@@ -908,7 +909,43 @@ pub(super) fn push_head(
 ) -> anyhow::Result<Summary> {
     let mut printer = progress_printer();
     let head = |relative: &str, _: bool| cmux_git::harness_head::in_head(relative, subpath);
-    push_inner(socket, local, remote_root, &head, false, Some(&mut printer))
+    push_inner(socket, local, remote_root, &head, false, true, Some(&mut printer))
+}
+
+/// Where the links in `linked` point, relative to the top, and where the links those
+/// reach point, in turn.
+fn link_targets(linked: &BTreeMap<String, Linked>) -> Vec<String> {
+    let mut targets = Vec::new();
+    let mut next: Vec<&str> = linked.keys().map(String::as_str).collect();
+    let mut seen = BTreeSet::new();
+    while let Some(path) = next.pop() {
+        if !seen.insert(path) {
+            continue;
+        }
+        let Some(target) = linked
+            .get(path)
+            .and_then(|link| links::resolve(links::parent_of(path), &link.target))
+        else {
+            continue;
+        };
+        // A link on the way to the target, or in the folder it names.
+        next.extend(
+            linked
+                .keys()
+                .map(String::as_str)
+                .filter(|other| within(&target, other) || within(other, &target)),
+        );
+        targets.push(target);
+    }
+    targets
+}
+
+/// Whether `relative` is `folder` or under it (any path is under the top, `""`).
+fn within(relative: &str, folder: &str) -> bool {
+    folder.is_empty()
+        || relative
+            .strip_prefix(folder)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
 /// Whether `folder` is in a git working copy (its top folder or below it).
@@ -951,7 +988,7 @@ pub(super) fn push_kept(
     remote_root: &str,
     keep: &dyn Fn(&str, bool) -> bool,
 ) -> anyhow::Result<Summary> {
-    push_inner(socket, local, remote_root, keep, true, None)
+    push_inner(socket, local, remote_root, keep, true, false, None)
 }
 
 fn push_inner(
@@ -960,6 +997,7 @@ fn push_inner(
     remote_root: &str,
     keep: &dyn Fn(&str, bool) -> bool,
     files_only: bool,
+    link_targets_too: bool,
     mut progress: Option<&mut dyn FnMut(Progress)>,
 ) -> anyhow::Result<Summary> {
     let local =
@@ -968,7 +1006,12 @@ fn push_inner(
     let mut set = local::collect(&local, rules)?;
     let before = set.files.len();
     let in_git = set.git;
-    set.files.retain(|relative, _| keep(relative, in_git));
+    // A link `keep` would leave without what it points at: the machine drops a link to
+    // nothing (`CLAUDE.md` to a `docs/` file not sent yet), so its target goes with it.
+    let targets = if link_targets_too { link_targets(&set.links) } else { Vec::new() };
+    set.files.retain(|relative, _| {
+        keep(relative, in_git) || targets.iter().any(|target| within(relative, target))
+    });
     set.skipped += (before - set.files.len()) as u64;
     // A share of files (`cmux link access`) takes no symlink.
     if files_only {

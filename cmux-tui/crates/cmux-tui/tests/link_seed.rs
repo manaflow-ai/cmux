@@ -517,6 +517,24 @@ fn a_held_copy_answers_at_its_head_and_the_rest_follows_under_the_barrier() {
 }
 
 #[test]
+fn a_held_head_takes_what_its_links_point_at() {
+    let w = World::new(Serves::Hold);
+    let plain = plain_project(&w.root);
+    // The instructions live in docs/, outside any head; the link to them is in the head.
+    std::fs::remove_file(plain.join("CLAUDE.md")).unwrap();
+    write(&plain.join("docs/instructions.md"), "be kind\n");
+    std::os::unix::fs::symlink("docs/instructions.md", plain.join("CLAUDE.md")).unwrap();
+    let remote = w.remote("plain");
+    let (ok, copied) = w.push_head_first(&plain, &remote, "app");
+    assert!(ok, "{copied}");
+    assert_eq!(copied["filling"], json!(true), "{copied}");
+    // README.md, the skill, app's own file, the link and what it names: all before the answer.
+    assert_eq!(copied["copy"]["written"], json!(5), "{copied}");
+    cmux_git::sync_barrier::wait_ready(&remote, std::time::Duration::from_secs(60)).unwrap();
+    assert_eq!(std::fs::read_to_string(remote.join("CLAUDE.md")).unwrap(), "be kind\n");
+}
+
+#[test]
 fn a_held_head_that_would_start_mcp_servers_is_copied_whole_before_the_answer() {
     let w = World::new(Serves::Hold);
     let plain = plain_project(&w.root);

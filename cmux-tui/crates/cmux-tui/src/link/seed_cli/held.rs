@@ -25,6 +25,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::{Machine, Pushed, SeedError, copied, sync_cli};
+use crate::link::sync_cli::fence;
 
 /// The lease the hold asks for, and how often a running copy renews it.
 const LEASE: Duration = Duration::from_secs(60);
@@ -174,23 +175,28 @@ pub(super) fn copy_rest(socket: &Path, job: &str, local: &Path, remote: &str) ->
 }
 
 /// A thread that reads the hold's job every [`RENEW_EVERY`], which renews its lease,
-/// until dropped. Dropping it never waits: a read still in flight ends on its own, so the
-/// chat's answer is never held up by a renewal.
+/// until dropped, and the hold's [`fence`]: a write once the job no longer runs (its lease
+/// ran out while this process slept) goes nowhere. Dropping it never waits: a read still in
+/// flight ends on its own, so the chat's answer is never held up by a renewal.
 struct Renewal {
     _stop: mpsc::Sender<()>,
+    _fence: fence::Raised,
 }
 
 impl Renewal {
     fn start(socket: &Path, job: &str) -> Self {
+        let fence = fence::raise(socket, job, LEASE);
         let (stop, stopped) = mpsc::channel::<()>();
         let (socket, job) = (socket.to_path_buf(), job.to_owned());
         // Detached: it ends once `stop` is dropped.
         let _ =
             std::thread::Builder::new().name("cmux-link-hold-renewal".into()).spawn(move || {
                 while let Err(mpsc::RecvTimeoutError::Timeout) = stopped.recv_timeout(RENEW_EVERY) {
-                    let _ = sync_cli::machine_call(&socket, "git.seed.status", json!({"job": job}));
+                    let answer =
+                        sync_cli::machine_call(&socket, "git.seed.status", json!({"job": job}));
+                    fence::heard(&job, &answer);
                 }
             });
-        Self { _stop: stop }
+        Self { _stop: stop, _fence: fence }
     }
 }

@@ -172,6 +172,7 @@ impl Remote {
         mut params: Value,
         progress: &mut dyn FnMut(),
     ) -> anyhow::Result<Value> {
+        super::fence::check(cmd)?;
         let id = self.next_id;
         self.next_id += 1;
         params.set("id", json!(id));
