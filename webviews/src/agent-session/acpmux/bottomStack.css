@@ -220,7 +220,7 @@
   overflow: hidden;
   min-width: 0;
   padding: 0 8px;
-  border-radius: 999px;
+  border-radius: 6px;
   background: color-mix(in srgb, var(--agent-text) 14%, var(--glass-surface, Canvas));
   color: var(--agent-text);
   font-size: var(--text-detail);
