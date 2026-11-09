@@ -248,9 +248,10 @@ impl UltraMode {
     /// started with `peer`: the one that sends more repair data (ties go to
     /// the stronger code: Reed-Solomon, then XOR, then copies), so both sides
     /// land on the same mode. A peer's mode costing more than
-    /// [`MAX_AGREED_OVERHEAD`] times the bytes is not taken up (this side
-    /// keeps `own`): an authenticated peer can ask this side for up to 4x the
-    /// bytes, no more.
+    /// [`MAX_AGREED_OVERHEAD`] times the datagrams is not taken up (this
+    /// side keeps `own`): an authenticated peer can ask this side for up to
+    /// 4x the datagrams, no more. Reed-Solomon parity is as long as a group's
+    /// longest datagram, so bytes can run higher when sizes differ.
     pub fn agree(own: Self, peer: Self) -> Self {
         let (own, peer) = (own.normalized(), peer.normalized());
         if peer.overhead_under_load() > MAX_AGREED_OVERHEAD || own.strength_cmp(peer).is_ge() {

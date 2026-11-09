@@ -123,6 +123,18 @@ impl Driver {
         self.negotiation.sent(now);
     }
 
+    /// When the loop must wake for the next hello retry. Only while a
+    /// session exists: with none, `run_ultra_hello` sends nothing, so an
+    /// overdue retry would wake the loop at once, forever. The datagram
+    /// that forms the next session wakes the loop, which resumes the
+    /// retries.
+    pub(super) fn hello_deadline(&self) -> Option<Instant> {
+        if self.probe_route.is_none() || self.tunn.time_since_last_handshake().is_none() {
+            return None;
+        }
+        self.negotiation.deadline()
+    }
+
     /// Send due path probes while the session carries traffic; an idle
     /// session probes nothing.
     pub(super) fn run_probes(&mut self) {
