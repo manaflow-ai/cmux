@@ -208,10 +208,19 @@ pub(super) fn judge(
     let Some(listed_scope) = scope_of(list) else {
         return Judgement::Wait("the app is not signed in to Cloud".into());
     };
-    // A scope stored before it named the person (`team:<id>`, `personal`) matches no list now:
-    // it is learned again, as a Run with none is.
-    let Some(scope) = scope.filter(|scope| scope.starts_with("user:")) else {
-        return Judgement::Learn(listed_scope);
+    let scope = match scope {
+        // None read at the start: this list's becomes the Run's.
+        None => return Judgement::Learn(listed_scope),
+        // Stored before scopes named the person (`team:<id>`, `personal`): it still fences the
+        // team, so only a list of that same team adds the person.
+        Some(legacy) if !legacy.starts_with("user:") => {
+            return if listed_scope.ends_with(&format!("|{legacy}")) {
+                Judgement::Learn(listed_scope)
+            } else {
+                Judgement::Wait(format!("the app lists {listed_scope}'s machines, not {legacy}'s"))
+            };
+        }
+        Some(scope) => scope,
     };
     if scope != listed_scope {
         return Judgement::Wait(format!("the app lists {listed_scope}'s machines, not {scope}'s"));
@@ -559,11 +568,21 @@ mod tests {
         assert_eq!(scope_of(&nameless), None);
         assert!(matches!(judge(&nameless, NAME, None, None), Judgement::Wait(_)));
         assert!(matches!(judge(&nameless, NAME, None, Some("user:u1|personal")), Judgement::Wait(_)));
-        // A scope stored before scopes named the person is learned again.
+        // A scope stored before scopes named the person gains the person only from a list of
+        // the same team: never another team's, and never a team's for a personal one.
         assert_eq!(
             judge(&back, NAME, None, Some("personal")),
             Judgement::Learn("user:u1|personal".into())
         );
+        let t1 = list(true, Some("u1"), Some("t1"), json!([]), json!([]));
+        let t2 = list(true, Some("u2"), Some("t2"), json!([]), json!([]));
+        assert_eq!(
+            judge(&t1, NAME, None, Some("team:t1")),
+            Judgement::Learn("user:u1|team:t1".into())
+        );
+        assert!(matches!(judge(&t2, NAME, None, Some("team:t1")), Judgement::Wait(_)));
+        assert!(matches!(judge(&t2, NAME, None, Some("personal")), Judgement::Wait(_)));
+        assert!(matches!(judge(&back, NAME, None, Some("team:t1")), Judgement::Wait(_)));
     }
 
     #[test]
