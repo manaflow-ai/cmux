@@ -484,19 +484,20 @@ impl Supervisor {
     /// Counts a failure and waits out its delay; `Some` when the supervisor
     /// should end (out of attempts, or stopped while it waited).
     async fn failed(&mut self, failures: &mut u32, why: String) -> Option<TunnelStatus> {
-        *failures += 1;
+        *failures = failures.saturating_add(1);
         if *failures >= self.plan.timing.max_failures {
             return Some(TunnelStatus::Failed(format!("{why} ({failures} attempts)")));
         }
         self.status.send_replace(TunnelStatus::Retrying(why));
-        let exponent = (*failures - 1).min(16);
+        let exponent = failures.saturating_sub(1).min(16);
         let ceiling = self
             .plan
             .timing
             .retry_floor
             .saturating_mul(1 << exponent)
             .min(self.plan.timing.retry_ceiling);
-        let delay = (self.plan.jitter)(ceiling).max(self.plan.timing.retry_floor / 2);
+        let delay = (self.plan.jitter)(ceiling)
+            .max(self.plan.timing.retry_floor.checked_div(2).unwrap_or_default());
         tokio::select! {
             _ = tokio::time::sleep(delay) => None,
             _ = self.stop.wait_for(|stop| *stop) => Some(TunnelStatus::Stopped),
@@ -647,7 +648,7 @@ impl Supervisor {
                     }
                     // The hub keeps serving the config it has.
                     Err(Miss::Retry(why)) => {
-                        failures += 1;
+                        failures = failures.saturating_add(1);
                         if failures >= self.plan.timing.max_failures {
                             hub.stop().await;
                             return HubEnd::Reattach;
@@ -674,7 +675,10 @@ impl Supervisor {
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(1, |d| d.as_millis() as u64).max(1)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(1, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .max(1)
 }
 
 /// The real hub: `cmux wg hub --config - --socket S --client-token-stdin
@@ -790,7 +794,8 @@ impl HubLauncher for ProcessHubLauncher {
             let mut line = String::new();
             let read = std::io::BufReader::new(stdout).read_line(&mut line);
             matches!(read, Ok(n) if n > 0)
-                && serde_json::from_str::<Value>(&line).is_ok_and(|v| v["event"] == "hub-ready")
+                && serde_json::from_str::<Value>(&line)
+                    .is_ok_and(|v| v.get("event").and_then(Value::as_str) == Some("hub-ready"))
         });
         let ready = matches!(tokio::time::timeout(self.ready_timeout, ready).await, Ok(Ok(true)));
         if !ready {
