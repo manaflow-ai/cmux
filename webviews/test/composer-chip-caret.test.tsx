@@ -185,6 +185,24 @@ test("text pasted or typed right after a chip, or before it, never turns it back
   await act(async () => md.insertTyped("."));
   expect(md.plainText()).toBe(`See x ${WORKSPACE}. hello!`);
   expect(chips().length).toBe(1);
+  // A word typed right after that punctuation: the space goes after it, and the chip stays.
+  await act(async () => md.setCaret(`See x ${WORKSPACE}.`.length));
+  await act(async () => md.insertTyped("y"));
+  expect(md.plainText()).toBe(`See x ${WORKSPACE}. y hello!`);
+  expect(chips().length).toBe(1);
+});
+
+test("Backspace and Delete step over the space that keeps a chip from the word after it", async () => {
+  const { field, md } = await composer(`See ${WORKSPACE} now`);
+  const after = `See ${WORKSPACE}`.length;
+  await act(async () => md.setCaret(after + 1));
+  await key(field, "Backspace");
+  expect(md.plainText()).toBe(`See ${WORKSPACE} now`);
+  expect(md.caret()).toBe(after);
+  await key(field, "Delete");
+  expect(md.plainText()).toBe(`See ${WORKSPACE} now`);
+  expect(md.caret()).toBe(after + 1);
+  expect(chips().length).toBe(1);
 });
 
 test("an attachment (or any leaf) right after a link ends the link", () => {
@@ -214,6 +232,9 @@ test("Backspace after a chip and Delete before it take the whole link", async ()
   await key(field, "Backspace");
   expect(md.plainText()).toBe("See  now");
   expect(chips().length).toBe(0);
+  // A fresh composer for the second half.
+  act(() => root?.unmount());
+  root = undefined;
   const again = await composer(`See ${WORKSPACE} now`);
   await act(async () => again.md.setCaret("See ".length));
   await key(again.field, "Delete");

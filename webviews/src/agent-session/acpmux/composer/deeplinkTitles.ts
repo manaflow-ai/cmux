@@ -48,6 +48,8 @@ const key = new PluginKey<number>("acpmuxDeeplinkTitles");
 const LINK_END = /[\s<>()"'`[\]￼]/;
 /// What a link may not follow (deeplinks.ts's lookbehind).
 const LINK_STUCK = /[\w/.:~@+-]/;
+/// Sentence punctuation a link's end leaves as text (deeplinks.ts): "chip." stays the chip.
+const LINK_TRAIL = /[.,;:!?*_]/;
 
 /// The character of the textblock just after `pos` (a leaf reads as U+FFFC), or "" at its end.
 function charAfter(doc: ProseNode, pos: number): string {
@@ -67,7 +69,7 @@ function charBefore(doc: ProseNode, pos: number): string {
 function chipElement(title: string, kind: string, href: string, icon: string | undefined): HTMLElement {
   const chip = document.createElement("span");
   chip.className = TITLED_CLASS;
-  chip.contentEditable = "false";
+  chip.setAttribute("contenteditable", "false");
   chip.dataset.title = title;
   chip.dataset.kind = kind;
   chip.dataset.link = href;
@@ -115,7 +117,6 @@ export function deeplinkTitlesPlugin(titles: DeeplinkTitles | undefined): Plugin
         Decoration.widget(link.to, () => chipElement(title, info.kind, href, icon), {
           side: -1,
           key: `${href}\n${title}\n${info.kind}\n${icon ?? ""}`,
-          ignoreSelection: true,
         }),
       );
       chips.push({ from: link.from, to: link.to, text: state.doc.textBetween(link.from, link.to, undefined, "￼") });
@@ -148,37 +149,67 @@ export function deeplinkTitlesPlugin(titles: DeeplinkTitles | undefined): Plugin
     }
     if (event.key === "Backspace" || event.key === "Delete") {
       if (event.shiftKey || !selection.empty) return false;
-      const chip = chipAt(state, selection.head, back ? "to" : "from");
-      if (!chip) return false;
-      view.dispatch(closeHistory(state.tr).delete(chip.from, chip.to).scrollIntoView());
-      return true;
+      const { head } = selection;
+      const chip = chipAt(state, head, back ? "to" : "from");
+      if (chip) {
+        view.dispatch(closeHistory(state.tr).delete(chip.from, chip.to).scrollIntoView());
+        return true;
+      }
+      // The space that keeps a chip apart from the word after it (`keepChips` puts it back): the
+      // key steps over it instead, so the next one takes the chip or the word.
+      const space = back ? head - 1 : head;
+      const edge = back ? chipAt(state, head - 1, "to") : chipAt(state, head, "to");
+      if (edge && charAfter(state.doc, space) === " ") {
+        const next = charAfter(state.doc, space + 1);
+        if (next && !LINK_END.test(next)) {
+          view.dispatch(state.tr.setSelection(TextSelection.create(state.doc, back ? space : space + 1)));
+          return true;
+        }
+      }
+      return false;
     }
     return false;
   };
 
+  /// The chips an input method's composition began next to, and the edits since: checked once it
+  /// ends (its last step still carries the composition meta, so the check waits for `settle`).
+  let composing: { chips: Chip[]; mapping: Mapping } | undefined;
+
   /// After an edit that ran text into a chip's link (typed or pasted right after it, an attachment
   /// placed there, a second link pasted against it), the space that keeps the chip a chip.
   const keepChips = (transactions: readonly Transaction[], previous: EditorState, state: EditorState) => {
-    if (!transactions.some((tr) => tr.docChanged)) return null;
-    // An input method's text is still being composed: its last step (no composition) settles it.
-    if (transactions.some((tr) => tr.getMeta("composition") !== undefined)) return null;
-    const before = decorate(previous).chips;
+    const settle = transactions.some((tr) => tr.getMeta(key) === "settle");
+    if (!settle && !transactions.some((tr) => tr.docChanged)) return null;
+    if (transactions.some((tr) => tr.getMeta("composition") !== undefined)) {
+      composing ??= { chips: decorate(previous).chips, mapping: new Mapping() };
+      for (const tr of transactions) composing.mapping.appendMapping(tr.mapping);
+      return null;
+    }
+    let before: Chip[];
+    const mapping = new Mapping();
+    if (composing) {
+      ({ chips: before } = composing);
+      mapping.appendMapping(composing.mapping);
+      composing = undefined;
+    } else before = decorate(previous).chips;
+    for (const tr of transactions) mapping.appendMapping(tr.mapping);
     if (!before.length) return null;
     const links = deeplinksKey.getState(state);
     if (!links) return null;
-    const mapping = new Mapping();
-    for (const tr of transactions) mapping.appendMapping(tr.mapping);
     const spaces = new Set<number>();
     for (const chip of before) {
       const from = mapping.mapResult(chip.from, 1);
       const to = mapping.mapResult(chip.to, -1);
       if (from.deleted || to.deleted || to.pos < from.pos) continue;
       // The link itself was edited (not only text around it): that edit is the person's.
-      if (state.doc.textBetween(from.pos, to.pos, undefined, "￼") !== chip.text) continue;
+      if (state.doc.textBetween(from.pos, to.pos, undefined, "\uFFFC") !== chip.text) continue;
       const still = links.find(from.pos, to.pos, (spec) => typeof spec.deeplink === "string");
       if (still.some((link) => link.from === from.pos && link.to === to.pos)) continue;
-      const after = charAfter(state.doc, to.pos);
-      if (after && !LINK_END.test(after)) spaces.add(to.pos);
+      // Past the sentence punctuation the link leaves as text ("chip." then a word: "chip. word").
+      let end = to.pos;
+      while (LINK_TRAIL.test(charAfter(state.doc, end))) end += 1;
+      const after = charAfter(state.doc, end);
+      if (after && !LINK_END.test(after)) spaces.add(end);
       const prior = charBefore(state.doc, from.pos);
       if (prior && LINK_STUCK.test(prior)) spaces.add(from.pos);
     }
@@ -204,7 +235,22 @@ export function deeplinkTitlesPlugin(titles: DeeplinkTitles | undefined): Plugin
       const stop = titles?.subscribe(() => {
         if (!view.isDestroyed) view.dispatch(view.state.tr.setMeta(key, true).setMeta("addToHistory", false));
       });
-      return { destroy: () => stop?.() };
+      // A composition ended: once its text is in the document, the chips it ran into get their space.
+      let settling: ReturnType<typeof setTimeout> | undefined;
+      const ended = () => {
+        clearTimeout(settling);
+        settling = setTimeout(() => {
+          if (!view.isDestroyed && !view.composing && composing) view.dispatch(view.state.tr.setMeta(key, "settle"));
+        }, 0);
+      };
+      view.dom.addEventListener("compositionend", ended);
+      return {
+        destroy: () => {
+          stop?.();
+          clearTimeout(settling);
+          view.dom.removeEventListener("compositionend", ended);
+        },
+      };
     },
     appendTransaction: keepChips,
     props: {

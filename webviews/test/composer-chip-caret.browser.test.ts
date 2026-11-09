@@ -69,7 +69,7 @@ await requireBrowserLane("composer-chip-caret.browser.test.ts", async () => {
     return last;
   }
 
-  type Op = "focus" | "caret" | "setCaret" | "text" | "pasteAtEnd" | "reset";
+  type Op = "focus" | "caret" | "setCaret" | "text" | "paste" | "reset";
   /// One call on the prompt's handle (MarkdownField's `acpmuxMarkdownField`).
   const field = <T>(page: Page, op: Op, arg?: unknown) =>
     page.evaluate(
@@ -97,8 +97,7 @@ await requireBrowserLane("composer-chip-caret.browser.test.ts", async () => {
             return null;
           case "text":
             return md.plainText();
-          case "pasteAtEnd":
-            md.setCaret(md.plainText().length);
+          case "paste":
             md.pasteText(value as string);
             return null;
           case "reset":
@@ -187,10 +186,16 @@ await requireBrowserLane("composer-chip-caret.browser.test.ts", async () => {
         await nextFrames(page);
         expect(await field<string>(page, "text")).toBe(`${WORKSPACE} x`);
         expect((await chipBoxes(page)).length).toBe(1);
-        // A second link pasted right after: both chips.
-        await field(page, "pasteAtEnd", WORKSPACE);
-        await page.waitForFunction(() => document.querySelectorAll(".acpmux-md .is-titled[data-title]").length === 2);
-        expect(await field<string>(page, "text")).toBe(`${WORKSPACE} x ${WORKSPACE}`);
+        // A second link pasted right after the chip: both chips.
+        await field(page, "setCaret", WORKSPACE.length);
+        await field(page, "paste", WORKSPACE);
+        await page
+          .waitForFunction(() => document.querySelectorAll(".acpmux-md .is-titled[data-title]").length === 2, undefined, {
+            timeout: 10_000,
+          })
+          .catch(() => undefined);
+        expect(await field<string>(page, "text")).toBe(`${WORKSPACE} ${WORKSPACE} x`);
+        expect((await chipBoxes(page)).length).toBe(2);
 
         // Mid-text: the caret before the chip is painted, in front of it.
         await open(page, port, "caret-before-chip", 1);
