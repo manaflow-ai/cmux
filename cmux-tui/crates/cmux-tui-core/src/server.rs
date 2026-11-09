@@ -208,6 +208,8 @@ mod icon_assets;
 mod launch_snapshot;
 pub(crate) use launch_snapshot::MAX_LAUNCH_SNAPSHOT_BYTES;
 #[cfg(unix)]
+mod carrier_role;
+#[cfg(unix)]
 mod native_owner;
 mod new_screen;
 mod personal;
@@ -3009,6 +3011,10 @@ mod loopback_forward_tests;
 #[cfg(all(test, unix))]
 #[path = "server/agent_session_attach_tests.rs"]
 mod agent_session_attach_tests;
+
+#[cfg(all(test, unix))]
+#[path = "server/agent_session_start_phone_tests.rs"]
+mod agent_session_start_phone_tests;
 
 #[cfg(all(test, unix))]
 #[path = "server/agent_inventory_tests.rs"]

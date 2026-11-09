@@ -32,6 +32,7 @@
 pub mod app_caller;
 pub mod caller;
 pub mod carrier_grant;
+pub mod carrier_role;
 pub mod dial;
 pub mod elapsed;
 pub mod entry_path;

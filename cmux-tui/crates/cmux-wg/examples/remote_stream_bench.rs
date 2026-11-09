@@ -38,7 +38,9 @@
 //! viewer: a path that dropped shows up there as a stall.
 //!
 //! `CMUX_WG_ULTRA` (`dup`, `fec:8:2`, `rs:4:4`, see `cmux_wg::UltraMode`) turns on
-//! ultra mode on both ends; the note says what it sent and rebuilt.
+//! ultra mode on both ends, and `CMUX_WG_ULTRA_HOST` gives the host its own
+//! (`off`: the viewer alone asked for it); the note says what it sent and
+//! rebuilt.
 //!
 //! `--rtt-ms` and `--loss-pct` put the WireGuard paths' UDP through an
 //! in-process link with that round trip and that loss in each direction;
@@ -550,7 +552,19 @@ async fn start_wg(args: &Args) -> io::Result<(WgNet, WgNet, SocketAddr, SocketAd
         if shaped { impair(server_addr, args.rtt_ms, args.loss_pct).await? } else { server_addr };
     let pair = config_pair(dial);
     let viewer = WgNet::start(pair.client, client_socket).await.map_err(err)?;
-    let host = WgNet::start(pair.server, server_socket).await.map_err(err)?;
+    // `CMUX_WG_ULTRA_HOST` starts the host in its own mode (`off`: only the
+    // viewer turned ultra mode on, as with an app setting).
+    let host = match std::env::var("CMUX_WG_ULTRA_HOST")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .and_then(|v| cmux_wg::UltraMode::parse(&v))
+    {
+        Some(mode) => {
+            WgNet::start_with_ultra(pair.server, SocketPath::new(server_socket, None), mode)
+                .map_err(err)?
+        }
+        None => WgNet::start(pair.server, server_socket).await.map_err(err)?,
+    };
     Ok((
         viewer,
         host,
