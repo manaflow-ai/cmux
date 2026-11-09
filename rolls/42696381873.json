@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42696381873",
+  "recorded_at": "2026-11-09T21:04:37Z",
+  "reason": "cmux-tui 7243434d3ce1 changes the image's cmux-tui (pinned 99f8c6c377c4)",
+  "dry_run": false,
+  "cmux_tui": "7243434d3ce15e3e4b447a94c73cb94982d267b4",
+  "fixes": [
+    {
+      "sha": "7243434d3ce15e3e4b447a94c73cb94982d267b4",
+      "mergedAt": "2026-11-09T12:12:20-08:00",
+      "subject": "acpmux: a subagent's relayed send names the subagent to the relay as a label (W5-M b, 1/2) (#39722)"
+    },
+    {
+      "sha": "f48199e7302c6f935c939d010dd552b9ee2e38f9",
+      "mergedAt": "2026-11-09T12:09:50-08:00",
+      "subject": "acpmux: a fork reads its parent's recorded rules at its cut (#39817)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T21:04:37Z",
+    "snapshot_id": "sh-de1e126a402b4d9e9289da627c7f99cd",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42696381873): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "fafc72ad12003e238015922b13f65b150d533144",
+    "image": "cloud-native-auto-7243434d-42696381873-1",
+    "revision": "ci-42696381873-1",
+    "at": "2026-11-09T21:04:37Z"
+  },
+  "rolled_back": false
+}
