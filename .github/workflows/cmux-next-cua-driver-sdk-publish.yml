@@ -1,0 +1,262 @@
+name: cmux NEXT Cua Driver SDK publish
+
+# Builds the upstream Cua Driver SDK (libcua_driver_sdk.dylib) for the
+# Computer Use helper and publishes it to the private cmux-cef R2 bucket, so a
+# Cua Driver upgrade (scripts/cmux-next/cua-driver-sdk.pin.json) needs no
+# person with the bucket's write key at a Mac. The same route as
+# cmux-next-cua-helper-dev-sign.yml, which publishes the helper it signs.
+#
+# resolve  the upstream tag's commit (git ls-remote) and the cmux branch whose
+#          build-cua-driver-sdk.sh runs (a branch of this repository, so no fork
+#          code reaches a build Mac). Fails before any build when the release
+#          environment has no cmux-cef-write token.
+# build    that branch's build-cua-driver-sdk.sh on an owned Mac first, with a
+#          job-local Rust toolchain (the one upstream's rust-toolchain file
+#          names) and Xcode 26.6. It holds no secret.
+# publish  the release environment (its secrets reach main only). Only main
+#          code runs: the tarball is data. It reads build-info.json and the
+#          member digests out of the tarball, writes the pin, and uploads the
+#          tarball write-once to cua-driver-sdk/<sha256>/ with
+#          upload-r2-object.py, which reads it back and checks its sha256.
+#          Commit the pin from the run's summary or its cua-driver-sdk-pin
+#          artifact; the run does not push.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Upstream Cua Driver release, e.g. 0.38.0 (tag cua-driver-rs-v<version>)"
+        required: true
+        type: string
+      branch:
+        description: "A branch of this repository whose build-cua-driver-sdk.sh runs (default feat-cmux-next)"
+        required: false
+        default: ""
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-cua-driver-sdk-publish
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve the release and the branch
+    if: github.ref == 'refs/heads/main'
+    environment: release
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      commit: ${{ steps.resolve.outputs.commit }}
+    steps:
+      # Only whether the token is set reaches this job, never its value.
+      - name: Require the cmux-cef-write token
+        env:
+          HAS_WRITE_KEY: ${{ secrets.CMUX_CEF_R2_WRITE_ACCESS_KEY_ID != '' && secrets.CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY != '' }}
+        run: |
+          if [[ "$HAS_WRITE_KEY" != true ]]; then
+            echo "::error::the release environment has no CMUX_CEF_R2_WRITE_ACCESS_KEY_ID / CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY (the cmux-cef-write token); nothing was built" >&2
+            exit 1
+          fi
+
+      - name: Resolve the upstream tag and the cmux branch
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+          BRANCH: ${{ inputs.branch || 'feat-cmux-next' }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::version must look like 0.38.0" >&2; exit 1; }
+          [[ "$BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "::error::branch has unexpected characters" >&2; exit 1; }
+          tag="cua-driver-rs-v$VERSION"
+          # An annotated tag's peeled ^{} entry names the commit; a lightweight tag names it directly.
+          refs="$(git ls-remote https://github.com/trycua/cua.git "refs/tags/$tag" "refs/tags/$tag^{}")"
+          commit="$(awk -v t="refs/tags/$tag^{}" '$2 == t {print $1}' <<<"$refs")"
+          [[ -n "$commit" ]] || commit="$(awk -v t="refs/tags/$tag" '$2 == t {print $1}' <<<"$refs")"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::trycua/cua has no tag $tag" >&2; exit 1; }
+          # The branches API lists this repository's own branches only.
+          sha="$(gh api "repos/$GH_REPO/branches/$BRANCH" --jq .commit.sha)"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::cannot resolve branch $BRANCH" >&2; exit 1; }
+          { echo "sha=$sha"; echo "tag=$tag"; echo "commit=$commit"; } >> "$GITHUB_OUTPUT"
+          echo "Release $tag ($commit); script from $BRANCH $sha" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build the SDK
+    needs: resolve
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      sha256: ${{ steps.build.outputs.sha256 }}
+    steps:
+      - name: Checkout the branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+          sparse-checkout: |
+            .xcode-version
+            scripts/cmux-next/build-cua-driver-sdk.sh
+            scripts/ci/xcode-pins.txt
+            scripts/select-ci-xcode.sh
+          sparse-checkout-cone-mode: false
+
+      # The pool's pinned Xcode (26.6 on macOS 26), which the script also
+      # names: Xcode 26.6's ld-1267 links a dylib that dlopen accepts.
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      # Job-local, so an owned Mac keeps no toolchain or cargo registry from
+      # this run. The script refuses to download a toolchain itself.
+      - name: Install the Rust toolchain
+        env:
+          TAG_COMMIT: ${{ needs.resolve.outputs.commit }}
+        run: |
+          set -euo pipefail
+          export RUSTUP_HOME="$RUNNER_TEMP/rustup" CARGO_HOME="$RUNNER_TEMP/cargo"
+          channel="$(curl --fail --silent --show-error --retry 3 \
+            "https://raw.githubusercontent.com/trycua/cua/$TAG_COMMIT/libs/cua-driver/rust/rust-toolchain.toml" |
+            sed -n 's/^channel *= *"\([0-9][0-9.]*\)".*/\1/p')"
+          [[ "$channel" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::no pinned channel in upstream rust-toolchain.toml" >&2; exit 1; }
+          base=https://static.rust-lang.org/rustup/dist/aarch64-apple-darwin
+          curl --fail --silent --show-error --retry 3 -o "$RUNNER_TEMP/rustup-init" "$base/rustup-init"
+          want="$(curl --fail --silent --show-error --retry 3 "$base/rustup-init.sha256" | awk '{print $1}')"
+          echo "$want  $RUNNER_TEMP/rustup-init" | shasum -a 256 -c -
+          chmod +x "$RUNNER_TEMP/rustup-init"
+          "$RUNNER_TEMP/rustup-init" -y --no-modify-path --profile minimal --default-toolchain none
+          "$CARGO_HOME/bin/rustup" toolchain install "$channel" --profile minimal --component rustfmt
+          { echo "RUSTUP_HOME=$RUSTUP_HOME"; echo "CARGO_HOME=$CARGO_HOME"; } >> "$GITHUB_ENV"
+          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Build
+        id: build
+        env:
+          CUA_SDK_TAG: ${{ needs.resolve.outputs.tag }}
+          CUA_SDK_COMMIT: ${{ needs.resolve.outputs.commit }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/out"
+          CUA_SDK_WORK="$RUNNER_TEMP/cua-sdk-work" ./scripts/cmux-next/build-cua-driver-sdk.sh --out "$out"
+          echo "sha256=$(shasum -a 256 "$out/cua-driver-sdk-macos-arm64.tar.gz" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the SDK tarball
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cua-driver-sdk
+          path: ${{ runner.temp }}/out/cua-driver-sdk-macos-arm64.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish the SDK and write its pin
+    needs: [resolve, build]
+    environment: release
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout main's R2 upload
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/ci/upload-r2-object.py
+          sparse-checkout-cone-mode: false
+
+      - name: Download the SDK tarball
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cua-driver-sdk
+          path: ${{ runner.temp }}/sdk
+
+      # The tarball is data: only build-info.json is parsed, and the dylib and
+      # header digests are taken from its members here, not from the build.
+      - name: Check the tarball and write the pin
+        id: pin
+        env:
+          WANT: ${{ needs.build.outputs.sha256 }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          COMMIT: ${{ needs.resolve.outputs.commit }}
+          SOURCE_SHA: ${{ needs.resolve.outputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$WANT" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::the build job gave no digest" >&2; exit 1; }
+          tarball="$RUNNER_TEMP/sdk/cua-driver-sdk-macos-arm64.tar.gz"
+          echo "$WANT  $tarball" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/pin"
+          python3 -I - "$tarball" "$WANT" "$TAG" "$COMMIT" "$SOURCE_SHA" "$RUN_URL" "$RUNNER_TEMP/pin/cua-driver-sdk.pin.json" <<'PY'
+          import hashlib, json, re, sys, tarfile
+          path, sha, tag, commit, source_sha, run_url, out = sys.argv[1:]
+          asset = "cua-driver-sdk-macos-arm64"
+          with tarfile.open(path, "r:gz") as tar:
+              members = {m.name: m for m in tar.getmembers()}
+              for name in members:
+                  assert name == asset or name.startswith(asset + "/"), f"unexpected member {name}"
+              def read(name):
+                  member = members[f"{asset}/{name}"]
+                  assert member.isfile(), name
+                  return tar.extractfile(member).read()
+              info = json.loads(read("build-info.json"))
+              dylib = hashlib.sha256(read("lib/libcua_driver_sdk.dylib")).hexdigest()
+              header = hashlib.sha256(read("include/cua_driver_abi.h")).hexdigest()
+          assert info["upstream_tag"] == tag and info["upstream_commit"] == commit, "build-info names another release"
+          assert info["crate"] == "cua-driver-sdk", "crate"
+          # `ld -v` prints "@(#)PROGRAM:ld PROJECT:ld-1267"; the pin keeps "ld-1267".
+          ld = re.search(r"PROJECT:(\S+)", str(info["ld"]))
+          pin = {
+              "asset": f"{asset}.tar.gz", "arch": "arm64", "sha256": sha, "r2_bucket": "cmux-cef",
+              "r2_key": f"cua-driver-sdk/{sha}/{asset}.tar.gz",
+              "upstream_repo": "https://github.com/trycua/cua", "upstream_tag": tag, "upstream_commit": commit,
+              "crate": "cua-driver-sdk", "rust_toolchain": str(info["rust_toolchain"]),
+              "developer_dir": str(info["developer_dir"]), "ld": ld.group(1) if ld else str(info["ld"]),
+              "license": "MIT", "dylib_sha256": dylib, "header_sha256": header,
+              "build_job": run_url, "build_script_commit": source_sha,
+          }
+          with open(out, "w", encoding="utf-8") as f:
+              json.dump(pin, f, indent=2)
+              f.write("\n")
+          PY
+          echo "key=cua-driver-sdk/$WANT/cua-driver-sdk-macos-arm64.tar.gz" >> "$GITHUB_OUTPUT"
+          { echo '`scripts/cmux-next/cua-driver-sdk.pin.json`:'; echo '```json'; cat "$RUNNER_TEMP/pin/cua-driver-sdk.pin.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the pin
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cua-driver-sdk-pin
+          path: ${{ runner.temp }}/pin/cua-driver-sdk.pin.json
+          if-no-files-found: error
+          retention-days: 14
+
+      # Content-addressed and write-once; the second call reads the object back
+      # and checks its sha256 (an identical object is accepted, any other refused).
+      - name: Publish to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_WRITE_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          KEY: ${{ steps.pin.outputs.key }}
+        run: |
+          set -euo pipefail
+          for attempt in upload read-back; do
+            echo "R2 $attempt"
+            python3 scripts/ci/upload-r2-object.py \
+              --file "$RUNNER_TEMP/sdk/cua-driver-sdk-macos-arm64.tar.gz" \
+              --endpoint-url "$R2_ENDPOINT" --bucket cmux-cef --key "$KEY" \
+              --content-type application/gzip --cache-control 'private, max-age=31536000, immutable' \
+              --write-once
+          done
+          echo "Published cmux-cef/$KEY" >> "$GITHUB_STEP_SUMMARY"

@@ -13,9 +13,14 @@ The existing owned-pool sweeper runs this on a separate workflow-token client ev
 An independent scheduled workflow wakes that same concurrency owner when it is not running; it never
 cancels or re-runs target jobs itself. Each pass:
 
-- lists the in-flight (`queued`, `in_progress`) pull request runs of every workflow file that declares a hosted
-  light job, created STALL_SECONDS to WINDOW ago (one listing page per workflow and status);
-- reads the jobs of at most MAX_RUNS of them (plus one re-read per rescue, so at most MAX_RUNS + MAX_RESCUES) (attempt 1 only, at the pull request's current head), oldest first;
+- lists the repository's in-flight (`queued`, `in_progress`) pull request runs, created STALL_SECONDS to WINDOW
+  ago, in one repository-wide listing per status (the newest page; the second while the first is full; one
+  rotating overflow page from the third while the second is full), and keeps those of the workflow files that
+  declare a hosted light job: 2-6 requests a pass instead of 24-48 (cmux#35099 measured 50-100 requests a minute
+  against the repository's 1,000-an-hour GITHUB_TOKEN pool);
+- retains discovered candidates within WINDOW and reads the jobs of at most MAX_RUNS of them (plus one re-read
+  per rescue, so at most MAX_RUNS + MAX_RESCUES) (attempt 1 only, at the pull request's current head); the first
+  pass is oldest first and later passes rotate from an in-memory cursor;
 - finds a stalled job: queued, no runner id or name, every label a GitHub-hosted `ubuntu-*` label (in this repo only
   declared hosted light jobs may ask for one, tests/test_ci_self_hosted_guard.sh), created STALL_SECONDS or more ago;
 - when every unfinished job of the run is such a stalled job (so the cancel stops nothing that is running), cancels
@@ -24,9 +29,18 @@ cancels or re-runs target jobs itself. Each pass:
 
 Bounds: only pull request runs (never push, schedule, dispatch, nightly, DEV, promote or release runs), only attempt
 1 (so a job is failed over at most once), only runs at their pull request's current head, at most MAX_RESCUES
-re-runs a pass, and a run with any other unfinished job is left alone and reported. A cancel that does not settle
-in time is reported and left; it is never re-run blind on a later pass, since a later pass cannot tell this cancel
-from a person's or a concurrency group's.
+recovery attempts a pass, and a run with any other unfinished job is left alone and reported. Confirmed rescue
+cancellations have durable log receipts. A later minute or successor may resume only those receipts, after reading
+the live attempt and current open PR again; incomplete history and unmarked cancellations never authorize a rerun.
+
+Quota: reads go out as the cmux-bot App (HOSTED_LIGHT_TOKEN is its installation token when the workflow minted one;
+with BOT_APP_ID and BOT_APP_KEY a new one is minted before the hour is up), whose installation pool is its own. The
+workflow token (HOSTED_LIGHT_FALLBACK_TOKEN) is the repository's one GITHUB_TOKEN pool (1,000 requests an hour on this
+plan), shared by every workflow, the NEXT nightly's tick and notarization among them; it is read only while the
+App's pool is down to POOL_RESERVE or the App token is refused. A pass makes no new listing or job read once both
+pools are down to POOL_RESERVE until a reset (owned recovery still finishes), and an unreadable recovery journal is
+read again only every JOURNAL_RETRY, not every minute. Cancels, re-runs and the sweeper wake stay on the workflow
+token, as before.
 """
 
 from __future__ import annotations
@@ -42,6 +56,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -54,12 +69,29 @@ STALL_SECONDS = 180
 WINDOW = dt.timedelta(minutes=90)
 MAX_RUNS = 40
 MAX_RESCUES = 10
+MAX_RUN_LIST_PAGES = 10
+LIST_PAGE = 100
+# Left in the repository's GITHUB_TOKEN pool for every other workflow. On 2026-11-04 this pass alone made
+# about 50-100 requests a minute (24 listings, 40 job reads and a 10-page journal read that always failed) and
+# spent the 1,000-request pool within minutes of each reset (sweeper run 41788968966 logged 403s on every read
+# from 07:06Z); the NEXT nightly tick and its notarization
+# preflight then failed with "API rate limit exceeded for installation" (runs 41791114042, 41790985234).
+POOL_RESERVE = 500
+JOURNAL_RETRY = dt.timedelta(minutes=15)
 SETTLE_BUDGET_S = 90.0
 SETTLE_INTERVAL_S = 5.0
+RERUN_TRIES = 3
+LIGHT_CANCEL_SENT = "hosted-light rescue: cancel sent, re-run to follow:"
+LIGHT_CANCEL_SETTLED = "hosted-light rescue: cancel settled:"
 EVENTS = frozenset({"pull_request"})
 IN_FLIGHT = ("queued", "in_progress")
 # Workflows a pass never touches, whatever runners.json declares: the nightly picks its own routes.
 EXCLUDED_WORKFLOWS = frozenset({"nightly.yml"})
+# Discovery URLs use a rounded lower window reused for a short interval. Fresh runs that fall
+# above the stall bound remain in ScanState and are checked again as they age; a cached page never authorizes a rescue.
+DISCOVERY_CACHE_SECONDS = 75.0
+DISCOVERY_STEP_SECONDS = 30 * 60
+FORBIDDEN_COOLDOWN_SECONDS = 60.0
 
 
 def iso(moment: dt.datetime) -> str:
@@ -93,6 +125,106 @@ def declared_workflows(runners: Mapping[str, Any]) -> list[str]:
     return sorted(name for name in files if name.endswith((".yml", ".yaml")) and name not in EXCLUDED_WORKFLOWS)
 
 
+def _trigger_scope(text: str) -> set[str] | None:
+    """Return top-level trigger names, or None when the workflow cannot be parsed conservatively."""
+    lines = text.splitlines()
+    start = next((index for index, line in enumerate(lines)
+                  if re.match(r"^\s*on\s*:", line) and not line.lstrip().startswith("#")), None)
+    if start is None:
+        return None
+    line = lines[start]
+    value = line.split(":", 1)[1].strip()
+    if value:
+        if value.startswith("[") and value.endswith("]"):
+            return {item.strip().strip("'\"") for item in value[1:-1].split(",") if item.strip()}
+        if re.fullmatch(r"['\"]?[A-Za-z0-9_-]+['\"]?", value):
+            return {value.strip("'\"")}
+        return None
+    indent = len(line) - len(line.lstrip())
+    names: set[str] = set()
+    known = {"pull_request", "pull_request_target", "workflow_call", "workflow_dispatch", "schedule",
+             "push", "workflow_run", "repository_dispatch", "issues", "issue_comment", "release",
+             "deployment", "deployment_status", "branch_protection_rule", "check_run", "check_suite",
+             "create", "delete", "discussion", "discussion_comment", "fork", "gollum", "label", "merge_group",
+             "page_build", "project", "project_card", "project_column", "public", "status", "watch"}
+    child_indent: int | None = None
+    for candidate in lines[start + 1:]:
+        if not candidate.strip() or candidate.lstrip().startswith("#"):
+            continue
+        candidate_indent = len(candidate) - len(candidate.lstrip())
+        if candidate_indent <= indent:
+            break
+        if child_indent is None:
+            child_indent = candidate_indent
+        if candidate_indent != child_indent:
+            # Nested inputs/outputs/configuration belong to the trigger above and are not trigger names.
+            continue
+        match = re.match(r"^\s*([A-Za-z0-9_-]+)\s*:", candidate)
+        if not match:
+            return None
+        name = match.group(1)
+        if name not in known:
+            return None
+        names.add(name)
+    return names or None
+
+
+def _has_pull_request_trigger(text: str) -> bool | None:
+    scope = _trigger_scope(text)
+    if scope is None:
+        return None
+    return bool(scope & {"pull_request", "pull_request_target"})
+
+
+class GitHubHTTPError(RuntimeError):
+    """A bounded GitHub API error whose status remains machine-readable."""
+
+    def __init__(self, message: str, *, status: int) -> None:
+        super().__init__(message)
+        self.status = status
+        self.code = status  # GitHub.request() moves a refused primary read to the fallback by `code`
+
+
+def _forbidden_diagnostic(error: urllib.error.HTTPError) -> str:
+    """Classify a 403 without putting arbitrary response data in logs."""
+    raw = b""
+    try:
+        raw = error.read(4096)
+    except Exception:  # noqa: BLE001 - diagnostics must never mask the API refusal
+        pass
+    message = ""
+    resource = ""
+    try:
+        payload = json.loads(raw.decode("utf-8", "replace")) if raw else {}
+        if isinstance(payload, Mapping):
+            message = str(payload.get("message") or "")[:240]
+            resource = str(payload.get("resource") or "")[:40]
+    except (UnicodeError, json.JSONDecodeError, TypeError, ValueError):
+        pass
+    headers = getattr(error, "headers", None) or {}
+    normalized = {str(key).lower(): str(value).strip() for key, value in headers.items()}
+    resource = resource or normalized.get("x-ratelimit-resource", "")
+    lowered = message.lower()
+    remaining = normalized.get("x-ratelimit-remaining", "")
+    if "secondary rate limit" in lowered or "abuse detection" in lowered:
+        kind = "secondary-limit"
+    elif remaining == "0" or "rate limit" in lowered or normalized.get("retry-after"):
+        kind = "quota"
+    elif "resource not accessible" in lowered or "permission" in lowered or "forbidden" in lowered:
+        kind = "permission"
+    else:
+        kind = "forbidden"
+    fields = []
+    for name, header in (("remaining", "x-ratelimit-remaining"), ("limit", "x-ratelimit-limit"),
+                         ("reset", "x-ratelimit-reset"), ("retry-after", "retry-after")):
+        value = normalized.get(header, "")
+        if value and re.fullmatch(r"\d+(?:\.\d+)?", value):
+            fields.append(f"{name}={value}")
+    if resource in {"core", "search", "graphql", "integration_manifest", "code_search", "source_import"}:
+        fields.append(f"resource={resource}")
+    return kind + (" (" + ", ".join(fields) + ")" if fields else "")
+
+
 def with_callers(workflows: Sequence[str], directory: Path | None) -> list[str]:
     """`workflows` plus every workflow in `directory` that calls one of them (transitively).
 
@@ -113,46 +245,174 @@ def with_callers(workflows: Sequence[str], directory: Path | None) -> list[str]:
             re.search(rf"uses:\s*['\"]?\./\.github/workflows/{re.escape(callee)}['\"]?\s*$", text, re.MULTILINE)
             for callee in found)}
         if not callers:
-            return sorted(found)
+            # A reusable workflow has no run of its own. Drop only files whose trigger block proves that fact;
+            # unreadable or unfamiliar syntax stays included so a new trigger cannot silently disappear.
+            return sorted(name for name in found
+                          if name not in texts or _has_pull_request_trigger(texts[name]) is not False)
         found |= callers
 
 
+APP_TOKEN_SECONDS = 50 * 60  # an installation token lasts an hour; mint the next one before it ends
+
+
+class Pool:
+    """One token's rate-limit pool as its last response reported it: None until a response carries it."""
+
+    def __init__(self) -> None:
+        self.remaining: int | None = None
+        self.reset: float = 0.0
+
+    def spare(self, now: float) -> bool:
+        return self.remaining is None or self.remaining > POOL_RESERVE or now >= self.reset
+
+
 class GitHub:
-    def __init__(self, token: str, repo: str, write_token: str | None = None) -> None:
+    def __init__(self, token: str, repo: str, write_token: str | None = None, *, fallback: str | None = None,
+                 mint: Callable[[], str] | None = None, clock: Callable[[], float] = time.time) -> None:
+        """READS go out with `token`; with `fallback` (the workflow token) they move to it while `token`'s pool is at
+        POOL_RESERVE or `token` is refused. `mint` replaces `token` before its hour is up. Writes use `write_token`
+        (default: `fallback`, else `token`)."""
         self.repo = repo
         self.token = token
-        self.write_token = write_token or token
+        self.fallback = fallback if fallback and fallback != token else None
+        self.write_token = write_token or self.fallback or token
+        self.mint, self.clock = mint, clock
+        self.minted_at = clock()
+        self.pools: dict[str, Pool] = {"primary": Pool(), "fallback": Pool()}
+        self.primary_refused_until = 0.0
 
         self.etags: dict[str, tuple[str, Any]] = {}
+        self.history: Any = None
+        # pool -> (clock time the GET pause ends, the quota refusal it repeats)
+        self.forbidden_cooldowns: dict[str, tuple[float, GitHubHTTPError]] = {}
+
+    @property
+    def remaining(self) -> int | None:
+        """The pool reads use now (for the pass's log line)."""
+        return self.pools[self.read_pool()].remaining
+
+    @property
+    def reset(self) -> float:
+        return self.pools[self.read_pool()].reset
+
+    def note_limit(self, headers: Any, pool: str = "primary") -> None:
+        """Record X-RateLimit-Remaining and -Reset from any response, a refusal or a 304 included."""
+        try:
+            remaining = headers.get("X-RateLimit-Remaining") if headers is not None else None
+            reset = headers.get("X-RateLimit-Reset") if headers is not None else None
+            if remaining is not None:
+                self.pools[pool].remaining = int(remaining)
+            if reset is not None:
+                self.pools[pool].reset = float(reset)
+        except (AttributeError, TypeError, ValueError):
+            pass
+
+    def read_pool(self, now: float | None = None) -> str:
+        """`primary` while its pool is spare and it is not refused, else `fallback` when there is one."""
+        now = self.clock() if now is None else now
+        if self.fallback is None:
+            return "primary"
+        if now >= self.primary_refused_until and self.pools["primary"].spare(now):
+            return "primary"
+        return "fallback"
+
+    def spare(self, now: dt.datetime) -> bool:
+        """A read pool is above POOL_RESERVE, unknown, or past its reset: a pass may read."""
+        return self.pools[self.read_pool(now.timestamp())].spare(now.timestamp())
+
+    def read_token(self) -> tuple[str, str]:
+        if self.mint is not None and self.clock() - self.minted_at >= APP_TOKEN_SECONDS:
+            try:
+                self.token, self.minted_at = self.mint(), self.clock()
+            except Exception:  # noqa: BLE001 - keep the old token; a refusal moves reads to the fallback
+                self.minted_at = self.clock() - APP_TOKEN_SECONDS + 300  # try again in five minutes
+        pool = self.read_pool()
+        return pool, (self.token if pool == "primary" else str(self.fallback))
+
+    def pending_cancellations(self, now: dt.datetime) -> set[int]:
+        """Restore only this worker's confirmed cancellations from the existing durable rescue log journal.
+
+        The shared reader bounds history pages and log bytes and refuses incomplete history. It uses this
+        worker's workflow token; the routing App is never involved. A live predecessor is not judged.
+        """
+        import owned_pool_rescue
+        if self.history is None:
+            self.history = owned_pool_rescue.GitHub(self.read_token()[1], self.repo)
+            self.history.own_run = int(os.environ.get("GITHUB_RUN_ID") or 0)
+            self.history.no_rate_limit_waits()
+        states: dict[tuple[int, int], str] = {}
+        for job_id in self.history.rescue_jobs(
+                now - WINDOW, events=("schedule", "workflow_dispatch"), titles=("owned-pool-sweeper",)):
+            marks = self.history.job_marks(job_id)
+            if marks is None:
+                raise RuntimeError(f"rescue job {job_id}'s recovery journal could not be read whole")
+            for pair, state in marks.items():
+                states.setdefault(pair, state)  # newest completed rescue jobs first
+        return {run_id for (run_id, attempt), state in states.items()
+                if attempt == 1 and state == "sent hosted-light"}
 
     def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Any:
-        token = self.token if method == "GET" else self.write_token
+        if method != "GET":
+            return self._send(method, path, payload, self.write_token, "fallback" if self.fallback else "primary")
+        pool, token = self.read_token()
+        cooldown = self.forbidden_cooldowns.get(pool)
+        if cooldown is not None and self.clock() < cooldown[0]:
+            raise cooldown[1]  # a quota refusal pauses this pool's GETs instead of spending more of it
+        try:
+            return self._send(method, path, payload, token, pool)
+        except RuntimeError as error:
+            refused = getattr(error, "code", None)
+            if pool != "primary" or self.fallback is None or refused not in (401, 403, 429):
+                raise
+            # The App token was refused (expired, revoked or rate limited): the same read on the workflow token. A
+            # refused GET did nothing, so the retry is safe; the App is tried again after its reset or 5 minutes.
+            primary = self.pools["primary"]
+            self.primary_refused_until = max(self.clock() + 300, primary.reset if primary.remaining == 0 else 0)
+            return self._send(method, path, payload, str(self.fallback), "fallback")
+
+    def _send(self, method: str, path: str, payload: Mapping[str, Any] | None, token: str, pool: str) -> Any:
         request = urllib.request.Request(
             f"https://api.github.com/repos/{self.repo}{path}", method=method,
             data=json.dumps(payload).encode() if payload is not None else b"" if method != "GET" else None,
             headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
                      "Content-Type": "application/json",
                      "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-hosted-light-rescue"})
+        # An ETag is per URL, not per token: a 304 answers whichever token asked.
         cached = self.etags.get(path) if method == "GET" else None
         if cached:
             request.add_header("If-None-Match", cached[0])
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
+                self.note_limit(response.headers, pool)
                 body = response.read()
                 result = json.loads(body) if body.strip() else {}
                 if method == "GET" and response.headers.get("ETag"):
                     self.etags[path] = (response.headers["ETag"], result)
                 return result
         except urllib.error.HTTPError as error:
+            self.note_limit(error.headers, pool)
             if error.code == 304 and cached:
                 return cached[1]
-            raise RuntimeError(f"{method} {path}: HTTP {error.code}") from error
+            if error.code == 403:
+                diagnostic = _forbidden_diagnostic(error)
+                refusal: RuntimeError = GitHubHTTPError(f"{method} {path}: {diagnostic}: HTTP 403", status=403)
+                if method == "GET" and diagnostic.startswith(("quota", "secondary-limit")):
+                    self.forbidden_cooldowns[pool] = (self.clock() + FORBIDDEN_COOLDOWN_SECONDS, refusal)
+                raise refusal from error
+            refusal = RuntimeError(f"{method} {path}: HTTP {error.code}")
+            refusal.code = error.code  # type: ignore[attr-defined]
+            raise refusal from error
 
-    def runs(self, workflow: str, status: str, start: dt.datetime, end: dt.datetime) -> list[dict[str, Any]]:
+    def runs(self, workflow: str | None, status: str, start: dt.datetime, end: dt.datetime, *,
+             page: int = 1) -> list[dict[str, Any]]:
+        """One page of in-flight pull request runs: of one workflow file, or of the whole repository (None)."""
         # Filtered to pull_request runs server-side, so push and dispatch runs never fill the one page.
-        query = urllib.parse.urlencode({"status": status, "event": "pull_request", "per_page": 100,
-                                        "created": f">={iso(start.replace(minute=0, second=0, microsecond=0))}"})
-        return list(self.request("GET", f"/actions/workflows/{workflow}/runs?{query}").get("workflow_runs") or [])
+        # The upper stall bound is applied locally: retaining fresh metadata lets it age into eligibility while a
+        # discovery page is cached, and keeps the URL stable for conditional requests after the short cache TTL.
+        query = urllib.parse.urlencode({"status": status, "event": "pull_request", "per_page": 100, "page": page,
+                                        "created": f">={iso(start)}"})
+        where = "/actions/runs" if workflow is None else f"/actions/workflows/{workflow}/runs"
+        return list(self.request("GET", f"{where}?{query}").get("workflow_runs") or [])
 
     def jobs(self, run_id: int) -> list[dict[str, Any]]:
         page = self.request("GET", f"/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
@@ -181,6 +441,17 @@ class GitHub:
         self.request("POST", "/actions/workflows/ci-owned-pool-rescue.yml/dispatches", {"ref": "main"})
 
 
+REPOSITORY = "*"  # ScanState.pages key for the repository-wide listing
+
+
+def workflow_file(run: Any) -> str | None:
+    """The workflow file a listed run belongs to (`.github/workflows/ci.yml@ref` -> `ci.yml`), or None."""
+    if not isinstance(run, Mapping):
+        return None
+    path = str(run.get("path") or "").split("@", 1)[0]
+    return path.rsplit("/", 1)[-1] if path.startswith(".github/workflows/") else None
+
+
 def at_head(run: Mapping[str, Any]) -> bool:
     """The run is at its pull request's current head (a stale head's result is read by nobody)."""
     prs = run.get("pull_requests") or []
@@ -190,7 +461,7 @@ def at_head(run: Mapping[str, Any]) -> bool:
         for pr in prs)
 
 
-def pull_at_head(client: Any, run: Mapping[str, Any]) -> bool:
+def pull_at_head(client: Any, run: Mapping[str, Any], *, strict: bool = False) -> bool:
     """A pull request of the run is open at the run's head.
 
     Read from the pull request itself; when the token may not read pull requests (HTTP 403 or 404: the overflow
@@ -204,10 +475,57 @@ def pull_at_head(client: Any, run: Mapping[str, Any]) -> bool:
             if client.pull_head(number) == run.get("head_sha"):
                 return True
         except RuntimeError as error:
-            if not re.search(r"HTTP (403|404)$", str(error)):
+            if strict or not re.search(r"HTTP (403|404)$", str(error)):
                 raise
             refused = True
-    return refused and at_head(run)
+    return not strict and refused and at_head(run)
+
+
+def finish_cancel(client: Any, run_id: int, workflows: Sequence[str], *, pending: set[int],
+                  deadline: float, sleep: Callable[[float], None], clock: Callable[[], float],
+                  log: Callable[[str], None]) -> tuple[bool, str]:
+    """Finish only an owned cancellation, checking the live attempt and open PR before every rerun POST.
+
+    A failed response may conceal an accepted rerun: a later attempt ends recovery without another POST.
+    Unread state and exhausted retries retain the journal entry for the next minute or successor.
+    """
+    def settled(message: str, reran: bool = False) -> tuple[bool, str]:
+        log(f"{LIGHT_CANCEL_SETTLED} run {run_id} attempt 1")
+        pending.discard(run_id)
+        return reran, message
+
+    last = "the cancellation has not settled"
+    for retry in range(RERUN_TRIES):
+        if clock() >= deadline:
+            break
+        try:
+            run = client.run(run_id)
+            if run.get("run_attempt") != 1:
+                return settled("a later attempt already exists; no further rerun sent")
+            workflow = str(run.get("path") or "").split("@", 1)[0].rsplit("/", 1)[-1]
+            if run.get("event") not in EVENTS or workflow not in workflows or not at_head(run):
+                return settled("the run is no longer eligible; left alone")
+            if not pull_at_head(client, run, strict=True):
+                return settled("the pull request closed or moved on; left alone")
+            if run.get("status") != "completed":
+                return False, last
+            if run.get("conclusion") != "cancelled":
+                return settled("the run finished without a cancellation; left alone")
+            if clock() >= deadline:
+                break
+            client.rerun_failed(run_id)
+        except Exception as error:  # noqa: BLE001 - keep confirmed ownership through transient failures
+            last = f"rerun not confirmed ({error})"
+            if retry + 1 >= RERUN_TRIES or clock() >= deadline:
+                break
+            # Permanent refusals are visible and retained, not hammered within this pass.
+            status = re.search(r"HTTP (\d{3})$", str(error))
+            if status and int(status[1]) in {401, 403, 404, 422}:
+                break
+            sleep(min(SETTLE_INTERVAL_S, max(0.0, deadline - clock())))
+            continue
+        return settled("re-ran its failed jobs on their fallback route", reran=True)
+    return False, f"{last}; owned recovery remains pending"
 
 
 def candidate(run: Mapping[str, Any]) -> bool:
@@ -234,30 +552,204 @@ def verdict(jobs: Sequence[Mapping[str, Any]], now: dt.datetime) -> tuple[str, l
     return ("gated" if others else "rescue"), stuck
 
 
+def run_key(run: Mapping[str, Any]) -> tuple[str, int]:
+    """The stable ordering key shared by the bounded scan and its in-memory cursor."""
+    return str(run.get("created_at") or ""), int(run["id"])
+
+
+@dataclass
+class ScanState:
+    """Process-local discovery and progress; expired candidates are removed on every pass."""
+
+    cursor: tuple[str, int] | None = None
+    recovery_cursor: int | None = None
+    pages: dict[tuple[str, str], int] = field(default_factory=dict)
+    candidates: dict[int, Mapping[str, Any]] = field(default_factory=dict)
+    # (REPOSITORY, status, page) -> (monotonic read time, page rows).
+    discovery_pages: dict[tuple[str, str, int], tuple[float, list[Mapping[str, Any]]]] = field(
+        default_factory=dict)
+    # A cached non-stalled jobs answer is safe only until its oldest queued job reaches the stall bound. Stalled
+    # verdicts are never cached, so a rescue always gets a fresh authoritative read.
+    jobs_cache: dict[int, tuple[float, dt.datetime, list[Mapping[str, Any]]]] = field(default_factory=dict)
+    fresh_candidates: dict[int, Mapping[str, Any]] = field(default_factory=dict)
+
+
+def scan_slice(runs: Sequence[Mapping[str, Any]], cursor: tuple[str, int] | None) -> tuple[
+        list[Mapping[str, Any]], tuple[str, int] | None]:
+    """Select one bounded rotating slice and return the key after which the next pass starts.
+
+    The cursor is intentionally only process-local. A new sweeper starts from the oldest run, while the
+    minute passes in one sweeper visit every candidate even when old runs stay gated. If the run at the
+    cursor disappears, the first remaining run after it (or the oldest run after a full wrap) is safe.
+    """
+    if not runs:
+        return [], cursor
+    start = 0 if cursor is None else next(
+        (index for index, run in enumerate(runs) if run_key(run) > cursor), 0)
+    ordered = list(runs[start:]) + list(runs[:start])
+    selected = ordered[:MAX_RUNS]
+    return selected, run_key(selected[-1])
+
+
+def pool_low(client: Any, now: dt.datetime) -> bool:
+    """The client's token pool is down to POOL_RESERVE (a client that does not track it never is)."""
+    spare = getattr(client, "spare", None)
+    return callable(spare) and not spare(now)
+
+
 def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: bool,
-          sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic) -> list[str]:
+          sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
+          pending: set[int] | None = None, log: Callable[[str], None] = print,
+          scan_state: ScanState | None = None) -> list[str]:
     lines: list[str] = []
-    start, end = now - WINDOW, now - dt.timedelta(seconds=STALL_SECONDS)
-    listed: dict[int, Mapping[str, Any]] = {}
-    for workflow in workflows:
-        for status in IN_FLIGHT:
+    pending = set() if pending is None else pending
+    recovering = set(pending)
+    state = scan_state if scan_state is not None else ScanState()
+    rescued, attempted = 0, 0
+    started = clock()
+    deadline = started + SETTLE_BUDGET_S
+    recovery_deadline = started + SETTLE_BUDGET_S / 2
+    # Keep bounded process-local caches from retaining completed/expired candidates forever.
+    state.discovery_pages = {
+        key: value for key, value in state.discovery_pages.items()
+        if clock() - value[0] < DISCOVERY_CACHE_SECONDS
+    }
+    state.jobs_cache = {
+        run_id: value for run_id, value in state.jobs_cache.items()
+        if clock() - value[0] < DISCOVERY_CACHE_SECONDS and now < value[1]
+    }
+    # A broken receipt must not consume every slot every minute. Rotate owned recovery IDs and reserve
+    # half the mutation and settle budgets for fresh stalled work, even while old reads keep failing.
+    ordered = sorted(recovering)
+    offset = next((index for index, run_id in enumerate(ordered)
+                   if state.recovery_cursor is None or run_id > state.recovery_cursor), 0)
+    ordered = ordered[offset:] + ordered[:offset]
+    for run_id in ordered[:max(1, MAX_RESCUES // 2)]:
+        if not dry_run and clock() >= recovery_deadline:
+            break
+        state.recovery_cursor = run_id
+        if dry_run:
+            lines.append(f"run {run_id}: would resume its owned cancellation (dry run)")
+            continue
+        attempted += 1
+        reran, outcome = finish_cancel(client, run_id, workflows, pending=pending, deadline=recovery_deadline,
+                                       sleep=sleep, clock=clock, log=log)
+        rescued += int(reran)
+        lines.append(f"run {run_id}: {outcome}")
+    if pool_low(client, now):
+        lines.append(f"the read token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); "
+                     f"no listing or job read until its reset at {iso(dt.datetime.fromtimestamp(client.reset, UTC))}")
+        return lines
+    # Round the server query lower bound so the same URL remains cacheable for a short interval. The exact upper
+    # bound is always enforced locally; a retained fresh candidate therefore becomes eligible as
+    # soon as its timestamp ages into the stall window, even while the listing page is cached.
+    def floor(moment: dt.datetime) -> dt.datetime:
+        stamp = int(moment.astimezone(UTC).timestamp())
+        return dt.datetime.fromtimestamp(stamp - stamp % DISCOVERY_STEP_SECONDS, UTC)
+
+    exact_start, exact_end = now - WINDOW, now - dt.timedelta(seconds=STALL_SECONDS)
+    start, end = floor(exact_start), exact_end
+    # Overflow pages rotate independently of the job-read cursor. Retain the discovered union so a page
+    # disappearing from the next listing cannot discard candidates before their turn. Metadata never
+    # authorizes a mutation: the run, PR head and jobs are still re-read immediately before cancellation.
+    listed = state.candidates
+    for run_id, run in list(listed.items()):
+        created = parse_time(run.get("created_at"))
+        if created is not None and created > exact_end:
+            state.fresh_candidates[run_id] = run
+            del listed[run_id]
+            continue
+        if (created is None or created < exact_start or run.get("_workflow") not in workflows
+                or run_id in recovering):
+            del listed[run_id]
+    for run_id, run in list(state.fresh_candidates.items()):
+        created = parse_time(run.get("created_at"))
+        if created is None or created < exact_start or run.get("_workflow") not in workflows or run_id in recovering:
+            del state.fresh_candidates[run_id]
+        elif created <= exact_end:
+            listed[run_id] = run
+            del state.fresh_candidates[run_id]
+    declared = set(workflows)
+    for status in IN_FLIGHT:
+        # One repository-wide listing per status; a run is kept when its workflow file is declared. A reusable
+        # declaration's runs carry their caller's path, and with_callers() already lists the callers.
+        # Pages 1 and 2 are read every pass while full (every workflow now shares them), and one rotating page
+        # from 3 on beyond that, so a declared run is not left to the rotation behind undeclared ones.
+        key = REPOSITORY, status
+        overflow = state.pages.get(key, 3)
+        full_overflow = False
+        previous_full = True
+        for listing_page in (1, 2, overflow):
+            if not previous_full:
+                break  # the pages so far hold every run: a later page would come back empty
             try:
-                page = client.runs(workflow, status, start, end)
+                # Keep the cache key independent of the moving time window. The local exact-window filter below
+                # drops aged rows, while the short TTL keeps newly-created rows boundedly fresh.
+                cache_key = (REPOSITORY, status, listing_page)
+                cached = state.discovery_pages.get(cache_key)
+                if cached is not None and clock() - cached[0] < DISCOVERY_CACHE_SECONDS:
+                    page = cached[1]
+                else:
+                    page = client.runs(None, status, start, end, page=listing_page)
+                    state.discovery_pages[cache_key] = (clock(), list(page))
             except Exception as error:  # noqa: BLE001 - an unread listing only narrows this pass
-                lines.append(f"could not list {status} runs of {workflow} ({error})")
-                continue
+                lines.append(f"could not list {status} pull request runs ({error})")
+                break
+            previous_full = len(page) >= LIST_PAGE
+            if listing_page == overflow:
+                full_overflow = previous_full
             for run in page:
-                if isinstance(run, Mapping) and isinstance(run.get("id"), int) and candidate(run):
-                    listed[run["id"]] = {**run, "_workflow": workflow}
-    runs = sorted(listed.values(), key=lambda run: (str(run.get("created_at")), run["id"]))
-    if len(runs) > MAX_RUNS:
-        lines.append(f"{len(runs)} candidate runs; read the oldest {MAX_RUNS}")
-        runs = runs[:MAX_RUNS]
-    rescued = 0
-    deadline = clock() + SETTLE_BUDGET_S
-    for run in runs:
+                workflow = workflow_file(run)
+                if (workflow in declared and isinstance(run.get("id"), int) and candidate(run)
+                        and run["id"] not in recovering
+                        and (created := parse_time(run.get("created_at"))) is not None
+                        and created >= exact_start):
+                    item = {**run, "_workflow": workflow}
+                    if created > exact_end:
+                        state.fresh_candidates[run["id"]] = item
+                    else:
+                        listed[run["id"]] = item
+        if full_overflow:
+            state.pages[key] = 3 if overflow >= MAX_RUN_LIST_PAGES else overflow + 1
+        else:
+            state.pages[key] = 3
+    runs = sorted(listed.values(), key=run_key)
+    live_ids = set(listed) | set(state.fresh_candidates)
+    state.jobs_cache = {run_id: value for run_id, value in state.jobs_cache.items() if run_id in live_ids}
+    candidate_count = len(runs)
+    runs, state.cursor = scan_slice(runs, state.cursor)
+    if candidate_count > MAX_RUNS:
+        lines.append(f"{candidate_count} candidate runs; read a rotating slice of {MAX_RUNS}")
+    for read, run in enumerate(runs):
+        if pool_low(client, now):
+            lines.append(f"the read token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); "
+                         f"{len(runs) - read} job reads left to a later pass")
+            break
+        created = parse_time(run.get("created_at"))
+        if created is None or created > exact_end:
+            # Retained fresh metadata is kept for the next pass, but it cannot spend a job read until it enters the
+            # local stall window. This is what lets an eligible run age into service while discovery is cached.
+            continue
         try:
-            jobs = client.jobs(run["id"])
+            cached_jobs = state.jobs_cache.get(run["id"])
+            if cached_jobs is not None:
+                checked_at, expires_at, jobs = cached_jobs
+                if clock() - checked_at >= DISCOVERY_CACHE_SECONDS or now >= expires_at:
+                    cached_jobs = None
+            if cached_jobs is None:
+                jobs = client.jobs(run["id"])
+                # Cache only a clearly non-stalled result, and expire when its oldest queued job can age into the
+                # rescue window. A read failure is never cached as absence.
+                queued_times = [parse_time(job.get("created_at")) for job in jobs
+                                if job.get("status") == "queued" and parse_time(job.get("created_at")) is not None]
+                expires_at = min((created + dt.timedelta(seconds=STALL_SECONDS) for created in queued_times),
+                                 default=now + dt.timedelta(seconds=DISCOVERY_CACHE_SECONDS))
+                complete = bool(jobs) and all(
+                    str(job.get("name") or "") != "(jobs past the first page)"
+                    and job.get("status") in {"queued", "in_progress", "completed"}
+                    for job in jobs)
+                if complete and verdict(jobs, now)[0] == "none":
+                    state.jobs_cache[run["id"]] = (clock(), expires_at, list(jobs))
         except Exception as error:  # noqa: BLE001
             lines.append(f"run {run['id']}: could not read jobs ({error})")
             continue
@@ -270,7 +762,7 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
         if kind == "gated":
             lines.append(f"{where}: {names} stalled on hosted Ubuntu, but other jobs are unfinished; left alone")
             continue
-        if rescued >= MAX_RESCUES:
+        if attempted >= MAX_RESCUES:
             lines.append(f"{where}: {names} stalled; over this pass's {MAX_RESCUES} re-runs, left to the next")
             continue
         if not dry_run and clock() >= deadline:
@@ -280,6 +772,7 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
         if dry_run:
             lines.append(f"{where}: {names} stalled; would cancel and re-run its failed jobs (dry run)")
             rescued += 1
+            attempted += 1
             continue
         # Right before the cancel: the run is still attempt 1 and in flight at its pull request's head (read again,
         # so a concurrent re-run is never cancelled), the pull request is still open at this head, and nothing has
@@ -288,7 +781,7 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
             fresh = {**client.run(run["id"])}
             live_head = candidate(fresh) and fresh.get("head_sha") == run.get("head_sha")
             if live_head:
-                live_head = pull_at_head(client, fresh)
+                live_head = pull_at_head(client, fresh, strict=True)
             again, _ = verdict(client.jobs(run["id"]), now) if live_head else ("none", [])
         except Exception as error:  # noqa: BLE001 - unread means unknown: leave the run
             lines.append(f"{where}: could not re-read before the cancel ({error}); left alone")
@@ -304,30 +797,31 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
         except Exception as error:  # noqa: BLE001
             lines.append(f"{where}: cancel refused ({error})")
             continue
+        attempted += 1
+        pending.add(run["id"])
+        # Immediate log output is GitHub's durable receipt; a successor reads it if this worker stops.
+        log(f"{LIGHT_CANCEL_SENT} run {run['id']} attempt 1")
         settled = False
         while True:
             try:
-                state = client.run(run["id"])
+                current = client.run(run["id"])
             except Exception:  # noqa: BLE001 - read again until the budget runs out
-                state = {}
-            if state.get("status") == "completed":
-                settled = state.get("run_attempt") == 1
+                current = {}
+            if current.get("status") == "completed":
+                settled = current.get("run_attempt") == 1
                 break
             if clock() >= deadline:
                 break
             sleep(SETTLE_INTERVAL_S)
         if not settled:
             lines.append(f"{where}: {names} stalled; cancelled, but the cancel did not settle in this pass's "
-                         f"{SETTLE_BUDGET_S:.0f} s, so it was not re-run")
+                         f"{SETTLE_BUDGET_S:.0f} s; owned recovery remains pending")
             continue
-        try:
-            client.rerun_failed(run["id"])
-        except Exception as error:  # noqa: BLE001
-            lines.append(f"{where}: cancelled, re-run refused ({error})")
-            continue
-        rescued += 1
-        lines.append(f"{where}: {names} stalled; cancelled and re-ran its failed jobs on their fallback route")
-    lines.append(f"{len(listed)} candidate runs, {min(len(runs), MAX_RUNS)} read, {rescued} failed over")
+        reran, outcome = finish_cancel(client, run["id"], workflows, pending=pending, deadline=deadline,
+                                       sleep=sleep, clock=clock, log=log)
+        rescued += int(reran)
+        lines.append(f"{where}: {names} stalled; cancelled; {outcome}")
+    lines.append(f"{len(listed)} candidate runs, {len(runs)} read, {rescued} failed over")
     return lines
 
 
@@ -352,16 +846,37 @@ def follow(pass_once: Callable[[], Any], *, stopped: Callable[[float], bool], se
 
 def from_env(env: Mapping[str, str], repo: str, *, now: Callable[[], dt.datetime],
              log: Callable[[str], None]) -> Callable[[], None] | None:
-    """Build a pass with its own workflow token, never the routing App's read or write client."""
+    """Build a pass that reads as cmux-bot (its own pool) with the workflow token as fallback, never the routing App."""
     token = env.get("HOSTED_LIGHT_TOKEN", "").strip()
+    fallback = env.get("HOSTED_LIGHT_FALLBACK_TOKEN", "").strip() or None
     directory = Path(env.get("HOSTED_LIGHT_POLICY", ".rescue-workflows/.github"))
     if env.get("HOSTED_LIGHT_DISABLED") == "1" or not token:
         return None
     runners = json.loads((directory / "runners.json").read_text(encoding="utf-8"))
     workflows = with_callers(declared_workflows(runners), directory / "workflows")
-    client = GitHub(token, repo)
+    mint = None
+    if fallback and env.get("BOT_APP_ID") and env.get("BOT_APP_KEY"):
+        import owned_pool_rescue
+        mint = owned_pool_rescue.app_token_minter(env["BOT_APP_ID"], env["BOT_APP_KEY"], repo)
+    client = GitHub(token, repo, fallback=fallback, mint=mint) if fallback else GitHub(token, repo)
+    scan_state = ScanState()
+    pending: set[int] = set()
+    restored = False
+    retry_at: dt.datetime | None = None
     def once() -> None:
-        for line in sweep(client, workflows, now=now(), dry_run=False):
+        nonlocal restored, retry_at
+        if not restored and (retry_at is None or now() >= retry_at):
+            try:
+                pending.update(client.pending_cancellations(now()))
+                restored = True
+            except Exception as error:  # noqa: BLE001 - incomplete journal cannot authorize a rerun
+                # Each attempt pages the rescue history (up to 10 reads), and an over-long window fails the same
+                # way every minute: try again after JOURNAL_RETRY, not on every pass.
+                retry_at = now() + JOURNAL_RETRY
+                log(f"hosted light recovery journal unavailable ({error}); existing cancellations left alone; "
+                    f"read again after {iso(retry_at)}")
+        for line in sweep(client, workflows, now=now(), dry_run=False, pending=pending, log=log,
+                          scan_state=scan_state):
             log(f"[hosted light] {line}")
     return once
 
