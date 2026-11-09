@@ -84,12 +84,16 @@ fn create(engine: &Arc<Engine>, key: &str) -> Value {
         .unwrap()
 }
 
-/// Waits (at most 5 s) until `id`'s receipt says the cleanup is `cleanup`.
+/// Waits (at most 5 s) until `id`'s receipt says the cleanup is `cleanup`, as `team_1`.
 fn settled(engine: &Arc<Engine>, id: &str, cleanup: &str) -> Value {
+    settled_as(engine, "team_1", id, cleanup)
+}
+
+fn settled_as(engine: &Arc<Engine>, owner: &str, id: &str, cleanup: &str) -> Value {
     let began = Instant::now();
     loop {
         let snapshot = engine
-            .perform("runs.wait", Some("team_1"), &args(json!({ "id": id, "timeoutMs": 200 })))
+            .perform("runs.wait", Some(owner), &args(json!({ "id": id, "timeoutMs": 200 })))
             .unwrap();
         if snapshot["receipt"]["cleanup"] == cleanup || began.elapsed() > Duration::from_secs(5) {
             return snapshot;
@@ -155,7 +159,8 @@ fn a_cancel_stops_the_task_and_deletes_the_machine() {
     while fake.ran.lock().unwrap().is_empty() && began.elapsed() < Duration::from_secs(5) {
         std::thread::sleep(Duration::from_millis(2));
     }
-    let cancelled = engine.perform("runs.cancel", Some("team_1"), &args(json!({ "id": id }))).unwrap();
+    let cancelled =
+        engine.perform("runs.cancel", Some("team_1"), &args(json!({ "id": id }))).unwrap();
     assert_eq!(cancelled["run"]["status"], "cancelled");
     assert_eq!(cancelled["receipt"]["status"], "cancelled");
     assert!(cancelled["run"]["cancelRequestedAt"].is_string());
@@ -260,7 +265,7 @@ fn the_same_key_answers_the_same_run_and_another_body_is_a_conflict() {
         .unwrap();
     assert_ne!(other["id"], first["id"]);
     settled(&engine, first["id"].as_str().unwrap(), "destroyed");
-    settled(&engine, other["id"].as_str().unwrap(), "destroyed");
+    settled_as(&engine, "team_2", other["id"].as_str().unwrap(), "destroyed");
     assert_eq!(fake.ran.lock().unwrap().len(), 2);
 }
 
@@ -295,8 +300,9 @@ fn a_wait_holds_at_most_its_bound_and_answers_no_receipt_while_running() {
     let engine = Engine::open(None, fake, quick());
     let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
     let began = Instant::now();
-    let snapshot =
-        engine.perform("runs.wait", Some("team_1"), &args(json!({ "id": id, "timeoutMs": 50 }))).unwrap();
+    let snapshot = engine
+        .perform("runs.wait", Some("team_1"), &args(json!({ "id": id, "timeoutMs": 50 })))
+        .unwrap();
     assert!(began.elapsed() < Duration::from_secs(2));
     assert_eq!(snapshot["receipt"], Value::Null);
     assert!(matches!(snapshot["run"]["status"].as_str(), Some("queued" | "running")));
