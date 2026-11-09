@@ -420,13 +420,14 @@ fn set_projection_updated_at(mux: &Mux, terminal_id: &TerminalPublicId, at_ms: u
     });
 }
 
-/// A replay from zero held at its gate, and a direct hook report of `state`
-/// that commits during it. `after_commit` runs right after the report's
+/// A replay from zero held at its gate, and a direct report of `state` from
+/// `source` that commits during it. `after_commit` runs right after the report's
 /// projection commit; its journal echo waits until the replay ended and its
 /// reconcile had its chance. Then everything settles.
 fn direct_report_during_a_replay(
     mux: &Arc<Mux>,
     surface: SurfaceId,
+    source: AgentSource,
     state: AgentState,
     after_commit: impl FnOnce() + Send + 'static,
 ) {
@@ -445,7 +446,7 @@ fn direct_report_during_a_replay(
     let reporter = {
         let mux = Arc::clone(mux);
         std::thread::spawn(move || {
-            mux.report_agent(surface, state, AgentSource::Hook, None).unwrap();
+            mux.report_agent(surface, state, source, None).unwrap();
         })
     };
     committed.recv_timeout(Duration::from_secs(30)).expect("the report committed");
@@ -502,37 +503,56 @@ fn a_direct_report_stamped_before_the_entry_keeps_its_row_through_the_reconcile(
     let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
     screen(&mux, &terminal_id, "working", crate::workspace_registry::unix_epoch_ms().unwrap());
     let (stamp_mux, stamp_terminal) = (Arc::clone(&mux), terminal_id);
-    direct_report_during_a_replay(&mux, surface.id, AgentState::Idle, move || {
-        set_projection_updated_at(&stamp_mux, &stamp_terminal, 1);
-    });
+    direct_report_during_a_replay(
+        &mux,
+        surface.id,
+        AgentSource::Hook,
+        AgentState::Idle,
+        move || {
+            set_projection_updated_at(&stamp_mux, &stamp_terminal, 1);
+        },
+    );
     let agents = public_agents(&mux);
     assert_eq!(agents.len(), 1, "{agents:?}");
     assert_eq!(agents[0]["source"], "hook", "the report's row survives the reconcile: {agents:?}");
     assert_eq!(agents[0]["state"], "idle", "{agents:?}");
 }
 
-/// #39830 review (router F2): the reconcile read the filtered public
-/// projection, where a hook's `done` row is absent, so a direct completion
-/// during the replay looked missing and the reconcile brought back the old
-/// plugin row.
+/// #39830 review (router F2), and round 3: a direct completion during the
+/// replay. The reconcile read the filtered public projection, where a hook's
+/// `done` row is absent, and a fence that kept the report's row whatever the
+/// roster folded hid what the reducer made of it. The public row now is the
+/// roster's verdict on the completion's echo, as a reconcile with no replay
+/// would leave it: never a state the roster does not hold.
 #[test]
-fn a_direct_completion_during_the_replay_is_not_undone_by_its_reconcile() {
+fn a_direct_completion_during_the_replay_leaves_the_row_the_roster_folded() {
     let mux = test_mux();
     put_plugin_manifest(&mux);
     let surface = mux.new_workspace(None, None).unwrap();
     let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
     screen(&mux, &terminal_id, "working", crate::workspace_registry::unix_epoch_ms().unwrap());
-    direct_report_during_a_replay(&mux, surface.id, AgentState::Done, || {});
-    let agents = public_agents(&mux);
-    assert!(
-        agents.iter().all(|agent| agent["source"] != "plugin"),
-        "the reconcile resurrected the plugin row over the completion: {agents:?}"
-    );
+    direct_report_during_a_replay(&mux, surface.id, AgentSource::Hook, AgentState::Done, || {});
+    let public = public_agents(&mux)
+        .iter()
+        .map(|agent| {
+            (
+                agent["state"].as_str().unwrap().to_owned(),
+                agent["source"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let roster = mux
+        .list_agents(None, None)
+        .into_iter()
+        .filter(|agent| agent.state != AgentState::Done)
+        .map(|agent| (agent.state.as_str().to_owned(), agent.source.as_str().to_owned()))
+        .collect::<Vec<_>>();
+    assert_eq!(public, roster, "the public row is what the roster folded");
 }
 
-/// The fence itself: a direct report during the replay whose journal echo
-/// was never written (the roster never folds it) keeps its row through the
-/// reconcile, stamp or no stamp.
+/// A direct report during the replay whose journal echo failed: the echo is
+/// appended again, and the roster folds it before the reconcile, so the
+/// report's row stays, stamp or no stamp.
 #[test]
 fn a_direct_report_whose_echo_failed_keeps_its_row_through_the_reconcile() {
     use crate::mux::agent_roster_fold::rebuild_faults;
@@ -543,11 +563,44 @@ fn a_direct_report_whose_echo_failed_keeps_its_row_through_the_reconcile() {
     screen(&mux, &terminal_id, "working", crate::workspace_registry::unix_epoch_ms().unwrap());
     rebuild_faults::fail_report_echoes(&mux.session, 1);
     let (stamp_mux, stamp_terminal) = (Arc::clone(&mux), terminal_id);
-    direct_report_during_a_replay(&mux, surface.id, AgentState::Idle, move || {
-        set_projection_updated_at(&stamp_mux, &stamp_terminal, 1);
-    });
+    direct_report_during_a_replay(
+        &mux,
+        surface.id,
+        AgentSource::Hook,
+        AgentState::Idle,
+        move || {
+            set_projection_updated_at(&stamp_mux, &stamp_terminal, 1);
+        },
+    );
     rebuild_faults::fail_report_echoes(&mux.session, 0);
     let agents = public_agents(&mux);
     assert_eq!(agents.len(), 1, "{agents:?}");
     assert_eq!(agents[0]["source"], "hook", "the report's row survives the reconcile: {agents:?}");
+}
+
+/// #39830 review round 3 (router F1): a stop left a plugin journal event with
+/// no projection, so during the replay a weaker socket `idle` report commits
+/// (neither the cache nor the projection holds the plugin row). The roster's
+/// reducer refuses its echo and keeps the plugin `working`, but a fence kept
+/// the socket row whatever the reducer folded. The reconcile now repairs the
+/// row to what the roster folded, as it did before the fence.
+#[test]
+fn a_weaker_direct_report_during_the_replay_gets_the_replayed_plugin_row_back() {
+    let mux = test_mux();
+    put_plugin_manifest(&mux);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    screen(&mux, &terminal_id, "working", crate::workspace_registry::unix_epoch_ms().unwrap());
+    assert_eq!(public_agents(&mux)[0]["source"], "plugin");
+    mux.workspace_registry.lock().unwrap().delete_agent_projection_for_test(&terminal_id);
+    mux.agent_records.lock().unwrap().remove(&terminal_id);
+    direct_report_during_a_replay(&mux, surface.id, AgentSource::Socket, AgentState::Idle, || {});
+    assert_eq!(
+        mux.agent_roster_state_now_for_test(terminal_id.as_str()).as_deref(),
+        Some("working")
+    );
+    let agents = public_agents(&mux);
+    assert_eq!(agents.len(), 1, "{agents:?}");
+    assert_eq!(agents[0]["source"], "plugin", "the reconcile repaired the socket row: {agents:?}");
+    assert_eq!(agents[0]["state"], "working", "{agents:?}");
 }

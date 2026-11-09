@@ -729,6 +729,19 @@ impl WorkspaceRegistry {
         .unwrap();
     }
 
+    /// Deletes `terminal_id`'s stored agent projection, as a stop between a
+    /// journal commit and its projection leaves it.
+    #[cfg(test)]
+    pub(crate) fn delete_agent_projection_for_test(&self, terminal_id: &TerminalPublicId) {
+        self.connection
+            .get()
+            .execute(
+                "DELETE FROM resource_agent_projections WHERE terminal_id = ?1",
+                [terminal_id.as_str()],
+            )
+            .unwrap();
+    }
+
     #[cfg(test)]
     pub(crate) fn corrupt_agent_projection_for_test(&self, terminal_id: &TerminalPublicId) {
         self.connection

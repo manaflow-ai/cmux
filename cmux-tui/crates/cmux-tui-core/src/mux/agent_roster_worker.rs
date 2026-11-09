@@ -483,6 +483,14 @@ mod replay_for_test {
                 .unwrap_or_else(PoisonError::into_inner) = Some(seam);
         }
 
+        /// Fails the next `echoes` journal appends of direct reports' echoes.
+        pub(crate) fn fail_agent_report_echoes_for_test(&self, echoes: u32) {
+            crate::mux::agent_roster_fold::rebuild_faults::fail_report_echoes(
+                &self.session,
+                echoes,
+            );
+        }
+
         /// Starts a roster replay from zero in this running daemon, as a start
         /// whose snapshot does not restore does: the roster goes back to empty and
         /// the owner replays the journal in the background, `page` records per

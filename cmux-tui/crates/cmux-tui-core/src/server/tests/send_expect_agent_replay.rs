@@ -146,3 +146,85 @@ fn an_expect_agent_send_waits_for_a_direct_reports_echo_after_the_replay() {
     assert!(!format!("{after:#}").contains("replay in progress"), "{after:#}");
     mux.shutdown();
 }
+
+/// #39830 review round 3 (router F2): a direct report's echo whose append failed still let the
+/// replay's reconcile clear the guard. The roster held the hook's `idle` next to the report's
+/// session, never folding its `working`, and a send expecting that session went into the
+/// working agent. The failed echo is appended again, and the terminal's guarded sends stay
+/// refused until it is.
+#[cfg(unix)]
+#[test]
+fn an_expect_agent_send_waits_for_a_failed_echo_after_the_replay() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().unwrap().to_string();
+    hook(&mux, &terminal_id, "SessionStart");
+    assert!(mux.settle_agent_roster_for_test());
+    assert_eq!(mux.agent_roster_state_now_for_test(&terminal_id).as_deref(), Some("idle"));
+    let writer = test_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+    let (entered_tx, entered) = std::sync::mpsc::sync_channel(0);
+    let (release, release_rx) = std::sync::mpsc::sync_channel(0);
+    mux.restart_agent_roster_replay_for_test(1, (entered_tx, release_rx));
+    entered.recv_timeout(Duration::from_secs(30)).expect("the replay waits at its gate");
+    mux.fail_agent_report_echoes_for_test(1);
+    mux.report_agent(
+        surface.id,
+        crate::AgentState::Working,
+        crate::AgentSource::Hook,
+        Some("replay-session".into()),
+    )
+    .unwrap();
+    drop(release);
+    drop(entered);
+    for _ in 0..100 {
+        assert!(mux.settle_agent_roster_for_test());
+        if !mux.agent_roster_settling() {
+            break;
+        }
+    }
+    let sent = handle_command(&mux, client, reply(surface.id), &writer);
+    mux.fail_agent_report_echoes_for_test(0);
+    assert!(sent.is_err(), "a send expecting the session went into the agent its report made busy");
+    assert!(!mux.agent_roster_settling(), "the replay reconciled after the echo");
+    assert_eq!(mux.agent_roster_state_now_for_test(&terminal_id).as_deref(), Some("working"));
+    mux.shutdown();
+}
+
+/// The same echo with no replay: until it is in the journal, the roster holds the agent's
+/// older `idle`, so the terminal's guarded sends are refused, and the owner appends it again.
+#[cfg(unix)]
+#[test]
+fn an_expect_agent_send_is_refused_while_a_direct_reports_echo_is_not_in_the_journal() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().unwrap().to_string();
+    hook(&mux, &terminal_id, "SessionStart");
+    assert!(mux.settle_agent_roster_for_test());
+    let writer = test_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    mux.fail_agent_report_echoes_for_test(u32::MAX);
+    mux.report_agent(
+        surface.id,
+        crate::AgentState::Working,
+        crate::AgentSource::Hook,
+        Some("replay-session".into()),
+    )
+    .unwrap();
+    assert!(mux.settle_agent_roster_for_test());
+    assert!(mux.settle_agent_roster_for_test());
+    let sent = handle_command(&mux, client, reply(surface.id), &writer);
+    let roster = mux.agent_roster_state_now_for_test(&terminal_id);
+    mux.fail_agent_report_echoes_for_test(0);
+    assert_eq!(roster.as_deref(), Some("idle"), "the echo is not in the journal");
+    assert!(sent.is_err(), "a send expecting the session went into the agent its report made busy");
+
+    assert!(mux.settle_agent_roster_for_test());
+    assert!(mux.settle_agent_roster_for_test());
+    assert_eq!(mux.agent_roster_state_now_for_test(&terminal_id).as_deref(), Some("working"));
+    let after = handle_command(&mux, client, reply(surface.id), &writer)
+        .expect_err("working once the echo is folded");
+    assert!(format!("{after:#}").contains("agent not waiting"), "{after:#}");
+    mux.shutdown();
+}
