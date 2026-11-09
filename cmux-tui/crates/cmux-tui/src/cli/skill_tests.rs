@@ -98,12 +98,6 @@ fn every_recipe_command_parses_with_this_cli() {
                         panic!("{command}: {error}");
                     }
                 }
-                ["pane", target, "move", ..] => {
-                    let flags = words[3..].to_vec();
-                    if let Err(error) = crate::cli::pane_move::parse(target, &flags) {
-                        panic!("{command}: {error}");
-                    }
-                }
                 ["agents", "events", ..] => {
                     if let Err(error) = crate::cli::agents::command(&words[1..]) {
                         panic!("{command}: {}", error.0);
@@ -181,6 +175,7 @@ fn the_guide_covers_identity_targeting_waits_errors_and_cleanup() {
         "retryable",
         "--idempotency-key",
         "124",
+        "Every wait whose time ran out prints `timed_out: true` and exits 124",
         "Close only what you created",
         "value.terminal_id",
     ] {

@@ -28,7 +28,8 @@
 //! The last harness session id stays with its terminal too (`last_sessions`, W3-H): an ended
 //! session leaves the roster, so `session.snapshot` shows it on the terminal value's
 //! `extra.agent_session_id` (and the harness on `extra.agent`), and `cmux agent resume` can
-//! bring back an agent that quit. Memory only: a daemon restart or a closed terminal forgets it.
+//! bring back an agent that quit. A closed terminal forgets it; a daemon restart takes it back
+//! from the journal's agent roster (its hook session fences, W5-R).
 //!
 //! A question hook's question rides the same way (`live_question`, `agent_hook_question.rs`):
 //! its notification takes it, and the terminal keeps it while the agent waits on it, so
@@ -42,9 +43,12 @@ use super::*;
 pub(crate) struct AgentTexts {
     pub(crate) prompts: HashMap<TerminalPublicId, Arc<str>>,
     replies: HashMap<TerminalPublicId, (std::thread::ThreadId, Arc<str>)>,
-    /// Each terminal's last finished turn's message, kept after its banner took it, and when
-    /// it was kept (Unix milliseconds).
-    last_replies: HashMap<TerminalPublicId, (Arc<str>, u64)>,
+    /// Each terminal's last finished turns' messages, kept after their banners took them, and
+    /// when each was kept (Unix milliseconds), oldest first. The last one is the terminal's
+    /// last reply. Older ones stay (at most `KEPT_REPLIES`) so that when an append fails or
+    /// replays, removing only its own reply leaves the one before it, in whatever order
+    /// racing appends of one terminal end.
+    last_replies: HashMap<TerminalPublicId, Vec<(Arc<str>, u64)>>,
     /// Each terminal's last harness session id and harness, kept after the session ended.
     last_sessions: HashMap<TerminalPublicId, (Arc<str>, Option<Arc<str>>)>,
     /// A question hook's question (`live_question`), kept by the append's thread until its
@@ -56,6 +60,21 @@ pub(crate) struct AgentTexts {
 }
 
 impl AgentTexts {
+    /// The texts a daemon starts with: each terminal's last harness session id and harness
+    /// from the journal's roster (`AgentRoster::hook_sessions`), less the local generation
+    /// tokens of session-less adapters (`published_agent_session_id`).
+    pub(crate) fn with_sessions(sessions: Vec<(String, String, Option<String>)>) -> Self {
+        let last_sessions = sessions
+            .into_iter()
+            .filter_map(|(terminal, session, harness)| {
+                let terminal = TerminalPublicId::parse(&terminal).ok()?;
+                let session = published_agent_session_id(&terminal, &session)?;
+                Some((terminal, (Arc::from(session.as_str()), harness.as_deref().map(Arc::from))))
+            })
+            .collect();
+        Self { last_sessions, ..Self::default() }
+    }
+
     pub(crate) fn forget(&mut self, terminal: &TerminalPublicId) {
         self.prompts.remove(terminal);
         self.replies.remove(terminal);
@@ -118,9 +137,9 @@ impl Mux {
 
     /// Keeps `reply` (cut to `LIVE_MESSAGE_CHARS`) for `terminal`'s next agent notification and
     /// as its last reply. Kept before the commit, so the agent change the commit folds already
-    /// carries it. Returns what it kept and the last reply it replaced, so the append drops the
-    /// notification's copy (`forget_agent_reply`) and a failed or replayed append puts the last
-    /// reply back (`restore_agent_reply`); `None` when nothing was kept.
+    /// carries it. Returns what it kept, so the append drops the notification's copy
+    /// (`forget_agent_reply`) and a failed or replayed append drops it as the last reply
+    /// (`restore_agent_reply`); `None` when nothing was kept.
     #[must_use]
     pub(crate) fn note_agent_reply(
         &self,
@@ -132,26 +151,24 @@ impl Mux {
         let mut texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
         let owner = std::thread::current().id();
         let reply: Arc<str> = Arc::from(reply);
-        let previous = texts.last_replies.insert(terminal.clone(), (Arc::clone(&reply), now_ms()));
+        let kept = texts.last_replies.entry(terminal.clone()).or_default();
+        kept.push((Arc::clone(&reply), now_ms()));
+        let over = kept.len().saturating_sub(KEPT_REPLIES);
+        kept.drain(..over);
         texts.replies.insert(terminal.clone(), (owner, Arc::clone(&reply)));
-        Some(NotedReply { kept: reply, previous })
+        Some(NotedReply { kept: reply })
     }
 
-    /// Puts back the last reply `noted` replaced, after its append failed or replayed (a hook's
-    /// retry of an older turn), unless a newer append kept another reply since.
+    /// Drops the reply `noted` kept, after its append failed or replayed (a hook's retry of an
+    /// older turn): the terminal's last reply is then the newest other kept one, whichever
+    /// appends of the terminal end first.
     pub(crate) fn restore_agent_reply(&self, terminal: &TerminalPublicId, noted: NotedReply) {
         let mut texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
-        let ours = texts
-            .last_replies
-            .get(terminal)
-            .is_some_and(|(reply, _)| Arc::ptr_eq(reply, &noted.kept));
-        if !ours {
-            return;
+        let Some(kept) = texts.last_replies.get_mut(terminal) else { return };
+        kept.retain(|(reply, _)| !Arc::ptr_eq(reply, &noted.kept));
+        if kept.is_empty() {
+            texts.last_replies.remove(terminal);
         }
-        match noted.previous {
-            Some(previous) => texts.last_replies.insert(terminal.clone(), previous),
-            None => texts.last_replies.remove(terminal),
-        };
     }
 
     /// Every terminal's last reply, folded and cut to `LIVE_PROMPT_CHARS`, keyed by terminal
@@ -162,7 +179,8 @@ impl Mux {
         texts
             .last_replies
             .iter()
-            .filter_map(|(terminal, (reply, _))| {
+            .filter_map(|(terminal, kept)| {
+                let (reply, _) = kept.last()?;
                 Some((terminal.to_string(), crate::agent_hooks::live_prompt_text(reply)?))
             })
             .collect()
@@ -176,6 +194,7 @@ impl Mux {
         texts
             .last_replies
             .get(terminal)
+            .and_then(|kept| kept.last())
             .map(|(reply, at_ms)| LastReply { text: reply.to_string(), at_ms: *at_ms })
     }
 
@@ -321,12 +340,17 @@ pub(crate) fn with_last_reply(mut agent: Value, replies: &HashMap<String, String
     agent
 }
 
-/// A reply [`Mux::note_agent_reply`] kept as a terminal's last reply, and the last reply (with
-/// when it was kept) that it replaced, for [`Mux::restore_agent_reply`].
+/// A reply [`Mux::note_agent_reply`] kept as a terminal's last reply, for
+/// [`Mux::restore_agent_reply`] (it is found by pointer, so an equal text of another turn is
+/// not taken for it).
 pub(crate) struct NotedReply {
     kept: Arc<str>,
-    previous: Option<(Arc<str>, u64)>,
 }
+
+/// How many kept replies a terminal holds: its last reply and the ones before it, for appends
+/// that are still running when a newer one keeps its reply. Hook appends of one terminal run
+/// one or two at a time.
+const KEPT_REPLIES: usize = 4;
 
 /// A terminal's last reply whole and when the daemon kept it ([`Mux::agent_last_reply_text`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -361,6 +385,24 @@ pub(crate) struct AgentListReplies {
 /// ([`with_last_reply_text`]).
 pub(crate) fn with_agent_list_replies(agent: Value, replies: &AgentListReplies) -> Value {
     with_last_reply_text(with_last_reply(agent, &replies.folded), replies.whole.as_ref())
+}
+
+/// Adds the terminal's kept harness session id ([`Mux::agent_last_sessions`]) to a public agent
+/// value (`agent.list`, `session.snapshot`) that names none: a screen-detection report after a
+/// daemon restart replaces the hook's record without it (W5-R, bench round 4 A6). A value with
+/// its own id keeps it.
+pub(crate) fn with_kept_session(
+    mut agent: Value,
+    sessions: &HashMap<String, (String, Option<String>)>,
+) -> Value {
+    let kept = agent.get("terminal_id").and_then(Value::as_str).and_then(|id| sessions.get(id));
+    if let (Some((session, _)), Some(extra)) =
+        (kept, agent.get_mut("extra").and_then(Value::as_object_mut))
+        && extra.get("agent_session_id").is_none_or(|value| value.as_str().is_none())
+    {
+        extra.insert("agent_session_id".into(), Value::String(session.clone()));
+    }
+    agent
 }
 
 /// Adds `extra.agent_session_id` (and `extra.agent`, the harness) to a public terminal value

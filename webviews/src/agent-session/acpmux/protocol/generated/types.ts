@@ -278,6 +278,7 @@ export interface BtwParams {
   model?: unknown;
   question?: unknown;
   sessionId?: unknown;
+  targetHarness?: unknown;
 }
 
 /** The carrier a live link runs over (`carrier`); null while no link is open. */
