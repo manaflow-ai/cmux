@@ -65,11 +65,13 @@ fn stale_roster_store(session: &'static str) -> Store {
     }
     mux.shutdown();
     drop(mux);
-    let registry = WorkspaceRegistry::open(&root, session).unwrap();
     let db_path = registry_file(&root, session);
     assert!(db_path.is_file(), "{}", db_path.display());
+    // No saved roster at all: the restore below folds from the first record
+    // (a version mismatch would serve the old snapshot and rebuild later).
+    write_meta(&db_path, &[(roster_key().as_str(), None), (rebuild_key().as_str(), None)]);
+    let registry = WorkspaceRegistry::open(&root, session).unwrap();
     let head = registry.session_journal_head().unwrap();
-    registry.put_journal_reducer_state(AGENT_ROSTER_REDUCER_ID, 0, 0, "").unwrap();
     let limits = RosterFoldLimits { page: 512, save_every_pages: 64, stop_after_pages: None };
     let cold = restore_agent_roster_with(&registry, limits).unwrap();
     assert!(cold.diagnostic.is_none(), "{:?}", cold.diagnostic);
@@ -80,6 +82,31 @@ fn stale_roster_store(session: &'static str) -> Store {
     registry.put_journal_reducer_state(AGENT_ROSTER_REDUCER_ID, 8, 3, "{}").unwrap();
     drop(registry);
     Store { root, session, db_path, cold, head }
+}
+
+fn roster_key() -> String {
+    format!("journal_reducer.{AGENT_ROSTER_REDUCER_ID}")
+}
+
+fn rebuild_key() -> String {
+    format!("journal_reducer_rebuild.{AGENT_ROSTER_REDUCER_ID}")
+}
+
+/// Sets (`Some`) or deletes (`None`) `meta` rows with no registry open.
+fn write_meta(db_path: &Path, rows: &[(&str, Option<String>)]) {
+    let db = rusqlite::Connection::open(db_path).unwrap();
+    for (key, value) in rows {
+        match value {
+            Some(value) => db
+                .execute(
+                    "INSERT INTO meta(key, value) VALUES(?1, ?2)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    rusqlite::params![key, value],
+                )
+                .unwrap(),
+            None => db.execute("DELETE FROM meta WHERE key = ?1", rusqlite::params![key]).unwrap(),
+        };
+    }
 }
 
 fn premigrate(store: &Store, control: &PremigrateControl<'_>) -> RosterPremigration {
@@ -342,4 +369,34 @@ fn a_partial_kind_map_does_not_hide_an_agent_event_from_the_premigration() {
     assert_eq!(report.cursor, store.head);
     assert_eq!(side_snapshot(&store), store.cold);
     assert_eq!(agent_states(&side_snapshot(&store)).len(), 4, "{}", store.cold);
+}
+
+/// A start of this build that served a migrated roster saved it at the
+/// current version with a stale mark. That roster is not a fold: the
+/// premigration still folds, and the next open adopts the side snapshot as
+/// the rebuild and clears the mark.
+#[test]
+fn a_roster_marked_stale_is_premigrated_and_the_adoption_clears_the_mark() {
+    let store = stale_roster_store("premigrate-stale-mark");
+    let migrated = serde_json::json!({
+        "version": AGENT_ROSTER_REDUCER_VERSION,
+        "cursor": "3",
+        "snapshot": "{}",
+    });
+    write_meta(
+        &store.db_path,
+        &[
+            (roster_key().as_str(), Some(migrated.to_string())),
+            (rebuild_key().as_str(), Some(serde_json::json!({"from_version": 8}).to_string())),
+        ],
+    );
+    let report = premigrate(&store, &PremigrateControl::new(None, NEVER));
+    assert!(!report.up_to_date && report.complete, "{report:?}");
+    let registry = WorkspaceRegistry::open(&store.root, store.session).unwrap();
+    assert_eq!(registry.journal_reducer_rebuild_pending(AGENT_ROSTER_REDUCER_ID).unwrap(), None);
+    drop(registry);
+    let (version, cursor, snapshot) = stored_roster(&store);
+    assert_eq!((version, cursor), (AGENT_ROSTER_REDUCER_VERSION, store.head));
+    assert_eq!(serde_json::from_str::<Value>(&snapshot).unwrap(), store.cold);
+    assert!(!roster_side_file(&store.db_path).exists());
 }

@@ -241,6 +241,15 @@ impl SideSnapshot {
 
 /// The reducer version of the registry's persisted roster, as the owner's
 /// restore reads it (a missing or unreadable version is 0).
+/// Whether the registry's roster is marked stale: a start of this build
+/// served a roster migrated from an older reducer version and has not
+/// finished rebuilding it from the whole journal (`agent_roster_rebuild.rs`).
+/// Such a roster is saved at the current version, so the version alone does
+/// not tell it from a fold.
+fn roster_rebuild_pending(source: &Connection) -> anyhow::Result<bool> {
+    Ok(meta_value(source, &format!("journal_reducer_rebuild.{AGENT_ROSTER_REDUCER_ID}"))?.is_some())
+}
+
 fn stored_roster_version(source: &Connection) -> anyhow::Result<Option<u32>> {
     let raw = meta_value(source, &format!("journal_reducer.{AGENT_ROSTER_REDUCER_ID}"))?;
     Ok(raw.map(|raw| {
@@ -277,7 +286,9 @@ fn fold_roster(
     };
     // A snapshot of another version, or none, makes the next start re-fold
     // the whole journal; one of this version leaves it only the tail.
-    if stored_roster_version(source)? == Some(AGENT_ROSTER_REDUCER_VERSION) {
+    if stored_roster_version(source)? == Some(AGENT_ROSTER_REDUCER_VERSION)
+        && !roster_rebuild_pending(source)?
+    {
         report.up_to_date = true;
         report.complete = true;
         let _ = fs::remove_file(&side_file);
@@ -452,7 +463,9 @@ fn print_progress(cursor: u64, head: u64) {
 
 /// At the end of the owner's open, under its session locks: takes a
 /// premigrated roster into the registry when the registry's own snapshot is
-/// of another reducer version. All or nothing: the side file must name this
+/// of another reducer version, or marked stale (a migrated roster a start
+/// served, not yet rebuilt): the side snapshot is a fold from the first
+/// record, so it is the rebuild, and adopting it clears the mark. All or nothing: the side file must name this
 /// registry, the current version, a cursor within the live journal and a
 /// snapshot that restores; any other side file is removed. A failed write
 /// keeps the file for the next start.
@@ -463,7 +476,11 @@ pub(crate) fn adopt(registry: &WorkspaceRegistry) {
         return;
     }
     let stored = registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID).ok().flatten();
-    if stored.as_ref().is_some_and(|(version, _, _)| *version == AGENT_ROSTER_REDUCER_VERSION) {
+    let rebuild_pending =
+        registry.journal_reducer_rebuild_pending(AGENT_ROSTER_REDUCER_ID).ok().flatten().is_some();
+    if !rebuild_pending
+        && stored.as_ref().is_some_and(|(version, _, _)| *version == AGENT_ROSTER_REDUCER_VERSION)
+    {
         let _ = fs::remove_file(&side_file);
         return;
     }
@@ -493,7 +510,7 @@ pub(crate) fn adopt(registry: &WorkspaceRegistry) {
         let _ = fs::remove_file(&side_file);
         return;
     }
-    match registry.put_journal_reducer_state(
+    match registry.finish_journal_reducer_rebuild(
         AGENT_ROSTER_REDUCER_ID,
         AGENT_ROSTER_REDUCER_VERSION,
         side.cursor,
