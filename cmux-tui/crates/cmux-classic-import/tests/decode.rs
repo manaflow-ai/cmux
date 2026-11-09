@@ -235,3 +235,56 @@ fn the_newest_snapshot_is_any_classic_channels_never_another_apps() {
         empty.path().join("cmux/session-com.cmuxterm.app.json")
     );
 }
+
+/// A panel the layout names again (256 times in each of 16 panes) is placed
+/// once, where it is first named: its scrollback is copied once, not once
+/// per reference past every input budget.
+#[test]
+fn a_panel_named_again_in_the_layout_is_placed_once() {
+    let scrollback = "x".repeat(2 * 1024 * 1024);
+    let pane = json!({"type": "pane", "pane": {"panelIds": vec![PANEL_A; 256]}});
+    let mut layout = pane.clone();
+    for _ in 0..15 {
+        layout = json!({"type": "split", "split": {"first": layout, "second": pane}});
+    }
+    let snapshot = decode_one(json!({
+        "stableId": "w", "currentDirectory": "/tmp",
+        "panels": [terminal(PANEL_A, json!({"scrollback": scrollback})), terminal(PANEL_B, json!({}))],
+        "layout": {"type": "split", "split": {"first": layout,
+            "second": {"type": "pane", "pane": {"panelIds": [PANEL_A, PANEL_B], "selectedPanelId": PANEL_B}}}},
+    }));
+    let tabs = snapshot.windows[0].workspaces[0].layout.tabs();
+    assert_eq!(tabs.len(), 2);
+    assert_eq!(tabs[0].scrollback.as_deref().map(str::len), Some(2 * 1024 * 1024));
+    assert_eq!(tabs[1].scrollback, None);
+    let Layout::Split { second, .. } = &snapshot.windows[0].workspaces[0].layout else { panic!() };
+    let Layout::Pane(last) = second.as_ref() else { panic!("{second:?}") };
+    assert_eq!(last.tabs.len(), 1);
+    assert_eq!(last.selected_tab, 0);
+}
+
+/// Ids longer than a ledger step takes (256 bytes) never name a workspace or
+/// a group: the workspace takes its derived key and comes over ungrouped.
+#[test]
+fn ids_too_long_for_the_ledger_are_not_keys() {
+    let long = "k".repeat(257);
+    let session = serde_json::to_vec(&json!({"version": 1, "windows": [{"tabManager": {
+        "workspaces": [
+            {"stableId": long, "workspaceId": "short", "currentDirectory": "/tmp", "panels": []},
+            {"stableId": long, "currentDirectory": "/tmp", "groupId": long, "panels": []},
+            {"stableId": "k".repeat(256), "currentDirectory": "/tmp", "panels": []},
+        ],
+        "workspaceGroups": [{"id": long, "name": "g"}, {"id": "g", "name": "g"}],
+    }}]}))
+    .unwrap();
+    let snapshot = decode::decode(&session, None, "/h").unwrap();
+    let window = &snapshot.windows[0];
+    let keys: Vec<&str> =
+        window.workspaces.iter().map(|workspace| workspace.key.as_str()).collect();
+    assert_eq!(keys[0], "short");
+    assert!(keys[1].starts_with("derived:"), "{}", keys[1]);
+    assert_eq!(keys[2].len(), 256);
+    assert_eq!(window.workspaces[1].group_id, None);
+    let groups: Vec<&str> = window.groups.iter().map(|group| group.id.as_str()).collect();
+    assert_eq!(groups, ["g"]);
+}

@@ -50,6 +50,13 @@ pub(crate) const PLAN_OPERATION: &str = "classic_import.plan";
 pub(crate) const RECORD_OPERATION: &str = "classic_import.record";
 pub(crate) const UNREADABLE_LEDGER: &str = "ledger could not be read";
 
+/// The most a plan's JSON takes in its `classic_import.plan` reply: the
+/// server's control-reply limit (`REMOTE_SESSION_MESSAGE_MAX_BYTES`, past
+/// which `send_control` closes the connection) less room for the envelope,
+/// the source, the backups and the preview. A bigger plan keeps each
+/// terminal's newest scrollback (`Plan::fit`).
+pub(crate) const PLAN_REPLY_BUDGET: usize = crate::REMOTE_SESSION_MESSAGE_MAX_BYTES - 1024 * 1024;
+
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
@@ -427,7 +434,14 @@ impl Mux {
         }
         let Some(save) = save else { return Ok(Value::Object(reply)) };
         let (live, live_groups) = self.classic_live();
-        let made = plan::plan(&save.snapshot, load.ledger().as_ref(), &live, &live_groups, mode);
+        let mut made =
+            plan::plan(&save.snapshot, load.ledger().as_ref(), &live, &live_groups, mode);
+        drop(save.snapshot);
+        // One reply carries the plan: past the control limit the connection closes.
+        if let Err(too_large) = made.fit(PLAN_REPLY_BUDGET) {
+            reply.insert("error".into(), json!(too_large.to_string()));
+            return Ok(Value::Object(reply));
+        }
         reply.insert("preview".into(), json!(Preview::new(&save.source, &made)));
         reply.insert("plan".into(), json!(made));
         Ok(Value::Object(reply))
@@ -446,6 +460,15 @@ impl Mux {
             anyhow::bail!("bad request: the daemon has no home folder")
         };
         let folder = places.folder(&record.bundle_id).map_err(anyhow::Error::from)?;
+        // A retried step that already ran answers its first result before
+        // any file is checked or copied: classic may have saved again, or
+        // removed a file, since. The commit checks again, for a retry that
+        // races the first.
+        if let Some(replayed) =
+            self.state_commit_replay(mutation, RECORD_OPERATION, &record.fingerprint, None)?
+        {
+            return Ok(replayed);
+        }
         // Classic's files are copied before the commit, with no lock held (a
         // session can be hundreds of megabytes), into a staged folder that
         // becomes a backup only inside the commit: a replayed step keeps
@@ -514,7 +537,7 @@ pub(crate) fn dispatch(
 ) -> Result<Value, ResourceError> {
     debug_assert!(handles(request.envelope.operation));
     mux.resolve_resource_path(ResourceTarget::Session, &request.selectors)?;
-    let places = Places::from_env();
+    let places = dispatch_places();
     match request.envelope.operation {
         ResourceOperation::ClassicImportPlan => {
             let bundle_id = required(&request.fields, "bundle_id")?;
@@ -535,7 +558,21 @@ pub(crate) fn dispatch(
     }
 }
 
+/// The daemon's places; a test that drives the wire names its own home.
+fn dispatch_places() -> Option<Places> {
+    #[cfg(test)]
+    if let Some(home) = TEST_HOME.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    {
+        return Some(places_for_test(&home));
+    }
+    Places::from_env()
+}
+
 #[cfg(test)]
 pub(crate) fn places_for_test(home: &std::path::Path) -> Places {
     Places { home: home.to_path_buf(), xdg_state_home: None }
 }
+
+/// The home the wire's `classic_import.*` reads in a test, in place of `HOME`.
+#[cfg(test)]
+pub(crate) static TEST_HOME: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);

@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use serde::{Deserialize, Serialize};
 
 use crate::ledger::{Entry, Ledger, Load, Stage, State};
-use crate::model::{Group, Rect, Snapshot, Workspace};
+use crate::model::{Group, Rect, Snapshot, Tab, Workspace};
 use crate::source::Source;
 
 /// Who started the run.
@@ -122,7 +122,33 @@ pub struct Plan {
     /// cmux NEXT workspaces a cut-off run left half made: closed before they are made again.
     pub cleanup: Vec<String>,
     pub skipped: BTreeMap<String, Skip>,
+    /// Terminals whose scrollback was cut to its newest lines so the plan
+    /// fits one reply ([`Plan::fit`]); classic's own file and its backup
+    /// keep all of it.
+    #[serde(default)]
+    pub scrollback_trimmed: usize,
 }
+
+/// The plan does not fit its reply even with no scrollback: `needed` bytes of
+/// JSON against a budget of `budget`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TooLarge {
+    pub needed: usize,
+    pub budget: usize,
+}
+
+impl std::fmt::Display for TooLarge {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "classic's save is too large to import: its plan takes {} bytes without scrollback, over the {}-byte reply limit",
+            self.needed, self.budget
+        )
+    }
+}
+
+/// Bytes room for `scrollback_trimmed`'s digits, which [`Plan::fit`] sets after measuring.
+const COUNT_ROOM: usize = 24;
 
 impl Plan {
     /// Every workspace that comes over, window after window.
@@ -135,6 +161,58 @@ impl Plan {
         self.windows.is_empty()
             && self.groups.iter().all(|group| group.existing.is_some())
             && self.cleanup.is_empty()
+    }
+
+    /// Fits the plan's JSON in `budget` bytes, so one reply carries it
+    /// (the daemon's control replies are bounded). Scrollback is shared out
+    /// fairly: a terminal under its share keeps all of its own, and the rest
+    /// split what is left, each keeping its newest lines. Sizes are counted
+    /// as JSON writes them (an escape byte takes six), so the budget holds
+    /// for the encoded reply. Too large when the plan without any scrollback
+    /// is over `budget`; the plan then holds no scrollback.
+    pub fn fit(&mut self, budget: usize) -> Result<(), TooLarge> {
+        // Every tab's scrollback, in tab order, taken out to be measured apart.
+        let mut texts: Vec<Option<String>> = Vec::new();
+        for tab in self.tabs_mut() {
+            texts.push(tab.scrollback.take());
+        }
+        self.scrollback_trimmed = 0;
+        let needed = json_len(self).saturating_add(COUNT_ROOM);
+        if needed > budget {
+            return Err(TooLarge { needed, budget });
+        }
+        // A tab's `null` becomes a string: its quotes and its escaped text.
+        let costs: Vec<usize> = texts
+            .iter()
+            .map(|text| text.as_deref().map_or(0, |text| escaped_len(text) + 2))
+            .collect();
+        let shares = fair_shares(&costs, budget - needed);
+        let mut trimmed = 0;
+        let fitted: Vec<Option<String>> = texts
+            .into_iter()
+            .zip(costs.iter().zip(shares))
+            .map(|(text, (cost, share))| {
+                let text = text?;
+                if share >= *cost {
+                    return Some(text);
+                }
+                trimmed += 1;
+                newest(&text, share.saturating_sub(2))
+            })
+            .collect();
+        for (tab, text) in self.tabs_mut().into_iter().zip(fitted) {
+            tab.scrollback = text;
+        }
+        self.scrollback_trimmed = trimmed;
+        Ok(())
+    }
+
+    fn tabs_mut(&mut self) -> Vec<&mut Tab> {
+        self.windows
+            .iter_mut()
+            .flat_map(|window| window.workspaces.iter_mut())
+            .flat_map(|workspace| workspace.layout.tabs_mut())
+            .collect()
     }
 
     /// The keys of the Cloud VM workspaces it leaves, recorded as skipped.
@@ -333,4 +411,80 @@ impl Preview {
                 .count(),
         }
     }
+}
+
+/// The bytes `value`'s JSON takes, counted without keeping it.
+fn json_len<T: Serialize>(value: &T) -> usize {
+    struct Count(usize);
+    impl std::io::Write for Count {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 += bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut count = Count(0);
+    // Writing to a counter fails only for a value that has no JSON, which a plan always has.
+    let _ = serde_json::to_writer(&mut count, value);
+    count.0
+}
+
+/// The bytes one byte of a string takes inside a JSON string, as serde_json writes it.
+fn escaped_byte_len(byte: u8) -> usize {
+    match byte {
+        b'"' | b'\\' | b'\n' | b'\r' | b'\t' | 0x08 | 0x0c => 2,
+        0x00..=0x1f => 6,
+        _ => 1,
+    }
+}
+
+/// The bytes `text` takes inside a JSON string, quotes left out.
+fn escaped_len(text: &str) -> usize {
+    text.bytes().map(escaped_byte_len).sum()
+}
+
+/// Each cost's share of `budget`: the smallest costs are met in full and the
+/// rest split what is left evenly, so no terminal's scrollback crowds out the others'.
+fn fair_shares(costs: &[usize], budget: usize) -> Vec<usize> {
+    let mut order: Vec<(usize, usize)> = costs.iter().copied().enumerate().collect();
+    order.sort_by_key(|(_, cost)| *cost);
+    let mut shares = vec![0; costs.len()];
+    let mut left = budget;
+    let count = order.len();
+    for (done, (index, cost)) in order.into_iter().enumerate() {
+        let share = cost.min(left / (count - done));
+        left -= share;
+        if let Some(slot) = shares.get_mut(index) {
+            *slot = share;
+        }
+    }
+    shares
+}
+
+/// The newest part of `text` that takes at most `budget` escaped bytes,
+/// starting on a line of its own when it holds a line break (a cut line's
+/// half could start inside a color sequence); none when nothing fits.
+fn newest(text: &str, budget: usize) -> Option<String> {
+    let mut start = text.len();
+    let mut spent = 0usize;
+    for (index, character) in text.char_indices().rev() {
+        let cost = if character.is_ascii() {
+            escaped_byte_len(character as u8)
+        } else {
+            character.len_utf8()
+        };
+        if spent + cost > budget {
+            break;
+        }
+        spent += cost;
+        start = index;
+    }
+    let kept = text.get(start..)?;
+    let kept = match kept.find('\n') {
+        Some(line) if start > 0 => kept.get(line + 1..)?,
+        _ => kept,
+    };
+    (!kept.is_empty()).then(|| kept.to_string())
 }

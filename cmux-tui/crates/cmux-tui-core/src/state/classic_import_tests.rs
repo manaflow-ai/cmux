@@ -388,3 +388,56 @@ fn begin_refuses_a_link_in_place_of_classics_session() {
     assert!(error.to_string().contains("not one of classic's session files"), "{error}");
     assert!(!home.ledger().parent().unwrap().join("backups").exists());
 }
+
+/// A retried `begin` that already ran replays its first result before any
+/// file is checked or copied: classic removing the file it read, or saving
+/// a newer archive, since does not turn the retry into a refusal.
+#[test]
+fn a_replayed_begin_answers_before_checking_classics_files() {
+    let mux = Mux::new_for_test("classic-import-replay-first", SurfaceOptions::default());
+    let home = home(true);
+    let first = plan(&mux, &home, Mode::Automatic);
+    let once = record(&mux, &home, begin(&first), "early-begin");
+    assert_eq!(once["replayed"], false);
+    let backups = home.ledger().parent().unwrap().join("backups");
+    let count = |backups: &Path| std::fs::read_dir(backups).unwrap().count();
+    assert_eq!(count(&backups), 1);
+
+    std::fs::remove_file(home.session()).unwrap();
+    let history = home.session().parent().unwrap().join("session-history");
+    std::fs::create_dir_all(&history).unwrap();
+    std::fs::write(
+        history.join("session-com.cmuxterm.app-99999999999-w1-p1.json"),
+        r#"{"version":1,"createdAt":9,"windows":[]}"#,
+    )
+    .unwrap();
+    let again = record(&mux, &home, begin(&first), "early-begin");
+    assert_eq!(again["replayed"], true, "{again}");
+    assert_eq!(again["value"], once["value"]);
+    assert_eq!(count(&backups), 1);
+}
+
+/// A ledger that does not decode stops automatic runs at every later launch,
+/// not only the first: the copy moved aside keeps it unusable until a manual
+/// import writes a new ledger, so no launch makes every workspace again.
+#[test]
+fn a_damaged_ledger_stops_every_automatic_run_until_a_manual_import() {
+    let mux = Mux::new_for_test("classic-import-damaged-ledger", SurfaceOptions::default());
+    let home = home(true);
+    std::fs::create_dir_all(home.ledger().parent().unwrap()).unwrap();
+    std::fs::write(home.ledger(), "{not json").unwrap();
+    let skip = json!({"decision": "skip", "reason": "ledger_not_usable"});
+    for _ in 0..2 {
+        let launch = plan(&mux, &home, Mode::Automatic);
+        assert_eq!(launch["ledger"], "unreadable");
+        assert_eq!(launch["decision"], skip, "{launch}");
+        assert!(launch["plan"].is_null());
+    }
+
+    let manual = plan(&mux, &home, Mode::Manual);
+    assert!(!keys(&manual).is_empty(), "{manual}");
+    run(&mux, &home, &manual, "recover");
+    let relaunch = plan(&mux, &home, Mode::Automatic);
+    assert_eq!(relaunch["ledger"], "ledger");
+    assert_eq!(relaunch["decision"], json!({"decision": "skip", "reason": "unchanged"}));
+}
