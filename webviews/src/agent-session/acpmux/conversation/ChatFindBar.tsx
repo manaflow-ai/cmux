@@ -61,8 +61,7 @@ export function ChatFindBar({ find, label }: { find: FindBarState; label?: strin
   useLayoutEffect(() => {
     const node = bar.current;
     const scroller = node?.closest<HTMLElement>(".acpmux-scroll");
-    const View = node?.ownerDocument.defaultView;
-    if (!node || !scroller || !View) return;
+    if (!node || !scroller) return;
     const measure = () => {
       const box = node.getBoundingClientRect();
       const view = scroller.getBoundingClientRect();
@@ -71,15 +70,15 @@ export function ChatFindBar({ find, label }: { find: FindBarState; label?: strin
       scroller.style.setProperty("--acpmux-find-width", `${box.width}px`);
     };
     measure();
-    const observer = new View.ResizeObserver(measure);
-    observer.observe(node);
-    observer.observe(scroller);
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : undefined;
+    observer?.observe(node);
+    observer?.observe(scroller);
     const shell = scroller.closest(".acpmux-shell");
-    const moved = new View.MutationObserver(measure);
-    if (shell) moved.observe(shell, { attributes: true, attributeFilter: ["style"] });
+    const moved = typeof MutationObserver === "function" ? new MutationObserver(measure) : undefined;
+    if (shell) moved?.observe(shell, { attributes: true, attributeFilter: ["style"] });
     return () => {
-      observer.disconnect();
-      moved.disconnect();
+      observer?.disconnect();
+      moved?.disconnect();
       scroller.style.removeProperty("--acpmux-find-x");
       scroller.style.removeProperty("--acpmux-find-y");
       scroller.style.removeProperty("--acpmux-find-width");
