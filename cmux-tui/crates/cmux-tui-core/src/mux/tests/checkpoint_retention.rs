@@ -77,9 +77,9 @@ fn checkpoint_and_seal(mux: &Mux, round: usize) -> u64 {
 #[test]
 fn pruning_keeps_the_newest_checkpoints_and_bounds_the_table() {
     let unpruned_root = temp_root("unpruned");
-    let unpruned = open_mux("checkpoint-unpruned", &unpruned_root);
+    let unpruned = open_mux("checkpoint-all", &unpruned_root);
     let pruned_root = temp_root("pruned");
-    let pruned = open_mux("checkpoint-pruned", &pruned_root);
+    let pruned = open_mux("checkpoint-cut", &pruned_root);
     let mut latest = 0;
     for round in 0..ROUNDS {
         checkpoint_and_seal(&unpruned, round);
@@ -96,8 +96,10 @@ fn pruning_keeps_the_newest_checkpoints_and_bounds_the_table() {
     assert_eq!(before_rows, ROUNDS, "without pruning every checkpoint stays");
     assert_eq!(after_rows, JOURNAL_CHECKPOINTS_KEPT);
     // Each round adds a workspace, so newer checkpoints are larger: what
-    // stays is exactly the unpruned registry's newest rows.
-    assert_eq!(after_bytes, newest_rows_bytes(&unpruned, JOURNAL_CHECKPOINTS_KEPT));
+    // stays is the unpruned registry's newest rows. The session names have
+    // equal lengths because every checkpoint's state holds its name.
+    let newest_bytes = newest_rows_bytes(&unpruned, JOURNAL_CHECKPOINTS_KEPT);
+    assert_eq!(after_bytes, newest_bytes, "kept {after_bytes} B, newest rows {newest_bytes} B");
     assert!(after_bytes < before_bytes, "{after_bytes} B of {before_bytes} B stayed");
 
     // Restore still reads the newest one, and the next seal still finds a
