@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDesign
+import CmuxMobileMarkdown
 import CmuxSpinner
 import SwiftUI
 import UIKit
@@ -183,6 +184,7 @@ struct ChiefLiveDetails: View {
 /// One detail: a thought's text, or a tool or note step.
 struct ChiefLiveDetailRow: View {
     let detail: ChiefLive.Detail
+    @State private var selecting = false
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -194,10 +196,16 @@ struct ChiefLiveDetailRow: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 if !detail.text.isEmpty {
+                    // A long press opens Copy / Select Text (CMUX-33): `.textSelection` took the
+                    // press and selected the whole detail, with no range.
                     Text(detail.text)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                        .contextMenu {
+                            Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = detail.text }
+                            Button("Select Text", systemImage: "selection.pin.in.out") { selecting = true }
+                        }
+                        .selectTextSheet(isPresented: $selecting) { detail.text }
                 }
             }
             if detail.isRunning {

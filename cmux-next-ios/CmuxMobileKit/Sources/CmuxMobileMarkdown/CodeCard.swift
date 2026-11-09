@@ -13,6 +13,7 @@ public struct CodeCard: View {
     var maxHeight: CGFloat
     @State private var expanded = false
     @State private var copied = false
+    @State private var selecting = false
     @ScaledMetric(relativeTo: .footnote) private var codeSize: CGFloat = 13
     /// Settings → Terminal → Wrap code and diff lines.
     @AppStorage(CmuxMobilePreferences.Key.wrapCode) private var wrapCode = CmuxMobilePreferences.defaultWrapCode
@@ -41,7 +42,6 @@ public struct CodeCard: View {
                     .padding(.bottom, 16)
                     // Wrapping: as wide as the card, so lines break instead of scrolling.
                     .containerRelativeFrame(wrapCode ? .horizontal : [], alignment: .leading)
-                    .textSelection(.enabled)
             }
             .scrollIndicators(.hidden)
             .trailingOverflowFade()
@@ -70,11 +70,13 @@ public struct CodeCard: View {
         }
         .contextMenu {
             Button("Copy", systemImage: "doc.on.doc") { copy() }
+            Button("Select Text", systemImage: "selection.pin.in.out") { selecting = true }
             Button("Copy as Markdown", systemImage: "text.document") {
                 UIPasteboard.general.string = "```\(language ?? "")\n\(code)\n```"
             }
             ShareLink(item: code) { Label("Share", systemImage: "square.and.arrow.up") }
         }
+        .selectTextSheet(isPresented: $selecting, monospaced: true) { code }
     }
 
     private var header: some View {

@@ -871,6 +871,7 @@ struct StreamingMarkdown: View {
 
     /// The parse, kept across bodies: a streamed token re-parses the message's tail only.
     @State private var parse = StreamParseBox()
+    @State private var selecting = false
 
     var body: some View {
         // While streaming, an emphasis or code marker that has not closed yet is hidden (the
@@ -879,8 +880,10 @@ struct StreamingMarkdown: View {
                      animatesBlocks: animatesBlocks, marks: findMarks)
             .contextMenu {
                 Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = markdown }
+                Button("Select Text", systemImage: "selection.pin.in.out") { selecting = true }
                 ShareLink(item: markdown) { Label("Share", systemImage: "square.and.arrow.up") }
             }
+            .selectTextSheet(isPresented: $selecting) { markdown }
     }
 }
 
@@ -933,17 +936,8 @@ struct UserBubble: View {
         }
         .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.8 }
         .frame(maxWidth: .infinity, alignment: .trailing)
-        .sheet(isPresented: $selecting) {
-            NavigationStack {
-                ScrollView {
-                    Text(prompt).textSelection(.enabled).padding(20).frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .navigationTitle("Select text")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { selecting = false } } }
-            }
-            .presentationDetents([.medium, .large])
-        }
+        // A UITextView sheet: SwiftUI's `.textSelection` selected the whole prompt, with no range.
+        .selectTextSheet(isPresented: $selecting) { prompt }
     }
 }
 

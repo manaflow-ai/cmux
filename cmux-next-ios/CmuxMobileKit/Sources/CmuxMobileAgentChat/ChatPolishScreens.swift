@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxAgentBrands
 import CmuxMobileDesign
+import CmuxMobileMarkdown
 import CmuxSpinner
 import Observation
 import SwiftUI
@@ -316,9 +317,8 @@ struct EventInspectorDetail: View {
                 if let total = json.total {
                     Text("Cut at \(json.text.count) of \(total) characters").font(.footnote).foregroundStyle(.secondary)
                 }
-                Text(json.text)
-                    .font(.footnote.monospaced())
-                    .textSelection(.enabled)
+                // Range-selectable (CMUX-33): `.textSelection` grabbed the whole document.
+                SelectableTextView(json.text, textStyle: .footnote, monospaced: true, scrolls: false)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("chat.inspector.json")
             }

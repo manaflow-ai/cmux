@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDiff
+import CmuxMobileMarkdown
 import SwiftUI
 import UIKit
 
@@ -177,11 +178,7 @@ enum ChatSelectText {
         var top = window?.rootViewController
         while let presented = top?.presentedViewController { top = presented }
         guard let top else { return }
-        let textView = UITextView()
-        textView.text = text
-        textView.font = .preferredFont(forTextStyle: .body)
-        textView.isEditable = false
-        textView.textContainerInset = UIEdgeInsets(top: 20, left: 16, bottom: 20, right: 16)
+        let textView = SelectableTextView(text).makeTextView()
         let controller = UIViewController()
         controller.view = textView
         controller.title = "Select text"

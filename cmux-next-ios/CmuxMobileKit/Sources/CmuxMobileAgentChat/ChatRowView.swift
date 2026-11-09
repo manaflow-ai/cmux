@@ -193,14 +193,17 @@ struct ChatRowView: View {
 struct MarkdownBlockRow: View {
     let block: MarkdownBlock
     let message: () -> String
+    @State private var selecting = false
 
     var body: some View {
         MarkdownBlockView(block: block, margin: 20)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contextMenu {
                 Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = message() }
+                Button("Select Text", systemImage: "selection.pin.in.out") { selecting = true }
                 Button("Share", systemImage: "square.and.arrow.up") { ChatShare.present(message()) }
             }
+            .selectTextSheet(isPresented: $selecting, text: message)
     }
 }
 
