@@ -227,7 +227,7 @@ mod diff_comments_journey {
         acpmux.call("session/prompt", resend);
         let events = acpmux.events(&session);
         assert_eq!(count(&events, "user_message", USER_TEXT, &text), 1, "{events:?}");
-        assert_eq!(turn_prompt_ids(&events), [prompt_id.clone()], "the review's turns: {events:?}");
+        assert_eq!(turn_prompt_ids(&events), [prompt_id.as_str()], "the review's turns: {events:?}");
 
         // Another daemon session on this machine, with its own comments,
         // sends another review to the same chat under the same key: its
