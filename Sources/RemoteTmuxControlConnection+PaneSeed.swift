@@ -64,6 +64,10 @@ extension RemoteTmuxControlConnection {
     /// retained for exactly-once catch-up.
     func absorbPaneOutputIntoPendingSeed(paneId: Int, data: Data) -> Bool {
         guard !data.isEmpty, pendingPaneSeeds[paneId]?.isEmpty == false else { return false }
+        if pendingPaneSeeds[paneId]![0].dropsPreCaptureOutput,
+           !pendingPaneSeeds[paneId]![0].isCaptureInstalled {
+            return true
+        }
         let nextCount = pendingPaneSeeds[paneId]![0].bufferedLiveByteCount + data.count
         guard nextCount <= Self.maximumPendingPaneSeedLiveBytes else {
             recoverPaneSeedBudget(paneId: paneId, event: "pane-seed-backpressure")
@@ -104,9 +108,66 @@ extension RemoteTmuxControlConnection {
                 discardedOutput: completed.discardedOutput,
                 snapshot: completed.snapshot,
                 catchUpOutput: completed.catchUpOutput,
-                state: state
+                state: state,
+                restartsLiveStream: completed.dropsPreCaptureOutput
             )
         )
+    }
+
+    /// Whether a catch-up started by ``catchUpAfterFallingBehind()`` is still waiting on tmux.
+    var isCatchingUpAfterFallingBehind: Bool {
+        pendingPaneSeeds.values.contains { $0.contains(where: \.dropsPreCaptureOutput) }
+    }
+
+    /// Repaints every pane from tmux once the stream has fallen a full read bound behind.
+    ///
+    /// Output that arrives faster than it can be parsed and drawn is stale by the time it
+    /// is drawn. A transport that held output through a network drop and then released it
+    /// at once is the common case: hundreds of megabytes of it would otherwise be fed to
+    /// every terminal before the user saw the current screen. A reconnect got there fast by
+    /// throwing the backlog away with the connection and seeding each pane again; this does
+    /// the same without leaving the connection. Every pane starts a full-history seed, as a
+    /// reconnect does, and its live output up to the capture is dropped, because the capture
+    /// already shows its result. Panes with a seed in progress keep it and stop retaining
+    /// their output too.
+    ///
+    /// The capture replies queue behind the backlog in the stream, so the parser still reads
+    /// through it, but nothing else is done with the dropped bytes. Only one catch-up runs
+    /// at a time; a flood that keeps outrunning the reader starts another after it finishes.
+    func catchUpAfterFallingBehind() {
+        guard connectionState == .connected, enterReceived,
+              !isCatchingUpAfterFallingBehind else { return }
+        var joined = 0
+        for paneId in Array(pendingPaneSeeds.keys) {
+            for index in pendingPaneSeeds[paneId]!.indices
+            where !pendingPaneSeeds[paneId]![index].isCaptureInstalled {
+                let dropped = pendingPaneSeeds[paneId]![index].discardedOutput
+                    .reduce(0) { $0 + $1.count }
+                pendingPaneSeeds[paneId]![index].discardedOutput = []
+                pendingPaneSeeds[paneId]![index].bufferedLiveByteCount -= dropped
+                pendingPaneSeeds[paneId]![index].dropsPreCaptureOutput = true
+                releasePendingPaneSeedBytes(dropped)
+                joined += 1
+            }
+        }
+        var seeded = 0
+        var seenPaneIDs: Set<Int> = []
+        let paneIDs = windowsByID.keys.sorted().flatMap { windowId in
+            (windowsByID[windowId]?.paneIDsInOrder ?? []).filter { seenPaneIDs.insert($0).inserted }
+        }
+        // A pane still queued for its reconnect seed gets that seed instead.
+        for paneId in paneIDs
+        where pendingPaneSeeds[paneId] == nil && !pendingReconnectPaneIDs.contains(paneId) {
+            guard let seedID = capturePane(paneId: paneId, clearScrollback: true) else {
+                guard connectionState == .connected else { return }
+                continue
+            }
+            if let index = pendingPaneSeeds[paneId]?.firstIndex(where: { $0.id == seedID }) {
+                pendingPaneSeeds[paneId]![index].dropsPreCaptureOutput = true
+                seeded += 1
+            }
+        }
+        record("output-catch-up seeded=\(seeded) joined=\(joined)")
     }
 
     func failPaneSeedCommand(_ kind: CommandKind, errorLines: [String]) {
@@ -175,7 +236,8 @@ extension RemoteTmuxControlConnection {
                     discardedOutput: failed.discardedOutput,
                     snapshot: failed.snapshot,
                     catchUpOutput: failed.catchUpOutput,
-                    state: Data()
+                    state: Data(),
+                    restartsLiveStream: failed.dropsPreCaptureOutput
                 )
             )
         case .paneState:

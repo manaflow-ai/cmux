@@ -30,9 +30,14 @@ extension RemoteTmuxSessionMirror {
     /// Applies an authoritative snapshot independently from the logical live
     /// escape stream, then catches that stream up across the capture boundary.
     func routeSeed(paneId: Int, seed: RemoteTmuxPaneSeed) {
-        var liveFilter = titleFilters[paneId] ?? RemoteTmuxScreenTitleFilter()
-        var liveNotificationFilter = notificationFilters[paneId]
-            ?? RemoteTmuxNotificationOSCFilter()
+        // Live output dropped before the capture leaves nothing for the live filters
+        // to continue from; tmux resumes the pane's output wherever its terminal is.
+        var liveFilter = seed.restartsLiveStream
+            ? RemoteTmuxScreenTitleFilter()
+            : titleFilters[paneId] ?? RemoteTmuxScreenTitleFilter()
+        var liveNotificationFilter = seed.restartsLiveStream
+            ? RemoteTmuxNotificationOSCFilter()
+            : notificationFilters[paneId] ?? RemoteTmuxNotificationOSCFilter()
         // Seed bytes replay history (or bytes the snapshot already covers), so a
         // notification escape found here is stripped but NOT delivered — a
         // reconnect's full-history reseed must not re-fire old notifications.

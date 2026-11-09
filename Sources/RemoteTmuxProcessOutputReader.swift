@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 
 /// A bounded process-pipe reader that publishes every byte written before exit.
 ///
@@ -33,6 +34,14 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
     /// The process exited; reads continue until the pipe is empty, then the stream ends.
     private var draining = false
     private var closed = false
+    /// How many times reading stopped at a bound. Read from the consumer's side,
+    /// so it lives behind its own lock rather than on `queue`.
+    private let pauses = OSAllocatedUnfairLock(initialState: 0)
+
+    /// The number of times the consumer fell a full bound behind. A consumer that
+    /// sees this change knows the producer is ahead of it by at least a bound's
+    /// worth of output.
+    var pauseCount: Int { pauses.withLock { $0 } }
 
     init(
         label: String,
@@ -179,7 +188,9 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
     }
 
     private func pause() {
+        guard !paused else { return }
         paused = true
+        pauses.withLock { $0 += 1 }
         setSourceSuspended(true)
     }
 
