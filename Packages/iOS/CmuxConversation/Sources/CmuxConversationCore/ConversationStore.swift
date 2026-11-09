@@ -135,6 +135,9 @@ public final class ConversationStore {
     /// (`useTranscriptCache`). Nil keeps nothing.
     private var transcriptCache: ConversationTranscriptCache?
     private var transcriptCacheKey: String?
+    /// The cache's `generation` when it was attached: a sign-out (`removeAll`) since then means
+    /// this store keeps nothing more until it is attached again.
+    private var transcriptCacheGeneration = 0
     /// The messages shown are the kept ones from an earlier run or store, not
     /// yet the server's: the server's newest page replaces them.
     public private(set) var isShowingKeptTranscript = false
@@ -149,6 +152,7 @@ public final class ConversationStore {
         if isShowingKeptTranscript, cache !== transcriptCache || key != transcriptCacheKey { dropKeptRows() }
         transcriptCache = cache
         transcriptCacheKey = key
+        transcriptCacheGeneration = cache?.generation ?? 0
         guard let cache, let key, !hasLoadedNewest else { return }
         if let held = cache.cached(key) {
             showKept(held)
@@ -205,7 +209,7 @@ public final class ConversationStore {
     /// Keeps the newest messages now (also called when the app leaves the foreground).
     public func saveTranscript() {
         guard let transcriptCache, let transcriptCacheKey, hasLoadedNewest else { return }
-        transcriptCache.save(transcriptCacheKey, info: info, meID: meID, messages: messages)
+        transcriptCache.save(transcriptCacheKey, info: info, meID: meID, messages: messages, generation: transcriptCacheGeneration)
     }
 
     /// Runs `body`, a change to `messages` that leaves every message before

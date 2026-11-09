@@ -37,8 +37,9 @@ public final class ConversationTranscriptCache: @unchecked Sendable {
     private let pending = OSAllocatedUnfairLock(initialState: [String: ConversationTranscriptSnapshot]())
     /// This run's snapshots by key. Read and written on the main actor only.
     @MainActor private var memory: [String: ConversationTranscriptSnapshot] = [:]
-    /// Bumps on `removeAll`: a read that started before it never lands in memory after it.
-    @MainActor private var generation = 0
+    /// Bumps on `removeAll`: a read that started before it never lands in memory after it, and a
+    /// store attached before it (`ConversationStore.useTranscriptCache`) writes nothing after it.
+    @MainActor public private(set) var generation = 0
 
     public init(directory: URL, limit: Int = ConversationTranscriptCache.limit, writeDelay: DispatchTimeInterval = .seconds(1)) {
         self.directory = directory
@@ -75,8 +76,10 @@ public final class ConversationTranscriptCache: @unchecked Sendable {
 
     /// Keeps the newest `limit` acknowledged messages of `messages` for `key`: in memory now, on
     /// disk on the queue. Sends not yet acknowledged and their image bytes are not kept (the
-    /// outbox owns unsent messages).
-    @MainActor public func save(_ key: String, info: ConversationInfo?, meID: String?, messages: [ConversationMessage]) {
+    /// outbox owns unsent messages). A save made for `generation` (the one its store attached in)
+    /// after a `removeAll` keeps nothing: sign-out leaves no transcript behind.
+    @MainActor public func save(_ key: String, info: ConversationInfo?, meID: String?, messages: [ConversationMessage], generation: Int? = nil) {
+        if let generation, generation != self.generation { return }
         let snapshot = Self.snapshot(info: info, meID: meID, messages: messages, limit: limit)
         guard memory[key] != snapshot else { return }
         memory[key] = snapshot
