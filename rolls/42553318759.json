@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42553318759",
+  "recorded_at": "2026-11-09T03:03:21Z",
+  "reason": "cmux-tui 28fef106ddba changes the image's cmux-tui (pinned 2681a4fb957e)",
+  "dry_run": false,
+  "cmux_tui": "28fef106ddba3ebab703e9fa971892fdbe3e137e",
+  "fixes": [
+    {
+      "sha": "28fef106ddba3ebab703e9fa971892fdbe3e137e",
+      "mergedAt": "2026-11-08T18:39:43-08:00",
+      "subject": "cmux-rd host: the link-close fallback test exercises an active link again (#39046)"
+    },
+    {
+      "sha": "b6647fffe0464b07b3c9fbde16f948c306a834ac",
+      "mergedAt": "2026-11-08T18:38:23-08:00",
+      "subject": "git seed: a Mac folder seed can open the chat at its head (machine side) (#39018)"
+    },
+    {
+      "sha": "fd52f30ad6ffcd95e4622296231961101cf4b0b9",
+      "mergedAt": "2026-11-08T18:37:53-08:00",
+      "subject": "cmux-transport: a tie on the longest prefix takes the slowest medium, in any order (#39097)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T03:03:21Z",
+    "snapshot_id": "sh-c94bc5be6d8847939ae67775612f69e7",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42553318759): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "92671556d50014571586ed965e3e5ad9eab32147",
+    "image": "cloud-native-auto-28fef106-42553318759-1",
+    "revision": "ci-42553318759-1",
+    "at": "2026-11-09T03:03:21Z"
+  },
+  "rolled_back": false
+}
