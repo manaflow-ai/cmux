@@ -113,6 +113,57 @@ pub struct TerminalOutputScanner {
     /// XTPUSHSGR's stack, as far as conceal goes (bounded like xterm's).
     pushed_concealed: Vec<bool>,
     sgr: SgrScan,
+    modes: ModeScan,
+}
+
+/// Reads a private mode list (`CSI ? a ; b h`) as it arrives for the modes
+/// that save, restore or switch the pen, in order and whatever its length.
+#[derive(Clone, Debug, Default)]
+struct ModeScan {
+    value: Option<u16>,
+    /// The first byte was `?`.
+    is_private: bool,
+    /// Any byte read yet.
+    started: bool,
+    /// Another marker, a colon or an intermediate: not a plain mode list.
+    is_other: bool,
+    /// 47, 1047, 1048 and 1049, in order, up to `MAXIMUM_TRACKED_MODES`.
+    modes: Vec<u16>,
+    /// More of those than fit: their order is unknown.
+    is_lost: bool,
+}
+
+const MAXIMUM_TRACKED_MODES: usize = 16;
+
+impl ModeScan {
+    fn byte(&mut self, byte: u8) {
+        let first = !std::mem::replace(&mut self.started, true);
+        match byte {
+            b'?' if first => self.is_private = true,
+            b'0'..=b'9' => {
+                let digit = u16::from(byte - b'0');
+                self.value = Some(self.value.unwrap_or(0).saturating_mul(10).saturating_add(digit));
+            }
+            b';' => self.end_mode(),
+            _ => self.is_other = true,
+        }
+    }
+
+    fn end_mode(&mut self) {
+        if let Some(mode @ (47 | 1047 | 1048 | 1049)) = self.value.take() {
+            if self.modes.len() < MAXIMUM_TRACKED_MODES {
+                self.modes.push(mode);
+            } else {
+                self.is_lost = true;
+            }
+        }
+    }
+
+    /// The modes the list named, or `None` when it is not a plain private list.
+    fn finish(mut self) -> Option<(Vec<u16>, bool)> {
+        self.end_mode();
+        (self.is_private && !self.is_other).then_some((self.modes, self.is_lost))
+    }
 }
 
 const MAXIMUM_PUSHED_SGR: usize = 10;
@@ -224,6 +275,7 @@ impl TerminalOutputScanner {
             is_on_alternate_screen: false,
             pushed_concealed: Vec::new(),
             sgr: SgrScan::default(),
+            modes: ModeScan::default(),
         }
     }
 
@@ -267,44 +319,53 @@ impl TerminalOutputScanner {
     /// restores on `l`; `1048` saves or restores on the current screen; `47`
     /// and `1047` switch screens. XTPUSHSGR / XTPOPSGR (`CSI # {` / `CSI # }`,
     /// or `p` / `q`) keep a stack, and a pop never reveals, in case the
-    /// terminal ignored the push. A list too long to read restores
-    /// conservatively: concealed if any save might be. The sequences stay
+    /// terminal ignored the push. Modes are read as they stream in,
+    /// past the parameter cap; past `MAXIMUM_TRACKED_MODES` of them, saves
+    /// mark every slot and restores conceal if any save might. Answers whether
+    /// the list switched screens (entered or left). The sequences stay
     /// disruptive, which withdraws what is drawn.
-    fn track_attribute_saves(&mut self, final_byte: u8) {
-        if let Some(modes) = self.parameters.strip_prefix(b"?") {
+    fn track_attribute_saves(&mut self, final_byte: u8) -> Option<bool> {
+        let modes = std::mem::take(&mut self.modes).finish();
+        if let Some((modes, is_lost)) = modes {
             if final_byte != b'h' && final_byte != b'l' {
-                return;
-            }
-            if self.parameters_overflowed {
-                if final_byte == b'l' {
-                    self.is_concealed |= self.saved_concealed.iter().any(|&saved| saved);
-                }
-                return;
+                return None;
             }
             let set = final_byte == b'h';
-            let modes = modes.to_vec();
-            for mode in modes.split(|&byte| byte == b';') {
+            let mut switched = None;
+            for &mode in &modes {
                 match (mode, set) {
-                    (b"1049", true) => {
+                    (1049, true) => {
                         self.save_cursor();
                         self.is_on_alternate_screen = true;
                     }
-                    (b"1049", false) => {
+                    (1049, false) => {
                         self.is_on_alternate_screen = false;
                         let _ = self.restore_cursor();
                     }
-                    (b"1048", true) => self.save_cursor(),
-                    (b"1048", false) => {
+                    (1048, true) => self.save_cursor(),
+                    (1048, false) => {
                         let _ = self.restore_cursor();
                     }
-                    (b"47" | b"1047", entered) => self.is_on_alternate_screen = entered,
-                    _ => {}
+                    _ => self.is_on_alternate_screen = set,
+                }
+                if mode != 1048 {
+                    switched = Some(set);
                 }
             }
-            return;
+            if is_lost {
+                // Saves and restores past the tracked ones, in an unknown order.
+                if set {
+                    for saved in &mut self.saved_concealed {
+                        *saved |= self.is_concealed;
+                    }
+                } else {
+                    self.is_concealed |= self.saved_concealed.iter().any(|&saved| saved);
+                }
+            }
+            return switched;
         }
         if self.parameters_overflowed || self.parameters.last() != Some(&b'#') {
-            return;
+            return None;
         }
         match final_byte {
             b'{' | b'p' => {
@@ -320,6 +381,7 @@ impl TerminalOutputScanner {
             }
             _ => {}
         }
+        None
     }
 
     fn set_concealed(&mut self, concealed: bool) -> OutputSignal {
@@ -427,6 +489,7 @@ impl TerminalOutputScanner {
                     self.parameters.clear();
                     self.parameters_overflowed = false;
                     self.sgr = SgrScan::default();
+                    self.modes = ModeScan::default();
                     None
                 }
                 b']' => {
@@ -507,6 +570,7 @@ impl TerminalOutputScanner {
                 // Parameter and intermediate bytes accumulate; 0x40..=0x7E ends it.
                 if (0x20..=0x3F).contains(&byte) {
                     self.sgr.byte(byte);
+                    self.modes.byte(byte);
                     if self.parameters.len() < MAXIMUM_PARAMETER_BYTES {
                         self.parameters.push(byte);
                     } else {
@@ -533,8 +597,16 @@ impl TerminalOutputScanner {
                     let concealed = std::mem::take(&mut self.sgr).finish(self.is_concealed);
                     return Some(self.set_concealed(concealed));
                 }
-                self.track_attribute_saves(byte);
-                Some(classify_control_sequence(&self.parameters, self.parameters_overflowed, byte))
+                let switched = self.track_attribute_saves(byte);
+                let signal =
+                    classify_control_sequence(&self.parameters, self.parameters_overflowed, byte);
+                Some(match switched {
+                    // A list too long for the classifier still switched screens.
+                    Some(entered) if signal == OutputSignal::Disruptive => {
+                        OutputSignal::AlternateScreen(entered)
+                    }
+                    _ => signal,
+                })
             }
             State::ControlString(kind) => match byte {
                 0x07 if kind == ControlString::OperatingSystemCommand => {

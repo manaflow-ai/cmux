@@ -1517,3 +1517,9 @@ fn a_save_and_restore_inside_a_mode_list_conceal_again() {
     let result = conceals_after("\x1b[8m\x1b[?1048;25h\x1b[0m\x1b[?1048;25l");
     assert!(result.starts_with("drawn \"\""), "{result}");
 }
+
+#[test]
+fn a_save_in_a_mode_list_past_the_parameter_cap_conceals_again() {
+    let result = conceals_after("\x1b[8m\x1b[?25;25;25;25;1048h\x1b[0m\x1b[?1048l");
+    assert!(result.starts_with("drawn \"\""), "{result}");
+}

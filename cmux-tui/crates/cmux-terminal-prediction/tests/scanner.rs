@@ -311,3 +311,11 @@ fn modes_in_a_list_apply_one_by_one() {
     assert!(scanner.is_concealed());
     assert_eq!(scanner.scan(b"\x1b[?25;1049h"), [AlternateScreen(true)]);
 }
+
+#[test]
+fn a_mode_list_past_the_parameter_cap_is_still_read() {
+    let mut scanner = TerminalOutputScanner::new();
+    scanner.scan(b"\x1b[8m\x1b[?25;25;25;25;1048h\x1b[0m\x1b[?1048l");
+    assert!(scanner.is_concealed());
+    assert_eq!(scanner.scan(b"\x1b[?25;25;25;25;25;1049h"), [AlternateScreen(true)]);
+}
