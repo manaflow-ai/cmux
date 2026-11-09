@@ -41,7 +41,7 @@ extension CloudStartChat {
                 // The guest's kind (again until a new guest binds) and the machine's own login, read at once; a login the
                 // provider rejects (a reused machine's expired token) is replaced like a missing one.
                 try await decision.readMachine(exec: { (try? await api.exec(machineID, command: $0, timeoutMs: 20_000))?.stdout }, pause: CloudCredentialTransfer.guestCheckPause,
-                                               warmCopy: cloud.move.cli.map { (CloudMoveCLI(binary: $0), machineID) }) { await CloudMachineLogin.read(on: api, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams) }
+                                               warmCopy: cloud.move.cli.map { (CloudMoveCLI(binary: $0), machineID, cloud.claimedCopies) }) { await CloudMachineLogin.read(on: api, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams) }
                 steps.done("login.machine")
             }
             verdict = decision.verdict

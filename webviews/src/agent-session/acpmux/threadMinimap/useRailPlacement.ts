@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useState, type RefObject } from "react";
 import { useChatDisplay, useChatMinimap } from "../chatDisplay";
-import { MINIMAP_EDGE, MINIMAP_RESERVE, minimapWidth } from "../chatMinimap/paint";
+import { MINIMAP_EDGE, minimapReserve, minimapWidth } from "../chatMinimap/paint";
 import { CHAT_LAYOUT_EVENT, chatColumnOf, useChatSizing } from "../chatWidth";
 import { transcriptColumn } from "../model";
 import { experimentArm } from "../../../experiments/experiment";
@@ -64,7 +64,7 @@ export function useRailPlacement(
       // data-vscode-minimap, chatMinimap.css).
       let inset =
         side === "right" && node.closest(".acpmux-main")?.hasAttribute("data-vscode-minimap")
-          ? transcriptColumn(columnWidth, column, MINIMAP_RESERVE).insetEnd
+          ? transcriptColumn(columnWidth, column, minimapReserve(columnWidth)).insetEnd
           : own.inset;
       if (shell?.dataset.sessionInfoChatPlacement === "push") {
         const room = Number.parseFloat(shell.style.getPropertyValue("--acpmux-session-info-room")) || 0;

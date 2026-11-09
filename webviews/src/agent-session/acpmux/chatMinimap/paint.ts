@@ -21,9 +21,12 @@ export const MINIMAP_EDGE = 10;
 /// gutter Chat Text Width left, so the 800px column made it narrow again, or hid it, in any pane
 /// under 1080px.
 export const MINIMAP_RESERVE = MINIMAP_MAX_WIDTH + 2 * MINIMAP_EDGE;
-/// The narrowest pane whose column keeps that room: narrower, the column it leaves is too narrow to
-/// read, and the strip takes what gutter there is, as before.
+/// The narrowest chat whose column keeps that room: narrower (a small pane, or a chat beside an
+/// artifact), the column it leaves is too narrow to read, and the strip takes what gutter there is, as
+/// before. The chat's own width, not the window's (chatMinimap.css measures the same).
 export const MINIMAP_MIN_PANE = 600;
+/// The room the column keeps for the minimap in a chat `width` px wide.
+export const minimapReserve = (width: number): number => (width >= MINIMAP_MIN_PANE ? MINIMAP_RESERVE : 0);
 
 /// The strip's width for a right gutter (the text column's inset) of `inset` px: as wide as the gutter
 /// allows between MINIMAP_WIDTH and MINIMAP_MAX_WIDTH, so it never lies over the text, or 0 when the

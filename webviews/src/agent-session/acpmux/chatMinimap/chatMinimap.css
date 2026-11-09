@@ -8,14 +8,15 @@
   z-index: var(--layer-sticky);
   height: 0;
 }
-/* The column's end while the minimap is on (App.tsx sets data-vscode-minimap on .acpmux-main, only in a
-   pane wide enough and unless Session Info pushes): the widest strip and its edges (paint.ts
-   MINIMAP_RESERVE), or the column's own inset when that is wider, so Chat Text Width's column never
-   leaves it a narrow strip. The transcript's rows, the composer and the dock's bands read it;
+/* The column's end while the minimap is on (App.tsx sets data-vscode-minimap on .acpmux-main, unless
+   Session Info pushes): the widest strip and its edges (paint.ts MINIMAP_RESERVE), or the column's own
+   inset when that is wider, so Chat Text Width's column never leaves it a narrow strip. Only in a chat
+   at least MINIMAP_MIN_PANE wide: 100% is the chat's width where the inset is used, and the clamp is
+   0px below 600px (a chat beside an artifact keeps its column, as before). The transcript's rows, the composer and the dock's bands read it;
    model.ts transcriptColumn mirrors it. Beside the computer use preview, the wider room of the two
    (the strip steps aside for the card: below). */
 .acpmux-main[data-vscode-minimap] {
-  --cv-inset-end: max(var(--cv-inset), 140px);
+  --cv-inset-end: max(var(--cv-inset), clamp(0px, (100% - 599.5px) * 1000, 140px));
 }
 .acpmux-main[data-vscode-minimap][data-cu-preview] {
   --cv-inset-end: max(var(--cv-inset), 204px);

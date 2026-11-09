@@ -41,6 +41,7 @@ pub mod catalog;
 pub mod chat_fork;
 pub mod chats;
 pub mod claude_auth;
+pub mod claude_peers;
 pub mod claude_stdio;
 pub mod cli;
 pub mod cli_caller;
@@ -52,6 +53,7 @@ pub mod cloud_rewind;
 pub mod codex_app_server;
 #[cfg(unix)]
 mod codex_auth_file;
+pub mod codex_desktop;
 pub mod complete;
 pub mod config;
 pub mod context_inventory;

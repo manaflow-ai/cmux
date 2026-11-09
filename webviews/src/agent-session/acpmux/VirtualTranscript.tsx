@@ -52,6 +52,7 @@ import { animateScroll, MOTION_SCROLL_EVENT, stopScroll } from "./threadMinimap/
 import { JUMP_CURVE, jumpDuration, jumpGlideStart } from "./threadMinimap/model";
 import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
+import { minimapReserve } from "./chatMinimap/paint";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { fadesBelow, preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
@@ -158,6 +159,7 @@ import { type Folds } from "./conversation/viewFolds";
 import { SUBAGENT_DONE, SUBAGENT_OF } from "./subagents/subagentRows";
 import { SubagentOfRow } from "./subagents/SubagentGroup";
 import { SUBAGENT_OF_HEIGHT } from "./rows/SubagentOfPillRow";
+import { noteSendFromLatest, playSendMorph } from "./conversation/sendMorph";
 import { SinceJump } from "./conversation/SinceDivider";
 import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
@@ -423,6 +425,12 @@ const RowFrame = React.memo(function RowFrame({
       (row.kind === "user" && row.incoming?.kind !== "hidden" && row.incoming?.kind !== "notice"));
   const [olderFade] = useState(older);
   const [loadFading] = useState(loadFade);
+  // A prompt sent from the latest row: what the composer drew of it moves into this row's bubble and
+  // previews, as its entrance (conversation/sendMorph.ts). Its first mount only, before it paints.
+  useLayoutEffect(() => {
+    if (messageEntering && row.kind === "user" && ref.current) playSendMorph(ref.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the frame's first mount only
+  }, []);
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLElement>) => onRowKeyDown(index, event),
     [index, onRowKeyDown],
@@ -1114,7 +1122,8 @@ function TranscriptView({
   sinceKey,
   onJumpToSince,
   showMinimap = true,
-  endReserve = 0,
+  endReserve: cardReserve = 0,
+  minimapBeside = false,
   topInset = 0,
 }: {
   rows: readonly AcpmuxRow[];
@@ -1224,6 +1233,9 @@ function TranscriptView({
   /// Room the column keeps at its right for the computer use live preview (`--cv-inset-end`,
   /// computerUse/computerUsePreview.ts): rows are laid out that much narrower.
   endReserve?: number;
+  /// The VS Code Minimap is on beside this transcript (App.tsx data-vscode-minimap): the column's end
+  /// also keeps its room, in a chat wide enough (chatMinimap/paint.ts minimapReserve).
+  minimapBeside?: boolean;
   /// CSS pixels of the scroller's top that the pane's tab row floats over (a one-tab pane, header/tabRow.ts
   /// `soloTab`): the scroller runs up under the row, and the rows draw this much lower and the content is
   /// this much taller, so the first row rests where it did below the row and the latest one where it did
@@ -1808,6 +1820,7 @@ function TranscriptView({
   }
   const drawnRef = useRef(drawn);
   drawnRef.current = drawn;
+  const endReserve = Math.max(cardReserve, minimapBeside ? minimapReserve(width) : 0);
   const scaledRowWidth = transcriptRowWidth(width, chatColumnOf(chatLook, chatScale), endReserve);
   const rowWidthRef = useRef(scaledRowWidth);
   rowWidthRef.current = scaledRowWidth;
@@ -1815,6 +1828,10 @@ function TranscriptView({
   /// The rows the render before this one drew, and its chat, for a turn's end (turnEndFold.ts).
   const rowsBefore = rowsRef.current;
   rowsRef.current = rows;
+  /// Whether the render before this one drew any row: a send into a chat with none yet (a new
+  /// chat's first prompt) has no latest row to become, and fades in place (conversation/sendMorph.ts).
+  const drewRowsBefore = useRef(false);
+  drewRowsBefore.current = rowsBefore.length > 0;
   const sessionBefore = useRef(sessionId);
   const sameChat = sessionBefore.current === sessionId;
   sessionBefore.current = sessionId;
@@ -2552,6 +2569,15 @@ function TranscriptView({
   /// up key or a stray pointer move after a lost release is no such input, and a layout change that
   /// lands at the end during their input hold leaves the reader where they are (Leo, 2026-11-07).
   const readerDown = useRef<{ at: number; input: string } | undefined>(undefined);
+  // The room held above the loaded rows for the unloaded history (conversation/olderReserve.ts) goes
+  // once the reader's view comes within a viewport of the loaded rows' top before a page has filled
+  // it (`giveRoomNearTop` below), until the next page lands: the scroller then ends where the rows do,
+  // so a scroll up stops there as at the top of any page. Held, a scroll up went into the room and
+  // was put back at the loaded rows' top, which on a short tail is the bottom, at every wheel step
+  // for as long as the page took (Leo, 2026-11-06: "it, like, thinks that I can, and then it doesn't
+  // actually let me scroll up ... it pushes me back to the bottom"). `room` keeps a tail shorter than
+  // the view where it was drawn, at the view's foot.
+  const [roomGone, setRoomGone] = useState<{ sessionId?: string; firstId: string; room: number } | undefined>();
   // Scroll frames re-render with the same rows; only rows, width or the registry
   // change an estimate.
   const estimated = useMemo(() => {
@@ -2670,15 +2696,23 @@ function TranscriptView({
             last && kept > 0 ? { layout: last.layout, kept, from: rowsKept, changed: changedAt } : undefined,
             placedOrigin,
           );
-    const reserved = olderReserve(olderRoom.current, {
-      sessionId,
-      rows,
-      rowTop: (index) => placed.geometry.topAt(index) - placedOrigin,
-      rowsHeight: placed.totalHeight - placedOrigin,
-      canLoadOlder,
-      earlier: earlier?.length,
-      promptCount,
-    });
+    // Gone until a page lands above the first row (a new first row): then estimated again, from the
+    // rows that page brought.
+    const gone =
+      canLoadOlder && roomGone && roomGone.sessionId === sessionId && rows[0]?.id === roomGone.firstId
+        ? roomGone
+        : undefined;
+    const reserved = gone
+      ? { reserve: gone.room, state: undefined }
+      : olderReserve(olderRoom.current, {
+          sessionId,
+          rows,
+          rowTop: (index) => placed.geometry.topAt(index) - placedOrigin,
+          rowsHeight: placed.totalHeight - placedOrigin,
+          canLoadOlder,
+          earlier: earlier?.length,
+          promptCount,
+        });
     olderRoom.current = reserved.state;
     const layout = placedWithOrigin(placed, reserved.reserve);
     lastPlaced.current = {
@@ -2707,6 +2741,7 @@ function TranscriptView({
     canLoadOlder,
     earlier,
     promptCount,
+    roomGone,
   ]);
   // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
   // alone placed the latest row's bottom that far under the view.
@@ -3941,6 +3976,24 @@ function TranscriptView({
   const anchorTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const latestLayout = useRef({ layout, rows });
   latestLayout.current = { layout, rows };
+  /// Lets the room above the loaded rows go when the view is within a viewport of their top with no
+  /// page there yet (`roomGone` above). Runs after each placement and on every scroll event.
+  const giveRoomNearTop = () => {
+    const node = ref.current;
+    const room = layout.origin ?? 0;
+    const first = rows[0];
+    if (!node || !first || !canLoadOlder || room <= 0.5 || !didOpenAtLatest.current || node.clientHeight === 0) return;
+    if (layoutScrollTop(node) - room >= node.clientHeight * OLDER_LATE_VIEWPORTS) return;
+    // A tail shorter than the view keeps its place at the view's foot: the room left is what lies
+    // between the view's top and the rows, so nothing scrolls (read from the scroller itself, whose
+    // height also holds the thread's own padding).
+    const next = Math.max(0, Math.floor(room - Math.max(0, node.scrollHeight - node.clientHeight)));
+    if (next >= room - 0.5) return;
+    setRoomGone({ sessionId, firstId: first.id, room: next });
+  };
+  // After the placement pass above: its offset is the one this reads, and the state it sets renders
+  // again before the frame paints.
+  useLayoutEffect(giveRoomNearTop);
   useEffect(() => () => clearTimeout(anchorTimer.current), []);
   // A report that came due while the pane was hidden, sent once it has a viewport again.
   const anchorDeferred = useRef(false);
@@ -4024,6 +4077,9 @@ function TranscriptView({
       // The chat has not opened yet (its tail still fits): it opens at the latest message once it
       // overflows, not at the reader's old place (the placement pass).
       sentBeforeOpen.current = true;
+      // A tail that fits is at its latest row: the composer's prompt becomes the sent message
+      // (conversation/sendMorph.ts). A chat that drew no row yet has none: its prompt fades in place.
+      noteSendFromLatest(drewRowsBefore.current, node);
       // A tail that fit and overflows with this send opens at the latest row on the send's glide
       // (placement pass), and the reply's rows that land next rise on it too (`sendRows`).
       sendRiseUntil.current = performance.now() + SEND_RISE_MS;
@@ -4037,6 +4093,9 @@ function TranscriptView({
     // Sent from the latest row: the view only moves by what came below, and the send's glide that
     // the placement pass may have started this commit (`followGlide.sent`) keeps playing.
     const fromLatest = followingRef.current && jumpTarget.current === undefined;
+    // Only then does the composer's prompt become the sent message in place; scrolled up, it fades in
+    // where it lands (conversation/sendMorph.ts, Leo 2026-11-08: "if you're at the bottom").
+    noteSendFromLatest(fromLatest, node);
     if (fromLatest) {
       wheelGlide.current?.stop();
       stopScroll(node);
@@ -4156,11 +4215,15 @@ function TranscriptView({
     // The room above the loaded rows holds history still to load (conversation/olderReserve.ts):
     // the reader stops at the loaded rows' top, as at the top of the chat, until a page lands into
     // the room. A view inside it showed nothing, and the pages then landed under it unseen.
-    const room = latestLayout.current.layout.origin ?? 0;
+    // Once it went (`roomGone`), what is left is no history to load, only what keeps a short tail at
+    // the view's foot: nothing to hold the reader from.
+    const gone = roomGone !== undefined && roomGone.sessionId === sessionId && rows[0]?.id === roomGone.firstId;
+    const room = gone ? 0 : (latestLayout.current.layout.origin ?? 0);
     if (room > 0 && layoutScrollTop(node) < room) {
       wheelGlide.current?.stop();
       node.scrollTop = physicalScrollTop(node, room);
     }
+    giveRoomNearTop();
     checkOlderNow.current();
     const next = node.scrollTop;
     trimFoldRoom(node);

@@ -10,6 +10,7 @@ import {
   minimapView,
   paintMinimap,
   streamingRow,
+  minimapReserve,
   minimapWidth,
   LINE_HEIGHT,
   LINE_PITCH,
@@ -225,7 +226,11 @@ test("with its room kept at the column's end, the strip is its full width in eve
   const css = await Bun.file(
     new URL("../src/agent-session/acpmux/chatMinimap/chatMinimap.css", import.meta.url),
   ).text();
-  expect(css).toContain(`--cv-inset-end: max(var(--cv-inset), ${MINIMAP_RESERVE}px);`);
+  // Only in a chat at least MINIMAP_MIN_PANE wide (its own width: one beside an artifact keeps its column).
+  expect([minimapReserve(MINIMAP_MIN_PANE - 1), minimapReserve(MINIMAP_MIN_PANE)]).toEqual([0, MINIMAP_RESERVE]);
+  expect(css).toContain(
+    `--cv-inset-end: max(var(--cv-inset), clamp(0px, (100% - ${MINIMAP_MIN_PANE - 0.5}px) * 1000, ${MINIMAP_RESERVE}px));`,
+  );
   expect(css).toContain(`--cv-inset-end: max(var(--cv-inset), ${COMPUTER_USE_PREVIEW_RESERVE}px);`);
   // The strip steps aside for the computer use preview card at the same corner.
   expect(css).toMatch(/\.acpmux-main\[data-cu-preview\] \.acpmux-chat-minimap \{\s*visibility: hidden;/);

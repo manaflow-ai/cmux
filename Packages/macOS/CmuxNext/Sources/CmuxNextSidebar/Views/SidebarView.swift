@@ -265,6 +265,18 @@ public final class SidebarView: NSView {
         }
     }
 
+    /// Makes a row of a workspace row's drive indicator menu: Go to the agent's tab, or Stop what it
+    /// drives, titled `title`. The App fills this from the action registry, so the row runs the same
+    /// action as the palette, the File menu and the CLI; the sidebar never runs its own handler. Nil,
+    /// or nil for a row, leaves the row out.
+    public var driveMenuItem: ((WorkspaceID, SidebarDriveCommand, _ title: String) -> NSMenuItem?)? {
+        get { list.driveMenuItem }
+        set {
+            list.driveMenuItem = newValue
+            for (key, view) in list.rowViews { list.wire(view, key: key) }
+        }
+    }
+
     /// Starts inline rename of a workspace (the "rename workspace" action's sidebar entrypoint).
     public func beginRename(workspace id: WorkspaceID) { list.inlineRename.begin(.workspace(id)) }
 
