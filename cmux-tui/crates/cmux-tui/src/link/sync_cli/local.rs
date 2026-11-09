@@ -455,15 +455,17 @@ fn add_git(
         return Ok(());
     }
     let target = format!(".git/{relative}");
-    let read = || git_text(dir, name, &entry, path, relative, set.skips.top());
+    let read = || git_text(dir, name, &entry, path);
     if data_at.is_none() && matches!(name, "config" | "config.worktree") {
-        let text = String::from_utf8_lossy(&read()).into_owned();
+        let Some(bytes) = read()? else { return Ok(()) };
+        let text = String::from_utf8_lossy(&bytes).into_owned();
         let source = Source::Bytes(clean_config(&text).into_bytes());
         set.files.insert(target, LocalFile { source, permissions: 0o644, id: None });
         return Ok(());
     }
     if data_at.is_some_and(|index| parts[index] == "logs") {
-        let text = String::from_utf8_lossy(&read()).into_owned();
+        let Some(bytes) = read()? else { return Ok(()) };
+        let text = String::from_utf8_lossy(&bytes).into_owned();
         let cleaned: String = text.split_inclusive('\n').map(without_user_info).collect();
         set.files.insert(
             target,
@@ -888,23 +890,40 @@ mod tests {
     #[test]
     fn a_symlinked_git_config_goes_as_the_file_it_names() {
         let root = tempfile::tempdir().unwrap();
-        let repo = std::fs::canonicalize(root.path()).unwrap().join("repo");
+        let root = std::fs::canonicalize(root.path()).unwrap();
+        let repo = root.join("repo");
         std::fs::create_dir(&repo).unwrap();
         git(&repo, &["init", "-q"]);
         git(&repo, &["config", "remote.origin.url", "https://example.invalid/r.git"]);
         std::fs::write(repo.join("a.txt"), "a\n").unwrap();
-        std::fs::rename(repo.join(".git/config"), repo.join(".git/config.actual")).unwrap();
-        std::os::unix::fs::symlink("config.actual", repo.join(".git/config")).unwrap();
-        let set = collect(&repo, Rules::Copy).unwrap();
-        let Some(super::Source::Bytes(bytes)) = set.files.get(".git/config").map(|f| &f.source)
-        else {
-            panic!("no config: {:?}", set.files.keys());
-        };
-        let text = String::from_utf8_lossy(bytes);
-        assert!(
-            text.contains("repositoryformatversion") && text.contains("example.invalid"),
-            "{text}"
-        );
+        let (config, real) = (repo.join(".git/config"), root.join("dotfiles-config"));
+        std::fs::rename(&config, &real).unwrap();
+        let config_text =
+            |repo: &Path| match collect(repo, Rules::Copy).unwrap().files.remove(".git/config") {
+                Some(LocalFile { source: super::Source::Bytes(bytes), .. }) => {
+                    String::from_utf8(bytes).unwrap()
+                }
+                other => panic!("no config: {other:?}"),
+            };
+        // A sibling, a chain through a sibling, and a file outside the folder.
+        for (link, to) in
+            [("config.actual", "../../dotfiles-config"), ("config.middle", "config.actual")]
+        {
+            std::os::unix::fs::symlink(to, repo.join(".git").join(link)).unwrap();
+        }
+        for to in ["config.actual", "config.middle", real.to_str().unwrap()] {
+            let _ = std::fs::remove_file(&config);
+            std::os::unix::fs::symlink(to, &config).unwrap();
+            let text = config_text(&repo);
+            assert!(
+                text.contains("repositoryformatversion") && text.contains("example.invalid"),
+                "{to}: {text}"
+            );
+        }
+        // Unreadable fails the sync, never an empty config in its place.
+        std::fs::remove_file(&real).unwrap();
+        std::fs::create_dir(&real).unwrap();
+        assert!(collect(&repo, Rules::Copy).is_err());
     }
 
     /// A stray file in a borrowed object folder (a `.env`, a note) never

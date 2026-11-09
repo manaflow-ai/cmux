@@ -1,7 +1,7 @@
 //! A plain copy's files and symlinks read through the descriptor of the folder holding them, and
 //! each listed file read later as the file listed (local.rs walks the folder).
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context as _, bail};
 
@@ -183,47 +183,33 @@ fn add_in(
     Ok(())
 }
 
-/// The bytes of the git file `name` (`relative` in its git folder, at `path`
-/// here) that a copy rewrites before it goes (config, a reflog), read through
-/// `dir`: a regular file there, or the one a symlink there names. A symlink to
-/// a sibling (`config -> config.actual`) is read through `dir` too; one that
-/// leads further is read only when it stays inside its git folder or `top`.
-/// Unreadable: empty, as before.
+/// The bytes of the git file `name` (at `path`) that a copy rewrites before
+/// it goes (config, a reflog): a regular file read through `dir`, or the file
+/// a symlink there names, through every link of its chain wherever it leads,
+/// as a plain read would. Gone since it was listed: `None`, so the file is
+/// left out and the machine's copy stays. Any other failure fails the sync:
+/// empty bytes in its place would overwrite the machine's config.
 pub(super) fn git_text(
     dir: &place::Dir,
     name: &str,
     entry: &place::Entry,
     path: &Path,
-    relative: &str,
-    top: &Path,
-) -> Vec<u8> {
+) -> anyhow::Result<Option<Vec<u8>>> {
     use std::io::Read as _;
-    let regular = |name: &str| -> Option<Vec<u8>> {
-        let mut file = dir.open_file(name).ok()?;
-        file.metadata().ok().filter(std::fs::Metadata::is_file)?;
-        let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes).ok()?;
-        Some(bytes)
-    };
     let read = match entry {
-        place::Entry::File { .. } => regular(name),
-        place::Entry::Link => match dir.read_link(name) {
-            Ok(text) if !text.contains('/') && text != "." && text != ".." => regular(&text),
-            Ok(_) => {
-                let git = path.ancestors().nth(relative.split('/').count());
-                let roots: Vec<PathBuf> = git
-                    .into_iter()
-                    .chain([top])
-                    .filter_map(|root| std::fs::canonicalize(root).ok())
-                    .collect();
-                std::fs::canonicalize(path)
-                    .ok()
-                    .filter(|target| roots.iter().any(|root| target.starts_with(root)))
-                    .and_then(|target| std::fs::read(target).ok())
+        place::Entry::File { .. } => dir.open_file(name).and_then(|mut file| {
+            if !file.metadata()?.is_file() {
+                return Err(std::io::Error::other("not a regular file"));
             }
-            Err(_) => None,
-        },
-        _ => None,
+            let mut bytes = Vec::new();
+            file.read_to_end(&mut bytes).map(|_| bytes)
+        }),
+        place::Entry::Link => std::fs::read(path),
+        _ => Err(std::io::Error::other("not a file or a symlink")),
     };
-    read.unwrap_or_default()
+    match read {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).with_context(|| format!("cannot read {}", path.display())),
+    }
 }
