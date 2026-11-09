@@ -294,6 +294,11 @@ fn w5s_a_subagents_relayed_send_names_the_subagent_as_a_label() {
         \u{FFF9}u\u{FFFB}v\u{E0001}w\u{E0041}x\u{E007F}y";
     let format_sent = as_agent_from(mark, Some(format));
     assert!(format_sent.status.success(), "{}", text(&format_sent));
+    // Nor a default-ignorable one of another class (Unicode Default_Ignorable_Code_Point):
+    // variation selectors, a Hangul filler, a Mongolian free variation selector, an unassigned tag.
+    let ignorable = "A\u{FE0F}B\u{E0100}C\u{3164}D\u{180B}E\u{E0002}F";
+    let ignorable_sent = as_agent_from(mark, Some(ignorable));
+    assert!(ignorable_sent.status.success(), "{}", text(&ignorable_sent));
     let labels = fs::read_to_string(dir.join("labels")).unwrap_or_default();
     let labels: Vec<&str> = labels.lines().skip(2).collect();
     assert_eq!(
@@ -309,6 +314,7 @@ fn w5s_a_subagents_relayed_send_names_the_subagent_as_a_label() {
                 .to_owned(),
             "general-purpose:a0a68e7af3df5967e|klmnopqrstuvwxy's general-purpose subagent a0a68e7a"
                 .to_owned(),
+            "general-purpose:a0a68e7af3df5967e|ABCDEF's general-purpose subagent a0a68e7a".to_owned(),
         ],
         "the label's name is one line of at most 64 bytes"
     );
