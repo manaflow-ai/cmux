@@ -177,19 +177,16 @@ test("an expired cloud provider sign-in names the command that refreshes it", ()
   // else the one the error names. A bare `aws sso login` would refresh the default profile.
   const ssoExpired =
     "Error loading SSO Token: The SSO session associated with this profile has expired or is otherwise invalid.";
-  expect(failureCopy(t, ssoExpired, { ...claude, awsProfile: "work" })).toBe(
-    t("turn.failure.cloudSignInExpired", { harness: "Claude Code", command: "aws sso login --profile work" }),
-  );
-  expect(
-    failureCopy(t, "Error when retrieving token from sso: Token has expired and refresh failed (profile: dev-admin)", claude),
-  ).toBe(t("turn.failure.cloudSignInExpired", { harness: "Claude Code", command: "aws sso login --profile dev-admin" }));
+  const signIn = (command: string) => t("turn.failure.cloudSignInExpired", { harness: "Claude Code", command });
+  const ssoCopy = t("turn.failure.cloudSsoExpired", { harness: "Claude Code" });
+  const named = "Error when retrieving token from sso: Token has expired and refresh failed (profile: dev-admin)";
+  expect(failureCopy(t, ssoExpired, { ...claude, awsProfile: "work" })).toBe(signIn("aws sso login --profile work"));
+  expect(failureCopy(t, named, claude)).toBe(signIn("aws sso login --profile dev-admin"));
   // A profile name that is not one is never pasted into a command.
-  expect(failureCopy(t, ssoExpired, { ...claude, awsProfile: "work; rm -rf ~" })).toBe(
-    t("turn.failure.cloudSsoExpired", { harness: "Claude Code" }),
-  );
+  expect(failureCopy(t, ssoExpired, { ...claude, awsProfile: "work; rm -rf ~" })).toBe(ssoCopy);
   for (const message of [ssoExpired, "Token has expired and refresh failed"]) {
     expect(failureKind(message, claude), message).toBe("cloud-auth-expired");
-    expect(failureCopy(t, message, claude), message).toBe(t("turn.failure.cloudSsoExpired", { harness: "Claude Code" }));
+    expect(failureCopy(t, message, claude), message).toBe(ssoCopy);
   }
   expect(t("turn.failure.cloudSsoExpired", { harness: "Claude Code" })).toContain("aws sso login --profile");
   // Application default credentials or Vertex named: `gcloud auth application-default login`.
@@ -232,4 +229,13 @@ test("an expired cloud provider sign-in names the command that refreshes it", ()
   expect(failureKind("OAuth token refresh failed: invalid_grant")).toBe("subscription-login");
   expect(failureKind("Not logged in · Please run /login")).toBe("subscription-login");
   expect(failureKind("401 Unauthorized: token expired")).toBe("auth");
+});
+
+// A bare `invalid_rapt` (Google's reauth refresh error) with no application default credentials named
+// is the agent's own sign-in, like `invalid_grant`: it offers Sign in again, not an unknown failure.
+test("a bare invalid_rapt is the agent's own sign-in", () => {
+  for (const message of ["invalid_rapt", "RefreshError: reauth related error (invalid_rapt)"]) {
+    expect(failureKind(message), message).toBe("subscription-login");
+    expect(failureRecovery(failureKind(message)), message).toBe("sign-in");
+  }
 });
