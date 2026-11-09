@@ -39,6 +39,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/app-ffi-release.yml"
+REPIN_WORKFLOW = ROOT / ".github/workflows/app-ffi-repin.yml"
 sys.path.insert(0, str(ROOT / "tests"))
 from test_seed_derived_data import evaluate  # noqa: E402
 
@@ -347,6 +348,13 @@ elif args[0] == "api":
             print("gh: Not Found (HTTP 404)", file=sys.stderr); sys.exit(1)
         emit({"object": {"sha": state["refs"][ref]}})
     elif "/pulls?" in endpoint: emit([{"number": 1}])  # stale even after auto-close
+    elif endpoint.endswith("/check-runs?per_page=100"):
+        emit({"check_runs": [{"conclusion": c} for c in state.get("checks", [])]})
+    elif endpoint.endswith("/status"): emit({"state": state.get("status", "pending")})
+    elif "/commits/" in endpoint:
+        import datetime
+        at = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=state.get("head_age_min", 600))
+        emit({"commit": {"committer": {"date": at.strftime("%Y-%m-%dT%H:%M:%SZ")}}})
     elif "/pulls/" in endpoint:
         number = endpoint.rsplit("/", 1)[1]
         emit({"state": state["prs"][number], "base": {"ref": "feat-cmux-next"},
@@ -361,8 +369,9 @@ class RePinPublication(unittest.TestCase):
     """Execute the workflow step; model GitHub auto-closing a head reset to base."""
 
     def run_repin(self, *, closed=False, write_mode="ok", push_mode="ok", wrong_head=False, close_on_edit=False,
-                  refs=None, cache=None, ref_read="ok"):
-        step = yaml.safe_load(WORKFLOW.read_text())["jobs"]["repin"]["steps"][-1]
+                  refs=None, cache=None, ref_read="ok", head_age_min=600, checks=(), status="pending",
+                  workflow=WORKFLOW):
+        step = yaml.safe_load(workflow.read_text())["jobs"]["repin"]["steps"][-1]
         with tempfile.TemporaryDirectory() as temp:
             work = Path(temp)
             scripts = work / "scripts/cmux-next"
@@ -387,7 +396,8 @@ class RePinPublication(unittest.TestCase):
                 "cache": cache, "ref_read": ref_read,
                 "prs": {"1": "closed" if closed else "open"}, "published": [],
                 "writes": 0, "write_mode": write_mode, "push_mode": push_mode,
-                "wrong_head": wrong_head, "close_on_edit": close_on_edit}))
+                "wrong_head": wrong_head, "close_on_edit": close_on_edit,
+                "head_age_min": head_age_min, "checks": list(checks), "status": status}))
             env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=str(state_path),
                        GH_TOKEN="pr-token", APP_TOKEN="contents-token", TAG=TAG, CHECKSUM="f" * 64,
                        GITHUB_SHA=SHA, GITHUB_REPOSITORY=REPO, GITHUB_REPOSITORY_OWNER="manaflow-ai",
@@ -458,6 +468,52 @@ class RePinPublication(unittest.TestCase):
         result, state = self.run_repin(ref_read="fail")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(state["published"], [])
+
+    def test_a_young_head_under_ci_is_kept_not_moved(self):
+        # 2026-11-09: #39384 was moved five times in 4.5 hours; each move
+        # cancelled its checks, nothing landed, and the pin fell 359 min behind.
+        result, state = self.run_repin(head_age_min=20, checks=("success", "skipped", None))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("kept #1 at cccccccccccc", result.stdout)
+        self.assertEqual(state["refs"], {"app-ffi-repin": "c" * 40})
+        self.assertEqual(state["published"], [])
+        self.assertEqual(state["writes"], 0)
+
+    def test_a_head_past_the_hold_or_with_a_failed_check_is_moved(self):
+        cases = {
+            "past the hold": {"head_age_min": 95},
+            "a failed check run": {"head_age_min": 20, "checks": ("success", "failure")},
+            "a timed-out check run": {"head_age_min": 20, "checks": ("timed_out",)},
+            "a failed commit status": {"head_age_min": 20, "status": "failure"},
+            "the PR is closed": {"head_age_min": 20, "closed": True},
+        }
+        for name, options in cases.items():
+            with self.subTest(name):
+                result, state = self.run_repin(**options)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(state["refs"]["app-ffi-repin"], "b" * 40)
+                self.assertIn("verified open", result.stdout)
+
+    def test_the_pin_landing_re_pins_with_no_ffi_build(self):
+        # The releases published while a head was held: its merge changes
+        # Package.swift, and app-ffi-repin.yml re-pins them at once.
+        workflow = yaml.safe_load(REPIN_WORKFLOW.read_text(encoding="utf-8"))
+        push = workflow[True]["push"]
+        self.assertEqual(push["branches"], ["feat-cmux-next"])
+        self.assertIn("Packages/macOS/CmuxNext/Package.swift", push["paths"])
+        job = workflow["jobs"]["repin"]
+        self.assertNotIn("needs", job)
+        self.assertEqual(job["environment"], "ffi-release")
+        self.assertEqual(job["concurrency"], {"group": "app-ffi-repin", "cancel-in-progress": False})
+        self.assertEqual(job["permissions"], {"contents": "read"})
+        self.assertNotIn("macos", str(job["runs-on"]))
+        release = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["repin"]
+        self.assertEqual([s.get("with") for s in job["steps"]], [s.get("with") for s in release["steps"]])
+        self.assertEqual(job["steps"][-1]["run"], release["steps"][-1]["run"])
+        result, state = self.run_repin(workflow=REPIN_WORKFLOW, refs={})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state["refs"]["app-ffi-repin"], "b" * 40)
+        self.assertIn("verified open", result.stdout)
 
     def test_final_pr_must_be_open_at_the_published_commit(self):
         for options in ({"wrong_head": True}, {"close_on_edit": True}):

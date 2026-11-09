@@ -39,6 +39,42 @@ if git diff --quiet -- "$manifest"; then
 fi
 tip="$(git rev-parse HEAD)"
 previous="$(remote_head "$branch")"
+
+# Hold a head under CI. Each force push cancels the open PR's checks, and its
+# CI (the Mac queue, the fleet compile, daemon tests) takes longer than the gap
+# between FFI publishes: on 2026-11-09 #39384 was moved at 08:22, 10:38, 11:49,
+# 12:13 and 12:45, no head finished its checks, nothing landed for 6 hours and
+# the pin fell 359 min behind (goal fix-running-ffi-pin, bound 120). So an open
+# PR whose head is younger than REPIN_HOLD_MIN and has no failed check keeps
+# its head and lands first; its merge changes Package.swift, and
+# app-ffi-repin.yml then re-pins the newest release at once. A failed check, an
+# older head or any failed read moves the head as before.
+hold_min="${REPIN_HOLD_MIN:-90}"
+held_pr() {
+  local number state head age failed
+  number="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=feat-cmux-next&head=${GITHUB_REPOSITORY%/*}:$branch" --jq '.[0].number // empty')" || return 1
+  [[ "$number" =~ ^[0-9]+$ ]] || return 1
+  read -r state head < <(gh api "repos/$GITHUB_REPOSITORY/pulls/$number" --jq '"\(.state) \(.head.sha)"') || return 1
+  [[ "$state" == open && "$head" == "$previous" ]] || return 1
+  age="$(gh api "repos/$GITHUB_REPOSITORY/commits/$previous" --jq '(now - (.commit.committer.date | fromdateiso8601)) / 60 | floor')" || return 1
+  [[ "$age" =~ ^[0-9]+$ ]] || return 1
+  if (( age >= hold_min )); then
+    echo "#$number's head ${previous:0:12} is $age min old (hold $hold_min min): moving it" >&2
+    return 1
+  fi
+  failed="$(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$previous/check-runs?per_page=100" \
+    --jq '[.check_runs[] | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "cancelled")] | length' |
+    awk '{ n += $1 } END { print n + 0 }')" || return 1
+  [[ "$(gh api "repos/$GITHUB_REPOSITORY/commits/$previous/status" --jq '.state')" == failure ]] && failed=$((failed + 1))
+  if (( failed > 0 )); then
+    echo "#$number's head ${previous:0:12} has $failed failed check(s): moving it" >&2
+    return 1
+  fi
+  echo "kept #$number at ${previous:0:12}: pushed $age min ago (hold $hold_min min), no check failed; it lands first and its merge re-pins $TAG (app-ffi-repin.yml)"
+}
+if [[ -n "$previous" && -n "${GH_TOKEN:-}" ]] && held_pr; then
+  exit 0
+fi
 # Resetting the stable head to the unpinned base auto-closes its PR. Only this
 # run's staging ref may hold that base while the contents API signs the pin.
 cleanup() {
