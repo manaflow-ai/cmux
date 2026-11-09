@@ -113,7 +113,7 @@ struct CloudStartSessionFolderTests {
         let made = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: made, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: made) }
-        let root = URL(fileURLWithPath: try #require(realpath(made.path, nil).map { defer { free($0) }; return String(cString: $0) }))
+        let root = URL(fileURLWithPath: try #require(realpath(made.path, nil).map { path in defer { free(path) }; return String(cString: path) }))
         for dir in ["a", "b/child", "b/project", "a/project"] { try FileManager.default.createDirectory(at: root.appendingPathComponent(dir), withIntermediateDirectories: true) }
         try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent("a/link").path, withDestinationPath: root.appendingPathComponent("b/child").path)
         let folder = try #require(try Self.fromFolder(root.path + "/a/link/../project"))

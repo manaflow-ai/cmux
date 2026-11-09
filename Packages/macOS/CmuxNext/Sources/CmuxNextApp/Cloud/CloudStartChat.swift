@@ -296,7 +296,7 @@ extension CloudStartSession {
         guard let text = invocation["fromFolder"]?.stringValue, !text.allSatisfy(\.isWhitespace) else { return nil }
         guard cwd == nil else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderWithCwd) }
         guard text.utf8.count <= 4096, !text.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }), let plain = CloudMoveFolder.normalized(text) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderInvalid) }
-        if let refusal = AgentPaneCloudFolderRefusal.written(realpath(text, nil).map { defer { free($0) }; return String(cString: $0) } ?? plain, home: home) { throw ActionFailure(message: Self.message(refusal, folder: text)) }
+        if let refusal = AgentPaneCloudFolderRefusal.written(realpath(text, nil).map { path in defer { free(path) }; return String(cString: path) } ?? plain, home: home) { throw ActionFailure(message: Self.message(refusal, folder: text)) }
         return text.count > 1 && text.hasSuffix("/") ? String(text.dropLast()) : text
     }
 
