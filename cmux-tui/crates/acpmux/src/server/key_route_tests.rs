@@ -41,10 +41,15 @@ fn setup_with(local: &[(&str, &str)]) -> Arc<Hub> {
 }
 
 async fn call(hub: &Arc<Hub>, method: &str, params: Value) -> Value {
+    let hello = json!({"protocolVersion": 1, "clientCapabilities": {}});
+    call_after(hub, hello, method, params).await
+}
+
+/// `method` on a fresh connection whose `initialize` is `hello`.
+async fn call_after(hub: &Arc<Hub>, hello: Value, method: &str, params: Value) -> Value {
     let (input, incoming) = mpsc::channel(64);
     let (output, mut outgoing) = mpsc::channel(64);
     tokio::spawn(serve_connection_with(hub.clone(), incoming, output, Origin::Local));
-    let hello = json!({"protocolVersion": 1, "clientCapabilities": {}});
     for (id, (m, p)) in [(1, ("initialize", hello)), (2, (method, params))] {
         input.send(Message::request(id, m, p).to_line()).await.unwrap();
         let reply = tokio::time::timeout(Duration::from_secs(5), async {
@@ -133,4 +138,42 @@ async fn a_stale_peer_qualified_id_never_picks_a_local_session_named_like_it() {
     hub.peers.lock().unwrap().insert("hb".to_owned(), peer);
     let reply = call(&hub, method::MUX_INFO, json!({"sessionId": "hb/peer-gone-1"})).await;
     assert_ne!(reply["result"]["sessionId"], "local-d-1", "{reply}");
+}
+
+/// W5-S, bench round 4 A5 (2026-11-08): an agent's message names its session by an exact name.
+/// A bare `beta` reached `bench4-beta` there, and a prefix, a name in another case or one without
+/// separators would reach a session the agent never named here too. From an agent's shell such a
+/// key is refused with the session it would have reached; the person's terminal keeps the loose
+/// rules, and so do an agent's reads.
+#[tokio::test]
+async fn w5s_an_agents_message_goes_only_to_an_exact_name() {
+    let hub = setup_with(&[("id-beta-x", "bench4-beta"), ("id-alpha", "alpha")]);
+    // This CLI in an agent's shell (`cli_caller.rs`): a declared agent, whatever its token.
+    let agent = json!({"protocolVersion": 1,
+                       "_meta": {"acpmux": {"callerProtocol": 1, "callerKind": "agent"}}});
+    let send = |key: &str| {
+        let request = json!({"sessionId": key, "prompt": [{"type": "text", "text": "hi"}]});
+        json!({"request": request})
+    };
+    for loose in ["bench4", "BENCH4-BETA", "bench4beta"] {
+        let reply = call_after(&hub, agent.clone(), method::MUX_SEND_QUEUE, send(loose)).await;
+        let data = &reply["error"]["data"];
+        assert_eq!(data["reason"], "session_not_exact", "{loose}: {reply}");
+        assert_eq!(data["choices"][0]["name"], "bench4-beta", "{loose}: {reply}");
+        let message = reply["error"]["message"].as_str().unwrap_or_default();
+        assert!(message.contains("bench4-beta"), "the refusal names it: {reply}");
+        let prompt = json!({"sessionId": loose, "prompt": [{"type": "text", "text": "hi"}]});
+        let reply = call_after(&hub, agent.clone(), method::SESSION_PROMPT, prompt).await;
+        assert_eq!(reply["error"]["data"]["reason"], "session_not_exact", "{loose}: {reply}");
+    }
+    // The exact name, and the id, are no refusal of this kind.
+    for exact in ["bench4-beta", "id-beta-x"] {
+        let reply = call_after(&hub, agent.clone(), method::MUX_SEND_QUEUE, send(exact)).await;
+        assert_ne!(reply["error"]["data"]["reason"], "session_not_exact", "{exact}: {reply}");
+    }
+    // An agent still reads a session by a prefix, and the person still sends by one.
+    let info = call_after(&hub, agent, method::MUX_INFO, json!({"sessionId": "bench4"})).await;
+    assert_eq!(info["result"]["sessionId"], "id-beta-x", "{info}");
+    let person = call(&hub, method::MUX_SEND_QUEUE, send("bench4")).await;
+    assert_ne!(person["error"]["data"]["reason"], "session_not_exact", "{person}");
 }

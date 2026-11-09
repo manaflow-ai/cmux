@@ -21,6 +21,15 @@ use super::*;
 /// The `reason` of the refusal for a key several live sessions match.
 pub(crate) const AMBIGUOUS: &str = "session_ambiguous";
 
+/// The `reason` of the refusal for an agent's message to a key that is no exact session name
+/// ([`Hub::exact_key_route`]).
+pub(crate) const NOT_EXACT: &str = "session_not_exact";
+
+/// The shortest id prefix an agent's message may name its session by (an id is a UUID: eight
+/// hex digits name one session among thousands, and no word an agent would call a session is
+/// one).
+const AGENT_ID_PREFIX_MIN: usize = 8;
+
 /// The `reason` of the refusal for a machine name several machines match (`--host`).
 pub(crate) const HOST_AMBIGUOUS: &str = "host_ambiguous";
 
@@ -90,6 +99,45 @@ impl Hub {
                 .unwrap_or_default()
         };
         pick(key, &found).map(|c| c.map(|c| c.route.clone()))
+    }
+
+    /// [`Hub::key_route`] for an agent's message (W5-S, bench round 4 A5, 2026-11-08): the key
+    /// must name its session exactly, as an id, an id prefix of [`AGENT_ID_PREFIX_MIN`] or more
+    /// characters, the whole name, or `HOST/NAME` with both exact. A prefix of a name, a name in
+    /// another case or one without separators reaches a session the agent never named (`beta`
+    /// for `bench4-beta`), so it is refused with the session it would have reached; an
+    /// ambiguous key is refused as for anyone. The person's terminal keeps the loose rules.
+    pub(crate) fn exact_key_route(&self, key: &str) -> Result<Option<String>, RpcError> {
+        let Some(route) = self.key_route(key)? else { return Ok(None) };
+        let own = crate::pairing::machine_name();
+        let local = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&route)
+            .map(|s| {
+                let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                (own.clone(), meta.name.clone(), s.id.clone())
+            });
+        let target = local.or_else(|| {
+            let remote =
+                self.remote_sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            remote.get(&route).map(|r| {
+                let name = r.summary.get("name").and_then(Value::as_str).unwrap_or_default();
+                let bare = name.strip_prefix(&format!("{}/", r.peer)).unwrap_or(name).to_owned();
+                (r.peer.clone(), bare, r.receipt.mux_session_id.clone())
+            })
+        });
+        let Some((host, name, id)) = target else { return Ok(Some(route)) };
+        let id_key = |k: &str| k == id || (k.len() >= AGENT_ID_PREFIX_MIN && id.starts_with(k));
+        let exact = key == name
+            || key == route
+            || id_key(key)
+            || key.split_once('/').is_some_and(|(h, rest)| {
+                (h == host || (h == crate::session_identity::LOCAL_HOST_ID && host == own))
+                    && (rest == name || id_key(rest))
+            });
+        if exact { Ok(Some(route)) } else { Err(not_exact(key, &host, &name, &route)) }
     }
 
     /// The machine `host` names by [`name_match`](crate::name_match) (this one or a peer this
@@ -357,6 +405,24 @@ fn ambiguous(key: &str, many: &[&Candidate]) -> RpcError {
     .with_data(
         json!({"reason": AMBIGUOUS, "session": key, "count": many.len(), "choices": choices}),
     )
+}
+
+/// The refusal of an agent's message to `key`, which names `host`'s session `name` only loosely.
+/// Agents and people both read it, in either language, so it is English, then Japanese.
+fn not_exact(key: &str, host: &str, name: &str, route: &str) -> RpcError {
+    RpcError::invalid_params(format!(
+        "{key:?} is not the exact name of a session, so this message is not sent (it would reach \
+         {host}/{name}). An agent names the session it writes to exactly: send to {name:?} if \
+         you mean it. / {key:?} はセッションの正確な名前ではないため、このメッセージは送信されません \
+         (送信先は {host}/{name} になります)。エージェントは送信先のセッションを正確な名前で指定します。\
+         このセッションのことなら {name:?} に送信してください。"
+    ))
+    .with_data(json!({
+        "reason": NOT_EXACT,
+        "session": key,
+        "count": 1,
+        "choices": [{"host": host, "name": name, "route": route, "use": name}],
+    }))
 }
 
 #[cfg(test)]

@@ -237,3 +237,25 @@ changed, with no process scanning (`plans/cmux-next/pty-holder.md` section 4):
   that runs an old or foreign CLI), not a forgery, as the trust boundary in `owner_terminal`
   says. A person who runs an old CLI at their terminal is now unverified until they update.
 - Tests: `tests/caller_declared_cli.rs` (real binary and a raw old client; red first).
+
+## Notice to PL-acpmux: an agent's message names its session exactly (2026-11-08)
+
+From bench round 4 (tui-parity A5 defect 4, owner W5-S). An agent sent to the bare name `beta`
+and it reached `bench4-beta`. The bench lead saw it through Claude Code's own messaging (acpmux
+passes the session name to Claude Code as `--name`; how Claude Code matched it is not ours and was
+not read). acpmux's own `key_route` did not match `beta` to `bench4-beta`, but it does route a
+name prefix, another case and a name without separators, so an agent's send could reach a session
+it never named in the same way. What changed:
+- `Hub::exact_key_route` (`hub/key_route.rs`): `key_route`, then the key must be the target's
+  id, an id prefix of 8 or more characters, its whole name, its route, or `HOST/NAME` with both
+  exact. Else `session_not_exact` with the one session it would reach (`choices`), English and
+  Japanese text.
+- `route_bare_key` (`server/requests.rs`) uses it for `session/prompt` and `_acpmux/send_queue`
+  when `Conn::agent_side` (a proven or unproven session caller, or a CLI that declared no
+  terminal, `cli_caller.rs`). The person's terminal, scripts that declare nothing, and every read
+  keep the loose rules. An ambiguous key is refused as before.
+- Stacked on the caller-declaration change above (it needs `Conn::agent_side`).
+- Not changed: Claude Code's own messaging layer. If its matching is loose, the fix is upstream or
+  a different `--name` scheme; flagged to the lead, not done here.
+- Tests: `server/key_route_tests.rs` `w5s_an_agents_message_goes_only_to_an_exact_name` (red
+  first).
