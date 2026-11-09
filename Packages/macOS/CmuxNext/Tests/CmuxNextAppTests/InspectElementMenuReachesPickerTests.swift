@@ -31,13 +31,13 @@ import Testing
         window.orderFront(nil)
 
         // The person's choice of the row in the agent tab's own right-click menu.
-        let ran = chat.debugRunMenuItem(title: "Inspect Element", pane: "tab_inspect")
+        let ran = chat.debugRunMenuItem(title: "Inspect UI Element", pane: "tab_inspect")
         #expect(ran["ran"]?.boolValue == true, "\(ran)")
         let deadline = ContinuousClock.now + .seconds(2)
         while !services.uiInspector.isPicking, ContinuousClock.now < deadline { await Task.yield() }
         defer { if services.uiInspector.isPicking { services.uiInspector.toggle() } }
 
-        #expect(services.uiInspector.isPicking, "Inspect Element in the agent tab's menu reached no picker")
+        #expect(services.uiInspector.isPicking, "Inspect UI Element in the agent tab's menu reached no picker")
         // While picking, a click over the agent tab picks its element instead of reaching the page.
         let centre = window.convertPoint(toScreen: chat.convert(NSPoint(x: chat.bounds.midX, y: chat.bounds.midY), to: nil))
         let click = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: window.convertPoint(fromScreen: centre), modifierFlags: [],

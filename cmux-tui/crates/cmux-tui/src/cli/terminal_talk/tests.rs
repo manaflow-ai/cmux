@@ -59,8 +59,8 @@ fn agent_rows_name_harness_state_title_and_workspace_and_skip_plain_shells() {
     assert_eq!(
         summary,
         [
-            ("term_c0dec000000000000000000000000004", "codex", "waiting-for-input", None),
-            ("term_0005e000000000000000000000000002", "muse", "busy", None),
+            ("term_c0dec000000000000000000000000004", "codex", "blocked", None),
+            ("term_0005e000000000000000000000000002", "muse", "working", None),
             ("term_c1a0de00000000000000000000000001", "claude", "idle", Some("sr2 costs")),
         ]
     );
@@ -104,11 +104,11 @@ fn agent_rows_carry_the_shared_status_and_done_until_seen() {
     assert_eq!(
         summary,
         [
-            ("codex", "blocked", "waiting-for-input"),
+            ("codex", "blocked", "blocked"),
             ("claude", "done", "idle"),
-            ("muse", "working", "busy")
+            ("muse", "working", "working")
         ],
-        "the old state word stays for compatibility"
+        "the send wait's state uses the shared words"
     );
     let table = roster::table(&rows, 1_000);
     assert!(table.lines().nth(2).is_some_and(|line| line.contains(" done ")), "{table}");
@@ -133,8 +133,8 @@ fn agent_table_has_one_header_and_one_line_per_agent() {
 
 #[test]
 fn agent_states_map_records_and_program_status_words() {
-    assert_eq!(AgentState::from_record("working"), Some(AgentState::Busy));
-    assert_eq!(AgentState::from_record("blocked"), Some(AgentState::WaitingForInput));
+    assert_eq!(AgentState::from_record("working"), Some(AgentState::Working));
+    assert_eq!(AgentState::from_record("blocked"), Some(AgentState::Blocked));
     assert_eq!(AgentState::from_record("done"), Some(AgentState::Idle));
     assert_eq!(AgentState::from_record("ended"), Some(AgentState::Ended));
     assert_eq!(AgentState::from_record("nonsense"), None);
@@ -179,7 +179,7 @@ fn reply_after_reads_a_claude_code_answer_without_its_input_box() {
     ]);
     let message = "please summarize the failing test in a sentence and name the file it lives in";
     assert_eq!(
-        reply::reply_after(&screen, message),
+        reply_after(&screen, message),
         Reply {
             text: "⏺ The failing test is pinned_columns_tests.rs:232; it expects\n  three \
                    columns and gets two."
@@ -201,7 +201,7 @@ fn reply_after_reads_a_codex_answer_without_its_composer() {
         "  gpt-5-codex high · 98% context left",
     ]);
     assert_eq!(
-        reply::reply_after(&screen, "what is 2+2?"),
+        reply_after(&screen, "what is 2+2?"),
         Reply { text: "• 4".to_owned(), anchored: true }
     );
 }
@@ -210,7 +210,7 @@ fn reply_after_reads_a_codex_answer_without_its_composer() {
 fn reply_after_without_the_echo_answers_the_screen_less_its_footer() {
     let screen = strings(&["output", "more", "──────────────────────", "❯ ", "──────────"]);
     assert_eq!(
-        reply::reply_after(&screen, "never typed"),
+        reply_after(&screen, "never typed"),
         Reply { text: "output\nmore".to_owned(), anchored: false }
     );
 }
@@ -219,7 +219,12 @@ fn reply_after_without_the_echo_answers_the_screen_less_its_footer() {
 fn reply_anchor_finds_a_long_message_by_its_end_when_its_start_scrolled_away() {
     let message = format!("{} the actual question at the end?", "context ".repeat(40));
     let screen = strings(&["context context the actual question at the end?", "", "answer"]);
-    assert_eq!(reply::reply_after(&screen, &message).text, "answer");
+    assert_eq!(reply_after(&screen, &message).text, "answer");
+}
+
+/// The reply of a send that read no screen before it.
+fn reply_after(lines: &[String], message: &str) -> Reply {
+    reply::reply_since(lines, message, None, lines)
 }
 
 fn idle_sample(screen: &str) -> Sample {
@@ -246,7 +251,7 @@ fn settle_ends_on_a_dialog_and_on_exit() {
     let later = start + Duration::from_millis(200);
     let mut settle = Settle::new(Wait::Idle, Duration::from_millis(100), start);
     let dialog = Sample { waiting_for_input: true, busy: true, ..idle_sample("1") };
-    assert_eq!(settle.observe(&dialog, later), Verdict::Done(AgentState::WaitingForInput));
+    assert_eq!(settle.observe(&dialog, later), Verdict::Done(AgentState::Blocked));
     let mut settle = Settle::new(Wait::Prompt, Duration::from_millis(100), start);
     assert_eq!(settle.observe(&idle_sample("1"), later), Verdict::Pending);
     let prompt = Sample { prompt: true, ..idle_sample("1") };
@@ -275,6 +280,8 @@ struct FakeDaemon {
     snapshot: Value,
     screens: RefCell<Vec<(u64, String)>>,
     sent: RefCell<Vec<(String, Value)>>,
+    /// What `agent list --terminal` answers while the send waits.
+    agents: Value,
 }
 
 impl FakeDaemon {
@@ -285,6 +292,7 @@ impl FakeDaemon {
                 screens.iter().map(|(revision, text)| (*revision, (*text).to_owned())).collect(),
             ),
             sent: RefCell::new(Vec::new()),
+            agents: json!([]),
         }
     }
 
@@ -315,7 +323,7 @@ impl Daemon for FakeDaemon {
             "terminal.get" => {
                 json!({"id": "term_c1a0de00000000000000000000000001", "lifecycle": "running", "extra": {}})
             }
-            "agent.list" => json!([]),
+            "agent.list" => self.agents.clone(),
             "terminal.screen.read" => {
                 let mut screens = self.screens.borrow_mut();
                 let (revision, text) =
@@ -486,6 +494,53 @@ fn send_pastes_presses_enter_waits_and_answers_only_the_reply() {
     assert_eq!(receipt["anchored"], true);
     assert_eq!(receipt["harness"], "claude");
     assert_eq!(receipt["terminal"], "term_c1a0de00000000000000000000000001");
+}
+
+/// Claude Code's screen when a turn stops at a permission dialog: the
+/// earlier turns, the message's echo and the dialog. Claude Code renders
+/// the message's inline code without its backticks.
+const DIALOG_SCREEN: &str = "⏺ OLD_ANSWER_ONE\n\n❯ Reply with exactly ALPHA_OK\n\n⏺ ALPHA_OK\n\n\
+❯ Run the shell command touch /tmp/w4i-perm now.\n\n⏺ Bash(touch /tmp/w4i-perm)\n\n\
+ Bash command\n   touch /tmp/w4i-perm\n Do you want to proceed?\n ❯ 1. Yes\n   2. No";
+
+/// A daemon whose agent waits on a dialog once the message is in.
+fn dialog_daemon(screens: &[(u64, &str)]) -> FakeDaemon {
+    let mut daemon = FakeDaemon::new(snapshot(), screens);
+    daemon.agents = json!([{"terminal_id": "term_c1a0de00000000000000000000000001",
+                            "state": "blocked", "source": "hook",
+                            "updated_at_ms": u64::MAX.to_string()}]);
+    daemon
+}
+
+#[test]
+fn send_stopped_at_a_dialog_anchors_a_message_with_inline_code() {
+    let before = "⏺ OLD_ANSWER_ONE\n\n❯ Reply with exactly ALPHA_OK\n\n⏺ ALPHA_OK\n\n❯ ";
+    let daemon = dialog_daemon(&[(1, before), (2, DIALOG_SCREEN)]);
+    let message = "Run the shell command `touch /tmp/w4i-perm` now.";
+    let receipt = send::run(&daemon, None, &quick(message)).expect("sent");
+    assert_eq!(receipt["state"], "blocked");
+    assert_eq!(receipt["anchored"], true, "{receipt}");
+    let output = receipt["output"].as_str().unwrap_or_default();
+    assert!(output.starts_with("⏺ Bash(touch /tmp/w4i-perm)"), "{output}");
+    assert!(output.contains("Do you want to proceed?"), "{output}");
+    assert!(!output.contains("ALPHA_OK"), "earlier turns are not the reply: {output}");
+}
+
+#[test]
+fn send_stopped_at_a_dialog_without_an_echo_answers_only_what_came_after_the_send() {
+    // The echo is not on the screen at all (a harness that shows a pasted
+    // message as a placeholder this CLI does not know): the earlier turns
+    // that were on the screen before the send are still not the reply.
+    let before = "⏺ OLD_ANSWER_ONE\n\n⏺ ALPHA_OK\n\n❯ ";
+    let after = "⏺ OLD_ANSWER_ONE\n\n⏺ ALPHA_OK\n\n❯ «message 1»\n\n⏺ Bash(touch /tmp/w4i-perm)\n\n\
+ Do you want to proceed?\n ❯ 1. Yes\n   2. No";
+    let daemon = dialog_daemon(&[(1, before), (2, after)]);
+    let receipt = send::run(&daemon, None, &quick("never echoed as typed")).expect("sent");
+    assert_eq!(receipt["state"], "blocked");
+    assert_eq!(receipt["anchored"], false, "{receipt}");
+    let output = receipt["output"].as_str().unwrap_or_default();
+    assert!(output.contains("⏺ Bash(touch /tmp/w4i-perm)"), "{output}");
+    assert!(!output.contains("OLD_ANSWER_ONE") && !output.contains("ALPHA_OK"), "{output}");
 }
 
 #[test]
@@ -746,6 +801,80 @@ fn read_run_send_pattern_matches_only_output_after_the_typed_command() {
 }
 
 #[test]
+fn run_argv_types_each_word_quoted_so_it_runs_as_given() {
+    let words = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    let typed = |args: &[&str]| {
+        let mut flags = words(&["--timeout", "20s", "--"]);
+        flags.extend(words(args));
+        super::parse_run("term_a", &flags).expect("parsed").text
+    };
+    // The audit's case: unquoted, `exit 7` ran in the person's shell and ended it.
+    assert_eq!(typed(&["sh", "-c", "echo failing; exit 7"]), "sh -c 'echo failing; exit 7'");
+    // Spaces, double quotes and runs of spaces survive.
+    assert_eq!(typed(&["sh", "-c", "echo a b; echo \"c  d\""]), "sh -c 'echo a b; echo \"c  d\"'");
+    // An embedded single quote closes, escapes and reopens.
+    assert_eq!(typed(&["echo", "it's"]), "echo 'it'\\''s'");
+    // `$`, globs and `~` reach the program as written, never expanded.
+    assert_eq!(
+        typed(&["printf", "%s\\n", "$HOME", "*.rs", "~/x"]),
+        "printf '%s\\n' '$HOME' '*.rs' '~/x'"
+    );
+    // An empty argument stays one argument.
+    assert_eq!(typed(&["printf", "[%s]", ""]), "printf '[%s]' ''");
+    // zsh expands a bare `=name`; it is quoted.
+    assert_eq!(typed(&["echo", "=ls"]), "echo '=ls'");
+    // A command word the shell reads as syntax is quoted: a reserved word or an assignment.
+    assert_eq!(typed(&["if", "true"]), "'if' true");
+    assert_eq!(typed(&["FOO=bar", "x"]), "'FOO=bar' x");
+    assert_eq!(typed(&["env", "FOO=bar", "x"]), "env FOO=bar x");
+    // Plain words stay readable.
+    assert_eq!(
+        typed(&["npm", "test", "--", "--grep=api", "./src/a.rs", "user@host:1"]),
+        "npm test -- --grep=api ./src/a.rs user@host:1"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn run_argv_line_reads_back_as_the_same_argv_in_sh() {
+    let argv: Vec<String> =
+        ["echo failing; exit 7", "a b", "c  d", "it's", "$HOME", "*", "", "=ls", "x\"y", "--f=1"]
+            .iter()
+            .map(|word| (*word).to_owned())
+            .collect();
+    let line = super::shell_line(&argv);
+    // The shell splits the typed line into printf's arguments, NUL-terminated.
+    let output = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("printf '%s\\0' {line}"))
+        .output()
+        .expect("sh runs");
+    assert!(output.status.success(), "{line}");
+    let words: Vec<String> = String::from_utf8(output.stdout)
+        .expect("utf-8")
+        .split_terminator('\0')
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(words, argv, "{line}");
+}
+
+#[test]
+fn run_one_word_after_dashes_is_a_shell_line_typed_as_written() {
+    let words = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    let request = super::parse_run("term_a", &words(&["--", "npm test && echo ok; ls $HOME"]))
+        .expect("parsed");
+    assert_eq!(request.text, "npm test && echo ok; ls $HOME");
+    let request = super::parse_run("term_a", &words(&["--", "make"])).expect("parsed");
+    assert_eq!(request.text, "make");
+    // --text is a shell line too, never quoted.
+    let request = super::parse_run("term_a", &words(&["--text", "sh -c 'exit 7' || echo $?"]))
+        .expect("parsed");
+    assert_eq!(request.text, "sh -c 'exit 7' || echo $?");
+    // Nothing after -- is still a usage error.
+    assert!(super::parse_run("term_a", &words(&["--"])).is_err());
+}
+
+#[test]
 fn read_run_run_is_send_wait_prompt_with_exit_status() {
     let words = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
     let request =
@@ -844,4 +973,101 @@ fn w4j_send_pattern_anchors_match_at_each_line() {
     let receipt = send::run(&daemon, None, &request).expect("sent");
     assert_eq!(receipt["matched"], true, "{receipt}");
     assert_eq!(super::send_exit_code(&receipt, false), 0);
+}
+
+/// W5-Q (bench r4 #7): a list row says one word for the agent. `state` is
+/// the shared status word (`ended` for a session that ended), never the
+/// older `busy` or `waiting-for-input`.
+#[test]
+fn w5q_terminal_list_agents_state_is_the_shared_status_word() {
+    let rows = roster::agent_rows(&snapshot());
+    for row in &rows {
+        let shown = row.to_json(0);
+        assert_eq!(shown["state"].as_str(), Some(row.status_word()), "{shown}");
+    }
+    let words: Vec<String> =
+        rows.iter().map(|row| row.to_json(0)["state"].as_str().unwrap_or("").to_owned()).collect();
+    assert_eq!(words, ["blocked", "working", "idle"]);
+    let mut ended = snapshot();
+    ended["agents"][0]["state"] = json!("done");
+    let ended = roster::agent_rows(&ended);
+    assert_eq!(ended.last().map(|row| row.to_json(0)["state"].clone()), Some(json!("ended")));
+}
+
+/// W5-Q: a send that stops at a dialog and a send refused at a dialog say
+/// `blocked`, the word every list shows for that agent.
+#[test]
+fn w5q_send_at_a_dialog_says_blocked() {
+    let before = "⏺ OLD_ANSWER_ONE\n\n❯ Reply with exactly ALPHA_OK\n\n⏺ ALPHA_OK\n\n❯ ";
+    let daemon = dialog_daemon(&[(1, before), (2, DIALOG_SCREEN)]);
+    let receipt =
+        send::run(&daemon, None, &quick("Run the shell command `touch /tmp/w4i-perm` now."))
+            .expect("sent");
+    assert_eq!(receipt["state"], "blocked", "{receipt}");
+    let daemon = FakeDaemon::new(snapshot(), &[(1, "")]);
+    let request =
+        SendRequest { target: "term_c0dec000000000000000000000000004".into(), ..quick("yes") };
+    let failure = send::run(&daemon, None, &request).expect_err("refused");
+    assert_eq!(failure.failure.error["details"]["state"], "blocked");
+}
+
+/// W5-Q: a send whose wait timed out says the agent still works.
+#[test]
+fn w5q_send_timeout_says_working() {
+    let screens: Vec<(u64, String)> =
+        (1..400).map(|n| (n, format!("> q\n\nworking {n}"))).collect();
+    let screens: Vec<(u64, &str)> = screens.iter().map(|(n, text)| (*n, text.as_str())).collect();
+    let daemon = FakeDaemon::new(snapshot(), &screens);
+    let request = SendRequest { timeout: Duration::from_millis(100), ..quick("q") };
+    let receipt = send::run(&daemon, None, &request).expect("sent");
+    assert_eq!(receipt["timed_out"], true);
+    assert_eq!(receipt["state"], "working");
+}
+
+/// W5-Q (lead decision on PR A findings 6-7): the send receipt's `status`
+/// is the word `terminal list --agents` shows for the same turn: `done`
+/// while nobody viewed the finished turn (an unread notification), `idle`
+/// once somebody did, `blocked` at a dialog, `working` after a timeout.
+/// `state` stays as it was.
+#[test]
+fn w5q_send_receipt_status_is_the_lists_word_for_the_turn() {
+    let answer = "> what is 2+2\n\n⏺ 4\n\n──────────────────────\n> \n──────────────────────";
+    let screens = [(1, "> what is 2+2\n\n✻ Thinking"), (2, answer)];
+    let receipt = send::run(&FakeDaemon::new(snapshot(), &screens), None, &quick("what is 2+2"))
+        .expect("sent");
+    assert_eq!(
+        (receipt["state"].as_str(), receipt["status"].as_str()),
+        (Some("idle"), Some("idle"))
+    );
+
+    let mut unseen = snapshot();
+    unseen["notifications"] = json!([
+        {"id": "notification_1", "terminal_id": "term_c1a0de00000000000000000000000001",
+         "unread": true, "title": "Claude finished"},
+    ]);
+    let listed = roster::agent_rows(&unseen);
+    let row = listed
+        .iter()
+        .find(|row| row.terminal == "term_c1a0de00000000000000000000000001")
+        .expect("the claude row");
+    assert_eq!(row.status_word(), "done");
+    let receipt =
+        send::run(&FakeDaemon::new(unseen, &screens), None, &quick("what is 2+2")).expect("sent");
+    assert_eq!(receipt["state"], "idle", "{receipt}");
+    assert_eq!(receipt["status"], row.status_word(), "{receipt}");
+
+    let before = "⏺ OLD_ANSWER_ONE\n\n❯ Reply with exactly ALPHA_OK\n\n⏺ ALPHA_OK\n\n❯ ";
+    let daemon = dialog_daemon(&[(1, before), (2, DIALOG_SCREEN)]);
+    let receipt =
+        send::run(&daemon, None, &quick("Run the shell command `touch /tmp/w4i-perm` now."))
+            .expect("sent");
+    assert_eq!(receipt["status"], "blocked", "{receipt}");
+
+    let screens: Vec<(u64, String)> =
+        (1..400).map(|n| (n, format!("> q\n\nworking {n}"))).collect();
+    let screens: Vec<(u64, &str)> = screens.iter().map(|(n, text)| (*n, text.as_str())).collect();
+    let daemon = FakeDaemon::new(snapshot(), &screens);
+    let request = SendRequest { timeout: Duration::from_millis(100), ..quick("q") };
+    let receipt = send::run(&daemon, None, &request).expect("sent");
+    assert_eq!(receipt["status"], "working", "{receipt}");
 }

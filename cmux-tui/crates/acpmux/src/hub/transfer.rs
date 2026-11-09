@@ -234,6 +234,7 @@ impl Hub {
                 )
             }
         });
+        // timeout: a slow git read is inconclusive; the bundle's record is kept.
         meta.worktree = match tokio::time::timeout(std::time::Duration::from_secs(2), read).await {
             Ok(Ok(Some(found))) => found,
             _ => meta.worktree.take().filter(|w| w.cwd == meta.cwd),
@@ -243,6 +244,8 @@ impl Hub {
         meta.subsession = None;
         meta.lineage = None;
         meta.created_by = None;
+        // Nor a race's authority or its resumption: its children stayed behind (`races.rs`).
+        super::races::settle_imported(&mut meta.races);
         self.prepare_harness_state(&meta, replace_durable)
             .map_err(|e| RpcError::internal(e.to_string()))?;
         if let Err(e) = self.store.save(&meta) {

@@ -73,7 +73,7 @@ import Testing
 
     static func freshDefaults() -> UserDefaults {
         let name = "cnc-cookie-banner-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
+        let defaults = UserDefaults(testSuiteName: name)!
         defaults.removePersistentDomain(forName: name)
         return defaults
     }
@@ -121,9 +121,11 @@ import Testing
     /// The card belongs to browser pages only (Lawrence 2026-11-07: it showed over a terminal and agent
     /// workspace). It floats on the window's overlay host, above every pane, so it shows only while its
     /// own browser tab has the keyboard, as the window's focus reports it (`followKeyboard`). While a
-    /// terminal, a chat, Home, the sidebar or another browser tab has it, the card is off screen and off
-    /// the overlay host, unanswered; it comes back when its tab has the keyboard again. A card offered
-    /// while the tab lacks the keyboard (Show Import Cookies Banner from a terminal) waits for it.
+    /// terminal, a chat, Home, the sidebar or another browser tab has it, the card is hidden where it is
+    /// on the overlay host and takes no clicks, unanswered; it shows again in place when its tab has the
+    /// keyboard again, with no new present (Leo 2026-11-08: "the import cookies from google chrome card
+    /// flickers sometimes"). A card offered while the tab lacks the keyboard (Show Import Cookies Banner
+    /// from a terminal) waits off the overlay host for it.
     @Test func theCardShowsOnlyWhileItsBrowserTabHasTheKeyboard() throws {
         let page = Page()
         defer { page.tearDown() }
@@ -147,13 +149,15 @@ import Testing
         for away in [nil, "browser-2"] as [String?] {  // a terminal, chat, Home or the sidebar; another browser tab
             entry.followKeyboard(focusedTab: away, key: "browser-1", window: page.window)
             #expect(!page.chrome.showsCookieImportOffer, "hidden while \(away ?? "a terminal") has the keyboard")
-            #expect(card.window?.parent !== page.window, "and off the overlay host")
+            #expect(card.isHiddenOrHasHiddenAncestor, "and hidden where it is on the overlay host")
+            #expect(page.chrome.pageOverlays.takesMouse(card) != true, "taking no clicks over the terminal")
         }
 
         entry.followKeyboard(focusedTab: "browser-1", key: "browser-1", window: page.window)
         #expect(page.chrome.showsCookieImportOffer, "back on its tab: shown again, still unanswered")
         #expect(page.chrome.currentCookieImportCard === card)
         #expect(card.window?.parent === page.window)
+        #expect(!card.isHiddenOrHasHiddenAncestor)
     }
 
     /// Only a browser tab's own targets count as the browser tab having the keyboard.
@@ -234,11 +238,14 @@ import Testing
         let h = try await make()
         defer { h.tearDown() }
         try await h.settings.set(.bool(false), at: Self.cookieBannerPath)
-        h.services.onboarding.browserImportOffer.importFinished(ImportCounts(cookies: 3))
+        let offer = h.services.onboarding.browserImportOffer
+        offer.importFinished(ImportCounts(cookies: 3))
         #expect(h.services.registry.perform("browser.showCookieImportBanner", invocation: ActionInvocation(origin: .cli)))
-        try await Task.sleep(for: .milliseconds(300))
+        // Every banner write the action could start is `bannerWrite`: wait for its end, not a while.
+        #expect(offer.bannerWrite == nil, "the action wrote browser.import.cookieBanner after cookies came over")
+        await offer.bannerWrite?.value
         #expect(try h.storedBannerValue() == false, "the action turned the banner back on after cookies came over")
-        #expect(!h.services.onboarding.browserImportOffer.shownThisLaunch)
+        #expect(!offer.shownThisLaunch)
     }
 
     /// Only cookies coming over ends the banner: a bookmarks-only import keeps offering it.

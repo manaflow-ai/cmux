@@ -5,7 +5,7 @@ extension SettingsPageLayout {
     /// The sidebar's sections: what a person looks for together sits together under one small header.
     public static let sidebarSections: [SidebarSection] = [
         SidebarSection(id: "app", title: nil, categories: [generalCategory, updatesCategory]),
-        SidebarSection(id: "look", title: SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), categories: [themeCategory, appearanceCategory]),
+        SidebarSection(id: "look", title: SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), categories: [personalizationCategory, themeCategory, appearanceCategory]),
         SidebarSection(id: "tools", title: SettingsText.keyed("settings.sidebarSection.tools", "Tools"), categories: [terminalCategory, editorCategory, browserCategory]),
         SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [agentsCategory, chiefCategory]),
         SidebarSection(id: "interaction", title: SettingsText.keyed("settings.sidebarSection.interaction", "Interaction"), categories: [notificationsCategory, keyboardCategory, menusCategory]),
@@ -56,6 +56,13 @@ extension SettingsPageLayout {
         lead: [.appUpdate], trail: [.webUpdates, .channels]
     )
 
+    /// Leo 2026-11-07: the profile menu's Personalization is a fast jump into the look of the app. Its one card draws rows whose homes stay in Theme, Appearance, Chief and Notifications, so it holds no group and claims no key.
+    private static let personalizationCategory = CategorySpec(
+        id: "personalization", title: SettingsText.keyed("settings.category.personalization", "Personalization"), symbol: "wand.and.stars",
+        groups: [],
+        lead: [.personalization]
+    )
+
     /// appearance.theme and appearance.appTheme are drawn by the theme studio (search still shows them as rows).
     private static let themeCategory = CategorySpec(
         id: "theme", title: SettingsText.keyed("settings.category.theme", "Theme"), symbol: "paintpalette",
@@ -71,7 +78,8 @@ extension SettingsPageLayout {
         groups: [
             GroupSpec(group: "settings.group.terminalFont"),
             GroupSpec(group: "settings.group.densityMotion"),
-            GroupSpec(keys: ["app.uiScale", "appearance.metrics.chromeFontSize", "appearance.metrics.sidebarWidth", "appearance.metrics.columnGap", "appearance.metrics.dividerThickness", "appearance.metrics.dividerHitWidth", "appearance.metrics.titlebarHeight"], title: SettingsText.keyed("settings.pageGroup.sizes", "Sizes")),
+            // Text Size (appearance.metrics.chromeFontSize) is in the Density card.
+            GroupSpec(keys: ["app.uiScale", "appearance.metrics.sidebarWidth", "appearance.metrics.columnGap", "appearance.metrics.dividerThickness", "appearance.metrics.dividerHitWidth", "appearance.metrics.titlebarHeight"], title: SettingsText.keyed("settings.pageGroup.sizes", "Sizes")),
             // Motion holds ui.animations.enabled and the per-area switches (f35023e54c1c); without a group here they had no row on the page.
             GroupSpec(group: "settings.group.motion"),
             GroupSpec(group: "settings.group.colorTransition"),
@@ -278,7 +286,10 @@ extension SettingsPageLayout {
 
     private static let advancedCategory = CategorySpec(
         id: "advanced", title: section(.advanced), symbol: "curlybraces",
-        groups: [],
+        groups: [
+            // Inspect Element and developer tools for cmux's own pages.
+            GroupSpec(group: "settings.group.developerTools"),
+        ],
         lead: [.advancedInfo], trail: [.advancedActions], actions: [.advanced], aliases: [.advanced]
     )
 

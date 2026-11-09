@@ -34,7 +34,7 @@ extension TerminalHostView: PaneResizeGestureFollowing {
 extension TerminalHostView: PaneMotionHoldFollowing {
     public func followPaneMotion(_ hold: PaneMotionHold?, heldSize: CGSize?) {
         // The end of a followed hold: its last size drawn ahead goes at the final placement unless that placement takes it.
-        if hold == nil, followedHold != nil { (dropsAheadAtRest, aheadOfKeyResize) = (true, true) }
+        if hold == nil, followedHold != nil { (dropsAheadAtRest, aheadOfKeyResize, aheadRestBasis) = (true, true, nil) }
         followedHold = hold.map { ($0, heldSize ?? bounds.size) }
         needsLayout = true
     }
@@ -71,6 +71,15 @@ extension TerminalHostView: PaneMotionHoldFollowing {
         aheadOfKeyResize = keyPress
         current.drawAhead(surfaceSize(forHostSize: nextHostSize))
         dropsAheadAtRest = true
+        aheadRestBasis = bounds.size
+    }
+
+    /// The snap this host's size was drawn ahead for showed: a size its placement did not take (the snap showed this host
+    /// at its old size) goes at the next layout.
+    public func aheadOfFollowShown() {
+        guard dropsAheadAtRest, aheadRestBasis != nil else { return }
+        aheadRestBasis = nil
+        needsLayout = true
     }
 
     /// Whether the host is in a content area that holds for a key resize and will hand it the follow in the area's next
