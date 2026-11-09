@@ -241,7 +241,15 @@ impl Hub {
         }
         accept(accepted);
         let fallback = (!opts.steer_only).then(|| blocks.clone());
-        let wire_blocks = super::turns::agent_blocks(self, session, &blocks).await?;
+        // A person's steer tells the agent who sent it (`author::agent_label`), as a turn's
+        // prompt does; the record above and the fallback keep their words alone.
+        let labeled = match crate::author::agent_label(opts.provenance.as_ref()) {
+            Some(label) if super::forum::slash_command(&blocks).is_none() => {
+                std::iter::once(label).chain(blocks.iter().cloned()).collect()
+            }
+            _ => blocks.clone(),
+        };
+        let wire_blocks = super::turns::agent_blocks(self, session, &labeled).await?;
         // Stopped while its copies were made: written now, it would reach no turn, and its
         // fallback would start one after the Stop. Another agent's message goes on: it is kept
         // out of the stopping turn, or comes back if that turn ends before its agent read it
@@ -282,6 +290,7 @@ impl Hub {
                     trust_gate,
                     reports: super::lane_reports::reports_only(opts.provenance.as_ref()),
                     trigger: crate::prompt_provenance::is_trigger(opts.provenance.as_ref()),
+                    asked: opts.provenance.clone(),
                 },
             };
             now.sent.insert(prompt_id.clone(), sent);

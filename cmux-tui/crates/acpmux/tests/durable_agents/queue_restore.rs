@@ -509,7 +509,9 @@ async fn a_persons_queued_prompt_stays_theirs_across_a_crash() {
         e["kind"] == "user_message" && e["msg"]["promptId"] == "q-ana"
     });
     assert_eq!(ran["msg"]["text"], "ana's rewrite", "{ran:#}");
-    let anas = json!({"kind": "person_message", "from": "tailnet:ana@example.com", "fromName": "Ana", "login": "ana@example.com"});
+    let anas = json!({"kind": "person_message", "from": "tailnet:ana@example.com", "fromName": "Ana", "login": "ana@example.com",
+                      "verified": false, "transport": "unix",
+                      "editedBy": {"actor": "person", "id": "tailnet:ana@example.com"}});
     assert_eq!(ran["msg"].pointer("/_meta/provenance"), Some(&anas), "{ran:#}");
 }
 
@@ -853,4 +855,49 @@ async fn a_restart_does_not_resume_after_remote_floor_cancel() {
                 && e["msg"]["skipped"] == "remote_floor_cancel"),
         "the restart did not record why the remote floor blocked the continuation: {events:#?}"
     );
+}
+
+/// An agent's queued message the person edited is theirs across a crash too: the rebuilt queue
+/// does not read its sender back into who it belongs to (`digest::agent_sender`), so an
+/// agents-only removal (`queue clear --from-agents`) keeps it, as it did before the restart.
+#[tokio::test]
+async fn an_edited_agent_message_stays_the_persons_across_a_crash() {
+    let mut daemon = Daemon::new("qedag", "approve-all");
+    // The queue path before the inbox (`hub/inbox.rs`): an agent message that still queues.
+    daemon.sigterm();
+    std::fs::write(
+        daemon.home.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": ["python3", FAKE]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all", "agentInbox": false}).to_string(),
+    )
+    .unwrap();
+    daemon.start();
+    let (session, _gate, mut client) = gated_turn_without_host(&daemon).await;
+    let provenance = json!({"kind": "agent_message", "from": "acp:sender-1", "fromName": "lane-a",
+                            "to": format!("acp:{session}"), "msgId": "msg-1", "threadId": "thread-1"});
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "from lane-a"}],
+                   "_meta": {"acpmux": {"promptId": "q-ag", "provenance": provenance}}}),
+        )
+        .await;
+    daemon.wait_event(&session, "queued record", |e| {
+        e["kind"] == "queued" && e["msg"]["promptId"] == "q-ag"
+    });
+    let mut rpc = daemon.rpc().await;
+    let edit =
+        json!({"sessionId": session, "promptId": "q-ag", "op": "update", "text": "my words"});
+    let edited = rpc.call("_acpmux/queue_edit", edit).await;
+    assert_eq!(edited["ok"], true, "{edited}");
+
+    daemon.sigkill();
+    drop((client, rpc));
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    assert_eq!(attached["session"]["queued"], 1, "the queue did not survive: {attached:#}");
+    let agents_only = json!({"sessionId": session, "promptId": "q-ag", "fromAgentsOnly": true});
+    let v = rpc.call("_acpmux/queue_remove", agents_only).await;
+    assert_eq!(v["removed"], false, "the restart made the person's edit an agent's again: {v}");
+    assert_eq!(v["notFromAgent"], true, "{v}");
 }

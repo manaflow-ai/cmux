@@ -47,7 +47,7 @@ import Testing
 struct TerminalWindowFrameSyncTests {
     typealias Screen = TerminalKeyResizeFrameTests.PaneScreen
 
-    /// Case 1. Reduce Motion, one Ctrl-Shift-L press on p2: the divider jumps right in one frame, p2 shrinks and p1
+    /// Case 1. Reduce Motion, one Ctrl-Shift-H press on p2: the divider jumps right in one frame, p2 shrinks and p1
     /// grows. In every committed turn from the press to rest, each terminal shows a frame drawn at its layer's size (b);
     /// its layer has its pane's area (a) in every turn from 2 refreshes after the press on (a jump has no next size to
     /// draw ahead: the last frame and bounds stay until the new frame is drawn, m18's 2-refresh allowance).
@@ -65,7 +65,7 @@ struct TerminalWindowFrameSyncTests {
         let turns = recorder.take()
 
         try #require(motion.steps <= 2, "Reduce Motion: the press ran \(motion.steps) frames, so a spring ran")
-        try #require(motion.moved, "Ctrl-Shift-L on p2 moved nothing")
+        try #require(motion.moved, "Ctrl-Shift-H on p2 moved nothing")
         try #require(turns.count >= 3, "only \(turns.count) committed turns were sampled from the press to rest")
         try #require(before[1].area.width - rest[1].area.width >= 10,
                      "p2 did not shrink: its area went from \(before[1].area) to \(rest[1].area)")
@@ -86,7 +86,7 @@ struct TerminalWindowFrameSyncTests {
                 "frame check (b) failed in \(found.frameTurns) of \(turns.count) committed turns (the shown frame is not the layer's size): \(found.frame.prefix(8))")
     }
 
-    /// Case 2. A key spring (normal motion), one Ctrl-Shift-L press on p2, stepped one frame per refresh as the frame
+    /// Case 2. A key spring (normal motion), one Ctrl-Shift-H press on p2, stepped one frame per refresh as the frame
     /// tick runs it (the step, its layout pass, its commit, then commits until one refresh of wall-clock time passed, the
     /// time the renderer has to draw the size asked ahead), with output in both terminals every frame: the same two
     /// checks in every committed turn of the spring and up to rest. (b) catches an off-main present of a frame drawn
@@ -104,7 +104,7 @@ struct TerminalWindowFrameSyncTests {
         let rest = recorder.snapshot()
         let turns = recorder.take()
 
-        try #require(motion.moved, "Ctrl-Shift-L on p2 moved nothing")
+        try #require(motion.moved, "Ctrl-Shift-H on p2 moved nothing")
         let ahead = TerminalFramePresenter.forWindow(screen.window).stats.drawnAhead
         try #require(ahead > 0, "no size was drawn ahead in the spring: the draw-ahead path did not run")
         // Held, not discarded (m26): the frame drawn at the size asked ahead in refresh n is the one its commit n+1
@@ -165,7 +165,7 @@ struct TerminalWindowFrameSyncTests {
         screen.root.context.reduceMotionOverride = false
         let refresh = Duration.milliseconds(Self.refreshMs(of: screen.window))
         recorder.start()
-        try #require(PaneResize.press("p2", .right, model: screen.model, view: screen.root), "Ctrl-Shift-L on p2 moved nothing")
+        try #require(PaneResize.press("p2", .left, model: screen.model, view: screen.root), "Ctrl-Shift-H on p2 moved nothing")
         var moving = true, steps = 0, hidAndShown = false
         while moving, steps < 240 {
             let stepped = ContinuousClock.now
@@ -245,16 +245,23 @@ struct TerminalWindowFrameSyncTests {
         #expect(missing.isEmpty, "after the landing no frame drawn after the new text showed at the rest size within 2 s: \(missing)")
     }
 
-    /// Case 5, the PTY gets only sizes its pane SHOWED (resize owner, film finding, STATUS 14461; cmux-ad m18 and m26).
-    /// A held key (3 Ctrl-Shift-L presses 4 spring frames apart, one spring retargeted), stepped one frame per refresh with
-    /// output in both terminals and an owner that announces each grid it gets (the daemon), so announcements arrive while
-    /// a size drawn ahead is with Ghostty. The size drawn ahead goes to Ghostty's render only:
-    /// - (a) in every committed turn, the grid the view gives its PTY owner is the grid its committed layer bounds fit;
-    /// - (b) every grid the PTY gets is a grid that a committed turn showed;
+    /// Case 5, the PTY gets the sizes its pane shows, before they show (cmux-ad m18 and m26; RESIZE P0 11 replaced
+    /// STATUS 14461's "only after they show", see (f)). A held key (3 Ctrl-Shift-H presses 4 spring frames apart, one
+    /// spring retargeted), stepped one frame per refresh with output in both terminals and an owner that announces each
+    /// grid it gets (the daemon), so announcements arrive while a size drawn ahead is with Ghostty:
+    /// - (a) in every committed turn, the grid the view gives its PTY owner is the grid its committed layer bounds fit, or
+    ///   the grid of the size it asked of Ghostty for the next frame (in flight or drawn ahead);
+    /// - (b) every grid the PTY gets is a grid that a committed turn showed, except at most one per press (a retarget
+    ///   leaves the size drawn ahead for the old target unshown);
     /// - (c) two grids are never in one refresh (less than half a refresh apart) before the landing (the landing flushes);
     /// - (d) after the shown grid changes, the PTY gets a grid within 3 refreshes (the window's refresh, 2 more, RESIZE P0 6:
     ///   not 25 ms) and a slack for the runner;
-    /// - (e) the last grid is the grid the pane rests at.
+    /// - (e) the last grid is the grid the pane rests at;
+    /// - (f) RESIZE P0 11 (cause E, Lawrence m55 "terminals: zero lag"): a turn that shows a new grid has given it to the PTY
+    ///   before its presenter pass, so the program redraws at it before its frame is presented. Diag 2b50b18e (cmux21,
+    ///   macOS 26, 1x 120 Hz, px-keys-held-2-s1r): the film showed the program's picture of the previous grid in 35 of 37
+    ///   judged edge frames (a drawn-ahead frame's grid went to the PTY only when that frame landed, so the program's
+    ///   output came 3-4 ms after the frame was on screen). At most one turn per press may miss (a retarget's first frame).
     @Test func aHeldKeyResizeGivesThePTYOnlyGridsThePaneShowedAtMostOncePerRefresh() async throws {
         let screen = try await Screen(announcesGrids: true)
         defer { screen.close() }
@@ -274,14 +281,15 @@ struct TerminalWindowFrameSyncTests {
         let liveness = 3 * refresh + Self.runnerSlackMs
 
         var unshownView: [String] = [], unshownPTY: [String] = [], close: [String] = [], late: [String] = [], ends: [String] = []
+        var behind: [String] = []
         for (index, owner) in owners.enumerated() {
             let name = "p\(index + 1)"
             let reports = owner.reports.withLock { $0 }.map { (grid: $0.grid, ms: TurnRecorder.ms(origin.duration(to: $0.at))) }
             // (a)
             for turn in turns {
                 let terminal = turn.terminals[index]
-                if let shown = terminal.shownGrid, let view = terminal.viewGrid, shown != view {
-                    unshownView.append("\(name) turn \(turn.index) (+\(Self.text(turn.at)) ms): view grid \(Self.text(view)), shown \(Self.text(shown))")
+                if let shown = terminal.shownGrid, let view = terminal.viewGrid, shown != view, view != terminal.askedGrid {
+                    unshownView.append("\(name) turn \(turn.index) (+\(Self.text(turn.at)) ms): view grid \(Self.text(view)), shown \(Self.text(shown)), asked \(Self.text(terminal.askedGrid))")
                 }
             }
             // (b)
@@ -313,6 +321,17 @@ struct TerminalWindowFrameSyncTests {
             if let changed = changedAt {
                 late.append("\(name): the shown grid changed at +\(Self.text(changed)) ms and the PTY never got it")
             }
+            // (f): the PTY's grid at each new grid's pass, from the reports before that pass.
+            var shownBefore = turns.first?.terminals[index].shownGrid
+            for turn in turns.dropFirst() {
+                guard let shown = turn.terminals[index].shownGrid else { continue }
+                defer { shownBefore = shown }
+                guard shown != shownBefore, let passAt = turn.passAt else { continue }
+                let pty = reports.last { $0.ms < passAt }?.grid
+                if pty != shown {
+                    behind.append("\(name) turn \(turn.index) (pass +\(Self.text(passAt)) ms): shows \(Self.text(shown)), PTY \(Self.text(pty))")
+                }
+            }
             // (e)
             let rest = screen.sessions[index].surfaceView.fittedGrid
             if reports.last?.grid != rest {
@@ -322,11 +341,14 @@ struct TerminalWindowFrameSyncTests {
                   "landing +\(Self.text(landingMs)) ms")
         }
         #expect(unshownView.isEmpty,
-                "\(unshownView.count) committed turns gave the PTY owner a grid the pane did not show (a size drawn ahead reached geometry): \(unshownView.prefix(6))")
-        #expect(unshownPTY.isEmpty, "the PTY got grids no committed turn showed: \(unshownPTY.prefix(6))")
+                "\(unshownView.count) committed turns gave the PTY owner a grid the pane neither showed nor asked for: \(unshownView.prefix(6))")
+        #expect(unshownPTY.count <= 3 * owners.count, "the PTY got grids no committed turn showed, more than one per press: \(unshownPTY.prefix(6))")
         #expect(close.isEmpty, "the PTY got two grids in one refresh before the landing: \(close.prefix(6))")
         #expect(late.isEmpty, "the PTY got a changed grid more than \(Self.text(liveness)) ms after the pane showed it: \(late.prefix(6))")
         #expect(ends.isEmpty, "\(ends)")
+        print("S4 m55 PTY behind the shown grid at its pass: \(behind.count) turns")
+        #expect(behind.count <= 3 * owners.count,
+                "\(behind.count) turns showed a grid the PTY did not have before their pass (the program's old picture at the new size): \(behind.prefix(8))")
     }
 
     /// Wall-clock slack for a loaded runner in the timing checks of case 5.
@@ -352,7 +374,7 @@ struct TerminalWindowFrameSyncTests {
 
         let jump = await Self.jump(screen, recorder: recorder)
         let jumpTurns = recorder.take()
-        let spring = await Self.spring(screen, recorder: recorder, direction: .left)
+        let spring = await Self.spring(screen, recorder: recorder, direction: .right)
         let springTurns = recorder.take()
 
         try #require(jump.moved && jump.steps <= 2, "the Reduce Motion press did not jump (moved \(jump.moved), \(jump.steps) frames)")
@@ -393,11 +415,11 @@ struct TerminalWindowFrameSyncTests {
 
     // MARK: Motions
 
-    /// Warm-up press (Ctrl-Shift-H on p2, a spring) and rest: one-time setup is not the press under test, and the split
-    /// is at 0.45 so the next Ctrl-Shift-L shrinks p2.
+    /// Warm-up press (Ctrl-Shift-L on p2, a spring) and rest: one-time setup is not the press under test, and the split
+    /// is at 0.45 so the next Ctrl-Shift-H shrinks p2 (p2 is the right pane: Ctrl-Shift-L grows it, plans/cmux-next/pane-keys.md).
     static func warmUp(_ screen: Screen) async throws {
         screen.root.context.reduceMotionOverride = false
-        try #require(PaneResize.press("p2", .left, model: screen.model, view: screen.root), "the warm-up press moved nothing")
+        try #require(PaneResize.press("p2", .right, model: screen.model, view: screen.root), "the warm-up press moved nothing")
         var moving = true, steps = 0
         while moving, steps < 240 {
             moving = screen.root.advanceFrame(1.0 / 120)
@@ -408,14 +430,14 @@ struct TerminalWindowFrameSyncTests {
         await rest(screen)
     }
 
-    /// Reduce Motion, one Ctrl-Shift-L press on p2, recorded from the press to rest. No layout pass of the test's own:
+    /// Reduce Motion, one Ctrl-Shift-H press on p2, recorded from the press to rest. No layout pass of the test's own:
     /// the press presents in the key's turn and AppKit's display cycle lays the hosts out, as in the app.
     static func jump(_ screen: Screen, recorder: TurnRecorder) async -> (moved: Bool, steps: Int) {
         screen.root.context.reduceMotionOverride = true
         defer { screen.root.context.reduceMotionOverride = false }
         let frame = screen.root.context.hosts["p2"]?.frame
         recorder.start()
-        let pressed = PaneResize.press("p2", .right, model: screen.model, view: screen.root)
+        let pressed = PaneResize.press("p2", .left, model: screen.model, view: screen.root)
         var moving = true, steps = 0
         while moving, steps < 4 {
             moving = screen.root.advanceFrame(1.0 / 120)
@@ -427,7 +449,7 @@ struct TerminalWindowFrameSyncTests {
         return (pressed && screen.root.context.hosts["p2"]?.frame != frame, steps)
     }
 
-    /// Normal motion, one press on p2 (`direction`, default Ctrl-Shift-L: p2 shrinks), stepped one frame per commit
+    /// Normal motion, one press on p2 (`direction`, default Ctrl-Shift-H: p2 shrinks), stepped one frame per commit
     /// (the step, its layout pass, its commit) to the landing, recorded from the press to rest.
     /// `pacedByRefresh`: after each frame's commit, commits until one refresh of wall-clock time passed since the step
     /// (the renderer draws the size asked ahead meanwhile), with a line of output in each terminal. Returns whether p2
@@ -437,7 +459,7 @@ struct TerminalWindowFrameSyncTests {
     /// `oneCommitPerRefresh`: the app's cadence (review of 5840aea3a603, P1 #1): after the step and its layout, EXACTLY
     /// one commit, then a sleep to the next refresh with no extra main turns (the renderer draws meanwhile). With
     /// `pacedByRefresh` the extra commits of the wait hid a draw-ahead that stopped after one late frame.
-    static func spring(_ screen: Screen, recorder: TurnRecorder, direction: LayoutDirection = .right,
+    static func spring(_ screen: Screen, recorder: TurnRecorder, direction: LayoutDirection = .left,
                        pacedByRefresh: Bool = false, oneCommitPerRefresh: Bool = false, presses: Int = 1,
                        framesBetweenPresses: Int = 4) async -> (moved: Bool, steps: Int, firstFrameMs: Double, stepMs: [Double]) {
         screen.root.context.reduceMotionOverride = false
@@ -565,6 +587,9 @@ struct TerminalWindowFrameSyncTests {
             var shownGrid: TerminalGridSize?
             /// The grid the view gives its PTY owner (``TerminalSurfaceView/fittedGrid``).
             var viewGrid: TerminalGridSize?
+            /// The grid of the size the view asked of Ghostty for its next frame (in flight, else drawn ahead, else its
+            /// bounds).
+            var askedGrid: TerminalGridSize?
         }
 
         /// One committed turn: its number from the press (1 is the press's turn), its time after the press (ms), its
@@ -585,6 +610,9 @@ struct TerminalWindowFrameSyncTests {
             /// The task's context switches across the turn (macOS has no per-thread count; a rise beside a blocked turn
             /// with little work says the thread was preempted or waited).
             var taskContextSwitches: Int?
+            /// When this turn's presenter pass began, after the press (ms; nil when the observer did not see it): a grid
+            /// reported before it reached the PTY before this turn's frame was presented.
+            var passAt: Double?
 
             /// The split for a message.
             var split: String {
@@ -666,7 +694,8 @@ struct TerminalWindowFrameSyncTests {
                                 shown: surface.presentedFrame.map { Pixels(width: Double($0.width), height: Double($0.height)) },
                                 waiting: presenter.isWaiting(surface),
                                 shownGrid: Self.fitGrid(surface, pixels: CGSize(width: bounds.width * scale, height: bounds.height * scale)),
-                                viewGrid: surface.fittedGrid)
+                                viewGrid: surface.fittedGrid,
+                                askedGrid: Self.fitGrid(surface, pixels: Self.asked(surface, scale: scale)))
             }
         }
 
@@ -690,15 +719,22 @@ struct TerminalWindowFrameSyncTests {
                 }
                 if let now = Self.taskContextSwitches(), let then = woke.switches { switches = now - then }
             }
+            let passAt = passStart.flatMap { $0.at >= started ? Self.ms(started.duration(to: $0.at)) : nil }
             woke = nil
             passStart = nil
             turns.append(Turn(index: turns.count + 1, at: Self.ms(started.duration(to: end)), terminals: terminals(),
                               awakeMs: awakeMs, blockedMs: blockedMs, beforeCommitMs: split.before,
                               beforeCommitOffCpuMs: split.beforeOff, commitMs: split.commit, commitOffCpuMs: split.commitOff,
-                              taskContextSwitches: switches))
+                              taskContextSwitches: switches, passAt: passAt))
         }
 
         /// The grid a view of `pixels` fits, with `view`'s surface's cell size and padding.
+        /// The pixel size the view asked of Ghostty for its next frame: in flight, else drawn ahead, else its bounds.
+        @MainActor static func asked(_ view: TerminalSurfaceView, scale: Double) -> CGSize {
+            let size = view.frameOwnership.inFlight ?? view.frameOwnership.ahead ?? view.bounds.size
+            return CGSize(width: size.width * scale, height: size.height * scale)
+        }
+
         @MainActor static func fitGrid(_ view: TerminalSurfaceView, pixels: CGSize) -> TerminalGridSize? {
             var columns: UInt16 = 0, rows: UInt16 = 0
             guard let surface = view.surface, pixels.width >= 1, pixels.height >= 1,

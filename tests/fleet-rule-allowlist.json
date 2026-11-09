@@ -12,6 +12,8 @@
     "cmux-tui/crates/acpmux/tests/router_no_keychain.rs": {"count": 7, "reason": "safe: the test asserts the router never runs a keychain read"},
     "scripts/ci/chief-first-turn-cost.sh": {"count": 1, "reason": "safe: checks whether the Claude Code-credentials item exists (no -w; the password is not read)"},
     "scripts/ci/macos-stubs/Security.tbd": {"count": 1, "reason": "safe: a linker text stub listing Security.framework's exported symbol names (_SecItemCopyMatching among them) so Linux CI can link; nothing runs a keychain read"},
+    "scripts/ci/macos-stubs/include/Security/Security.h": {"count": 1, "reason": "safe: a link stub header that declares the Security.framework calls certstore's cgo code uses (SecItemCopyMatching among them) so Linux CI can cross-build; it reads no password"},
+    "tests/test_tailnet_cross_link.sh": {"count": 1, "reason": "safe: a cross-link probe that only links the Security.framework calls certstore uses (SecItemCopyMatching among them) against the stubs; it never runs and reads no password"},
     "scripts/cmux-next/browser-challenges-live.py": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the app's own browser HTTP auth item"},
     "scripts/measure/chief-import.sh": {"count": 1, "reason": "safe: checks whether the Claude Code-credentials item exists (no -w; the password is not read)"},
     "cmux-tui/crates/acpmux/src/cli/host_vault.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): Claude Code's credential (service Claude Code-credentials)"},
@@ -21,6 +23,7 @@
     "plans/cmux-next/mcp-connect-DESIGN.md": {"count": 1, "reason": "safe: a threat-model row naming the command the design refuses; reads nothing"}
   },
   "pkill": {
+    "docs/cmux-next/uninstall.md": {"count": 2, "reason": "safe: the uninstall page tells the reader not to use pkill or killall, since they would also end every other build's daemons; it runs nothing"},
     "cmux-tui/vendor/smoltcp/README.md": {"count": 1, "reason": "safe: vendored upstream smoltcp README; its TAP setup example for a person's own machine runs nowhere here"},
     ".github/workflows/cmux-next-frame-pacing.yml": {"count": 1, "reason": "safe: the pattern is this job's own RUNNER_TEMP/frame-pacing path"},
     ".github/workflows/ios-e2e.yml": {"count": 1, "reason": "safe: the pattern is this run's own tagged or per-run app path, so it cannot match another run's or person's process"},
@@ -125,7 +128,6 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/MachineColorsSetting.swift": {"count": 1, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
     "Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/AgentLinkSchemaTests.swift": {"count": 1, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
     "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AddMachineFlowTests.swift": {"count": 4, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
-    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AddMachineShotsTests.swift": {"count": 2, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
     "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AgentPeerSessionTests.swift": {"count": 1, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
     "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AgentSessionGroupJoinTests.swift": {"count": 5, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
     "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/MacNameTests.swift": {"count": 1, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
@@ -137,7 +139,6 @@
     "cmux-tui/crates/acpmux/src/agent_link.rs": {"count": 6, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
     "cmux-tui/crates/acpmux/src/attach.rs": {"count": 1, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
     "cmux-tui/crates/acpmux/src/cli/peer_status.rs": {"count": 4, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
-    "cmux-tui/crates/acpmux/src/cli/sender.rs": {"count": 1, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
     "cmux-tui/crates/acpmux/src/hub/admission.rs": {"count": 4, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
     "cmux-tui/crates/acpmux/src/hub/hosts_tests.rs": {"count": 1, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
     "cmux-tui/crates/acpmux/src/hub/locate.rs": {"count": 20, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},

@@ -7,7 +7,7 @@ import { AgentMessageBody } from "../../agent-session/acpmux/conversation/AgentM
 import { AgentNamesContext, recipientName } from "../../agent-session/acpmux/conversation/agentNames";
 import { MessageCard } from "../../agent-session/acpmux/conversation/MessageCard";
 import { Envelope } from "../../agent-session/acpmux/conversation/icons";
-import { useTranscriptDisclosure } from "../../agent-session/acpmux/conversation/transcriptDisclosure";
+import { useTranscriptDisclosure } from "../../agent-session/acpmux/conversation/transcriptDisclosureModel";
 import type { RunAgentMessage } from "./runMessages";
 
 export const RunMessage = memo(function RunMessage({

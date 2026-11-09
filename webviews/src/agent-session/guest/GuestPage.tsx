@@ -2,6 +2,10 @@
 // and the ended page. The chat draws with the owner's own transcript (VirtualTranscript) over a
 // client fed by the room's socket (AcpmuxDirectClient.fed), with nothing of the pane around it:
 // no composer pickers, sessions, inspector or permission buttons. A pending ask shows who it waits on.
+// The chat's first frame is its final layout: the header, the transcript's area and the composer at
+// the bottom draw at once, the socket opens at once, and the transcript's chunk (GuestTranscript.tsx)
+// loads beside it and fades in where it stays (Leo, 2026-11-07: "we should be able to expect that it
+// goes on the bottom when it loads in the web app").
 // An invite (`/i/<id>`, a person invited by account) joins as the signed-in account, with no name
 // field; a `view` invitee watches with no composer.
 // A link (`/g/<id>`) asks the room who is signed in first (`whoami`): a cmux account joins as itself,
@@ -11,11 +15,10 @@
 // redeem's `role` decides the composer: `talk` (a signed-in guest on a talk link) may send.
 import "./guest.css";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { VirtualTranscript } from "../acpmux/App";
-import { AcpmuxDirectClient } from "../acpmux/direct";
-import { GuestActionsBoundary } from "../acpmux/conversation/GuestActionsBoundary";
+import { AvatarContext } from "../../pages/home-channels/avatars";
 import { useT } from "../acpmux/i18n";
 import type { AcpmuxSnapshot } from "../acpmux/model";
+import type { GuestFeed } from "./GuestTranscript";
 import { Face, PresenceStack } from "../acpmux/multiplayer/Faces";
 import { displayName, participant, type Participant } from "../acpmux/multiplayer/participants";
 import { GuestComposer, GuestMessages } from "./GuestComposer";
@@ -43,6 +46,53 @@ import {
 
 /** What ended the page: the share's end, or a redeem the room refused for good. */
 export type GuestEnded = GuestEnd | "used";
+
+export type TranscriptModule = typeof import("./GuestTranscript");
+let transcriptChunk: Promise<TranscriptModule> | undefined;
+let pageSetup: ((chunk: TranscriptModule) => void) | undefined;
+/** The page's transcript stylesheet (main.tsx startGuestPage), loaded with the chunk. */
+let pageSheet: (() => Promise<unknown>) | undefined;
+/**
+ * Loads the transcript's chunk once (a failed load is forgotten, so the next call tries again). The
+ * page's own setup (`startGuestPage`) runs on it before any caller sees it.
+ */
+export function loadGuestTranscript(): Promise<TranscriptModule> {
+  // The import is its own step: the bundler wraps `import()` with its preload of the chunk's CSS and
+  // shared modules, and a callback chained on the import would sit inside that wrapper, so a failed
+  // preload would skip the reset below and keep the rejected promise for good (#38101 F4).
+  const fetchChunk = async (): Promise<TranscriptModule> => {
+    const [chunk] = await Promise.all([import("./GuestTranscript"), pageSheet?.()]);
+    return chunk;
+  };
+  transcriptChunk ??= fetchChunk().then(
+    (chunk) => {
+      pageSetup?.(chunk);
+      return chunk;
+    },
+    (error: unknown) => {
+      transcriptChunk = undefined;
+      throw error;
+    },
+  );
+  return transcriptChunk;
+}
+
+/**
+ * The page (main.tsx, never the gallery): the chunk's no-owner host is installed as it arrives,
+ * before anything from it draws, and its load starts beside the first frame. `loadSheet` loads the
+ * transcript's stylesheet (the pane's sheet past the first frame's part); the chunk counts as loaded
+ * only once it is in, so no row draws unstyled, and a failed load is tried again with the chunk.
+ */
+export function startGuestPage(loadSheet?: () => Promise<unknown>): void {
+  pageSheet = loadSheet;
+  pageSetup = (chunk) => chunk.installGuestPage();
+  void loadGuestTranscript().catch(() => undefined);
+}
+
+/** Tries to load the transcript's chunk again after a failed load: 1 s, 2 s, 4 s ... up to 30 s apart. */
+const CHUNK_RETRY_FIRST_MS = 1_000;
+const CHUNK_RETRY_MAX_MS = 30_000;
+const reloadWindow = () => window.location.reload();
 
 /** The fed client's id for the one chat a guest sees; the room never names the owner's session. */
 const GUEST_SESSION = "guest-chat";
@@ -297,6 +347,8 @@ export function LiveChat({
   prompts,
   socketUrl,
   openSocket,
+  loadTranscript = loadGuestTranscript,
+  reloadPage = reloadWindow,
   onEnded,
 }: {
   /** This guest: never in its own face stack, as the pane leaves the reader out. */
@@ -311,6 +363,10 @@ export function LiveChat({
   prompts: GuestPrompts;
   socketUrl: string;
   openSocket?: (url: string) => ShareSocketLike;
+  /** Loads the transcript's chunk (loadGuestTranscript; tests and the gallery hand in a failing one). */
+  loadTranscript?: () => Promise<TranscriptModule>;
+  /** Reloads the page when Retry's load fails too (tests hand in a spy). */
+  reloadPage?: () => void;
   onEnded: (reason: GuestEnd) => void;
 }) {
   const t = useT();
@@ -336,25 +392,69 @@ export function LiveChat({
   const typing = useMemo(() => new TypingSignal((on) => socket.current?.send({ t: "typing", on }) ?? false), []);
   useEffect(() => () => typing.dispose(), [typing]);
 
+  // The socket opens on the first commit; the records it brings wait for the transcript's chunk,
+  // in arrival order, if they come first.
+  const [transcript, setTranscript] = useState<TranscriptModule>();
+  // The chunk failed to load: the page says so with Retry, and keeps trying on its own.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const retryLoad = useRef<(() => void) | undefined>(undefined);
   useEffect(() => {
-    const client = AcpmuxDirectClient.fed(GUEST_SESSION, setSnapshot);
+    let stopped = false;
+    let client: GuestFeed | undefined;
+    const waiting: ((client: GuestFeed) => void)[] = [];
+    const withClient = (run: (client: GuestFeed) => void) => (client ? run(client) : waiting.push(run));
+    // A failed chunk load (a dropped connection) tries again until it lands or the chat goes away.
+    // The browser may keep a failed module fetch for the page's life, so a Retry that fails again
+    // reloads the page (this tab's join is in sessionStorage, so it opens the chat again).
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
+    const load = (delay: number, byRetry = false) => {
+      clearTimeout(retry);
+      retry = undefined;
+      const mine = ++attempt;
+      void loadTranscript().then(
+        (module) => {
+          if (stopped || client) return;
+          client = module.feedClient(GUEST_SESSION, setSnapshot);
+          setLoadFailed(false);
+          setTranscript(module);
+          for (const run of waiting.splice(0)) run(client);
+        },
+        () => {
+          // Only the newest attempt schedules the next one.
+          if (stopped || client || mine !== attempt) return;
+          if (byRetry) return reloadPage();
+          setLoadFailed(true);
+          retry = setTimeout(() => load(Math.min(delay * 2, CHUNK_RETRY_MAX_MS)), delay);
+        },
+      );
+    };
+    retryLoad.current = () => load(CHUNK_RETRY_FIRST_MS, true);
+    load(CHUNK_RETRY_FIRST_MS);
+    const stop = () => {
+      stopped = true;
+      clearTimeout(retry);
+      retryLoad.current = undefined;
+      waiting.length = 0;
+      client?.dispose();
+    };
     const room = new ShareSocket(
       { url: socketUrl, unresolved: () => prompts.held(), ...(openSocket ? { open: openSocket } : {}) },
       {
         snapshot: (next) => {
           setChat(next.chat);
           setHasMore(next.hasMore);
-          client.feed(next.records, "snapshot");
+          withClient((fed) => fed.feed(next.records, "snapshot"));
           sendQueue.snapshot(next.prompts);
           typing.reset();
           // A page asked for on the old connection never comes; the new history is in place.
           pageArrived.current?.();
           pageArrived.current = undefined;
         },
-        records: (records) => client.feed(records, "live"),
+        records: (records) => withClient((fed) => fed.feed(records, "live")),
         page: (records, more) => {
           setHasMore(more);
-          client.feed(records, "older");
+          withClient((fed) => fed.feed(records, "older"));
           pageArrived.current?.();
           pageArrived.current = undefined;
         },
@@ -366,7 +466,7 @@ export function LiveChat({
         },
         ended: (reason) => {
           sendQueue.stop();
-          client.dispose();
+          stop();
           ended.current(reason);
         },
       },
@@ -376,10 +476,10 @@ export function LiveChat({
     return () => {
       sendQueue.disconnected();
       room.stop();
-      client.dispose();
+      stop();
       pageArrived.current?.();
     };
-  }, [socketUrl, openSocket, prompts, typing, sendQueue]);
+  }, [socketUrl, openSocket, prompts, typing, sendQueue, loadTranscript, reloadPage]);
 
   const loadOlder = useCallback(
     () =>
@@ -390,10 +490,15 @@ export function LiveChat({
       }),
     [snapshot?.historyFrom],
   );
-  const toggle = useCallback((id: string) => {
+  // A joined run's line is open under any of its keys (turns.ts `foldCovers`): closing it clears them
+  // all, as turns.ts `toggleTurnFold` does. Inline, so this first chunk does not load the transcript's.
+  const toggle = useCallback((id: string, covers: readonly string[] = []) => {
     setExpanded((open) => {
       const next = new Set(open);
-      if (!next.delete(id)) next.add(id);
+      const keys = [id, ...covers];
+      const wasOpen = keys.some((key) => open.has(key));
+      for (const key of keys) next.delete(key);
+      if (!wasOpen) next.add(id);
       return next;
     });
   }, []);
@@ -406,6 +511,7 @@ export function LiveChat({
     : { id: guestId, name: t("guest.you") };
   const send = (text: string) => {
     typing.stop();
+    prompts.keepDraft("");
     prompts.add(text);
     sendQueue.queued();
   };
@@ -413,38 +519,49 @@ export function LiveChat({
     .filter((person) => person.viewing !== false && !isMe(person.id, guestId))
     .flatMap((person) => participant(person.id, person.name) ?? []);
   return (
-    <GuestActionsBoundary>
+    // Faces and chips ask no owner's avatar service (GuestTranscript's boundary does the same).
+    <AvatarContext.Provider value={undefined}>
       {/* The whole page reports nothing to an owner's context menu (conversation/messageMenu.ts). */}
       <div className="guest-live" data-read-only-transcript="">
+        {/* One height from the first frame: the title and the owner's line hold their lines while
+            the room has not named them yet, so nothing below moves when they arrive. */}
         <header className="guest-live__header">
           <div className="guest-live__titles">
-            <h1 className="guest-live__title">{displayName(chat.title) ?? t("guest.live.untitled")}</h1>
-            {owner && <p className="guest-live__owner">{t("guest.live.sharedBy", { owner: owner.name })}</p>}
+            <h1 className="guest-live__title">
+              {snapshot || chat.title ? (displayName(chat.title) ?? t("guest.live.untitled")) : ""}
+            </h1>
+            <p className="guest-live__owner">{owner ? t("guest.live.sharedBy", { owner: owner.name }) : ""}</p>
           </div>
           <PresenceStack viewing={viewing} />
         </header>
-        {connection !== "live" && (
-          <output className="guest-live__notice">
-            {t(connection === "connecting" ? "guest.live.connecting" : "guest.live.reconnecting")}
-          </output>
-        )}
-        {snapshot && (
-          <div className="guest-live__transcript">
-            <VirtualTranscript
-              rows={snapshot.rows}
+        {/* The transcript's area fills the page from the first frame, so the composer sits at the
+            bottom before the room's snapshot; the notice floats in it and moves nothing. */}
+        <div className="guest-live__transcript" aria-busy={!snapshot}>
+          {snapshot && transcript && (
+            <transcript.GuestTranscript
+              snapshot={snapshot}
               sessionId={GUEST_SESSION}
               expanded={expanded}
-              onToggleActivity={toggle}
-              working={snapshot.isWorking}
-              readOnly
-              // The thread rail is the owner's pane chrome; here it drew a lone tick at the page's edge.
-              showMinimap={false}
-              canLoadOlder={hasMore}
-              historyFrom={snapshot.historyFrom}
+              onToggle={toggle}
+              hasMore={hasMore}
               onLoadOlder={loadOlder}
             />
-          </div>
-        )}
+          )}
+          {loadFailed ? (
+            <div className="guest-live__notice guest-live__notice--failed" role="alert">
+              {t("guest.live.loadFailed")}{" "}
+              <button className="guest-live__retry" type="button" onClick={() => retryLoad.current?.()}>
+                {t("retry.action")}
+              </button>
+            </div>
+          ) : (
+            connection !== "live" && (
+              <output className="guest-live__notice">
+                {t(connection === "connecting" ? "guest.live.connecting" : "guest.live.reconnecting")}
+              </output>
+            )
+          )}
+        </div>
         {snapshot?.permission && (
           <output className="guest-live__ask">
             {t("guest.live.waitingAnswer", { owner: ownerName })}
@@ -455,13 +572,20 @@ export function LiveChat({
           <GuestMessages prompts={mine} me={me} owner={ownerName} />
           {/* Only a `talk` guest sends; no role (an answer that named none) or `view` watches. */}
           {role === "talk" ? (
-            <GuestComposer onSend={send} onDraft={(draft) => typing.input(draft)} />
+            <GuestComposer
+              initialText={prompts.draft()}
+              onSend={send}
+              onDraft={(draft) => {
+                prompts.keepDraft(draft);
+                typing.input(draft);
+              }}
+            />
           ) : (
             <p className="guest-live__view-only">{t("guest.live.viewOnly")}</p>
           )}
         </div>
       </div>
-    </GuestActionsBoundary>
+    </AvatarContext.Provider>
   );
 }
 
@@ -488,6 +612,10 @@ export type GuestPageProps = {
   storage: Storage;
   socketUrl: string;
   openSocket?: (url: string) => ShareSocketLike;
+  /** Loads the transcript's chunk (default loadGuestTranscript). */
+  loadTranscript?: () => Promise<TranscriptModule>;
+  /** Reloads the page when Retry's load fails too (default window.location.reload). */
+  reloadPage?: () => void;
   /** Starts on the ended page (the gallery's ended states). */
   ended?: GuestEnded;
   /** The room's `whoami` for a link (redeem.ts whoamiOverFetch); none, or an invite, asks nobody. */
@@ -514,6 +642,8 @@ export function GuestPage({
   onJoined,
   socketUrl,
   openSocket,
+  loadTranscript,
+  reloadPage,
   ended: endedAtStart,
   whoami,
   editName = false,
@@ -590,6 +720,8 @@ export function GuestPage({
       prompts={prompts}
       socketUrl={socketUrl}
       openSocket={openSocket}
+      loadTranscript={loadTranscript}
+      reloadPage={reloadPage}
       onEnded={setEnded}
     />
   );

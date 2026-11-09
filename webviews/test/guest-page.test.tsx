@@ -45,7 +45,9 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configu
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { GuestPage, endedBy } = await import("../src/agent-session/guest/GuestPage");
+const { GuestPage, loadGuestTranscript, endedBy } = await import("../src/agent-session/guest/GuestPage");
+// The transcript is its own chunk (GuestTranscript.tsx); load it once so the room's frames draw at once.
+await loadGuestTranscript();
 const { attemptId } = await import("../src/agent-session/guest/redeem");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
 const { askingRecords, fakeRoom, joinFrames, memoryStorage, workingRecords } =
@@ -315,6 +317,61 @@ test("an invitee the owner removes (uninvite) ends on You were removed", async (
   await page.unmount();
 });
 
+// The transcript is its own chunk (GuestTranscript.tsx). A load that fails (a dropped connection)
+// says so with Retry, keeps the composer where it is, and the snapshot that came meanwhile draws
+// once Retry loads it.
+test("a transcript chunk that fails to load says so; Retry loads it and the chat draws", async () => {
+  let fail = true;
+  let asked = 0;
+  const loadTranscript = () => {
+    asked += 1;
+    return fail ? Promise.reject(new Error("offline")) : loadGuestTranscript();
+  };
+  const page = await mount({
+    guestId: "g1",
+    role: "talk",
+    openSocket: fakeRoom(joinFrames(workingRecords())),
+    loadTranscript,
+  });
+  await roomFrames();
+  const alert = page.host.querySelector(".guest-live__transcript [role=alert]");
+  expect(alert?.textContent).toContain(translate("guest.live.loadFailed"));
+  expect(page.host.textContent).not.toContain("bun test src/upload.test.ts --rerun-each 5");
+  expect(page.host.querySelector(".guest-live__dock textarea")).not.toBeNull();
+  fail = false;
+  await act(async () => {
+    alert!.querySelector("button")!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  });
+  await roomFrames();
+  expect(asked).toBe(2);
+  expect(page.host.querySelector(".guest-live__transcript [role=alert]")).toBeNull();
+  expect(page.host.textContent).toContain("bun test src/upload.test.ts --rerun-each 5");
+  await page.unmount();
+});
+
+// The browser may keep a failed module fetch for the page's life (#38101 F1): a Retry whose load
+// fails too reloads the page instead of asking the same failed import again.
+test("a Retry whose load fails too reloads the page", async () => {
+  let reloads = 0;
+  const page = await mount({
+    guestId: "g1",
+    role: "talk",
+    openSocket: fakeRoom(joinFrames(workingRecords())),
+    loadTranscript: () => Promise.reject(new Error("offline")),
+    reloadPage: () => void (reloads += 1),
+  });
+  await roomFrames();
+  const alert = page.host.querySelector(".guest-live__transcript [role=alert]");
+  expect(alert?.textContent).toContain(translate("guest.live.loadFailed"));
+  expect(reloads).toBe(0);
+  await act(async () => {
+    alert!.querySelector("button")!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  });
+  await roomFrames();
+  expect(reloads).toBe(1);
+  await page.unmount();
+});
+
 const signedIn = (avatarUrl?: string) => async () =>
   ({ signedIn: true, name: "Priya Raman", ...(avatarUrl ? { avatarUrl } : {}) }) as const;
 
@@ -422,6 +479,28 @@ test("another guest's message draws as a prompt under their picture and name", a
   const author = page.host.querySelector(".cv-author");
   expect(author?.textContent).toBe(translate("multiplayer.guestName", { name: "Priya Raman" }));
   expect(author?.querySelector("img")?.getAttribute("src")).toBe("https://avatars.example.com/priya.png");
+  await page.unmount();
+});
+
+// The owner's own `acpmux send` at a plain terminal (acpmux `owner_terminal`, #38260) is recorded as
+// their prompt: `_meta.origin` person with a CLI client. The shared chat draws it as the owner's
+// prompt, never as a received card from the label its text starts with (#38260 F2).
+test("the owner's terminal send of `[P1] fix the race` draws as the owner's prompt, not a card from P1", async () => {
+  const records = workingRecords();
+  const first = records[0]!;
+  records[0] = {
+    ...first,
+    msg: {
+      ...(first.msg as Record<string, unknown>),
+      text: "[P1] fix the race",
+      client: "acpmux-cli#01a2f3@my-mac",
+      _meta: { origin: { actor: "person", verified: true } },
+    },
+  };
+  const page = await mount({ guestId: "g1", openSocket: fakeRoom(joinFrames(records)) });
+  await roomFrames();
+  expect(page.host.textContent).toContain("[P1] fix the race");
+  expect(page.host.querySelector(".cv-received__sender")).toBeNull();
   await page.unmount();
 });
 

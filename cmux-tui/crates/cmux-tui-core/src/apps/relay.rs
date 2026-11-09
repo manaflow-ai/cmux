@@ -5,18 +5,25 @@
 //!
 //! - `{"type":"relay.op","id","op","params","idempotency_key"?,"origin"?}`:
 //!   one `cmux.wire/1` op;
-//! - `{"type":"relay.session","id"}`: whether the cmux app is signed in.
+//! - `{"type":"relay.session","id"}`: whether the cmux app is signed in;
+//! - `{"type":"relay.carrier","id","machine"}`: the Mac app's carrier socket
+//!   of a Cloud machine (first-party-apps/cloud/server/src/link/dial.rs).
 //!
 //! The supervisor checks that the server's app is first-party and declares
 //! the server scope `op:cmux.credential.relay`, then routes the line over
 //! the provider channel to the `credential` provider (the Mac app) as
-//! `credential.relay {op, params, idempotency_key?, origin?}` or
-//! `credential.session {}`. The Mac app adds its install token (never a
-//! Stack bearer; chief decision 2026-10-08) and calls `POST /v1/read` or
-//! `/v1/ops`. Answers to the server:
+//! `credential.relay {op, params, idempotency_key?, origin?}`,
+//! `credential.session {}` or `credential.carrier_socket {machine}`. For a
+//! relay the Mac app adds its install token (never a Stack bearer; chief
+//! decision 2026-10-08) and calls `POST /v1/read` or `/v1/ops`. For a
+//! carrier socket it makes sure its own `cmux carrier serve` child of that
+//! machine runs (the credential stays in that child) and answers
+//! `{value: {socket}}`, the child's 0600 socket path, or its refusal with a
+//! carrier step code. Answers to the server:
 //!
 //! - `{"type":"relay.result","id","ok":true,"value","revision"?,"replayed"?}`
-//!   or `{"type":"relay.result","id","ok":false,"error":{code,message,retryable,details?}}`;
+//!   or `{"type":"relay.result","id","ok":false,"error":{code,message,retryable,details?}}`
+//!   (also for `relay.carrier`, whose `value` is `{"socket": PATH}`);
 //! - `{"type":"relay.session","id","signed_in","team"}`;
 //! - `{"type":"relay.error","id","code","message"}`: `not_signed_in` (the
 //!   provider said so), `unavailable` (no provider, it left, or it did not
@@ -55,10 +62,14 @@ const ORIGINS: &[&str] = &["user", "cli", "mcp", "script", "remote"];
 const MAX_PER_SERVER: usize = 4;
 /// Longest relay line id accepted (the Cloud server sends `r<n>`).
 const MAX_ID: usize = 64;
+/// Longest machine id a `relay.carrier` line may name.
+const MAX_MACHINE: usize = 64;
+/// The provider op of a `relay.carrier` line.
+pub(super) const CARRIER_SOCKET_OP: &str = "credential.carrier_socket";
 
 /// Whether `line` is a relay line the supervisor answers.
 pub(super) fn is_relay_line(line: &Value) -> bool {
-    matches!(line["type"].as_str(), Some("relay.op" | "relay.session"))
+    matches!(line["type"].as_str(), Some("relay.op" | "relay.session" | "relay.carrier"))
 }
 
 fn relay_error(id: &Value, code: &str, message: &str) -> Value {
@@ -85,6 +96,22 @@ fn provider_call(line: &Value) -> Result<(&'static str, Value), Value> {
         return Ok(("credential.session", json!({})));
     }
     let invalid = |why: &str| relay_error(id, "validation.invalid", why);
+    if line["type"] == "relay.carrier" {
+        // A machine id only: lowercase letters, digits, '_' and '-' (it
+        // names the app's session; the app checks it is one of its own).
+        let machine = line["machine"].as_str().unwrap_or_default();
+        let machine_ok = !machine.is_empty()
+            && machine.len() <= MAX_MACHINE
+            && machine
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"_-".contains(&b));
+        if !machine_ok {
+            return Err(invalid(
+                "relay.carrier needs a machine id (lowercase letters, digits, '_', '-')",
+            ));
+        }
+        return Ok((CARRIER_SOCKET_OP, json!({ "machine": machine })));
+    }
     let op = line["op"].as_str().unwrap_or_default();
     let op_ok = !op.is_empty()
         && op.len() <= MAX_OP

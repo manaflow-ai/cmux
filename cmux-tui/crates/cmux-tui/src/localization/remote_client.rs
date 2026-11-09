@@ -59,6 +59,7 @@ pub(crate) struct RemoteClientMessages {
     pub connect_one_route: &'static str,
     pub reconnect_policy_invalid: &'static str,
     pub upgrade_no_install: &'static str,
+    pub upgrade_forced_command: &'static str,
     pub json_requires_headless: &'static str,
     pub help_invalid_options: &'static str,
     pub ssh_destination_required: &'static str,
@@ -250,6 +251,8 @@ IDENTITY AND SESSION:
   --device-name NAME  --session NAME
   --state-dir PATH  --local-socket PATH  --headless [--json]
 
+  --local-socket PATH also serves PATH.admin, owner-only: the link's state
+(link-state) and a wait until it is connected by a deadline (await-ready).
   --invite-file avoids exposing the single-use invitation in process arguments.
   Regular files must be owner-only; - reads one line from stdin.
   --carrier dials ws routes with carrier authentication (no enrollment, no
@@ -270,6 +273,8 @@ through an in-process WireGuard peer (owner-only wg-quick file; no root)
 instead; exclusive with --wireguard-config
   --wireguard-hub-token-stdin  read that hub's client token as one line on stdin
   --ssh-binary PATH  --remote-binary PATH  --ssh-arg ARG  --no-install
+  --ssh-forced-command  the SSH key's forced command already runs remote-link,
+so the client never runs remote-probe or an install over it
   --agent-hooks PROVIDER[,PROVIDER...] installs those coding-agent hooks for
 the remote user on each attach (for example claude,codex)
   --remote-state-dir PATH for a non-default daemon state directory
@@ -283,6 +288,9 @@ RECONNECT:
   --reconnect-max-ms MS  --reconnect-attempt-timeout-ms MS
   --reconnect-jitter full|none  --heartbeat-interval-ms MS
   --heartbeat-timeout-ms MS
+  A dropped link redials 3 times, then waits for a network change or a caller
+and tries again, within a redial budget; it never exits on its own.
+--reconnect-attempts is still accepted but no longer limits this.
 "#,
     ssh_help: r#"USAGE: cmux remote ssh [USER@]HOST[:PORT] [OPTIONS]
 
@@ -304,6 +312,9 @@ other RPC resources reset
   --reconnect-max-ms MS  --reconnect-attempt-timeout-ms MS
   --reconnect-jitter full|none  --heartbeat-interval-ms MS
   --heartbeat-timeout-ms MS
+  A dropped link redials 3 times, then waits for a network change or a caller
+and tries again, within a redial budget; it never exits on its own.
+--reconnect-attempts is still accepted but no longer limits this.
 "#,
     browser_proxy_help: "USAGE: cmux remote browser-proxy [ROUTE] --allowed-host HOST [--allowed-host HOST ...] --workspace-root PATH --wireguard-hub PATH [OPTIONS]\n\nStarts an authenticated local browser proxy to the selected machine's loopback ports. Prints private proxy credentials on stdout.\n",
     forward_help: r#"USAGE: cmux remote forward [ROUTE] --workspace-root PATH --port PORT [OPTIONS]
@@ -402,6 +413,7 @@ for up to two relay fallbacks
     connect_one_route: "connect accepts one route",
     reconnect_policy_invalid: "reconnect delays, attempt timeout, and enabled heartbeat timeout must be positive; max delay must be at least initial",
     upgrade_no_install: "--upgrade cannot be combined with --no-install",
+    upgrade_forced_command: "--upgrade cannot be combined with --ssh-forced-command: that key runs only remote-link, so nothing can be installed over it",
     json_requires_headless: "--json requires --headless for connect and ssh",
     help_invalid_options: "help cannot be combined with invalid connect options",
     ssh_destination_required: "ssh expects the destination before options",
@@ -450,6 +462,8 @@ ID とセッション:
   --device-name 名前  --session 名前
   --state-dir パス  --local-socket パス  --headless [--json]
 
+  --local-socket パス は所有者専用の パス.admin も提供します: リンクの状態
+(link-state) と、期限までの接続待ち (await-ready)。
   --invite-file は一回限りの招待をプロセス引数に公開しません。
   通常ファイルは所有者だけが読める必要があります。- は標準入力から 1 行読みます。
   --carrier は ws ルートをキャリア認証で接続します（登録や招待は不要）。
@@ -469,6 +483,8 @@ ID とセッション:
 --wireguard-config とは併用できません
   --wireguard-hub-token-stdin  そのハブのクライアントトークンを標準入力から 1 行で読みます
   --ssh-binary パス  --remote-binary パス  --ssh-arg 引数  --no-install
+  --ssh-forced-command  SSH 鍵の強制コマンドがすでに remote-link を実行するため、
+その接続では remote-probe もインストールも実行しません
   --agent-hooks プロバイダー[,プロバイダー...] 接続のたびにリモートユーザーへ
 コーディングエージェントのフックを導入 (例: claude,codex)
   --remote-state-dir パス  既定以外のデーモン状態ディレクトリ
@@ -482,6 +498,9 @@ ID とセッション:
   --reconnect-max-ms ミリ秒  --reconnect-attempt-timeout-ms ミリ秒
   --reconnect-jitter full|none  --heartbeat-interval-ms ミリ秒
   --heartbeat-timeout-ms ミリ秒
+  切れたリンクは 3 回再接続を試し、その後はネットワークの変化か呼び出し元を
+待って再試行します (再接続の予算内)。自分から終了することはありません。
+--reconnect-attempts は引き続き受け付けますが、この回数を制限しません。
 "#,
     ssh_help: r#"使用方法: cmux remote ssh [ユーザー@]ホスト[:ポート] [オプション]
 
@@ -502,6 +521,9 @@ ID とセッション:
   --reconnect-max-ms ミリ秒  --reconnect-attempt-timeout-ms ミリ秒
   --reconnect-jitter full|none  --heartbeat-interval-ms ミリ秒
   --heartbeat-timeout-ms ミリ秒
+  切れたリンクは 3 回再接続を試し、その後はネットワークの変化か呼び出し元を
+待って再試行します (再接続の予算内)。自分から終了することはありません。
+--reconnect-attempts は引き続き受け付けますが、この回数を制限しません。
 "#,
     browser_proxy_help: "使用方法: cmux remote browser-proxy [ルート] --allowed-host ホスト [--allowed-host ホスト ...] --workspace-root パス --wireguard-hub パス [オプション]\n\n選択したマシンのループバックポートへの認証付きローカルブラウザプロキシを起動します。非公開のプロキシ認証情報を標準出力に出力します。\n",
     forward_help: r#"使用方法: cmux remote forward [ルート] --workspace-root パス --port ポート [オプション]
@@ -598,6 +620,7 @@ ID とセッション:
     connect_one_route: "connect に指定できるルートは 1 つです",
     reconnect_policy_invalid: "再接続遅延、試行タイムアウト、有効なハートビートタイムアウトには正の値が必要です。最大遅延は初期遅延以上にしてください",
     upgrade_no_install: "--upgrade と --no-install は同時に指定できません",
+    upgrade_forced_command: "--upgrade と --ssh-forced-command は同時に指定できません。その鍵は remote-link しか実行しないため、インストールできません",
     json_requires_headless: "connect と ssh で --json を使うには --headless が必要です",
     help_invalid_options: "ヘルプと無効な connect オプションは同時に指定できません",
     ssh_destination_required: "ssh の接続先をオプションより前に指定してください",

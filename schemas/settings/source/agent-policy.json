@@ -85,6 +85,7 @@
         "sidebar.groupHeader.unreadCount",
         "sidebar.groupHeader.background",
         "sidebar.groupPalette",
+        "sidebar.groupGradient",
         "sidebar.numbering",
         "sidebar.cmd9",
         "sidebar.stepping",
@@ -119,8 +120,7 @@
     {
       "agent": "settable",
       "keys": [
-        "newTerminal.opensWorkspace",
-        "tabs.cmdWClosesPinnedTabs"
+        "newTerminal.opensWorkspace"
       ]
     },
     {
@@ -474,10 +474,18 @@
     },
     {
       "agent": "settable",
-      "why": "Where the docked Chief sits and where its links open (layout choices, like pane placement).",
+      "why": "Where the docked Chief sits, how the floating one looks and where its links open (layout choices, like pane placement).",
       "keys": [
         "home.chiefDock.edge",
+        "home.chiefPanel.style",
         "home.chiefDock.openBeside"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, opening the floating Chief gives it a look at the person's screen; only the person turns it on.",
+      "keys": [
+        "home.chiefPanel.seesScreen"
       ]
     },
     {
@@ -731,6 +739,9 @@
         "agentPane.display.pinnedPlan",
         "agentPane.display.trayTucked",
         "agentPane.display.trayHandle",
+        "agentPane.display.senderIcon.lead",
+        "agentPane.display.senderIcon.badge",
+        "agentPane.display.senderIcon.corner",
         "agentPane.display.font.preset",
         "agentPane.display.font.ui",
         "agentPane.display.font.size",
@@ -1125,6 +1136,13 @@
     },
     {
       "agent": "privacy",
+      "why": "On, cmux keeps reading the source browser's cookies after an import: only the person turns that on.",
+      "keys": [
+        "browser.import.cookieSync"
+      ]
+    },
+    {
+      "agent": "privacy",
       "why": "Only the person's Connect click opts in to reading Messages.",
       "keys": [
         "imessage.enabled"
@@ -1250,6 +1268,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "Whether cmux's own pages open developer tools, which read and change their live content: the person's call.",
+      "keys": [
+        "developerTools.appPages"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "On, a key is taken from every other app system-wide.",
       "keys": [
         "app.globalHotKey",
@@ -1349,7 +1374,8 @@
       "agent": "userOnly",
       "why": "Battery and sleep are the person's call: an agent must not keep the Mac up for itself.",
       "keys": [
-        "sessions.keepAwake"
+        "sessions.keepAwake",
+        "sessions.keepAwakeForCommands"
       ]
     },
     {
@@ -1371,6 +1397,13 @@
       "why": "On, every agent gets tools that start child chats: the person turns that on.",
       "keys": [
         "sessions.promptSuggestions"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Claude's and Codex's next-prompt suggestions make an extra model call per turn that counts toward the person's usage: their call, as `agents.autoRetry.enabled` is.",
+      "keys": [
+        "agents.promptSuggestions"
       ]
     },
     {
@@ -1407,6 +1440,14 @@
         "agents.autoRetry.enabled",
         "agents.autoRetry.intervalSeconds",
         "agents.autoRetry.attempts"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Compacting on a timer spends the person's usage (one model call each): their call.",
+      "keys": [
+        "agents.cacheCompact.enabled",
+        "agents.cacheCompact.minContextPercent"
       ]
     },
     {
@@ -1474,6 +1515,13 @@
       "why": "cmux Remote: the person's call.",
       "keys": [
         "remote.endSharingOnQuit"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Spends about 2 to 3 times the data on every remote connection; only the person turns it on.",
+      "keys": [
+        "remote.ultraMode"
       ]
     },
     {

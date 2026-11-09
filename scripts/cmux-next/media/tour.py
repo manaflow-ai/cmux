@@ -44,6 +44,9 @@ and optionally:
     capture   fixture geometry RPC {"method": ..., "params": {...}, "scale": 2,
               "menu": false}; reads top-left window-point `capture` bounds after
               settling, crops the composited snapshot, and verifies real 2x pixels
+    relaunch  true: quit the app alone and open it again on the same socket, before the
+              step's `cmux`/`rpc`; its daemon, Chief owner and state stay (what a person's
+              quit and reopen keeps)
     collect   a file name (`sidebar-order.png`) for an image the step's `rpc`
               writes itself, as debug.palette.capture does for the palette panel
               the window shot leaves out: `{collect}` in the rpc's params is its
@@ -95,7 +98,7 @@ from typing import Any
 
 MAX_SECONDS = 300
 
-STEP_KEYS = {"title", "cmux", "rpc", "daemon", "wait", "shot", "display", "optional", "expect", "windows", "capture",
+STEP_KEYS = {"title", "relaunch", "cmux", "rpc", "daemon", "wait", "shot", "display", "optional", "expect", "windows", "capture",
              "collect"}
 # A `collect` image's file name; it is kept as shots/NN-collect-<name>.png, a shot name publish.py takes.
 COLLECT_NAME = re.compile(r"([a-z0-9][a-z0-9-]{0,31})\.png")
@@ -732,6 +735,27 @@ class App:
         self.stop_daemon()
         self.clear_leftovers()
         self.clear_state()
+        self.start()
+
+    def relaunch(self) -> None:
+        """Quit the app alone and open it again: its daemon and state stay, as a person's quit and reopen."""
+        pid = self.pid()
+        if isinstance(pid, int):
+            self.session.run(["kill", str(pid)])
+            deadline = time.monotonic() + 15
+            while self.session.run(["kill", "-0", str(pid)]).returncode == 0 and time.monotonic() < deadline:
+                time.sleep(0.25)
+            self.session.run(["kill", "-9", str(pid)])
+        if self.process and self.process.poll() is None:
+            try:
+                self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+        self.identity = {}
+        self.start()
+
+    def start(self) -> None:
+        """Opens the app on this tour's socket and waits for its first answer."""
         # CMUX_NEXT_NO_ACTIVATE: the app refuses every activation, so tours side by side on one Mac never take
         # focus or the key window from each other; debug.key and the CLI work on a window that is never key.
         knobs = [f"CMUX_NEXT_SOCKET_PATH={self.socket_path}", "CMUX_NEXT_SOCKET_MODE=allowAll", "CMUX_NEXT_NO_ACTIVATE=1",
@@ -1053,8 +1077,17 @@ def capture_fixture(app: App, path: Path, config: dict[str, Any]) -> str | None:
 def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: Path) -> dict[str, Any]:
     started = time.monotonic()
     result: dict[str, Any] = {"index": index, "title": step["title"], "status": "ok"}
+    if step.get("relaunch"):
+        result["command"] = "relaunch"
+        try:
+            app.relaunch()
+            if screen.pid is not None:
+                screen.pid = app.pid()
+        except TourError as problem:
+            result["status"] = "failed"
+            result["detail"] = f"relaunch: {problem}"
     command = step.get("cmux")
-    if command:
+    if command and result["status"] == "ok":
         result["command"] = "cmux " + command_line(command)
         done = app.cli(command, daemon=bool(step.get("daemon")))
         output = (done.stdout.strip() + "\n" + done.stderr.strip()).strip()

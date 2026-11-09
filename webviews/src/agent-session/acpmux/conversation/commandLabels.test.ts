@@ -18,7 +18,14 @@ type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const shell = (command: string, extra: Partial<Tool> = {}): AcpmuxActivity => ({
   kind: "tool",
   text: "Bash",
-  tool: { id: `cmd-${next++}`, title: "Bash", kind: "execute", status: "completed", command, ...extra },
+  tool: {
+    id: `cmd-${next++}`,
+    title: "Bash",
+    kind: "execute",
+    status: "completed",
+    command,
+    ...extra,
+  },
 });
 
 const label = (item: AcpmuxActivity) => {
@@ -116,8 +123,10 @@ const CASES: [command: string, label: string][] = [
   ["git add -A && git commit -m wip && git push", "Staged all changes …"],
   // Unknown programs never get a meaning: their line, without the plumbing after it.
   ["make -j8 2>&1 | tail -20", "Ran make -j8"],
-  ["./scripts/web-lint.sh > /tmp/lint.log 2>&1", "Ran web-lint.sh"],
-  ["pwd && git status --short", "Ran pwd …"],
+  // A write to a file stays on the line: only /dev/null and fd copies are plumbing.
+  ["./scripts/web-lint.sh > /tmp/lint.log 2>&1", "Ran web-lint.sh > /tmp/lint.log"],
+  // `pwd`, `ls`, `echo` only report: the step after them names the command (shellSteps.ts).
+  ["pwd && git status --short", "Checked git status"],
   ["jq '.strings | length' Localizable.xcstrings", "Ran jq '.strings | length' Localizable.xcstrings"],
   // A subcommand the table does not know reads as its line.
   ["git rev-parse HEAD", "Ran git rev-parse HEAD"],
@@ -154,9 +163,9 @@ const CASES: [command: string, label: string][] = [
   ["cat input.txt | xargs rm", "Ran cat input.txt | xargs rm"],
   ["cat input.txt | tee -a log.txt | head", "Ran cat input.txt | tee -a log.txt"],
   ["rg --files src | rg --pre ./decode.sh x", "Ran rg --files src | rg --pre ./decode.sh x"],
-  // A read or a search whose output went into a file wrote it.
-  ["cat a.txt > b.txt", "Ran cat a.txt"],
-  ["rg -n TODO src > hits.txt", "Ran rg -n TODO src"],
+  // A read or a search whose output went into a file wrote it, and the write stays on its line.
+  ["cat a.txt > b.txt", "Ran cat a.txt > b.txt"],
+  ["rg -n TODO src > hits.txt", "Ran rg -n TODO src > hits.txt"],
   ["rg -n TODO src 2>/dev/null", "Searched for “TODO”"],
   // A find or fd that deletes or runs a command did more than list.
   ["find build -delete", "Ran find build -delete"],
@@ -202,10 +211,60 @@ test("a description names a command the table does not know, never one it knows"
   expect(label(shell("git status", { description: "Look around" }))).toBe("Checked git status");
 });
 
-test("a running command reads as its cleaned line until it finishes", () => {
-  const item = shell(`agent-memory search "better tooltips" 2>/dev/null | head -10`, { status: "in_progress" });
-  expect(label(item)).toBe(`Running agent-memory search "better tooltips"`);
+test("a running command reads as written until it finishes; cleaning is for finished labels only", () => {
+  const item = shell(`agent-memory search "better tooltips" 2>/dev/null | head -10`, {
+    status: "in_progress",
+  });
+  expect(label(item)).toBe(`Running agent-memory search "better tooltips" 2>/dev/null | head -10`);
 });
+
+test("the live line names the command as written, whitespace normalised", () => {
+  // turns.ts runningLabel: no action, no cleaning (#36940).
+  for (const status of ["in_progress", "completed"]) {
+    const tool = shell("git status   2>/dev/null | head -5", { status }).tool!;
+    expect(toolLabel(tool, "Bash", (command) => command, undefined, undefined, false)).toBe(
+      "git status 2>/dev/null | head -5",
+    );
+  }
+});
+
+// A destructive command never reads as a benign one: it says what it does, or reads as its line.
+const DESTRUCTIVE: [command: string, label: string][] = [
+  ["git push origin :lane/old", "Deleted remote branch lane/old"],
+  ["git push origin --delete lane/old", "Deleted remote branch lane/old"],
+  ["git push -d origin lane/old", "Deleted remote branch lane/old"],
+  ["git push origin +HEAD:lane/x", "Force-pushed lane/x"],
+  ["git push --force-with-lease origin HEAD:lane/x", "Force-pushed lane/x"],
+  ["git push -f", "Force-pushed commits"],
+  ["git push origin a :b", "Ran git push origin a :b"],
+  ["git push --mirror backup", "Ran git push --mirror backup"],
+  ["git reset --hard origin/main", "Ran git reset --hard origin/main"],
+  ["git clean -fdx", "Ran git clean -fdx"],
+  ["git checkout -- .", "Ran git checkout -- ."],
+  ["git checkout .", "Ran git checkout ."],
+  ["git checkout -f main", "Ran git checkout -f main"],
+  ["git switch --discard-changes main", "Ran git switch --discard-changes main"],
+  ["git branch -D lane/old", "Ran git branch -D lane/old"],
+  ["rm -rf build", "Removed build"],
+  ["gh pr close 12", "Ran gh pr close 12"],
+  ["gh pr merge 12 --squash --delete-branch", "Ran gh pr merge 12 --squash --delete-branch"],
+  ["gh pr merge 12 --admin", "Ran gh pr merge 12 --admin"],
+  ["gh run cancel 4061", "Ran gh run cancel 4061"],
+  ["gh api -X DELETE repos/o/r/git/refs/heads/x", "Ran gh api -X DELETE repos/o/r/git/refs/heads/x"],
+  ["gh api repos/o/r/issues/1/comments -f body=hi", "Ran gh api repos/o/r/issues/1/comments -f body=hi"],
+  ["find . -name '*.orig' -delete", "Ran find . -name '*.orig' -delete"],
+  ["find build -type f -exec rm {} +", "Ran find build -type f -exec rm {} +"],
+  ["fd -e log -x rm", "Ran fd -e log -x rm"],
+  ["cat a.txt > b.txt", "Ran cat a.txt > b.txt"],
+  ["head -5 a.txt | tee b.txt", "Ran head -5 a.txt | tee b.txt"],
+  ["cat $(rm -rf x)", "Ran cat $(rm -rf x)"],
+  ["lane-gh push manaflow-ai/cmux lane/x --force", "Ran lane-gh push manaflow-ai/cmux lane/x --force"],
+];
+
+for (const [command, expected] of DESTRUCTIVE)
+  test(`destructive: ${command} reads "${expected}"`, () => {
+    expect(label(shell(command))).toBe(expected);
+  });
 
 const commands = (...lines: string[]) => lines.map((line) => shell(line));
 

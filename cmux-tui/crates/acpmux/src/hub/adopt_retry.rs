@@ -67,7 +67,8 @@ pub(super) fn start_hello_budget() -> std::time::Duration {
     agent_host::link::START_HELLO_BUDGET
 }
 
-#[cfg(test)]
+// The wedged host is a Unix socket listener (agent hosts on Windows use another transport).
+#[cfg(all(test, unix))]
 mod tests {
     use crate::agent_host::{self, HostRecord};
 

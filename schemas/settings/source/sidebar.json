@@ -1,5 +1,5 @@
 {
-  "$comment": "The Appearance section's Sidebar rows and the workspace row rows (sidebar.workspaceRow.*; the per-kind lists stay off the page). Rows of other sources (appearance.sidebarSurface, workspaceColors.indicatorStyle, sidebar.side and the spaces rows, the hover cards and Now Playing) sit between these lists in SettingsSchema.all.",
+  "$comment": "The Appearance section's Sidebar rows and the workspace row rows (sidebar.workspaceRow.*; the per-kind lists stay off the page). The hover cards and Now Playing rows (their own sources) follow the sidebar list in SettingsSchema.all.",
   "lists": [
     {
       "name": "sidebar",
@@ -9,6 +9,52 @@
         "text": "Sidebar"
       },
       "rows": [
+        {
+          "key": "appearance.sidebarSurface",
+          "title": {
+            "key": "settings.sidebar.surface",
+            "text": "Sidebar Background"
+          },
+          "help": {
+            "key": "settings.sidebar.surface.help",
+            "text": "Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker than the main pane."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "same",
+              "title": {
+                "key": "settings.choice.sidebarSurface.same",
+                "text": "Same as Main Pane"
+              }
+            },
+            {
+              "value": "separate",
+              "title": {
+                "key": "settings.choice.sidebarSurface.separate",
+                "text": "Separate"
+              }
+            }
+          ],
+          "default": "same",
+          "keywords": [
+            "sidebar",
+            "background",
+            "surface",
+            "shade",
+            "color",
+            "colour",
+            "panel",
+            "separate",
+            "main pane"
+          ],
+          "swift_enum": {
+            "name": "SidebarSurface",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "SidebarSurfaceSetting"
+        },
         {
           "key": "sidebar.border",
           "title": {
@@ -1033,17 +1079,69 @@
             "type": "SidebarSectionsSetting",
             "prefixed": true
           }
-        }
-      ]
-    },
-    {
-      "name": "sidebar2",
-      "section": "appearance",
-      "group": {
-        "key": "settings.group.sidebar",
-        "text": "Sidebar"
-      },
-      "rows": [
+        },
+        {
+          "key": "workspaceColors.indicatorStyle",
+          "title": {
+            "key": "settings.workspaceColors.indicatorStyle",
+            "text": "Workspace Color Style"
+          },
+          "help": {
+            "key": "settings.workspaceColors.indicatorStyle.help",
+            "text": "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "dot",
+              "title": {
+                "key": "settings.choice.workspaceColorDot",
+                "text": "Dot"
+              }
+            },
+            {
+              "value": "leftRail",
+              "title": {
+                "key": "settings.choice.workspaceColorLeftRail",
+                "text": "Left Rail"
+              }
+            },
+            {
+              "value": "fill",
+              "title": {
+                "key": "settings.choice.workspaceColorFill",
+                "text": "Fill Row"
+              }
+            }
+          ],
+          "default": "dot",
+          "keywords": [
+            "sidebar",
+            "workspace",
+            "color",
+            "colour",
+            "tint",
+            "fill",
+            "row",
+            "background",
+            "rail",
+            "bar",
+            "dot",
+            "highlight",
+            "indicator",
+            "review",
+            "ready"
+          ],
+          "swift_enum": {
+            "name": "WorkspaceColorIndicatorStyle",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": {
+            "type": "WorkspaceColorsSetting",
+            "prefixed": true
+          }
+        },
         {
           "key": "sidebar.showLocalMachine",
           "title": {
@@ -1196,7 +1294,7 @@
           },
           "help": {
             "key": "settings.sidebar.groupPalette.help",
-            "text": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked."
+            "text": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient. Pictorial colors each group from the desktop picture at its place in the list."
           },
           "kind": "choice",
           "choices": [
@@ -1234,6 +1332,20 @@
                 "key": "settings.choice.groupPaletteVibrant",
                 "text": "Vibrant"
               }
+            },
+            {
+              "value": "gradient",
+              "title": {
+                "key": "settings.choice.groupPaletteGradient",
+                "text": "Gradient"
+              }
+            },
+            {
+              "value": "pictorial",
+              "title": {
+                "key": "settings.choice.groupPalettePictorial",
+                "text": "Pictorial"
+              }
             }
           ],
           "default": "glass",
@@ -1250,10 +1362,78 @@
             "grayscale",
             "vibrant",
             "glass",
-            "automatic"
+            "automatic",
+            "gradient",
+            "pictorial",
+            "picture"
           ],
           "swift_enum": {
             "name": "GroupPalette",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.groupGradient",
+          "name": "groupGradient",
+          "title": {
+            "key": "settings.sidebar.groupGradient",
+            "text": "Group Gradient"
+          },
+          "help": {
+            "key": "settings.sidebar.groupGradient.help",
+            "text": "The gradient that Group Colors set to Gradient steps through: each colored group takes the color at its place in the list, so neighbors step through it and a group you move recolors."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "sunset",
+              "title": {
+                "key": "settings.choice.groupGradientSunset",
+                "text": "Sunset"
+              }
+            },
+            {
+              "value": "aurora",
+              "title": {
+                "key": "settings.choice.groupGradientAurora",
+                "text": "Aurora"
+              }
+            },
+            {
+              "value": "lagoon",
+              "title": {
+                "key": "settings.choice.groupGradientLagoon",
+                "text": "Lagoon"
+              }
+            },
+            {
+              "value": "twoTone",
+              "title": {
+                "key": "settings.choice.groupGradientTwoTone",
+                "text": "Two-Tone"
+              }
+            }
+          ],
+          "default": "sunset",
+          "keywords": [
+            "sidebar",
+            "group",
+            "groups",
+            "color",
+            "colors",
+            "colour",
+            "gradient",
+            "sunset",
+            "aurora",
+            "lagoon"
+          ],
+          "swift_enum": {
+            "name": "GroupGradient",
             "generated": false,
             "module": "CmuxNextDesign"
           },
@@ -1407,17 +1587,154 @@
             "type": "SidebarPriorityViewSetting",
             "prefixed": true
           }
-        }
-      ]
-    },
-    {
-      "name": "sidebar3",
-      "section": "appearance",
-      "group": {
-        "key": "settings.group.sidebar",
-        "text": "Sidebar"
-      },
-      "rows": [
+        },
+        {
+          "key": "sidebar.side",
+          "name": "sidebarSide",
+          "title": {
+            "key": "settings.sidebar.side",
+            "text": "Sidebar Side"
+          },
+          "help": {
+            "key": "settings.sidebar.side.help",
+            "text": "The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "left",
+              "title": {
+                "key": "settings.choice.left",
+                "text": "Left"
+              }
+            },
+            {
+              "value": "right",
+              "title": {
+                "key": "settings.choice.right",
+                "text": "Right"
+              }
+            }
+          ],
+          "default": "left",
+          "keywords": [
+            "sidebar",
+            "side",
+            "left",
+            "right",
+            "position",
+            "edge",
+            "layout"
+          ],
+          "swift_enum": {
+            "name": "SidebarSide",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": {
+            "type": "ChromePlacementSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.spacesPosition",
+          "title": {
+            "key": "settings.sidebar.spacesPosition",
+            "text": "Spaces Position"
+          },
+          "help": {
+            "key": "settings.sidebar.spacesPosition.help",
+            "text": "Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "top",
+              "title": {
+                "key": "settings.choice.top",
+                "text": "Top"
+              }
+            },
+            {
+              "value": "bottom",
+              "title": {
+                "key": "settings.choice.bottom",
+                "text": "Bottom"
+              }
+            }
+          ],
+          "default": "bottom",
+          "keywords": [
+            "sidebar",
+            "spaces",
+            "rooms",
+            "profiles",
+            "dots",
+            "top",
+            "bottom",
+            "position",
+            "layout"
+          ],
+          "swift_enum": {
+            "name": "SpacesPosition",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": {
+            "type": "ChromePlacementSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.spacesVisibility",
+          "title": {
+            "key": "settings.sidebar.spacesVisibility",
+            "text": "Show Spaces"
+          },
+          "help": {
+            "key": "settings.sidebar.spacesVisibility.help",
+            "text": "Always keeps the spaces shown, also when the sidebar's controls show only on hover. On Hover lets them hide with the other controls then."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "hover",
+              "title": {
+                "key": "settings.choice.onHover",
+                "text": "On Hover"
+              }
+            },
+            {
+              "value": "always",
+              "title": {
+                "key": "settings.choice.always",
+                "text": "Always"
+              }
+            }
+          ],
+          "default": "hover",
+          "keywords": [
+            "sidebar",
+            "spaces",
+            "rooms",
+            "profiles",
+            "dots",
+            "hover",
+            "hide",
+            "show",
+            "always",
+            "visibility"
+          ],
+          "swift_enum": {
+            "name": "SpacesVisibilityMode",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": {
+            "type": "ChromePlacementSetting",
+            "prefixed": true
+          }
+        },
         {
           "key": "tabs.commandDigits",
           "title": {

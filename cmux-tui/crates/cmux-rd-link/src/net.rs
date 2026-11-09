@@ -256,8 +256,9 @@ impl Net {
         let socket = UdpSocket::bind(config.bind).map_err(|e| LinkError::Io(e.to_string()))?;
         socket.set_nonblocking(true).map_err(|e| LinkError::Io(e.to_string()))?;
         let local_addr = socket.local_addr().map_err(|e| LinkError::Io(e.to_string()))?;
-        let endpoint =
+        let mut endpoint =
             Endpoint::new(config.role, &config.session, &config.local, config.expected_remote, 0)?;
+        endpoint.set_local_networks(cmux_transport::local_networks());
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
         let command_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
@@ -493,8 +494,12 @@ impl Driver {
 
     fn turn_events(&mut self, now: u64) {
         for index in 0..self.relays.len() {
-            for event in self.relays[index].client.take_events() {
-                self.relays[index].settled = true;
+            let Some(relay) = self.relays.get_mut(index) else { continue };
+            let events = relay.client.take_events();
+            if !events.is_empty() {
+                relay.settled = true;
+            }
+            for event in events {
                 match event {
                     TurnEvent::Allocated { relayed, .. } => {
                         self.emit(NetEvent::Candidate(Candidate {
@@ -507,8 +512,9 @@ impl Driver {
                         }
                     }
                     TurnEvent::Failed(error) => {
-                        let server = self.relays[index].server;
-                        self.emit(NetEvent::RelayFailed { server, reason: error.to_string() });
+                        if let Some(server) = self.relays.get(index).map(|r| r.server) {
+                            self.emit(NetEvent::RelayFailed { server, reason: error.to_string() });
+                        }
                     }
                 }
             }
@@ -615,7 +621,10 @@ impl Driver {
                         }
                     }
                     Command::Control(r) => self.endpoint.send_control(r, now)?,
-                    Command::NetworkChange => self.endpoint.on_network_change(),
+                    Command::NetworkChange => {
+                        self.endpoint.set_local_networks(cmux_transport::local_networks());
+                        self.endpoint.on_network_change();
+                    }
                     Command::Close => {
                         if self.endpoint.link().is_established() {
                             for t in self.endpoint.close()? {
@@ -634,9 +643,11 @@ impl Driver {
             loop {
                 match self.socket.recv_from(&mut buf) {
                     Ok((n, from)) => {
-                        let packet = &buf[..n];
-                        if let Some(index) = self.relays.iter().position(|r| r.server == from) {
-                            match self.relays[index].client.on_packet(packet, now) {
+                        let packet = buf.get(..n).unwrap_or_default();
+                        if let Some((index, server)) =
+                            self.relays.iter_mut().enumerate().find(|(_, r)| r.server == from)
+                        {
+                            match server.client.on_packet(packet, now) {
                                 TurnReceive::Data { peer, payload } => {
                                     let relay = u16::try_from(index).unwrap_or(u16::MAX);
                                     if self.deliver(Route::Relay { relay, peer }, payload, now)? {

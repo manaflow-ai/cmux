@@ -7,7 +7,7 @@ import CoreGraphics
 /// circle and search field, a 24 pt Unread chip); a bigger density or text size adds the band
 /// tokens' extra height (``SidebarRowTokens/band``, so Expanded is Comfortable's, as the pinned rows
 /// above the list; ``SidebarRowTokens/extraHeight``) to the circle and the chip, and the text
-/// step (`SidebarTextSize.textStep`) to their text. Pure: ``HomeSidebarHeaderLayout`` and the views
+/// step (``SidebarRowTokens/textSteps``, from Compact's own base at Compact) to their text. Pure: ``HomeSidebarHeaderLayout`` and the views
 /// take one through their initializers; ``current`` reads the app's settings.
 nonisolated struct HomeSidebarHeaderMetrics: Equatable, Sendable {
     /// The filter circle's diameter and the search capsule's height, as in Messages (its glass
@@ -49,7 +49,7 @@ nonisolated struct HomeSidebarHeaderMetrics: Equatable, Sendable {
         let base = Self.standard
         let tokens = tokens.band
         let extra = tokens.extraHeight
-        let step = tokens.textSize.textStep
+        let step = tokens.textSteps.text
         self.init(side: base.side + extra, chipHeight: base.chipHeight + extra,
                   chipGap: base.chipGap + (extra / 2).rounded(), chipPadding: base.chipPadding + (extra / 2).rounded(),
                   chipFontSize: detail + step, chipGlyphSize: (caption * 0.8).rounded() + step, emptyTextStep: step)

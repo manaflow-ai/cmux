@@ -71,6 +71,8 @@ cmux-cloud-environment.workspace = true
 cmux-cloud-wire.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
+# The tab a pane shows after a close (close_focus::tab), the app's and the daemon's rule.
+cmux-focus-core.workspace = true
 # The daemon client every SDK user shares (cli/chief/link.rs talks through it).
 cmux-sdk = { path = "../../bindings/rust", default-features = false }
 # Only for `hotpatch` (see the feature).
@@ -138,6 +140,8 @@ acpmux = { path = "../acpmux", default-features = false }
 acpmux-build-id = { path = "../acpmux-build-id" }
 
 [target.'cfg(unix)'.dependencies]
+# `cmux carrier dial --service desktop`: the desktop's datagram link (carrier/rd_link.rs).
+cmux-rd-link = { path = "../cmux-rd-link", features = ["net"] }
 cmux-cloud-api.workspace = true
 # `cmux cloud codex-holder` (cli/cloud_codex_holder.rs, unix only).
 cmux-cloud-codex-holder.workspace = true
@@ -190,6 +194,8 @@ windows-sys = { workspace = true, features = ["Win32_System_LibraryLoader"] }
 serde_json.workspace = true
 
 [dev-dependencies]
+# carrier/rd_link.rs tests: the rd host's own parser reads what the dial sends.
+cmux-rd-proto = { path = "../cmux-rd-proto", features = ["serde"] }
 # tests/carrier_dial.rs: a real relay for `cmux carrier dial`.
 axum.workspace = true
 cmux-pty.workspace = true

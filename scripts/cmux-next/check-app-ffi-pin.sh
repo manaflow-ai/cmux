@@ -133,7 +133,20 @@ if [[ "$verify" -eq 1 ]]; then
   trap 'rm -rf "$work"' EXIT
   # Every error retries (a runner's TLS read timeout is curl 35, which plain
   # --retry treats as fatal: cmux-next.yml run 37317248488).
-  fetch() { curl -fsSL --connect-timeout 15 --max-time 60 --retry 5 --retry-all-errors --retry-delay 3 -o "$1" "$2"; }
+  get() { curl -fsSL --connect-timeout 15 --max-time 60 --retry 5 --retry-all-errors --retry-delay 3 "$@"; }
+  # A release download that still fails goes through the release-assets API, which serves the same file another
+  # way (2026-11-08: every release download answered 504 for hours while the API served the same bytes). What it
+  # gets is checked below like the download.
+  fetch() {
+    get -o "$1" "$2" && return
+    [[ "$2" =~ ^https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/([^/]+)$ ]] || return 1
+    local api="https://api.github.com/repos/${BASH_REMATCH[1]}/${BASH_REMATCH[2]}" name="${BASH_REMATCH[4]}" asset_url
+    echo "app FFI pin: $2 failed; fetching it through the release-assets API" >&2
+    asset_url="$(get -H 'Accept: application/vnd.github+json' "$api/releases/tags/${BASH_REMATCH[3]}" \
+      | python3 -c 'import json, sys; print(next(a["url"] for a in json.load(sys.stdin)["assets"] if a["name"] == sys.argv[1]))' "$name")" \
+      || return 1
+    get -H 'Accept: application/octet-stream' -o "$1" "$asset_url"
+  }
   fetch "$work/SOURCE_SHA" "$base/SOURCE_SHA"
   fetch "$work/SHA256SUMS" "$base/SHA256SUMS"
   [[ "$(tr -d '[:space:]' < "$work/SOURCE_SHA")" == "$sha" ]] \

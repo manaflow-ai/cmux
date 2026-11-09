@@ -15,8 +15,7 @@ import { chatColumnOf, useChatSizing } from "../chatWidth";
 import type { RowsChange } from "../threadMinimap/model";
 import { stopScroll } from "../threadMinimap/scrollMotion";
 import { THREAD_PADDING_TOP } from "../threadMinimap/model";
-import { experimentArm } from "../../../experiments/experiment";
-import { chatMinimapPlaceholder } from "./placeholder.experiment";
+
 import {
   firstChangedRow,
   MINIMAP_BOTTOM,
@@ -30,9 +29,7 @@ import {
   type MinimapColors,
 } from "./paint";
 import "./chatMinimap.css";
-
-/// While the rows keep changing, the picture follows at most this often.
-export const REDRAW_MS = 250;
+import { REDRAW_MS, placeholderLook } from "./chatMinimapModel";
 /// A scroll rests this long before rows measured while it moved draw (at most SCROLL_MAX_WAIT_MS late).
 const SCROLL_REST_MS = 150;
 const SCROLL_MAX_WAIT_MS = 1000;
@@ -61,10 +58,6 @@ type Props = {
 };
 type Source = { rows: readonly AcpmuxRow[]; layout: TranscriptLayout };
 
-/// The placeholder's look: the shimmer, except in the gallery, which compares the others. Only the
-/// gallery sets an arm in globalThis.cmuxExperiments; a stored cmux.experiments override is ignored.
-export const placeholderLook = () => experimentArm(chatMinimapPlaceholder, { stored: {} });
-
 /// Draws nothing, and reads no row, unless the setting is on; the rows are tracked only then.
 export function ChatMinimap(props: Props) {
   return useChatMinimap() ? <ChatMinimapOn {...props} /> : null;
@@ -75,7 +68,7 @@ function ChatMinimapOn(props: Props) {
   const track = Math.floor(props.foot - MINIMAP_TOP - MINIMAP_BOTTOM);
   // The right gutter of the column the chat really draws (Text Width, Full Width): none, no minimap.
   const sizing = useChatSizing();
-  const column = chatColumnOf(sizing.width, useChatDisplay(), sizing.scale);
+  const column = chatColumnOf(useChatDisplay(), sizing.scale);
   const width = minimapWidth(transcriptColumn(props.width, column).inset);
   // The rows reach the map through a ref: a token renders nothing in it.
   const source = useRef<Source>({ rows: props.rows, layout: props.layout });

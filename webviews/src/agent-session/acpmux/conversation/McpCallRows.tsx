@@ -31,16 +31,24 @@ import { ToolOutput } from "./ToolOutputBody";
 import { isMcpLifecycleOutput, usefulMcpResponse } from "./mcpPresentation";
 import { ToolDetail } from "./ToolDetail";
 import { argsSource, inputFields, requestText, type InputField } from "./toolInputFields";
-import { toolIcon, ToolImages } from "./ToolRow";
+import { ToolImages } from "./ToolRow";
+import { toolIcon } from "./toolRowModel";
 import { ToolVisualRow } from "./ToolVisualPreview";
 import { VideoFramesCard } from "./VideoFramesCard";
 import { videoFrames } from "./videoFrames";
-import { useRowDisclosure, useTranscriptDisclosure } from "./transcriptDisclosure";
+import {
+  callDisclosureKeys,
+  FoldPin,
+  useFoldPin,
+  useRowDisclosure,
+  useTranscriptDisclosure,
+} from "./transcriptDisclosureModel";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { ToolLabel } from "./ToolVerb";
 import { useMoreBelow } from "./moreBelow";
 import { toolFailure } from "./toolFailure";
-import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
+import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
+import { failureWord } from "./toolFailureCauseModel";
 
 export function McpCallRows({ items, disclosureKey }: { items: readonly AcpmuxActivity[]; disclosureKey: string }) {
   return items.length === 1 ? (
@@ -53,8 +61,10 @@ export function McpCallRows({ items, disclosureKey }: { items: readonly AcpmuxAc
 function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[]; disclosureKey: string }) {
   const t = useT();
   const names = useContext(McpNamesContext);
-  // The Verbose transcript view opens the calls.
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, false, true);
+  // The Verbose transcript view opens the calls; a call the reader opened before it was grouped too.
+  const members = useMemo(() => callDisclosureKeys(items), [items]);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, false, true, undefined, false, members);
+  const pin = useFoldPin(disclosureKey);
   useFindReveal(items, () => setOpen(true));
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const detailsId = useId();
@@ -93,11 +103,13 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
       </button>
       {fold.present && (
         <div {...fold.bodyProps}>
-          <div className="cv-tool-group" id={detailsId}>
-            {items.map((item, index) => (
-              <McpCallRow key={item.tool!.id || index} item={item} grouped />
-            ))}
-          </div>
+          <FoldPin.Provider value={pin}>
+            <div className="cv-tool-group" id={detailsId}>
+              {items.map((item, index) => (
+                <McpCallRow key={item.tool!.id || index} item={item} grouped />
+              ))}
+            </div>
+          </FoldPin.Provider>
         </div>
       )}
     </>

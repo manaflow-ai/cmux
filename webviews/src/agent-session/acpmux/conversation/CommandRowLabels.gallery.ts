@@ -2,7 +2,7 @@
 // Command rows that say what the command did (Leo, 2026-11-07: "it's not just you ran a command.
 // It's that you ran a specific thing"; commandActions.ts). One working turn: Leo's two memory
 // searches as he saw them under "Ran 2 commands", a mixed run (git, rg, a read, gh, an unknown
-// make), a heredoc script only its description names, and two reads. Compare arms shows the
+// make), a heredoc script only its description names, two reads, and two compound commands (Leo's ffmpeg pipeline, a `cd && H=$(…); gh pr merge`). Compare arms shows the
 // `command-label-look` experiment: the verb table first (default), the description first, the verb
 // with the dimmed command, the cleaned line, and the line as typed (the look before).
 import { agentPaneEntry } from "../../../gallery/format";
@@ -28,6 +28,15 @@ import json
 strings = json.load(open("webviews/src/agent-session/acpmux/Localizable.xcstrings"))["strings"]
 print(sum(1 for key in strings if key.startswith("tools.")))
 EOF`;
+
+/// Leo's compound command (2026-11-07 screenshot, "Ran 0*.mov) …" before): an assignment that only
+/// feeds `$V`, then ffmpeg piped into an inline script. It reads "Ran ffmpeg → python3 on *.mov".
+const FFMPEG = `V=$(ls "$HOME/Library/Application Support/cmux/Chat Uploads/sessions/s1/0/"*.mov); ffmpeg -v error -i "$V" -vf "format=gray" -f rawvideo - 2>/dev/null | python3 -c "
+import sys
+data = sys.stdin.buffer.read()
+print(len(data) // (64 * 36))
+"`;
+const MERGE = `cd ~/wt/x && H=$(git rev-parse HEAD); echo $H; gh pr merge 32695 --squash --match-head-commit $H 2>&1 | tail -5`;
 
 /// The turn, with Claude's descriptions on its calls or (Codex) none.
 const turn = (harness: "claude" | "codex") => {
@@ -88,7 +97,14 @@ const turn = (harness: "claude" | "codex") => {
         ],
         7.8,
       ),
-      assistant("Both specs say 280px. Changing the literal now.\n\nOne edit.", 7.6),
+      assistant("Both specs say 280px. Checking the recording frames, then merging.", 7.6),
+      activity(
+        [
+          shell(FFMPEG, undefined, "142\n", 7.5),
+          shell(MERGE, undefined, "✓ Squashed and merged pull request #32695\n", 7.4),
+        ],
+        7.5,
+      ),
     ],
     {
       isWorking: true,

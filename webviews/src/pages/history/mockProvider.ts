@@ -7,6 +7,7 @@ import {
   ACTION_RUN,
   CLIPBOARD_WRITE,
   HistoryOps,
+  type CookieBackup,
   type HistoryChanged,
   type HistoryEntry,
   type HistoryKind,
@@ -76,6 +77,12 @@ export class MockHistoryProvider implements PageClient {
   offline = false;
   /** The host's page streams (connection, dispatcher commands). */
   readonly page = new MockPageStreams();
+  /** The app's cookie backups; `confirmDelete` is the person's answer to its dialog. */
+  cookieBackups: CookieBackup[] = [
+    { id: "app:mock1", site: "accounts.example.com", created_at_ms: Date.now() - 3_600_000 },
+    { id: "app:mock2", created_at_ms: Date.now() - 50 * 3_600_000 },
+  ];
+  confirmDelete = true;
 
   constructor(
     entries: HistoryEntry[] = sampleEntries(Date.now()),
@@ -106,6 +113,15 @@ export class MockHistoryProvider implements PageClient {
           (entry) => !cleared.includes(entry.kind) || (start !== undefined && entry.at_ms < start),
           cleared,
         ) as R;
+      }
+      case HistoryOps.cookieBackupsList:
+        return { backups: [...this.cookieBackups] } as R;
+      case HistoryOps.cookieBackupsDelete: {
+        if (!this.confirmDelete) return { confirmed: false } as R;
+        const ids = (params as { ids: string[] }).ids;
+        const before = this.cookieBackups.length;
+        this.cookieBackups = this.cookieBackups.filter((backup) => !ids.includes(backup.id));
+        return { confirmed: true, deleted: before - this.cookieBackups.length } as R;
       }
       case ACTION_RUN:
       case CLIPBOARD_WRITE:

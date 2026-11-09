@@ -2,13 +2,12 @@ import AppKit
 @testable import CmuxNextDesign
 import CmuxNextDesignTokens
 @testable import CmuxNextSidebar
-import CoreText
 import Testing
 
 /// Issue 28793: the sidebar's defaults (compact app density, `sidebar.density` normal, `sidebar.textSize`
 /// small) match the Codex desktop sidebar (2026-11-02: "the default for the sidebar text should be the codex
 /// text size"): 13 pt row titles at weight 430, 12 pt detail
-/// lines, one-line rows on a 30 pt pitch (row plus row gap) and 8 pt horizontal padding. Only the
+/// lines (in the macOS system font, the UI font since 2026-11-07), one-line rows on a 30 pt pitch (row plus row gap) and 8 pt horizontal padding. Only the
 /// sidebar's own defaults move; other chrome keeps `Typography.body` and `Metrics.sidebarRowHeight`,
 /// and a person's Interface Size, chrome font size, `appearance.metrics.sidebarRowHeight`, sidebar
 /// density and custom densities still win. `sidebar.density` compact keeps the sidebar from before, exactly,
@@ -57,10 +56,10 @@ import Testing
         try DensityTokens.$scoped.withValue(tokens, operation: body)
     }
 
-    /// The CSS weight Inter's `wght` axis draws `font` at, nil for a face without the axis.
-    private static func drawnWeight(_ font: NSFont) -> Double? {
-        let variation = CTFontCopyVariation(font) as? [NSNumber: NSNumber]
-        return variation?[NSNumber(value: UInt32(0x7767_6874))]?.doubleValue
+    /// The weight trait `font` reports (`NSFontDescriptor`'s `.weight`).
+    private static func weightTrait(_ font: NSFont) -> CGFloat? {
+        let traits = font.fontDescriptor.object(forKey: .traits) as? [NSFontDescriptor.TraitKey: Any]
+        return (traits?[.weight] as? NSNumber).map { CGFloat($0.doubleValue) }
     }
 
     // MARK: Defaults
@@ -69,12 +68,14 @@ import Testing
         try Self.at {
             #expect(SidebarStyle.titleFont.pointSize == 13)
             #expect(SidebarStyle.subtitleFont.pointSize == 12)
-            #expect(abs(BundledFonts.cssWeight(TypeScale.sidebar) - 430) < 0.5, "TypeScale.sidebar is \(BundledFonts.cssWeight(TypeScale.sidebar))")
-            if BundledFonts.isRegistered {
-                #expect(SidebarStyle.titleFont.familyName == TypeScale.fileFamily, "the sidebar keeps Inter")
-                let weight = try #require(Self.drawnWeight(SidebarStyle.titleFont), "Inter's wght axis")
-                #expect(abs(weight - 430) < 1, "row titles draw at wght \(weight)")
-            }
+            // The Codex sidebar's 430: 30% of the way from regular to medium, in the macOS system font
+            // (the UI font since 2026-11-07), whose weight axis draws between the two.
+            let expected = NSFont.Weight.regular.rawValue + (NSFont.Weight.medium.rawValue - NSFont.Weight.regular.rawValue) * 0.3
+            #expect(abs(TypeScale.sidebar.rawValue - expected) < 0.0001, "TypeScale.sidebar is \(TypeScale.sidebar.rawValue)")
+            #expect(SidebarStyle.titleFont.familyName == NSFont.systemFont(ofSize: 13).familyName, "the system UI font")
+            let drawn = try #require(Self.weightTrait(SidebarStyle.titleFont))
+            #expect(drawn > NSFont.Weight.regular.rawValue && drawn < NSFont.Weight.medium.rawValue,
+                    "row titles draw between regular and medium, got \(drawn)")
             // A realized workspace row draws its title in that font.
             let row = try #require(Self.sidebar().list.rowViews[.workspace(Self.first)] as? WorkspaceRowView)
             #expect(row.title.font.pointSize == 13)

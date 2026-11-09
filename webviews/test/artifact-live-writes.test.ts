@@ -2,7 +2,8 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { artifactLiveSource, WrittenArtifactLive } from "../src/agent-session/acpmux/conversation/artifactLive";
-import { latestWrittenArtifacts, toolArtifacts } from "../src/agent-session/acpmux/conversation/writtenArtifacts";
+import { toolArtifacts } from "../src/agent-session/acpmux/conversation/artifactWrites";
+import { latestWrittenArtifacts } from "../src/agent-session/acpmux/conversation/writtenArtifactsModel";
 import { outputArtifacts } from "../src/agent-session/acpmux/session-info/outputsSectionModel";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;

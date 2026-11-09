@@ -15,7 +15,7 @@ import { createContext, type ReactNode } from "react";
 import type { HunkReview } from "../changes/hunkReview";
 import type { AccessOffer } from "../accessOffer";
 import type { ChatAccount } from "../chatAccounts";
-import type { HarnessHealth } from "../HarnessHealthNotice";
+import type { HarnessHealth } from "../harnessHealthNoticeModel";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import type { Subagent } from "../subagents/subagentFold";
 import type { RetryNote, RetryTarget } from "../subagents/retryState";
@@ -80,6 +80,9 @@ export type TurnActions = {
   /// path, so it shows as the reader's prompt and starts the next turn. Absent where the pane cannot
   /// send (View Only, a read-only pane); the card then draws no buttons.
   answer?: (text: string) => Promise<void>;
+  /// Who asks in this chat, the chat's agent by name (agents.ts `agentName`): an answer to its ask
+  /// quotes the ask under this name (nextStepAsk.ts `answerPrompt`).
+  asker?: string;
   /// Scrolls to call `toolCallId`'s row and opens it, opening the fold and run that hold it (App.tsx
   /// `showToolRow`): a turn waterfall's bar (TurnWaterfall.tsx). `startedAt` picks the call among
   /// several with a reused id. False when no loaded row holds it.

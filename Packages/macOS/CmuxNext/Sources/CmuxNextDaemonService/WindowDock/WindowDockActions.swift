@@ -3,7 +3,7 @@ import CmuxNextLayout
 
 /// The window frame's dock actions (plans/cmux-next/docked-workspace-DESIGN.md): Dock Workspace
 /// Left/Right/Top/Bottom, Undock Workspace, Float Docked Workspace, Toggle Left/Right/Top/Bottom Dock and Toggle
-/// Dock Corners, and the window dock's (user 2026-11-05) Show/Hide Chief (Cmd-I), Move Pane to Dock, Move Dock to
+/// Dock Corners, and the window dock's (user 2026-11-05) Show/Hide Chief (Cmd-I) and its system-wide key, Move Pane to Dock, Move Dock to
 /// Left/Right/Top/Bottom, Show/Hide Dock, Show/Hide Dock Tab Bar and Focus Dock. Home never docks as a workspace
 /// (user 2026-11-06): Dock Workspace on Home docks the Chief panel (a Chief-only pane, never over Home), and Undock
 /// floats it again. Every entry point (palette,
@@ -82,6 +82,21 @@ public struct WindowDockActions {
         registry.bindEffect("home.openChiefDock") { invocation in
             guard LayoutTunables.dockedWorkspaces.value else { return .refused(RefusalStrings.dockedWorkspacesOff) }
             guard let frame = host.dockFrame(invocation) else { return .refused(RefusalStrings.noWindowOpen) }
+            return Self.openChiefDock(in: frame, host, registry)
+        }
+        // Undock Chief (cmux#37372): a docked Chief panel floats again over the stage, shown.
+        registry.bindEffect("home.undockChief") { invocation in
+            guard LayoutTunables.dockedWorkspaces.value else { return .refused(RefusalStrings.dockedWorkspacesOff) }
+            guard let frame = host.dockFrame(invocation) else { return .refused(RefusalStrings.noWindowOpen) }
+            return frame.undockChiefPanel() ? .done : .refused(RefusalStrings.chiefNotDocked)
+        }
+        // Show/Hide Chief from Any App (Option-Shift-Space): cmux comes forward; a Chief already floating there takes
+        // the keys, else Show/Hide Chief runs (it hides the panel only when cmux was in front).
+        registry.bindEffect("home.showHideChiefFromAnyApp") { invocation in
+            guard LayoutTunables.dockedWorkspaces.value else { return .refused(RefusalStrings.dockedWorkspacesOff) }
+            let wasBehind = host.chiefBringAppForward()
+            guard let frame = host.dockFrame(invocation) else { return .refused(RefusalStrings.noWindowOpen) }
+            if wasBehind, frame.frameChiefPanelShown { frame.frameFocusChiefPanel(); return .done }
             return Self.openChiefDock(in: frame, host, registry)
         }
         registry.bindEffect("window.movePaneToDock") { invocation in
