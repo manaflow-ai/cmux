@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 615,
+  "count": 616,
   "sections": [
     {
       "id": "general",
@@ -371,6 +371,14 @@
             "1h",
             "5m"
           ]
+        },
+        {
+          "key": "agents.promptSuggestions",
+          "title": "Suggest Next Prompt",
+          "help": "After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Sessions"
         },
         {
           "key": "agents.subsessions.answerQuestions",
@@ -2643,7 +2651,7 @@
         },
         {
           "key": "appearance.metrics.chromeFontSize",
-          "title": "Interface Size",
+          "title": "Text Size",
           "help": "Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size.",
           "kind": "number",
           "default": null,
