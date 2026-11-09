@@ -123,9 +123,9 @@ export function EnvironmentPicker({
   current: string;
   onPick(id: string): void;
   onConnect?(kind: ConnectKind): void;
-  /// The app's Cloud account state. Only an explicit signed-out answer turns the Cloud row into
-  /// Sign in for Cloud; before any answer the row is Cloud. The right-click menu keeps Sign in for
-  /// Cloud until the app says signed in.
+  /// The app's Cloud account state (`cloudMachine.list` signedIn). Only an explicit signed-out answer
+  /// (false) turns the Cloud row into Sign in for Cloud, and offers it on the right-click menu; before
+  /// any answer (undefined) the row is Cloud, never a claim that the person is signed out.
   cloudSignedIn?: boolean;
   saved?: SavedEnvironmentRows;
   /// The list opened, and every few seconds while it stays open: the host reads the machines
@@ -372,7 +372,7 @@ export function EnvironmentPicker({
         },
       });
     if (onConnect) {
-      if (cloudSignedIn !== true)
+      if (cloudSignedIn === false)
         items.push({ id: "cloudSignIn", label: t("composer.cloudSignIn"), onSelect: () => onConnect("cloudSignIn") });
       for (const [kind, key] of [
         ["cloud", "composer.newCloudMachine"],

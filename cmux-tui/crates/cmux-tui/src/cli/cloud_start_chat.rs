@@ -1,6 +1,6 @@
-//! `cmux cloud start-chat [--prompt TEXT] [--agent claude] [--cwd DIR] [--login L] [--environment E]
-//! [--name MACHINE | --target machine:ID] [--wait] [--timeout SECONDS]`: one command takes a Cloud chat from
-//! nothing to a reply, for a person, a script or the Chief (Leo, 2026-11-02: "we need to improve
+//! `cmux cloud start-chat [--prompt TEXT] [--agent claude] [--cwd DIR | --from-folder PATH] [--login L]
+//! [--environment E] [--name MACHINE | --target machine:ID] [--wait] [--timeout SECONDS]`: one command takes
+//! a Cloud chat from nothing to a reply, for a person, a script or the Chief (Leo, 2026-11-02: "we need to improve
 //! the docs/instructions/commands and guidance and whatnot to make this all smoother faster more
 //! efficient more exposed / cuz chief will be using this kind of flow").
 //!
@@ -9,8 +9,11 @@
 //!
 //! 1. `cloud list-machines`: refuses at once when the app is signed out of cmux.
 //!    With `--environment`, `cloud new-machine --environment E` first makes the chat's machine in it.
-//! 2. `cloud start-session (--name N | --target T) --agent A [--cwd D] [--login L]`: takes the machine (or
-//!    creates it) and opens the chat's tab in the machine's workspace, a real chat in the app.
+//! 2. `cloud start-session (--name N | --target T) --agent A [--cwd D | --from-folder P] [--login L]`: takes
+//!    the machine (or creates it) and opens the chat's tab in the machine's workspace, a real chat in the app.
+//!    With `--from-folder` (an existing folder on this Mac) the app copies that folder to the machine the
+//!    way the agent pane composer's Cloud start copies one, and the chat starts in the copy; a retry on the
+//!    same machine reuses the finished copy.
 //!    Without `--name` or `--target` it creates a new small machine with a new name, so the chat
 //!    never lands on a machine another workspace uses (leo-workspace `design/cloud.md`, "One
 //!    workspace per small machine").
@@ -69,6 +72,7 @@ const TAKES_VALUE: &[&str] = &[
     "-p",
     "--agent",
     "--cwd",
+    "--from-folder",
     "--login",
     "--environment",
     "--name",
@@ -97,6 +101,8 @@ pub(super) struct Request {
     pub prompt: Option<String>,
     pub agent: String,
     pub cwd: Option<String>,
+    /// `--from-folder`: a folder on this Mac, canonical; the chat starts in its copy on the machine.
+    pub from_folder: Option<String>,
     /// `--login pass|machine|none`: the harness login the machine's agent gets, as `cloud start-session`
     /// takes it (`CloudHarnessLoginAsk`); `None` leaves the app's default.
     pub login: Option<String>,
@@ -170,6 +176,7 @@ pub(super) fn send_existing(
         prompt: Some(prompt),
         agent: String::new(),
         cwd: None,
+        from_folder: None,
         login: None,
         environment: None,
         machine: Machine::Target(machine_id.to_owned()),
@@ -284,6 +291,7 @@ pub(super) fn parse(
     let mut prompt = None;
     let mut agent = None;
     let mut cwd = None;
+    let mut from_folder = None;
     let mut login = None;
     let mut environment = None;
     let mut name = None;
@@ -314,6 +322,7 @@ pub(super) fn parse(
             "--prompt" | "-p" => prompt = Some(value()?),
             "--agent" => agent = Some(value()?),
             "--cwd" => cwd = Some(value()?),
+            "--from-folder" => from_folder = Some(value()?),
             "--login" => login = Some(value()?),
             "--environment" => environment = Some(value()?),
             "--name" => name = Some(value()?),
@@ -366,6 +375,7 @@ pub(super) fn parse(
     {
         return Err(UsageError::new(format!("--cwd {dir}: an absolute folder on the machine")));
     }
+    let from_folder = from_folder.map(|dir| local_folder(&dir, cwd.is_some())).transpose()?;
     let login = match login.map(|word| word.trim().to_lowercase()) {
         Some(word) if !LOGINS.contains(&word.as_str()) => {
             return Err(UsageError::new(format!("--login {word:?}: pass, machine or none")));
@@ -396,7 +406,17 @@ pub(super) fn parse(
         }
         (None, None) => Machine::New,
     };
-    Ok(Parsed::Run(Request { prompt, agent, cwd, login, environment, machine, wait, timeout }))
+    Ok(Parsed::Run(Request {
+        prompt,
+        agent,
+        cwd,
+        from_folder,
+        login,
+        environment,
+        machine,
+        wait,
+        timeout,
+    }))
 }
 
 /// One run of this binary: its exit code and what it printed.
@@ -522,6 +542,9 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
     }
     if let Some(cwd) = &request.cwd {
         words.push(format!("--cwd {}", shell_quote(cwd)));
+    }
+    if let Some(folder) = &request.from_folder {
+        words.push(format!("--from-folder {}", shell_quote(folder)));
     }
     if let Some(login) = &request.login {
         words.push(format!("--login {login}"));
@@ -979,6 +1002,9 @@ fn steps(
     if let Some(cwd) = &request.cwd {
         start.extend(["--cwd".to_owned(), cwd.clone()]);
     }
+    if let Some(folder) = &request.from_folder {
+        start.extend(["--from-folder".to_owned(), folder.clone()]);
+    }
     if let Some(login) = &request.login {
         start.extend(["--login".to_owned(), login.clone()]);
     }
@@ -988,57 +1014,7 @@ fn steps(
         Err(error) => return start_refused(error, &listed, request),
     };
     if at(&started, "pending").as_bool() == Some(true) {
-        let again = again_command(request, &machine);
-        // Past the deadline the machine list is not read for the stage.
-        let stage = if deadline.passed(runner) {
-            StartStage {
-                machine_id: at(&started, "machine_id").as_str().map(str::to_owned),
-                unread: true,
-                reason: Some("--timeout ran out before it was read".to_owned()),
-                ..StartStage::default()
-            }
-        } else {
-            start_stage(runner, &started)
-        };
-        let capped = stage
-            .reason
-            .as_deref()
-            .filter(|_| stage.is_final())
-            .and_then(|why| cap::cap_of("", why));
-        if let Some(found) = capped {
-            let why = stage.reason.as_deref().unwrap_or_default();
-            let (message, details) = cap::at_cap(found, why, &listed, |id| {
-                again_command(request, &Machine::Target(id.to_owned()))
-            });
-            return failed("cloud.machine_cap", message, details, 1);
-        }
-        if stage.is_final() {
-            return failed(
-                "cloud.start_failed",
-                format!(
-                    "the machine failed to start ({}); running the command again will not help. \
-                     Start a new one: {}",
-                    stage.describe(),
-                    again_command(request, &Machine::New)
-                ),
-                json!({"stage": stage.json(), "machine_name": at(&started, "machine_name"),
-                       "machine_id": stage.machine_id.map_or_else(|| at(&started, "machine_id").clone(), Value::String),
-                       "app": at(&started, "text")}),
-                1,
-            );
-        }
-        return failed(
-            "cloud.start_pending",
-            format!(
-                "the machine is still starting (stuck at: {}); the chat opens in its workspace when it is up. \
-                 Run the same command again to keep waiting: {again}",
-                stage.describe()
-            ),
-            json!({"again": again, "machine_name": at(&started, "machine_name"),
-                   "machine_id": stage.machine_id.clone().map_or_else(|| at(&started, "machine_id").clone(), Value::String),
-                   "stage": stage.json(), "app": at(&started, "text")}),
-            75,
-        );
+        return start_pending(runner, request, &machine, &started, &listed, deadline);
     }
     let (Some(machine_id), Some(session)) =
         (at(&started, "machine_id").as_str(), at(&started, "session_id").as_str())
@@ -1079,6 +1055,70 @@ fn steps(
         return out_of_time(request, &Machine::Target(machine_id.to_owned()), answer);
     }
     send_prompt(runner, request, machine_id, session, (prompt, answer), deadline, progress)
+}
+
+/// The answer for a start the app answered `pending` for: where it is stuck, and the same command again to keep
+/// waiting, or a new machine when this one will not come up. A machine a cap failed names the account's machines
+/// and how to make room ([`cap`]). Past the deadline the machine list is not read for the stage.
+fn start_pending(
+    runner: &mut dyn Runner,
+    request: &Request,
+    machine: &Machine,
+    started: &Value,
+    listed: &Value,
+    deadline: Deadline,
+) -> Outcome {
+    let again = again_command(request, machine);
+    let stage = if deadline.passed(runner) {
+        StartStage {
+            machine_id: at(started, "machine_id").as_str().map(str::to_owned),
+            unread: true,
+            reason: Some("--timeout ran out before it was read".to_owned()),
+            ..StartStage::default()
+        }
+    } else {
+        start_stage(runner, started)
+    };
+    let capped =
+        stage.reason.as_deref().filter(|_| stage.is_final()).and_then(|why| cap::cap_of("", why));
+    if let Some(found) = capped {
+        let why = stage.reason.as_deref().unwrap_or_default();
+        let (message, details) = cap::at_cap(found, why, listed, |id| {
+            again_command(request, &Machine::Target(id.to_owned()))
+        });
+        return failed("cloud.machine_cap", message, details, 1);
+    }
+    if stage.is_final() {
+        return failed(
+            "cloud.start_failed",
+            format!(
+                "the machine failed to start ({}); running the command again will not help. \
+                 Start a new one: {}",
+                stage.describe(),
+                again_command(request, &Machine::New)
+            ),
+            json!({"stage": stage.json(), "machine_name": at(started, "machine_name"),
+                   "machine_id": stage.machine_id.map_or_else(|| at(started, "machine_id").clone(), Value::String),
+                   "app": at(started, "text")}),
+            1,
+        );
+    }
+    failed(
+        "cloud.start_pending",
+        format!(
+            "the machine is still starting (stuck at: {}{}); the chat opens in its workspace when it is up. \
+             Run the same command again to keep waiting: {again}",
+            stage.describe(),
+            request
+                .from_folder
+                .as_ref()
+                .map_or_else(String::new, |dir| format!(", or copying {dir} to it"))
+        ),
+        json!({"again": again, "machine_name": at(started, "machine_name"),
+               "machine_id": stage.machine_id.clone().map_or_else(|| at(started, "machine_id").clone(), Value::String),
+               "stage": stage.json(), "app": at(started, "text")}),
+        75,
+    )
 }
 
 /// Step 4, the prompt to `session` on `machine_id`: inside the command when it fits there, else from
@@ -1746,62 +1786,6 @@ fn sent_failure(error: Value, answer: Value) -> Outcome {
     )
 }
 
-/// The `@@name` sections a step's script printed: `@@exit 0` is the section `exit` with `0`.
-pub(super) fn sections(stdout: &str) -> std::collections::HashMap<String, String> {
-    let mut out = std::collections::HashMap::new();
-    let mut current: Option<String> = None;
-    for line in stdout.lines() {
-        if let Some(header) = line.strip_prefix("@@") {
-            let (name, rest) = header.split_once(' ').unwrap_or((header, ""));
-            out.insert(name.to_owned(), rest.to_owned());
-            current = Some(name.to_owned());
-            continue;
-        }
-        if let Some(name) = &current {
-            let text: &mut String = out.entry(name.clone()).or_default();
-            if !text.is_empty() {
-                text.push('\n');
-            }
-            text.push_str(line);
-        }
-    }
-    out
-}
-
-/// The newest turn `acp history --json` lists.
-#[derive(Debug, PartialEq)]
-pub(super) struct Turn {
-    pub seq: u64,
-    pub ended: bool,
-    pub status: String,
-    pub value: Value,
-}
-
-impl Turn {
-    /// A turn that ended without its reply: failed, cancelled or of unknown outcome.
-    pub(super) fn failed(&self) -> bool {
-        matches!(self.status.as_str(), "failed" | "error" | "cancelled" | "outcome_unknown")
-            || self.value.get("error").is_some_and(|error| !error.is_null())
-    }
-}
-
-pub(super) fn last_turn(history: Option<&String>) -> Option<Turn> {
-    let value: Value = serde_json::from_str(history?.trim()).ok()?;
-    let turn = at(&value, "turns").as_array()?.last()?.clone();
-    Some(Turn {
-        seq: at(&turn, "seq").as_u64().unwrap_or(0),
-        ended: turn.get("endedAt").is_some_and(|at| !at.is_null()),
-        status: at(&turn, "status").as_str().unwrap_or("completed").to_owned(),
-        value: turn,
-    })
-}
-
-/// The newest reply `acp last --json` printed (`{"sessionId", "replies": [...]}`).
-pub(super) fn reply(last: Option<&String>) -> Option<String> {
-    let value: Value = serde_json::from_str(last?.trim()).ok()?;
-    at(&value, "replies").as_array()?.last()?.as_str().map(str::to_owned)
-}
-
 /// Prints the outcome and answers the exit code.
 fn report(outcome: &Outcome, output: OutputMode) -> i32 {
     match outcome {
@@ -1841,8 +1825,10 @@ fn report(outcome: &Outcome, output: OutputMode) -> i32 {
 
 mod cap;
 mod fault;
+mod folder;
+use folder::local_folder;
 mod support;
-use support::{at, words};
+use support::{at, last_turn, reply, sections, words};
 
 #[cfg(test)]
 pub(in crate::cli) mod tests;

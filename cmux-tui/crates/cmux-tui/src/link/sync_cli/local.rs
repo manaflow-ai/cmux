@@ -3,8 +3,11 @@
 //!
 //! In a git working copy (its top folder; a subfolder is refused): the
 //! files `git ls-files --cached --others --exclude-standard` names (tracked,
-//! and untracked ones that are not ignored, minus untracked `.env*` files,
-//! which are shared only on purpose), plus the repository itself as
+//! and untracked ones that are not ignored, minus untracked secrets
+//! ([`skips::secret_at`]: `.env*`, private keys, certificate stores,
+//! `.netrc`, registry files with a token; the git seed's rule) and
+//! credential files ([`skips::credential`]), which are shared only on
+//! purpose), plus the repository itself as
 //! `.git/`, so the branch, HEAD, index, stash and uncommitted changes
 //! arrive exactly. What goes of the repository is allow-listed
 //! ([`GIT_TOP`]); hooks never go at any level (they would run on the
@@ -23,22 +26,25 @@
 //!
 //! Outside git, every regular file of the folder goes, except for a chat's
 //! copy the dependency and build folders its project rebuilds on the
-//! machine ([`skips::heavy`]) and secrets (`.env*`, key files: [`skips::secret`]).
+//! machine ([`skips::heavy`]) and secrets ([`skips::secret_at`]; credential
+//! folders and files at any depth: [`skips::credential`]).
 //! A symlink whose target stays inside the folder goes as a symlink
 //! ([`super::links`]); other symlinks, special files and names the machine
 //! cannot hold (control characters, over 255 bytes, not UTF-8) are skipped. Every skip is
-//! named with why ([`Skips`]), except the git path's untracked `.env*` and
-//! non-UTF-8 paths, which are counted.
+//! named with why ([`Skips`]), except the git path's non-UTF-8 paths,
+//! which are counted.
 
 use cmux_process::Command;
 use std::collections::{BTreeMap, BTreeSet};
 use std::os::unix::ffi::OsStrExt as _;
-use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, bail};
 
+use super::place;
 use super::skips::{self, Skips, Why};
+
+pub(super) use super::listed::{add_entry, entry_in, git_text, open_listed, walk_in};
 
 /// Where one file to push comes from.
 #[derive(Clone, Debug)]
@@ -68,6 +74,10 @@ pub(super) struct LocalFile {
     /// 0644, 0755, 0600 or 0700: the executable bit and whether group and
     /// others could read it here.
     pub permissions: u32,
+    /// The device and inode a [`Source::File`] had when it was listed: the
+    /// read refuses another file found at its path since (a folder above it
+    /// swapped for a symlink), see [`open_listed`].
+    pub id: Option<(u64, u64)>,
 }
 
 /// The files to push and what was skipped.
@@ -177,32 +187,61 @@ pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
         return Ok(set);
     };
     set.git = true;
+    // Each untracked heavy folder is named once, as the folder.
+    let mut heavy_named: BTreeSet<String> = BTreeSet::new();
+    let top = place::Dir::open(folder)?;
     for (path, untracked) in working_files(folder, &mut set.skipped)? {
-        if untracked && path.rsplit('/').next().is_some_and(|name| name.starts_with(".env")) {
-            set.skipped += 1;
+        if untracked
+            && rules == Rules::Copy
+            && let Some(heavy) = heavy_folder(folder, &path)
+        {
+            if heavy_named.insert(heavy.to_owned()) {
+                set.skips.note(&format!("{heavy}/"), Why::Heavy);
+            }
             continue;
         }
-        add(&mut set, path.clone(), &folder.join(&path))?;
+        // Untracked secrets and credential files never go (tracked ones were
+        // committed on purpose).
+        if untracked
+            && let Some(why) =
+                skips::secret_at(folder, &path).or_else(|| skips::credential(&path, false))
+        {
+            set.skips.note(&path, why);
+            continue;
+        }
+        // Through the folders on its way, each opened by descriptor without following a symlink.
+        match place::parent_of(&top, &path) {
+            Ok(Some((dir, name))) => {
+                let entry = dir.entry(&name)?;
+                add_entry(&mut set, path.clone(), &folder.join(&path), &dir, &name, entry)?;
+            }
+            Ok(None) => {}
+            Err(error) if swapped(&error) => {}
+            Err(error) => return Err(error).with_context(|| format!("cannot read {path}")),
+        }
     }
     let linked = git.own != git.common;
-    walk(&git.common, &git.common, &mut |relative, path| {
+    let common = place::Dir::open(&git.common)?;
+    walk_in(&common, "", &mut |relative, dir, name, entry| {
         if linked && is_per_worktree(relative) {
             return Ok(());
         }
-        add_git(&mut set, relative, path)
+        add_git(&mut set, relative, &git.common.join(relative), dir, name, entry)
     })?;
     if linked {
-        walk(&git.own, &git.own, &mut |relative, path| {
+        let own = place::Dir::open(&git.own)?;
+        walk_in(&own, "", &mut |relative, dir, name, entry| {
             if relative == "commondir" || relative == "gitdir" {
                 return Ok(());
             }
-            add_git(&mut set, relative, path)
+            add_git(&mut set, relative, &git.own.join(relative), dir, name, entry)
         })?;
     }
     // Borrowed objects go after the repository's own, which win a name both
     // hold (a loose object or pack of the same hash is the same data).
     for borrowed in borrowed_objects(&git.common.join("objects"))? {
-        walk(&borrowed, &borrowed, &mut |relative, path| {
+        let handle = place::Dir::open(&borrowed)?;
+        walk_in(&handle, "", &mut |relative, dir, name, entry| {
             if borrowed_skipped(relative) {
                 return Ok(());
             }
@@ -216,10 +255,26 @@ pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
             if set.files.contains_key(&target) {
                 return Ok(());
             }
-            add(&mut set, target, path)
+            add_entry(&mut set, target, &borrowed.join(relative), dir, name, entry)
         })?;
     }
     Ok(set)
+}
+
+/// The heavy folder ([`skips::heavy`]) `relative` (a file git names in
+/// `top`) is in, as a path in `top`, or `None`. The outermost one wins, as
+/// [`walk_plain`] never enters a heavy folder.
+pub(super) fn heavy_folder<'a>(top: &Path, relative: &'a str) -> Option<&'a str> {
+    let (folders, _file) = relative.rsplit_once('/')?;
+    let mut end: usize = 0;
+    for name in folders.split('/') {
+        let parent = relative.get(..end.saturating_sub(1)).unwrap_or_default();
+        end = end.saturating_add(name.len()).saturating_add(1);
+        if skips::heavy(&top.join(parent), name) {
+            return relative.get(..end.saturating_sub(1));
+        }
+    }
+    None
 }
 
 /// A dropped folder's own files for a one-off upload: git's ignore rules
@@ -311,6 +366,7 @@ fn listed_files(folder: &Path) -> anyhow::Result<LocalSet> {
         bail!("{} is not in its repository's working copy {}", folder.display(), top.display());
     }
     set.git = true;
+    let handle = place::Dir::open(folder)?;
     // Run in the folder, git lists only what is under it, by paths from it.
     for (path, untracked) in working_files(folder, &mut set.skipped)? {
         // A crafted index can name a file anywhere: only a plain path below
@@ -321,7 +377,16 @@ fn listed_files(folder: &Path) -> anyhow::Result<LocalSet> {
             set.skipped = set.skipped.saturating_add(1);
             continue;
         }
-        add(&mut set, path.clone(), &folder.join(&path))?;
+        // Through the folders on its way, each opened by descriptor, as [`collect`].
+        match place::parent_of(&handle, &path) {
+            Ok(Some((dir, name))) => {
+                let entry = dir.entry(&name)?;
+                add_entry(&mut set, path.clone(), &folder.join(&path), &dir, &name, entry)?;
+            }
+            Ok(None) => {}
+            Err(error) if swapped(&error) => {}
+            Err(error) => return Err(error).with_context(|| format!("cannot read {path}")),
+        }
     }
     Ok(set)
 }
@@ -536,7 +601,14 @@ fn is_per_worktree(relative: &str) -> bool {
 
 /// Adds the file at `relative` of a git folder as `.git/<relative>`, by the
 /// rules in the module doc.
-fn add_git(set: &mut LocalSet, relative: &str, path: &Path) -> anyhow::Result<()> {
+fn add_git(
+    set: &mut LocalSet,
+    relative: &str,
+    path: &Path,
+    dir: &place::Dir,
+    name: &str,
+    entry: place::Entry,
+) -> anyhow::Result<()> {
     let parts: Vec<&str> = relative.split('/').collect();
     if !GIT_TOP.contains(&parts[0]) || relative.ends_with(".lock") {
         return Ok(());
@@ -554,52 +626,25 @@ fn add_git(set: &mut LocalSet, relative: &str, path: &Path) -> anyhow::Result<()
         return Ok(());
     }
     let target = format!(".git/{relative}");
-    let name = parts.last().copied().unwrap_or_default();
+    let read = || git_text(dir, name, &entry, path);
     if data_at.is_none() && matches!(name, "config" | "config.worktree") {
-        let text = std::fs::read_to_string(path).unwrap_or_default();
+        let Some(bytes) = read()? else { return Ok(()) };
+        let text = String::from_utf8_lossy(&bytes).into_owned();
         let source = Source::Bytes(clean_config(&text).into_bytes());
-        set.files.insert(target, LocalFile { source, permissions: 0o644 });
+        set.files.insert(target, LocalFile { source, permissions: 0o644, id: None });
         return Ok(());
     }
     if data_at.is_some_and(|index| parts[index] == "logs") {
-        let text = String::from_utf8_lossy(&std::fs::read(path).unwrap_or_default()).into_owned();
+        let Some(bytes) = read()? else { return Ok(()) };
+        let text = String::from_utf8_lossy(&bytes).into_owned();
         let cleaned: String = text.split_inclusive('\n').map(without_user_info).collect();
         set.files.insert(
             target,
-            LocalFile { source: Source::Bytes(cleaned.into_bytes()), permissions: 0o644 },
+            LocalFile { source: Source::Bytes(cleaned.into_bytes()), permissions: 0o644, id: None },
         );
         return Ok(());
     }
-    add(set, target, path)
-}
-
-/// Adds the regular file at `path` as `relative`; anything else is named
-/// as skipped (a symlink, a socket, a name the machine cannot hold). A file
-/// deleted from the working tree is left out.
-fn add(set: &mut LocalSet, relative: String, path: &Path) -> anyhow::Result<()> {
-    match std::fs::symlink_metadata(path) {
-        Ok(meta) if meta.file_type().is_file() && holdable(&relative) => {
-            let permissions = permissions_of(meta.permissions().mode());
-            set.files.insert(
-                relative,
-                LocalFile { source: Source::File(path.to_path_buf()), permissions },
-            );
-        }
-        Ok(meta) if meta.file_type().is_symlink() && holdable(&relative) => {
-            match super::links::local(set.skips.top(), &relative, path)
-                .with_context(|| format!("cannot read {}", path.display()))?
-            {
-                super::links::Local::Keep(kept) => {
-                    set.links.insert(relative, kept);
-                }
-                super::links::Local::Skip(why) => set.skips.note(&relative, why),
-            }
-        }
-        Ok(meta) => set.skips.note_entry(&relative, path, &meta),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error).with_context(|| format!("cannot read {}", path.display())),
-    }
-    Ok(())
+    add_entry(set, target, path, dir, name, entry)
 }
 
 /// Whether the machine's file owner can hold a file at `relative`: no name
@@ -623,13 +668,46 @@ pub(super) fn permissions_of(mode: u32) -> u32 {
 }
 
 /// Adds every file below `dir` of a folder outside git (`top`), by the
-/// module doc's rules. Folders are entered without following symlinks.
+/// module doc's rules. Each folder is opened by name in the folder that
+/// listed it, never through a symlink ([`place::Dir::child`]), and listed
+/// through that handle: a folder swapped for a symlink after its parent was
+/// listed is never walked through, so nothing outside `top` is listed.
 fn walk_plain(set: &mut LocalSet, rules: Rules, top: &Path, dir: &Path) -> anyhow::Result<()> {
-    let entries =
-        std::fs::read_dir(dir).with_context(|| format!("cannot list {}", dir.display()))?;
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
+    let mut handle =
+        place::Dir::open(top).with_context(|| format!("cannot list {}", top.display()))?;
+    let below =
+        dir.strip_prefix(top).with_context(|| format!("{} is not in the folder", dir.display()))?;
+    for name in below.iter() {
+        let Some(name) = name.to_str() else { return Ok(()) };
+        match handle.child(name) {
+            Ok(Some(child)) => handle = child,
+            Ok(None) => return Ok(()),
+            Err(error) if swapped(&error) => return Ok(()),
+            Err(error) => {
+                return Err(error).with_context(|| format!("cannot list {}", dir.display()));
+            }
+        }
+    }
+    walk_plain_in(set, rules, top, dir, &handle)
+}
+
+/// Whether opening a folder failed because something else is at its name
+/// now (a symlink, a file).
+pub(super) fn swapped(error: &std::io::Error) -> bool {
+    matches!(error.raw_os_error(), Some(libc::ELOOP | libc::ENOTDIR))
+}
+
+/// [`walk_plain`] in the folder `dir` that `handle` holds open.
+fn walk_plain_in(
+    set: &mut LocalSet,
+    rules: Rules,
+    top: &Path,
+    dir: &Path,
+    handle: &place::Dir,
+) -> anyhow::Result<()> {
+    let names = handle.names().with_context(|| format!("cannot list {}", dir.display()))?;
+    for name in names {
+        let path = dir.join(&name);
         let Ok(relative) = path.strip_prefix(top) else { continue };
         let Some(relative) = relative.to_str() else {
             set.skips.note(&relative.to_string_lossy(), Why::NameNotUtf8);
@@ -639,44 +717,36 @@ fn walk_plain(set: &mut LocalSet, rules: Rules, top: &Path, dir: &Path) -> anyho
             continue;
         }
         let name = relative.rsplit('/').next().unwrap_or(relative);
-        if entry.file_type()?.is_dir() {
-            if rules == Rules::Copy && skips::heavy(dir, name) {
-                set.skips.note(&format!("{relative}/"), Why::Heavy);
-            } else {
-                walk_plain(set, rules, top, &path)?;
+        let entry =
+            handle.entry(name).with_context(|| format!("cannot read {}", path.display()))?;
+        match entry {
+            place::Entry::Missing => {}
+            place::Entry::Dir => {
+                if let Some(why) =
+                    skips::credential(relative, true).filter(|_| rules == Rules::Copy)
+                {
+                    set.skips.note(&format!("{relative}/"), why);
+                } else if rules == Rules::Copy && skips::heavy(dir, name) {
+                    set.skips.note(&format!("{relative}/"), Why::Heavy);
+                } else {
+                    match handle.child(name) {
+                        Ok(Some(child)) => walk_plain_in(set, rules, top, &path, &child)?,
+                        Ok(None) => {}
+                        // A symlink or file there since it was listed: as any entry.
+                        Err(error) if swapped(&error) => {
+                            let now = handle.entry(name)?;
+                            if !matches!(now, place::Entry::Dir) {
+                                entry_in(set, rules, relative, &path, handle, name, now)?;
+                            }
+                        }
+                        Err(error) => {
+                            return Err(error)
+                                .with_context(|| format!("cannot list {}", path.display()));
+                        }
+                    }
+                }
             }
-        } else if let Some(why) = skips::secret(name).filter(|_| rules == Rules::Copy) {
-            set.skips.note(relative, why);
-        } else {
-            add(set, relative.to_string(), &path)?;
-        }
-    }
-    Ok(())
-}
-
-/// Calls `visit(relative, path)` for every non-folder entry below `dir`
-/// (`relative` to `top`). Folders are entered without following symlinks.
-fn walk(
-    top: &Path,
-    dir: &Path,
-    visit: &mut dyn FnMut(&str, &Path) -> anyhow::Result<()>,
-) -> anyhow::Result<()> {
-    let entries =
-        std::fs::read_dir(dir).with_context(|| format!("cannot list {}", dir.display()))?;
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
-        let Some(relative) = path.strip_prefix(top).ok().and_then(Path::to_str).map(str::to_string)
-        else {
-            continue;
-        };
-        if relative == ".DS_Store" {
-            continue;
-        }
-        if entry.file_type()?.is_dir() {
-            walk(top, &path, visit)?;
-        } else {
-            visit(&relative, &path)?;
+            other => entry_in(set, rules, relative, &path, handle, name, other)?,
         }
     }
     Ok(())
@@ -799,7 +869,143 @@ mod tests {
     use cmux_process::Command;
     use std::path::Path;
 
-    use super::{Rules, below, borrowed_object, borrowed_skipped, collect, unquote};
+    use super::{
+        LocalFile, LocalSet, Rules, Skips, below, borrowed_object, borrowed_skipped, collect,
+        entry_in, open_listed, place, unquote, walk_plain,
+    };
+
+    fn write(top: &Path, relative: &str) {
+        let path = top.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "x\n").unwrap();
+    }
+
+    /// A file is read only as the file listed: once a folder above it is swapped for a symlink that
+    /// leads out of the folder copied, the same path names another file, and the read refuses it.
+    #[test]
+    fn a_read_refuses_a_file_found_through_a_folder_swapped_since_it_was_listed() {
+        let root = tempfile::tempdir().unwrap();
+        let (top, outside) = (root.path().join("top"), root.path().join("outside"));
+        write(&top, "sub/notes.txt");
+        write(&outside, "notes.txt");
+        let path = top.join("sub/notes.txt");
+        let listed = LocalFile::listed(&path, &std::fs::symlink_metadata(&path).unwrap());
+        assert!(open_listed(&path, listed.id).is_ok());
+        std::fs::rename(top.join("sub"), top.join("sub-old")).unwrap();
+        std::os::unix::fs::symlink(&outside, top.join("sub")).unwrap();
+        assert!(open_listed(&path, listed.id).is_err());
+        assert!(open_listed(&path, None).is_ok(), "no listing: only the last name is checked");
+    }
+
+    /// A chat's copy of a plain folder never takes a credential folder's or
+    /// file's contents at any depth (gh's `hosts.yml` OAuth tokens, Cargo's
+    /// `credentials.toml`, cloud and cluster logins, `.netrc`-style files),
+    /// by the same folder list the App refuses a selected folder by; the
+    /// project's own files beside them go.
+    #[test]
+    fn a_plain_copy_leaves_credential_folders_and_files_here() {
+        let top = tempfile::tempdir().unwrap();
+        let top = std::fs::canonicalize(top.path()).unwrap();
+        let secrets = [
+            ".config/gh/hosts.yml",
+            "home/.config/gh/hosts.yml",
+            ".config/gcloud/credentials.db",
+            ".config/hub",
+            ".cargo/credentials.toml",
+            ".cargo/credentials",
+            ".aws/credentials",
+            ".ssh/config",
+            ".gnupg/pubring.kbx",
+            ".docker/config.json",
+            ".kube/config",
+            ".azure/accessTokens.json",
+            ".netrc",
+            "deep/.npmrc",
+            ".pypirc",
+            ".git-credentials",
+            ".gem/credentials",
+            ".terraform.d/credentials.tfrc.json",
+            ".secrets/token",
+            "deep/.docker/daemon.json",
+            ".docker/buildx/instances/x",
+            "app/Library/Keychains/login.keychain-db",
+            "deep/.config/gcloud/application_default_credentials.json",
+            ".cargo/config.toml",
+        ];
+        for relative in secrets {
+            write(&top, relative);
+        }
+        let kept = ["src/main.rs", ".config/app.toml", "gh/notes.md", "Library/notes.md"];
+        for relative in kept {
+            write(&top, relative);
+        }
+        let set = collect(&top, Rules::Copy).unwrap();
+        for relative in secrets {
+            assert!(!set.files.contains_key(relative), "{relative} went: {:?}", set.files.keys());
+        }
+        for relative in kept {
+            assert!(set.files.contains_key(relative), "{relative} stayed: {:?}", set.files.keys());
+        }
+    }
+
+    /// A folder swapped for a symlink after its parent was listed is never
+    /// walked through: the walk opens each folder by name, relative to its
+    /// parent, without following a symlink, so it lists nothing outside the
+    /// selected folder (the race between the listing and the descent).
+    #[test]
+    fn a_folder_swapped_for_a_symlink_is_never_walked_through() {
+        let root = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(root.path()).unwrap();
+        let (top, outside) = (root.join("top"), root.join("outside"));
+        write(&outside, "secret.txt");
+        write(&top, "a/kept.txt");
+        std::os::unix::fs::symlink(&outside, top.join("swapped")).unwrap();
+        std::os::unix::fs::symlink(&outside, top.join("a/swapped")).unwrap();
+        for dir in [top.join("swapped"), top.join("a/swapped")] {
+            let mut set = LocalSet {
+                files: Default::default(),
+                links: Default::default(),
+                skipped: 0,
+                skips: Skips::new(&top),
+                git: false,
+            };
+            // As the walk descends into a name it listed as a folder.
+            let _ = walk_plain(&mut set, Rules::Copy, &top, &dir);
+            assert!(
+                set.files.keys().all(|relative| !relative.ends_with("secret.txt")),
+                "walked outside through {}: {:?}",
+                dir.display(),
+                set.files.keys()
+            );
+        }
+    }
+
+    /// An entry of a folder the walk holds open is read through that folder's descriptor, never its
+    /// path: with the folder swapped for a symlink to elsewhere after it was opened, its symlink
+    /// entry never becomes the regular file found at the same name outside.
+    #[test]
+    fn an_entry_of_an_open_folder_swapped_away_is_read_through_its_descriptor() {
+        let root = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(root.path()).unwrap();
+        let (top, outside) = (root.join("top"), root.join("outside"));
+        write(&top, "a/kept.txt");
+        write(&outside, "link");
+        std::os::unix::fs::symlink("kept.txt", top.join("a/link")).unwrap();
+        let handle = place::Dir::open(&top.join("a")).unwrap();
+        std::fs::rename(top.join("a"), top.join("a-old")).unwrap();
+        std::os::unix::fs::symlink(&outside, top.join("a")).unwrap();
+        let mut set = LocalSet {
+            files: Default::default(),
+            links: Default::default(),
+            skipped: 0,
+            skips: Skips::new(&top),
+            git: false,
+        };
+        let path = top.join("a/link");
+        entry_in(&mut set, Rules::Copy, "a/link", &path, &handle, "link", place::Entry::Link)
+            .unwrap();
+        assert!(set.files.is_empty(), "took a file from outside: {:?}", set.files.keys());
+    }
 
     /// Only a plain path below the folder is one of its files: a crafted
     /// git index naming a root, `..` or an empty part names none.
@@ -862,6 +1068,47 @@ mod tests {
         assert!(status.success(), "git {args:?}");
     }
 
+    /// A symlinked git config (`config -> config.actual`) goes as the file it
+    /// names, read through the git folder's descriptor, never as an empty one.
+    #[test]
+    fn a_symlinked_git_config_goes_as_the_file_it_names() {
+        let root = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(root.path()).unwrap();
+        let repo = root.join("repo");
+        std::fs::create_dir(&repo).unwrap();
+        git(&repo, &["init", "-q"]);
+        git(&repo, &["config", "remote.origin.url", "https://example.invalid/r.git"]);
+        std::fs::write(repo.join("a.txt"), "a\n").unwrap();
+        let (config, real) = (repo.join(".git/config"), root.join("dotfiles-config"));
+        std::fs::rename(&config, &real).unwrap();
+        let config_text =
+            |repo: &Path| match collect(repo, Rules::Copy).unwrap().files.remove(".git/config") {
+                Some(LocalFile { source: super::Source::Bytes(bytes), .. }) => {
+                    String::from_utf8(bytes).unwrap()
+                }
+                other => panic!("no config: {other:?}"),
+            };
+        // A sibling, a chain through a sibling, and a file outside the folder.
+        for (link, to) in
+            [("config.actual", "../../dotfiles-config"), ("config.middle", "config.actual")]
+        {
+            std::os::unix::fs::symlink(to, repo.join(".git").join(link)).unwrap();
+        }
+        for to in ["config.actual", "config.middle", real.to_str().unwrap()] {
+            let _ = std::fs::remove_file(&config);
+            std::os::unix::fs::symlink(to, &config).unwrap();
+            let text = config_text(&repo);
+            assert!(
+                text.contains("repositoryformatversion") && text.contains("example.invalid"),
+                "{to}: {text}"
+            );
+        }
+        // Unreadable fails the sync, never an empty config in its place.
+        std::fs::remove_file(&real).unwrap();
+        std::fs::create_dir(&real).unwrap();
+        assert!(collect(&repo, Rules::Copy).is_err());
+    }
+
     /// A stray file in a borrowed object folder (a `.env`, a note) never
     /// goes; its loose objects and packs do.
     #[test]
@@ -901,6 +1148,109 @@ mod tests {
             assert!(!borrowed.contains(&stray), "{stray} went: {borrowed:?}");
         }
         assert!(set.skipped >= 3, "the stray files were not counted: {}", set.skipped);
+    }
+
+    /// The untracked secrets the git seed keeps on this Mac stay here on a
+    /// chat's copy too, in a git folder and outside one. RED before the copy
+    /// used the seed's rule: an untracked `id_rsa`, `*.pem`, `.netrc` and a
+    /// `.npmrc` with a token went to the machine; only `.env*` stayed.
+    #[test]
+    fn a_copy_keeps_every_untracked_secret_the_seed_keeps() {
+        let secrets = [
+            (".env.local", "TOKEN=x\n"),
+            ("id_rsa", "-----BEGIN OPENSSH PRIVATE KEY-----\n"),
+            ("keys/id_ed25519", "x\n"),
+            ("deploy/server.pem", "x\n"),
+            ("cert.p12", "x\n"),
+            (".netrc", "machine github.com login x password y\n"),
+            (".npmrc", "//registry.npmjs.org/:_authToken=npm_x\n"),
+            (".pypirc", "[pypi]\npassword = x\n"),
+            // Any `.npmrc`, token or not, by name ([`skips::credential`]).
+            ("web/.npmrc", "save-exact=true\n"),
+        ];
+        let goes = [("README.md", "hi\n"), ("keys/keyboard.rs", "fn main() {}\n")];
+        for in_git in [true, false] {
+            let dir = tempfile::tempdir().unwrap();
+            let top = std::fs::canonicalize(dir.path()).unwrap();
+            if in_git {
+                git(&top, &["init", "-q"]);
+                std::fs::write(top.join("tracked.txt"), "t\n").unwrap();
+                git(&top, &["add", "tracked.txt"]);
+                git(&top, &["commit", "-q", "-m", "base"]);
+            }
+            for (path, text) in secrets.iter().chain(goes.iter()) {
+                let file = top.join(path);
+                std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+                std::fs::write(file, text).unwrap();
+            }
+            let set = collect(&top, Rules::Copy).unwrap();
+            assert_eq!(set.git, in_git);
+            for (path, _) in secrets {
+                assert!(!set.files.contains_key(path), "git={in_git}: {path} went to the machine");
+            }
+            for (path, _) in goes {
+                assert!(set.files.contains_key(path), "git={in_git}: {path} stayed here");
+            }
+            let (_, counts) = set.skips.json();
+            assert_eq!(
+                counts["secret"],
+                serde_json::json!(secrets.len()),
+                "git={in_git}: {counts}"
+            );
+        }
+    }
+
+    /// An untracked heavy folder in a git checkout stays here, as it does
+    /// outside git: it is named once, as the folder, and none of its files
+    /// go. RED before the git copy used the heavy rule: an untracked,
+    /// un-ignored `node_modules/` or Cargo `target/` went to the machine
+    /// file by file (a 12.8 GB copy into a 16 GB disk ended in a broken pipe).
+    /// A tracked file under such a name is the project's and still goes.
+    #[test]
+    fn a_git_copy_leaves_untracked_heavy_folders_here() {
+        let dir = tempfile::tempdir().unwrap();
+        let top = std::fs::canonicalize(dir.path()).unwrap();
+        git(&top, &["init", "-q"]);
+        for (path, text) in [("Cargo.toml", "[package]\n"), ("vendor/node_modules/kept.js", "1\n")]
+        {
+            let file = top.join(path);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, text).unwrap();
+        }
+        git(&top, &["add", "Cargo.toml", "vendor/node_modules/kept.js"]);
+        git(&top, &["commit", "-q", "-m", "base"]);
+        let heavy = [
+            "node_modules/left-pad/index.js",
+            "node_modules/left-pad/package.json",
+            "web/node_modules/react/index.js",
+            "target/debug/app",
+            "vendor/node_modules/new.js",
+        ];
+        let goes = ["notes.md", "docs/target/page.md", "web/src/app.ts"];
+        for path in heavy.iter().chain(goes.iter()) {
+            let file = top.join(path);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, "x\n").unwrap();
+        }
+
+        let set = collect(&top, Rules::Copy).unwrap();
+        assert!(set.git);
+        for path in heavy {
+            assert!(!set.files.contains_key(path), "{path} went to the machine");
+        }
+        for path in goes.iter().chain(["Cargo.toml", "vendor/node_modules/kept.js"].iter()) {
+            assert!(set.files.contains_key(*path), "{path} stayed here");
+        }
+        let (listed, counts) = set.skips.json();
+        assert_eq!(counts["heavy"], serde_json::json!(4), "{counts}");
+        let listed = listed.to_string();
+        for folder in ["node_modules/", "web/node_modules/", "target/", "vendor/node_modules/"] {
+            assert!(listed.contains(&format!("\"{folder}\"")), "{folder} not named: {listed}");
+        }
+
+        // A share of files (`cmux link access`) keeps the heavy folders.
+        let shared = collect(&top, Rules::Share).unwrap();
+        assert!(shared.files.contains_key("node_modules/left-pad/index.js"));
     }
 
     #[test]

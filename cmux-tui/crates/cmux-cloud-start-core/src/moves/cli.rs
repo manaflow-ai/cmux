@@ -43,6 +43,11 @@ pub struct Answer {
     pub seed_phase: Option<String>,
     pub seed_started_at: Option<f64>,
     pub seed_finished_at: Option<f64>,
+    /// `seed_refused`: the seed plan's code for why the machine can't clone the folder (`not_git`, ...).
+    pub fallback_code: Option<String>,
+    /// `seed_refused` for `seed.needs_github`: the cmux GitHub App's install page for the repository.
+    #[serde(rename = "installURL")]
+    pub install_url: Option<String>,
 }
 
 impl Answer {
@@ -134,6 +139,8 @@ pub fn parse(output: &Output) -> (Answer, Option<Map<String, Value>>) {
         seed_phase: string(&object, "seed_phase"),
         seed_started_at: object.get("seed_started_at").and_then(Value::as_f64),
         seed_finished_at: object.get("seed_finished_at").and_then(Value::as_f64),
+        fallback_code: string(&object, "fallback_code"),
+        install_url: string(&object, "install_url"),
     };
     (answer, Some(object))
 }
@@ -422,7 +429,31 @@ pub enum Call {
         acpmux_home: Option<String>,
         #[serde(default)]
         store: bool,
+        /// What the copy does when the machine can't clone the folder from its git remote; none
+        /// leaves cmux-tui's own default (copy).
+        #[serde(default)]
+        on_seed_refusal: Option<SeedRefusal>,
     },
+}
+
+/// What a start copy does when the machine can't clone the folder from its git remote
+/// (cmux-tui `--on-seed-refusal`): `ask` answers `seed_refused` with the reason and what a copy
+/// would send, and copies nothing; `copy` copies the folder instead.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SeedRefusal {
+    Ask,
+    Copy,
+}
+
+impl SeedRefusal {
+    /// The `--on-seed-refusal` value.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ask => "ask",
+            Self::Copy => "copy",
+        }
+    }
 }
 
 /// How the app runs one call: its arguments and how long it may take.
@@ -621,6 +652,7 @@ pub fn invocation(call: &Call) -> Invocation {
             work_roots,
             acpmux_home,
             store,
+            on_seed_refusal,
         } => {
             let mut args = words(&[
                 "link",
@@ -649,6 +681,9 @@ pub fn invocation(call: &Call) -> Invocation {
             // store (cmux-tui `link/sync_cli/store.rs`); the link copy stays its fallback.
             if *store {
                 args.extend(words(&["--store", "default"]));
+            }
+            if let Some(refusal) = on_seed_refusal {
+                args.extend(words(&["--on-seed-refusal", refusal.as_str()]));
             }
             plain(args)
         }

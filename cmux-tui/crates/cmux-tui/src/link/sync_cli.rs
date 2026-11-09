@@ -50,6 +50,7 @@ mod base;
 mod git_back;
 mod history;
 mod links;
+mod listed;
 mod local;
 mod merge;
 mod names;
@@ -63,7 +64,7 @@ mod seed_pull;
 pub(super) use seed_pull::{
     SeedBase, SeedPulled, failure_code as seed_pull_failure_code, is_sha, seed_pull,
 };
-mod skips;
+pub(crate) mod skips;
 mod store;
 
 pub(crate) use store::{Config as StoreConfig, configure as configure_store};
@@ -369,6 +370,9 @@ pub(super) fn progress_printer() -> impl FnMut(Progress) {
 /// A failed push's error code and message: the machine's full disk is
 /// `disk_full` in plain words, a refusal of the machine its own code.
 pub(super) fn push_failure(error: &anyhow::Error) -> (String, String) {
+    if let Some(too_big) = error.downcast_ref::<TooBig>() {
+        return ("folder_too_big".to_string(), too_big.to_string());
+    }
     match remote::refusal_code(error) {
         Some("fs.no_space") => {
             ("disk_full".to_string(), "The Cloud machine's disk is full".to_string())
@@ -511,16 +515,12 @@ pub(super) fn copy_file_with_progress(
     target: &str,
     progress: &mut dyn FnMut(),
 ) -> anyhow::Result<()> {
-    use std::os::unix::fs::PermissionsExt as _;
     let meta = std::fs::symlink_metadata(local)
         .with_context(|| format!("cannot read {}", local.display()))?;
     if !meta.file_type().is_file() {
         anyhow::bail!("{} is not a regular file", local.display());
     }
-    let file = LocalFile {
-        source: Source::File(local.to_path_buf()),
-        permissions: local::permissions_of(meta.permissions().mode()),
-    };
+    let file = LocalFile::listed(local, &meta);
     let mut remote = Remote::connect_negotiated(socket)?;
     let (parent, _) = remote::split(target)?;
     remote.mkdir_all(parent)?;
@@ -636,6 +636,7 @@ pub(super) fn copy_folder_with_progress(
                 identity: found,
             }),
             permissions: file.permissions,
+            id: None,
         };
         let at = format!("{target}/{relative}");
         let (parent, _) = remote::split(&at)?;
@@ -827,6 +828,14 @@ pub(super) fn push(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Re
 }
 
 /// Whether `folder` is in a git working copy (its top folder or below it).
+/// The heavy folder an untracked file `relative` of the repository at `top`
+/// is in, and why it stays on this Mac, as a copy leaves it out: the seed
+/// leaves out the same folders.
+pub(super) fn heavy_folder(top: &Path, relative: &str) -> Option<(String, &'static str)> {
+    local::heavy_folder(top, relative)
+        .map(|folder| (format!("{folder}/"), skips::Why::Heavy.text()))
+}
+
 pub(super) fn in_git(folder: &Path) -> bool {
     !matches!(local::GitDirs::of(folder), Ok(None))
 }
@@ -974,6 +983,22 @@ fn push_inner(
                 Pushed { sha256: String::new(), permissions: 0, revision: current },
             );
         }
+    }
+    // A folder too big for the machine stops here, before any file goes. A
+    // file the machine already holds is rewritten in place and needs no new
+    // room; a daemon too old to name its free space is not asked.
+    let needed = set
+        .files
+        .iter()
+        .filter(|(relative, _)| !previous.files.contains_key(*relative))
+        .map(|(_, file)| size(file).unwrap_or(0))
+        .fold(0, u64::saturating_add);
+    if let Some(free) = remote
+        .stat(remote_root)?
+        .and_then(|stat| stat.get("available_bytes").and_then(serde_json::Value::as_u64))
+        && needed > free
+    {
+        return Err(TooBig { needed, free }.into());
     }
     let mut links = LinkSync::default();
 
@@ -1549,7 +1574,7 @@ impl Listings {
 /// in since it was listed; anything but a regular file is refused.
 fn open(file: &LocalFile) -> anyhow::Result<Box<dyn std::io::Read>> {
     Ok(match &file.source {
-        Source::File(path) => Box::new(open_regular(path)?.0),
+        Source::File(path) => Box::new(local::open_listed(path, file.id)?),
         Source::Checked(checked) => {
             let (opened, identity, root) = place::open_beneath(&checked.root, &checked.relative)?;
             if identity != checked.identity || root != checked.root_identity {
@@ -1565,21 +1590,67 @@ fn open(file: &LocalFile) -> anyhow::Result<Box<dyn std::io::Read>> {
     })
 }
 
-/// `path` opened without following a symlink at its end or blocking on a
-/// FIFO, with the device and inode it opened; anything but a regular file
-/// is refused.
-fn open_regular(path: &Path) -> anyhow::Result<(std::fs::File, (u64, u64))> {
-    use std::os::unix::fs::MetadataExt as _;
-    let opened = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)
-        .with_context(|| format!("cannot read {}", path.display()))?;
-    let meta = opened.metadata()?;
-    if !meta.is_file() {
-        anyhow::bail!("{} is no longer a regular file", path.display());
+/// A push whose new files need more room than the machine has left.
+#[derive(Debug)]
+pub(super) struct TooBig {
+    needed: u64,
+    free: u64,
+}
+
+impl std::fmt::Display for TooBig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "The folder needs {} on the Cloud machine, which has {} free",
+            bytes_text(self.needed),
+            bytes_text(self.free)
+        )
     }
-    Ok((opened, (meta.dev(), meta.ino())))
+}
+
+impl std::error::Error for TooBig {}
+
+/// What a copy of `local` (`cmux link sync push`, by its rules) would send:
+/// its files and their bytes.
+pub(super) fn copy_estimate(local: &Path) -> anyhow::Result<(u64, u64)> {
+    let local =
+        std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
+    let set = local::collect(&local, local::Rules::Copy)?;
+    let bytes = set.files.values().map(|file| size(file).unwrap_or(0)).fold(0, u64::saturating_add);
+    Ok((u64::try_from(set.files.len()).unwrap_or(u64::MAX), bytes))
+}
+
+/// "1 file", "36,796 files".
+pub(super) fn files_text(files: u64) -> String {
+    let digits = files.to_string();
+    let mut grouped = String::with_capacity(digits.len().saturating_add(digits.len() / 3));
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && digits.len().saturating_sub(index) % 3 == 0 {
+            grouped.push(',');
+        }
+        grouped.push(digit);
+    }
+    if files == 1 { "1 file".to_string() } else { format!("{grouped} files") }
+}
+
+/// `bytes` in decimal units as Finder shows them: "980 bytes", "12 kB",
+/// "12.8 GB".
+pub(super) fn bytes_text(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["kB", "MB", "GB", "TB", "PB"];
+    if bytes < 1000 {
+        return format!("{bytes} bytes");
+    }
+    // Tenths of the unit, rounded: exact in integers up to u64::MAX.
+    let mut scaled = bytes;
+    let mut unit = 0;
+    while scaled >= 999_950 && unit < UNITS.len().saturating_sub(1) {
+        scaled /= 1000;
+        unit = unit.saturating_add(1);
+    }
+    let tenths = scaled.saturating_add(50) / 100;
+    let (whole, tenth) = (tenths / 10, tenths % 10);
+    let name = UNITS.get(unit).copied().unwrap_or("PB");
+    if tenth == 0 { format!("{whole} {name}") } else { format!("{whole}.{tenth} {name}") }
 }
 
 fn size(file: &LocalFile) -> anyhow::Result<u64> {
@@ -1635,6 +1706,7 @@ mod checked_source_tests {
                 identity: (meta.dev(), meta.ino()),
             }),
             permissions: 0o644,
+            id: None,
         };
         assert!(open(&file).is_ok());
         std::fs::rename(&inside, dir.path().join("moved")).unwrap();

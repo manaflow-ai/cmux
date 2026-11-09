@@ -5,10 +5,11 @@
 //! deleted file is first moved aside, and any failure puts back what the
 //! pull changed before it.
 
-use std::ffi::{CStr, CString};
+use std::ffi::{CStr, CString, OsString};
 use std::fs::File;
 use std::io;
 use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd};
+use std::os::unix::ffi::OsStringExt as _;
 use std::path::Path;
 
 use anyhow::{Context as _, bail};
@@ -47,6 +48,31 @@ fn widen_u64<T: TryInto<u64>>(value: T) -> u64 {
     value.try_into().unwrap_or_default()
 }
 
+/// A folder's stream ([`Dir::names`]), closed when dropped.
+struct Stream(*mut libc::DIR);
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        // SAFETY: this owns the stream `fdopendir` answered.
+        unsafe { libc::closedir(self.0) };
+    }
+}
+
+/// Clears this thread's `errno`: `readdir` answers null both at the end and
+/// on an error, told apart only by `errno`.
+#[cfg(target_vendor = "apple")]
+fn clear_errno() {
+    // SAFETY: libc answers this thread's writable errno.
+    unsafe { *libc::__error() = 0 };
+}
+
+/// Clears this thread's `errno` (see the macOS one).
+#[cfg(not(target_vendor = "apple"))]
+fn clear_errno() {
+    // SAFETY: libc answers this thread's writable errno.
+    unsafe { *libc::__errno_location() = 0 };
+}
+
 fn check(result: libc::c_int) -> io::Result<libc::c_int> {
     if result < 0 { Err(io::Error::last_os_error()) } else { Ok(result) }
 }
@@ -83,6 +109,51 @@ impl Dir {
             Ok(fd) => Ok(Some(Self(unsafe { OwnedFd::from_raw_fd(fd) }))),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error),
+        }
+    }
+
+    /// The names in this folder (never `.` or `..`), read through this
+    /// handle: whatever is swapped in at its path since it was opened is
+    /// never listed.
+    pub(super) fn names(&self) -> io::Result<Vec<OsString>> {
+        let dot = c_name(".")?;
+        // A descriptor of its own for the stream (`fdopendir` takes it), so
+        // its offset is not this handle's.
+        // SAFETY: a valid descriptor and C string; the result is checked.
+        let fd = check(unsafe {
+            libc::openat(
+                self.0.as_raw_fd(),
+                dot.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
+            )
+        })?;
+        // SAFETY: a new descriptor; on success the stream owns it.
+        let stream = unsafe { libc::fdopendir(fd) };
+        if stream.is_null() {
+            let error = io::Error::last_os_error();
+            // SAFETY: a failed `fdopendir` did not take the descriptor.
+            unsafe { libc::close(fd) };
+            return Err(error);
+        }
+        let stream = Stream(stream);
+        let mut names = Vec::new();
+        loop {
+            clear_errno();
+            // SAFETY: the stream is open and only this loop reads it.
+            let entry = unsafe { libc::readdir(stream.0) };
+            if entry.is_null() {
+                let error = io::Error::last_os_error();
+                if error.raw_os_error().unwrap_or(0) == 0 {
+                    return Ok(names);
+                }
+                return Err(error);
+            }
+            // SAFETY: `d_name` is the entry's NUL-terminated name, valid
+            // until the next `readdir`, and copied before it.
+            let name = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
+            if name != b"." && name != b".." {
+                names.push(OsString::from_vec(name.to_vec()));
+            }
         }
     }
 

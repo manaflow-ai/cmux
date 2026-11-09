@@ -295,6 +295,40 @@ test("an absent Cloud account state shows Cloud, not sign-in; only an explicit s
   }
 });
 
+test("the Where list has one Cloud row, Cloud, whatever the account state (Send signs in)", async () => {
+  const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
+  const whereRows = async () => {
+    const button = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find((candidate) =>
+      (candidate.getAttribute("aria-label") ?? "").startsWith(t("composer.environment") + ":"),
+    );
+    expect(button, "no Where control").toBeTruthy();
+    await act(async () => {
+      button!.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+      button!.click();
+    });
+    return [
+      ...doc().querySelectorAll<HTMLElement>(
+        ".acpmux-env-popover.acpmux-env-rows-where:not([data-closed]) .acpmux-menu-item",
+      ),
+    ].map(label);
+  };
+  const where = {
+    cloudMachines: [],
+    stripLayout: "where-machine",
+    runMode: { mode: "persistent", onMode: () => undefined },
+  };
+  for (const account of [undefined, true, false]) {
+    setCloudMachinesForTestAccount(account);
+    await mount(true, where);
+    const names = await whereRows();
+    const cloudRows = names.filter((name) => name === t("composer.cloud") || name === "Sign in for Cloud");
+    expect(cloudRows, `account ${String(account)}`).toEqual([t("composer.cloud")]);
+    act(() => root?.unmount());
+    root = undefined;
+    host.replaceChildren();
+  }
+});
+
 // The plain Computer menu follows the same rule (Leo, 2026-11-07: "that shouldn't be showing by
 // default"): Sign in for Cloud only once the app says signed out, never before any answer.
 test("the plain Computer picker offers Cloud sign-in only once the app says signed out", async () => {

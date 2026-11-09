@@ -36,6 +36,17 @@ fn an_answer_is_the_last_json_line_and_anything_else_is_a_bad_answer() {
         0,
     ));
     assert_eq!((seed.seed_started_at, seed.seed_finished_at), (Some(3.0), Some(4.5)));
+    let (refused, _) = parse(&output(
+        "{\"ok\":false,\"error_code\":\"seed_refused\",\"fallback_code\":\"seed.needs_github\",\"install_url\":\"https://x.test\"}",
+        "",
+        1,
+    ));
+    assert_eq!(refused.fallback_code.as_deref(), Some("seed.needs_github"));
+    assert_eq!(refused.install_url.as_deref(), Some("https://x.test"));
+    // The app's Swift `Answer` decodes these names.
+    let named = serde_json::to_value(&refused).unwrap();
+    assert_eq!(named["fallbackCode"], "seed.needs_github");
+    assert_eq!(named["installURL"], "https://x.test");
 }
 
 /// A `link machine update` success line must carry its outcome and exit 0; `{"ok":true}` alone,
@@ -225,6 +236,19 @@ fn each_verb_carries_its_arguments() {
             "--store",
             "default"
         ]
+    );
+    let ask = call(
+        json!({"verb": "start-chat-copy", "key": "k", "account": "u/", "machine": "m", "socket": "/s", "local": "/l", "subpath": "",
+        "workRoots": ["/w"], "onSeedRefusal": "ask"}),
+    );
+    assert_eq!(ask.args[15..], ["--work-root", "/w", "--on-seed-refusal", "ask"]);
+    let copies = call(
+        json!({"verb": "start-chat-copy", "key": "k", "account": "u/", "machine": "m", "socket": "/s", "local": "/l", "subpath": "",
+        "workRoots": ["/w"], "store": true, "onSeedRefusal": "copy"}),
+    );
+    assert_eq!(
+        copies.args[15..],
+        ["--work-root", "/w", "--store", "default", "--on-seed-refusal", "copy"]
     );
     let pin = call(json!({"verb": "start-chat-pin", "key": "k", "account": "a", "machine": "m"}));
     assert_eq!(
