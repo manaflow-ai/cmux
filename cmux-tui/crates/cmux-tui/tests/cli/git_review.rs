@@ -474,7 +474,8 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     // On its review branch the fsmonitor is live (a plain status starts it),
     // and the removal's checks and `git worktree remove` still never do.
     let attached = PathBuf::from(review_root.as_str());
-    git(&attached, &["status", "--porcelain"]);
+    let probe = ["-c", "filter.branchy.required=false", "-c", "filter.mine.required=false"];
+    git(&attached, &[&probe[..], &["status", "--porcelain"]].concat());
     assert!(fsmonitor_ran.exists(), "the branch's fsmonitor is not configured");
     fs::remove_file(&fsmonitor_ran).unwrap();
     let removed = git_cli(&server, &attached, &["worktree", "remove", "--idempotency-key", "rm-on"]);
