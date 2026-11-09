@@ -131,7 +131,7 @@ describe("cmux-next docs", () => {
   // leave the page pointing at nothing, so every cited path must still exist.
   test("every repository path a hand-written page cites exists", () => {
     const cited = nextDocPages.flatMap((page) =>
-      page.body.flatMap((block) => ("source" in block ? block.source.map((path) => ({ slug: page.slug, path })) : [])),
+      page.body.flatMap((block) => ("files" in block ? block.files.map(({ path }) => ({ slug: page.slug, path })) : [])),
     );
     expect(cited.length).toBeGreaterThan(0);
     const missing = cited.filter(({ path }) => path.startsWith("/") || path.includes("..") || !existsSync(join(repo, path)));
@@ -172,7 +172,7 @@ describe("cmux-next docs", () => {
       for (const block of page.body) {
         if ("h2" in block) expect(full).toContain(`## ${block.h2}`);
         if ("code" in block) expect(full).toContain(block.code);
-        if ("source" in block) for (const path of block.source) expect(full).toContain(`[\`${path}\`]`);
+        if ("files" in block) for (const file of block.files) expect(full).toContain(`[\`${file.path}\`]`);
       }
     }
   });

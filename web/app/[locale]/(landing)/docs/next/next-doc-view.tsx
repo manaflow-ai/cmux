@@ -9,7 +9,7 @@ import type { CliReference, PaletteReference, SettingsReference } from "@/script
 import {
   headingId,
   nextDocHref,
-  nextDocsSourceRoot,
+  repoSourceHref,
   nextDocPage,
   nextDocPublicPath,
   type DocBlock,
@@ -46,17 +46,21 @@ function Block({ block }: { block: DocBlock }) {
   if ("ul" in block) return <ul>{block.ul.map((item) => <li key={item}>{item}</li>)}</ul>;
   if ("code" in block) return <CodeBlock lang={block.lang ?? "bash"}>{block.code}</CodeBlock>;
   if ("diagram" in block) return <ArchitectureDiagram caption={block.caption} />;
-  if ("source" in block) {
+  if ("files" in block) {
     return (
-      <p>
-        In the code:{" "}
-        {block.source.map((path, index) => (
-          <span key={path}>
-            {index > 0 ? ", " : null}
-            <a href={`${nextDocsSourceRoot}/${path}`}><code>{path}</code></a>
-          </span>
-        ))}
-      </p>
+      <table>
+        <thead>
+          <tr><th>Where</th><th>What</th></tr>
+        </thead>
+        <tbody>
+          {block.files.map((file) => (
+            <tr key={file.path}>
+              <td><a href={repoSourceHref(file.path)}><code>{file.path}</code></a></td>
+              <td>{file.what}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     );
   }
   return <Callout type="info">{block.note}</Callout>;

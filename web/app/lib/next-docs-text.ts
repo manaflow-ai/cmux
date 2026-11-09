@@ -1,4 +1,4 @@
-import { nextDocPage, nextDocPages, nextDocPublicPath, nextDocsSourceRoot, type NextDocPage } from "../../data/next-docs/pages";
+import { nextDocPage, nextDocPages, nextDocPublicPath, repoSourceHref, type NextDocPage } from "../../data/next-docs/pages";
 
 // llms-full.txt: every cmux-next page in full, as one Markdown file, for agents that read the docs
 // in one fetch. Built from the same page data the HTML pages render, so it cannot drift from them.
@@ -14,7 +14,7 @@ function pageMarkdown(page: NextDocPage, origin: string): string {
     else if ("ul" in block) lines.push(...block.ul.map((item) => `- ${item}`), "");
     else if ("code" in block) lines.push(`\`\`\`${block.lang ?? "bash"}`, block.code, "```", "");
     else if ("diagram" in block) lines.push(block.caption, "");
-    else lines.push(`In the code: ${block.source.map((path) => `[\`${path}\`](${nextDocsSourceRoot}/${path})`).join(", ")}`, "");
+    else lines.push("| Where | What |", "| --- | --- |", ...block.files.map((file) => `| [\`${file.path}\`](${repoSourceHref(file.path)}) | ${file.what} |`), "");
   }
   if (page.generated) lines.push(`The full table is at ${origin}${nextDocPublicPath(page.slug)}.md`, "");
   for (const slug of page.links ?? []) {
