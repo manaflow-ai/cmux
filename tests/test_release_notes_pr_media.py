@@ -333,6 +333,15 @@ class LatePictureTests(HighlightRepo):
         shipped = [{"url": release_notes.gallery_auto_url("group-colors", "after"), "sha256": "0" * 64}]
         self.assertEqual([h["id"] for h in self.notes(shipped)], ["group-colors"])
 
+    def test_an_improvement_with_no_before_rides_along_with_its_after_once(self):
+        # Its gallery state is new in its commit, so nothing renders at the commit before it.
+        del self.pictures[release_notes.gallery_auto_url("group-colors", "before")]
+        highlights = self.notes([])
+        self.assertEqual([h["id"] for h in highlights], ["group-colors"])
+        self.assertEqual([m.get("role") for m in highlights[0]["media"]], [None])
+        shipped = [{"url": release_notes.gallery_auto_url("group-colors", "after"), "sha256": "0" * 64}]
+        self.assertEqual(self.notes(shipped), [])
+
     def test_once_it_shipped_with_its_pictures_it_rides_no_more(self):
         roles = [{"url": f"https://x/{r}.png", "role": r} for r in ("after", "before")]
         self.assertEqual(self.notes(roles), [])

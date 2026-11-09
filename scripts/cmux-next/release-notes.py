@@ -40,7 +40,8 @@ those before the gallery pictures, role by role.
 
 A New or Improved highlight of the last LATE_PICTURE_DAYS whose gallery pictures or recorded clips were published after its
 nightly cut (the public feed's notes showed it without them) rides along with the next --pr-media build
-that finds them, the same way, once (late_pictures).
+that finds them, the same way, once (late_pictures). An improvement that shipped with no picture rides
+along with its after alone when no before was published (a gallery state its own commit added has none).
 
 The rest is the body (Markdown). A build with no new highlight file uses its
 user-facing summary for the What's New digest. Each commit is
@@ -569,8 +570,9 @@ def pictured(highlight):
 
 
 def late_pictures(head, skip, deadline, fixture):
-    """Paths of New and Improved highlights of the last LATE_PICTURE_DAYS, not in `skip`, with no clip, whose
-    newest appearance in the published notes was not pictured. A feed read that fails gives none."""
+    """{path: whether its newest appearance had media} of the New and Improved highlights of the last
+    LATE_PICTURE_DAYS, not in `skip`, with no clip, whose newest appearance in the published notes was not
+    pictured. A feed read that fails gives none."""
     head_time = int(git("show", "-s", "--format=%ct", head).strip())
     since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(head_time - LATE_PICTURE_DAYS * 86400))
     wanted = {}
@@ -593,11 +595,12 @@ def late_pictures(head, skip, deadline, fixture):
             notes = json.loads(pr_download(f"{NOTES_FEED}{entry['build']}.json", fixture) or b"{}")
             for highlight in notes.get("highlights") or []:
                 if isinstance(highlight, dict) and highlight.get("id") in wanted:
-                    shown.setdefault(highlight["id"], pictured(highlight))
+                    shown.setdefault(highlight["id"], (pictured(highlight), bool(highlight.get("media"))))
     except Exception as error:
         print(f"late pictures: {type(error).__name__}: {error}; none ride along", file=sys.stderr)
-        return []
-    return sorted(path for highlight_id, path in wanted.items() if shown.get(highlight_id) is False)
+        return {}
+    return {path: shown[highlight_id][1] for highlight_id, path in wanted.items()
+            if highlight_id in shown and not shown[highlight_id][0]}
 
 
 PR_SUFFIX = re.compile(r"^(?P<title>.*?)\s*\(#(?P<pr>\d+)\)\s*$")
@@ -1065,10 +1068,13 @@ def build(args):
     if args.pr_media:
         fixture_path = os.environ.get("CMUX_RELEASE_NOTES_PR_FIXTURE")
         fixture = json.loads(Path(fixture_path).read_text()) if fixture_path else None
-        for path in sorted(surviving_highlights(args.head, late_pictures(args.head, added | set(again), deadline, fixture))):
+        late = late_pictures(args.head, added | set(again), deadline, fixture)
+        for path in sorted(surviving_highlights(args.head, set(late))):
             text = git("show", f"{args.head}:{path}")
             highlight = parse_highlight(path, text)
-            if add_gallery_media(highlight, text, deadline) and pictured(highlight):
+            # It rides along when it shows more than it did: its pictures, or a picture at all for an
+            # improvement whose before can't be rendered (its gallery state is new), once.
+            if add_gallery_media(highlight, text, deadline) and (pictured(highlight) or not late[path]):
                 highlights.append(highlight)
                 again.append(path)
     # "head": the commit these notes end at; the next build's span starts there (`since`), so a
