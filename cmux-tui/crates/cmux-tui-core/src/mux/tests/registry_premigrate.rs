@@ -1,0 +1,309 @@
+//! Registry premigration (`server premigrate-registry`): the next build folds
+//! the agent roster beside the running owner, read-only, into a side file
+//! that the next owner adopts at open.
+
+use super::*;
+use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION};
+use crate::mux::agent_roster_restore::{RosterFoldLimits, restore_agent_roster_with};
+use crate::workspace_registry::premigrate::{
+    PremigrateControl, PremigrateOutcome, RosterPremigration, premigrate_registry, registry_file,
+    roster_side_file,
+};
+use serde_json::Value;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+struct Store {
+    root: PathBuf,
+    session: &'static str,
+    db_path: PathBuf,
+    /// The roster a cold fold of the whole journal ends with.
+    cold: Value,
+    head: u64,
+}
+
+impl Drop for Store {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+fn never() -> bool {
+    false
+}
+const NEVER: &dyn Fn() -> bool = &never;
+
+/// `<registry>` plus `suffix`, as the registry names its sidecars.
+fn sidecar(db_path: &Path, suffix: &str) -> PathBuf {
+    let mut name = db_path.as_os_str().to_os_string();
+    name.push(suffix);
+    PathBuf::from(name)
+}
+
+/// Agents in sealed segments and in the active journal, then a roster
+/// snapshot of an older reducer version, as a nightly that bumps the version
+/// finds it.
+fn stale_roster_store(session: &'static str) -> Store {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-premigrate-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = open_persistent_test_mux(session, &root);
+    for step in 0..4 {
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        append_journal_hook(&mux, &terminal_id, "SessionStart", Some(&format!("agent-{step}")));
+        if step < 3 {
+            let checkpoint = mux
+                .create_journal_checkpoint("client_test", &format!("premigrate_{step}_checkpoint"))
+                .unwrap();
+            mux.seal_journal_segments(
+                checkpoint.checkpoint.source_sequence,
+                "client_test",
+                &format!("premigrate_{step}_seal"),
+            )
+            .unwrap();
+        }
+    }
+    mux.shutdown();
+    drop(mux);
+    let registry = WorkspaceRegistry::open(&root, session).unwrap();
+    let db_path = registry_file(&root, session);
+    assert!(db_path.is_file(), "{}", db_path.display());
+    let head = registry.session_journal_head().unwrap();
+    registry.put_journal_reducer_state(AGENT_ROSTER_REDUCER_ID, 0, 0, "").unwrap();
+    let limits = RosterFoldLimits { page: 512, save_every_pages: 64, stop_after_pages: None };
+    let cold = restore_agent_roster_with(&registry, limits).unwrap();
+    assert!(cold.diagnostic.is_none(), "{:?}", cold.diagnostic);
+    assert_eq!(cold.host.cursor, head);
+    let cold = cold.host.roster.snapshot();
+    assert!(cold.to_string().contains("agent-0"), "the cold fold has the agents: {cold}");
+    // Back to the older version: the cold fold above saved the current one.
+    registry.put_journal_reducer_state(AGENT_ROSTER_REDUCER_ID, 8, 3, "{}").unwrap();
+    drop(registry);
+    Store { root, session, db_path, cold, head }
+}
+
+fn premigrate(store: &Store, control: &PremigrateControl<'_>) -> RosterPremigration {
+    match premigrate_registry(&store.root, store.session, control).unwrap() {
+        PremigrateOutcome::Done(report) => report,
+        other => panic!("expected a premigration, got {other:?}"),
+    }
+}
+
+fn side_file(store: &Store) -> Value {
+    serde_json::from_slice(&std::fs::read(roster_side_file(&store.db_path)).unwrap()).unwrap()
+}
+
+fn side_snapshot(store: &Store) -> Value {
+    serde_json::from_str(side_file(store)["snapshot"].as_str().unwrap()).unwrap()
+}
+
+fn rewrite_side_file(store: &Store, edit: impl FnOnce(&mut Value)) {
+    let mut value = side_file(store);
+    edit(&mut value);
+    std::fs::write(roster_side_file(&store.db_path), value.to_string()).unwrap();
+}
+
+fn stored_roster(store: &Store) -> (u32, u64, String) {
+    // Read without an open, which would adopt the side file.
+    let connection = rusqlite::Connection::open_with_flags(
+        &store.db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let raw: String = connection
+        .query_row(
+            "SELECT value FROM meta WHERE key = ?1",
+            [format!("journal_reducer.{AGENT_ROSTER_REDUCER_ID}")],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let value: Value = serde_json::from_str(&raw).unwrap();
+    (
+        value["version"].as_u64().unwrap() as u32,
+        value["cursor"].as_str().unwrap().parse().unwrap(),
+        value["snapshot"].as_str().unwrap().to_owned(),
+    )
+}
+
+#[test]
+fn the_side_snapshot_equals_a_cold_fold() {
+    let store = stale_roster_store("premigrate-cold");
+    let report = premigrate(&store, &PremigrateControl::new(None, NEVER));
+    assert!(report.complete && !report.up_to_date, "{report:?}");
+    assert_eq!((report.from_cursor, report.cursor, report.head), (0, store.head, store.head));
+    assert!(report.records_folded > 0);
+    let side = side_file(&store);
+    assert_eq!(side["format"], 1);
+    assert_eq!(side["reducer_id"], AGENT_ROSTER_REDUCER_ID);
+    assert_eq!(side["version"], AGENT_ROSTER_REDUCER_VERSION);
+    assert_eq!(side["cursor"], store.head.to_string());
+    assert_eq!(side_snapshot(&store), store.cold);
+    // The registry itself still has the older roster.
+    assert_eq!(stored_roster(&store).0, 8);
+}
+
+#[test]
+fn a_partial_premigration_resumes_from_its_side_file() {
+    let store = stale_roster_store("premigrate-resume");
+    let first = premigrate(&store, &PremigrateControl::new(None, NEVER).pages(1, Some(2)));
+    assert!(!first.complete, "{first:?}");
+    assert!(first.cursor > 0 && first.cursor < store.head, "{first:?}");
+    assert_eq!(side_file(&store)["cursor"], first.cursor.to_string());
+
+    let second = premigrate(&store, &PremigrateControl::new(None, NEVER).pages(1, None));
+    assert_eq!(second.from_cursor, first.cursor);
+    assert!(second.complete, "{second:?}");
+    assert_eq!(side_snapshot(&store), store.cold);
+
+    // A stop request saves where the fold was and exits cleanly.
+    std::fs::remove_file(roster_side_file(&store.db_path)).unwrap();
+    let stopped = premigrate(&store, &PremigrateControl::new(None, &|| true));
+    assert_eq!(
+        (stopped.cursor, stopped.complete, stopped.stop_reason),
+        (0, false, Some("stopped"))
+    );
+}
+
+#[test]
+fn an_up_to_date_roster_or_a_missing_registry_has_nothing_to_premigrate() {
+    let store = stale_roster_store("premigrate-up-to-date");
+    let registry = WorkspaceRegistry::open(&store.root, store.session).unwrap();
+    registry
+        .put_journal_reducer_state(AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, 1, "{}")
+        .unwrap();
+    drop(registry);
+    let report = premigrate(&store, &PremigrateControl::new(None, NEVER));
+    assert!(report.up_to_date && report.complete && report.records_folded == 0, "{report:?}");
+    assert!(!roster_side_file(&store.db_path).exists());
+    assert!(matches!(
+        premigrate_registry(
+            &store.root,
+            "premigrate-no-such-session",
+            &PremigrateControl::new(None, NEVER)
+        )
+        .unwrap(),
+        PremigrateOutcome::NoRegistry(_)
+    ));
+}
+
+#[test]
+fn a_second_premigration_of_the_same_registry_says_it_already_runs() {
+    let store = stale_roster_store("premigrate-lock");
+    let lock = std::fs::File::create(sidecar(&store.db_path, ".premigrate.lock")).unwrap();
+    fs4::FileExt::lock(&lock).unwrap();
+    assert!(matches!(
+        premigrate_registry(&store.root, store.session, &PremigrateControl::new(None, NEVER))
+            .unwrap(),
+        PremigrateOutcome::AlreadyRunning(_)
+    ));
+    fs4::FileExt::unlock(&lock).unwrap();
+}
+
+/// The owner keeps serving: a write transaction it holds open does not stop
+/// the premigration, and the premigration changes neither the database
+/// file nor its WAL.
+#[test]
+fn a_premigration_never_writes_the_live_registry_and_runs_beside_a_writer() {
+    let store = stale_roster_store("premigrate-read-only");
+    let wal = sidecar(&store.db_path, "-wal");
+    let writer = rusqlite::Connection::open(&store.db_path).unwrap();
+    writer.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
+    writer
+        .execute_batch(
+            "BEGIN IMMEDIATE; INSERT INTO meta(key, value) VALUES('premigrate_test', '1');",
+        )
+        .unwrap();
+    let before = (std::fs::read(&store.db_path).unwrap(), std::fs::read(&wal).unwrap_or_default());
+    let report = premigrate(&store, &PremigrateControl::new(None, NEVER));
+    assert!(report.complete, "{report:?}");
+    let after = (std::fs::read(&store.db_path).unwrap(), std::fs::read(&wal).unwrap_or_default());
+    assert!(before == after, "the premigration wrote the registry or its WAL");
+    writer.execute_batch("COMMIT;").unwrap();
+    assert_eq!(side_snapshot(&store), store.cold);
+}
+
+#[test]
+fn the_next_open_adopts_a_matching_side_snapshot() {
+    let store = stale_roster_store("premigrate-adopt");
+    let report = premigrate(&store, &PremigrateControl::new(None, NEVER));
+    let registry = WorkspaceRegistry::open(&store.root, store.session).unwrap();
+    drop(registry);
+    let (version, cursor, snapshot) = stored_roster(&store);
+    assert_eq!((version, cursor), (AGENT_ROSTER_REDUCER_VERSION, report.cursor));
+    assert_eq!(serde_json::from_str::<Value>(&snapshot).unwrap(), store.cold);
+    assert!(!roster_side_file(&store.db_path).exists(), "an adopted side file is removed");
+}
+
+#[test]
+fn the_next_open_drops_a_side_snapshot_it_cannot_use() {
+    type Edit<'a> = &'a dyn Fn(&mut Value);
+    let cases: [(&str, Edit<'_>); 4] = [
+        ("other registry", &|side| side["registry_id"] = "another-registry".into()),
+        ("older version", &|side| side["version"] = (AGENT_ROSTER_REDUCER_VERSION - 1).into()),
+        ("past the head", &|side| side["cursor"] = u64::MAX.to_string().into()),
+        ("bad snapshot", &|side| side["snapshot"] = "not a roster".into()),
+    ];
+    for (case, edit) in cases {
+        let store = stale_roster_store("premigrate-reject");
+        premigrate(&store, &PremigrateControl::new(None, NEVER));
+        rewrite_side_file(&store, edit);
+        drop(WorkspaceRegistry::open(&store.root, store.session).unwrap());
+        assert_eq!(stored_roster(&store).0, 8, "{case}: the side snapshot was adopted");
+        assert!(!roster_side_file(&store.db_path).exists(), "{case}: the side file stayed");
+    }
+    // A registry already at the current version keeps its own roster and
+    // drops a leftover side file.
+    let store = stale_roster_store("premigrate-leftover");
+    premigrate(&store, &PremigrateControl::new(None, NEVER));
+    let registry = WorkspaceRegistry::open(&store.root, store.session).unwrap();
+    std::fs::write(roster_side_file(&store.db_path), side_file_text_for_test()).unwrap();
+    registry
+        .put_journal_reducer_state(AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, 1, "{}")
+        .unwrap();
+    drop(registry);
+    drop(WorkspaceRegistry::open(&store.root, store.session).unwrap());
+    assert_eq!(stored_roster(&store).1, 1);
+    assert!(!roster_side_file(&store.db_path).exists());
+}
+
+fn side_file_text_for_test() -> String {
+    serde_json::json!({"format": 1, "reducer_id": AGENT_ROSTER_REDUCER_ID}).to_string()
+}
+
+/// A partial premigration, adopted at open, and the start's bounded fold
+/// with its background replay of the tail end with the same roster as a
+/// cold fold of the whole journal.
+#[test]
+fn a_partial_premigration_and_the_background_replay_converge_on_a_cold_fold() {
+    use crate::mux::agent_roster_restore::STARTUP_BUDGET_FOR_TEST;
+    let store = stale_roster_store("premigrate-converge");
+    let partial = premigrate(&store, &PremigrateControl::new(None, NEVER).pages(1, Some(2)));
+    assert!(!partial.complete && partial.cursor > 0, "{partial:?}");
+    STARTUP_BUDGET_FOR_TEST.with(|budget| budget.set(Some(Duration::ZERO)));
+    let reopened = open_persistent_test_mux(store.session, &store.root);
+    STARTUP_BUDGET_FOR_TEST.with(|budget| budget.set(None));
+    assert!(!roster_side_file(&store.db_path).exists(), "the open adopted the side file");
+    for _ in 0..100 {
+        if !reopened.agent_roster_replaying() {
+            break;
+        }
+        assert!(reopened.settle_agent_roster_for_test());
+    }
+    assert!(!reopened.agent_roster_replaying(), "the background replay did not finish");
+    // The reopened owner also folds what it journals itself after the
+    // start's head, so compare each agent's state, as a view reads them.
+    let roster = settled(&reopened).agent_roster.lock().unwrap().roster.snapshot();
+    assert_eq!(agent_states(&roster), agent_states(&store.cold));
+    assert_eq!(agent_states(&store.cold).len(), 4, "{}", store.cold);
+    reopened.shutdown();
+    drop(reopened);
+}
+
+fn agent_states(snapshot: &Value) -> std::collections::BTreeMap<String, Value> {
+    snapshot["entries"]
+        .as_object()
+        .expect("roster entries")
+        .iter()
+        .map(|(terminal, entry)| (terminal.clone(), entry["state"].clone()))
+        .collect()
+}

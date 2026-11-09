@@ -229,6 +229,9 @@ pub use workspace_registry::{
 
 pub use cmux_remote_protocol::{REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_MESSAGE_MAX_BYTES};
 pub use ghostty_vt::{CursorShape, Rgb};
+pub use workspace_registry::premigrate::{
+    PremigrateControl, PremigrateOutcome, RosterPremigration, premigrate_registry,
+};
 
 pub type SurfaceId = u64;
 pub type PaneId = u64;
