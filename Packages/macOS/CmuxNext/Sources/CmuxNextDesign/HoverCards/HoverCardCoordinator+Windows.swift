@@ -36,6 +36,16 @@ extension HoverCardCoordinator {
         return ownWindows().first { $0.number != card && $0.frame.contains(point) }?.number
     }
 
+    /// The card window, when `point` (screen) is in its clear band and not on the card: there the
+    /// window takes no click of its own (``HoverCardPanel`` passes it to the window below), so a view
+    /// it stands over keeps its hover too (``PointerHover/passThroughWindows``). The band reaches over
+    /// what an interactive card opens beside: the sidebar's Updated card's x hid under it while its
+    /// changes showed, with nothing left to dismiss the card by (https://github.com/manaflow-ai/cmux/issues/39248). Empty when no card shows.
+    public func windowsPassingHover(at point: CGPoint) -> Set<Int> {
+        guard let panel, panel.isShowingCard, panel.frame.contains(point), !panel.presentedCardFrame.contains(point) else { return [] }
+        return [panel.windowNumber]
+    }
+
     private static func topWindowNumber(at point: CGPoint, excluding card: Int?) -> Int {
         let top = NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: 0)
         guard let card, top == card else { return top }
