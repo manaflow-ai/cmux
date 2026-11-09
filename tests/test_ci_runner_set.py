@@ -76,6 +76,8 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'rollback'}),
     'nightly-next-rollback.yml': ('not yet on a pool; moves in its own PR',
      {'rollback'}),
+    'nightly-next-rollback-drill.yml': ('publish and receipt hold the feed\'s R2 token: an ephemeral label the secret rule checks literally',
+     {'publish', 'receipt'}),
     'nightly-next-train.yml': ('not yet on a pool; moves in its own PR',
      {'drive'}),
     'nightly-next-verdict.yml': ('not yet on a pool; moves in its own PR',
