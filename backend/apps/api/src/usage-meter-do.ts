@@ -95,7 +95,7 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
   }
 
   /** The usage sync's last push for a subscription period: its identifier, mode and seats (S5 included modes). */
-  async pushState(entity: string, subscription: string, periodStart: number): Promise<{ identifier: string; mode: IncludedMode; seats: number; event_ts: number | null } | null> {
+  async pushState(entity: string, subscription: string, periodStart: number): Promise<{ identifier: string; mode: IncludedMode; seats: number; event_ts: number | null; included_usd: number | null } | null> {
     if (!this.isBound(entity)) return null
     return pushState(this.ctx.storage.sql, subscription, periodStart)
   }

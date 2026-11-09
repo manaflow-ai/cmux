@@ -109,9 +109,9 @@ export const currentBillable = (sql: SqlStorage, now: number, graceMs: number): 
   }
 }
 
-export const pushState = (sql: SqlStorage, subscription: string, periodStart: number): { identifier: string; mode: IncludedMode; seats: number; event_ts: number | null } | null => {
-  const row = sql.exec<{ identifier: string; mode: string | null; seats: number; event_ts: number | null }>(`SELECT identifier, mode, seats, event_ts FROM usage_push WHERE subscription = ? AND period_start = ?`, subscription, periodStart).toArray()[0]
-  return row ? { identifier: row.identifier, mode: modeOf(row.mode), seats: Math.max(1, Number(row.seats ?? 1)), event_ts: row.event_ts === null ? null : Number(row.event_ts) } : null
+export const pushState = (sql: SqlStorage, subscription: string, periodStart: number): { identifier: string; mode: IncludedMode; seats: number; event_ts: number | null; included_usd: number | null } | null => {
+  const row = sql.exec<{ identifier: string; mode: string | null; seats: number; event_ts: number | null; included_usd: number | null }>(`SELECT identifier, mode, seats, event_ts, included_usd FROM usage_push WHERE subscription = ? AND period_start = ?`, subscription, periodStart).toArray()[0]
+  return row ? { identifier: row.identifier, mode: modeOf(row.mode), seats: Math.max(1, Number(row.seats ?? 1)), event_ts: row.event_ts === null ? null : Number(row.event_ts), included_usd: row.included_usd === null ? null : Number(row.included_usd) } : null
 }
 
 export const recordPush = (sql: SqlStorage, subscription: string, periodStart: number, periodEnd: number, identifier: string, micros: number, now: number, info?: PushInfo) =>

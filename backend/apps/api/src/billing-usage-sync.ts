@@ -244,10 +244,13 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
       const quantity = Math.max(1, Math.floor(Number(planItem!.quantity ?? 1)) || 1)
       const seen = mode === "per_seat" ? await meter.pushState(team!, sub.id, start) : null
       const seats = seen?.mode === "per_seat" ? Math.max(quantity, seen.seats) : quantity
+      // A per-seat period already pushed keeps the included amount it was pushed with, like its mode: a price set
+      // change applies from the next period, so the meter value and the console never mix two amounts in one period.
+      const periodIncluded = seen?.mode === "per_seat" && seen.included_usd !== null ? seen.included_usd : includedUsd
       // The team can be billed above its included amount until this period ends (inference/included-stop.ts);
       // the mark also names the period's included amount for the console (team.ai_limit.get).
-      await meter.markBillable(team!, sub.id, end, { period_start: start, mode, seats, included_usd: includedUsd })
-      if (await pushLevel(team!, sub, start, end, mode, includedUsd, seats)) report.pushed++
+      await meter.markBillable(team!, sub.id, end, { period_start: start, mode, seats, included_usd: periodIncluded })
+      if (await pushLevel(team!, sub, start, end, mode, periodIncluded, seats)) report.pushed++
       else report.unchanged++
     } catch (e) {
       report.failed++

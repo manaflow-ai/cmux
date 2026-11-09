@@ -426,6 +426,23 @@ describe("price set v2: Team 25 USD per seat, per seat by default", () => {
     expect((await teamMode({ stack_team: v1Team, actor: "ops" })).body).toMatchObject({ requested: "per_team", in_force_now: "per_team" })
   })
 
+  it("keeps a pushed per-seat period's included amount when the price set changes inside the period", async () => {
+    const pinTeam = "8e9d0c1b-2f3a-4b4c-9d5e-7f8091021324"
+    const teamId = stackTeamIdFor(testEnv.STACK_PROJECT_ID, pinTeam)
+    const stripe = fakeStripe({ start: nowS() - 3600, end: nowS() + 30 * 86_400 })
+    const sub = stripe.addSub("sub_v2pin", "cus_v2_pin", { plan: "team", stackTeamId: pinTeam }, "cmux-team-monthly-20")
+    sub.items.data[0].quantity = 3
+    fakeBoundaries(stripe, 0)
+    await spendOn(teamId, 80)
+    expect((await sync(v2Env, JSON.stringify({ subscription: "sub_v2pin" }))).body).toMatchObject({ pushed: 1, failed: 0 })
+    // The set goes back to v1 mid-period: the period stays per seat (pinned) and keeps 3 x 25, not 3 x 20.
+    await spendOn(teamId, 10)
+    expect((await sync({ ...(env as object), ENVIRONMENT: "staging" }, JSON.stringify({ subscription: "sub_v2pin" }))).body).toMatchObject({ pushed: 1, failed: 0 })
+    expect(stripe.events.filter((e) => e["payload[stripe_customer_id]"] === "cus_v2_pin").map((e) => e["payload[value]"])).toEqual(["5.000000", "15.000000"])
+    const usage = await (testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(teamId)) as any).teamUsage(teamId)
+    expect(usage.billable).toMatchObject({ mode: "per_seat", seats: 3, included_usd: 75 })
+  })
+
   it("stops an unbilled Team team with no setting at 25 x its last seats under v2, and at 25 under v1", async () => {
     const team = stackTeamIdFor(testEnv.STACK_PROJECT_ID, "7d8c9b0a-1e2f-4a3b-8c4d-6e7f80910213")
     const meter = testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)) as any
