@@ -266,6 +266,7 @@ export type CloudPlan = {
     readonly active: number
     readonly saved: number
     readonly vm_hours_used: number | "Infinity" | "-Infinity" | "NaN" | null
+    readonly vm_hours_used_by_you?: number | "Infinity" | "-Infinity" | "NaN" | null
     readonly period_end: number
   }
 }
@@ -934,7 +935,7 @@ export type ManagedDevice = {
 
 export type MessageId = string
 
-export type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd"
+export type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd" | "cloud.machine_usd"
 
 export type MovedAutomation = {
   readonly id: AutomationId

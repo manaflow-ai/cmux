@@ -119,6 +119,9 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       "cmux.markdown.listFiles": () => ({ entries: [...files.keys()].map((path) => path.slice(dir.length)) }),
       "cmux.markdown.loadRemoteImages": () => ({ remoteImageBase: "/__gallery/none/" }),
       "cmux.markdown.openLink": () => null,
+      // A Run button or Run all opens a terminal or a chat in the app; the gallery opens nothing.
+      "cmux.markdown.runBlock": () => ({}),
+      "cmux.markdown.runAll": () => ({}),
       "cmux.markdown.setTableWidths": (params: { path: string; value: unknown }) => {
         try {
           if (params.value) sessionStorage.setItem(widthsKey(params.path), JSON.stringify(params.value));
