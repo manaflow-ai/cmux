@@ -600,6 +600,10 @@ pub struct Mux {
     reserved_in_process_terminals: Mutex<HashMap<SurfaceId, TerminalHostIdentity>>,
     #[cfg(test)]
     viewport_split_after_spawn: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs in an effectful topology operation after its intent is marked
+    /// executing and before the effect runs (tests).
+    #[cfg(test)]
+    topology_effect_before_execute: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_mutation_metrics: Mutex<Option<ResourceMutationMetrics>>,
     #[cfg(test)]
@@ -734,6 +738,10 @@ pub struct Mux {
     /// retained per mux until the first reporter arrives.
     diagnostic_reporter: OnceLock<DiagnosticReporter>,
     pending_diagnostics: Mutex<Vec<String>>,
+    /// Held across one call of `seal_journal_segments`: the owner's sealers
+    /// (the maintenance worker, a client's seal, the registry generator)
+    /// take turns, so none commits a segment another is preparing.
+    journal_seal: Mutex<()>,
     #[cfg(test)]
     journal_segment_prepare_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     /// Runs right after a new screen's creation handoff is released, where a
