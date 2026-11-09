@@ -126,7 +126,8 @@ pub const CHIEF_TURN_TOOLS: &str = "agents_snapshot,agents_workspace_create,\
 /// 2048 characters, so both compact rules stay under that.
 pub const ASKING_RULE: &str = "Asking the person: Full access already permits harness tool calls; never ask them to allow or confirm one. Decide, say why, continue. This never widens the task: respect user-only skill steps and consent cards; never bypass refusals. Ask only unresolved product taste, not permission.";
 
-/// The small cmux-owned coordination block sent once as hidden first-turn context.
+/// The small cmux-owned coordination block: in the system prompt or developer instructions of
+/// a Claude Code or Codex chat, else sent once as hidden first-turn context.
 /// Keep it canonical so the Context viewer shows and edits exactly what new sessions receive.
 /// It says only what the harnesses leave weak: models often fetch the reads a task implies
 /// (rather than names) one per turn, and the "list what you need, then request every
