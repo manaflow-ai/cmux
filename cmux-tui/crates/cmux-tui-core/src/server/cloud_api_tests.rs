@@ -301,8 +301,9 @@ fn a_refusal_names_its_kind_and_never_carries_a_credential_back() {
         (409, r#"{"error":"vm_busy","message":"echo secret-access and secret-refresh"}"#.into())
     });
     let daemon = Daemon::start("refusal");
-    let (code, message, details) =
-        daemon.send("cloud.vm.firewall_list", params(&origin, "stack", json!({})), None).unwrap_err();
+    let (code, message, details) = daemon
+        .send("cloud.vm.firewall_list", params(&origin, "stack", json!({})), None)
+        .unwrap_err();
     assert_eq!(code, "operation.failed");
     assert_eq!(details["operation"], "cloud.vm.firewall_list");
     assert_eq!(details["reason"], "http");
