@@ -107,7 +107,8 @@ struct CloseSeveralSelectsActedOnTabTests {
             try await connection.setTabPinned(try #require(store.tab(id: ids[0])).surface, true)
             try await PinnedPageTests.until({ pane.stripModel.orderedTabs.first?.isPinned == true && pane.orderedIDs.map(\.rawValue) == ids })
             try await TabCloseSelectsBeforeTests.select(ids[1], in: pane)
-            try #require(TabCloseGuard.asks([try #require(store.tab(id: ids[1]))], services: services), "the terminal close warning does not apply")
+            let closing = try #require(store.tab(id: ids[1]))
+            try #require(TabCloseGuard.asks([closing], services: services), "the terminal close warning does not apply")
             let hold = services.daemon.closeReadHold
             hold.arm()
             defer { hold.release() }

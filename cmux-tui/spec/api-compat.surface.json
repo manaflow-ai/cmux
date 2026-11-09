@@ -20710,6 +20710,12 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/write_path/registry_wal_file_bytes": {
+        "ty": "uint64"
+      },
+      "/data/write_path/registry_wal_file_high_water_bytes": {
+        "ty": "uint64"
+      },
       "/data/write_path/registry_wal_frame_bytes": {
         "ty": "uint64"
       },

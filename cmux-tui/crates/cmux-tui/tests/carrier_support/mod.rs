@@ -209,12 +209,22 @@ pub async fn platform(
 /// the session daemon takes it (`cmux-tui-core` `server/carrier_role.rs`), and
 /// says whether it was. A stand-in that echoed the stamp instead did not take
 /// it, so the host refused every stream of a grant that is not the owner's.
+/// Like the daemon, it takes only a well-formed stamp (the stamp's request id
+/// and exactly a valid `vmk`) and refuses any other `carrier-role` line.
 pub async fn took_role_stamp(line: &str, writer: &mut tokio::net::unix::OwnedWriteHalf) -> bool {
-    let Ok(request) = serde_json::from_str::<Value>(line) else { return false };
-    if request["cmd"] != cmux_link::carrier_role::COMMAND {
+    use cmux_link::carrier_role::{COMMAND, REQUEST_ID, parse};
+    let Ok(Value::Object(mut fields)) = serde_json::from_str::<Value>(line) else { return false };
+    if fields.get("cmd").and_then(Value::as_str) != Some(COMMAND) {
         return false;
     }
-    let taken = json!({"id": request["id"], "ok": true, "data": {}});
+    fields.remove("cmd");
+    let id = fields.remove("id").unwrap_or(Value::Null);
+    let taken = if id == REQUEST_ID && parse(&fields).is_some() {
+        json!({"id": id, "ok": true, "data": {}})
+    } else {
+        let code = "carrier_role.malformed";
+        json!({"id": id, "ok": false, "error": code, "error_code": code})
+    };
     let _ = writer.write_all(format!("{taken}\n").as_bytes()).await;
     true
 }

@@ -11,6 +11,7 @@ import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextSidebarActions
 import Observation
 
 /// Feeds one window's sidebar from the daemon store and turns sidebar
@@ -57,6 +58,10 @@ final class SidebarBridge {
     }()
     let faceBuffers = SidebarFaceBatch() // the face rules' buffers its passes and band items reuse (`sections(faces:)`)
 
+    static func driveMenuItem(_ services: AppServices) -> (CmuxNextSidebar.WorkspaceID, SidebarDriveCommand, String) -> NSMenuItem? { // the agent's terminals from its tab's daemon
+        SidebarDriveMenuItems(registry: services.registry) { [weak services] tab in services?.machines.daemons.lazy.compactMap { $0.store.tab(id: tab.rawValue) }.first.map { [$0.terminalID?.rawValue, $0.terminalResourceID?.rawValue].compactMap(\.self) } ?? [] }.menuItem
+    }
+
     init(services: AppServices, state: WindowState) {
         self.services = services
         self.state = state
@@ -73,6 +78,7 @@ final class SidebarBridge {
             state?.focus.send(.sidebarVisibility(hidden: presentation == .hidden))
         }
         container.sidebarView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
+        container.sidebarView.driveMenuItem = Self.driveMenuItem(services)
         groupFlow.wireEditor()
         SidebarWorkspacePins.wire(self)
         // The Chief dropped beside the sidebar comes off it, as Remove from Sidebar does (Leo 2026-10-21), in a band,
@@ -231,7 +237,7 @@ final class SidebarBridge {
     /// nothing saved show placeholder rows.
     private func seedFromSnapshot(_ state: WindowState) {
         let windows = services.windows
-        let isLaunchWindow = windows.controllers.isEmpty && windows.registry.isLaunching
+        let isLaunchWindow = windows.controllers.isEmpty && windows.restoresSession(state.id)
         let saved = services.sidebarSnapshots.launchDocument.snapshot(for: state.id, fallback: isLaunchWindow)
         seed = SidebarSeed(sections: saved?.sidebarSections ?? [], grace: seed.grace.rerunning(sameTurn), connecting: seed.connecting.rerunning(sameTurn))
         // Collapsed sections: this window's view state, saved only in its sidebar snapshot.
@@ -301,12 +307,13 @@ final class SidebarBridge {
         let machines = services.machines, layout = services.sidebarLayout, muted = services.notifications.preferences.mutedWorkspaces
         let hidesHome = layout.document.hidesHome // an input of each workspace's listing rule (`SidebarRowFeed.lists`) too
         feed?.beginPass(inputs: [muted, DesignSettings.shared.attention.showsOnSidebar, hidesHome] as [AnyHashable])
-        return liveSections(
+        let (sections, launching, failed) = liveSections(
             machines, doc: services.sidebarDoc, registry: services.windows.registry, window: window, creations: services.cloud.creations,
             hidesHome: hidesHome, rowNewTabPages: services.agentTabs, muted: muted,
             top: .make(layout, machines: machines, room: window.profileID.rawValue), pageFace: pageFace ?? services.sidebarPageFace,
             tabTitle: tabTitle(services), rows: rows, listing: feed?.listingSource, groupConfig: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(),
             harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none }, faces: faces)
+        return (sections, launching && services.windows.restoresSession(window.id), failed) // a new window shows its own rows (#38128)
     }
 
     /// The window's live sidebar, whether the app is still launching (its
@@ -332,13 +339,8 @@ final class SidebarBridge {
         // Debug Settings: sample rows to compare the row badges and the row names.
         sections += SidebarRowSection.debugPreviews()
         let failed = Set(machines.cloud.filter { $0.daemon.startup.isUnavailable }.map { MachineID($0.daemon.machineID) })
-        return (sections, isLaunching(machines.local, registry: registry), failed)
-    }
-
-    /// Until the saved windows are restored from the live tree, unless the
-    /// local daemon is unavailable (the connecting view says why).
-    static func isLaunching(_ local: DaemonService, registry: WindowRegistryStore) -> Bool {
-        registry.isLaunching && !local.startup.isUnavailable
+        // Launching until the saved windows are restored, unless the local daemon is unavailable (the connecting view says why).
+        return (sections, registry.isLaunching && !machines.local.startup.isUnavailable, failed)
     }
 
     /// This window's sidebar: every machine section, listing only the

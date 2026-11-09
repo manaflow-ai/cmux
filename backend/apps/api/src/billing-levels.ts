@@ -1,4 +1,6 @@
 import type { Env } from "./env.ts"
+import { poolsMachineTime } from "./billing-catalog.ts"
+import { usagePriceSet } from "./billing-usage-sync.ts"
 import { readRawBody, timingSafeEqual } from "./ingress/verify.ts"
 import { personalTeamIdFor, stackTeamIdFor, userIdFor } from "./domains/user.ts"
 
@@ -69,7 +71,7 @@ export const handleBillingLevels = async (request: Request, env: Env): Promise<R
   const levels = await Promise.all(
     items.map(async (item) => {
       const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(item.team))
-      const l = await meter.level(item.team, item.from, item.to)
+      const l = await meter.level(item.team, item.from, item.to, poolsMachineTime(usagePriceSet(env)))
       return { ...item, micros: l.micros, facts: l.facts, last_at: l.last_at, price_version: AI_PRICE_VERSION }
     })
   ).catch((e: unknown) => {

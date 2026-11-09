@@ -3749,6 +3749,9 @@ mod browser_profiles;
 #[path = "cli/caller_selector.rs"]
 mod caller_selector;
 #[cfg(unix)]
+#[path = "cli/carrier_tunnel.rs"]
+mod carrier_tunnel;
+#[cfg(unix)]
 #[path = "cli/chief.rs"]
 mod chief;
 #[cfg(unix)]

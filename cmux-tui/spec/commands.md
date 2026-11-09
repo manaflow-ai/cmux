@@ -628,7 +628,8 @@ object{
     effect_intents:uint64, effect_intent_failures:uint64,
     effect_intent_batches:uint64, request_effect_commits:uint64,
     writer_registry_locks:uint64, wal_commits?:uint64,
-    wal_synced_commits?:uint64, registry_wal_frame_bytes?:uint64
+    wal_synced_commits?:uint64, registry_wal_frame_bytes?:uint64,
+    registry_wal_file_bytes?:uint64, registry_wal_file_high_water_bytes?:uint64
   },
   locks?:object{registry:lock_detail, state:lock_detail},
   hook_queue?:object{queued_events:uint64,reset_dropped_events:uint64,undeliverable_events:uint64}
@@ -691,7 +692,14 @@ frames those commits appended (each frame is a 24-byte header and one page):
 what the registry's writes put on the disk, before the checkpoint copies each
 page into the database once more. Its first count after a start also holds the
 frames a previous run left in the WAL, so a reader compares two reads (the
-bytes one change writes). Daemons older than each field omit it.
+bytes one change writes). `registry_wal_file_bytes` is the registry's WAL file
+size now and `registry_wal_file_high_water_bytes` the largest size seen since
+the daemon started: a reader that pins an old snapshot keeps every later
+commit in the WAL, and the file shrinks to 64 MiB at the first commit after a
+checkpoint copied the whole WAL and the last reader of the old WAL ended (a
+read transaction still open after the checkpoint delays it); an idle registry
+keeps its size. Daemons
+older than each field omit it.
 
 `locks` reports the workspace registry lock (`registry`) and the mux state
 lock (`state`) by acquiring site, so a convoy names the code that holds it.
@@ -9590,7 +9598,9 @@ an agent or an MCP server, and every unknown param is
 `agent_session.bad_request`. Other error codes: `agent_session.not_trusted`,
 `agent_session.unavailable` (no acpmux), `agent_session.not_attached`,
 `agent_session.limit` (8 attachments per connection, 64 per daemon, 8 calls in
-flight per attachment), `agent_session.timeout` (5 s), `agent_session.refused`
+flight per attachment), `agent_session.timeout` (5 s; 30 s for a prompt's
+acceptance, which a chat started a moment before can take longer than 5 s to
+give), `agent_session.refused`
 (acpmux refused), `agent_session.bad_list` (acpmux's session list could not be
 read whole: a bad or repeated cursor, a page with no `sessions`, or a page after
 the first that failed; an attach whose watch list does so is refused, and

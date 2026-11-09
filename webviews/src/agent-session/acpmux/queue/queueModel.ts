@@ -41,7 +41,9 @@ export type QueueItem = {
   prUrl?: string;
 };
 
-export type QueueReply = { items: QueueItem[]; peersOmitted: string[]; now: number };
+/// `total` counts the items acpmux had before its `limit` cut (as many as `items` from an acpmux
+/// that does not say).
+export type QueueReply = { items: QueueItem[]; peersOmitted: string[]; now: number; total: number };
 
 const KINDS: readonly QueueKind[] = ["approval", "plan", "question", "pr"];
 const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
@@ -62,7 +64,18 @@ export function readQueue(value: unknown, fallbackNow = Date.now()): QueueReply 
     const name = text(peer) ?? text(record(peer)?.name);
     return name ? [name] : [];
   });
-  return { items: sortQueue(items), peersOmitted, now };
+  const total = Math.max(num(body?.total) ?? 0, items.length);
+  return { items: sortQueue(rowIds(items)), peersOmitted, now, total };
+}
+
+/// A row's id for the page. acpmux names a pull request `pr:{url}` in every chat and on every
+/// machine that has it, and two machines can each have an ask `acpmux:p1`: a pull request's row
+/// and another machine's row are told apart by machine and chat. The same item always gets the
+/// same id, however many others share acpmux's, so a draft or an answer never moves to another row.
+function rowIds(items: QueueItem[]): QueueItem[] {
+  return items.map((item) =>
+    item.kind === "pr" || item.host ? { ...item, id: `${item.id}@${item.host ?? ""}/${item.sessionId}` } : item,
+  );
 }
 
 function readItem(raw: unknown, now: number): QueueItem | undefined {
@@ -154,24 +167,23 @@ export function itemQuestion(item: QueueItem): AgentQuestion | undefined {
   }
 }
 
-/// The one-click answers an item takes in place: allow once and deny once for an approval or a
-/// plan, the tool permissions the host answers for a chat this page does not show
-/// (`chat.asks.answer`). A pull request takes its verdict instead. A question is answered in its
-/// chat, where its card shows the whole question: no chat shows here for `chat.permission` to
-/// answer, and the host's one-click answer takes tool permissions only. An ask on another machine
-/// is answered there.
+/// The one-click answers an item takes in place: its exact `allow_once` and `reject_once` options,
+/// for an approval or a plan, the tool permissions the host answers for a chat this page does not
+/// show (`chat.asks.answer`). Never a lasting grant in their place: an `allow_always` or a
+/// `reject_always` is answered in the chat, where the person sees what it keeps deciding, so an
+/// item with neither once option shows none here and opens its chat. A pull request takes its
+/// verdict instead. A question is answered in its chat, where its card shows the whole question:
+/// no chat shows here for `chat.permission` to answer, and the host's one-click answer takes tool
+/// permissions only. An ask on another machine is answered there.
 export function queueAnswers(item: QueueItem): NeedsYouAnswer[] {
   if (item.kind === "pr" || item.kind === "question" || item.host) return [];
-  const allow = item.options.find((option) => option.kind === "allow_once") ?? item.options.find(isAllow);
-  const deny = item.options.find((option) => option.kind === "reject_once") ?? item.options.find(isDeny);
+  const allow = item.options.find((option) => option.kind === "allow_once");
+  const deny = item.options.find((option) => option.kind === "reject_once");
   return [
     ...(allow ? [{ id: allow.optionId, label: allow.name, tone: "allow" as const }] : []),
     ...(deny ? [{ id: deny.optionId, label: deny.name, tone: "deny" as const }] : []),
   ];
 }
-
-const isAllow = (option: QueueOption) => option.kind?.startsWith("allow") ?? false;
-const isDeny = (option: QueueOption) => option.kind?.startsWith("reject") ?? false;
 
 /// The item as Needs you's shape, so its answer goes through Needs you's own path
 /// (needsYou/useNeedsYou.ts `answerParams` and `answerAnotherChat`), never a copy of it.
@@ -225,12 +237,17 @@ export function queueReasons(item: QueueItem): QueueReason[] {
 /// The review verdict a pull request item sends (`_acpmux/review_verdict`): acpmux records it
 /// on this Mac for the chat that made the PR, so it needs that chat, and another machine's PR has
 /// none here (its row opens its chat instead). The wire says `accepted` or `changes`.
-export function verdictParams(item: QueueItem, verdict: "accept" | "changes"): Record<string, unknown> | undefined {
+export function verdictParams(
+  item: QueueItem,
+  verdict: "accept" | "changes",
+  comment?: string,
+): Record<string, unknown> | undefined {
   if (item.kind !== "pr" || !item.prUrl || !item.sessionId || item.host) return undefined;
   return {
     prUrl: item.prUrl,
     sessionId: item.sessionId,
     verdict: verdict === "accept" ? "accepted" : "changes",
+    ...(comment?.trim() ? { comment: comment.trim() } : {}),
   };
 }
 

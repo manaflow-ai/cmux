@@ -72,6 +72,9 @@ afterEach(() => {
   root = undefined;
   host.replaceChildren();
   showAttachments(DEFAULT_COMPOSER.attachmentView);
+  // Each test's chat starts with no kept draft: an attachment brought is the person's edit, so the
+  // prompt holding it is kept for the chat (Composer.tsx `place`).
+  dom.window.localStorage.clear();
 });
 
 afterAll(() => {

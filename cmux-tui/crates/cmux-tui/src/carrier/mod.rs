@@ -106,6 +106,7 @@ pub(crate) mod drill;
 pub(crate) mod fault;
 mod held;
 mod noise_key;
+mod rd_link;
 mod route_log;
 mod secrets;
 mod serve;
@@ -324,7 +325,8 @@ fn runtime() -> Result<tokio::runtime::Runtime, i32> {
         .map_err(|_| fail(&Failure::fatal(contract::Step::Relay, "no async runtime")))
 }
 
-/// The full-jitter draw of the session's own reconnect policy.
+/// The full-jitter draw of the session's own reconnect policy (the
+/// tunnel's retry waits, [`tunnel_cli`]).
 fn jitter(ceiling: Duration) -> Duration {
     cmux_remote::connection::ReconnectPolicy::default().retry_delay(ceiling)
 }
@@ -513,7 +515,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
         // before the desktop opened is dialed fresh, from the same budget
         // as the dial's own fresh sessions (`MAX_FRESH_SESSIONS` in all).
         let (dialed, desktop) = loop {
-            let dialed = client::dial(&plan, jitter).await;
+            let dialed = client::dial(&plan).await;
             match (dialed, args.service) {
                 (Ok(dialed), DialService::Desktop) => {
                     match open_desktop(&dialed.multiplexer, plan.deadline).await {
@@ -548,16 +550,43 @@ pub(crate) fn run(args: &[String]) -> i32 {
                 reply(&line);
             }
         });
-        let client::Dialed { connection, multiplexer, mux, .. } = dialed;
+        let client::Dialed { connection, multiplexer, mux, rd_link, .. } = dialed;
         let _ = match desktop {
             Some(stream) => {
                 mux.close().await;
-                cmux_remote::bridge::bridge_raw_stream(
-                    stream,
-                    tokio::io::stdin(),
-                    tokio::io::stdout(),
-                )
-                .await
+                // The datagram link only when the platform turned it on and
+                // `CMUX_RD_LINK=0` does not keep it off; else the plain copy.
+                let killed = std::env::var(rd_link::KILL_SWITCH).is_ok_and(|v| v == "0");
+                match rd_link.filter(|_| !killed) {
+                    Some(link) => {
+                        let machine = args.machine.clone();
+                        let link_log = route_log::default_path();
+                        rd_link::bridge(
+                            stream,
+                            tokio::io::stdin(),
+                            tokio::io::stdout(),
+                            link.stun,
+                            link.turn,
+                            move |note| {
+                                if let Some(path) = &link_log {
+                                    route_log::append(
+                                        path,
+                                        &format!("cloud.desktop_link machine={machine} {note}\n"),
+                                    );
+                                }
+                            },
+                        )
+                        .await
+                    }
+                    None => {
+                        cmux_remote::bridge::bridge_raw_stream(
+                            stream,
+                            tokio::io::stdin(),
+                            tokio::io::stdout(),
+                        )
+                        .await
+                    }
+                }
             }
             None => mux.bridge(tokio::io::stdin(), tokio::io::stdout()).await,
         };

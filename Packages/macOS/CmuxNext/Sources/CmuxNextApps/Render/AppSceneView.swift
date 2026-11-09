@@ -36,31 +36,33 @@ public struct AppSceneView: View {
     }
 }
 
-/// The error card of a failed mount: the reason in full (selectable, so it can be copied), the
-/// script line it names on its own line, and Reload, which runs the saved script again.
+/// The error card of a failed mount, in plain words (``AppFailureCopy``): what happened, where and
+/// why for a script error, and Reload, which runs the saved script again. The AppKit row
+/// (``AppFailureNSView``) also keeps the raw reason under Details.
 struct AppSceneFailureRow: View {
     @Environment(\.appSceneColors) private var colors
     let reason: String
     var symbol = "exclamationmark.triangle"
     var tone: KeyPath<AppSceneColors, Color> = \.attention
-    /// Nil: no Reload (a disconnected mount comes back by itself).
+    /// Nil: no Reload, and the reason is already plain words (a disconnected mount comes back by itself).
     var onReload: (() -> Void)?
 
     var body: some View {
-        let failure = AppScriptFailure(reason: reason)
+        let copy = onReload == nil ? nil : AppFailureCopy(reason: reason)
         HStack(alignment: .firstTextBaseline, spacing: Metrics.space2) {
             Icon(symbol: symbol, size: 13)
                 .foregroundStyle(colors[keyPath: tone])
             VStack(alignment: .leading, spacing: Metrics.space1) {
-                Text(failure.message)
+                Text(copy?.title ?? reason)
                     .font(Font(Typography.caption))
                     .foregroundStyle(colors.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
-                if let location = failure.location {
+                if let location = copy?.location {
                     Text(location)
-                        .font(Font(Typography.caption).monospaced())
+                        .font(Font(Typography.caption))
                         .foregroundStyle(colors.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
                 }
                 if let onReload {
@@ -76,4 +78,3 @@ struct AppSceneFailureRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
-

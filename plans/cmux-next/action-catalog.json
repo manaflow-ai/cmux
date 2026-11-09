@@ -72715,6 +72715,102 @@
     {
       "arguments" : [
         {
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "id",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "agentHarnessProfiles"
+          },
+          "title" : "Agent"
+        },
+        {
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "icon",
+          "suggestions" : null,
+          "title" : "Icon"
+        }
+      ],
+      "category" : "agents",
+      "cliName" : "action agent-harness-set-icon",
+      "computed" : {
+        "canonical_action_id" : "agent.harness.setIcon",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "AgentHarnessActionCatalog",
+      "hint" : null,
+      "id" : "agent.harness.setIcon",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "agent",
+        "harness",
+        "acp",
+        "icon",
+        "emoji",
+        "symbol",
+        "logo",
+        "mark",
+        "profile"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "face.smiling",
+      "targets" : [
+
+      ],
+      "title" : "Set Agent Icon…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72800,6 +72896,314 @@
 
       ],
       "title" : "Update Agent CLIs",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "name",
+          "suggestions" : null,
+          "title" : "Worktree Name"
+        },
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "base",
+          "suggestions" : null,
+          "title" : "Base Revision"
+        }
+      ],
+      "category" : "tab",
+      "cliName" : "action git-worktree-create",
+      "computed" : {
+        "canonical_action_id" : "git.worktree.create",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "GitActionCatalog",
+      "hint" : null,
+      "id" : "git.worktree.create",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "git",
+        "worktree",
+        "branch",
+        "checkout",
+        "new",
+        "create",
+        "isolate"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "arrow.triangle.branch",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "New Git Worktree",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "tab",
+      "cliName" : "action git-worktree-apply",
+      "computed" : {
+        "canonical_action_id" : "git.worktree.apply",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "GitActionCatalog",
+      "hint" : null,
+      "id" : "git.worktree.apply",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "git",
+        "worktree",
+        "apply",
+        "merge",
+        "bring back",
+        "main",
+        "checkout"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "arrow.down.to.line",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Apply Worktree to Main Checkout",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "bool",
+          "name" : "discard",
+          "suggestions" : null,
+          "title" : "Discard Unsaved Work"
+        },
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "bool",
+          "name" : "confirm",
+          "suggestions" : null,
+          "title" : "Confirm"
+        }
+      ],
+      "category" : "tab",
+      "cliName" : "action git-worktree-remove",
+      "computed" : {
+        "canonical_action_id" : "git.worktree.remove",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "GitActionCatalog",
+      "hint" : null,
+      "id" : "git.worktree.remove",
+      "isDebugOnly" : false,
+      "isDestructive" : true,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "git",
+        "worktree",
+        "remove",
+        "delete",
+        "clean up",
+        "branch"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "trash",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Remove Git Worktree",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "tab",
+      "cliName" : "action git-checkpoint-create",
+      "computed" : {
+        "canonical_action_id" : "git.checkpoint.create",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "GitActionCatalog",
+      "hint" : null,
+      "id" : "git.checkpoint.create",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "git",
+        "checkpoint",
+        "snapshot",
+        "save",
+        "capture",
+        "stash"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "camera",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Create Git Checkpoint",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -74572,7 +74976,7 @@
     {
       "arguments" : [
         {
-          "isRequired" : true,
+          "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
           "isTargetName" : false,
@@ -74597,7 +75001,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Attaches this Mac's Cloud tunnel to a private network. The network id (from `cmux cloud network-list`) goes in the path argument: --arg path=<network id>. Returns no fields.",
+      "description" : "Attaches this Mac's Cloud tunnel to its team's network, the only one it joins. The path argument is optional: none means the joined team; a network id (--arg path=<team id>) must be that team's. Returns no fields.",
       "focuses" : false,
       "group" : "CloudActionCatalog",
       "hint" : null,
@@ -74652,7 +75056,7 @@
     {
       "arguments" : [
         {
-          "isRequired" : true,
+          "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
           "isTargetName" : false,
@@ -74677,7 +75081,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Detaches this Mac's Cloud tunnel from a private network. The network id goes in the path argument: --arg path=<network id>. Returns no fields.",
+      "description" : "Detaches this Mac's Cloud tunnel from its team's network. The path argument is optional: none means the joined team; a network id (--arg path=<team id>) must be that team's. Returns no fields.",
       "focuses" : false,
       "group" : "CloudActionCatalog",
       "hint" : null,
@@ -74731,16 +75135,7 @@
     },
     {
       "arguments" : [
-        {
-          "isRequired" : true,
-          "isSuppliedByTarget" : false,
-          "isTargetDescription" : false,
-          "isTargetName" : false,
-          "kind" : "string",
-          "name" : "publicKey",
-          "suggestions" : null,
-          "title" : "SSH Public Key"
-        }
+
       ],
       "category" : "cloud",
       "cliName" : "cloud tunnel-rotate-key",
@@ -74757,7 +75152,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Replaces the client public key of this Mac's Cloud tunnel with --public-key. Returns no fields.",
+      "description" : "Gives this Mac a new WireGuard key for its Cloud tunnel: the agent daemon makes the key, registers it, then uses it. Returns no fields.",
       "focuses" : false,
       "group" : "CloudActionCatalog",
       "hint" : null,
@@ -80144,6 +80539,16 @@
           "isTargetDescription" : false,
           "isTargetName" : false,
           "kind" : "string",
+          "name" : "fromFolder",
+          "suggestions" : null,
+          "title" : "Folder on This Mac to Copy"
+        },
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
           "name" : "login",
           "suggestions" : null,
           "title" : "Harness Login"
@@ -80164,7 +80569,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Starts an agent session (--agent claude, codex, ...) in the Cloud machine's own acpmux and returns machine_id, session_id and host, plus the chat tab's workspace_id and surface_id. Name the machine with --target machine:<id>, or --name <name> to take or create it; --cwd is the folder there. --login pass|machine|none: your login, the machine's own, or none (default: the machine's login or your earlier choice). An agent's run asks no one (unless cloud.agentsStartWithoutAsking is off). A slow run answers pending: true; run it again for its session.",
+      "description" : "Starts an agent session (--agent claude, codex, ...) in the Cloud machine's own acpmux and returns machine_id, session_id and host, plus the chat tab's workspace_id and surface_id. Name the machine with --target machine:<id>, or --name <name> to take or create it; --cwd is the folder there, or --from-folder copies one from this Mac. --login pass|machine|none: your login, the machine's own, or none (default: the machine's login or your earlier choice). An agent's run asks no one (unless cloud.agentsStartWithoutAsking is off). A slow run answers pending: true; run it again for its session.",
       "focuses" : false,
       "group" : "CloudSessionActionCatalog",
       "hint" : null,
@@ -86362,9 +86767,11 @@
       "keywords" : [
         "appearance",
         "font",
+        "text",
+        "size",
+        "interface",
         "chrome",
-        "bigger",
-        "zoom"
+        "bigger"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -86392,7 +86799,7 @@
       "targets" : [
 
       ],
-      "title" : "Increase Interface Size",
+      "title" : "Increase Text Size",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -86428,9 +86835,11 @@
       "keywords" : [
         "appearance",
         "font",
+        "text",
+        "size",
+        "interface",
         "chrome",
-        "smaller",
-        "zoom"
+        "smaller"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -86458,7 +86867,7 @@
       "targets" : [
 
       ],
-      "title" : "Decrease Interface Size",
+      "title" : "Decrease Text Size",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -86494,6 +86903,9 @@
       "keywords" : [
         "appearance",
         "font",
+        "text",
+        "size",
+        "interface",
         "chrome",
         "default"
       ],
@@ -86523,7 +86935,7 @@
       "targets" : [
 
       ],
-      "title" : "Reset Interface Size",
+      "title" : "Reset Text Size",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -86566,7 +86978,8 @@
       "keywords" : [
         "appearance",
         "scale",
-        "chrome",
+        "interface",
+        "pages",
         "bigger",
         "zoom"
       ],
@@ -86598,7 +87011,7 @@
       "targets" : [
 
       ],
-      "title" : "Increase Interface Scale",
+      "title" : "Increase App Zoom",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -86641,7 +87054,8 @@
       "keywords" : [
         "appearance",
         "scale",
-        "chrome",
+        "interface",
+        "pages",
         "smaller",
         "zoom"
       ],
@@ -86673,7 +87087,7 @@
       "targets" : [
 
       ],
-      "title" : "Decrease Interface Scale",
+      "title" : "Decrease App Zoom",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -86716,7 +87130,8 @@
       "keywords" : [
         "appearance",
         "scale",
-        "chrome",
+        "interface",
+        "pages",
         "default",
         "zoom"
       ],
@@ -86748,7 +87163,7 @@
       "targets" : [
 
       ],
-      "title" : "Reset Interface Scale",
+      "title" : "Reset App Zoom",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -87268,8 +87683,7 @@
         "appearance",
         "font",
         "compact",
-        "dense",
-        "default"
+        "dense"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -87335,6 +87749,9 @@
         "rows",
         "appearance",
         "font",
+        "default",
+        "normal",
+        "standard",
         "cozy",
         "medium",
         "middle"
@@ -87363,7 +87780,7 @@
       "targets" : [
 
       ],
-      "title" : "Density: Cozy",
+      "title" : "Density: Default",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -87527,7 +87944,7 @@
                 "value" : "compact"
               },
               {
-                "title" : "Cozy",
+                "title" : "Default",
                 "value" : "cozy"
               },
               {
@@ -87640,7 +88057,7 @@
                 "value" : "compact"
               },
               {
-                "title" : "Cozy",
+                "title" : "Default",
                 "value" : "cozy"
               },
               {
@@ -103683,6 +104100,166 @@
 
       ],
       "title" : "Always Show Sidebar Controls",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "sidebar",
+      "cliName" : "action sidebar-float-on-hover-on",
+      "computed" : {
+        "canonical_action_id" : "sidebar.floatOnHover.on",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SidebarSectionActionCatalog",
+      "hint" : null,
+      "id" : "sidebar.floatOnHover.on",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "sidebar",
+        "float",
+        "floating",
+        "hover",
+        "peek",
+        "edge",
+        "overlay",
+        "reveal",
+        "hidden",
+        "auto hide"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "sidebarBackground",
+            "folder" : "options",
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 139,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "sidebar.squares.left",
+      "targets" : [
+
+      ],
+      "title" : "Float Hidden Sidebar on Hover",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "sidebar",
+      "cliName" : "action sidebar-float-on-hover-off",
+      "computed" : {
+        "canonical_action_id" : "sidebar.floatOnHover.off",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SidebarSectionActionCatalog",
+      "hint" : null,
+      "id" : "sidebar.floatOnHover.off",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "sidebar",
+        "float",
+        "floating",
+        "hover",
+        "peek",
+        "edge",
+        "overlay",
+        "off",
+        "never",
+        "disable"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "sidebarBackground",
+            "folder" : "options",
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 140,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "sidebar.left",
+      "targets" : [
+
+      ],
+      "title" : "Never Float Hidden Sidebar",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false

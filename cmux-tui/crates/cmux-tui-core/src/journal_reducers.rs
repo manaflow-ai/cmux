@@ -43,6 +43,11 @@ pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// hook (Esc, a lost `Stop`) and end a hook session whose agent exited; the
 /// re-fold clears rows that stayed working after either.
 pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 9;
+/// The oldest roster version whose snapshot [`AgentRoster::migrate`] takes.
+/// Version 6 added the hook session fences: a snapshot without them would
+/// let a late event from an ended session bring its row back while the
+/// rebuild runs.
+const AGENT_ROSTER_MIGRATES_FROM: u32 = 6;
 /// Stable envelope used by userland agent plugins. The producer id is the
 /// plugin identity; the payload id must match it before the event is folded.
 pub(crate) const AGENT_PLUGIN_FORMAT: &str = "cmux.agent-plugin.v1";
@@ -632,6 +637,34 @@ pub(crate) struct AgentRoster {
 }
 
 impl AgentRoster {
+    /// The journal kinds [`Self::apply`] can act on. Its replays read only
+    /// these (`session_journal_kinds_after`), so a replay costs the agent
+    /// records, not the journal's other history. Every other kind is a no-op:
+    ///
+    /// - `apply` folds a record of the agent hook producer or a valid plugin
+    ///   event, and drops the rest first.
+    /// - A plugin event's kind must be `plugin.<producer>.agent.state.changed`
+    ///   or `plugin.<producer>.agent.session.ended` ([`RosterEvent::plugin_event`]).
+    /// - The hook producer appends through journal ingress, which refuses a
+    ///   kind its manifest does not declare; it declares only `agent.*` kinds
+    ///   (`AGENT_EVENT_KINDS`). That covers the plugin exit, program status,
+    ///   socket echo and legacy screen-detect events, which are all hook
+    ///   producer events.
+    /// - A record of another writer whose producer id happens to be the hook
+    ///   producer's (an admin, checkpoint, retention or resource record, named
+    ///   by its origin) has no `agent.*` kind and none of the hook envelope's
+    ///   `adapter` and `native_event` fields, so every branch of `apply`
+    ///   returns before it changes anything: the hook branch needs a kind
+    ///   [`hook_roster_state`] maps, which are `agent.*` kinds.
+    ///
+    /// `mux/tests/agent_roster_kind_scope.rs` checks this on a mixed stream.
+    pub(crate) fn folds_kind(kind: &str) -> bool {
+        kind.starts_with("agent.")
+            || (kind.starts_with("plugin.")
+                && (kind.ends_with(".agent.state.changed")
+                    || kind.ends_with(".agent.session.ended")))
+    }
+
     /// Fold one committed record. Deterministic: identical event sequences
     /// produce identical rosters, so a snapshot plus the journal tail always
     /// reproduces the live state.
@@ -1103,6 +1136,19 @@ impl AgentRoster {
 
     pub(crate) fn snapshot(&self) -> Value {
         serde_json::to_value(self).unwrap_or(Value::Null)
+    }
+
+    /// The roster of a snapshot an older reducer version (`from_version`)
+    /// saved, or `None` when its format no longer restores. Every bump so
+    /// far kept the format (new fields default) and fixed the fold's logic,
+    /// so a migrated roster can hold state the current reducer would not
+    /// have produced: it is served marked stale while the full history is
+    /// folded again in the background (`mux/agent_roster_rebuild.rs`).
+    pub(crate) fn migrate(from_version: u32, snapshot: &str) -> Option<Self> {
+        if !(AGENT_ROSTER_MIGRATES_FROM..=AGENT_ROSTER_REDUCER_VERSION).contains(&from_version) {
+            return None;
+        }
+        Self::restore(snapshot)
     }
 
     pub(crate) fn restore(snapshot: &str) -> Option<Self> {

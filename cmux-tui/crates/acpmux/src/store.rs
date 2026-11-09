@@ -390,6 +390,10 @@ pub struct SessionMeta {
     /// Classified harness attempts, projected from turn results; old stores default empty.
     #[serde(default)]
     pub harness_failures: crate::session_liveness::HarnessFailures,
+    /// Its harness's own command sandbox: first refusal and whether it refuses now
+    /// (`hub/harness_sandbox.rs`); old stores default to none.
+    #[serde(default, skip_serializing_if = "crate::session_liveness::HarnessSandbox::is_none")]
+    pub harness_sandbox: crate::session_liveness::HarnessSandbox,
     /// Created over a remote-origin connection (the WebSocket listener):
     /// its harness never spawns with a preset's args or system prompt.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -630,6 +634,12 @@ pub struct TurnUsage {
     pub cache_read_tokens: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_write_tokens: Option<u64>,
+    /// Of `cache_write_tokens`, the hour-long writes (Claude Code's
+    /// `cache_creation.ephemeral_1h_input_tokens`), which bill at twice the input price where a
+    /// 5-minute write bills at 1.25 times. Absent in older records and for harnesses that do not
+    /// say: their writes price at the 5-minute rate.
+    #[serde(default, rename = "cacheWrite1hTokens", skip_serializing_if = "Option::is_none")]
+    pub cache_write_1h_tokens: Option<u64>,
 }
 
 impl TurnUsage {
@@ -652,6 +662,7 @@ impl TurnUsage {
         self.output_tokens = sum(self.output_tokens, turn.output_tokens);
         self.cache_read_tokens = sum(self.cache_read_tokens, turn.cache_read_tokens);
         self.cache_write_tokens = sum(self.cache_write_tokens, turn.cache_write_tokens);
+        self.cache_write_1h_tokens = sum(self.cache_write_1h_tokens, turn.cache_write_1h_tokens);
     }
 }
 

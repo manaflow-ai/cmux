@@ -22,13 +22,16 @@ public import os
     /// Fires the warm; the caller never awaits it. Rust decides everything around it: the team (from the active team),
     /// the throttle, the copy target (the only ownership check) and the copy in flight a start waits on, which this
     /// reports finished, or abandoned when the account or team switched mid-copy (Rust then answers it again).
-    public func start() {
-        guard let userID = auth.user?.id else { return }
+    /// `claimed`: a reserve's or a claim's answer named this machine, so no warm goes out: Rust answers the copy onto
+    /// that exact machine unless one onto it is in flight or given, and a start onto it waits on that copy.
+    /// Off unless `cmux.cloud.copyLoginOnClaim` is on (``CloudMoveCLI/copiesLoginOnClaim(_:)``).
+    public func start(claimed: String? = nil) {
+        guard let userID = auth.user?.id, claimed == nil || CloudMoveCLI.copiesLoginOnClaim(.standard) else { return }
         let teamID = auth.teamID
         // task-owner: none; one bounded warm, its calls' own timeouts end it, and Rust's lock and throttle answer repeats.
         Task { @MainActor [self] in
             guard let token = try? await auth.tokens().access, let install = try? await installIdentity.installToken(),
-                  let copy = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install) else { return }
+                  let copy = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, claimed: claimed) else { return }
             let still: @MainActor @Sendable () async throws -> Bool = { [auth] in auth.user?.id == userID && auth.teamID == teamID }
             let installed = await copyLogin(onto: copy.machineID, userID: userID, teamID: teamID, still: still)
             let kept = installed ? true : (try? await still()) == true
@@ -48,10 +51,9 @@ public import os
         do {
             guard decision.verdict.gate, decision.verdict.transferProvider == .claude else { return false }
             decision.callerOwns = try await still()
-            if decision.verdict.readsMachine {
-                try await decision.readGuest(exec: { (try? await pinned.exec(machineID, command: $0, timeoutMs: 20_000))?.stdout }, pause: CloudCredentialTransfer.guestCheckPause)
+            try await decision.readMachine(exec: { (try? await pinned.exec(machineID, command: $0, timeoutMs: 20_000))?.stdout }, pause: CloudCredentialTransfer.guestCheckPause) {
+                await CloudMachineLogin.read(on: pinned, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams)
             }
-            if decision.verdict.guestTakesLogin { decision.take(await CloudMachineLogin.read(on: pinned, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams)) }
             guard decision.verdict.transferProvider == .claude, decision.verdict.step == .install else { return false }
             if let outcome = try await CloudCredentialTransfer.CachedLogin.startOutcome({
                 await CloudCredentialTransfer.cachedLogin(provider: .claude, teamID: teamID, userID: userID, otherTeams: otherTeams)

@@ -25,6 +25,7 @@ use crate::rpc::RpcError;
 use crate::server::Origin;
 
 /// Start to answer: the app-server starts in about a second and asks ChatGPT once.
+// timeout: a Codex app-server that never answers fails this usage read, not the page.
 const READ_TIMEOUT: Duration = Duration::from_secs(15);
 /// A read this recent answers again: a page refresh after each gesture starts no new Codex.
 const FRESH: Duration = Duration::from_secs(60);

@@ -224,6 +224,10 @@ public final class SidebarModel {
     public var style: SidebarLayoutStyle = .standard
     /// The rail's full sidebar is open over the content (`SidebarRailPeek`); window view state.
     public var isRailOpen = false
+    /// The hidden sidebar floats over the content at ``width`` (`sidebar.floatOnHover`: the pointer
+    /// rested on the window's sidebar edge). Window view state, never saved: the content keeps
+    /// its place (``contentInset`` stays 0), and showing the sidebar ends it.
+    public var isFloating = false
     /// Expanded rows (`sidebar.density`), unless minimal.
     public var expanded = false
     /// Row badges draw each state apart (`sidebar.detailedStatusIcons`), not Working or Ready only.
@@ -250,7 +254,11 @@ public final class SidebarModel {
     /// synchronously, before any animation, so focus can leave a hiding
     /// sidebar in the same turn.
     public var presentation: SidebarPresentation = .shown {
-        didSet { if presentation != oldValue { onPresentationChange?(presentation) } }
+        didSet {
+            // Shown, the sidebar has its place beside the content: nothing floats.
+            if presentation == .shown, isFloating { isFloating = false }
+            if presentation != oldValue { onPresentationChange?(presentation) }
+        }
     }
     /// Width when shown, clamped to `widthRange`. Hiding keeps it, so the
     /// sidebar comes back at the user's width.
@@ -305,7 +313,7 @@ public final class SidebarModel {
     public var displayWidth: CGFloat {
         switch presentation {
         case .shown: style == .rail && !isRailOpen ? SidebarRailLayout.Metrics().railWidth : width
-        case .hidden: 0
+        case .hidden: isFloating ? width : 0
         }
     }
 
@@ -676,7 +684,8 @@ public final class SidebarModel {
         return true
     }
 
-    /// Toggle Sidebar: fully shown at `width`, or fully hidden.
+    /// Toggle Sidebar: fully shown at `width`, or fully hidden. A floating sidebar is hidden, so
+    /// the toggle shows it where it is (it stops floating and takes its place beside the content).
     public func toggle() {
         // The rail (`sidebar.style` = rail): the toggle opens the full sidebar over the content and
         // closes it back to the rail (Lawrence 2026-10-21: the full sidebar opens from the toggle, not on hover).

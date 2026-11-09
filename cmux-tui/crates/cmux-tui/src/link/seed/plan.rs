@@ -29,6 +29,7 @@ use std::process::Command;
 use serde::{Deserialize, Serialize};
 
 use super::{git, github, secrets};
+use crate::link::sync_cli::skips;
 
 /// The `git.seed.start` params, less `folder` and `bundle` (the remote
 /// paths the caller fills in).
@@ -709,7 +710,8 @@ fn untracked_left_out(repo: &Repo) -> Result<Vec<Skipped>, Fallback> {
         let why = if path.ends_with('/') {
             Some("a separate git repository inside this folder (not a submodule)")
         } else {
-            secrets::reason(&repo.top, raw)
+            // A plain copy's credential rule too (`.aws/credentials`, `.config/gh/hosts.yml`).
+            secrets::reason(&repo.top, raw).or_else(|| skips::credential_text(&path))
         };
         if let Some(why) = why {
             skipped.push(Skipped { path, why: why.to_string(), raw: raw.to_vec() });

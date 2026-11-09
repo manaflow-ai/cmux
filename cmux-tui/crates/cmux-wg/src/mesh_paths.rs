@@ -346,6 +346,7 @@ impl MeshPaths {
         let current = self.selector.current();
         let chosen = self.selector.chosen();
         let mut due = DueProbes::default();
+        let mut chosen_quiet = false;
         for path in &mut self.paths {
             let Some(view) = self.selector.path(path.id) else { continue };
             let roles = (current == Some(path.id), chosen == Some(path.id));
@@ -354,6 +355,7 @@ impl MeshPaths {
                 let _ = self.selector.on_probe(path.id, ProbeOutcome::Lost);
             }
             if step.silent {
+                chosen_quiet |= chosen == Some(path.id);
                 let _ = self.selector.on_silence(path.id);
             }
             if let Some(probe) = step.ping {
@@ -364,7 +366,34 @@ impl MeshPaths {
                 (a, b) => a.or(b),
             };
         }
+        // As in `Multipath`: when the path we sent on loses its standing, by
+        // silence or by a lost probe, every other path is probed now rather
+        // than at its 30 s turn.
+        let left_current = current.is_some() && self.selector.current() != current;
+        if chosen_quiet || left_current {
+            for path in &mut self.paths {
+                if Some(path.id) != chosen {
+                    path.watch.probe_now(now);
+                }
+            }
+            due.next = Some(now);
+        }
         due
+    }
+
+    /// The interface table changed: read each path's medium again. A path
+    /// whose medium changed is probed now, and its answer lets the selector
+    /// rank it on the new medium (a Thunderbolt address learned before the
+    /// bridge came up beats the routed path it was ranked with).
+    pub(crate) fn reclassify(&mut self, networks: &[LocalNetwork], now: Instant) {
+        for path in &mut self.paths {
+            let medium = medium_for(networks, path.kind, Some(path.address));
+            if medium != path.medium {
+                path.medium = medium;
+                let _ = self.selector.set_medium(path.id, medium);
+                path.watch.probe_now(now);
+            }
+        }
     }
 
     /// Where probes on `id` go.
@@ -490,6 +519,92 @@ mod tests {
             "fell back after {:?}",
             now - start
         );
+    }
+
+    #[test]
+    fn a_slow_chosen_path_that_loses_a_probe_probes_the_others_at_once() {
+        let ms = std::time::Duration::from_millis;
+        let start = Instant::now();
+        let lan = addr("192.168.1.20:4101");
+        let relay = addr("203.0.113.5:4101");
+        let candidates = [
+            PeerCandidate { address: lan, kind: Some(PathKind::DirectLan) },
+            PeerCandidate { address: relay, kind: Some(PathKind::DoRelay) },
+        ];
+        let mut paths = MeshPaths::new(Some(lan), &candidates, &[], start);
+        // A 400 ms LAN: four round trips of silence outlast the 1 s probe
+        // timeout, so the chosen path turns suspect by a lost probe. Answer
+        // everything for 2 s, so each path is on its alive interval (the
+        // relay's next probe is 30 s out).
+        let mut now = start;
+        while now < start + ms(2000) {
+            for (id, probe) in paths.poll(now).pings {
+                let address = paths.address_of(id).unwrap();
+                paths.pong(id, probe, address, now + ms(400));
+            }
+            now += ms(10);
+        }
+        assert_eq!(targets(&mut paths, now), vec![lan]);
+        // The LAN is cut; nothing is answered from here on.
+        let mut refreshed = None;
+        for _ in 0..1000 {
+            now += ms(10);
+            let due = paths.poll(now);
+            let sprayed = targets(&mut paths, now).len() == 2;
+            if due.pings.iter().any(|(id, _)| paths.address_of(*id) == Some(relay)) {
+                refreshed = Some((now, sprayed));
+                break;
+            }
+        }
+        let (at, sprayed) = refreshed.expect("the relay is probed before its 30 s turn");
+        assert!(sprayed, "the relay is probed when the LAN turns suspect, at {:?}", at - start);
+    }
+
+    #[test]
+    fn a_thunderbolt_address_learned_before_the_bridge_came_up_wins_once_it_is_up() {
+        let ms = std::time::Duration::from_millis;
+        let start = Instant::now();
+        let wan = addr("198.51.100.20:4101");
+        let bridge = addr("10.254.2.2:4101");
+        // Before the cable: no interface on the bridge's network, so its
+        // address is routed like the WAN one.
+        let before = vec![LocalNetwork {
+            interface: "en0".into(),
+            address: "192.168.1.10".parse().unwrap(),
+            prefix: 24,
+        }];
+        let mut paths = MeshPaths::new(Some(wan), &[], &before, start);
+        paths.advertised(&[bridge], &before, start);
+        // The WAN answers first and is held; the bridge is 1 ms faster,
+        // under the 3 ms margin, so RTT alone never moves the session.
+        let mut now = start;
+        for _ in 0..3 {
+            for (id, probe) in paths.poll(now).pings {
+                let address = paths.address_of(id).unwrap();
+                let rtt = if address == wan { ms(2) } else { ms(1) };
+                paths.pong(id, probe, address, now + rtt);
+            }
+            now += ms(6000);
+        }
+        assert_eq!(targets(&mut paths, now), vec![wan]);
+        // The bridge comes up.
+        let mut after = before.clone();
+        after.push(LocalNetwork {
+            interface: "bridge0".into(),
+            address: "10.254.2.1".parse().unwrap(),
+            prefix: 30,
+        });
+        paths.reclassify(&after, now);
+        let due = paths.poll(now);
+        assert!(
+            due.pings.iter().any(|(id, _)| paths.address_of(*id) == Some(bridge)),
+            "the reclassified path is probed at once"
+        );
+        for (id, probe) in due.pings {
+            let address = paths.address_of(id).unwrap();
+            paths.pong(id, probe, address, now + ms(1));
+        }
+        assert_eq!(targets(&mut paths, now + ms(1)), vec![bridge]);
     }
 
     #[test]

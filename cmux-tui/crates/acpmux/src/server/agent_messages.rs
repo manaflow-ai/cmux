@@ -124,7 +124,8 @@ pub(super) async fn person_prompt(
     s: &Arc<Session>,
     agent_message: bool,
 ) {
-    let in_session = conn.caller().is_some() || conn.unproven_caller.get().is_some();
+    // An old acpmux CLI or a shell that declared no terminal is no person's presence either.
+    let in_session = conn.agent_side();
     if counts_as_person_prompt(agent_message, conn.is_trigger(), in_session) {
         hub.person_prompted(crate::store::now_ms());
     }

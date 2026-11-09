@@ -56,6 +56,7 @@ export const Envelope = glyph("message.send");
 export const Bot = glyph("agent.bot");
 export const PauseCircle = glyph("agent.paused");
 export const ArrowDown = glyph("nav.down");
+export const PointerClick = glyph("computeruse.click");
 
 export const Pin = ({ filled, ...props }: CvIconProps & { filled?: boolean }) => (
   <Icon name="action.pin" selected={filled} {...props} />

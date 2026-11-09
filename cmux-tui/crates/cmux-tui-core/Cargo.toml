@@ -63,6 +63,7 @@ libc.workspace = true
 regex.workspace = true
 jsonschema.workspace = true
 flate2.workspace = true
+zstd.workspace = true
 wait-timeout.workspace = true
 tungstenite.workspace = true
 cmux-local-auth.workspace = true
