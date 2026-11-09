@@ -17,7 +17,9 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import threading
 import sys
+import time
 import unittest
 from unittest import mock
 import git_fixture_env  # disables git auto maintenance
@@ -1230,6 +1232,54 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertIn("web-lint: webviews: bun install: started", out)
 
         self.assertNotIn("web-lint: webviews: bun install", run_lint(), "without --timings the log stays as it was")
+
+    def test_in_ci_the_type_aware_checks_take_one_slot_per_two_cores_and_light_ones_run_beside_them(self):
+        # `vp lint` and `vp check` each start tsgolint (about 9 GB and 5 GB, #27177). On a 4 vCPU dispatch runner,
+        # all at once with the rest, `vp fmt --check` took 649.5 s in one run and 40 s in another, and `vp check`
+        # 51 s and 229 s: the gate outgrew its 15 min job. In CI they now share a slot per two cores; elsewhere
+        # capped_env and nice already keep them off a person's machine.
+        self.heavy_fixture()
+        lint = load_lint(self.repo)
+        real = subprocess.run
+        lock = threading.Lock()
+        running, peak, overlapped = set(), {}, []
+
+        def weighty(words):
+            return words[:2] in (["vp", "lint"], ["vp", "check"]) or "check:nested" in words
+
+        def spy(command, *args, **kwargs):
+            words = command.split() if isinstance(command, str) else [str(w) for w in command]
+            if Path(words[0]).name == "nice":
+                words = words[3:]
+            if Path(words[0]).name == "git":
+                return real(command, *args, **kwargs)
+            if Path(words[0]).name == "sh" and words[1:2] == ["-c"]:
+                words = words[2:]
+            words = [Path(words[0]).name, *words[1:]]
+            name = " ".join(words)
+            with lock:
+                running.add(name)
+                heavy_now = [n for n in running if weighty(n.split())]
+                peak["heavy"] = max(peak.get("heavy", 0), len(heavy_now))
+                if not weighty(words) and heavy_now:
+                    overlapped.append(name)
+            time.sleep(0.3)  # long enough for the pool to start whatever it would run beside this one
+            with lock:
+                running.discard(name)
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        for ci, expected in (("true", 1), ("", 2)):
+            peak.clear()
+            overlapped.clear()
+            with mock.patch.dict(os.environ, {"CMUX_LOCAL_HEAVY_CHECKS": "1", "GITHUB_ACTIONS": ci, "CI": ""}), \
+                    mock.patch.object(lint.subprocess, "run", spy), \
+                    mock.patch.object(lint.os, "sched_getaffinity", lambda pid: {0, 1}, create=True), \
+                    mock.patch("sys.stderr", new_callable=lambda: open(os.devnull, "w")):
+                self.assertEqual(lint.main(["--repo", str(self.repo), "--base", "HEAD~1", "--head", head]), 0)
+            self.assertEqual(peak.get("heavy"), expected, f"CI={ci!r}: type-aware checks at once on 2 cores")
+            if ci:
+                self.assertTrue(overlapped, "light checks run beside the type-aware one, not after it")
 
     def test_new_only_reruns_a_piece_on_the_base_niced_and_capped(self):
         # Both the head and the base fail `vp lint` with the same finding: the base rerun is a second type check,
