@@ -11,22 +11,22 @@ import Testing
     private func plan(_ id: CloudPlanPicker.PlanID) throws -> CloudPlanPicker.Plan { try #require(CloudPlanPicker.plans.first { $0.id == id }) }
 
     @Test func monthlyIsTheDefaultAndShowsPricesAndDueToday() throws {
-        let picker = CloudPlanPicker()
+        let picker = CloudPlanPicker(), max = try plan(.max)
         #expect(picker.interval == .month)
         #expect(CloudPlanPicker.plans.map(\.id) == [.pro, .max, .team])
         #expect(CloudPlanPicker.plans.map { picker.monthlyPrice($0) } == [50, 200, 60])
         #expect(CloudPlanPicker.plans.map { picker.dueToday($0) } == [50, 200, 60])
-        #expect(picker.choice(try plan(.max)) == .plan(.max, .month))
+        #expect(picker.choice(max) == .plan(.max, .month))
     }
 
     @Test func annualBillsProAndMaxYearlyAndKeepsTeamMonthly() throws {
-        let picker = CloudPlanPicker(interval: .year)
-        #expect(picker.monthlyPrice(try plan(.pro)) == 40 && picker.dueToday(try plan(.pro)) == 480)
-        #expect(picker.monthlyPrice(try plan(.max)) == 160 && picker.dueToday(try plan(.max)) == 1_920)
-        #expect(picker.monthlyPrice(try plan(.team)) == 60 && picker.dueToday(try plan(.team)) == 60)
-        #expect(picker.choice(try plan(.pro)) == .plan(.pro, .year))
-        #expect(picker.choice(try plan(.team)) == .plan(.team, .month), "Team is sold monthly only")
-        #expect(CloudPlanPicker.annualSaving(try plan(.pro)) == 20 && CloudPlanPicker.annualSaving(try plan(.team)) == nil)
+        let picker = CloudPlanPicker(interval: .year), pro = try plan(.pro), max = try plan(.max), team = try plan(.team)
+        #expect(picker.monthlyPrice(pro) == 40 && picker.dueToday(pro) == 480)
+        #expect(picker.monthlyPrice(max) == 160 && picker.dueToday(max) == 1_920)
+        #expect(picker.monthlyPrice(team) == 60 && picker.dueToday(team) == 60)
+        #expect(picker.choice(pro) == .plan(.pro, .year))
+        #expect(picker.choice(team) == .plan(.team, .month), "Team is sold monthly only")
+        #expect(CloudPlanPicker.annualSaving(pro) == 20 && CloudPlanPicker.annualSaving(team) == nil)
         #expect(CloudPlanPicker.bestAnnualSaving == 20)
     }
 
