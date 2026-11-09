@@ -41,7 +41,8 @@ def offenders() -> list[str]:
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         workflow = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         for name, job in (workflow.get("jobs") or {}).items():
-            if not isinstance(job, dict) or job.get("environment") not in SECRETS_ONLY:
+            environment = job.get("environment") if isinstance(job, dict) else None
+            if not isinstance(environment, str) or environment not in SECRETS_ONLY:
                 continue
             if not mints_oidc(workflow, job):
                 found.append(f"{path.name} {name}: environment {job['environment']!r} needs "
