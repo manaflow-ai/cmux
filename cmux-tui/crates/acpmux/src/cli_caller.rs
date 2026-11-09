@@ -150,12 +150,87 @@ pub fn own_bin() -> Option<std::path::PathBuf> {
     std::env::current_exe().ok().filter(|p| p.is_absolute())
 }
 
+/// What runs this daemon's acpmux CLI by one path, for [`BIN_ENV`] ([`bin_choice`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BinChoice {
+    /// The daemon's executable itself: a standalone acpmux.
+    Exe(std::path::PathBuf),
+    /// The `acpmux` alias beside a host binary, the same file.
+    Alias(std::path::PathBuf),
+    /// A host binary with no such alias: the text of a script that runs it with its prefix.
+    Wrapper(String),
+}
+
+/// How [`BIN_ENV`] runs this daemon's acpmux CLI, from its executable `exe`, the words before an
+/// acpmux subcommand in it (`daemon_prefix`, `acp` in cmux) and whether a path is the same file
+/// as `exe`.
+pub fn bin_choice(
+    exe: &std::path::Path,
+    _prefix: &[std::ffi::OsString],
+    _same_file: impl Fn(&std::path::Path) -> bool,
+) -> Option<BinChoice> {
+    exe.is_absolute().then(|| BinChoice::Exe(exe.to_path_buf()))
+}
+
+/// Where the daemon whose home is `home` keeps its [`BinChoice::Wrapper`] script.
+pub fn wrapper_path(home: &std::path::Path) -> std::path::PathBuf {
+    home.join("bin").join("acpmux")
+}
+
+/// Writes `script` at `path`, owner-only and executable, unless the file there holds it already.
+pub fn install_wrapper(_path: &std::path::Path, _script: &str) -> std::io::Result<()> {
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn env(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
         move |key| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| (*v).to_owned())
+    }
+
+    /// Review 2 of #39020 (B1): in cmux the daemon is `<cmux> acp daemon run`, and its executable
+    /// is cmux, whose own `send` is no acpmux verb. `ACPMUX_BIN` is one path that runs acpmux's
+    /// CLI: the `acpmux` alias beside it when that is the same file (cmux-tui runs acpmux when
+    /// argv0 is `acpmux`), else a wrapper script that runs the executable with its prefix. A
+    /// standalone acpmux replaced by an update names its installed path (N4).
+    #[test]
+    fn w5s_acpmux_bin_is_one_path_that_runs_acpmux_under_a_host_prefix() {
+        use std::path::{Path, PathBuf};
+        let acp = [std::ffi::OsString::from("acp")];
+        let none = |_: &Path| false;
+        let standalone = bin_choice(Path::new("/opt/x/acpmux (deleted)"), &[], none);
+        assert_eq!(standalone, Some(BinChoice::Exe(PathBuf::from("/opt/x/acpmux"))));
+        let alias = |p: &Path| p == Path::new("/app/bin/acpmux");
+        let aliased = bin_choice(Path::new("/app/bin/cmux"), &acp, alias);
+        assert_eq!(aliased, Some(BinChoice::Alias(PathBuf::from("/app/bin/acpmux"))));
+        let wrapped = bin_choice(Path::new("/A B/it's/cmux"), &acp, none);
+        let script = "#!/bin/sh\nexec '/A B/it'\\''s/cmux' 'acp' \"$@\"\n";
+        assert_eq!(wrapped, Some(BinChoice::Wrapper(script.to_owned())));
+        assert_eq!(bin_choice(Path::new("cmux"), &acp, none), None, "never a relative path");
+    }
+
+    /// The wrapper script is written once, owner-only and executable, atomically; it is written
+    /// again only when its text changes (another executable).
+    #[cfg(unix)]
+    #[test]
+    fn w5s_the_wrapper_is_written_owner_only_and_only_when_it_changes() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let home = std::env::temp_dir().join(format!("w5s-wrapper-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let path = wrapper_path(&home);
+        install_wrapper(&path, "#!/bin/sh\nexec '/a/cmux' 'acp' \"$@\"\n").unwrap();
+        let meta = std::fs::symlink_metadata(&path).ok();
+        assert!(meta.as_ref().is_some_and(|m| m.is_file()), "no wrapper at {}", path.display());
+        let meta = meta.unwrap();
+        assert_eq!(meta.permissions().mode() & 0o777, 0o700, "owner-only and executable");
+        install_wrapper(&path, "#!/bin/sh\nexec '/a/cmux' 'acp' \"$@\"\n").unwrap();
+        let again = std::fs::symlink_metadata(&path).unwrap();
+        assert_eq!(again.ino(), meta.ino(), "the same text is not written again");
+        install_wrapper(&path, "#!/bin/sh\nexec '/b/cmux' 'acp' \"$@\"\n").unwrap();
+        assert!(std::fs::read_to_string(&path).unwrap().contains("/b/cmux"));
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
