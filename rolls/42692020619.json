@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42692020619",
+  "recorded_at": "2026-11-09T20:30:35Z",
+  "reason": "cmux-tui 51be5313efbf changes the image's cmux-tui (pinned 5d860a4ae60e)",
+  "dry_run": false,
+  "cmux_tui": "51be5313efbf8f8ee39ef4040542fa1915b60848",
+  "fixes": [
+    {
+      "sha": "51be5313efbf8f8ee39ef4040542fa1915b60848",
+      "mergedAt": "2026-11-09T11:57:10-08:00",
+      "subject": "carrier ssh: the path check is part of ssh_device, so capabilities and the dial agree on it (#39809)"
+    },
+    {
+      "sha": "7183d6dc1041f232fe5a9fc618c3bee8316150c7",
+      "mergedAt": "2026-11-09T11:52:45-08:00",
+      "subject": "git_seed: git-seed-hold-v1, a folder copy holds the sync barrier and opens at its head (#39758)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T20:30:35Z",
+    "snapshot_id": "sh-3c8261c235984d5db3188bf308e8abb6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42692020619): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a73936babf1386c770174d05145477fc1b91606b",
+    "image": "cloud-native-auto-51be5313-42692020619-1",
+    "revision": "ci-42692020619-1",
+    "at": "2026-11-09T20:30:35Z"
+  },
+  "rolled_back": false
+}
