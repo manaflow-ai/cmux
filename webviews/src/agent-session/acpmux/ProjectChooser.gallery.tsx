@@ -3,7 +3,7 @@ import { createElement } from "react";
 import type { ReactNode } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
-import type { Project } from "./ProjectChooser";
+import type { FolderPathLook, Project } from "./ProjectChooser";
 
 type Props = {
   projects: Project[];
@@ -16,6 +16,7 @@ type Props = {
   noProject?: boolean;
   side?: "top" | "bottom";
   inline?: boolean;
+  pathLook?: FolderPathLook;
 };
 
 const icon = createElement(
@@ -93,6 +94,25 @@ const longProjects: Project[] = [
   },
   { cwd: "/Users/you/src/cmux", label: "cmux" },
 ];
+
+// The path looks (FOLDER_PATH_LOOKS): recent folders, two of them named cmux, over the hero's
+// actions, so each look shows whether it still tells the two apart.
+const pathProjects: Project[] = [
+  { cwd: "/Users/you/src/atlas-web", label: "atlas-web" },
+  { cwd: "/Users/you/src/cmux", label: "cmux" },
+  { cwd: "/Users/you/Desktop/scratch/cmux", label: "cmux" },
+  { cwd: "/Users/you/src/relay", label: "relay" },
+];
+const pathLookProps = (pathLook: FolderPathLook): Props => ({
+  projects: pathProjects,
+  current: pathProjects[1]!.cwd,
+  currentLabel: pathProjects[1]!.label,
+  icon,
+  onPick: () => undefined,
+  onBrowse: () => undefined,
+  onNoProject: () => undefined,
+  pathLook,
+});
 
 const open: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-project-button" });
@@ -272,6 +292,21 @@ export default componentEntry<Props>({
         icon,
         onPick: () => undefined,
       },
+      play: open,
+    },
+    "path-text": {
+      note: "Shipped: each folder's whole path under its name, drawn as the row's own text, so the menu is as wide as its fullest row (menu-fit) and the two cmux folders read apart.",
+      props: pathLookProps("text"),
+      play: open,
+    },
+    "path-home": {
+      note: "Path look, not shipped: a home folder's path as ~/…. Narrower, but a second spelling of a path the rest of the app (the chip's tooltip, the files panel) writes in full.",
+      props: pathLookProps("home"),
+      play: open,
+    },
+    "path-name": {
+      note: "Path look, not shipped: names only. The narrowest and the plainest, but the two cmux folders read the same; the path is left only in the row's accessible name.",
+      props: pathLookProps("name"),
       play: open,
     },
     "long-names": {

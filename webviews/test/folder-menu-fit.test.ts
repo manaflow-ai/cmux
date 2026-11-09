@@ -25,6 +25,9 @@ await requireBrowserLane("folder-menu-fit.test.ts", async () => {
       "lane-worktrees-search",
       "long-no-actions",
       "machine-tags",
+      "path-text",
+      "path-home",
+      "path-name",
     ].map(chooser),
     ...["no-project", "open", "search"].map((variant) => ({
       entry: "agent-pane.empty-state",
