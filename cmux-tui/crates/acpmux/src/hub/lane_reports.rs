@@ -969,11 +969,18 @@ fn delivered(l: &mut Link, report: &Report, key: String, now: u64) {
 fn replace_ready(mut newer: Report, queued: Option<Report>) -> Report {
     let Some(mut queued) = queued else { return newer };
     if newer.interim && !queued.interim {
-        // Its pull requests still go, with the news (review of #39105, F2).
+        // Its pull requests still go, with the news (review of #39105, F2). Added ones make it
+        // a report of its own: the queued one may be on its way under its id, and its delivery
+        // would clear this one with it (review at 75930e4, F1).
+        let mut added = false;
         for pr in newer.prs {
             if !queued.prs.contains(&pr) {
                 queued.prs.push(pr);
+                added = true;
             }
+        }
+        if added {
+            queued.prompt_id = newer.prompt_id;
         }
         return queued;
     }
@@ -1728,6 +1735,15 @@ mod tests {
         let kept =
             replace_ready(Report { interim: true, ..report(7, &[pr]) }, Some(report(4, &[])));
         assert_eq!((kept.turn, kept.prs.as_slice()), (4, [pr.to_owned()].as_slice()));
+        // News on its way when a still-waiting turn adds a pull request: its delivery leaves the
+        // added one queued, and that goes next.
+        let mut l = Link { ready: Some(report(4, &[])), ..Link::default() };
+        let (going, key) = due_report(&mut l, 1).expect("the news was held");
+        let waiting_pr = Report { interim: true, ..report(5, &[pr]) };
+        l.ready = Some(replace_ready(waiting_pr, l.ready.take()));
+        delivered(&mut l, &going, key, 1);
+        let (next, _) = due_report(&mut l, 2).expect("the added pull request was dropped");
+        assert_eq!(next.prs, [pr.to_owned()]);
     }
 
     /// A still-waiting report nothing replaces still reaches the parent (review of #39105, F1:
