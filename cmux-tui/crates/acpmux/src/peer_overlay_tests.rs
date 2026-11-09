@@ -4,6 +4,7 @@ use super::*;
 use crate::peer_last_good::{Endpoints, LastGood};
 use crate::peer_paths::{Carrier, Paths};
 use serde_json::json;
+use std::path::Path;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -203,4 +204,75 @@ fn the_backup_line_says_which_path_carries_the_link_and_why_ssh_does_not() {
     );
     assert_eq!(backup_line(Via::Ssh, true, &[]), None, "ssh carries it: nothing to say");
     assert_eq!(backup_line(Via::Link, false, &[]), None, "a peer with no ssh path");
+}
+
+/// Review BLOCK (P1): the reply a peer daemon gets (`Origin::Peer`, web-class for rights) carries
+/// the link identity, built by the real `host_health`, and that reply finds the overlay; a Web
+/// client's reply carries none.
+#[tokio::test]
+async fn a_peer_daemons_host_health_reply_names_the_link_and_finds_the_overlay() {
+    use crate::server::Origin;
+    use crate::server::peer_status::host_health_with;
+    let mut config = crate::config::Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&config.store, Path::new("/nonexistent")).unwrap();
+    let hub = crate::hub::Hub::new(config, store);
+    // The remote machine's own link runs as `inst_b`.
+    let remote_link = tempfile::tempdir().unwrap();
+    std::fs::write(remote_link.path().join("config.json"), r#"{"install":"inst_b","port":4101}"#)
+        .unwrap();
+    let to_peer = host_health_with(&hub, Origin::Peer, Some(remote_link.path())).await;
+    assert_eq!(to_peer.pointer("/link/install").and_then(Value::as_str), Some("inst_b"));
+    let to_web = host_health_with(&hub, Origin::Web, Some(remote_link.path())).await;
+    assert!(to_web.get("link").is_none(), "a Web client gets no machine identity");
+    // This machine, paired with `inst_b`, learns the backup path from the peer's reply only.
+    let here = paired_link_dir();
+    let peer = ssh_peer("via-host-health", None, None);
+    assert!(!peer.learn_overlay_in(here.path(), &to_web), "the Web reply finds nothing");
+    assert!(peer.learn_overlay_in(here.path(), &to_peer));
+    assert_eq!(peer.link_host.get().map(String::as_str), Some("inst_b"));
+    peer.stop();
+}
+
+/// Review F1: a peer whose config names its own WireGuard route (a key no pairing has) gets no
+/// link path found or recalled, even with its transport off.
+#[tokio::test]
+async fn a_configured_wireguard_peer_gets_no_overlay_found_or_recalled() {
+    let dir = paired_link_dir();
+    let configured = crate::config::PeerConfig {
+        url: SSH_DOWN.into(),
+        wireguard: Some(crate::wireguard::StaticPeer {
+            public_key: KEY_OTHER.into(),
+            endpoint: "192.0.2.1:4101".into(),
+            address: "[fd00::2]:1337".parse().unwrap(),
+        }),
+        link_host: None,
+        token: None,
+        peer_token: None,
+        vm_boundary: false,
+        github_broker: false,
+    };
+    assert!(configured.names_route());
+    assert!(!crate::config::PeerConfig { wireguard: None, ..configured.clone() }.names_route());
+    let book = Arc::new(LastGood::open(None));
+    book.record(
+        "configured-wg",
+        Entry {
+            via: Some(Via::Ssh),
+            endpoints: Endpoints {
+                url: Some(SSH_DOWN.into()),
+                link: Some("inst_b".into()),
+                wireguard: None,
+            },
+            ..Entry::default()
+        },
+    );
+    let peer = ssh_peer("configured-wg", None, None);
+    peer.set_last_good(book);
+    peer.set_explicit_route(configured.names_route());
+    peer.recall_overlay_in(dir.path());
+    assert!(!peer.learn_overlay_in(dir.path(), &json!({"link": {"install": "inst_b"}})));
+    assert_eq!(peer.link_host.get(), None);
+    assert_eq!(peer.dial_order(), [Via::Ssh]);
+    peer.stop();
 }

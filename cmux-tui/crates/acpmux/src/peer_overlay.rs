@@ -92,16 +92,20 @@ pub(crate) fn own_install_in(link_dir: &Path) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// This machine's own link install ([`own_install_in`] of the default link directory).
-pub(crate) fn own_install() -> Option<String> {
-    own_install_in(&crate::wireguard::link_state_dir()?)
-}
-
 impl Peer {
-    /// Whether this peer may get an overlay path found for it: a plain `ssh://` peer with no
-    /// link host yet.
+    /// Whether this peer may get an overlay path found for it: a plain `ssh://` peer whose
+    /// config names no route of its own ([`Peer::set_explicit_route`]) and that has no link
+    /// host yet. A configured WireGuard peer stays excluded whether or not its transport runs.
     fn overlay_wanted(&self) -> bool {
-        self.link_host.get().is_none() && self.ssh_parts().is_some()
+        !self.explicit_route.load(Ordering::SeqCst)
+            && self.link_host.get().is_none()
+            && self.ssh_parts().is_some()
+    }
+
+    /// The peer's config names its own route (`PeerConfig::wireguard` or `link_host`), set by
+    /// `Hub::spawn_peer` before the first dial.
+    pub(crate) fn set_explicit_route(&self, explicit: bool) {
+        self.explicit_route.store(explicit, Ordering::SeqCst);
     }
 
     /// Take back the link install remembered for this peer's URL (`Hub::spawn_peer`, before

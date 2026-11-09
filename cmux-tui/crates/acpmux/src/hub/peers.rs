@@ -173,6 +173,7 @@ impl Hub {
         peer.set_last_good(self.peer_paths.clone());
         // A plain ssh machine found to be a paired install on an earlier run keeps the cmux
         // link as its backup path (`peer_overlay.rs`), before its first dial.
+        peer.set_explicit_route(pc.names_route());
         peer.recall_overlay();
         peer.set_vm_boundary(pc.vm_boundary);
         peer.set_github_broker(pc.github_broker);

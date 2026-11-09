@@ -44,6 +44,15 @@ const PRESSURE_KEYS: [&str; 10] = [
 /// This machine's own health (`_acpmux/host_health`). A Web or peer caller
 /// gets no host name (`hub::host_label`): the caller names its peer.
 pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
+    host_health_with(hub, origin, crate::wireguard::link_state_dir().as_deref()).await
+}
+
+/// [`host_health`] with the cmux link state directory `link_dir` (none: no link here).
+pub(crate) async fn host_health_with(
+    hub: &Hub,
+    origin: Origin,
+    link_dir: Option<&std::path::Path>,
+) -> Value {
     let mut v = json!({
         "version": crate::hub::VERSION,
         "build": crate::hub::build(),
@@ -90,11 +99,11 @@ pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
     }
     if !origin.web_class() {
         v.set("host", json!(crate::hub::host_label()));
-        // The install this machine's cmux link runs as, so a daemon that reaches it over ssh
-        // and is paired with that install adds the link as a backup path (`peer_overlay.rs`).
-        if let Some(install) = crate::peer::overlay::own_install() {
-            v.set("link", json!({"install": install}));
-        }
+    }
+    if let Some(link) =
+        link_identity(origin, link_dir.and_then(crate::peer::overlay::own_install_in))
+    {
+        v.set("link", link);
     }
     // The public node identity is safe to show in status and is what the
     // platform join/registry APIs use to address this machine. The private
@@ -103,6 +112,17 @@ pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
         v.set("node", json!({"wgPublicKey": key.public_key_b64()}));
     }
     v
+}
+
+/// `link` of `host_health`: the install this machine's cmux link runs as, so a daemon that
+/// reaches it over ssh and is paired with that install adds the link as a backup path
+/// (`peer_overlay.rs`). For every origin but the Web: a peer daemon (`Origin::Peer`, which is
+/// web-class for rights) is the one that asks, and a Web client gets no machine identity.
+pub(crate) fn link_identity(origin: Origin, install: Option<String>) -> Option<Value> {
+    if origin == Origin::Web {
+        return None;
+    }
+    install.map(|install| json!({"install": install}))
 }
 
 /// How long ago this host's meter took its last sample, in ms.
