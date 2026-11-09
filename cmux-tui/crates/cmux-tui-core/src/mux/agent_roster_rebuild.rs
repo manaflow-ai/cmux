@@ -69,6 +69,7 @@ impl Mux {
         let worker = &self.agent_roster_worker;
         *worker.rebuild.lock().unwrap_or_else(PoisonError::into_inner) =
             Some(AgentRosterRebuild::default());
+        worker.stale.store(true, Ordering::Release);
         worker.rebuilding.store(true, Ordering::Release);
         self.continue_agent_roster_rebuild_later();
     }
@@ -95,9 +96,20 @@ impl Mux {
     }
 
     /// Whether the live roster may hold state the current reducer would not
-    /// have folded: projections are not reconciled from it.
+    /// have folded: projections are not reconciled from it. Set until a
+    /// rebuild replaces the roster, also after a rebuild that gave up.
     pub(in crate::mux) fn agent_roster_stale(&self) -> bool {
-        self.agent_roster_rebuilding()
+        self.agent_roster_worker.stale.load(Ordering::Acquire)
+    }
+
+    /// The version a live pass saves the roster at: the version a stale
+    /// roster was migrated from while its stale mark is not written, the
+    /// current one otherwise.
+    pub(in crate::mux) fn agent_roster_save_version(&self) -> u32 {
+        match self.agent_roster_worker.unmarked_from.load(Ordering::Acquire) {
+            0 => AGENT_ROSTER_REDUCER_VERSION,
+            from_version => from_version,
+        }
     }
 
     /// One slice of the rebuild, on the owner after a pass: fold toward the
@@ -191,8 +203,8 @@ impl Mux {
                         drop(fold);
                         eprintln!(
                             "cmux-tui: the agent roster rebuild gave up after {failed} failed \
-                             reads: {error:#}; the roster stays marked stale and the next start \
-                             rebuilds it"
+                             reads: {error:#}; the roster stays stale, its projections are not \
+                             reconciled from it, and the next start rebuilds it"
                         );
                         self.report_internal_diagnostic(format!(
                             "agent roster rebuild gave up after {failed} failed reads: {error:#}"
@@ -238,6 +250,10 @@ impl Mux {
             host.roster = rebuilt.host.roster;
             (host.cursor, host.roster.snapshot().to_string())
         };
+        // The current reducer's own fold: saved at the current version from
+        // now on, mark or not.
+        worker.unmarked_from.store(0, Ordering::Release);
+        worker.stale.store(false, Ordering::Release);
         worker.rebuilding.store(false, Ordering::Release);
         // A failed save keeps the stale mark: the next start rebuilds again.
         if let Err(error) = self.registry_connection.finish_journal_reducer_rebuild(
