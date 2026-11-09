@@ -179,24 +179,15 @@ def start(args, label, bumped):
     return result
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    for name in ("bin", "state", "home", "session", "socket", "generate", "report"):
-        parser.add_argument("--" + name.replace("_", "-"), required=True)
-    parser.add_argument("--rounds", type=int, default=1)
-    parser.add_argument("--bump", type=int, default=1)
-    parser.add_argument("--ready-timeout", type=float, default=3600)
-    args = parser.parse_args()
-    generated = json.loads(Path(args.generate).read_text())
-    registry = session_dir(args.state) / REGISTRY
-    # The first exec of a binary just linked pays for macOS's check of it, before main and
-    # without opening a registry. Two `--version` execs before the timed starts pay it and
-    # show it (the first against the second), so the starts time only the owner.
-    # A freshly built binary's first start pays a one-time wait on its first full fsync and the
-    # file creations beside it (2026-11-09: 0.8-2.3 s on fleet Macs, anywhere in the start),
-    # which later starts of the same binary never pay. warm_start: one headless start of the
-    # binary, timed, on an empty state under its own HOME and data home (so the timed starts
-    # still write their own build helpers), before the timed starts.
+def warm_start(args):
+    """One untimed headless start of the binary on an empty state, before the timed starts.
+
+    A freshly built binary's first start pays a one-time wait on its first full fsync and the
+    file creations beside it (2026-11-09: 0.8-2.3 s on fleet Macs, anywhere in the start),
+    which later starts of the same binary never pay. It runs under its own HOME and data home,
+    so the timed starts still write their own build helpers. Returns (ms to ready or None,
+    the warm owner's last log line).
+    """
     warm_root = Path(args.home).parent / "warm"
     warm_env = dict(os.environ)
     warm_env.update({
@@ -210,27 +201,44 @@ def main():
     for folder in ("home", "state"):
         (warm_root / folder).mkdir(parents=True, exist_ok=True, mode=0o700)
     warm_socket = str(Path(args.socket).with_name("warm.sock"))
-    warm_started = time.monotonic()
-    warm = subprocess.Popen([args.bin, "--headless", "--session", "drs-warm", "--socket", warm_socket],
-                            env=warm_env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL)
-    warm_ready = None
-    while time.monotonic() - warm_started < 120 and warm.poll() is None:
-        reply = identify(warm_socket, 2.0) if os.path.exists(warm_socket) else None
-        if reply is not None and (reply.get("data") or {}).get("lifecycle_ready") is True:
-            warm_ready = round((time.monotonic() - warm_started) * 1000, 1)
-            break
-        time.sleep(0.01)
-    subprocess.run([args.bin, "server", "stop", "--session", "drs-warm", "--end-terminals", "--socket", warm_socket],
-                   env=warm_env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                   stderr=subprocess.DEVNULL, timeout=600, check=False)
-    try:
-        warm.wait(timeout=600)
-    except subprocess.TimeoutExpired:
-        warm.kill()
-        warm.wait()
-    print("DRS-WARM " + json.dumps({"warm_ready_ms": warm_ready,
-                                    "xdg_data_home_set": bool(os.environ.get("XDG_DATA_HOME"))}), flush=True)
+    warm_log_path = warm_root / "owner-warm.log"
+    with open(warm_log_path, "wb") as warm_log:
+        warm_started = time.monotonic()
+        warm = subprocess.Popen([args.bin, "--headless", "--session", "drs-warm", "--socket", warm_socket],
+                                env=warm_env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=warm_log)
+        warm_ready = None
+        while time.monotonic() - warm_started < 120 and warm.poll() is None:
+            reply = identify(warm_socket, 2.0) if os.path.exists(warm_socket) else None
+            if reply is not None and (reply.get("data") or {}).get("lifecycle_ready") is True:
+                warm_ready = round((time.monotonic() - warm_started) * 1000, 1)
+                break
+            time.sleep(0.01)
+        subprocess.run([args.bin, "server", "stop", "--session", "drs-warm", "--end-terminals",
+                        "--socket", warm_socket], env=warm_env, stdin=subprocess.DEVNULL,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=600, check=False)
+        try:
+            warm.wait(timeout=600)
+        except subprocess.TimeoutExpired:
+            warm.kill()
+            warm.wait()
+    lines = warm_log_path.read_text(errors="replace").splitlines()
+    return warm_ready, (lines[-1] if lines else "")
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    for name in ("bin", "state", "home", "session", "socket", "generate", "report"):
+        parser.add_argument("--" + name.replace("_", "-"), required=True)
+    parser.add_argument("--rounds", type=int, default=1)
+    parser.add_argument("--bump", type=int, default=1)
+    parser.add_argument("--ready-timeout", type=float, default=3600)
+    args = parser.parse_args()
+    generated = json.loads(Path(args.generate).read_text())
+    registry = session_dir(args.state) / REGISTRY
+    # The first exec of a binary just linked pays for macOS's check of it, before main and
+    # without opening a registry. Two `--version` execs, before anything else runs the
+    # binary, pay it and show it (the first against the second).
     execs = []
     for _ in range(2):
         exec_started = time.monotonic()
@@ -238,6 +246,14 @@ def main():
                        stderr=subprocess.DEVNULL, timeout=600, check=False)
         execs.append(round((time.monotonic() - exec_started) * 1000, 1))
     print("DRS-EXEC " + json.dumps({"first_exec_ms": execs[0], "second_exec_ms": execs[1]}), flush=True)
+    warm_ready, warm_last_line = warm_start(args)
+    print("DRS-WARM " + json.dumps({"warm_ready_ms": warm_ready,
+                                    "xdg_data_home_set": bool(os.environ.get("XDG_DATA_HOME"))}), flush=True)
+    if warm_ready is None:
+        # Without it the first timed start pays the binary's first-start cost again: no results.
+        print(f"error: the warm start did not get ready: {warm_last_line or '(no output)'}",
+              file=sys.stderr, flush=True)
+        return 1
     starts = []
     for index in range(max(args.rounds, 1)):
         # The generator wrote the first bump; later rounds set it again.
