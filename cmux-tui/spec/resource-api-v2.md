@@ -135,7 +135,10 @@ workspace, absent for a normal one), `agent_folder` (absent until set), `descrip
 that hosts a frontend-rendered browser, its record's only writer), `relaunch`
 (`{cwd}` for a tab kept by `shutdown-daemon {end_terminals, keep_layout}`,
 absent otherwise); screen `pinned`, `color`, `icon`,
-`screen_group_id`; terminal `progress` (the parsed OSC 9;4 state and percent
+`screen_group_id`; terminal `agent_start` (`true` when the terminal's stored
+spawn argv is the `cmux agent start` launch, `<shell> -lc <script> cmux-agent
+...`; read from the daemon's spawn record, never from the OS; absent
+otherwise), `progress` (the parsed OSC 9;4 state and percent
 of every terminal) and `program_status` (the OSC 7501 program status records
 of the terminal, sorted by `id`: `{id, state, progress, kind, app, title, msg,
 updated_seq, updated_at_ms, since_ms}`; `since_ms` is when the record entered

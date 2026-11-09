@@ -30,6 +30,10 @@ pub(super) struct RestoredAgentRoster {
     /// from the head): the roster's owner folds the whole journal again in
     /// the background and replaces it (`agent_roster_rebuild.rs`).
     pub(super) rebuild: bool,
+    /// The version a stale roster was migrated from when its stale mark (and
+    /// so its snapshot) could not be saved: live passes save it at that
+    /// version until the rebuild replaces it.
+    pub(super) unmarked_from: Option<u32>,
 }
 
 /// Restore the roster from its persisted snapshot and fold the journal tail
@@ -160,6 +164,7 @@ pub(super) fn restore_agent_roster(
     // save of the stale roster needs none; the mark goes with the save of a
     // full fold.
     let first_mark = rebuild_from.filter(|_| pending.is_none());
+    let mut unmarked_from = None;
     let finished = pending.is_some() && rebuild_from.is_none();
     if needs_repair || finished || first_mark.is_some() || host.cursor != started_at {
         // The in-memory roster is already what this start serves. A failed
@@ -191,11 +196,12 @@ pub(super) fn restore_agent_roster(
         if saved.is_err() {
             eprintln!("cmux-tui: persisting the restored agent roster failed");
             problems.push("its snapshot was not saved".to_owned());
+            unmarked_from = first_mark;
         }
     }
     let diagnostic = (!problems.is_empty())
         .then(|| format!("agent roster restored with problems: {}", problems.join("; ")));
-    Ok(RestoredAgentRoster { host, diagnostic, rebuild: rebuild_from.is_some() })
+    Ok(RestoredAgentRoster { host, diagnostic, rebuild: rebuild_from.is_some(), unmarked_from })
 }
 
 /// Entries whose terminal has records in a skipped range may be stale: the

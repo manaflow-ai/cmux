@@ -85,6 +85,9 @@ public final class TabModel: Identifiable {
         publishMarkedUnread()
     }
 
+    /// Whether this client's write of `marked` still waits for the record's echo (``TabReads``).
+    public func expectsMarkedUnread(_ marked: Bool) -> Bool { pendingMarkedUnread == marked }
+
     /// Rolls back ``expectMarkedUnread(_:)`` when the write of `marked`
     /// failed. A newer pending value (a second toggle) stays.
     public func dropExpectedMarkedUnread(_ marked: Bool) {
@@ -110,6 +113,9 @@ public final class TabModel: Identifiable {
         self.attention = nil
         return attention
     }
+
+    /// Whether this client's clear of `request` still waits for the record (``TabReads``).
+    public func expectsAttentionClear(_ request: TabAttention) -> Bool { pendingAttentionClear == request }
 
     /// A failed old clear never restores over a newer request or a newer clear.
     public func dropExpectedAttentionClear(_ request: TabAttention) {
@@ -274,10 +280,16 @@ public final class TabModel: Identifiable {
     public internal(set) var resourceID: ResourceID?
 
     /// The acpmux session record of an agent chat tab (a conversation tab with an agent session
-    /// source, `agent-session-tabs-v1`); nil for every other tab.
+    /// source, `agent-session-tabs-v1`); nil for every other tab. Its host as this Mac names it now
+    /// when its store is this Mac's own and it was saved under a former one (``formerLocalHosts``).
     public var agentSession: AgentSessionRef? {
-        kind == .conversation ? conversation?.agentSession : nil
+        guard kind == .conversation, var record = conversation?.agentSession else { return nil }
+        if let host = formerLocalHosts[record.host] { record.host = host }
+        return record
     }
+    /// Its store's ``DaemonStore/formerLocalHosts`` (written on a change only): observed, so a reader
+    /// of ``agentSession`` hears ids read after the tree arrived.
+    var formerLocalHosts: [String: String] = [:]
 
     /// The app an app tab shows (a frontend tab of an app workspace, `app-screens-v1`).
     public var appTab: AppTabRef? {

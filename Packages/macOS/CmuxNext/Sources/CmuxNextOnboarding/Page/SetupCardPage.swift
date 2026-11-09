@@ -127,7 +127,7 @@ public final class SetupCardPageProvider: PageProvider {
 
     init(setup: FirstRunSetup, agents: (any AgentSignInSource)?, environment: SetupCardEnvironment) {
         self.setup = setup
-        self.agents = AgentsStepModel(source: agents)
+        self.agents = setup.agents(source: agents)
         self.environment = environment
         self.agents.start()
         readCLI()
@@ -139,8 +139,8 @@ public final class SetupCardPageProvider: PageProvider {
         }
     }
 
+    /// The card's own reads end; the shared agents model (``FirstRunSetup/agents(source:)``) and its install go on.
     func stop() {
-        agents.stop()
         cliRead?.cancel()
         historyRead?.cancel()
     }
@@ -164,7 +164,8 @@ public final class SetupCardPageProvider: PageProvider {
             let state: String = switch agents.installs[id] {
             case .installing: "installing"
             case .failed where !agent.installed: "failed"
-            default: !agent.installed ? "missing" : agent.auth == .signedIn ? "signedIn" : "signedOut"
+            default: !agent.installed ? "missing" : agents.countsAsSignedIn(agent) ? "signedIn"
+                : agents.awaitsConfirmation(agent) ? "unverified" : "signedOut"
             }
             return ["id": .string(id), "name": .string(agent.name), "state": .string(state)]
         }
@@ -178,7 +179,7 @@ public final class SetupCardPageProvider: PageProvider {
     /// Every row is done: an agent signed in, the chat history answered (when found: never before the read of
     /// the chat sources returned, so a slow read cannot lose the row), the account signed in, this app's `cmux` on PATH.
     var allDone: Bool {
-        agents.agents.contains { Self.agentIDs.contains($0.id) && $0.auth == .signedIn } && rowsBesideAgentsDone
+        agents.agents.contains { Self.agentIDs.contains($0.id) && agents.countsAsSignedIn($0) } && rowsBesideAgentsDone
     }
 
     /// The rows besides the agents' are done (``allDone``).
@@ -226,6 +227,7 @@ public final class SetupCardPageProvider: PageProvider {
         switch action["kind"]?.stringValue {
         case "installAgent" where Self.agentIDs.contains(id): agents.install(id)
         case "signInAgent" where Self.agentIDs.contains(id): agents.signIn(id)
+        case "confirmAgent" where Self.agentIDs.contains(id): agents.confirmLogin(id)
         case "signInAccount": environment.signInAccount()
         case "importHistory": if environment.importHistory() { setup.historyAnswered() }
         case "declineHistory": setup.historyAnswered()

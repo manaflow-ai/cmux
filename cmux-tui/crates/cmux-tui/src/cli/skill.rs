@@ -104,13 +104,20 @@ pub(super) const RECIPES: &[Recipe] = &[
             "cmux --json agent start alpha --cmd 'sr2 claude' --no-focus",
             "cmux --json terminal alpha send --text 'Fix the failing test' --wait idle --timeout 15m",
         ],
-        read: "agent start splits your pane, runs the launcher (--cmd; codex works too) in a \
-               tab named alpha and returns once the agent can take a message: `state` \
+        read: "agent start splits your pane (the new pane takes its width only from yours; \
+               the agent panes of that row then share their space equally), runs \
+               the launcher (--cmd; codex works too) in a tab named alpha and returns once the agent can take a message: `state` \
                `ready` (exit 0) with `terminal_id`, `tab_id`, `pane_id`, or `blocked` \
-               (exit 4) with `dialog` (`folder_trust`, `login`, ...) and `reason` when a \
-               startup dialog waits on the person; never answer it yourself. The name works \
+               (exit 4) with `dialog` (`folder_trust`, `login`, ...), `reason` and the \
+               dialog's numbered `options` when a startup dialog waits on the person. Ask the \
+               person; then answer with keys: for folder trust, with their consent, run \
+               cmux terminal alpha keys plus the result's `accept_keys`, which pick \
+               `accept_label` (tell the person when the reason warns that the option also \
+               turns approvals off; Enter alone may pick \
+               \"No, exit\" and end the agent). The name works \
                wherever a terminal, tab or pane selector goes. send pastes the task, presses \
-               Enter, waits until the agent is idle and prints its new `output`; `state` is \
+               Enter, waits until the agent is idle and prints its new `output` and `reply` \
+               (the agent's own last message, whole, when its hooks gave it); `state` is \
                `idle`, or `blocked` when it shows a dialog (send refuses to type \
                into a dialog unless --force). cmux adds its hooks to `claude` and `codex` \
                started in a cmux terminal; nothing is written to ~/.claude or ~/.codex.",

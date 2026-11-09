@@ -39,6 +39,29 @@ use serde_json::{Map, Value, json};
 /// reads and writes (what every turn this acpmux records does).
 pub(super) const INPUT_EXCLUDES_CACHE: &str = "inputExcludesCache";
 
+/// A Claude result's token counts (`_meta.claude.usage`), with no cost. The hour-long part of
+/// the writes (`cache_creation.ephemeral_1h_input_tokens`, as each call's usage names it) is
+/// what prices them at their own tier in the ledger (`crate::pricing`). It is part of
+/// `cache_creation_input_tokens`, so it never exceeds it; a payload with the tier but no
+/// aggregate counts the aggregate as 0 and records an hour-long count of 0, which is also what
+/// `PriceTable::cost` bills for it (#39324 review F2).
+fn claude_tokens(claude: &Value) -> TurnUsage {
+    let tokens = |key: &str| claude.get("usage")?.get(key)?.as_u64();
+    let write = tokens("cache_creation_input_tokens");
+    let write_1h = claude
+        .pointer("/usage/cache_creation/ephemeral_1h_input_tokens")
+        .and_then(Value::as_u64)
+        .map(|n| n.min(write.unwrap_or(0)));
+    TurnUsage {
+        cost_usd: None,
+        input_tokens: tokens("input_tokens"),
+        output_tokens: tokens("output_tokens"),
+        cache_read_tokens: tokens("cache_read_input_tokens"),
+        cache_write_tokens: write,
+        cache_write_1h_tokens: write_1h,
+    }
+}
+
 /// The turn's `turn_result` fields for a prompt `result` (`model`, then any
 /// of `costUsd`, `inputTokens`, `outputTokens`, `cacheReadTokens` and
 /// `cacheWriteTokens`, added to the session's totals as the harness reported
@@ -56,14 +79,7 @@ pub(super) fn turn_usage(session: &Session, result: &Value) -> (Map<String, Valu
     let turn = if let Some(claude) = result.pointer("/_meta/claude") {
         context = claude.get("contextTokens").and_then(Value::as_u64);
         calls = claude.get("modelCalls").and_then(Value::as_u64);
-        let tokens = |key: &str| claude.get("usage")?.get(key)?.as_u64();
-        let mut turn = TurnUsage {
-            cost_usd: None,
-            input_tokens: tokens("input_tokens"),
-            output_tokens: tokens("output_tokens"),
-            cache_read_tokens: tokens("cache_read_input_tokens"),
-            cache_write_tokens: tokens("cache_creation_input_tokens"),
-        };
+        let mut turn = claude_tokens(claude);
         let running = claude.get("cost_usd").and_then(Value::as_f64);
         if let Some(running) = running.filter(|c| c.is_finite() && *c >= 0.0) {
             match meta.harness_cost_usd {
@@ -186,13 +202,38 @@ fn generic_usage(usage: Option<&Value>, fresh_harness: bool) -> TurnUsage {
         output_tokens: output,
         cache_read_tokens: cache_read,
         cache_write_tokens: cache_write,
+        cache_write_1h_tokens: None,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::generic_usage;
-    use serde_json::json;
+    use super::{claude_tokens, generic_usage};
+    use crate::store::TurnUsage;
+    use serde_json::{Value, json};
+
+    #[test]
+    fn claude_hour_long_writes_never_exceed_the_writes_and_a_tier_only_payload_counts_none() {
+        let usage = |u: Value| claude_tokens(&json!({ "usage": u }));
+        let both = usage(json!({"cache_creation_input_tokens": 1000,
+            "cache_creation": {"ephemeral_1h_input_tokens": 800}}));
+        assert_eq!((both.cache_write_tokens, both.cache_write_1h_tokens), (Some(1000), Some(800)));
+        let past = usage(json!({"cache_creation_input_tokens": 100,
+            "cache_creation": {"ephemeral_1h_input_tokens": 800}}));
+        assert_eq!(past.cache_write_1h_tokens, Some(100));
+        // A partial payload: the tier with no aggregate. The aggregate counts as 0, so the turn
+        // records 0 hour-long writes, as pricing bills it, never 800 the ledger would not price.
+        let tier_only = usage(json!({"input_tokens": 5,
+            "cache_creation": {"ephemeral_1h_input_tokens": 800}}));
+        assert_eq!(tier_only.cache_write_tokens, None);
+        assert_eq!(tier_only.cache_write_1h_tokens, Some(0));
+        let table = crate::pricing::table();
+        let model = "claude-opus-5-5";
+        let alone = TurnUsage { input_tokens: Some(5), ..TurnUsage::default() };
+        assert_eq!(table.cost(model, &tier_only), table.cost(model, &alone));
+        // No tier field: none recorded.
+        assert_eq!(usage(json!({"cache_creation_input_tokens": 10})).cache_write_1h_tokens, None);
+    }
 
     #[test]
     fn maps_gemini_usage() {

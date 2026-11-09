@@ -875,6 +875,28 @@ Object.assign(variants, {
       card.scrollIntoView({ block: "center" });
     },
   }),
+  "worktree-setup": variant("agents", {
+    note: "Settings > Agents > Worktree Setup: the project's scripts and files to copy, what the repository says under each.",
+    play: async (ctx) => {
+      const card = ctx.find({ selector: '[data-card="worktreeSetup"]' });
+      card.setAttribute("data-gallery-capture", "");
+      card.scrollIntoView({ block: "center" });
+    },
+  }),
+  "worktree-setup-edited": variant("agents", {
+    note: "Edited: a replaced setup script, the run script turned off (empty), with Use Repository's under each, Save lit.",
+    steps: [
+      wait('[data-worktree-field="setup"] textarea:not([disabled])'),
+      input('[data-worktree-field="setup"] textarea', "bun install --frozen-lockfile"),
+      input('[data-worktree-field="run"] textarea', "x"),
+      input('[data-worktree-field="run"] textarea', ""),
+    ],
+    play: async (ctx) => {
+      const card = ctx.find({ selector: '[data-card="worktreeSetup"]' });
+      card.setAttribute("data-gallery-capture", "");
+      card.scrollIntoView({ block: "center" });
+    },
+  }),
   "profile-editor": variant("browser", {
     steps: [
       click('[data-profile="p-work"] .host-toggle'),
@@ -1731,6 +1753,7 @@ export default settingsPageEntry({
     "pages/settings/components/ThemePreview.tsx",
     "pages/settings/components/AppIllustration.tsx",
     "pages/settings/components/ThemeStudio.tsx",
+    "pages/settings/components/WorktreeSetupCard.tsx",
     "pages/settings/editors/AccentRowEditor.tsx",
     "pages/settings/editors/ChoiceOrNumberEditor.tsx",
     "pages/settings/editors/ColorEditor.tsx",

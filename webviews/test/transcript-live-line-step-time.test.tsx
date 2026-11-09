@@ -119,3 +119,25 @@ test("every finished row's own time: milliseconds under a second, none for one s
   expect(spanDuration(t, 0)).toBeUndefined();
   expect(spanDuration(t, -5)).toBeUndefined();
 });
+
+test("no finished span is drawn with formatDuration, which floors under a second to 0s", async () => {
+  // The detector for the class: a finished call, command or scheduled run's end minus its start
+  // goes through spanDuration ("856ms", or no time for a span stamped at one moment). A live clock
+  // ticking from its start may read "0s" for its first second; a finished one never does.
+  const { readdirSync, statSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const root = new URL("../src", import.meta.url).pathname;
+  const files = (dir: string): string[] =>
+    readdirSync(dir).flatMap((name) => {
+      const path = join(dir, name);
+      return statSync(path).isDirectory() ? files(path) : /\.tsx?$/.test(name) ? [path] : [];
+    });
+  const offenders = files(root).flatMap((path) =>
+    readFileSync(path, "utf8")
+      .split("\n")
+      .flatMap((text, index) =>
+        /formatDuration\(.*\bendedAt\b/.test(text) ? [`${path.slice(root.length + 1)}:${index + 1}`] : [],
+      ),
+  );
+  expect(offenders).toEqual([]);
+});
