@@ -108,6 +108,8 @@ public final class AgentPaneModel {
 
     /// Whether a Cloud start may bind the pane's currently live reservation.
     func ownsCloudReservation(_ key: String) -> Bool { cloudReservationComposeKey == key }
+    /// Red check for #39882: the test's entry point, without the late release it tests.
+    func dropCloudReservation() {}
     /// A new chat's first send with Cloud picked (``AgentPaneCloudStart``); nil: no Cloud chats here.
     @ObservationIgnored public var onCloudStartChat: (@MainActor (AgentPaneCloudStart) async -> [String: Any])?
     /// Signs into the app's Cloud account for inline first-send recovery; nil when Cloud is unavailable.
