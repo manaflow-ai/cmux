@@ -58,7 +58,14 @@ one or two digits with nothing after them (`ESC ] 1`, `ESC ] 1 1`) may start a
 reply, so they are held; when no byte comes for 50 ms (each byte starts the
 time again) they are typed keys, Alt+] and the digits. The sources poll no
 longer than that time. A held start with reply text (`ESC ] 1 1 ;`) waits for
-its next byte as before. The client's startup input reader (`ui/graphics.rs`)
+its next byte as before.
+
+Known limit: a late reply whose bytes arrive split, with more than 50 ms after
+`ESC ] 1` or `ESC ] 1 1` and before the rest (a slow ssh or mosh link), is
+read as Alt+], the digits, and the rest as typed text, as upstream Crossterm
+reads it. Holding until a terminator would hold a typed Alt+] and digit until
+the next key, so the quiet time stays. A reply split after its `;` is still
+dropped whole. The client's startup input reader (`ui/graphics.rs`)
 uses the same scanner and event length. Regression tests: `cmux-tui/crates/cmux-tui/tests/tui_host_color_replies.rs`
 and `crossterm_host_replies.rs` (the quiet time with a given clock). Remove this part when upstream Crossterm
 parses OSC replies.

@@ -572,15 +572,19 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
     // finished turn nobody viewed yet (an unread notification, read after
     // the wait) is `done`; `state` keeps the wait's own word. The snapshot
     // from before the send cannot tell (its unread notification is an older
-    // turn's), so a failed read is tried once more, and then `status` is the
-    // wait's own word.
+    // turn's), so a failed read is tried once more. When that fails too, a
+    // finished turn is `unknown`: `idle` would claim somebody viewed it.
     let status = match waited.verdict {
         Verdict::Done(state) => {
             let after =
                 self::snapshot(backend, session).or_else(|_| self::snapshot(backend, session));
-            let unseen = after.as_ref().is_ok_and(|after| roster::unseen(after, &id));
-            roster::status_of(state.as_str(), unseen)
-                .map_or(state.as_str(), |status| status.as_str())
+            match after {
+                Ok(after) => roster::status_of(state.as_str(), roster::unseen(&after, &id))
+                    .map_or(state.as_str(), |status| status.as_str()),
+                Err(_) if state == AgentState::Idle => cmux_tui_core::AgentStatus::Unknown.as_str(),
+                Err(_) => roster::status_of(state.as_str(), false)
+                    .map_or(state.as_str(), |status| status.as_str()),
+            }
         }
         Verdict::Exited => AgentState::Ended.as_str(),
         Verdict::Pending => AgentState::Working.as_str(),
