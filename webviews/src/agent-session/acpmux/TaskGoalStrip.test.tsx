@@ -125,11 +125,68 @@ test("an autonomous loop with a reason can open it", () => {
   expect(new JSDOM(html).window.document.body.textContent).toBe("Looping");
 });
 
-test("a Codex goal keeps its Pause and Clear", () => {
+test("a Codex goal keeps its Pause and Clear, gains Edit, and its line is one fold button", () => {
   const html = renderToStaticMarkup(
     <TaskGoalStrip goal={{ objective: "Ship the fix", status: "active" }} command={never} />,
   );
-  expect(html.match(/<button/g)?.length).toBe(2);
+  expect(html.match(/<button/g)?.length).toBe(4);
+  expect(html).toContain('aria-label="Pause"');
+  expect(html).toContain('aria-label="Edit goal"');
+  expect(html).toContain('aria-label="Clear"');
+  expect(html).toContain('aria-expanded="false"');
+  expect(new JSDOM(html).window.document.querySelector(".acpmux-goal-state")?.textContent).toBe("Goal running");
+});
+
+// Leo, 2026-11-09, on a reference goal pill: "that rapid click togle on/of fand its speed too", and
+// "no expansion of the goal in place either". The line opens in place and every click counts: fifteen
+// clicks leave it open (odd), sixteen folded, with nothing queued behind them.
+test("every click on the goal's line toggles it in place, however fast", async () => {
+  const host = installDom();
+  root = createRoot(host);
+  const goal = { objective: "Finish the timeout fix and verify the retry behavior", status: "stalled" as const };
+  await act(async () => root!.render(<TaskGoalStrip goal={goal} command={never} harness="codex" />));
+  const line = host.querySelector<HTMLButtonElement>(".acpmux-goal-toggle")!;
+  const section = host.querySelector<HTMLElement>(".acpmux-goal")!;
+  expect(section.querySelector(".acpmux-goal-state")?.textContent).toBe("Goal stalled");
+  expect(section.dataset.clamped).toBe("true");
+  for (let click = 1; click <= 16; click++) {
+    await act(async () => line.click());
+    expect(line.getAttribute("aria-expanded")).toBe(click % 2 === 1 ? "true" : "false");
+    expect(section.hasAttribute("data-open")).toBe(click % 2 === 1);
+  }
+});
+
+test("Edit swaps the objective for a field in place; Return sends the new goal, Escape keeps the old", async () => {
+  const host = installDom();
+  root = createRoot(host);
+  const sent: [string, string | undefined][] = [];
+  const command = async (action: string, objective?: string) => {
+    sent.push([action, objective]);
+  };
+  const goal = { objective: "Ship the fix", status: "active" as const, provider: "codex" as const };
+  await act(async () => root!.render(<TaskGoalStrip goal={goal} command={command} />));
+  const edit = () => host.querySelector<HTMLButtonElement>('[aria-label="Edit goal"]')!;
+  await act(async () => edit().click());
+  let field = host.querySelector<HTMLTextAreaElement>(".acpmux-goal-field")!;
+  expect(field.value).toBe("Ship the fix");
+  expect(host.querySelector(".acpmux-goal")?.hasAttribute("data-open")).toBe(true);
+  const type = async (node: HTMLTextAreaElement, value: string) => {
+    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
+    setter.call(node, value);
+    await act(async () => node.dispatchEvent(new dom!.window.Event("input", { bubbles: true })));
+  };
+  const key = async (node: HTMLElement, name: string) =>
+    act(async () => node.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: name, bubbles: true })));
+  await type(field, "Ship the fix and its test");
+  await key(field, "Escape");
+  expect(host.querySelector(".acpmux-goal-field")).toBeNull();
+  expect(sent).toEqual([]);
+  await act(async () => edit().click());
+  field = host.querySelector<HTMLTextAreaElement>(".acpmux-goal-field")!;
+  await type(field, "  Ship the fix and its test  ");
+  await key(field, "Enter");
+  expect(sent).toEqual([["edit", "Ship the fix and its test"]]);
+  expect(host.querySelector(".acpmux-goal-field")).toBeNull();
 });
 
 test("the countdown text changes at whole seconds under a minute, then at whole minutes", () => {
