@@ -521,7 +521,7 @@ fn reap_pass_with(
                 report.owned_roots += 1;
                 return Visit::Done;
             };
-            let _lease = match probe_session_owner(state_root, component) {
+            let lease = match probe_session_owner(state_root, component) {
                 SessionOwnerProbe::Unowned(lease) => lease,
                 SessionOwnerProbe::Owned | SessionOwnerProbe::NoGuard => {
                     report.owned_roots += 1;
@@ -534,6 +534,7 @@ fn reap_pass_with(
             let mut visit = Visit::Done;
             let mut dead = Vec::new();
             let mut all_dead = true;
+            let mut guard_lost = false;
             for (record_path, record) in records {
                 let key = format!("{prefix}{}|{}", record.terminal_id, record.incarnation);
                 // A wall clock set back only restarts the count.
@@ -584,6 +585,14 @@ fn reap_pass_with(
                     store.hosts.insert(key, seen);
                     continue;
                 }
+                // The guard may have been deleted and made again since it
+                // was taken: then a daemon can own the session, so nothing
+                // of this root is ended.
+                if guard_lost || !lease.still_guards() {
+                    guard_lost = true;
+                    store.hosts.insert(key, seen);
+                    continue;
+                }
                 if (hosts.end)(&record, &record_path) {
                     eprintln!(
                         "cmux-tui: ended terminal host {} of another session ({}): no live \
@@ -610,6 +619,11 @@ fn reap_pass_with(
                 }
                 if removed == MAX_REMOVALS_PER_PASS {
                     visit = Visit::Unfinished;
+                    store.hosts.insert(key, seen);
+                    continue;
+                }
+                if guard_lost || !lease.still_guards() {
+                    guard_lost = true;
                     store.hosts.insert(key, seen);
                     continue;
                 }
