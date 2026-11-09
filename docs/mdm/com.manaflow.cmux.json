@@ -3111,7 +3111,7 @@
       "type" : "string"
     },
     "layout.closeFocus" : {
-      "default" : "previousNeighbor",
+      "default" : "mostRecent",
       "description" : "Which pane gets focus when the focused pane closes.",
       "enum" : [
         "previousNeighbor",

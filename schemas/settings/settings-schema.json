@@ -8020,7 +8020,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "previousNeighbor",
+      "default" : "mostRecent",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.columns",

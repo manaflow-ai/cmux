@@ -34,6 +34,11 @@ pub(super) fn handle_connection_frame(
     if let Some(keep_open) = carrier_role::try_handle(mux, client, message, writer) {
         return keep_open;
     }
+    // A phone's channel reaches only what hostd's Cloud ACP adapter sends (phone_carrier.rs).
+    #[cfg(unix)]
+    if let Some(keep_open) = phone_carrier::refuse_line(mux, client, message, writer) {
+        return keep_open;
+    }
     // Before the acknowledgement the handoff can still fail (for example
     // while `end_terminals` awaits every host) and this daemon keeps
     // serving. Closing here would drop the requester's pending
