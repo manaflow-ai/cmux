@@ -48,8 +48,10 @@ const MAX_ANSWERING_CONNECTIONS: usize = MAX_PARKED_CONNECTIONS;
 /// whether the session was attached (then the connection is handed over).
 const ANSWER_READ_SLICE: Duration = Duration::from_millis(100);
 
-/// A first line longer than this is no `identify`: the connection is parked
-/// with what was read, and the protocol handler judges it.
+/// A line longer than this is no `identify`: the connection is parked with
+/// what was read, never parsed here, and the protocol handler judges it. The
+/// reads stop one byte past it, so a line with no newline (or a late one)
+/// holds at most this much plus one byte per answering connection.
 const MAX_ANSWERED_LINE: usize = 64 * 1024;
 
 /// Where the accept loop sends a connection: answered and parked until the
@@ -152,8 +154,11 @@ impl SessionSlot {
                 return Some(hand_over(stream, pending));
             }
             if let Some(end) = pending.iter().position(|byte| *byte == b'\n') {
-                let answer =
-                    pending.get(..end).and_then(|line| restoring_answer(&self.session, line));
+                // A newline past the limit ends a line too long to answer.
+                let answer = pending
+                    .get(..end)
+                    .filter(|line| line.len() <= MAX_ANSWERED_LINE)
+                    .and_then(|line| restoring_answer(&self.session, line));
                 let Some(answer) = answer else {
                     return Some(hand_over(stream, pending));
                 };
@@ -163,10 +168,13 @@ impl SessionSlot {
                 pending.drain(..=end);
                 continue;
             }
-            if pending.len() > MAX_ANSWERED_LINE {
+            // No read goes past the limit's next byte: a longer line is no
+            // `identify`, however much more the client sends.
+            let room = (MAX_ANSWERED_LINE + 1).saturating_sub(pending.len()).min(chunk.len());
+            let Some(chunk) = chunk.get_mut(..room).filter(|chunk| !chunk.is_empty()) else {
                 return Some(hand_over(stream, pending));
-            }
-            match stream.read(&mut chunk) {
+            };
+            match stream.read(chunk) {
                 // A last line without its newline is the handler's to judge.
                 Ok(0) if !pending.is_empty() => return Some(hand_over(stream, pending)),
                 Ok(0) => return None,
@@ -402,7 +410,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
-    use super::{MAX_PARKED_CONNECTIONS, SessionSlot, SlotState};
+    use super::{MAX_ANSWERED_LINE, MAX_PARKED_CONNECTIONS, SessionSlot, SlotState};
     use crate::server::listen::REFUSED_BUSY_LINE;
 
     /// A connection closed because the park is full gets the busy line, so a
@@ -476,5 +484,53 @@ mod tests {
         let mut replayed = vec![0_u8; ping.len() + 1];
         stream.read_exact(&mut replayed).unwrap();
         assert_eq!(replayed, format!("{ping}\n").into_bytes(), "the parked request was lost");
+    }
+
+    /// What a client that sends `sent` reads back of it once parked: the
+    /// first read (all of it from what the restore read, at most that) and
+    /// then every byte. The client writes on its own thread, since the park
+    /// stops reading.
+    fn parked_after(sent: Vec<u8>) -> (usize, Vec<u8>) {
+        let slot = Arc::new(SessionSlot::restoring("long-line".into()));
+        let (server, client) = UnixStream::pair().unwrap();
+        assert!(slot.route(Box::new(server)).is_none());
+        let mut writer = client.try_clone().unwrap();
+        let writing = std::thread::spawn(move || {
+            writer.write_all(&sent).unwrap();
+            writer.shutdown(std::net::Shutdown::Write).unwrap();
+        });
+        let mut stream = parked(&slot).expect("the long line parked the connection");
+        stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut buffer = vec![0_u8; 1 << 20];
+        let first = stream.read(&mut buffer).unwrap();
+        let mut replayed = buffer[..first].to_vec();
+        stream.read_to_end(&mut replayed).unwrap();
+        writing.join().unwrap();
+        drop(client);
+        (first, replayed)
+    }
+
+    /// A first line past the limit with no newline is never buffered past
+    /// the limit's next byte: the connection is parked with its bytes
+    /// intact, for the protocol handler to judge.
+    #[test]
+    fn a_line_past_the_limit_without_a_newline_parks_holding_at_most_the_limit() {
+        let sent = vec![b'x'; 4 * MAX_ANSWERED_LINE];
+        let (held, replayed) = parked_after(sent.clone());
+        assert!(held <= MAX_ANSWERED_LINE + 1, "the restore held {held} bytes of one line");
+        assert_eq!(replayed, sent, "the parked connection lost bytes");
+    }
+
+    /// An `identify` whose newline sits past the limit is not answered here
+    /// (nor parsed): it parks whole, as a line too long to answer.
+    #[test]
+    fn an_identify_whose_newline_is_past_the_limit_parks_unanswered() {
+        let head = r#"{"id":"long","cmd":"identify","restore_progress":true,"pad":""#;
+        let mut sent = head.as_bytes().to_vec();
+        sent.resize(MAX_ANSWERED_LINE + 100, b'y');
+        sent.extend_from_slice(b"\"}\n");
+        let (held, replayed) = parked_after(sent.clone());
+        assert!(held <= MAX_ANSWERED_LINE + 1, "the restore held {held} bytes of one line");
+        assert_eq!(replayed, sent, "the line was answered or lost instead of parked whole");
     }
 }
