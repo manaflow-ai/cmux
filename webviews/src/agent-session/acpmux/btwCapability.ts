@@ -12,6 +12,15 @@ export function supportsBtwInline(capabilities: ReadonlySet<string> | undefined)
   return capabilities?.has(BTW_INLINE) === true;
 }
 
+/** The daemon capability for a read-only guest from another harness (`targetHarness`). */
+export const BTW_GUEST = "btw-guest-v1";
+
+/** Whether this daemon answers a guest from another harness inline. An older one would ask the
+ *  chat's own harness instead, or refuse `inline`, so the pane offers no guest there. */
+export function supportsBtwGuest(capabilities: ReadonlySet<string> | undefined): boolean {
+  return supportsBtwInline(capabilities) && capabilities?.has(BTW_GUEST) === true;
+}
+
 interface BtwClient {
   capabilities: ReadonlySet<string> | undefined;
   readonly selectedSession: string | undefined;

@@ -53,6 +53,7 @@ pub mod cloud_rewind;
 pub mod codex_app_server;
 #[cfg(unix)]
 mod codex_auth_file;
+pub mod codex_desktop;
 pub mod complete;
 pub mod config;
 pub mod context_inventory;
@@ -65,6 +66,7 @@ mod default_harness;
 pub mod deliver;
 pub mod deps;
 pub mod desktop_bridge;
+pub mod desktop_link;
 pub mod folder_instructions;
 pub mod forum;
 pub mod forum_mcp;

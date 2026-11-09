@@ -163,6 +163,11 @@ impl Hub {
         meta.wait_start = false;
         // Nor is a mode cmux set here, which only this daemon records (`SessionMeta::mode_set_by_cmux`).
         meta.mode_set_by_cmux = None;
+        // Nor what an agent of another daemon said at `initialize`, or the launch it started from:
+        // an `asksBeforeTools` claim is believed only from an agent this daemon started
+        // (`policy_mode.rs` `claim_distrust`). Its next start here records both again.
+        meta.agent_capabilities = None;
+        meta.launch_digest = None;
         super::bookmarks::capped(&mut meta.bookmarks);
         // The id becomes a directory name under the sessions root.
         if !is_plain_id(&meta.id) {

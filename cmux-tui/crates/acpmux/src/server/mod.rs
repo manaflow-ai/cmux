@@ -2175,6 +2175,7 @@ mod models_fanout;
 mod new_worktree;
 mod outbound;
 mod plan_build;
+mod project_new;
 mod review_queue;
 use outbound::{
     OUTBOUND_CONTROL_RESERVE, enqueue_after_controls, enqueue_outbound, enqueue_outbound_locked,
