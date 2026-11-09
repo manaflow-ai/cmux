@@ -365,8 +365,8 @@ impl Drop for HeadlessServer {
         // close their terminal resources first rather than assuming SIGKILL
         // of the daemon also owns or reaps their processes.
         let hosts_stopped = self.close_all_resources();
-        if hosts_stopped.is_err() && !std::thread::panicking() {
-            print_daemon_log(&self.dir);
+        let mut daemon_stderr_panicked = None;
+        if !std::thread::panicking() {
             let mut stderr = String::new();
             let _ = self.child.kill();
             #[cfg(unix)]
@@ -385,7 +385,13 @@ impl Drop for HeadlessServer {
                     stderr.push_str(&String::from_utf8_lossy(&buffer[..read]));
                 }
             }
-            eprintln!("--- daemon stderr ---\n{stderr}\n--- end daemon stderr ---");
+            if hosts_stopped.is_err() || stderr.contains("panicked") {
+                print_daemon_log(&self.dir);
+                eprintln!("--- daemon stderr ---\n{stderr}\n--- end daemon stderr ---");
+            }
+            if stderr.contains("panicked") {
+                daemon_stderr_panicked = Some(stderr);
+            }
         }
         let _ = self.child.kill();
         let _ = self.child.wait();
@@ -395,6 +401,9 @@ impl Drop for HeadlessServer {
             && !std::thread::panicking()
         {
             panic!("headless CLI fixture left a durable terminal-host process behind: {error}");
+        }
+        if let Some(stderr) = daemon_stderr_panicked {
+            panic!("DIAG a daemon or host thread panicked:\n{stderr}");
         }
     }
 }
@@ -4054,10 +4063,10 @@ fn raw_protocol_apply_layout_preserves_explicit_surface_size() {
 fn zz_close_leak_stress() {
     let failures = std::sync::Mutex::new(Vec::<String>::new());
     std::thread::scope(|scope| {
-        for worker in 0..10 {
+        for worker in 0..16 {
             let failures = &failures;
             scope.spawn(move || {
-                for round in 0..4 {
+                for round in 0..6 {
                     let result = std::panic::catch_unwind(|| {
                         let server = HeadlessServer::start(&format!("leak-{worker}-{round}"));
                         let applied = raw_json(
